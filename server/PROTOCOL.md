@@ -28,9 +28,13 @@ the actor's facing direction (the client must account for its model's forward ax
 not trusted server time. It is echoed for interpolation, never used for payouts or
 hour assignment. The client must handle a new timestamp epoch after rejoin.
 
-Money values are integer euros earned from deliveries minus 50 € for each fined broken pole in this hour, excluding
-starting money, other spending, vehicle sales and the kidney payout. Ranking uses money
-descending; ties have competition ranks (`1,1,3`) and sort alphabetically by nick.
+Earned cash is the sum of validated positive delivery pay, tips and bonuses in this
+hour. It is separate from the local wallet: fines, purchases and other spending never
+reduce it. Starting cash, developer grants and asset sales are not earnings. Future
+reward events must be validated server-side before contributing to this total.
+Ranking uses earned cash descending, then paid deliveries descending, then the earliest
+server time at which that result was reached (join order resolves simultaneous times).
+Ranks are sequential. Open multiplayer tabs must reload after this score schema update.
 
 `Hour` is `{id,start,end,tz}`. `start`/`end` are UTC ISO 8601 strings, start inclusive
 and end exclusive; `tz` is always `"Europe/Helsinki"`. `id` is the local hour with
@@ -40,7 +44,7 @@ skips `03`. Each interval lasts 3600 elapsed seconds, even on the 23/25-hour day
 `Player` is `{id,nick,spawn,pose}`: UUID `id`, two-word CamelCase `nick` (friendly adjective + noun, ASCII letters, at most 16 characters,
 e.g. `TurboHerring` or `SneakyPizza`),
 `spawn:{E,N,yaw}`, and latest pose without `id`, or `null` before any pose.
-`Score` is `{nick,money,deliveries,rank,online}`; `deliveries` counts paid drop-offs.
+`Score` is `{nick,earned,deliveries,rank,online}`; `deliveries` counts paid drop-offs.
 The live roster includes self; match self by `you.id`. It contains no session tokens.
 
 ## Client → server
@@ -204,7 +208,7 @@ its delivery, regardless of `t` or when the client started the order.
 
 ### world break and fine
 
-A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":2,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it subtracts 50 from the hourly score, which may become negative. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
+A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":2,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it records the fine without changing earned cash or leaderboard rank. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
 
 ## Server → client
 
@@ -223,7 +227,7 @@ A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","
 Nicknames are random friendly adjective + noun combinations in CamelCase. The
 curated pool has 6,552 names of at most 16 ASCII letters. Names stay reserved
 throughout an hour, including disconnected participants. At rollover, only
-connected sessions continue, with money/deliveries zeroed and a different random
+connected sessions continue, with earned/deliveries zeroed and a different random
 nickname per player. Their ID/token/spawn/pose and paid-order IDs stay intact;
 idle connections stay idle. Disconnected sessions expire at rollover. Archived
 hours retain their original nicknames, including legacy two-letter names.
@@ -266,7 +270,7 @@ returns 204; unsupported methods 405. JSON responses use `Cache-Control: no-stor
 | `/healthz` | `{ok:true,v:2,hour,connections,online,stats:{rejected,deliveries,poses,bytesIn,bytesOut}}` |
 | `/live.json` | `{hour:Hour,players:Player[],scores:Score[]}` |
 | `/scores/index.json` | `Hour[]`, finished hours newest first by UTC start (including both autumn hours) |
-| `/scores/<id>.json` | `{hour:Hour,players:[{nick,money,deliveries,rank}]}`; missing/invalid ID 404 |
+| `/scores/<id>.json` | `{hour:Hour,players:[{nick,earned,deliveries,rank}]}`; missing/invalid ID 404 |
 
 Byte counters measure application JSON payload, excluding WebSocket/TCP/TLS framing.
 Counters are process totals. Finished hours are written atomically to
@@ -274,3 +278,6 @@ Counters are process totals. Finished hours are written atomically to
 days old are pruned on startup/first tick and each new Finnish calendar day.
 A process restart preserves finished files but loses the unfinished in-memory hour,
 sessions and deduplication. No empty hours are backfilled for server downtime.
+
+Legacy hourly files with `money` instead of `earned` remain readable. Their recorded
+net totals and ranks are preserved; gross earnings cannot be recovered from those files.

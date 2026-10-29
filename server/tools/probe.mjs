@@ -10,6 +10,7 @@ ws.on('message', data => {
   const m = JSON.parse(data.toString());
   if (m.type !== 'welcome') return;
   if (m.v !== 2 || !m.you?.id || !validNickname(m.you?.nick) || !m.session || m.hour?.tz !== 'Europe/Helsinki'
+    || !m.scores?.every(s => Number.isSafeInteger(s.earned) && s.earned >= 0)
     || !Number.isFinite(m.serverTime) || !Array.isArray(m.vehicles?.upsert) || !Array.isArray(m.vehicles?.sources)) {
     console.error('Invalid welcome'); process.exitCode = 1; ws.close(); return;
   }
