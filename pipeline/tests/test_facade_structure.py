@@ -76,6 +76,17 @@ def test_form_rejects_inconsistent_counts_and_missing_confidence():
         validate(form)
 
 
+def test_one_row_shop_strip_does_not_clear_unobserved_upper_storeys():
+    row, form = fixture()
+    form["floors"] = form["floors"][:1]
+    form["floors_visible"] = 1
+    form["string_courses"] = []
+    row["height_m"] = 3.5
+    wall = compile_structure(row, form, 8)
+    assert wall["observation"]["scope"] == "ground-only"
+    assert wall["height_m"] == 3.5
+
+
 def test_surrounds_stay_on_the_matching_wall_and_keep_opening_heads():
     row, form = fixture()
     measured = compile_structure(row, form, 2)

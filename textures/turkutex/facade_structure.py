@@ -158,7 +158,9 @@ def compile_structure(row, form, register_floors):
         structure=copy.deepcopy(form),
         observation=dict(
             needs_review=False,
-            scope="full-wall",
+            scope="ground-only"
+            if count == 1 and register_floors and register_floors > 1
+            else "full-wall",
             visible_share=1 - sum(b[2] * b[3] for b in excluded) / (W * H),
             wall_share=0,
             register_height_conflict=register_floors is not None and register_floors != count,

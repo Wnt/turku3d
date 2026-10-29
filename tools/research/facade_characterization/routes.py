@@ -45,6 +45,15 @@ def statuses(root):
     return state
 
 
+def queue_rows(root):
+    rows = json.loads((root / "queue.json").read_text())
+    for path in sorted(root.glob("queue-additions-*.json")):
+        rows.extend(json.loads(path.read_text()))
+    if len({r["wall_id"] for r in rows}) != len(rows):
+        raise ValueError("duplicate wall in queue additions")
+    return sorted(rows, key=lambda r: (r["route_distance_m"], r["wall_id"]))
+
+
 def make_queue(root):
     nav = json.loads((root / "inputs/navigation.json").read_text())
     tertiary = json.loads((root / "inputs/tertiary.json").read_text())
@@ -165,9 +174,7 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
         }
         pending = [r for r in originals.values() if not wall_ids or r["wall_id"] in wall_ids]
     else:
-        pending = [
-            r for r in json.loads((root / "queue.json").read_text()) if r["wall_id"] not in states
-        ]
+        pending = [r for r in queue_rows(root) if r["wall_id"] not in states]
     if not pending:
         raise RuntimeError("No pending walls")
     ring = pending[0]["ring"]
@@ -324,6 +331,18 @@ def compile_batch(root, batch, publish):
     attributes = building_attributes(
         config.raw_dir("wfs/work-3x3"), {r["building_id"] for r in rows.values()}
     )
+    register_path = root / "inputs/register.json"
+    register = json.loads(register_path.read_text()) if register_path.exists() else {}
+    for row in rows.values():
+        attrs = attributes[row["building_id"]]
+        for key, val in register.get(row["building_id"], {}).items():
+            if val is not None:
+                attrs[key] = val
+        # Stored binding attributes are original register covariates, not the AI
+        # description's inferred storey count. Use them only to fill missing data.
+        for key, val in row.get("attributes", {}).items():
+            if attrs.get(key) is None and val is not None:
+                attrs[key] = val
     programs = {p["building_id"]: p for p in json.loads(publish.read_text())}
     accepted = []
     rejected = []
