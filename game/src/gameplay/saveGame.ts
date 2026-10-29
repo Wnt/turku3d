@@ -183,12 +183,21 @@ export class SaveGameController {
   }
 
   /** Places a multiplayer join at the server's spawn or retained pose, using the normal safe-ground snap. */
-  async playAt(at: Pose) {
+  async playAt(at: Pose, restoreVehicles?: () => Promise<string | null>) {
     this.o.startScreen.close();
     this.o.pauseMenu.close();
     this.loading = true;
     this.o.setPaused(true);
-    try { await this.place(null, at); }
+    try {
+      await this.place(null, at);
+      const seat = await restoreVehicles?.();
+      if (seat) {
+        this.o.enterVehicle(seat);
+        this.o.physics.driveVehicle(seat);
+        this.o.physics.setCharacterEnabled(false);
+        this.o.recovery.restart();
+      }
+    }
     finally { this.loading = false; this.o.setPaused(false); }
   }
 

@@ -3,9 +3,11 @@ import type { SaveGame } from '../core/save';
 
 /** Multiplayer uses local E/N; saves use EPSG:3877. Keep that conversion at this boundary. */
 export function multiplayerStart(you: { spawn: { E: number; N: number; yaw: number } },
-  self?: { pose: { E: number; N: number; H: number; yaw: number } | null }) {
-  const at = self?.pose ?? you.spawn;
-  return { x: at.E, y: self?.pose?.H ?? 0, z: -at.N, yaw: at.yaw };
+  self?: { pose: { E: number; N: number; H: number; yaw: number } | null },
+  seat?: { pose: { E: number; N: number; H: number; yaw: number } }) {
+  const pose = seat?.pose ?? self?.pose;
+  const at = pose ?? you.spawn;
+  return { x: at.E, y: pose?.H ?? 0, z: -at.N, yaw: at.yaw };
 }
 
 /** All positions a menu choice can use, including the car restored before the character. */

@@ -96,6 +96,37 @@ test('only an explicit exit or a departed holder after reconnect grace allows an
   assert.equal(result(b).vehicle.epoch, v.epoch + 1);
 });
 
+test('reload while parked preserves all personal kinds and renews their retained lifetime', () => {
+  const f = fixture(), a = f.connect(); a.send(pose);
+  for (const mode of ['car', 'scooter', 'truck']) a.send(car(a, {
+    id: `${a.welcome.you.id}:${mode}`, localId: mode,
+    pose: { ...pose, mode, vehicle: mode === 'car' ? 'player' : mode, E: 178, vE: 0 },
+  }));
+  // Just short of expiry, so disconnect grace must also protect empty cars.
+  f.advance(VEHICLE_LIMITS.lifetime - 1000);
+  f.room.disconnect(a.c);
+  f.advance(2000);
+  const b = f.connect(a.welcome.session);
+  assert.equal(b.welcome.you.id, a.welcome.you.id);
+  assert.equal(b.welcome.vehicles.upsert.length, 3);
+  assert.ok(b.welcome.vehicles.upsert.every(v => v.owner === b.welcome.you.id && !v.occupant && v.pose.E === 178));
+  f.advance(VEHICLE_LIMITS.reconnectMs);
+  assert.equal(f.room.vehicles.entries.size, 3);
+  const c = f.connect(); c.send(pose); f.room.flushPoses();
+  assert.equal(c.welcome.vehicles.upsert.length, 3);
+});
+
+test('an expired parked lifetime is retained only until the disconnected owner grace ends', () => {
+  const f = fixture(), a = f.connect(); a.send(pose); a.send(car(a));
+  f.advance(VEHICLE_LIMITS.lifetime - 1000);
+  f.room.disconnect(a.c);
+  f.advance(VEHICLE_LIMITS.reconnectMs - 1);
+  assert.equal(f.room.vehicles.entries.size, 1);
+  f.advance(1);
+  assert.equal(f.room.vehicles.entries.size, 0);
+  assert.equal(f.connect(a.welcome.session).welcome.vehicles.upsert.length, 0);
+});
+
 test('interest deltas send resting cars once, remove distant replicas, keep global slot reservations', () => {
   const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send({ ...pose, E: 1000 });
   a.send(car(a, { id: 'park:bay', source: 'bay' }));

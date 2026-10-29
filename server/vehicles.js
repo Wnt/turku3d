@@ -88,6 +88,10 @@ export class VehicleRegistry {
       this.changed(v);
     }
   }
+  reconnectPlayer(p, now) {
+    // Reload must not consume the last seconds of an empty car's lifetime.
+    for (const v of this.entries.values()) if (v.owner === p.id) v.used = now;
+  }
   expire(now) {
     for (const [id, v] of this.entries) {
       const holder = this.room.players.get(v.occupant);
@@ -96,7 +100,9 @@ export class VehicleRegistry {
       if (v.occupant && (!holder || (!holder.connection && now - holder.disconnectedAt >= VEHICLE_LIMITS.reconnectMs))) {
         v.occupant = null; v.used = now; this.changed(v);
       }
-      if (!v.occupant && now - v.used >= VEHICLE_LIMITS.lifetime) this.entries.delete(id);
+      const owner = this.room.players.get(v.owner);
+      const reconnecting = owner && !owner.connection && now - owner.disconnectedAt < VEHICLE_LIMITS.reconnectMs;
+      if (!v.occupant && !reconnecting && now - v.used >= VEHICLE_LIMITS.lifetime) this.entries.delete(id);
     }
     for (const [key, at] of this.contacts) if (now - at > 1000) this.contacts.delete(key);
   }

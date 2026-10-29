@@ -8,7 +8,9 @@ export function prepareMultiplayer() {
     const timer = setTimeout(() => { client.disconnect(); resolve(null); }, 10000);
     client.addEventListener('welcome', () => {
       clearTimeout(timer);
-      resolve(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)));
+      const self = client.state.you!.id;
+      resolve(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === self),
+        [...client.state.vehicles.values()].find(v => v.occupant === self && v.owner === self)));
     }, { once: true });
     client.connect();
   });

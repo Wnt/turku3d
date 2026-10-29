@@ -77,7 +77,33 @@ export class SharedVehicles {
 
   localId(v: SharedVehicle): string {
     if (v.id === this.driving?.id) return this.driving.local;
+    const managed = this.managed.get(v.id);
+    if (managed) return managed.local;
+    // A borrowed car's source tile may be absent after reload. In that case the
+    // shared renderer, rather than a nonexistent native visual, owns its actor.
+    if (v.source && !this.manifest.vehicles?.some(source => source.object_id === v.source)) return v.id;
     return v.creator === this.client.state.you?.id ? v.localId : v.id;
+  }
+  /** A fresh page has no DrivenSeat. Restore authority before the first live
+   * frame can publish the starter bodies placed by the new-game flow. */
+  async restore(): Promise<string | null> {
+    this.active = true;
+    for (const item of this.managed.values()) item.epoch = -1;
+    this.sync();
+    const self = this.client.state.you?.id;
+    const owned = [...this.client.state.vehicles.values()].filter(v => v.owner === self);
+    const started = performance.now();
+    while (owned.some(v => !this.physics.latest?.vehicles.some(s => s.id === this.localId(v)
+      && Math.hypot(s.pos.x - v.pose.E, s.pos.z + v.pose.N) < .5))) {
+      if (performance.now() - started > 10000) throw new Error('the shared vehicles did not arrive');
+      this.physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const seat = owned.find(v => v.occupant === self);
+    if (!seat) return null;
+    const local = this.localId(seat);
+    this.drive(local);
+    return local;
   }
   record(localId: string | null): SharedVehicle | undefined {
     return [...this.client.state.vehicles.values()].find(v => this.localId(v) === localId);
