@@ -77,6 +77,8 @@ export interface CoarseHost {
   untrackModel?: (model: THREE.Object3D, id: string) => void;
   style?: (model: THREE.Object3D) => void | Promise<void>;
   unstyle?: (model: THREE.Object3D) => void;
+  /** Scene detachment is immediate; release render resources only after a submitted frame completes. */
+  retire?: (release: () => void) => void;
   fetch?: typeof fetch;
   loadModel?: (url: string) => Promise<THREE.Object3D>;
   /** Parent of the always-visible "draft tile" badge (default document.body; none without a DOM). */
@@ -151,7 +153,7 @@ export class CoarseTiles {
     this.root = draftsUrl(page) ?? '/coarse/';
     this.remote = !isLocalHost(page.hostname);
     this.comparison = new VisualPassComparison(host, this.entries, url => this.request(url), url => this.load(url),
-      model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model), this.root, this.page);
+      model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
@@ -190,7 +192,7 @@ export class CoarseTiles {
       ready = this.entries.get(id) === entry && entry.state === state;
       return ready;
     } finally {
-      if (!ready) { this.host.unstyle?.(model); this.dispose(model); }
+      if (!ready) this.dispose(model);
     }
   }
 
@@ -468,7 +470,7 @@ export class CoarseTiles {
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     e.state = 'draft';
     this.takeVehicles(e, fragment, base);
-    if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
+    if (old) this.dispose(old, id);
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
   }
@@ -564,8 +566,7 @@ export class CoarseTiles {
     e.vehicles = undefined;
     if (e.model) {
       const id = [...this.entries].find(([, entry]) => entry === e)?.[0];
-      if (id) this.host.untrackModel?.(e.model, id);
-      this.host.unstyle?.(e.model); e.model.removeFromParent(); this.dispose(e.model); e.model = undefined;
+      this.dispose(e.model, id); e.model = undefined;
     }
     for (const [cid, entry] of e.collision) {
       // An asynchronous replacement may already own the cell.
@@ -578,7 +579,17 @@ export class CoarseTiles {
     if (e.state === 'draft') e.state = 'pending';
   }
 
-  private dispose(model: THREE.Object3D) {
+  private dispose(model: THREE.Object3D, id?: string) {
+    model.removeFromParent();
+    if (id) this.host.untrackModel?.(model, id);
+    const release = () => {
+      this.host.unstyle?.(model);
+      this.disposeResources(model);
+    };
+    if (this.host.retire) this.host.retire(release); else release();
+  }
+
+  private disposeResources(model: THREE.Object3D) {
     const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>(), textures = new Set<THREE.Texture>();
     model.traverse(o => {
       const mesh = o as THREE.Mesh;

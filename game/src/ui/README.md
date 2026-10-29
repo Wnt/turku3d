@@ -224,6 +224,11 @@ automatically. Groups include Ground (authored surfaces plus Surface Textures), 
 (walls/roof/facade components), Structures (bridge parts, tunnels, stairs/fences), Vegetation
 (authored variants), Props (registered types), Vehicles (local, parked, other players), People
 (players/name tags) and Effects (skid marks/smoke/shadows), when those objects are resident.
-Parent choices apply to future children. Camera masks and filtered index buffers leave physics
-unchanged; filtered geometry owns only its index and returns the original on disposal.
+Parent choices apply to future children. Uniform batches use camera masks. Mixed batches prepare
+one private geometry with stable semantic groups and materials; subsequent toggles only change
+material visibility. Private attribute copies avoid r186's non-reference-counted buffer disposal.
+The panel restores source geometry/materials before gameplay each frame. Detached tile resources
+wait for the next complete frame and its submitted GPU work before disposal, including shadow proxies.
+`game/scripts/gpu-lifetime-probe.mjs` captures uncaught GPU errors directly from each device and
+fails on validation errors or zero-count draw warnings while streaming and toggling the tree.
 Fullscreen has a reserved safe-area-aware top-right row; scoreboard/status/notices start below it.

@@ -24,6 +24,7 @@ import { SeatedVehicles } from './actors/seatedVehicles';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { DevLayers } from './ui/devLayers';
+import { retireAfterFrame } from './render/retirement';
 import { PositionHud } from './ui/positionHud';
 import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
@@ -81,7 +82,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const positionHud = new PositionHud(camera, tiles);
-  const devLayers = new DevLayers(scene, coarse);
+  const devLayers = new DevLayers(scene, coarse, release => retireAfterFrame(renderer, release));
   const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
     if (!startScreen.active) void positionHud.copy();
   });

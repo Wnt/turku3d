@@ -25,6 +25,14 @@ export class ShadowMaterials {
 }
 
 type Draw = Parameters<THREE.WebGPURenderer['renderObject']>;
+/** r186 accepts count === 0; WebGPU warns on every pass. Reject empty range intersections before encoding. */
+export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) {
+  const range = geometry.drawRange;
+  const first = Math.max(0, range.start, group?.start ?? 0);
+  const last = Math.min(geometry.index?.count ?? geometry.attributes.position?.count ?? 0,
+    range.start + range.count, group ? group.start + group.count : Infinity);
+  return last > first;
+}
 export class GameRenderer extends THREE.WebGPURenderer {
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
@@ -34,6 +42,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
   }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
+    if (!hasDrawVertices(geometry, group)) return;
     const original = scene.overrideMaterial;
     const context = this.contextNode;
     // Depth draws do not sample beauty-pass GTAO. Keep their context stable across beauty and reflection passes.

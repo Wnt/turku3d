@@ -4,7 +4,19 @@ import * as THREE from 'three/webgpu';
 import RenderObjects from 'three/src/renderers/common/RenderObjects.js';
 // @ts-expect-error r186 render-object internals have no DefinitelyTyped declarations.
 import RenderObject from 'three/src/renderers/common/RenderObject.js';
-import { GameRenderer, ShadowMaterials } from '../../src/render/shadowMaterials';
+import { GameRenderer, ShadowMaterials, hasDrawVertices } from '../../src/render/shadowMaterials';
+
+test('empty geometry, groups and disjoint draw ranges are skipped before pass encoding', () => {
+  const geometry = new THREE.BufferGeometry();
+  expect(hasDrawVertices(geometry, null)).toBe(false);
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([]); expect(hasDrawVertices(geometry, null)).toBe(false);
+  geometry.setIndex([0, 1, 2]); expect(hasDrawVertices(geometry, null)).toBe(true);
+  expect(hasDrawVertices(geometry, { start: 0, count: 0 })).toBe(false);
+  geometry.setDrawRange(3, 3); expect(hasDrawVertices(geometry, null)).toBe(false);
+  geometry.setDrawRange(0, 3); expect(hasDrawVertices(geometry, { start: 3, count: 3 })).toBe(false);
+  geometry.setIndex(null); expect(hasDrawVertices(geometry, null)).toBe(true);
+});
 
 test('opaque/cutout alternation computes shadow program keys once per caster', () => {
   // Exercise the actual r186 override and render-object cache paths without a GPU or renderer initialization.
