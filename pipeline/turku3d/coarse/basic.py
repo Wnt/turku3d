@@ -58,8 +58,6 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
                 extras={"layer": "basic", "surface": name},
             )
         )
-    from turku3d.wall_surfaces import validate_meshes
-
     from .stored_facades import assemble_walls
 
     building_meshes = []
@@ -93,7 +91,6 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
     raw = building_meshes + meshes
     def assemble():
         result = assemble_structures(raw)
-        validate_meshes(result, tile.id)
         return result
     if cache is None:
         meshes = assemble()
@@ -165,4 +162,7 @@ def publish(
     )
     # The only public pointer moves after every immutable payload exists.
     _write(out / "collision.json", json.dumps(record).encode())
+    from .audit import submit
+
+    submit(out, record["visual"][tile.id])
     return record

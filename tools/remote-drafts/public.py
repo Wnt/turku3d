@@ -203,7 +203,10 @@ def public_handler(builder, prefetcher, settings):
             if route == "navigation":
                 return super().do_GET()
             if route == "health":
+                from turku3d.coarse.audit import health as audit_health
+
                 return self._json(200, {"state": "online", "instance": instance,
+                                        "visual_audits": audit_health(builder.root),
                                         "failure_count": builder.failure_count, "failed_tiles": len(builder.failed),
                                         "active_builds": len(builder.building), "draining": builder.draining,
                                         "prebuild": idle.status() if idle else None,

@@ -6,9 +6,6 @@ that terrain plane. Orthophoto supplies fallback vegetation classification and r
 Water polygons become a sensor over a synthetic bed and a separate visible water surface.
 OSM bridges become separate drivable slabs with clear underpasses and ground-blended approaches;
 without OSM, street-area water bridges retain the abutment lift (``bridge_decks``).
-OSM ``natural=tree`` points become GPU-instanced vegetation (10 m unless tagged) with trunk colliders. The
-tile has mapped kerbs, paint and stepped OSM flights but no surveyed curb profiles or LOD parents: the full pipeline
-replaces it when the tile is published.
 """
 
 from __future__ import annotations
@@ -794,6 +791,8 @@ def build(
     )
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
     _write(out / "collision.json", json.dumps(manifest).encode())
+    from .audit import submit
+    submit(out, manifest["visual"][tile.id], require_snapshot=True)
     cache.metrics.update(json.loads((stage / "package-times.json").read_text()))
     cache.report(out / "stage-times.json")
     shutil.rmtree(stage, ignore_errors=True)

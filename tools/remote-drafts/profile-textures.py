@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--atlas-baseline", type=Path)
     parser.add_argument('--reuse-caches', type=Path)
     parser.add_argument('--visual-baseline', type=Path)
+    parser.add_argument('--audit', action='store_true')
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     if args.reuse_caches:
@@ -140,6 +141,19 @@ def main():
             report['runs'].append(row)
             (args.root / 'measurement.json').write_text(json.dumps(report, indent=2) + '\n')
             print(json.dumps(row), flush=True)
+    if args.audit:
+        from turku3d.coarse.audit import health
+        # Drain is serialized with any already-running auditor. Poll immutable
+        # results, including failures, without altering the published payloads.
+        until = time.monotonic() + 180
+        while health(args.root)['pending'] and time.monotonic() < until:
+            time.sleep(.25)
+        report['audits'] = health(args.root)
+        (args.root / 'measurement.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(dict(audits=report['audits'])), flush=True)
+        assert report['audits']['pending'] == 0, report['audits']
+        assert report['audits']['failed'] == 0, report['audits']
+        assert report['audits']['passed'] >= len(args.tiles) * 2, report['audits']
     report['load_end'] = os.getloadavg()
     (args.root / 'measurement.json').write_text(json.dumps(report, indent=2) + '\n')
 
