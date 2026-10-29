@@ -5,6 +5,8 @@ import copy
 import numpy as np
 
 from turku3d import config as C
+from turku3d.facade_kit import parameters
+from turku3d.facade_programs import measured
 from turku3d.package.gltf import GlbMesh
 from turku3d.tile_layer import identities
 
@@ -46,7 +48,13 @@ def building_visual(tile, shells, ortho, first_pass):
             )
         )
     for b, (_, _, _, _, walls, wuv, widx) in shells:
-        meshes.extend(wall_meshes(b, walls, wuv, widx, origin, {}, programs=True))
+        reviewed = measured(b.facade_key)
+        if reviewed and not reviewed.get("needs_review", True):
+            meshes.extend(wall_meshes(b, walls, wuv, widx, origin, {}, programs=True))
+        else:
+            width = max(float(wuv[:, 0].max()), 1.0)
+            params = parameters(b.facade_key, b.top - b.base, width, getattr(b, "attributes", {}))
+            meshes.extend(wall_meshes(b, walls, wuv, widx, origin, params))
     return meshes
 
 

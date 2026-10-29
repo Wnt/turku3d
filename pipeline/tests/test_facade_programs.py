@@ -75,7 +75,9 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     )
     wall["windows"]["rectangles_m"] = [[1, 1, 2, 2], [8, 1, 3, 2]]
     vertices = np.array([[0, 2, 0], [23.3, 2, 0], [23.3, 13.5, 0], [0, 13.5, 0]])
-    parts = list(wall_parts(vertices, wall, compile_wall(wall, 4)))
+    style = compile_wall(wall, 4)
+    style["origin"][1] = 2
+    parts = list(wall_parts(vertices, wall, style))
     patches = [row for row in parts if row[2]["detail"][3] == 1]
     assert len(patches) == 2
     assert [row[2]["origin"] for row in patches] == [[1, 3], [8, 3]]

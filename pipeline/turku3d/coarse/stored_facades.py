@@ -104,6 +104,7 @@ def wall_meshes(b, walls, wuv, widx, origin, params, *, programs=False):
                 from turku3d.facade_program_geometry import wall_parts
 
                 style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
+                style["origin"][1] = b.base
                 for points, uv, instruction in wall_parts(
                     vertices, program["walls"][start // 4], style
                 ):

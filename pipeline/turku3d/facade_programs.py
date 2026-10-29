@@ -155,12 +155,30 @@ def resolve(building, vertices, eaves):
     from turkutex.facade_archetypes import sample
 
     geometry = []
+    ring = np.asarray(building.footprint.exterior.coords)[:, :2]
+    edge_a, edge_b = ring[:-1], ring[1:]
+    vectors = edge_b - edge_a
+    lengths = np.linalg.norm(vectors, axis=1)
+    tangents = vectors / np.maximum(lengths[:, None], 1e-9)
     for index in range(0, len(vertices), 4):
         p = vertices[index : index + 4]
+        width = float(np.linalg.norm(p[1] - p[0]))
+        direction = (p[1, [0, 2]] - p[0, [0, 2]]) / max(width, 1e-9)
+        along = np.sum((p[0, [0, 2]] - edge_a) * tangents, axis=1)
+        normal = np.c_[tangents[:, 1], -tangents[:, 0]]
+        distance = np.abs(np.sum((p[0, [0, 2]] - edge_a) * normal, axis=1))
+        candidates = np.flatnonzero(
+            (tangents @ direction > 0.995)
+            & (distance < 0.1)
+            & (along > -0.05)
+            & (along + width < lengths + 0.05)
+        )
+        whole = max(candidates, key=lambda j: lengths[j]) if len(candidates) else None
         geometry.append(
             dict(
                 wall_id=f"{building.facade_key}:{index // 4}",
-                width_m=float(np.linalg.norm(p[1] - p[0])),
+                width_m=float(lengths[whole]) if whole is not None else width,
+                uv_offset=float(along[whole]) if whole is not None else 0,
                 height_m=max(0.1, float(eaves.get(index, min(p[2:, 1])) - building.base)),
             )
         )
@@ -258,6 +276,7 @@ def compile_wall(wall, floors):
         trim=field(wall["trim"], "colour", "#deded3"),
         plinth=False,
         size=[width, height],
+        origin=[-wall.get("uv_offset", 0), wall.get("base_h", 0)],
         opening=[ww, wh, sill, dimension(wall["trim"], "window_surrounds", 0.04)],
         bands=[
             dimension(wall["base"], "plinth_height_m"),
