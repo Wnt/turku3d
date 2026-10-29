@@ -47,60 +47,62 @@ def assemble_structures(meshes, protected=()):
     points = np.array([p for p, _ in records])
     normals = np.array([n for _, n in records])
     low, high = points.min(axis=1), points.max(axis=1)
-    boxes = shapely.box(
-        low[:, 0] - 0.006, low[:, 2] - 0.006, high[:, 0] + 0.006, high[:, 2] + 0.006
-    )
-    tree = shapely.STRtree(boxes)
+    direction = np.c_[-normals[:, 2], np.zeros(len(normals)), normals[:, 0]]
+    direction /= np.linalg.norm(direction, axis=1)[:, None]
+    basis = np.stack([direction, np.cross(normals, direction)], axis=1)
+    xy = np.einsum("ijk,ilk->ijl", points - points[:, :1], basis)
     changed = {}
-    for i, (mi, ti) in enumerate(refs):
-        if mi < 0:
-            continue
-        js = tree.query(boxes[i])
-        js = js[
-            (js < i)
-            & (normals[js] @ normals[i] > 0.99998)
-            & (high[js, 1] > low[i, 1])
-            & (low[js, 1] < high[i, 1])
-        ]
-        if not len(js):
-            continue
-        p, n = records[i]
-        separation = (points[js] - p[0]) @ n
-        js = js[(separation.min(axis=1) <= 0.006) & (separation.max(axis=1) >= -0.006)]
-        if not len(js):
-            continue
-        u = np.array([-n[2], 0, n[0]])
-        u /= np.linalg.norm(u)
-        v = np.cross(n, u)
-        basis = np.array([u, v])
-        xy = (p - p[0]) @ basis.T
-        surface = shapely.Polygon(xy)
-        projected = (points[js] - p[0]) @ basis.T
-        # Reject touching tessellation edges before constructing GEOS polygons.
-        keep = ((projected.max(axis=1) > xy.min(axis=0) + 1e-9)
-                & (projected.min(axis=1) < xy.max(axis=0) - 1e-9)).all(axis=1)
-        js = js[keep]
-        occluders = []
-        for j in js:
-            q = points[j]
-            polygon = shapely.Polygon((q - p[0]) @ basis.T)
-            polygon = surface.intersection(polygon)
-            if polygon.area <= 1e-8:
+    # A vertical wall's x/z box contains all its floors. Index height and its
+    # dominant horizontal span, then apply the original full 3D/plane filters.
+    for axis in (0, 2):
+        rows = np.flatnonzero((abs(normals[:, 2]) >= abs(normals[:, 0])) == (axis == 0))
+        rows = rows[np.array([refs[i][0] >= 0 for i in rows], dtype=bool)]
+        boxes = shapely.box(low[:, axis] - 0.006, low[:, 1],
+                            high[:, axis] + 0.006, high[:, 1])
+        tree = shapely.STRtree(boxes)
+        for start in range(0, len(rows), 512):
+            local, js = tree.query(boxes[rows[start:start+512]])
+            ii = rows[start:start+512][local]
+            keep = ((js < ii) & (high[js, 1] > low[ii, 1]) & (low[js, 1] < high[ii, 1])
+                    & (np.einsum("ij,ij->i", normals[js], normals[ii]) > 0.99998))
+            # Both old x/z boxes expanded by 6 mm, so retain the full 12 mm
+            # broadphase band. Exact plane distance below still uses 6 mm.
+            keep &= ((high[js][:, [0, 2]] + 0.012 >= low[ii][:, [0, 2]])
+                     & (low[js][:, [0, 2]] - 0.012 <= high[ii][:, [0, 2]])).all(axis=1)
+            ii, js = ii[keep], js[keep]
+            if not len(ii):
                 continue
-            polygon = band_polygon(polygon, basis @ normals[j], (p[0] - q[0]) @ normals[j])
-            if polygon.area > 1e-8:
-                occluders.append(polygon)
-        if not occluders:
-            continue
-        remainder = surface.difference(shapely.union_all(occluders))
-        pieces = []
-        for quad in trapezoids(remainder):
-            for indices in ([0, 1, 2], [0, 2, 3]):
-                coords = quad[indices]
-                if shapely.Polygon(coords).area > 1e-9:
-                    # The basis follows the original normal: preserve front-face winding.
-                    pieces.append(coords)
-        changed[mi, ti] = (pieces, xy, p[0], basis)
+            separation = np.einsum("ijk,ik->ij", points[js] - points[ii, :1], normals[ii])
+            keep = (separation.min(axis=1) <= 0.006) & (separation.max(axis=1) >= -0.006)
+            ii, js = ii[keep], js[keep]
+            projected = np.einsum("ijk,ilk->ijl", points[js] - points[ii, :1], basis[ii])
+            keep = ((projected.max(axis=1) > xy[ii].min(axis=1) + 1e-9)
+                    & (projected.min(axis=1) < xy[ii].max(axis=1) - 1e-9)).all(axis=1)
+            ii, js, projected = ii[keep], js[keep], projected[keep]
+            if not len(ii):
+                continue
+            intersections = shapely.intersection(shapely.polygons(xy[ii]), shapely.polygons(projected))
+            keep = shapely.area(intersections) > 1e-8
+            ii, js, intersections = ii[keep], js[keep], intersections[keep]
+            occluders = {}
+            for i, j, polygon in zip(ii, js, intersections, strict=True):
+                distance = (points[i] - points[j, 0]) @ normals[j]
+                # A whole source triangle in the distance band needs no extra
+                # rectangle intersection. Diverging planes retain exact clipping.
+                if np.max(np.abs(distance)) > 0.006:
+                    polygon = band_polygon(polygon, basis[i] @ normals[j],
+                                           (points[i, 0] - points[j, 0]) @ normals[j])
+                if polygon.area > 1e-8:
+                    occluders.setdefault(i, []).append(polygon)
+            for i, polygons in occluders.items():
+                remainder = shapely.Polygon(xy[i]).difference(shapely.union_all(polygons))
+                pieces = []
+                for quad in trapezoids(remainder):
+                    for indices in ([0, 1, 2], [0, 2, 3]):
+                        coords = quad[indices]
+                        if shapely.Polygon(coords).area > 1e-9:
+                            pieces.append(coords)
+                changed[refs[i]] = (pieces, xy[i], points[i, 0], basis[i])
     result = []
     for mi, original in enumerate(meshes):
         if not any(key[0] == mi for key in changed):
