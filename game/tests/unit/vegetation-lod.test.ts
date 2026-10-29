@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { clusteredTree, crossedTree, VegetationLod } from '../../src/world/vegetationLod';
 import { tintDraft } from '../../src/render/facadeKit';
@@ -171,4 +171,53 @@ it('moving past equal-distance cells preserves packed matrices and object identi
   expect(visible.userData.instance_object_ids).toBe(ids);
   expect(ids).toEqual(['west', 'east']);
   lod.remove(model);
+});
+
+it('reuses derived prototype geometry across decoded tiles and reloads, including merged bark/crown', () => {
+  const lod = new VegetationLod('medium');
+  const make = (changed = false) => {
+    const model = new THREE.Group();
+    for (const [i, key] of ['tree_bark', 'tree_foliage'].entries()) {
+      const geometry = i ? new THREE.SphereGeometry(changed ? 2 : 1, 24, 16) : new THREE.BoxGeometry();
+      const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial({ color: i ? 0x334422 : 0x554433 }), 2);
+      mesh.userData = { layer: 'vegetation', material_key: key };
+      model.add(mesh);
+    }
+    lod.add(model);
+    return model;
+  };
+  const geometries = (model: THREE.Group) => model.getObjectByName('vegetation-lod')!.children.map(o => (o as THREE.Mesh).geometry);
+  const first = make(), second = make(), original = geometries(first);
+  expect(original).toHaveLength(3);
+  geometries(second).forEach((geometry, i) => expect(geometry).toBe(original[i]));
+  lod.remove(first); lod.remove(second);
+  const reloaded = make();
+  geometries(reloaded).forEach((geometry, i) => expect(geometry).toBe(original[i]));
+  const changed = make(true);
+  expect(geometries(changed)[0]).not.toBe(original[0]);
+  expect(geometries(changed)[1]).not.toBe(original[1]);
+  lod.remove(reloaded); lod.remove(changed);
+});
+
+
+it('spreads streamed instance preparation across frames while preserving all placements', async () => {
+  let time = 0, frames = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => time += 3);
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    frames++; return setTimeout(() => callback(time), 0);
+  });
+  try {
+    const model = new THREE.Group(), scene = new THREE.Scene();
+    const tree = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 600);
+    tree.userData = { layer: 'vegetation', material_key: 'tree_foliage' };
+    for (let i = 0; i < tree.count; i++) tree.setMatrixAt(i, new THREE.Matrix4().makeTranslation(0, 0, -10));
+    model.add(tree);
+    const lod = new VegetationLod('medium');
+    await lod.addAsync(model);
+    expect(frames).toBeGreaterThan(3);
+    scene.add(model); lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+    const batches = model.getObjectByName('vegetation-lod')!.children as THREE.InstancedMesh[];
+    expect(batches.filter(batch => batch.visible).reduce((n, batch) => n + batch.count, 0)).toBe(600);
+    lod.remove(model); expect(model.children).toEqual([tree]);
+  } finally { now.mockRestore(); vi.unstubAllGlobals(); }
 });

@@ -12,7 +12,7 @@ import { VegetationLod } from '../../src/world/vegetationLod';
 import { CoarseTiles, cellsOf, wantedTiles } from '../../src/world/coarseTiles';
 import { draftManifest } from '../../src/world/manifest';
 import { GameRenderer } from '../../src/render/shadowMaterials';
-import { ParkedCarVisuals } from '../../src/actors/car';
+import { CarVisual, ParkedCarVisuals } from '../../src/actors/car';
 
 test.each([false, true])('r186 generates identical instanced vertex programs for different batch sizes (velocity=%s)', motion => {
   type ShaderBuilder = NodeBuilder & { scene: THREE.Scene; camera: THREE.Camera; build(): void; vertexShader: string };
@@ -106,7 +106,7 @@ test('r186 reuses compiled programs/pipelines after unloading a tile and bounds 
   expect(pipelines.programs.vertex.size).toBe(0);
 });
 
-test('returning one tile to spawn restores the same nine models and releases departed draws even offline', async () => {
+test('boundary jitter retains models, while travel and teleports release departed draws even offline', async () => {
   const scene = new THREE.Scene(), manifest = draftManifest('http://localhost/'), disposed = vi.fn();
   const coarse = new CoarseTiles({ scene, manifest, pageUrl: 'http://localhost/', renderer: {} as THREE.WebGPURenderer,
     unloadCollision: vi.fn(), refreshCollision: vi.fn(), checkCollision: async () => 2,
@@ -123,13 +123,43 @@ test('returning one tile to spawn restores the same nine models and releases dep
   const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
   coarse.update(180, 270, 0); await settle();
   expect(coarse.drawn().sort()).toEqual(wantedTiles(180, 270).sort());
-  coarse.update(480, 270, 3000); await settle();
+  const initial = [...scene.children];
+  coarse.update(249, 270, 1000); await settle();
+  coarse.update(251, 270, 2000); await settle();
+  expect(scene.children).toHaveLength(12);
+  coarse.update(249, 270, 3000); await settle();
+  expect(scene.children).toHaveLength(12);
+  expect(initial.every(model => scene.children.includes(model))).toBe(true);
+  expect(disposed).not.toHaveBeenCalled();
+  coarse.update(480, 270, 4000); await settle();
   expect(coarse.drawn().sort()).toEqual(wantedTiles(480, 270).sort());
   coarse.update(180, 270, 6000); await settle();
-  expect(coarse.drawn().sort()).toEqual(wantedTiles(180, 270).sort());
-  expect(scene.children).toHaveLength(9); expect(Object.keys(manifest.collision)).toHaveLength(144);
-  expect(disposed).toHaveBeenCalledTimes(6);
+  expect(wantedTiles(180, 270).every(id => coarse.drawn().includes(id))).toBe(true);
+  expect(scene.children).toHaveLength(12); expect(Object.keys(manifest.collision)).toHaveLength(192);
+  expect(disposed).toHaveBeenCalledTimes(3);
   coarse.down(); coarse.update(5000, 5000, 7000); await settle();
   expect(coarse.drawn()).toEqual([]); expect(scene.children).toHaveLength(0);
   expect(Object.keys(manifest.collision)).toHaveLength(0); expect(disposed).toHaveBeenCalledTimes(15);
+});
+
+
+test('player cars prepare one prototype even for concurrent loads, sharing geometry but not wheel transforms', async () => {
+  const asset = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+  body.name = 'body'; asset.add(body);
+  for (const name of ['wheel-front-left', 'wheel-front-right', 'wheel-back-left', 'wheel-back-right']) {
+    const wheel = new THREE.Mesh(new THREE.BoxGeometry(), body.material); wheel.name = name; asset.add(wheel);
+  }
+  const load = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockResolvedValue({ scene: asset } as GLTF);
+  const normals = vi.spyOn(THREE.BufferGeometry.prototype, 'computeVertexNormals');
+  try {
+    const scene = new THREE.Scene(), cars = [new CarVisual(scene), new CarVisual(scene)];
+    await Promise.all(cars.map(car => car.load('shared-sedan-test.glb')));
+    expect(load).toHaveBeenCalledOnce(); expect(normals).toHaveBeenCalledOnce();
+    const bodies = cars.map(car => car.root.getObjectByName('body') as THREE.Mesh);
+    expect(bodies[0]).not.toBe(bodies[1]); expect(bodies[0].geometry).toBe(bodies[1].geometry);
+    const wheels = cars.map(car => car.root.getObjectByName('vehicle-wheel-0')!);
+    wheels[0].rotation.y = 1;
+    expect(wheels[1].rotation.y).toBe(0);
+  } finally { load.mockRestore(); normals.mockRestore(); }
 });
