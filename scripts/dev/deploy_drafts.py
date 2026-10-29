@@ -151,24 +151,13 @@ else: raise SystemExit('proxy did not switch to standby within5s')
     )
 
 
-def prewarm():
-    """Idle warming belongs to the active producer and starts automatically."""
-    remote(f"test -s {HOME}/ACTIVE_UNIT")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument(
-        "--prewarm", action="store_true", help="check automatic idle warming deployment"
-    )
     args = parser.parse_args()
-    if args.prewarm:
-        prewarm()
-        print(json.dumps(dict(prewarm="queued")))
-    elif args.commit:
+    if args.commit:
         print(json.dumps(deploy(args.repo, args.commit)))
     else:
-        parser.error("--commit SHA or --prewarm required")
+        parser.error("--commit SHA required")
     return 0

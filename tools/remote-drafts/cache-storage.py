@@ -14,7 +14,7 @@ import time
 
 from turku3d.stage_cache import compress_payload
 
-CACHE_PATHS = ('coarse/.stages', 'coarse/.inputs', 'cache/lidar', 'cache/coarse-roofs')
+CACHE_PATHS = ('coarse/.stages', 'coarse/.inputs', 'cache/lidar', 'cache/coarse-roofs', 'cache/coarse-area', 'cache/inputs')
 
 
 def relocate(work, destination):
@@ -59,8 +59,14 @@ def compress_existing(root):
     before = after = count = 0
     # Caller has stopped builders; namespace lock files remain in place.
     for path in root.rglob('*.pkl'):
+        size = path.stat().st_size
+        before += size
+        with path.open('rb') as handle:
+            handle.seek(32)
+            if handle.read(5) == b'T3DZ1':
+                after += size
+                continue
         data = path.read_bytes()
-        before += len(data)
         if len(data) < 32 or hashlib.sha256(data[32:]).digest() != data[:32]:
             after += len(data)
             continue

@@ -101,7 +101,7 @@ presence as a recovery check and pauses if that health check fails. Status is in
 `work/prebuild.json`; service logs record progress transitions. Both the data
 volume and boot volume must have 15 GiB free before a new idle job starts.
 
-Rebuildable `.stages`, `.inputs`, `cache/lidar`, and `cache/coarse-roofs` move to
+Rebuildable `.stages`, `.inputs`, `cache/lidar`, `cache/coarse-roofs`, `cache/coarse-area` and `cache/inputs` move to
 `/home/ubuntu/turku3d-cache` on the boot volume during the next producer switch.
 The deployment verifies every copied file before replacing a source directory
 with a symlink. Existing stage entries are compressed losslessly; new entries use
@@ -145,7 +145,7 @@ manifests expose `pass_kind` so first/full availability can be measured.
 
 ```sh
 scripts/dev/deploy-drafts --commit HEAD
-scripts/dev/deploy-drafts --prewarm  # check that idle warming is deployed
+curl -fsS http://127.0.0.1:7764/coarse/health  # includes prebuild progress
 ```
 
 Source archives are incrementally uploaded to immutable `sources/<commit>`.
@@ -239,8 +239,8 @@ walls retain the draft facade kit.
 scripts/dev/publish-facades
 # Incremental generator source upload, restart and metrics (no warming wait):
 scripts/dev/deploy-drafts --commit HEAD
-# Warm startup coverage asynchronously:
-scripts/dev/deploy-drafts --prewarm
+# Check the automatic idle prebuild:
+curl -fsS http://127.0.0.1:7764/coarse/health
 curl --max-time 1 -fsSI -H 'Origin: https://wnt.github.io' \
   https://turku.lab.madekivi.fi/facades/index.json
 # On OCI:
