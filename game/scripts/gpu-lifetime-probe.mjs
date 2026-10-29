@@ -10,11 +10,13 @@ isolateBrowser();
 const [url = 'https://wnt.github.io/turku-game/game/?dev=1&backend=webgpu', label = 'gpu-lifetime', secondsArg = '180'] = process.argv.slice(2);
 const seconds = Number(secondsArg), out = path.join(reportsRoot, label);
 fs.mkdirSync(out, { recursive: true });
-const context = await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR, label), {
+const server = await chromium.launchServer({
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
-  viewport: { width: 960, height: 540 }, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
+  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
 });
-const hardStop = setTimeout(() => void context.close(), (seconds + 160) * 1000);
+const browser = await chromium.connect(server.wsEndpoint());
+const context = await browser.newContext({ viewport: { width: 960, height: 540 } });
+const hardStop = setTimeout(() => void server.kill(), (seconds + 70) * 1000);
 const consoleErrors = [], pageErrors = [];
 let result;
 try {
@@ -115,6 +117,9 @@ try {
   assert.deepEqual(pageErrors, []);
   assert.deepEqual(result.gameErrors, []);
 } finally {
-  clearTimeout(hardStop);
-  await context.close();
+  // Only this probe's owned Chrome process may be terminated. Bound graceful shutdown
+  // so a completed soak cannot consume the remaining async deadline in profile teardown.
+  const kill = setTimeout(() => void server.kill(), 5000);
+  try { await server.close(); }
+  finally { clearTimeout(kill); clearTimeout(hardStop); }
 }
