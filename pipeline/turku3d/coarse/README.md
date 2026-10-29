@@ -63,8 +63,13 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   lip and a gradual return to the hillside. Heights are graded on the original
   TIN before vector cuts to avoid steep slivers. The bed is visible where it
   emerges, and natural pond edges have no vertical bank faces. Mapped stone
-  edges retain their rim and faces. Large/connected water keeps the river/sea
-  profile. `python3 scripts/dev/probe_ponds.py --commit SHA` measures the reported
+  edges retain their rim and faces. Connectivity is resolved against the complete
+  survey source before selecting tile-local candidates; mapped rivers, streams,
+  canals and sea veto pond grading even for small disconnected survey fragments.
+  Large/connected water keeps the river/sea profile.
+  `python3 scripts/dev/probe_river_spawn.py --commit SHA` checks the four spawn
+  tiles, counts changed cached tiles and builds only the two affected eastern
+  neighbours, first and full. `python3 scripts/dev/probe_ponds.py --commit SHA` measures the reported
   three duck ponds and builds their tile plus an Aura control on deployed OCI.
 
 - **Bridges** (`bridges.py`): transport ways belonging to one `man_made=bridge` outline share one deck;

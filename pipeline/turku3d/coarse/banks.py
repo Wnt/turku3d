@@ -18,15 +18,52 @@ def join(*meshes):
     )
 
 
-def small_bodies(water):
+def small_bodies(water, context=None, flowing=()):
     """Complete, isolated compact polygons; never classify clipped river reaches."""
-    body = shapely.union_all(water)
+    local = shapely.union_all(water)
+    body = shapely.union_all(water if context is None else context)
+    excluded = shapely.union_all(flowing)
     return [
         g for g in shapely.get_parts(body)
         if g.geom_type == "Polygon" and 5 <= g.area <= 5000
         and max(np.ptp(np.asarray(g.exterior.coords), axis=0)) <= 120
         and 4 * np.pi * g.area / g.length**2 >= 0.15
+        and g.intersects(local) and not g.intersects(excluded)
     ]
+
+
+def pond_bodies(inputs):
+    """Classify complete source components before the per-tile water selection.
+
+    Survey polygons can split a river into compact reaches. A tile may select
+    only one reach, so its apparent size is not evidence of standing water.
+    Mapped flowing water and sea also veto small disconnected survey fragments.
+    """
+    import json
+
+    from turku3d.spatial import frame
+
+    paths = inputs.sources.get("wfs", ())
+    if len(paths) < 3 or not paths[2]:
+        return []  # Without complete source context, standing water is unproven.
+    source = frame(paths[2])
+    context = shapely.make_valid(shapely.force_2d(source.geometry_local.values))
+    candidates = small_bodies(inputs.water, context)
+    if not candidates:
+        return []
+    roads = inputs.sources.get("roads", ())
+    flowing = []
+    if roads and roads[0]:
+        for row in frame(roads[0]).itertuples():
+            tags = json.loads(row.tags or "{}")
+            if (tags.get("water") in ("river", "stream", "canal", "sea")
+                    or tags.get("waterway") in ("river", "stream", "canal", "tidal_channel")
+                    or tags.get("natural") == "coastline"):
+                geom = shapely.force_2d(row.geometry_local)
+                if geom.geom_type == "LineString" and geom.is_ring:
+                    geom = shapely.Polygon(geom)
+                flowing.append(geom)
+    return small_bodies(candidates, candidates, flowing)
 
 
 def pond_levels(water, paths):
@@ -202,12 +239,13 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
 
     # Only pond tiles read extra ground keys. Read whole shorelines from canonical
     # blocks, including the part beyond the tile's normal twenty-metre margin.
-    bounds = [C.BBoxLocal(*p.buffer(3).bounds) for p in small_bodies(inputs.water)]
+    candidates = pond_bodies(inputs)
+    bounds = [C.BBoxLocal(*p.buffer(3).bounds) for p in candidates]
     paths = sorted({C.raw_dir("laz") / "maanpinta" / f"{b.name}.laz"
                     for box in bounds for b in C.laz_tiles_for_bbox(box)
                     if (C.raw_dir("laz") / "maanpinta" / f"{b.name}.laz").exists()})
     ponds = cache.run("pond_levels", source_key(Path(__file__)),
-                      [inputs.water, [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]], lambda: pond_levels(inputs.water, paths)) if paths else []
+                      [candidates, [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]], lambda: pond_levels(candidates, paths)) if paths else []
     centres = grid_pos[grid_idx].mean(axis=1)
     ids = surfaces.classify(centres, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     water = inputs.water
