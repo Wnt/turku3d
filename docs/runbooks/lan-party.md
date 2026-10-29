@@ -45,9 +45,13 @@ python3 scripts/dev/lan_freeze.py status
 
 The snapshot validates generator, raw-input and facade identities and referenced
 payload lengths. Coverage uses the complete planned denominator; unavailable tiles
-are never counted as built. ETA is an optimistic four-worker estimate from recent
-successful first/full worker means; player interruptions, ring barriers and long
-tails add time.
+are never counted as built.
+The receipt's `fully_idle_order.follows_walk` must be true: this forecasts the
+deployed scheduler against its real route plan and recent history without
+overriding live player presence.
+
+ETA is an optimistic four-worker estimate from recent successful first/full
+worker means; player interruptions, ring barriers and long tails add time.
 The watch also reports an ETA from observed frozen-cache coverage growth once
 four more tiles and two minutes have elapsed, including player interruptions.
 Keep **5 GiB free on `/` and 15 GiB on `/srv/turku3d`**. Retention
