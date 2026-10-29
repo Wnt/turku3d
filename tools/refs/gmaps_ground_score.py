@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import shutil
+import struct
 
 import numpy as np
 
@@ -37,6 +38,28 @@ def export_ground(reference, ours, masks, color_valid):
     return result
 
 
+def materialize_own(own, tile):
+    source = Path(own['path'])
+    destination = Path(os.environ['TURKU3D_WORK']) / 'gmaps-own' / own['sha256'] / tile
+    destination.mkdir(parents=True, exist_ok=True)
+    payload = source.read_bytes()
+    if hashlib.sha256(payload).hexdigest() != own['sha256']:
+        raise ValueError('Frozen OCI source changed before materialization')
+    length = struct.unpack_from('<I', payload, 12)[0]
+    gltf = json.loads(payload[20:20 + length])
+    paths = [source.name, 'manifest.json']
+    paths.extend(image['uri'] for image in gltf.get('images', [])
+                 if image.get('uri') and not image['uri'].startswith('data:'))
+    for relative in paths:
+        original = (source.parent / relative).resolve()
+        target = (destination / relative).resolve()
+        if not original.is_relative_to(source.parent.parent.resolve()) or not target.is_relative_to(destination.parent.resolve()):
+            raise ValueError('OCI resource escapes its frozen tree')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original, target)
+    return destination / source.name
+
+
 def score(row, root, own):
     import gmaps_round3 as base
     import scores
@@ -44,11 +67,9 @@ def score(row, root, own):
     scores.ground_materials = export_ground
     # The scorer prohibits reference-cache paths as own inputs. Materialize only
     # hash-verified OCI bytes in the sandbox; durable originals stay in the inventory.
-    source = Path(own['path'])
-    destination = Path(os.environ['TURKU3D_WORK']) / 'gmaps-own' / own['sha256'] / row['tile']
-    shutil.copytree(source.parent, destination, dirs_exist_ok=True, copy_function=shutil.copy2)
+    destination = materialize_own(own, row['tile'])
     original = own
-    own = dict(own, path=str(destination / source.name))
+    own = dict(own, path=str(destination))
     try:
         return base.score_one(row, root, frozen_own=own)
     finally:

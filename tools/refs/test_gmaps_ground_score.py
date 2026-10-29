@@ -29,3 +29,30 @@ def test_exports_matching_material_medians_and_rejects_height_conflicts(monkeypa
 def test_abstention_is_not_a_zero_score():
     assert summary({'a': dict(status='abstained'), 'b': dict(status='incomplete')}) == dict(
         scored=0, abstained=1, metrics={})
+
+
+def test_materializes_oci_sibling_resources_and_checks_source_hash(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    import struct
+    import pytest
+    from gmaps_ground_score import materialize_own
+
+    source = tmp_path / 'durable/oci/t0_0_0'
+    source.mkdir(parents=True)
+    shared = source.parent / 'shared'
+    shared.mkdir()
+    (shared / 'texture.ktx2').write_bytes(b'own OCI texture')
+    (source / 'manifest.json').write_text('{}')
+    raw = json.dumps(dict(images=[dict(uri='../shared/texture.ktx2')])).encode()
+    payload = b'glTF' + struct.pack('<II', 2, len(raw) + 20) + struct.pack('<I', len(raw)) + b'JSON' + raw
+    glb = source / 'visual.glb'
+    glb.write_bytes(payload)
+    own = dict(path=str(glb), sha256=hashlib.sha256(payload).hexdigest())
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'work'))
+    result = materialize_own(own, 't0_0_0')
+    assert result.read_bytes() == payload
+    assert (result.parent / '../shared/texture.ktx2').read_bytes() == b'own OCI texture'
+    glb.write_bytes(b'corrupted')
+    with pytest.raises(ValueError, match='source changed'):
+        materialize_own(own, 't0_0_0')
