@@ -241,6 +241,7 @@ def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_
     assert [w["paint_source"] for w in diagnostic["walls"]] == ["reviewed-program", "stored-facade-map"]
     assert [m.extras.get("facade_index") for m in meshes if m.extras["material_key"] == "facade_stored"] == [1]
     wall = diagnostic["walls"][0]
+    assert wall["wall_id"] == "stable:0"
     assert wall["wall"]["colour"]["source"] == "register palette"
     assert wall["wall"]["colour"]["value"] != "#123456"
     assert compile_wall(wall, 4)["ground"] == 2

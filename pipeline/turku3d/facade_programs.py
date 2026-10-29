@@ -224,7 +224,7 @@ def resolve(building, vertices, eaves):
                 {
                     k: v
                     for k, v in own.items()
-                    if k not in ("width_m", "height_m", "geometry", "observation")
+                    if k not in ("wall_id", "width_m", "height_m", "geometry", "observation")
                 },
             )
             wall["observation"] = copy.deepcopy(own["observation"])
