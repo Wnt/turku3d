@@ -24,6 +24,31 @@ def test_selection_and_clearance():
     assert dimensions({"highway": "residential", "width": "8 m"}) == (8, 4.5)
 
 
+def test_outside_passages_skip_ground_but_keep_owned_building_openings():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    ways = [
+        (
+            "outside",
+            shapely.LineString([(255, 0), (255, 20)]),
+            {"highway": "footway", "width": "4", "tunnel": "building_passage"},
+        )
+    ]
+
+    def unused(x, z):
+        raise AssertionError("unrelated ground must not be prepared")
+
+    empty = produce(tile, ways, pos, idx, [], extrude, unused, unused)
+    assert empty.keep.all() and not empty.meshes and not empty.profiles
+    building = Building("edge", shapely.box(230, 5, 260, 15), 2, 14, "facade_plaster")
+    owned = produce(
+        tile, ways, pos, idx, [(building, extrude(building))], extrude, unused, lambda x, z: 2
+    )
+    assert owned.keep.all() and owned.ceilings
+    assert any(b.base > 2 for b, _ in owned.shells)
+
+
 def test_measured_dip_and_buried_profile():
     d = np.arange(5)
     np.testing.assert_equal(floor_profile(np.array([5, 3, 2, 3, 5]), d), [5, 3, 2, 3, 5])
