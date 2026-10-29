@@ -16,7 +16,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "textures"))
 from turkutex import facade_fast_render as renderer  # noqa: E402
-from turkutex.wall_palette import group_keys, lab, sample  # noqa: E402
+from turkutex.wall_palette import group_keys, lab, table  # noqa: E402
 
 
 def normalise(data, coverage, scorer_dir):
@@ -200,7 +200,8 @@ def fit(rows):
             continue
         for key in group_keys(row["attributes"]):
             values[key].append(lab(row.get("normalised_reference_rgb", row["reference_rgb"])))
-    groups = {}
+    priors = table().get("priors", {})
+    groups = dict(priors)
     for key, data in sorted(values.items()):
         # Fine district groups need enough independent buildings to avoid memorisation.
         minimum = 12 if len(json.loads(key)) == 3 else 8
@@ -210,6 +211,9 @@ def fit(rows):
         lower, upper = np.percentile(data, [10, 90], axis=0)
         clipped = np.clip(data, lower, upper)
         groups[key] = dict(
+            source="masked reference appearance with bounded ground illumination proxy"
+            if normalised
+            else "raw reference appearance",
             buildings=len(data),
             mean_lab=clipped.mean(axis=0).tolist(),
             covariance_lab=np.cov(clipped.T).tolist(),
@@ -220,6 +224,8 @@ def fit(rows):
         raise ValueError("Insufficient independent buildings for a global prior")
     return dict(
         version=1,
+        training_buildings=sum(not r["held_out"] for r in rows),
+        holdout_buildings=sum(r["held_out"] for r in rows),
         colour_space="CIELAB D65",
         spread_scale=0.25,
         method=(
@@ -229,6 +235,7 @@ def fit(rows):
         ),
         holdout="SHA256(wall-holdout-v1:register-id) first32bits modulo5 ==0",
         groups=groups,
+        priors=priors,
     )
 
 
@@ -242,7 +249,14 @@ def evaluate(rows, model):
         for row in selected:
             attrs = row["attributes"]
             before = row["baseline_wall_colour"]
-            after = before if attrs.get("wall_colour") else sample(row["building_id"], attrs, model)
+            after = renderer.register_description(
+                row["building_id"],
+                row["building_id"],
+                attrs,
+                12,
+                row["height_m"],
+                palette_model=model,
+            )["wall_colour"]
             for label, colour in (("before", before), ("after", after)):
                 colour_rgb = [int(colour[i : i + 2], 16) for i in (1, 3, 5)]
                 for target in ("reference_rgb", "normalised_reference_rgb"):
@@ -278,6 +292,7 @@ def main():
         data = normalise(data, args.coverage, args.scorer_dir)
     (args.out / "measurements.json").write_text(json.dumps(data, indent=2) + "\n")
     model = fit(data["buildings"])
+    model["scored_quarters"] = data["scored_quarters"]
     (args.out / "wall_palette.json").write_text(json.dumps(model, indent=2) + "\n")
     results = evaluate(data["buildings"], model)
     (args.out / "evaluation.json").write_text(json.dumps(results, indent=2) + "\n")

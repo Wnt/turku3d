@@ -73,3 +73,33 @@ def test_paired_score_requires_unchanged_shared_reference_support():
     after["wall"]["1"]["reference"] = [121, 120, 120]
     with pytest.raises(ValueError, match="Reference changed"):
         scorer.paired(before, after)
+
+
+def test_runtime_palette_keeps_one_colour_across_facade_indices():
+    from turkutex.facade_fast_render import register_description
+
+    a = register_description("wall0", "register-id", {}, 12, 12)
+    b = register_description("wall9", "register-id", {}, 18, 15)
+    assert a["wall_colour"] == b["wall_colour"]
+    explicit = register_description("wall0", "register-id", {"wall_colour": "#123456"}, 12, 12)
+    assert explicit["wall_colour"] == "#123456"
+
+
+def test_palette_table_edit_invalidates_producer_and_building_visual_dependencies(
+    tmp_path, monkeypatch
+):
+    from turku3d import facade_kit
+    from turku3d.coarse.packaging import current_code
+
+    script, data = tmp_path / "palette.py", tmp_path / "palette.json"
+    script.write_text("sampler")
+    data.write_text('{"groups":1}')
+    monkeypatch.setattr(facade_kit, "palette_sources", lambda: (script, data))
+    before = current_code()
+    data.write_text('{"groups":123}')
+    assert current_code() != before
+    from turku3d.stage_cache import source_key
+
+    key = source_key(*facade_kit.palette_sources())
+    data.write_text('{"groups":456}')
+    assert source_key(*facade_kit.palette_sources()) != key

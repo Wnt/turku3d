@@ -46,12 +46,15 @@ def main():
     parser.add_argument("--coverage", required=True, type=Path, help="Frozen before coverage.json")
     parser.add_argument("--product-root", required=True, type=Path, help="Retained captures/ root")
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--expected-quarters", type=int, default=57)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     states = json.loads(args.coverage.read_text())["quarters"]
     selected = {key: row for key, row in states.items() if row["status"] == "scored"}
-    if len(selected) != 57:
-        raise ValueError(f"Expected all 57 measured baseline quarters, got {len(selected)}")
+    if len(selected) != args.expected_quarters:
+        raise ValueError(
+            f"Expected {args.expected_quarters} measured baseline quarters, got {len(selected)}"
+        )
     results, pairs = {}, {}
     workers = max(1, min(2, int(os.environ.get("TURKU3D_JOBS", "2"))))
     with ProcessPoolExecutor(max_workers=workers) as pool:
@@ -81,6 +84,7 @@ def main():
             print(json.dumps(dict(quarter=key, **results[key])), flush=True)
     walls = [r for rows in pairs.values() for r in rows]
     summary = dict(
+        expected_quarters=args.expected_quarters,
         quarters=len(results),
         scored=sum(r["status"] == "scored" for r in results.values()),
         paired_walls=len(walls),
@@ -94,8 +98,8 @@ def main():
     )
     (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
-    if summary["scored"] != 57 or not walls:
-        raise SystemExit("Full 57-quarter paired comparison incomplete; inspect coverage.json")
+    if summary["scored"] != args.expected_quarters or not walls:
+        raise SystemExit("Paired comparison incomplete; inspect coverage.json")
 
 
 if __name__ == "__main__":
