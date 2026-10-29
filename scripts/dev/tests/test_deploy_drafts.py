@@ -44,7 +44,7 @@ class DeploymentTests(unittest.TestCase):
             health = next(i for i, c in enumerate(calls) if '7766/coarse/health' in c)
             switch = next(i for i, c in enumerate(calls) if '--signal=USR1 turku-drafts-proxy' in c)
             confirm = next(i for i, c in enumerate(calls) if 'proxy did not switch' in c)
-            stop = next(i for i, c in enumerate(calls) if 'stop turku-drafts-prebuild turku-drafts' in c)
+            stop = next(i for i, c in enumerate(calls) if 'systemctl --user stop turku-drafts &&' in c)
             self.assertLess(start, health)
             self.assertLess(health, switch)
             self.assertLess(switch, confirm)

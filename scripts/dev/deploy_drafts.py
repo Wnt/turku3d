@@ -115,7 +115,9 @@ while time.monotonic()<end:
 else: raise SystemExit('proxy did not switch to standby within5s')
 """
     remote("python3 -c " + shlex.quote(switched))
-    remote(f"systemctl --user stop turku-drafts-prebuild {old_unit} && "
+    remote("if test -f ~/.config/systemd/user/turku-drafts-prebuild.service; then "
+           "systemctl --user stop turku-drafts-prebuild; fi && "
+           f"systemctl --user stop {old_unit} && "
            f"systemctl --user disable {old_unit}")
     cache_storage = remote(
         f"{HOME}/run.sh python {destination}/tools/remote-drafts/cache-storage.py "
@@ -133,7 +135,8 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         "systemctl --user daemon-reload && "
         "systemctl --user enable --now turku-facade-assets.path && "
         "systemctl --user start --no-block turku-facade-assets.service && "
-        "systemctl --user disable turku-drafts-prebuild && "
+        "if test -f ~/.config/systemd/user/turku-drafts-prebuild.service; then "
+        "systemctl --user disable turku-drafts-prebuild; fi && "
         "rm -f ~/.config/systemd/user/turku-drafts-prebuild.service && "
         "systemctl --user daemon-reload && "
         "date -u +%Y-%m-%dT%H:%M:%SZ"
