@@ -22,7 +22,7 @@ const decoded = performance.now();
 const wall = auditVisual(doc);
 const audited = performance.now();
 const error = expected ? compareSnapshots(deserialize(fs.readFileSync(expected)), snapshot(doc)) : null;
-process.stdout.write(JSON.stringify({ wall_surfaces:wall, max_error_m:error, seconds:{
+process.stdout.write(JSON.stringify({ wall_surfaces:wall, max_error_m:error, stage_seconds:{
   decode:(decoded-started)/1000, walls:(audited-decoded)/1000,
   snapshot:(performance.now()-audited)/1000, total:(performance.now()-started)/1000,
 } }));
