@@ -33,6 +33,7 @@ export class Input {
   private time = 0;
   private readonly touch = new TouchPad();
   private overlay: TouchOverlay | null = null;
+  private touchContext: TouchContext = 'hidden';
 
   constructor(el: HTMLElement, private readonly activate: () => void = () => {}, private readonly toggleFullscreen: () => void = () => {}, private readonly copyPosition: () => void = () => {}) {
     const options = { signal: this.listeners.signal };
@@ -131,7 +132,7 @@ export class Input {
     if (this.edges.has('sprint')) this.sprintUntil = this.time + 0.45;
     if (Math.hypot(next.moveX, next.moveY) < 0.01) this.sprintUntil = 0;
     this.actions = next;
-    this.lookX = next.lookX * 2.4 * dt + (this.mouseX + touch.lookX) * LOOK_PER_PX;
+    this.lookX = next.lookX * 2.4 * dt + (this.mouseX + touch.lookX * (this.touchContext === 'foot' ? 2 : 1)) * LOOK_PER_PX;
     this.lookY = next.lookY * 1.8 * dt + (this.mouseY + touch.lookY) * LOOK_PER_PX;
     this.zoom = this.wheel + touch.zoom;
     this.mouseX = this.mouseY = this.wheel = 0;
@@ -139,6 +140,7 @@ export class Input {
   }
   /** Which touch buttons to show this frame; the overlay stays hidden unless the player is on touch. */
   setTouchContext(context: TouchContext) {
+    this.touchContext = context;
     const shown = this.source === 'touch' ? context : 'hidden';
     if (shown === 'hidden') this.touch.clear();
     this.overlay?.setContext(shown);

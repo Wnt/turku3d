@@ -47,7 +47,7 @@ export class DayClock {
       }
     }
     if (this.label && start - this.lastLabel >= 250) {
-      this.label.textContent = `${this.formatter.format(this.time).replaceAll('/', '.')} · Helsinki`;
+      this.label.textContent = this.formatter.format(this.time).replaceAll('/', '.');
       this.lastLabel = start;
     }
     const ms = performance.now() - start;

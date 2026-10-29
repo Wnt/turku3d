@@ -12,6 +12,9 @@ export interface NetPose {
 }
 export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
 export interface Score { nick: string; earned: number; deliveries: number; rank: number; online: boolean }
+/** Live earnings never fall back to the old wallet balance, which includes spending and fines. */
+export const earnedAmount = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? value : 0;
+export const normalizeScores = (scores: Score[]): Score[] => scores.map(score => ({ ...score, earned: earnedAmount(score.earned) }));
 export interface Hour { id: string; start: string; end: string; tz: string }
 interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number; job?: 'short' | 'long' }
 interface MultiplayerState {
@@ -181,7 +184,7 @@ export class MultiplayerClient extends EventTarget {
         this.state.you = msg.you as MultiplayerState['you'];
         this.state.hour = msg.hour as Hour;
         this.state.players = msg.players as NetPlayer[];
-        this.state.scores = msg.scores as Score[];
+        this.state.scores = normalizeScores(msg.scores as Score[]);
         this.state.brokenPoles = (msg.brokenPoles as { poleId: string }[] ?? []).map(p => p.poleId);
         this.state.error = null;
         this.attempts = 0;
@@ -215,7 +218,7 @@ export class MultiplayerClient extends EventTarget {
         this.changed();
         break;
       }
-      case 'scores': this.state.scores = msg.scores as Score[]; this.changed(); break;
+      case 'scores': this.state.scores = normalizeScores(msg.scores as Score[]); this.changed(); break;
       case 'world': if (msg.action === 'break' && typeof msg.poleId === 'string') {
         if (!this.state.brokenPoles.includes(msg.poleId)) this.state.brokenPoles.push(msg.poleId);
         this.dispatchEvent(new CustomEvent('poleBreak', { detail: msg.poleId }));

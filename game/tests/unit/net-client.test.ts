@@ -55,6 +55,18 @@ test('all client messages share the pose rate budget; mismatch stops reconnect a
     socket.dispatchEvent(new Event('open'));
     socket.message({ v: 2, type: 'welcome', session: 'a'.repeat(64), you: { id: 'self', nick: 'AA', spawn: { E: 0, N: 0, yaw: 0 } },
       hour: {}, players: [], scores: [], vehicles: { upsert: [], remove: [], sources: [] }, serverTime: Date.now() });
+    // Mixed-version live messages must not mistake old wallet balances for gross earnings.
+    const scores = [
+      { nick: 'Current', rank: 1, earned: 42, money: 999, deliveries: 2, online: true },
+      { nick: 'Legacy', rank: 2, money: 100, deliveries: 1, online: true },
+      { nick: 'Missing', rank: 3, deliveries: 0, online: false },
+      { nick: 'Invalid', rank: 4, earned: 'NaN', deliveries: 0, online: false },
+    ];
+    socket.message({ v: 2, type: 'welcome', session: 'a'.repeat(64), you: { id: 'self', nick: 'AA' },
+      hour: {}, players: [], scores, vehicles: { upsert: [], remove: [], sources: [] }, serverTime: Date.now() });
+    expect(client.state.scores.map(s => s.earned)).toEqual([42, 0, 0, 0]);
+    socket.message({ v: 2, type: 'scores', scores: [...scores].reverse() });
+    expect(client.state.scores.map(s => s.earned)).toEqual([0, 0, 0, 42]);
     client.breakPole('test');
     client.sendDelivery({ orderId: 'test', addressId: 'shop', payout: 6, tip: 0, routeMeters: 100 });
     const request = client.vehicle({ action: 'acquire', id: 'park:bay' });

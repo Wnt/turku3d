@@ -40,12 +40,12 @@ test('defaults on, persists toggle, copies current pose and picks the nearest vi
   building.userData = { building_id: 'office', address: 'Test street 1' };
   building.updateMatrixWorld();
   tiles.models.add(building);
-  const hud = new PositionHud(camera, tiles);
+  const hud = new PositionHud(camera, tiles, true);
   hud.update(0, true);
   expect(hud.visible).toBe(true);
   expect(hud.element.textContent).toContain('Centre: office · Test street 1');
   hud.toggle();
-  expect(new PositionHud(camera, tiles).visible).toBe(false);
+  expect(new PositionHud(camera, tiles, true).visible).toBe(false);
   camera.position.x = 168;
   await hud.copy();
   expect(writeText.mock.calls[0][0]).toContain('E 23459668.00');
@@ -78,4 +78,18 @@ test('resolves a hit index to its source building and preserves instance address
   ] };
   hit.instanceId = 1;
   expect(buildingTarget(hit)).toBe('second · Instance address');
+});
+
+test('public sessions cannot show, toggle, copy or hide the character with photo shortcuts', async () => {
+  vi.stubGlobal('document', { createElement: () => ({ hidden: false }), body: { append: () => {} } });
+  const hud = new PositionHud(new THREE.PerspectiveCamera(), new VisualTiles(), false);
+  const consume = vi.fn(() => true);
+  hud.handle({ consume } as never, true);
+  hud.toggle();
+  await hud.copy();
+  hud.update(1000, true);
+  expect(consume).not.toHaveBeenCalled();
+  expect(hud.visible).toBe(false);
+  expect(hud.element.hidden).toBe(true);
+  expect(hud.characterHidden).toBe(false);
 });

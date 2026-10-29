@@ -28,3 +28,9 @@ test('archives retain recorded totals and ranks for both earned and legacy money
   const old = { nick: 'AB', rank: 3, money: -100, deliveries: 2, online: false };
   expect(normalizeArchivedScore(old)).toEqual({ ...old, earned: -100 });
 });
+
+test('display amounts reject missing and nonfinite values', async () => {
+  const { earnedAmount } = await import('../../src/net/client');
+  expect([undefined, null, NaN, Infinity, '42'].map(earnedAmount)).toEqual([0, 0, 0, 0, 0]);
+  expect(earnedAmount(42)).toBe(42);
+});
