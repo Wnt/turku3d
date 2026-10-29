@@ -117,8 +117,9 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
     key = f"draft-bridge:{way['id']}"
     spec = style(way)
     meshes = []
-    for part in shapely.get_parts(rail_lines):
-        if part.geom_type not in ("LineString", "LinearRing") or part.length < 0.5:
+    # Join source vertices before rejecting fragments shorter than one post bay.
+    for part in shapely.get_parts(shapely.line_merge(rail_lines)):
+        if part.geom_type not in ("LineString", "LinearRing") or part.length < 1.8:
             continue
         _, side = samples(part, 1.8)
         base = height_at(side)
