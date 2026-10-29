@@ -110,7 +110,11 @@ def osm_surfaces(tile, path):
             or tags.get("leisure") in ("park", "garden", "nature_reserve")
         ):
             key = "grass"
-        if not key and tags.get("amenity") == "parking" and tags.get("parking") not in ("multi-storey", "underground"):
+        if (
+            not key
+            and tags.get("amenity") == "parking"
+            and tags.get("parking") not in ("multi-storey", "underground")
+        ):
             key = "road"
         if not key and highway:
             key = (
@@ -269,6 +273,21 @@ def neutral_asphalt(rgb):
     light = linear @ [0.2126, 0.7152, 0.0722]
     grey = np.where(light <= 0.0031308, light * 12.92, 1.055 * light ** (1 / 2.4) - 0.055)
     return np.repeat(np.rint(np.clip(grey, 0, 1) * 255).astype(np.uint8)[..., None], 3, axis=-1)
+
+
+def channels(meshes):
+    """Terrain palette entries only; structures carry their own texture namespaces."""
+    selected = set()
+    for mesh in meshes:
+        key = mesh.extras.get("material_key", "")
+        if not key.startswith("draft_"):
+            continue
+        name = key.removeprefix("draft_")
+        if name in KEYS:
+            selected.add(KEYS.index(name))
+        elif mesh.extras.get("layer") == "ground":
+            raise ValueError(f"Unknown draft ground surface: {key}")
+    return selected
 
 
 def library(root: Path, base: Path, channels):
@@ -457,8 +476,11 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
                 try:
                     result.append(operation(geometry, right))
                 except shapely.errors.GEOSException:
-                    result.append(operation(shapely.make_valid(geometry),
-                                            shapely.make_valid(right), grid_size=1e-7))
+                    result.append(
+                        operation(
+                            shapely.make_valid(geometry), shapely.make_valid(right), grid_size=1e-7
+                        )
+                    )
             return np.asarray(result, dtype=object)
 
     normals = vertex_normals(positions, indices)

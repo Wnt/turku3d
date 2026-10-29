@@ -677,11 +677,7 @@ def build(
     with cache.measure("wall_assembly"):
         layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache)
 
-    surface_channels = {
-        surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
-        for m in ground_meshes
-        if m.extras["material_key"].startswith("draft_")
-    }
+    surface_channels = surfaces.channels(ground_meshes)
     seconds["visual_geometry"] = time.perf_counter() - t
     t_library = time.perf_counter()
     surface_library = library or default_library()
