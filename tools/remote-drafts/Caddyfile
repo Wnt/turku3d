@@ -6,7 +6,11 @@
 http://:7764 {
 	bind 127.0.0.1
 	encode zstd gzip {
-		match header Content-Type application/json* application/octet-stream* model/gltf-binary*
+		match {
+			header Content-Type application/json*
+			header Content-Type application/octet-stream*
+			header Content-Type model/gltf-binary*
+		}
 	}
 	handle_path /facades/* {
 		root * /srv/turku3d/data/facade-assets
