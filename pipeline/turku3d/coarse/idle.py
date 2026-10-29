@@ -89,7 +89,8 @@ class IdlePrebuild:
         # One low-priority worker at most while online or just activated. Leave
         # a crossing worker free even when the other workers are committed full passes.
         foreground = len(set(b.building) - self.tiles)
-        waiting = (set(b.priority) | b.upgrade_queue | set(b.pending)) - self.tiles
+        # Raw downloads occupy no build worker; keep warming prepared tiles meanwhile.
+        waiting = (set(b.priority) | b.upgrade_queue) - self.tiles
         return 0 if waiting else min(1, max(0, b.workers - foreground - 1))
 
     def activity(self):

@@ -184,3 +184,12 @@ def test_finished_warm_slot_is_reused_when_route_order_changes(tmp_path):
     idle.tick()
     assert idle.completed == 1
     assert idle.tiles == {'t0_1_0'}
+
+
+def test_raw_download_wait_does_not_consume_spare_build_capacity(tmp_path):
+    b, idle, now = idle_builder(tmp_path, [(0, 't0_0_0')])
+    idle.presence = lambda: True
+    b.pending['t0_7_7'] = (['missing-raw'], 0)
+    idle.tick()
+    assert idle.tiles == {'t0_0_0'}
+    assert idle.capacity() == 1
