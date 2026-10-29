@@ -367,6 +367,7 @@ def build(
         ),
     )
     from .forests import BUSH_CAP, TREE_CAP, path_ground, path_surfaces, produce, trunks
+
     seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
 
     vegetation_start = time.perf_counter()
@@ -540,9 +541,18 @@ def build(
     )
     from . import ortho_cleanup
 
-    clean_args = (tile, inputs.ortho, inputs.streets, visual_regions,
-                  inputs.ortho_canopy, inputs.heights, inputs.markings,
-                  [b.footprint for b in blds], inputs.water, inputs.parking)
+    clean_args = (
+        tile,
+        inputs.ortho,
+        inputs.streets,
+        visual_regions,
+        inputs.ortho_canopy,
+        inputs.heights,
+        inputs.markings,
+        [b.footprint for b in blds],
+        inputs.water,
+        inputs.parking,
+    )
     ground_ortho, cleanup_stats = cache.run(
         "ground_ortho",
         source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback, *common),
@@ -562,13 +572,30 @@ def build(
     corrected_ortho, colour_stats = cache.run(
         "ground_colour",
         source_key(Path(ground_colour.__file__), ground_colour.TABLE, *common),
-        (tile, ground_ortho, inputs.ortho, inputs.streets, visual_regions,
-         [b.footprint for b in blds], inputs.water, mosaic),
-        lambda: ground_colour.apply(tile, ground_ortho, inputs.ortho,
-                                    inputs.streets, visual_regions,
-                                    [b.footprint for b in blds], inputs.water, mosaic),
+        (
+            tile,
+            ground_ortho,
+            inputs.ortho,
+            inputs.streets,
+            visual_regions,
+            [b.footprint for b in blds],
+            inputs.water,
+            mosaic,
+        ),
+        lambda: ground_colour.apply(
+            tile,
+            ground_ortho,
+            inputs.ortho,
+            inputs.streets,
+            visual_regions,
+            [b.footprint for b in blds],
+            inputs.water,
+            mosaic,
+        ),
     )
-    seconds.update({name: cache.metrics[name]["seconds"] for name in ("ground_ortho", "ground_colour")})
+    seconds.update(
+        {name: cache.metrics[name]["seconds"] for name in ("ground_ortho", "ground_colour")}
+    )
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
@@ -593,8 +620,6 @@ def build(
         ground_meshes.append(paint)
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     stair_visuals = stairs.visuals(tile, stair_meshes)
-    for mesh in stair_visuals:
-        mesh.extras["kind"] = "stairs"
     ground_meshes.extend(stair_visuals)
     ground_meshes.extend(
         surfaces.visuals(
@@ -653,13 +678,16 @@ def build(
         "building_visual",
         source_key(
             building_visual,
-            roof_crop, roof_fallback, valid_roof_pixels,
+            roof_crop,
+            roof_fallback,
+            valid_roof_pixels,
             Path(__file__).with_name("stored_facades.py"),
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
             *facade_program_sources(),
-            paint_partition, trapezoids,
+            paint_partition,
+            trapezoids,
             jpeg,
             ortho_uv,
             *common,
@@ -742,7 +770,17 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
-        stairs=dict(flights=len(stair_meshes), triangles=sum(len(m.indices) for m in stair_meshes)),
+        stairs=dict(
+            flights=len(
+                {
+                    m.object_id.split(":")[1]
+                    for m in stair_meshes
+                    if m.object_id.startswith("stairs:")
+                }
+            ),
+            retaining_walls=sum(m.object_id.startswith("retaining:") for m in stair_meshes),
+            triangles=sum(len(m.indices) for m in stair_meshes),
+        ),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_ortho_cleanup=cleanup_stats,
         ground_colour_calibration=colour_stats,
@@ -785,6 +823,7 @@ def build(
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
     _write(out / "collision.json", json.dumps(manifest).encode())
     from .audit import submit
+
     submit(out, manifest["visual"][tile.id], require_snapshot=True)
     cache.metrics.update(json.loads((stage / "package-times.json").read_text()))
     cache.report(out / "stage-times.json")

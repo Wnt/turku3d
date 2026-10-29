@@ -258,10 +258,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
                 and min(
                     [
                         step["line"].boundary.distance(endpoints),
-                        *(
-                            step["line"].boundary.distance(w["line"].boundary)
-                            for w in b["approaches"]
-                        ),
+                        *(step["line"].boundary.distance(w["line"]) for w in b["approaches"]),
                     ]
                 )
                 < 0.05

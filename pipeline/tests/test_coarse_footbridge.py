@@ -1,5 +1,6 @@
 """Regressions for suspended road footbridges, measured stairs and rock cuts."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -86,6 +87,8 @@ def test_measured_stair_preserves_landing_and_meets_deck_with_smooth_collision()
     assert any(m.metadata["surface"] == "paint" for m in meshes)
     # No apron cuts a hole past the endpoint already continued by the deck.
     assert openings[0].bounds[3] == 30
+    walking = shapely.union_all(shapely.polygons(triangles[:, :, [0, 2]]))
+    assert openings[0].difference(walking).area < 1e-8
     assert not any(
         np.ptp(t[:, 1]) > 0.31
         for m in meshes
@@ -109,6 +112,25 @@ def test_lidar_profile_keeps_plateau_and_ignores_tree_returns():
     np.testing.assert_allclose(
         np.interp([0, 12], profile["stations"], profile["heights"]), [2, 6], atol=0.15
     )
+
+
+def test_stair_at_interior_landing_node_receives_survey(monkeypatch):
+    from turku3d.coarse import stair_survey
+
+    cloud = SimpleNamespace(points=np.zeros((1, 3)), records={"classification": [2]})
+    monkeypatch.setattr(
+        "turku3d.lidar.TileStore", lambda **kwargs: SimpleNamespace(query=lambda box: cloud)
+    )
+    monkeypatch.setattr(C, "laz_tiles_for_bbox", lambda box: [])
+    monkeypatch.setattr(stair_survey, "measure", lambda *args: {"surveyed": True})
+    row = ("stairs", shapely.LineString([(7, 0), (7, 10)]), {})
+    stair_survey.attach(
+        [row],
+        [Path("source.laz")],
+        [shapely.LineString([(0, 0), (5, 0)])],
+        [shapely.LineString([(5, 0), (7, 0), (10, 0)])],
+    )
+    assert row[2]["_profile"] == {"surveyed": True}
 
 
 def test_retaining_edge_is_below_grade_and_its_cut_has_complete_walkable_bands():

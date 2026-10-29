@@ -24,7 +24,7 @@ def measure(line, width, points, classes):
         if len(band) >= 5 and np.std(band) < 0.18:
             heights[i] = np.median(band)
     known = np.isfinite(heights)
-    if known.mean() < 0.8 or not known[0] or not known[-1]:
+    if known.mean() < 0.75 or not known[0] or not known[-1] or np.max(np.diff(stations[known])) > 4:
         return None
     heights = np.interp(stations, stations[known], heights[known])
     heights = isotonic_regression(
@@ -57,7 +57,7 @@ def attach(rows, paths, bridges, footways):
         [
             ends,
             *[
-                line.boundary
+                line
                 for line in footways
                 if line.length <= 10 and line.boundary.distance(ends) < 0.05
             ],

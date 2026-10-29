@@ -211,7 +211,7 @@ def produce(tile, prepared, sample, decks=()):
         from .inputs import CELLS
         from .kerbs import terrain_patches
 
-        aprons = []
+        aprons, apron_collision = [], Faces()
         for end, outward, height in ((0, -directions[0], bottom), (-1, directions[-1], top)):
             if bridge_access and any(
                 deck.way.get("stair_access")
@@ -231,6 +231,7 @@ def produce(tile, prepared, sample, decks=()):
                 yy = height + (ground - height) * blend
                 patch_xyz = np.c_[patch[:, 0], yy, patch[:, 1]]
                 faces.face(patch_xyz[::-1], patch[::-1])
+                apron_collision.face(patch_xyz[::-1], patch[::-1])
         corridor = shapely.union_all([corridor, *aprons])
         if faces.indices:
             from .bridge_details import appearance, combine, handrail
@@ -251,6 +252,12 @@ def produce(tile, prepared, sample, decks=()):
                         axis=1,
                     )
                 )
+                if apron_collision.indices:
+                    ramp.triangles(
+                        np.asarray(apron_collision.positions),
+                        np.asarray(apron_collision.indices),
+                        np.asarray(apron_collision.uvs),
+                    )
                 parts.append(
                     appearance(ramp.mesh(f"stairs:{key}:walk", "curb", visual=False), "concrete")
                 )
@@ -261,7 +268,7 @@ def produce(tile, prepared, sample, decks=()):
                         "stone" if bridge_access and supported.mean() > 0.5 else "concrete",
                     )
                 )
-            if tags.get("handrail") == "yes" or bridge_access:
+            if tags.get("handrail") != "no" and (tags.get("handrail") == "yes" or bridge_access):
                 for side, name in ((left, "left"), (right, "right")):
                     if tags.get("handrail:" + name) == "no":
                         continue
@@ -304,7 +311,7 @@ def visuals(tile, meshes):
                 layer="structures",
                 object_id=m.object_id,
                 material_key="draft_bridge_" + m.metadata.get("surface", "concrete"),
-                kind="stairs",
+                kind="retaining_wall" if m.object_id.startswith("retaining:") else "stairs",
             ),
         )
         for m in meshes

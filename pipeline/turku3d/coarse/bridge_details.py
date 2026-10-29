@@ -41,7 +41,9 @@ def style(way):
         else "concrete"
     )
     thickness = (
-        (0.28 if foot else 0.6) if structure in ("arch", "humpback") else (0.32 if foot else 0.85)
+        (0.28 if foot else 0.6)
+        if structure in ("arch", "humpback")
+        else ((0.32 if way.get("stair_access") else 0.45) if foot else 0.85)
     )
     if rail:
         thickness = 1.1
@@ -75,7 +77,7 @@ def style(way):
         foot=foot,
         railway=rail,
         support=body,
-        rail_surface="paint" if foot and body == "concrete" else "steel",
+        rail_surface="paint" if way.get("stair_access") and body == "concrete" else "steel",
         arch_edge=False,
     )
     result.update(PROFILES.get(tags.get("wikidata"), {}))
