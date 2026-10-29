@@ -39,6 +39,7 @@ export interface PlayWorld {
   renderFrame: () => void;
   /** The shared clock; restoration only affects an unpinned developer clock. */
   clockTime: () => Date;
+  syncClock?: (serverTime: number) => void;
   setClock: (date: Date) => void;
   /** Ground height under (x, z) from a physics ray. */
   groundAt: (x: number, z: number) => Promise<number>;

@@ -1,10 +1,14 @@
-# Turku3D multiplayer protocol v1
+# Turku3D multiplayer protocol v2
 
 Public endpoint: `wss://turku.lab.madekivi.fi/`. One room, JSON text WebSocket
-messages. Every message in both directions has `"v":1` and a `"type"` string.
+messages. Every message in both directions has `"v":2` and a `"type"` string.
 Unknown extra object fields are ignored. Binary messages and malformed/unknown
 messages are dropped and increment `/healthz`'s `stats.rejected` counter.
-No physics, collision resolution, order issuance or rendering runs on this server.
+The server owns vehicle seats/leases and computes bounded car-contact impulses from replicated poses.
+Rapier simulation, terrain collision, order issuance and rendering remain client-side.
+Version 1 tabs must reload the Pages game: unsupported versions receive `error` with
+`reload:true` and close 1002. Version 2 clients stop retrying and display a reload notice
+on this error (also when it comes from an older server during deployment).
 
 ## Coordinates, time and money
 
@@ -43,7 +47,7 @@ The live roster includes self; match self by `you.id`. It contains no session to
 ### hello
 
 ```json
-{"v":1,"type":"hello","session":"optional 64-character lowercase hex token"}
+{"v":2,"type":"hello","session":"optional 64-character lowercase hex token"}
 ```
 
 Send once within 5 seconds of connecting; omit `session` on first join. A current
@@ -57,7 +61,7 @@ The token is a bearer credential; retain it privately, never put it in a URL.
 Vehicle poses may include `rot:{x,y,z,w}`, a unit chassis quaternion in engine
 axes, and `wheels:[{pos:{x,y,z},steer,rotation,contact,suspension}]` (up to four).
 Wheel positions are chassis-local metres; steering and unwrapped wheel rotation
-are radians. The server validates and relays these fields unchanged. Missing
+are radians. The server validates these fields, strips unknown nested fields and rounds motion values to 0.001 before relaying them. Missing
 rotation falls back to legacy yaw. Receivers slerp the chassis along the shortest
 arc and interpolate wheel transforms in the same 100 ms buffer. Model corrections
 are applied after chassis rotation: parked meshes need +π/2 about local Y;
@@ -65,7 +69,7 @@ starter car, scooter and truck roots already use the chassis frame.
 
 Each wheel may also carry `tyre:{point:{x,y,z},normal:{x,y,z},material,lateral,longitudinal}`.
 Point and normal use the physical chassis frame; slip components are m/s. This optional
-wheel metadata is relayed unchanged by existing servers. Consumers validate finite,
+wheel metadata is bounded and relayed with the same 0.001 precision. Consumers validate finite,
 bounded contact data and gate marks/smoke on contact, known hard materials and sliding
 speed. Missing metadata produces no tyre effects. Interpolated chassis transforms also
 transform the contact data; visual model orientation corrections do not apply to it.
@@ -73,7 +77,7 @@ transform the contact data; visual model orientation corrections do not apply to
 ### pose
 
 ```json
-{"v":1,"type":"pose","t":12345,"E":173,"N":-252,"H":3.7,"yaw":0,"vE":1,"vN":0,"vH":0,"mode":"foot","vehicle":null,"carrying":false}
+{"v":2,"type":"pose","t":12345,"E":173,"N":-252,"H":3.7,"yaw":0,"vE":1,"vN":0,"vH":0,"mode":"foot","vehicle":null,"carrying":false}
 ```
 
 All fields required. Numbers must be finite: `0≤t≤Number.MAX_SAFE_INTEGER`,
@@ -87,10 +91,90 @@ including stationary poses while actively playing. Sixty seconds without an
 accepted pose removes the player from the live roster and sets `online:false`;
 the score remains. A new valid pose restores presence. A join starts the idle timer.
 
+### Shared vehicles and seats
+
+A `SharedVehicle` is `{id,source,creator,localId,owner,occupant,epoch,revision,half,pose}`.
+`pose` uses the chassis convention above, including model/paint in `vehicle`, kind
+in `mode`, quaternion, velocity and wheels. `half:{x,y,z}` is the physical chassis
+half extent (0.1–4 m per axis); masses are fixed per kind: car 1200 kg, scooter
+190 kg, truck 2400 kg. `occupant` is one player UUID or null; `owner` is the sole
+simulation's UUID. `epoch` changes on ownership transfer; `revision` changes on state.
+
+Parked source IDs are manifest `object_id`s; registry IDs are `park:<object_id>`.
+Personal IDs are `<creator UUID>:<localId>` (`player`, `scooter`, `truck`). The
+server validates this namespace. `source` is null for personal vehicles. A source
+reservation suppresses its original parked actor for every client, including clients
+outside the vehicle's current interest area. No client may enter before a successful
+server response. One player can hold one seat; a simultaneous second claim loses.
+
+```
+{v:2,type:"vehicle",action:"register"|"acquire",request,id,source,localId,half,pose}
+{v:2,type:"vehicle",action:"acquire"|"release",request,id}
+{v:2,type:"vehicle_result",request,ok,vehicle:SharedVehicle|null}
+```
+
+`request` and IDs use `[A-Za-z0-9_.:-]`, maximum 180 characters. A new record must
+be within 150 m of the sender; acquisition within 7 horizontal metres. Existing
+records keep their model, source and size regardless of a competing registration.
+Registration makes a moved car visible without occupying it. Acquiring an empty
+vehicle transfers simulation; release keeps its current simulation with the last
+driver. Disconnect/idle releases seats and zeros retained velocities; reconnect
+keeps identity and empty vehicles. Clients restore an owned record's full pose,
+including flipped rotation, rather than creating another car in the initial slot.
+
+A pose message can include `vehicleId` for the occupied registry vehicle (the server
+checks its seat/owner/kind), and `vehicles:[{id,epoch,pose}]`, at most eight changed
+owned records. Old-owner/stale-epoch writes are rejected. Unchanged resting vehicles
+produce no updates, regardless of player heartbeats; client dirty thresholds are
+1 cm, 0.001 quaternion components and 0.01 wheel radians. Register/acquire/release,
+deliveries and pole/fine events replace pose sends in the same 55 ms client scheduler.
+No extra contact-request stream consumes the 20-message/s allowance.
+
+A `VehicleDelta` is `{upsert:SharedVehicle[],remove:string[],sources?:string[],
+patches?:[{id,revision,pose:Partial<Pose>}]}`. `welcome.vehicles` supplies a full
+nearby/owned snapshot and all reserved source IDs. Later `vehicles` messages contain
+changes only. Apply removals, upserts and shallow pose patches; omitted fields are
+retained. Metadata changes use full upserts. Owner motion is not echoed to its own
+simulation. A replica outside 250 m is removed; entering the radius sends a full
+record. Reserved sources are global, at most 256 IDs, so streaming cannot resurrect
+an absent original slot. Every existing registered vehicle, occupied or empty,
+is rendered when its collision area is loaded.
+
+Retention: eight records created per player, 256 room-wide. Creating a ninth evicts
+the oldest unoccupied record from that creator (an occupied record is never evicted).
+Empty records expire one hour after last seat use. Expiry/removal releases their
+original parked slots. Records survive score-hour rollover but live only in memory;
+a server restart clears the registry. This is bounded session state, not persistence.
+
+### Shared contact response
+
+Every 50 ms, the server checks nearby vehicle pairs owned by different simulations.
+Swept horizontal chassis boxes look ahead at most 100 ms; height separation excludes
+bridge/road pairs. A closing contact produces an equal/opposite impulse using the
+class masses and restitution 0.05. Magnitude is capped at 12000 N·s and at 8 m/s
+velocity change for the lighter participant. A 250 ms per-pair **and per-vehicle**
+cooldown bounds a pile-up. Moving state older than 1.5 s cannot initiate a contact.
+
+```
+{v:2,type:"vehicle_impulse",id,epoch,sequence,E,N}
+```
+
+Only owners receive these impulses. Clients deduplicate by sequence and epoch,
+apply them once at the chassis centre without lift/torque, and enforce the same
+magnitude/delta-v limit in the worker. Empty targets transfer to the hitter before
+impulses are sent, including when their previous owner is online but paused/far away.
+The new owner first receives the full pre-impulse pose, then both impulse halves.
+Two bodies already in one simulation use Rapier's normal dynamic mass solver.
+
+Remote proxies collide with the walking capsule only: they cannot inject infinite
+kinematic mass into local vehicles or wheel queries. This is a bounded client-physics
+contact approximation, not authoritative terrain simulation or rollback netcode;
+extreme latency/high-speed interpenetration is a remaining limitation.
+
 ### delivery
 
 ```json
-{"v":1,"type":"delivery","orderId":"run-uuid:order-12:stop-0","addressId":"address-slug","payout":6,"tip":8,"routeMeters":120}
+{"v":2,"type":"delivery","orderId":"run-uuid:order-12:stop-0","addressId":"address-slug","payout":6,"tip":8,"routeMeters":120}
 ```
 
 One message per **paid drop-off**. Use a unique ID per stop (double orders have two
@@ -119,15 +203,15 @@ its delivery, regardless of `t` or when the client started the order.
 
 ### world break and fine
 
-A client that breaks a sign pole sends `{"v":1,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":1,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it subtracts 50 from the hourly score, which may become negative. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
+A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":2,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it subtracts 50 from the hourly score, which may become negative. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
 
 ## Server → client
 
 | Type | Fields in addition to `v,type` | When / behavior |
 |---|---|---|
-| `welcome` | `session`, `you:{id,nick,spawn}`, `hour:Hour`, `players:Player[]`, `scores:Score[]`, `brokenPoles:{action,poleId,by,t}[]` | After hello; also after each hour reset to communicate the new nickname. |
+| `welcome` | `session`, `you:{id,nick,spawn}`, `hour:Hour`, `players:Player[]`, `scores:Score[]`, `brokenPoles:{action,poleId,by,t}[]`, `vehicles:VehicleDelta`, `serverTime` (UTC epoch ms) | After hello; also after each hour reset to communicate the new nickname. |
 | `players` | `players:Player[]` | Full replacement roster after join, leave, idle/resume or reset. Remove absent remote bodies. |
-| `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,vehicle,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Omitted players have no new pose; omission does not remove them. |
+| `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,vehicle,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Driven poses are limited to recipients within 250 m. Omitted players have no new pose; omission does not remove them. |
 | `world` | `action:"break",poleId,by,t` | Re-broadcast of an accepted pole break. |
 | `scores` | `scores:Score[]` | Full replacement scoreboard after every accepted delivery or fine and presence change/join/reset. Includes idle/disconnected participants from this hour. |
 | `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
@@ -140,8 +224,8 @@ reserved throughout an hour, including disconnected participants (671 possible).
 At rollover, only connected sessions continue, with money/deliveries zeroed and a
 different random nickname per player. Their ID/token/spawn/pose and paid-order IDs
 stay intact; idle connections stay idle. Disconnected sessions expire at rollover.
-Spawns rotate through twelve fixed street-side positions in join order, repeating
-after twelve new players; reconnect preserves the assigned point. The client snaps
+Spawns rotate through sixteen fixed street-side positions in join order, repeating
+after sixteen new players; reconnect preserves the assigned point. The client snaps
 the feet to ground and handles temporary occupation by other players. A reset's
 welcome is an identity update, not a request to teleport; on rejoin use the retained
 self pose when present, otherwise spawn.
@@ -176,7 +260,7 @@ returns 204; unsupported methods 405. JSON responses use `Cache-Control: no-stor
 
 | Path | JSON response |
 |---|---|
-| `/healthz` | `{ok:true,v:1,hour,connections,online,stats:{rejected,deliveries,poses,bytesIn,bytesOut}}` |
+| `/healthz` | `{ok:true,v:2,hour,connections,online,stats:{rejected,deliveries,poses,bytesIn,bytesOut}}` |
 | `/live.json` | `{hour:Hour,players:Player[],scores:Score[]}` |
 | `/scores/index.json` | `Hour[]`, finished hours newest first by UTC start (including both autumn hours) |
 | `/scores/<id>.json` | `{hour:Hour,players:[{nick,money,deliveries,rank}]}`; missing/invalid ID 404 |

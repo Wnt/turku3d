@@ -16,12 +16,12 @@ const app = createServer({ store, onConnection() {
 } });
 const port = Number(process.env.TURKU_MP_PORT ?? 7700);
 app.server.listen(port, '127.0.0.1', () => {
-  console.log(`Turku multiplayer v1 listening on 127.0.0.1:${app.server.address().port}`);
+  console.log(`Turku multiplayer v2 listening on 127.0.0.1:${app.server.address().port}`);
   // Used by the load test to measure the server in a separate process.
   process.send?.({ port: app.server.address().port });
 });
 process.on('message', message => {
-  if (message === 'metrics') process.send?.({ cpu: process.cpuUsage(), stats: app.room.stats });
+  if (message === 'metrics') process.send?.({ cpu: process.cpuUsage(), stats: app.room.stats, vehicles: app.room.vehicles.entries.size });
 });
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => {
   await app.close();

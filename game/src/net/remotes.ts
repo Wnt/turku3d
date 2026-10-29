@@ -12,13 +12,15 @@ import type { ScooterVisual } from '../actors/scooter';
 import type { TruckVisual } from '../actors/truck';
 import type { MultiplayerClient, NetPlayer, NetPose } from './client';
 import { vehicleRotation } from './orientation';
+import { vehiclePose } from './sharedVehicles';
+import type { SharedVehicles } from './sharedVehicles';
 import { PoseBuffer } from './interpolation';
 import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
 
 interface Remote {
   player: NetPlayer; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
   car: THREE.Object3D; scooter: THREE.Object3D; truck: THREE.Object3D; vehicleKey: string;
-  label: THREE.Sprite; lastT: number; effectSlot: number; receivedAt: number;
+  pizza: THREE.Mesh; label: THREE.Sprite; lastT: number; effectSlot: number; receivedAt: number;
 }
 
 const FULL_MODEL_DISTANCE = 6;
@@ -65,19 +67,33 @@ function nickname(nick: string): THREE.Sprite {
 /** Visuals and kinematic proxies for the current server roster. */
 export class RemotePlayers {
   private readonly remotes = new Map<string, Remote>();
+  private readonly pizzaGeometry = new THREE.BoxGeometry(.42, .12, .42);
+  private readonly pizzaMaterial = new THREE.MeshStandardMaterial({ color: 0xd8b479, roughness: .9 });
   private readonly distantSource = distantCharacter();
   frameMs = 0;
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
     private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
       parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
-  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0) {
+  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles) {
     const t0 = performance.now();
     const selfId = client.state.you?.id;
-    const players = client.state.connected ? client.state.players.filter(p => p.id !== selfId) : [];
+    const players: (NetPlayer & { locallySimulated?: boolean })[] = client.state.connected
+      ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
+    if (client.state.connected && shared) for (const v of client.state.vehicles.values()) {
+      const localId = shared.localId(v);
+      const local = v.owner === selfId;
+      // Existing local visuals own native IDs. Acquired foreign vehicles use the
+      // same shared renderer as replicas, sampled directly from their local body.
+      if (local && localId !== v.id) continue;
+      const state = local ? this.physics.latest?.vehicles.find(s => s.id === localId) : null;
+      players.push({ id: v.id, nick: client.state.players.find(p => p.id === v.occupant)?.nick ?? '',
+        spawn: { E: v.pose.E, N: v.pose.N, yaw: v.pose.yaw },
+        pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: v.revision }, locallySimulated: local });
+    }
     const present = new Set(players.map(p => p.id));
     for (const [id, remote] of this.remotes) if (!present.has(id)) {
-      remote.foot?.removeFromParent(); remote.distant.removeFromParent(); remote.car.removeFromParent(); remote.scooter.removeFromParent();
+      remote.pizza.removeFromParent(); remote.foot?.removeFromParent(); remote.distant.removeFromParent(); remote.car.removeFromParent(); remote.scooter.removeFromParent();
       remote.truck.removeFromParent(); remote.label.removeFromParent();
       (remote.label.material as THREE.SpriteMaterial).map?.dispose(); remote.label.material.dispose();
       this.tyreEffects.release(remote.effectSlot);
@@ -94,15 +110,17 @@ export class RemotePlayers {
         // The truck model is built around its chassis centre with its wheels at rest (actors/truck.ts).
         const truck = this.sources.truck.root.clone(true);
         const label = nickname(p.nick);
-        this.root.add(distant, car, scooter, truck, label);
-        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player', effectSlot: this.tyreEffects.reserve(), receivedAt: now };
+        const pizza = new THREE.Mesh(this.pizzaGeometry, this.pizzaMaterial);
+        this.root.add(distant, car, scooter, truck, label, pizza);
+        remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player', effectSlot: this.tyreEffects.reserve(), receivedAt: now };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
       if (p.pose && p.pose.t !== remote.lastT) { remote.buffer.push(p.pose, now); remote.lastT = p.pose.t; remote.receivedAt = now; }
-      const pose = remote.buffer.sample(now);
+      const pose = p.locallySimulated ? p.pose : remote.buffer.sample(now);
       if (pose?.mode === 'car' && pose.vehicle && pose.vehicle !== remote.vehicleKey) {
         const model = pose.vehicle === 'player' ? this.sources.car.root.clone(true) : this.sources.parked.remoteModel(pose.vehicle);
+        if (!model) this.sources.parked.requestRemoteModel(pose.vehicle);
         if (model) {
           remote.car.removeFromParent();
           remote.car = model;
@@ -123,9 +141,17 @@ export class RemotePlayers {
       remote.car.visible = visible && pose?.mode === 'car';
       remote.scooter.visible = visible && pose?.mode === 'scooter';
       remote.truck.visible = visible && pose?.mode === 'truck';
-      remote.label.visible = visible;
+      remote.pizza.visible = visible && pose?.mode === 'foot' && pose.carrying;
+      remote.label.visible = visible && !!p.nick;
+      if (p.nick !== remote.label.userData.nick) {
+        const label = nickname(p.nick); label.userData.nick = p.nick;
+        remote.label.removeFromParent(); (remote.label.material as THREE.SpriteMaterial).map?.dispose(); remote.label.material.dispose();
+        remote.label = label; this.root.add(label); label.visible = visible && !!p.nick;
+      }
       if (!pose || !visible) continue;
       const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
+      remote.pizza.position.set(pos.x - Math.sin(pose.yaw) * .45, pos.y + 1, pos.z - Math.cos(pose.yaw) * .45);
+      remote.pizza.rotation.y = pose.yaw;
       for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model.position.set(pos.x, pos.y, pos.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
@@ -146,7 +172,7 @@ export class RemotePlayers {
         this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt);
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
-      bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
+      if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
     }
     this.physics.setRemotes(bodies);
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;
@@ -183,7 +209,7 @@ export class RemotePlayers {
     this.physics.setRemotes([]);
     for (const r of this.remotes.values()) {
       this.tyreEffects.release(r.effectSlot);
-      r.foot?.removeFromParent(); r.distant.removeFromParent(); r.car.removeFromParent(); r.scooter.removeFromParent();
+      r.pizza.removeFromParent(); r.foot?.removeFromParent(); r.distant.removeFromParent(); r.car.removeFromParent(); r.scooter.removeFromParent();
       r.truck.removeFromParent(); r.label.removeFromParent();
       (r.label.material as THREE.SpriteMaterial).map?.dispose(); r.label.material.dispose();
     }

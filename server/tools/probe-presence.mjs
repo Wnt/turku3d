@@ -13,7 +13,7 @@ async function join() {
   const ws = new WebSocket(url, { origin: 'https://wnt.github.io', handshakeTimeout: 10_000 });
   clients.push(ws);
   return new Promise((resolve, reject) => {
-    ws.on('open', () => ws.send(JSON.stringify({ v: 1, type: 'hello' })));
+    ws.on('open', () => ws.send(JSON.stringify({ v: 2, type: 'hello' })));
     ws.on('error', reject);
     ws.on('close', () => reject(new Error('Closed before welcome')));
     ws.on('message', data => {
@@ -26,7 +26,7 @@ async function join() {
 try {
   const first = await join();
   const second = await join();
-  assert.equal(second.v, 1);
+  assert.equal(second.v, 2);
   assert.equal(second.hour.tz, 'Europe/Helsinki');
   assert.notEqual(first.you.id, second.you.id);
   assert(second.players.some(p => p.id === first.you.id));

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { Room, LIMITS } from './room.js';
+import { Room, LIMITS, VERSION } from './room.js';
 
 export function allowedOrigin(origin) {
   if (origin === 'https://wnt.github.io') return true;
@@ -28,7 +28,7 @@ export function createServer({ store, now = Date.now, onConnection = () => {} })
       room.tick();
       const path = new URL(req.url, 'http://localhost').pathname;
       if (path === '/healthz') {
-        answer(200, { ok: true, v: 1, hour: room.hour, connections: room.connections.size,
+        answer(200, { ok: true, v: VERSION, hour: room.hour, connections: room.connections.size,
           online: room.livePlayers().length, stats: room.stats });
       } else if (path === '/live.json') {
         answer(200, { hour: room.hour, players: room.livePlayers(), scores: room.scores() });

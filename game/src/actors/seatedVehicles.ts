@@ -61,7 +61,9 @@ export class SeatedVehicles {
   /** Follows each vehicle's latest state and seats the player on the one being driven. */
   update(dt: number, latestOf: (id: string) => VehicleState | null, drivenId: string | null, player: PlayerVisual) {
     const scooter = latestOf(SCOOTER_ID), truck = latestOf(TRUCK_ID);
+    this.scooter.root.visible = !!scooter;
     if (scooter) this.scooter.update(dt, scooter);
+    this.truck.root.visible = !!truck;
     if (truck) this.truck.update(truck);
     for (const [id, actor] of this.extraTrucks) {
       const state = latestOf(id);

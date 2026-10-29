@@ -79,6 +79,10 @@ export class Vehicle {
     if (spec.parked) this.body.sleep();
   }
 
+  recordImpact(impulse: number) {
+    if (impulse / this.body.mass() >= IMPACT_MIN_DELTA_V) this.impact = { id: ++this.impactId, impulse };
+  }
+
   reset(pos: V3, yaw: number) {
     this.body.setTranslation(pos, true);
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);

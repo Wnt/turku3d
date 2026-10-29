@@ -281,8 +281,16 @@ export class PhysicsWorld {
   spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) {
     const id = spec.id ?? 'player';
     const existing = this.vehicles.get(id);
-    if (existing) { existing.reset(pos, yaw); return; }
+    if (existing) {
+      existing.reset(pos, yaw);
+      if (spec.rot) existing.body.setRotation(spec.rot, true);
+      if (spec.linvel) existing.body.setLinvel(spec.linvel, true);
+      return;
+    }
     this.vehicles.set(id, new Vehicle(this.R, this.world, pos, yaw, this.curbQueries, spec, (collider, point) => this.materialAt(collider, point)));
+    const created = this.vehicles.get(id)!;
+    if (spec.rot) created.body.setRotation(spec.rot, true);
+    if (spec.linvel) created.body.setLinvel(spec.linvel, true);
     const h = spec.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt;
     this.vehicleRadii.set(id, Math.hypot(h.x, h.y, h.z) + 0.5);
   }
@@ -316,7 +324,16 @@ export class PhysicsWorld {
     });
   }
 
-  /** Kinematic proxies are driven by interpolated network poses. They collide with the local KCC and vehicles. */
+  vehicleImpulse(id: string, impulse: V3) {
+    const vehicle = this.vehicles.get(id);
+    if (!vehicle || ![impulse.x, impulse.y, impulse.z].every(Number.isFinite)) return;
+    const size = Math.hypot(impulse.x, impulse.z);
+    const scale = size ? Math.min(1, 12000 / size, vehicle.body.mass() * 8 / size) : 0;
+    vehicle.body.applyImpulse({ x: impulse.x * scale, y: 0, z: impulse.z * scale }, true);
+    vehicle.recordImpact(size * scale);
+  }
+
+  /** Remote proxies block walking only. The server mirrors bounded car contact impulses to both owners. */
   setRemotes(bodies: RemoteBody[]) {
     const incoming = new Set(bodies.map(b => b.id));
     for (const [id, remote] of this.remotes) if (!incoming.has(id)) {
@@ -333,7 +350,7 @@ export class PhysicsWorld {
         const half = p.mode === 'foot' ? null : VEHICLES[p.mode].halfExt;
         const desc = half ? this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
           : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
-        desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER | GROUP.VEHICLE));
+        desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
         remote = { body, mode: p.mode };
         this.remotes.set(p.id, remote);

@@ -46,7 +46,10 @@ export class Scoreboard {
 
   private readonly onChange = () => {
     const state = this.client?.state;
-    this.element.hidden = !state?.connected;
+    this.element.hidden = !state?.connected && !state?.error;
+    if (state?.error && !state.connected) {
+      this.banner.hidden = false; this.banner.textContent = state.error; this.table.textContent = ''; return;
+    }
     if (!state?.connected) return;
     if (state.countdown !== this.countdownValue) {
       this.countdownValue = state.countdown;
@@ -62,6 +65,7 @@ export class Scoreboard {
   };
 
   private renderCountdown() {
+    if (this.client?.state.error && !this.client.state.connected) return;
     const seconds = this.countdownValue;
     this.banner.hidden = seconds === null;
     this.banner.textContent = seconds === null ? ''

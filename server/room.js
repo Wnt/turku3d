@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import { hourAt } from './hours.js';
 import { nickname } from './nicks.js';
 import { validDelivery } from './economy.js';
+import { validPose, cleanPose } from './pose.js';
+import { VehicleRegistry } from './vehicles.js';
 
-export const VERSION = 1;
+export const VERSION = 2;
 export const LIMITS = Object.freeze({ connections: 32, acceptedPerSecond: 20, disconnectPerSecond: 25,
   messageBytes: 65_536, idleMs: 60_000, helloMs: 5_000, orders: 10_000 });
 export const SPAWNS = JSON.parse(readFileSync(new URL('./spawns.json', import.meta.url))).points;
@@ -21,6 +23,7 @@ export class Room {
     this.connections = new Set();
     this.usedNicks = new Set();
     this.brokenPoles = new Map();
+    this.vehicles = new VehicleRegistry(this);
     this.spawnIndex = 0;
     this.warned = false;
     this.lastPruneDay = null;
@@ -48,6 +51,7 @@ export class Room {
   disconnect(c) {
     if (!this.connections.delete(c)) return;
     if (c.player?.connection === c) {
+      this.vehicles.releasePlayer(c.player);
       c.player.connection = null;
       c.player.online = false;
       c.player.dirty = false;
@@ -90,9 +94,10 @@ export class Room {
     }
     if (m.type === 'hello' && !c.player) { this.hello(c, m, now); return; }
     if (!c.player) { this.reject(); return; }
+    if (m.type === 'vehicle') { this.vehicles.command(c.player, m, now); return; }
     if (m.type === 'pose') { this.pose(c.player, m, now); return; }
     if (m.type === 'delivery') { this.delivery(c.player, m); return; }
-    if (m.type === 'world') { this.breakPole(c.player, m, now); return; }
+    if (m.type === 'world') { this.breakPole(c.player, m); return; }
     if (m.type === 'fine') { this.fine(c.player, m); return; }
     this.reject();
   }
@@ -128,7 +133,7 @@ export class Room {
   welcome(c) {
     const p = c.player;
     this.send(c, 'welcome', { session: p.session, you: { id: p.id, nick: p.nick, spawn: p.spawn },
-      hour: this.hour, players: this.livePlayers(), scores: this.scores(), brokenPoles: [...this.brokenPoles.values()] });
+      hour: this.hour, players: this.livePlayers(), scores: this.scores(), brokenPoles: [...this.brokenPoles.values()], vehicles: this.vehicles.snapshot(c), serverTime: this.now() });
   }
 
   livePlayers() {
@@ -151,23 +156,13 @@ export class Room {
   }
 
   pose(p, m, now) {
-    if (!finite(m.t, Number.MAX_SAFE_INTEGER) || m.t < 0 || !finite(m.E, 100_000) || !finite(m.N, 100_000)
-      || !finite(m.H, 10_000) || !finite(m.yaw, Math.PI * 2)
-      || (m.rot !== undefined && (!m.rot || !['x', 'y', 'z', 'w'].every(k => finite(m.rot[k], 1))
-        || Math.abs(Math.hypot(m.rot.x, m.rot.y, m.rot.z, m.rot.w) - 1) > 0.01))
-      || (m.wheels !== undefined && (!Array.isArray(m.wheels) || m.wheels.length > 4 || m.wheels.some(w =>
-        !w || !w.pos || !['x', 'y', 'z'].every(k => finite(w.pos[k], 10)) || !finite(w.steer, Math.PI * 2)
-        || !finite(w.rotation, Number.MAX_SAFE_INTEGER) || !finite(w.suspension, 10) || typeof w.contact !== 'boolean')))
-      || !['vE', 'vN', 'vH'].every(k => finite(m[k], 200))
-      || !['foot', 'car', 'scooter', 'truck'].includes(m.mode) || typeof m.carrying !== 'boolean'
-      || !(m.mode === 'foot' ? m.vehicle === null : m.mode === 'scooter' || m.mode === 'truck' ? m.vehicle === m.mode
-        : m.vehicle === 'player' || (typeof m.vehicle === 'string' && m.vehicle.length <= 64
-          && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(m.vehicle)))) {
-      this.reject(); return;
+    if (!validPose(m)) { this.reject(); return; }
+    if (m.vehicleId !== undefined) {
+      const driven = this.vehicles.entries.get(m.vehicleId);
+      if (!driven || driven.occupant !== p.id || driven.owner !== p.id || driven.pose.mode !== m.mode) { this.reject(); return; }
     }
-    const { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying } = m;
-    p.pose = { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying,
-      ...(m.rot !== undefined ? { rot: m.rot } : {}), ...(m.wheels !== undefined ? { wheels: m.wheels } : {}) };
+    if (m.vehicles !== undefined && !this.vehicles.update(p, m.vehicles, now)) this.reject();
+    p.pose = { ...cleanPose(m), ...(typeof m.vehicleId === 'string' ? { vehicleId: m.vehicleId } : {}) };
     p.dirty = true;
     p.lastPoseAt = now;
     const wasOnline = p.online;
@@ -186,7 +181,7 @@ export class Room {
     this.broadcast('scores', { scores: this.scores() });
   }
 
-  breakPole(p, m, now) {
+  breakPole(p, m) {
     if (m.action !== 'break' || !identifier(m.poleId) || !finite(m.t, Number.MAX_SAFE_INTEGER)
       || m.t < 0 || m.by !== p.id || this.brokenPoles.has(m.poleId)) { this.reject(); return; }
     const event = { action: 'break', poleId: m.poleId, by: p.id, t: m.t };
@@ -204,16 +199,19 @@ export class Room {
 
   flushPoses() {
     const dirty = [...this.players.values()].filter(p => p.online && p.dirty);
+    this.vehicles.flush(this.now());
     if (!dirty.length) return;
     for (const c of this.connections) {
       if (!c.player) continue;
-      const poses = dirty.filter(p => p !== c.player).map(p => ({ id: p.id, ...p.pose }));
+      const poses = dirty.filter(p => p !== c.player && (p.pose.mode === 'foot'
+        || Math.hypot(p.pose.E - (c.player.pose ?? c.player.spawn).E, p.pose.N - (c.player.pose ?? c.player.spawn).N) <= 250)).map(p => ({ id: p.id, ...p.pose }));
       if (poses.length) this.send(c, 'poses', { poses });
     }
     for (const p of dirty) p.dirty = false;
   }
 
   tick(now = this.now()) {
+    this.vehicles.expire(now);
     while (now >= Date.parse(this.hour.end)) {
       this.store.write(this.hour, this.scores().map(({ nick, money, deliveries, rank }) => ({ nick, money, deliveries, rank })));
       const continuing = [...this.players.values()].filter(p => p.connection);
@@ -243,6 +241,7 @@ export class Room {
     }
     for (const p of this.players.values()) {
       if (p.online && now - p.lastPoseAt >= LIMITS.idleMs) {
+        this.vehicles.releasePlayer(p);
         p.online = false; p.dirty = false; changed = true;
       }
     }

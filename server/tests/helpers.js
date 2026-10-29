@@ -8,7 +8,7 @@ export function fixture(start = '2026-10-27T12:00:00Z') {
   function connect(session) {
     const messages = [], closes = [];
     const c = room.connect(data => messages.push(JSON.parse(data)), (...args) => closes.push(args));
-    const send = m => room.receive(c, JSON.stringify({ v: 1, ...m }));
+    const send = m => room.receive(c, JSON.stringify({ v: 2, ...m }));
     send({ type: 'hello', ...(session ? { session } : {}) });
     return { c, messages, closes, send, get welcome() { return messages.find(m => m.type === 'welcome'); } };
   }
