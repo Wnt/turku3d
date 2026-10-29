@@ -14,7 +14,6 @@ import math
 import numpy as np
 from PIL import Image, ImageDraw
 
-
 VERSION = "facade-program-prototype-1"
 
 

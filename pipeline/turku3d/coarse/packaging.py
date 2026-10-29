@@ -50,9 +50,12 @@ PRODUCERS = (
 
 
 def producer_paths():
+    from turku3d.facade_programs import source_paths
+
     props = Path(__file__).parents[1] / "props"
     return sorted(
         [
+            *source_paths(),
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
             Path(__file__).parents[1] / "stage_cache.py",
             Path(__file__).parents[1] / "spatial.py",

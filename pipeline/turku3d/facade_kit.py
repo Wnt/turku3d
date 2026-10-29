@@ -271,8 +271,10 @@ def parameter_hash(keys, root: Path | None = None) -> str:
         h.update(key.encode())
         if root is None:
             from turku3d.facade_assets import building_hash, description_row
+            from turku3d.facade_programs import program_hash
 
             h.update(building_hash(key))
+            h.update(program_hash(key))
             h.update(json.dumps(description_row(key), sort_keys=True).encode())
         else:
             path = store_path(key, root)
