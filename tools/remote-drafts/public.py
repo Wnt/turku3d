@@ -53,8 +53,13 @@ class CollisionBundles:
         key = (tile, tuple((cid, e["url"], e["sha256"], e["bytes"]) for cid, e in rows))
         with self.lock:
             if key in self.entries:
-                self.entries.move_to_end(key)
-                return self.entries[key]
+                descriptor = self.entries[key]
+                if (self.root / tile / descriptor["url"]).is_file():
+                    self.entries.move_to_end(key)
+                    return descriptor
+                # Disk retention or a cold-output reset can remove the derivative
+                # while this producer still remembers it. Rebuild from its cells.
+                del self.entries[key]
             bodies = [(self.root / tile / e["url"]).read_bytes() for _, e in rows]
             for body, (_, entry) in zip(bodies, rows, strict=False):
                 if len(body) != entry["bytes"] or hashlib.sha256(body).hexdigest() != entry["sha256"]:

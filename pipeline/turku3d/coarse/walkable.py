@@ -173,12 +173,32 @@ def prepare(tile, osm, water_path, paths):
         points, _ = read_returns(
             [p for p in paths if p.parent.name == "maanpinta"], bounds, [1, 2, 8, 12]
         )
+    # Only points used by a path's measurement can affect its fitted section.
+    # Keep a whole horizontal voxel around each measurement box so the original
+    # first return in that voxel still wins the deduplication below.
+    relevant = np.zeros(len(points), dtype=bool)
+    for _, line, width in ways:
+        x0, z0, x1, z1 = line.buffer(width / 2 + 7).bounds
+        relevant |= (
+            (points[:, 0] >= x0 - 0.25)
+            & (points[:, 0] <= x1 + 0.25)
+            & (points[:, 2] >= z0 - 0.25)
+            & (points[:, 2] <= z1 + 0.25)
+        )
+    points = points[relevant]
     exclude = shapely.union_all([water, *blocked])
+    shapely.prepare(exclude)
     points = points[~shapely.intersects_xy(exclude, points[:, 0], points[:, 2])]
     # Equal horizontal support prevents dense scan strips from outweighing the
     # rest of the paving. Keep separate height bands for robust outlier rejection.
     voxel = np.floor(points[:, [0, 2, 1]] / [0.25, 0.25, 0.1]).astype(np.int64)
-    _, first = np.unique(voxel, axis=0, return_index=True)
+    if not len(voxel):
+        return []
+    # A single integer has the same lexicographic order as the three integer
+    # coordinates, without NumPy's expensive structured-row comparison sort.
+    voxel -= voxel.min(axis=0)
+    keys = np.ravel_multi_index(voxel.T, voxel.max(axis=0) + 1)
+    _, first = np.unique(keys, return_index=True)
     points = points[first]
     result = [measure(key, line, width, points, window) for key, line, width in ways]
     return sorted((r for r in result if r is not None), key=lambda r: r["key"])
