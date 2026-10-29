@@ -250,6 +250,33 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
             and (w["tags"].get("highway") in PATHS) == foot
             and w["line"].boundary.distance(endpoints) < 0.05
         ]
+        b["stair_access"] = (
+            foot
+            and any(w["tags"].get("highway") not in PATHS for w in b["under"])
+            and any(
+                step["tags"].get("highway") == "steps"
+                and min(
+                    [
+                        step["line"].boundary.distance(endpoints),
+                        *(
+                            step["line"].boundary.distance(w["line"].boundary)
+                            for w in b["approaches"]
+                        ),
+                    ]
+                )
+                < 0.05
+                for step in ways
+            )
+        )
+        if b["stair_access"]:
+            # Some bridge areas include the access flights. Their envelope axis
+            # must not turn the stairs into a deck or invalidate its lidar ends.
+            main = max(members, key=lambda w: w["line"].length)
+            b["line"] = main["line"]
+            if "outline" in b:
+                b["outline"] = b["outline"].intersection(
+                    main["line"].buffer(b["width"] / 2, cap_style="flat", join_style="mitre")
+                )
         extended_way = {**b, "line": extended(b["line"], 30)}
         under_ids = {w["id"] for w in b["under"]}
         b["approach_under"] = [
@@ -358,6 +385,22 @@ def approach_lengths(way, ends, sample, obstacles):
         (coords[-1], coords[-2], ends[-1]),
     ):
         direction = (endpoint - other) / np.linalg.norm(endpoint - other)
+        if way.get("stair_access"):
+            # Steps own their climb. A short mapped continuation is a suspended
+            # landing, not a terrain ramp extrapolated through the staircase.
+            joined = [
+                w for w in approaches if w["line"].boundary.distance(shapely.Point(endpoint)) < 0.05
+            ]
+            if any(w["tags"].get("highway") == "steps" for w in joined):
+                result.append(0.0)
+                continue
+            distances = [
+                float(np.max((np.asarray(w["line"].coords) - endpoint) @ direction))
+                for w in joined
+                if w["line"].length <= 10
+            ]
+            result.append(max([0.0, *distances]))
+            continue
         length = minimum
         for distance in np.r_[minimum, np.arange(4, 32, 2)]:
             point = endpoint + direction * distance
@@ -603,6 +646,8 @@ def produce(tile, grid_pos, inputs):
         # Preserve a straight span, including the highest ground across the deck width.
         inside = (ss >= start_ramp) & (ss <= start_ramp + axis.length)
         hh[inside] = np.interp(ss[inside] - start_ramp, s, heights) + 0.02
+        if way.get("stair_access"):
+            hh = np.interp(ss - start_ramp, s, heights) + 0.02
         key = f"draft-bridge:{way['id']}"
         rail = way["tags"].get("railway") in RAILS
         material = (
@@ -665,7 +710,8 @@ def produce(tile, grid_pos, inputs):
             p = shapely.Point(grid_pos[i, [0, 2]])
             t = line.project(p)
             if (
-                start_ramp <= t <= start_ramp + axis.length
+                way.get("stair_access")
+                or start_ramp <= t <= start_ramp + axis.length
                 or blocked_approaches.covers(p)
                 or any(g.covers(p) for g in blocked)
             ):

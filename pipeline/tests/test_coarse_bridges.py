@@ -221,7 +221,7 @@ def test_railing_is_open_geometry_with_blocking_balusters_and_batched_materials(
         shapely.box(0, -3, 20, 3),
     )
     assert len(meshes) <= 3
-    metal = next(m for m in meshes if m.metadata["surface"] == "steel")
+    metal = next(m for m in meshes if m.metadata["surface"] == "paint")
     assert metal.metadata["collision"]
     assert metal.positions[:, 1].max() > 6.2
     # No 1.2 m solid wall masquerading as an open metal railing.

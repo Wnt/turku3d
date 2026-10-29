@@ -28,6 +28,7 @@ from turku3d.facade_kit import candidates, palette_sources, parameter_hash
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
+from turku3d.wall_surfaces import paint_partition, trapezoids
 
 from . import banks, bridges, fences, kerbs, parked, road_top, surfaces
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
@@ -38,9 +39,15 @@ from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .retention import managed_build
 from .sources import Sources
-from .stages import (building_visual, deck_stage, kerb_inputs, props_visual,
-                     roof_crop, roof_fallback, valid_roof_pixels)
-from turku3d.wall_surfaces import paint_partition, trapezoids
+from .stages import (
+    building_visual,
+    deck_stage,
+    kerb_inputs,
+    props_visual,
+    roof_crop,
+    roof_fallback,
+    valid_roof_pixels,
+)
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -321,7 +328,9 @@ def build(
         surface_sample,
         dry,
         solid,
-        kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
+        kerb_inputs(tile, ground_sources) if inputs.stairs[0] or inputs.barriers else None,
+        osm_decks,
+        inputs.barriers,
     )
     seconds.update(
         stairs_geometry=cache.metrics["stairs"]["seconds"],
