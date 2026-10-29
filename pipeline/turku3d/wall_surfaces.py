@@ -87,7 +87,9 @@ def overlaps(faces, ids):
         for j in js:
             q = points[j]
             b = shapely.Polygon(np.c_[(q - p[0]) @ direction, q[:, 1]])
-            common = a.intersection(b)
+            # 50 micrometres is below float32 precision at long tile overhangs.
+            # Touching tessellation edges are not overlapping surface interiors.
+            common = a.buffer(-.00005).intersection(b.buffer(-.00005))
             if common.area <= MIN_AREA:
                 continue
             # Plane separation at shared frontage, not at distant edge endpoints.
@@ -99,14 +101,23 @@ def overlaps(faces, ids):
     return result
 
 
-def validate_meshes(meshes, tile):
+def wall_faces(meshes):
+    """Collect architectural wall triangles in the precision shipped to the GPU."""
     faces, ids = [], []
     for mesh in meshes:
-        # GLB stores tile-local float32: validate the precision actually shipped.
         points = np.asarray(mesh.positions, np.float32).astype(float)
-        faces.extend(points[np.asarray(mesh.indices)])
+        triangles = points[np.asarray(mesh.indices)]
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        lengths = np.linalg.norm(normals, axis=1)
+        selected = np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < .02 * lengths))
+        faces.extend(triangles[selected])
         owner = mesh.extras.get("building_id", mesh.name)
-        ids.extend(f"{owner}/{mesh.name}/face:{i}" for i in range(len(mesh.indices)))
+        ids.extend(f"{owner}/{mesh.name}/face:{i}" for i in selected)
+    return faces, ids
+
+
+def validate_meshes(meshes, tile):
+    faces, ids = wall_faces(meshes)
     violations = overlaps(faces, ids)
     if violations:
         raise ValueError(f"wall surface invariant {tile}: {violations[:20]}")
@@ -142,15 +153,15 @@ def validate_neighbours(meshes, shells, tile, root):
     owners = sorted({b.key for b, _ in shells})
     faces, ids = [], []
     box = tile.bbox
-    for mesh in meshes:
-        vertices = np.asarray(mesh.positions, np.float32).astype(float) + tile.origin
-        for i, face in enumerate(vertices[np.asarray(mesh.indices)]):
-            lo, hi = face.min(axis=0), face.max(axis=0)
-            if (lo[0] > box.xmin + DISTANCE and hi[0] < box.xmax - DISTANCE
-                    and lo[2] > box.zmin + DISTANCE and hi[2] < box.zmax - DISTANCE):
-                continue
-            faces.append(face.tolist())
-            ids.append(f"{tile.id}/{mesh.extras.get('building_id', mesh.name)}/{mesh.name}/{i}")
+    local_faces, local_ids = wall_faces(meshes)
+    for local, identity in zip(local_faces, local_ids, strict=True):
+        face = local + tile.origin
+        lo, hi = face.min(axis=0), face.max(axis=0)
+        if (lo[0] > box.xmin + DISTANCE and hi[0] < box.xmax - DISTANCE
+                and lo[2] > box.zmin + DISTANCE and hi[2] < box.zmax - DISTANCE):
+            continue
+        faces.append(face.tolist())
+        ids.append(f"{tile.id}/{identity}")
     directory = Path(root) / ".wall-surfaces"
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / "admission.lock").open("a+b") as lock:
@@ -177,3 +188,39 @@ def validate_neighbours(meshes, shells, tile, root):
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(dict(owners=owners, faces=faces, ids=ids)))
         temporary.replace(path)
+
+
+def layer_meshes(paths):
+    """Read generated wall-bearing layers before meshopt/atlas packing."""
+    from turku3d.package.gltf import GlbMesh, accessor_array, read_glb
+
+    meshes = []
+    for path in paths:
+        if path.name in {"vegetation.vis.glb", "props.vis.glb"}:
+            continue  # Instanced foliage/props do not own architectural wall surfaces.
+        document, binary = read_glb(path.read_bytes())
+        for node in document["nodes"]:
+            if "mesh" not in node:
+                continue
+            # Layer writers share the tile root translation; positions are tile-local.
+            for primitive in document["meshes"][node["mesh"]]["primitives"]:
+                attrs = primitive["attributes"]
+                material = document["materials"][primitive["material"]]
+                pbr = material["pbrMetallicRoughness"]
+                image, repeat = None, False
+                if "baseColorTexture" in pbr:
+                    texture = document["textures"][pbr["baseColorTexture"]["index"]]
+                    view = document["bufferViews"][document["images"][texture["source"]]["bufferView"]]
+                    image = binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]]
+                    repeat = document["samplers"][texture["sampler"]]["wrapS"] == 10497
+                meshes.append(GlbMesh(
+                    node.get("name", path.name),
+                    accessor_array(document, binary, attrs["POSITION"]),
+                    accessor_array(document, binary, primitive["indices"]).reshape(-1, 3),
+                    normals=accessor_array(document, binary, attrs["NORMAL"]) if "NORMAL" in attrs else None,
+                    uvs=accessor_array(document, binary, attrs["TEXCOORD_0"]) if "TEXCOORD_0" in attrs else None,
+                    image=image, repeat=repeat, color=tuple(pbr["baseColorFactor"]),
+                    roughness=pbr["roughnessFactor"], emissive=tuple(material.get("emissiveFactor", [0, 0, 0])),
+                    extras=node.get("extras", {}),
+                ))
+    return meshes

@@ -242,7 +242,12 @@ def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_
     assert diagnostic["storeys"]["value"] == 4
     assert diagnostic["source"] == "reviewed-overlay"
     assert [w["paint_source"] for w in diagnostic["walls"]] == ["reviewed-program", "stored-facade-map"]
-    assert [m.extras.get("facade_index") for m in meshes if m.extras["material_key"] == "facade_stored"] == [1]
+    stored = [m for m in meshes if m.extras["material_key"] == "facade_stored"]
+    assert [m.extras.get("facade_index") for m in stored] == [0, 1]
+    # The unobserved 8..10 m strip retains its existing map, with no second base wall.
+    np.testing.assert_allclose(stored[0].positions[:, 0], [8, 10, 10, 8])
+    from turku3d.wall_surfaces import validate_meshes
+    assert validate_meshes(meshes, "fixture")["violations"] == 0
     wall = diagnostic["walls"][0]
     assert wall["wall_id"] == "stable:0"
     assert wall["wall"]["colour"]["source"] == "register palette"

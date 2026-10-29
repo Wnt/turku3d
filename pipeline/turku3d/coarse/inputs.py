@@ -118,6 +118,7 @@ class Inputs:
     stairs: tuple = ((), ())
     parking: tuple = ((), ())
     poles: list = ()  # sign and bus-stop props with full-tile source identities
+    wall_context: list = ()  # neighbouring complete buildings for deterministic wall ownership
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -211,7 +212,7 @@ def _frame(path: Path | None, bbox: C.BBoxLocal, kinds=("Polygon", "MultiPolygon
     return list(zip(local[keep], frame[keep].itertuples(), strict=True))
 
 
-def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
+def buildings(path: Path, tile: C.VisualTile, *, context=False) -> list[Building]:
     """Complete surveyed solid footprints owned by centroid, retaining the roof envelope."""
     from turku3d.buildings.source_surfaces import classify_surfaces
 
@@ -235,7 +236,7 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
         polys = sorted(polys, key=lambda p: (-p.area, p.wkb))
         centre = polys[0].centroid
         owner = C.VisualTile.at(centre.x, centre.y)
-        if owner != tile:
+        if owner != tile and not context:
             continue
         for part_index, footprint in enumerate(polys):
             if footprint.area < 0.01:
@@ -310,11 +311,12 @@ def prepare_wfs(
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
 
-    shells = buildings(bldg, tile) if bldg else []
+    shells = buildings(bldg, tile, context=True) if bldg else []
     if shells and roof_paths:
         roofs.refine(shells, roof_paths)
     return {
-        "buildings": shells,
+        "buildings": [b for b in shells if b.visual_owner == tile.id],
+        "wall_context": [b for b in shells if b.visual_owner != tile.id],
         "streets": [
             (shapely.make_valid(g), mat_id(surface_material(r.Katuosalaji, r.Pintamateriaali)))
             for g, r in _frame(streets, tile.bbox)
@@ -647,8 +649,8 @@ def gather(
                 if value is _ABSENT:
                     value = _prepare_one(tile, dataset, paths[:3])
                     _save(base_path, base_key, value)
-                if value["buildings"] and paths[3:]:
-                    roofs.refine(value["buildings"], paths[3:])
+                if (value["buildings"] or value.get("wall_context")) and paths[3:]:
+                    roofs.refine(value["buildings"] + value.get("wall_context", []), paths[3:])
             else:
                 value = _prepare_one(tile, dataset, paths)
             _save(path, key, value)

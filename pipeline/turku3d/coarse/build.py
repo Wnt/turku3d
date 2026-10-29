@@ -302,8 +302,8 @@ def build(
         source_key(
             *common, Path(__file__).with_name("extrusion.py"), Path(__file__).with_name("roofs.py")
         ),
-        blds,
-        lambda: [(b, shell) for b in blds if len((shell := extrude(b))[1])],
+        blds + list(inputs.wall_context),
+        lambda: [(b, shell) for b in [*blds, *inputs.wall_context] if len((shell := extrude(b))[1])],
     )
     seconds["buildings"] = time.perf_counter() - t
 
@@ -349,7 +349,9 @@ def build(
             surface_sample,
         ),
     )
-    shells = tunnels.shells
+    own_keys = {b.key for b in blds}
+    wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
+    shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -527,6 +529,7 @@ def build(
             seconds,
             started,
             shells,
+            wall_context,
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -680,19 +683,29 @@ def build(
             ortho_uv,
             *common,
         ),
-        [tile, shells, inputs.ortho, False, facade_params],
-        lambda: building_visual(tile, shells, inputs.ortho, False),
+        [tile, shells, wall_context, inputs.ortho, False, facade_params],
+        lambda: building_visual(tile, shells, inputs.ortho, False, wall_context),
     )
-    from turku3d.wall_surfaces import validate_meshes, validate_neighbours
-
-    validate_meshes(building_meshes, tile.id)
-    validate_neighbours(building_meshes, shells, tile, out.parent)
     if building_meshes:
         programs = [m.extras.pop("facade_program") for m in building_meshes
                     if "facade_program" in m.extras]
         _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
         write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
+
+    from turku3d.wall_surfaces import layer_meshes, validate_meshes, validate_neighbours
+
+    from turku3d.wall_assembly import assemble_structures
+
+    wall_layers = layer_meshes(layer_files)
+    protected = [m for m in wall_layers if m.extras.get("material_key") in {"facade_kit", "facade_stored"}]
+    secondary = [m for m in wall_layers if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}]
+    wall_layers = protected + assemble_structures(secondary, protected)
+    validate_meshes(wall_layers, tile.id)
+    validate_neighbours(wall_layers, shells, tile, out.parent)
+    write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
+    layer_files = [p for p in layer_files if p.name in {"vegetation.vis.glb", "props.vis.glb"}]
+    layer_files.append(stage / "architecture.vis.glb")
 
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))

@@ -28,7 +28,7 @@ COLOURS = {
 }
 
 
-def visual(tile, cells, shells=(), *, root=None):
+def visual(tile, cells, shells=(), wall_context=(), *, root=None):
     """Reuse structural surfaces, assembling building walls once for both passes."""
     positions, indices, materials = [], [], []
     count = 0
@@ -61,7 +61,7 @@ def visual(tile, cells, shells=(), *, root=None):
     from turku3d.wall_surfaces import validate_meshes
 
     building_meshes = []
-    for (b, shell), walls in zip(shells, assemble_walls(shells), strict=True):
+    for (b, shell), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
         roof, ridx, floor, fidx = shell[:4]
         widx = (np.array([[0, 3, 2], [0, 2, 1]])[None, :, :]
                 + np.arange(len(walls) // 4)[:, None, None] * 4).reshape(-1, 3)
@@ -76,23 +76,25 @@ def visual(tile, cells, shells=(), *, root=None):
                 color=(*map(float, linear), 1.0),
                 extras=dict(layer="buildings", surface=surface, building_id=b.facade_key),
             ))
-    validate_meshes(building_meshes, tile.id)
+    from turku3d.wall_assembly import assemble_structures
+
+    meshes = building_meshes + assemble_structures(meshes, building_meshes)
+    validate_meshes(meshes, tile.id)
     if root is not None:
         from turku3d.wall_surfaces import validate_neighbours
-        validate_neighbours(building_meshes, shells, tile, root)
-    meshes.extend(building_meshes)
+        validate_neighbours(meshes, shells, tile, root)
     data = build_glb(
         meshes, root_translation=tile.origin, root_extras={"basic": True, "tile": tile.id}
     )
     return data, sum(len(m.indices) for m in meshes), [float(pos[:, 1].min()), float(pos[:, 1].max())]
 
 
-def publish(tile, out, cells, collision, roads, code, input_key, buildings, seconds, started, shells=()):
+def publish(tile, out, cells, collision, roads, code, input_key, buildings, seconds, started, shells=(), wall_context=()):
     from .build import _entry, _write
     from .collision_key import code_hash
 
     t = time.perf_counter()
-    data, triangles, height = visual(tile, cells, shells, root=out.parent)
+    data, triangles, height = visual(tile, cells, shells, wall_context, root=out.parent)
     url = f"vis.{hashlib.sha256(data).hexdigest()}.glb"
     _write(out / url, data)
     roads_entry = None

@@ -71,7 +71,7 @@ def _paint_layers(vertices, wall, style):
             above_full_wall = (
                 bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
             )
-            yield *part, blank if above_full_wall else style, 0
+            yield *part, blank if above_full_wall else {**style, "unreviewed": True}, 0
     part = quad(x0, x1, y0, y1)
     if part:
         yield *part, blank, 0

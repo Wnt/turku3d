@@ -61,7 +61,7 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
 
 
 
-def exposed_wall_quads(walls, *, with_owners=False):
+def exposed_wall_quads(walls, *, with_owners=False, emit=None):
     """Paint one surface per outward wall, including near-coincident LOD2 slivers.
 
     Roof-part solids remain closed for collision. Their independently simplified
@@ -81,11 +81,24 @@ def exposed_wall_quads(walls, *, with_owners=False):
     directions = directions / lengths[:, None]
     priority = sorted(range(len(quads)), key=lambda i: (-quads[i, 2:, 1].max(), -lengths[i], i))
     rank = np.argsort(priority)
+    low, high = quads.min(axis=1), quads.max(axis=1)
+    bounds = shapely.box(low[:, 0] - .006, low[:, 2] - .006,
+                         high[:, 0] + .006, high[:, 2] + .006)
+    tree = shapely.STRtree(bounds)
     result, owners = [], []
     for i, vertices in enumerate(quads):
+        if emit is not None and not emit[i]:
+            continue
         direction = directions[i]
+        others = tree.query(bounds[i])
+        others = others[(rank[others] < rank[i]) & (directions[others] @ direction > .99998)
+                        & (high[others, 1] > low[i, 1]) & (low[others, 1] < high[i, 1])]
+        if not len(others):
+            result.append(vertices)
+            owners.append(i)
+            continue
         normal = np.array([-direction[1], direction[0]])
-        delta = quads[:, :, [0, 2]] - starts[i]
+        delta = quads[others][:, :, [0, 2]] - starts[i]
         along = delta @ direction
         # Compare planes only over their shared frontage. A long surveyed edge
         # may diverge beyond a short sliver without changing that overlap.
@@ -93,21 +106,27 @@ def exposed_wall_quads(walls, *, with_owners=False):
         slope = (across[:, 1] - across[:, 0]) / np.maximum(along[:, 1] - along[:, 0], 1e-9)
         shared_left = np.maximum(0, along[:, :2].min(axis=1))
         shared_right = np.minimum(lengths[i], along[:, :2].max(axis=1))
-        distance = np.maximum(
-            np.abs(across[:, 0] + (shared_left - along[:, 0]) * slope),
-            np.abs(across[:, 0] + (shared_right - along[:, 0]) * slope),
-        )
-        candidates = np.flatnonzero(
-            (rank < rank[i]) & (directions @ direction > 0.99999)
-            & (distance <= 0.005) & (along.max(axis=1) > 0)
-            & (along.min(axis=1) < lengths[i])
-        )
+        # Resolve every shared interval within 6 mm, including diverging edges
+        # that cross the 5 mm validation band. The extra millimetre covers export
+        # rounding; the angular margin likewise covers narrow float32 triangles.
+        intercept = across[:, 0] - along[:, 0] * slope
+        parallel = abs(slope) < 1e-12
+        safe_slope = np.where(parallel, 1, slope)
+        ends_a, ends_b = (-.006 - intercept) / safe_slope, (.006 - intercept) / safe_slope
+        near_left = np.where(parallel, -np.inf, np.minimum(ends_a, ends_b))
+        near_right = np.where(parallel, np.inf, np.maximum(ends_a, ends_b))
+        near_right = np.where(parallel & (abs(intercept) > .006), -np.inf, near_right)
+        shared_left = np.maximum(shared_left, near_left)
+        shared_right = np.minimum(shared_right, near_right)
+        candidates = np.flatnonzero(shared_right > shared_left)
         if not len(candidates):
             result.append(vertices)
             owners.append(i)
             continue
-        surface = shapely.Polygon(np.c_[along[i], vertices[:, 1]])
-        occluders = [shapely.Polygon(np.c_[along[j], quads[j, :, 1]]) for j in candidates]
+        surface = shapely.Polygon(np.c_[[0, lengths[i], lengths[i], 0], vertices[:, 1]])
+        occluders = [shapely.Polygon(np.c_[along[j], quads[others[j], :, 1]]).intersection(
+            shapely.box(shared_left[j], -10000, shared_right[j], 10000)
+        ) for j in candidates]
         remainder = surface.difference(shapely.union_all(occluders))
         if remainder.equals(surface):
             result.append(vertices)
@@ -125,18 +144,28 @@ def exposed_wall_quads(walls, *, with_owners=False):
     return (output, owners) if with_owners else output
 
 
-def assemble_walls(shells):
+def assemble_walls(shells, context=()):
     """Resolve all roof parts, footprint and passage splits together before paint."""
+    requested = len(shells)
+    # Stable source order makes shared-frontage ownership independent of which
+    # neighbour builds first. Context is used for occlusion, never emitted here.
+    all_shells = [*shells, *context]
+    order = sorted(range(len(all_shells)), key=lambda i: (
+        all_shells[i][0].key, all_shells[i][0].base, all_shells[i][0].footprint.wkb
+    ))
+    shells = [all_shells[i] for i in order]
     counts = [len(shell[4]) // 4 for _, shell in shells]
     if not sum(counts):
-        return [np.empty((0, 3)) for _ in shells]
+        return [np.empty((0, 3)) for _ in range(requested)]
     walls, owners = exposed_wall_quads(
-        np.concatenate([shell[4] for _, shell in shells]), with_owners=True
+        np.concatenate([shell[4] for _, shell in shells]), with_owners=True,
+        emit=np.repeat(np.array(order) < requested, counts),
     )
     source = np.repeat(np.arange(len(shells)), counts)
     owner = source[owners]
     quads = walls.reshape(-1, 4, 3)
-    return [quads[owner == i].reshape(-1, 3) for i in range(len(shells))]
+    result = {original: quads[owner == i].reshape(-1, 3) for i, original in enumerate(order)}
+    return [result[i] for i in range(requested)]
 
 
 def wall_meshes(b, walls, origin):
@@ -163,8 +192,7 @@ def wall_meshes(b, walls, origin):
         vertices = walls[start : start + 4]
         match = match_prepared(vertices, stored)
         wall = program["walls"][start // 4]
-        if wall.get("measured_wall_id"):
-            match = None  # Direct review owns this wall, including over older generated maps.
+        reviewed = bool(wall.get("measured_wall_id"))
         wall["paint_source"] = (
             "reviewed-program" if wall.get("measured_wall_id") else
             "stored-facade-map" if match else
@@ -172,34 +200,20 @@ def wall_meshes(b, walls, origin):
         )
         if match:
             wall["stored_facade_index"] = match[0]["metadata"]["facade_index"]
-        if match is None:
+        if match is None or reviewed:
             style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
             style["origin"][1] = b.base
             for points, uv, instruction in wall_parts(vertices, program["walls"][start // 4], style):
+                if match is not None and instruction.get("unreviewed"):
+                    fallback = match_prepared(points, stored)
+                    if fallback is not None:
+                        meshes.append(stored_mesh(b, points, fallback, origin, f"{start}_{len(meshes)}"))
+                        continue
+                instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
                 instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
                 program_parts.append((points, uv))
             continue
-        f, uv = match
-        meta = f["metadata"]
-        meshes.append(
-            GlbMesh(
-                f"stored_{b.facade_key}_{meta['facade_index']}_{start}",
-                vertices - origin,
-                np.array([[0, 3, 2], [0, 2, 1]], np.uint32),
-                uvs=uv,
-                color=(1, 1, 1, 1),
-                extras=dict(
-                    layer="buildings",
-                    object_id=f"walls_{b.key}_{start}",
-                    building_id=meta.get("building_id", b.facade_key),
-                    facade_index=meta["facade_index"],
-                    material_key="facade_stored",
-                    surface="wall",
-                    base_height=b.base,
-                    top_height=b.top,
-                ),
-            )
-        )
+        meshes.append(stored_mesh(b, vertices, match, origin, start))
     if program_parts:
         meshes.append(
             GlbMesh(
@@ -230,3 +244,20 @@ def wall_meshes(b, walls, origin):
         # build() exports this diagnostic program separately before writing the layer GLB.
         meshes[0].extras["facade_program"] = program
     return meshes
+
+
+def stored_mesh(b, vertices, match, origin, suffix):
+    f, uv = match
+    meta = f["metadata"]
+    return GlbMesh(
+        f"stored_{b.facade_key}_{meta['facade_index']}_{suffix}",
+        vertices - origin,
+        np.array([[0, 3, 2], [0, 2, 1]], np.uint32),
+        uvs=uv, color=(1, 1, 1, 1),
+        extras=dict(
+            layer="buildings", object_id=f"walls_{b.key}_{suffix}",
+            building_id=meta.get("building_id", b.facade_key),
+            facade_index=meta["facade_index"], material_key="facade_stored",
+            surface="wall", base_height=b.base, top_height=b.top,
+        ),
+    )
