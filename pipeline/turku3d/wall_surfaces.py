@@ -268,15 +268,19 @@ def boundary_faces(meshes, tile):
     """Keep boundary evidence bounded even after subtracting a neighbour surface."""
     faces, ids = [], []
     box = tile.bbox
-    local_faces, local_ids = wall_faces(meshes)
-    for local, identity in zip(local_faces, local_ids, strict=True):
-        face = local + tile.origin
-        lo, hi = face.min(axis=0), face.max(axis=0)
-        if (lo[0] > box.xmin + DISTANCE and hi[0] < box.xmax - DISTANCE
-                and lo[2] > box.zmin + DISTANCE and hi[2] < box.zmax - DISTANCE):
-            continue
-        faces.append(face.tolist())
-        ids.append(f"{tile.id}/{identity}")
+    for mesh in meshes:
+        points = np.asarray(mesh.positions, np.float32).astype(float)
+        triangles = points[np.asarray(mesh.indices)]
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        lengths = np.linalg.norm(normals, axis=1)
+        selected = np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths))
+        boundary = triangles[selected] + tile.origin
+        lo, hi = boundary.min(axis=1), boundary.max(axis=1)
+        keep = ~((lo[:, 0] > box.xmin + DISTANCE) & (hi[:, 0] < box.xmax - DISTANCE)
+                 & (lo[:, 2] > box.zmin + DISTANCE) & (hi[:, 2] < box.zmax - DISTANCE))
+        owner = mesh.extras.get("building_id", mesh.name)
+        faces.extend(boundary[keep].tolist())
+        ids.extend(f"{tile.id}/{owner}/{mesh.name}/face:{i}" for i in selected[keep])
     return faces, ids
 
 
