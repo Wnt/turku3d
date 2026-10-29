@@ -90,7 +90,7 @@ def read_osm(tile, path):
 
     from turku3d.spatial import rows
 
-    buildings, shops, entrances = [], [], []
+    buildings, shops, entrances, streets = [], [], [], []
     window = shapely.box(*tile.bbox.buffered(100).as_tuple())
     classes = {
         "plaster": "render",
@@ -109,6 +109,19 @@ def read_osm(tile, path):
     }
     for _, row in rows(path, tile.bbox.buffered(100)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
+        if tags.get("highway") in (
+            "primary",
+            "secondary",
+            "tertiary",
+            "residential",
+            "living_street",
+            "service",
+            "pedestrian",
+            "unclassified",
+        ):
+            streets.append(
+                (shapely.force_2d(row["geometry_local"]), tags.get("name"), tags["highway"])
+            )
         if not any(tags.get(k) for k in ("building", "shop", "amenity", "office")):
             continue
         geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
@@ -118,8 +131,12 @@ def read_osm(tile, path):
             shops.append(geom.representative_point())
         if not tags.get("building"):
             if tags.get("amenity") not in (None, "no") or tags.get("office") not in (None, "no"):
-                entrances.append((geom.representative_point(), dict(
-                    ground_floor="doors", entrance_use=tags.get("amenity") or "office")))
+                entrances.append(
+                    (
+                        geom.representative_point(),
+                        dict(ground_floor="doors", entrance_use=tags.get("amenity") or "office"),
+                    )
+                )
             continue
         if geom.geom_type == "LineString" and geom.is_ring:
             geom = shapely.make_valid(shapely.Polygon(geom))
@@ -131,7 +148,9 @@ def read_osm(tile, path):
                 kottovuosi=tags.get("start_date", tags.get("construction_year")),
             )
         )
-        d["material_class"] = classes.get(tags.get("building:material") or tags.get("building:cladding"))
+        d["material_class"] = classes.get(
+            tags.get("building:material") or tags.get("building:cladding")
+        )
         d["levels_source"] = "osm" if d.get("levels") else None
         if row.get("osm_id") is not None:
             d["osm_id"] = f"{row.get('osm_type', 'way')}/{row['osm_id']}"
@@ -145,8 +164,7 @@ def read_osm(tile, path):
         d["heritage"] = tags.get("heritage")
         d["roof_shape"] = tags.get("roof:shape")
         d["monumental"] = bool(
-            tags.get("building")
-            in ("museum", "church", "cathedral", "castle", "public", "civic")
+            tags.get("building") in ("museum", "church", "cathedral", "castle", "public", "civic")
         )
         if tags.get("roof:material"):
             d["roof_material"] = tags["roof:material"]
@@ -173,7 +191,7 @@ def read_osm(tile, path):
         if tags.get("building") in ("shed", "garage", "garages"):
             d["blank"] = True
         buildings.append((geom, {k: v for k, v in d.items() if v is not None and v != "unknown"}))
-    return dict(buildings=buildings, shops=shops, entrances=entrances)
+    return dict(buildings=buildings, shops=shops, entrances=entrances, streets=streets)
 
 
 def enrich(building, registered, osm):
@@ -195,7 +213,11 @@ def enrich(building, registered, osm):
                 k: v
                 for k, v in own.items()
                 if (k not in ("levels", "levels_source") or not d.get("levels"))
-                and (k not in ("era", "construction_year", "material_class") or not d.get(k) or d[k] == "unknown")
+                and (
+                    k not in ("era", "construction_year", "material_class")
+                    or not d.get(k)
+                    or d[k] == "unknown"
+                )
             }
         )
     d.update(registered.get(building.facade_key, {}))
@@ -205,13 +227,26 @@ def enrich(building, registered, osm):
         if footprint.distance(point) <= 1:
             for key, value in evidence.items():
                 d.setdefault(key, value)
+    nearby_streets = [
+        (footprint.distance(g), name, kind)
+        for g, name, kind in osm.get("streets", [])
+        if footprint.distance(g) < 25
+    ]
+    if nearby_streets:
+        _, name, kind = min(nearby_streets, key=lambda item: item[0])
+        d["street_class"] = kind
+        d["street"] = name.casefold() if name else None
+        d["corner"] = (
+            len({name for distance, name, _ in nearby_streets if name and distance < 15}) > 1
+        )
     building.attributes = d
 
 
 def dated_footprints(tile, path, registered):
     """Read complete nearby dated LOD2 footprints, including across tile ownership edges."""
-    import shapely
     import pandas as pd
+    import shapely
+
     from turku3d.spatial import frame
 
     if path is None:
@@ -220,14 +255,20 @@ def dated_footprints(tile, path, registered):
     donors = []
     for key, group in data.groupby("feature_key", sort=True):
         row = group.iloc[0]
-        value = lambda name: None if pd.isna(row.get(name)) else row.get(name)  # noqa: E731
+        value = lambda name, row=row: None if pd.isna(row.get(name)) else row.get(name)  # noqa: E731
         identity = str(value("pysyvarakennustunnus") or key)
-        year = registered.get(identity, {}).get("construction_year") or attributes(dict(
-            kottovuosi=value("yearOfConstruction") or value("valmistunut")))["construction_year"]
+        year = (
+            registered.get(identity, {}).get("construction_year")
+            or attributes(dict(kottovuosi=value("yearOfConstruction") or value("valmistunut")))[
+                "construction_year"
+            ]
+        )
         if not year:
             continue
         # Union surface projections: roof fragments must not multiply one building's vote.
-        polygon = shapely.union_all(shapely.make_valid(shapely.force_2d(group.geometry_local.values)))
+        polygon = shapely.union_all(
+            shapely.make_valid(shapely.force_2d(group.geometry_local.values))
+        )
         if not polygon.is_empty:
             donors.append((identity, year, polygon))
     return donors
@@ -245,7 +286,8 @@ def period_evidence(building, donors):
             continue
         if str(key).startswith("osm:") and any(
             polygon.intersection(previous).area > min(polygon.area, previous.area) * 0.5
-            for previous in accepted if polygon.area > 0 and previous.area > 0
+            for previous in accepted
+            if polygon.area > 0 and previous.area > 0
         ):
             continue
         distance = p.distance(polygon)
@@ -256,7 +298,9 @@ def period_evidence(building, donors):
     building.attributes.update(
         seed_id=own,
         location_xz=[float(p.centroid.x), float(p.centroid.y)],
-        courtyard=any(bool(g.interiors) for g in getattr(p, "geoms", [p]) if g.geom_type == "Polygon"),
+        courtyard=any(
+            bool(g.interiors) for g in getattr(p, "geoms", [p]) if g.geom_type == "Polygon"
+        ),
         footprint_m2=float(p.area),
         compactness=float(4 * 3.141592653589793 * p.area / p.length**2) if p.length else 1,
         period_neighbours=sorted(neighbours),

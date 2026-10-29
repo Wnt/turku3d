@@ -192,9 +192,9 @@ def wall_meshes(b, walls, origin):
         vertices = walls[start : start + 4]
         match = match_prepared(vertices, stored)
         wall = program["walls"][start // 4]
-        reviewed = bool(wall.get("measured_wall_id"))
+        reviewed = bool(wall.get("measured_wall_id")) and not wall.get("render_sections")
         wall["paint_source"] = (
-            "reviewed-program" if wall.get("measured_wall_id") else
+            "reviewed-program" if reviewed else
             "stored-facade-map" if match else
             "existing-description" if program.get("description_source") else "rule-sampled"
         )

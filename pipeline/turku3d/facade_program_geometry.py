@@ -54,6 +54,11 @@ def _paint_layers(vertices, wall, style):
     ends = sorted([offset, offset + mw * sign])
     x0, x1 = max(0, ends[0]), min(width, ends[1])
     y0 = float(geometry.get("base_h", a[1]))
+    if wall.get("render_sections"):
+        from turku3d.facade_sections import paint
+
+        yield from paint(vertices, wall, style, quad, direction, normal, offset, sign, y0)
+        return
     y1 = y0 + mh
     blank = {
         **style,
@@ -140,7 +145,7 @@ def _paint_layers(vertices, wall, style):
     boxes += [
         (
             d["rect_m"],
-            2,
+            3 if d.get("opaque") else 2,
             d.get("head_shape", field(wall["doors"], "head_shape", "flat")),
             d.get("surround"),
         )
@@ -156,6 +161,12 @@ def _paint_layers(vertices, wall, style):
             continue
         points, uv = part
         patch = copy.deepcopy(style)
+        if kind == 3:
+            patch.update(
+                module=48, wall="#55534e", base="#55534e", bands=[0, 0, 0, 0], detail=[0, 0, 0, 0]
+            )
+            yield points, uv, patch
+            continue
         material = style["module"] // 6 if style["module"] < 42 else style["module"] - 42
         patch.update(
             module=material * 6 + (1 if kind == 2 else 0),

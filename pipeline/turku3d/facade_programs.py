@@ -23,6 +23,11 @@ def source_paths():
     return [
         Path(__file__),
         Path(__file__).with_name("facade_program_geometry.py"),
+        Path(__file__).with_name("facade_sections.py"),
+        Path(__file__).with_name("facade_learning.py"),
+        C.REPO_ROOT / "textures/turkutex/facade_learning.py",
+        C.REPO_ROOT / "textures/turkutex/facade_sections.py",
+        C.REPO_ROOT / "textures/turkutex/facade_structure.py",
         C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
         C.REPO_ROOT / "textures/turkutex/facade_program.py",
     ]
@@ -32,8 +37,11 @@ def source_paths():
 def _bundled(path, stamp):
     rows = json.loads(Path(path).read_text())
     if isinstance(rows, dict):
-        rows = rows.get("programs", [])
-    return {str(r["building_id"]): r for r in rows}
+        rows = [rows] if "building_id" in rows else rows.get("programs", [])
+    renderer()
+    from turku3d.facade_sections import prepare
+
+    return {str(r["building_id"]): prepare(r) for r in rows}
 
 
 def measured(key):
@@ -42,7 +50,8 @@ def measured(key):
         for identity in aliases(key):
             path = directory / opaque(identity)
             if path.is_file():
-                row = json.loads(path.read_text())
+                row = _bundled(str(path), (path.stat().st_mtime_ns, path.stat().st_size))
+                row = next(iter(row.values()))
                 if str(row.get("building_id")) in aliases(key):
                     return row
     path = C.REPO_ROOT / "textures/library/facade-programs.json"
@@ -54,7 +63,9 @@ def measured(key):
 
 def program_hash(key):
     # A pilot JSON edit invalidates just the tiles containing its changed building.
-    return json.dumps(measured(key), sort_keys=True, separators=(",", ":")).encode()
+    from turku3d.facade_learning import digest
+
+    return json.dumps(measured(key), sort_keys=True, separators=(",", ":")).encode() + digest(key)
 
 
 def field(section, key, default=None):
@@ -190,11 +201,16 @@ def resolve(building, vertices, eaves):
     attrs = dict(building.attributes)
     area = building.footprint.area
     attrs.update(
+        E=float(building.footprint.centroid.x + C.ORIGIN_E),
+        N=float(C.ORIGIN_N - building.footprint.centroid.y),
+        log_area=float(np.log(max(area, 1))),
         footprint_m2=float(area),
         compactness=float(4 * np.pi * area / building.footprint.length**2),
         frontage_m=max(g["width_m"] for g in geometry),
     )
-    program = sample(building.facade_key, attrs, geometry)
+    from turku3d.facade_learning import apply as apply_learned
+
+    program = apply_learned(sample(building.facade_key, attrs, geometry))
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
     fallback = renderer().register_description(

@@ -406,6 +406,7 @@ def build(
         ),
     )
     from .forests import BUSH_CAP, TREE_CAP, produce, trunks
+
     seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
 
     vegetation_start = time.perf_counter()
@@ -564,13 +565,21 @@ def build(
     )
     from . import ortho_cleanup
 
-    clean_args = (tile, inputs.ortho, inputs.streets, inputs.surfaces,
-                  inputs.ortho_canopy, inputs.heights, inputs.markings,
-                  [b.footprint for b in blds], inputs.water, inputs.parking)
+    clean_args = (
+        tile,
+        inputs.ortho,
+        inputs.streets,
+        inputs.surfaces,
+        inputs.ortho_canopy,
+        inputs.heights,
+        inputs.markings,
+        [b.footprint for b in blds],
+        inputs.water,
+        inputs.parking,
+    )
     ground_ortho, cleanup_stats = cache.run(
         "ground_ortho",
-        source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback,
-                   *common),
+        source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback, *common),
         clean_args,
         lambda: ortho_cleanup.clean(*clean_args),
     )
@@ -582,11 +591,26 @@ def build(
     corrected_ortho, colour_stats = cache.run(
         "ground_colour",
         source_key(Path(ground_colour.__file__), ground_colour.TABLE, *common),
-        (tile, ground_ortho, inputs.ortho, inputs.streets, inputs.surfaces,
-         [b.footprint for b in blds], inputs.water, mosaic),
-        lambda: ground_colour.apply(tile, ground_ortho, inputs.ortho,
-                                    inputs.streets, inputs.surfaces,
-                                    [b.footprint for b in blds], inputs.water, mosaic),
+        (
+            tile,
+            ground_ortho,
+            inputs.ortho,
+            inputs.streets,
+            inputs.surfaces,
+            [b.footprint for b in blds],
+            inputs.water,
+            mosaic,
+        ),
+        lambda: ground_colour.apply(
+            tile,
+            ground_ortho,
+            inputs.ortho,
+            inputs.streets,
+            inputs.surfaces,
+            [b.footprint for b in blds],
+            inputs.water,
+            mosaic,
+        ),
     )
     seconds["ground_colour"] = cache.metrics["ground_colour"]["seconds"]
     ground_meshes = cache.run(
@@ -663,6 +687,8 @@ def build(
         )
         _write(stage / "props.vis.glb", data)
         layer_files.append(stage / "props.vis.glb")
+    from turku3d.facade_programs import source_paths as facade_program_sources
+
     building_meshes = cache.run(
         "building_visual",
         source_key(
@@ -672,11 +698,7 @@ def build(
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
-            base / "facade_programs.py",
-            base / "facade_program_geometry.py",
-            base / "wall_surfaces.py",
-            C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
-            C.REPO_ROOT / "textures/turkutex/facade_program.py",
+            *facade_program_sources(),
             jpeg,
             ortho_uv,
             *common,
