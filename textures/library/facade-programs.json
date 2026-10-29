@@ -132388,6 +132388,74 @@
           "notes": "Ground garage, entrance and small windows differ from five broad upper windows.",
           "colour_space": "unmeasured"
         }
+      },
+      {
+        "wall_id": "1032677580_520746af3e",
+        "width_m": 8.508104607476655,
+        "height_m": 26.1,
+        "geometry": {
+          "p0": [
+            23459220.751,
+            6703474.258
+          ],
+          "p1": [
+            23459225.101,
+            6703481.57
+          ],
+          "normal": [
+            0.8594158555000003,
+            -0.5112772118090171
+          ],
+          "base_h": 24.712
+        },
+        "structure": {
+          "wall_id": "1032677580_520746af3e",
+          "render_deferred": "Partial visibility or separate facade structures require retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left stack",
+                "rows_visible": 7,
+                "kind": "seven projecting balconies with green vertical-bar railings and pale slab undersides"
+              },
+              {
+                "position": "wall",
+                "kind": "pale yellow render, narrow white window fragments beside balconies"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.9,
+              "whole_count": 0
+            },
+            "occlusion": "Tree canopy covers right and upper edge, vegetation masks low base. Alternate requested."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Partial visibility or separate facade structures require retained observations.",
+          "colour_space": "unmeasured"
+        }
       }
     ],
     "review": {
@@ -132981,6 +133049,77 @@
           "scope": "characterized; renderer deferred",
           "wall_share": 0,
           "notes": "Partially hidden wall or different opening types require retained observations.",
+          "colour_space": "unmeasured"
+        }
+      },
+      {
+        "wall_id": "103436099B_af9832ee9e",
+        "width_m": 10.199444545402812,
+        "height_m": 3.17,
+        "geometry": {
+          "p0": [
+            23460470.679,
+            6704586.521
+          ],
+          "p1": [
+            23460465.141,
+            6704595.086
+          ],
+          "normal": [
+            0.8397516121865948,
+            0.5429707449117446
+          ],
+          "base_h": 11.39
+        },
+        "structure": {
+          "wall_id": "103436099B_af9832ee9e",
+          "render_deferred": "Partial visibility or separate facade structures require retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left",
+                "kind": "one broad white-framed window"
+              },
+              {
+                "position": "right",
+                "kind": "long red awning over recessed glazing"
+              },
+              {
+                "position": "wall",
+                "kind": "white smooth render"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.9,
+              "whole_count": 0
+            },
+            "occlusion": "Hedge masks lower wall, tree trunk left. Alternate requested."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Partial visibility or separate facade structures require retained observations.",
           "colour_space": "unmeasured"
         }
       }
@@ -136500,6 +136639,71 @@
           "notes": "Partial wall visibility or separate facade components need retained observations.",
           "colour_space": "unmeasured"
         }
+      },
+      {
+        "wall_id": "103258127A_c1f21c76e8",
+        "width_m": 17.160071387134273,
+        "height_m": 19.35,
+        "geometry": {
+          "p0": [
+            23458988.182,
+            6703653.169
+          ],
+          "p1": [
+            23459002.421,
+            6703662.746
+          ],
+          "normal": [
+            0.5580979113929808,
+            -0.8297751028434104
+          ],
+          "base_h": 4.213
+        },
+        "structure": {
+          "wall_id": "103258127A_c1f21c76e8",
+          "render_deferred": "Incomplete visibility or separate facade strips need retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "lower exposed",
+                "kind": "two rows of broad horizontal white-framed glazing and pale panel bands"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.85,
+              "whole_count": 0
+            },
+            "occlusion": "Large tree and canopy hide upper facade and left/right counts. Alternate requested."
+          },
+          "revision_of": "103258127A_c1f21c76e8",
+          "alternate_review": "Alternate reviewed, original visible-feature observations retained where foliage still blocks counts."
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Incomplete visibility or separate facade strips need retained observations.",
+          "colour_space": "unmeasured"
+        }
       }
     ],
     "review": {
@@ -137467,7 +137671,7 @@
     "building_id": "1034522168",
     "seed": "8928846890586130000",
     "source": "photographed",
-    "needs_review": true,
+    "needs_review": false,
     "attributes": {
       "material": "muu materiaali",
       "material_class": "render",
@@ -137632,6 +137836,417 @@
           "wall_share": 0,
           "notes": "T-shaped opening groups combine horizontal windows with deep French doors and Juliet rails.",
           "colour_space": "unmeasured"
+        }
+      },
+      {
+        "wall_id": "1034522168_69ec202061",
+        "width_m": 9.039925055608673,
+        "height_m": 18.76,
+        "geometry": {
+          "p0": [
+            23460070.989,
+            6703627.93
+          ],
+          "p1": [
+            23460066.031,
+            6703635.489
+          ],
+          "normal": [
+            0.8361794985974768,
+            0.5484558743648139
+          ],
+          "base_h": 16.459
+        },
+        "structure": {
+          "wall_id": "1034522168_69ec202061",
+          "floors_visible": 6,
+          "floors": [
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "base",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "top",
+              "bay_units": [
+                3,
+                1
+              ]
+            }
+          ],
+          "material": "brick",
+          "ornament": "none",
+          "cornice": null,
+          "string_courses": [],
+          "balconies": [],
+          "occluded_parts": "Six small square white-framed windows in one right-edge stack, broad blank buff brick field left. Base dark and partly hidden by utility cabinets; top opening clipped.",
+          "confidence": {
+            "floors_visible": 0.9,
+            "split": 0.8,
+            "material": 0.85,
+            "ornament": 0.8,
+            "cornice": 0,
+            "string_courses": 0.85,
+            "balconies": 0.75,
+            "occluded_parts": 0.8
+          }
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "visible_share": 1.0,
+          "wall_share": 0,
+          "register_height_conflict": false,
+          "colour_space": "unmeasured; preserve calibrated pigment",
+          "excluded_rectangles_m": [],
+          "notes": "Six small square white-framed windows in one right-edge stack, broad blank buff brick field left. Base dark and partly hidden by utility cabinets; top opening clipped.",
+          "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
+          "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
+        },
+        "split": {
+          "base_height_m": {
+            "value": 3.126666666666667,
+            "source": "qualitative row-height layout prior",
+            "support": 0.2
+          },
+          "middle_repeats": 4,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "brick",
+            "source": "direct structure-only review",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 2,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.9
+        },
+        "windows": {
+          "rectangles_m": [
+            [
+              7.368,
+              0.532,
+              1.085,
+              1.72
+            ],
+            [
+              7.368,
+              3.658,
+              1.085,
+              1.72
+            ],
+            [
+              7.368,
+              6.785,
+              1.085,
+              1.72
+            ],
+            [
+              7.368,
+              9.912,
+              1.085,
+              1.72
+            ],
+            [
+              7.368,
+              13.038,
+              1.085,
+              1.72
+            ],
+            [
+              7.368,
+              16.165,
+              1.085,
+              1.72
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame"
+          ],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "qualitative cornice layout prior",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": [],
+            "source": "counted floor boundaries",
+            "support": 0.85
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct structure-only review",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
         }
       }
     ],
@@ -139532,6 +140147,75 @@
           "scope": "characterized; renderer deferred",
           "wall_share": 0,
           "notes": "Only entrance steps and a small glazed lower-wall fragment are exposed.",
+          "colour_space": "unmeasured"
+        }
+      },
+      {
+        "wall_id": "1034434128_0ae0a648e6",
+        "width_m": 9.873795065591308,
+        "height_m": 4.7,
+        "geometry": {
+          "p0": [
+            23460284.18,
+            6703689.146
+          ],
+          "p1": [
+            23460278.778,
+            6703697.411
+          ],
+          "normal": [
+            0.8370641628362664,
+            0.547104731559891
+          ],
+          "base_h": 16.377
+        },
+        "structure": {
+          "wall_id": "1034434128_0ae0a648e6",
+          "render_deferred": "Only upper wall and one small window are visible above shrubs.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "right",
+                "kind": "small horizontal white-framed window"
+              },
+              {
+                "position": "wall",
+                "kind": "pale mauve-grey vertical timber beneath shallow eaves"
+              }
+            ],
+            "confidence": {
+              "window": 0.95,
+              "material": 0.99,
+              "whole_count": 0
+            },
+            "occlusion": "Shrubs hide centre and all low wall; alternate requested."
+          },
+          "revision_of": "1034434128_0ae0a648e6",
+          "alternate_review": "Alternate confirms exposed windows and wall finish; canopy and shrubs still prevent full counts."
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Only upper wall and one small window are visible above shrubs.",
           "colour_space": "unmeasured"
         }
       }
@@ -142235,6 +142919,77 @@
           "source": "unmeasured",
           "support": 0.0
         }
+      },
+      {
+        "wall_id": "1034522700_0e4965780f",
+        "width_m": 20.03846905307061,
+        "height_m": 5.12,
+        "geometry": {
+          "p0": [
+            23460219.768,
+            6703629.253
+          ],
+          "p1": [
+            23460231.169,
+            6703612.774
+          ],
+          "normal": [
+            -0.8223682136448756,
+            -0.5689556407898038
+          ],
+          "base_h": 16.858
+        },
+        "structure": {
+          "wall_id": "1034522700_0e4965780f",
+          "render_deferred": "Partial visibility or separate facade structures require retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left",
+                "kind": "small plain pale service door"
+              },
+              {
+                "position": "right",
+                "kind": "tall pale door and two small horizontal high windows"
+              },
+              {
+                "position": "wall",
+                "kind": "blank pale yellow render under bracketed tiled eaves"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.9,
+              "whole_count": 0
+            },
+            "occlusion": "Large tree and hedge hide lower wall and centre; service side of restaurant. Alternate requested."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Partial visibility or separate facade structures require retained observations.",
+          "colour_space": "unmeasured"
+        }
       }
     ],
     "review": {
@@ -144566,6 +145321,73 @@
           "notes": "Six five-window rows are split by a vertically offset staircase strip.",
           "colour_space": "unmeasured"
         }
+      },
+      {
+        "wall_id": "103258136L_19b4c1dbb7",
+        "width_m": 8.501475753944232,
+        "height_m": 21.78,
+        "geometry": {
+          "p0": [
+            23459061.792,
+            6703598.143
+          ],
+          "p1": [
+            23459066.641,
+            6703591.16
+          ],
+          "normal": [
+            -0.8213868041401765,
+            -0.5703715613390864
+          ],
+          "base_h": 6.28
+        },
+        "structure": {
+          "wall_id": "103258136L_19b4c1dbb7",
+          "render_deferred": "Partial visibility or separate facade structures require retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left exposed",
+                "kind": "blank buff brick end wall"
+              },
+              {
+                "position": "base",
+                "kind": "small projecting metal-roof shelter"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.9,
+              "whole_count": 0
+            },
+            "occlusion": "Large tree hides right half and most lower wall; no full blank-wall inference. Alternate requested."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Partial visibility or separate facade structures require retained observations.",
+          "colour_space": "unmeasured"
+        }
       }
     ],
     "review": {
@@ -144794,6 +145616,87 @@
           "notes": "Four paired/single window rows differ from low continuous band and roof terrace.",
           "colour_space": "unmeasured"
         }
+      },
+      {
+        "wall_id": "103443400V_a6c8b31daa",
+        "width_m": 17.571639081798708,
+        "height_m": 23.68,
+        "geometry": {
+          "p0": [
+            23460394.175,
+            6703903.067
+          ],
+          "p1": [
+            23460379.489,
+            6703893.419
+          ],
+          "normal": [
+            -0.5490665927709855,
+            0.8357786050760457
+          ],
+          "base_h": 17.876
+        },
+        "structure": {
+          "wall_id": "103443400V_a6c8b31daa",
+          "render_deferred": "Window pairs, narrow slots, continuous stair strip and ground glazing use different rhythms.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper left",
+                "rows": 5,
+                "bays": [
+                  "paired square window",
+                  "narrow upright window",
+                  "short horizontal slot"
+                ]
+              },
+              {
+                "position": "right",
+                "kind": "full-height narrow strip with blue glazing and dark opaque panels"
+              },
+              {
+                "position": "lower left",
+                "kind": "one horizontal mixed glazing/opaque-panel band above ground shopfront"
+              },
+              {
+                "position": "wall",
+                "kind": "plain pale render"
+              }
+            ],
+            "confidence": {
+              "upper_rows": 0.99,
+              "slots": 0.99,
+              "stairs": 0.99,
+              "material": 0.95
+            },
+            "occlusion": "Far-left paired group clipped; right background return separate wall. Tiny slots must retain scale."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Window pairs, narrow slots, continuous stair strip and ground glazing use different rhythms.",
+          "colour_space": "unmeasured"
+        }
       }
     ],
     "review": {
@@ -144903,6 +145806,4100 @@
           "scope": "characterized; renderer deferred",
           "wall_share": 0,
           "notes": "Two exposed window tops do not reveal whole facade rhythm.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1034401246",
+    "seed": "13309713097356140610",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1952,
+      "era": "1920-1959",
+      "levels": 7,
+      "address": "Sirkkalankatu 15",
+      "construction_year": 1952,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 7,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1034401246_2b04cbf7c6",
+        "width_m": 39.420482050478185,
+        "height_m": 23.22,
+        "geometry": {
+          "p0": [
+            23460464.225,
+            6704157.798
+          ],
+          "p1": [
+            23460440.882,
+            6704189.564
+          ],
+          "normal": [
+            0.8058247476312458,
+            0.5921540982759802
+          ],
+          "base_h": 21.357
+        },
+        "structure": {
+          "wall_id": "1034401246_2b04cbf7c6",
+          "render_deferred": "Continuous multi-pane stair strip interrupts six mixed-width window rows.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "main",
+                "rows": 6,
+                "bays": [
+                  "clipped window",
+                  "square window",
+                  "wide window",
+                  "narrow window",
+                  "continuous stair strip",
+                  "narrow window",
+                  "wide window",
+                  "square window",
+                  "narrow window",
+                  "wide window",
+                  "square window",
+                  "narrow window",
+                  "wide window"
+                ]
+              },
+              {
+                "position": "stairs",
+                "kind": "white-framed full-height vertical glazed strip with extra landing panes"
+              },
+              {
+                "position": "base",
+                "kind": "shop glazing and glazed doors separated by buff-brick piers, central timber double entrance, irregular stone plinth"
+              },
+              {
+                "position": "wall",
+                "kind": "plain muted brown render"
+              }
+            ],
+            "confidence": {
+              "rows": 0.99,
+              "bays": 0.95,
+              "stairs": 0.99,
+              "materials": 0.95
+            },
+            "occlusion": "Leftmost bay clipped. Ground shop widths vary; distinct stair pane rhythm preserved."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Continuous multi-pane stair strip interrupts six mixed-width window rows.",
+          "colour_space": "unmeasured"
+        }
+      },
+      {
+        "wall_id": "1034401246_645b797f82",
+        "width_m": 15.519540454993791,
+        "height_m": 24.31,
+        "geometry": {
+          "p0": [
+            23460472.867,
+            6704144.889
+          ],
+          "p1": [
+            23460463.677,
+            6704157.395
+          ],
+          "normal": [
+            0.8058228293155885,
+            0.5921567087805559
+          ],
+          "base_h": 20.4
+        },
+        "structure": {
+          "wall_id": "1034401246_645b797f82",
+          "floors_visible": 7,
+          "floors": [
+            {
+              "bays": [
+                "unknown"
+              ],
+              "bay_count": null,
+              "head": null,
+              "surround": null,
+              "confidence": {
+                "bay_count": 0,
+                "bay_kinds": 0,
+                "head": 0,
+                "surround": 0
+              },
+              "role": "base"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 5,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8
+              },
+              "role": "middle"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 5,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8
+              },
+              "role": "middle"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 5,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8
+              },
+              "role": "middle"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 5,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8
+              },
+              "role": "middle"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 5,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8
+              },
+              "role": "middle"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 5,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8
+              },
+              "role": "top"
+            }
+          ],
+          "material": "render",
+          "ornament": "none",
+          "cornice": "thin",
+          "string_courses": [],
+          "balconies": [],
+          "occluded_parts": "Six rows of five square white-framed windows in plain brown render; rightmost column clipped by boundary. Ground shop windows and central timber/glazed entrance, exact ground bay count unknown. Downpipe crosses left field; narrow roof trim.",
+          "confidence": {
+            "floors_visible": 0.9,
+            "split": 0.8,
+            "material": 0.85,
+            "ornament": 0.8,
+            "cornice": 0.85,
+            "string_courses": 0.85,
+            "balconies": 0.75,
+            "occluded_parts": 0.8
+          }
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "visible_share": 0.8571428571428571,
+          "wall_share": 0,
+          "register_height_conflict": false,
+          "colour_space": "unmeasured; preserve calibrated pigment",
+          "excluded_rectangles_m": [
+            [
+              0,
+              0,
+              15.519540454993791,
+              3.472857142857143
+            ]
+          ],
+          "notes": "Six rows of five square white-framed windows in plain brown render; rightmost column clipped by boundary. Ground shop windows and central timber/glazed entrance, exact ground bay count unknown. Downpipe crosses left field; narrow roof trim.",
+          "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
+          "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
+        },
+        "split": {
+          "base_height_m": {
+            "value": 3.472857142857143,
+            "source": "qualitative row-height layout prior",
+            "support": 0.2
+          },
+          "middle_repeats": 5,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "render",
+            "source": "direct structure-only review",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 5,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.9
+        },
+        "windows": {
+          "rectangles_m": [
+            [
+              0.807,
+              4.063,
+              1.49,
+              1.91
+            ],
+            [
+              3.911,
+              4.063,
+              1.49,
+              1.91
+            ],
+            [
+              7.015,
+              4.063,
+              1.49,
+              1.91
+            ],
+            [
+              10.119,
+              4.063,
+              1.49,
+              1.91
+            ],
+            [
+              13.223,
+              4.063,
+              1.49,
+              1.91
+            ],
+            [
+              0.807,
+              7.536,
+              1.49,
+              1.91
+            ],
+            [
+              3.911,
+              7.536,
+              1.49,
+              1.91
+            ],
+            [
+              7.015,
+              7.536,
+              1.49,
+              1.91
+            ],
+            [
+              10.119,
+              7.536,
+              1.49,
+              1.91
+            ],
+            [
+              13.223,
+              7.536,
+              1.49,
+              1.91
+            ],
+            [
+              0.807,
+              11.009,
+              1.49,
+              1.91
+            ],
+            [
+              3.911,
+              11.009,
+              1.49,
+              1.91
+            ],
+            [
+              7.015,
+              11.009,
+              1.49,
+              1.91
+            ],
+            [
+              10.119,
+              11.009,
+              1.49,
+              1.91
+            ],
+            [
+              13.223,
+              11.009,
+              1.49,
+              1.91
+            ],
+            [
+              0.807,
+              14.482,
+              1.49,
+              1.91
+            ],
+            [
+              3.911,
+              14.482,
+              1.49,
+              1.91
+            ],
+            [
+              7.015,
+              14.482,
+              1.49,
+              1.91
+            ],
+            [
+              10.119,
+              14.482,
+              1.49,
+              1.91
+            ],
+            [
+              13.223,
+              14.482,
+              1.49,
+              1.91
+            ],
+            [
+              0.807,
+              17.955,
+              1.49,
+              1.91
+            ],
+            [
+              3.911,
+              17.955,
+              1.49,
+              1.91
+            ],
+            [
+              7.015,
+              17.955,
+              1.49,
+              1.91
+            ],
+            [
+              10.119,
+              17.955,
+              1.49,
+              1.91
+            ],
+            [
+              13.223,
+              17.955,
+              1.49,
+              1.91
+            ],
+            [
+              0.807,
+              21.428,
+              1.49,
+              1.91
+            ],
+            [
+              3.911,
+              21.428,
+              1.49,
+              1.91
+            ],
+            [
+              7.015,
+              21.428,
+              1.49,
+              1.91
+            ],
+            [
+              10.119,
+              21.428,
+              1.49,
+              1.91
+            ],
+            [
+              13.223,
+              21.428,
+              1.49,
+              1.91
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame"
+          ],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": 0.12,
+            "source": "qualitative cornice layout prior",
+            "support": 0.85
+          },
+          "string_courses": {
+            "value": [],
+            "source": "counted floor boundaries",
+            "support": 0.85
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct structure-only review",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103431770P",
+    "seed": "4993004784173701076",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1963,
+      "era": "1960+",
+      "levels": 1,
+      "address": "H\u00e4meenkatu 9",
+      "construction_year": 1963,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1960+",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103431770P_fc4edfaf7a",
+        "width_m": 28.580059413335416,
+        "height_m": 3.59,
+        "geometry": {
+          "p0": [
+            23460459.088,
+            6704629.809
+          ],
+          "p1": [
+            23460483.074,
+            6704645.349
+          ],
+          "normal": [
+            0.5437357485963207,
+            -0.839256477900766
+          ],
+          "base_h": 11.447
+        },
+        "structure": {
+          "wall_id": "103431770P_fc4edfaf7a",
+          "floors_visible": 1,
+          "floors": [
+            {
+              "bays": [
+                "shop",
+                "door",
+                "shop",
+                "shop",
+                "door",
+                "shop",
+                "shop",
+                "door",
+                "shop"
+              ],
+              "bay_count": 9,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.9,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.85
+              },
+              "role": "base",
+              "bay_units": [
+                3,
+                1,
+                4,
+                3,
+                1,
+                3,
+                4,
+                2,
+                3
+              ]
+            }
+          ],
+          "material": "glass",
+          "ornament": "none",
+          "cornice": "thin",
+          "string_courses": [],
+          "balconies": [],
+          "occluded_parts": "Low shop frontage with three entrance groups and broad displays between pale piers. Left entrance narrow, middle entrance narrow, right entrance broader; small awnings over middle/right doors. Pale opaque lower panels, tree trunks cross two door groups.",
+          "confidence": {
+            "floors_visible": 0.9,
+            "split": 0.8,
+            "material": 0.85,
+            "ornament": 0.8,
+            "cornice": 0.85,
+            "string_courses": 0.85,
+            "balconies": 0.75,
+            "occluded_parts": 0.8
+          }
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "visible_share": 1.0,
+          "wall_share": 0,
+          "register_height_conflict": false,
+          "colour_space": "unmeasured; preserve calibrated pigment",
+          "excluded_rectangles_m": [],
+          "notes": "Low shop frontage with three entrance groups and broad displays between pale piers. Left entrance narrow, middle entrance narrow, right entrance broader; small awnings over middle/right doors. Pale opaque lower panels, tree trunks cross two door groups.",
+          "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
+          "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
+        },
+        "split": {
+          "base_height_m": {
+            "value": 3.59,
+            "source": "qualitative row-height layout prior",
+            "support": 0.2
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "glass",
+            "source": "direct structure-only review",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 9,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.9
+        },
+        "windows": {
+          "rectangles_m": [
+            [
+              0.429,
+              0.61,
+              2.715,
+              2.728
+            ],
+            [
+              5.335,
+              0.61,
+              3.62,
+              2.728
+            ],
+            [
+              9.955,
+              0.61,
+              2.715,
+              2.728
+            ],
+            [
+              14.719,
+              0.61,
+              2.715,
+              2.728
+            ],
+            [
+              18.434,
+              0.61,
+              3.62,
+              2.728
+            ],
+            [
+              25.436,
+              0.61,
+              2.715,
+              2.728
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none"
+          ],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [
+            {
+              "rect_m": [
+                3.882,
+                0,
+                0.572,
+                2.728
+              ],
+              "head_shape": "flat",
+              "surround": "none",
+              "source": "counted bay; dimensions are layout priors",
+              "support": 0.8
+            },
+            {
+              "rect_m": [
+                13.409,
+                0,
+                0.572,
+                2.728
+              ],
+              "head_shape": "flat",
+              "surround": "none",
+              "source": "counted bay; dimensions are layout priors",
+              "support": 0.8
+            },
+            {
+              "rect_m": [
+                23.245,
+                0,
+                1.143,
+                2.728
+              ],
+              "head_shape": "flat",
+              "surround": "none",
+              "source": "counted bay; dimensions are layout priors",
+              "support": 0.8
+            }
+          ],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": 0.12,
+            "source": "qualitative cornice layout prior",
+            "support": 0.85
+          },
+          "string_courses": {
+            "value": [],
+            "source": "counted floor boundaries",
+            "support": 0.85
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct structure-only review",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103258139P",
+    "seed": "10921305704339341665",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1952,
+      "era": "1920-1959",
+      "levels": 6,
+      "address": "Sotalaistenkatu 8",
+      "construction_year": 1952,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 6,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103258139P_4af4e3ba9e",
+        "width_m": 26.41381095188483,
+        "height_m": 20.17,
+        "geometry": {
+          "p0": [
+            23459131.024,
+            6703559.963
+          ],
+          "p1": [
+            23459116.527,
+            6703582.043
+          ],
+          "normal": [
+            0.8359263280623883,
+            0.5488416657398857
+          ],
+          "base_h": 7.627
+        },
+        "structure": {
+          "wall_id": "103258139P_4af4e3ba9e",
+          "render_deferred": "Trees hide upper and side window groups.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "lower exposed",
+                "rows_visible": 3,
+                "kind": "at least three rows of white-framed square windows in pale grey-beige wall"
+              },
+              {
+                "position": "base right",
+                "kind": "glazed entrance with pale surround"
+              }
+            ],
+            "confidence": {
+              "visible_rows": 0.9,
+              "windows": 0.95,
+              "material": 0.65,
+              "whole_count": 0
+            },
+            "occlusion": "Large tree trunk and canopy hide upper floors and many bays. Alternate requested."
+          },
+          "revision_of": "103258139P_4af4e3ba9e",
+          "alternate_review": "Alternate confirms exposed windows and wall finish; canopy and shrubs still prevent full counts."
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Trees hide upper and side window groups.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103436098A",
+    "seed": "17422880081347323110",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1936,
+      "era": "1920-1959",
+      "levels": 4,
+      "address": "Kerttulinkatu 5",
+      "construction_year": 1936,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 4,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103436098A_50f3b41fdb",
+        "width_m": 34.501581254568,
+        "height_m": 16.84,
+        "geometry": {
+          "p0": [
+            23460516.806,
+            6704602.254
+          ],
+          "p1": [
+            23460488.184,
+            6704582.989
+          ],
+          "normal": [
+            -0.5583802045917545,
+            0.8295851656822645
+          ],
+          "base_h": 11.702
+        },
+        "structure": {
+          "wall_id": "103436098A_50f3b41fdb",
+          "floors_visible": 5,
+          "floors": [
+            {
+              "bays": [
+                "unknown"
+              ],
+              "bay_count": null,
+              "head": null,
+              "surround": null,
+              "confidence": {
+                "bay_count": 0,
+                "bay_kinds": 0,
+                "head": 0,
+                "surround": 0,
+                "height_class": 0.9
+              },
+              "role": "base",
+              "height_class": "short"
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 8,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "opening_class": 0.95
+              },
+              "role": "middle",
+              "opening_class": [
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "regular"
+              ]
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 8,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "opening_class": 0.95
+              },
+              "role": "middle",
+              "opening_class": [
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "regular"
+              ]
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 8,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "opening_class": 0.95
+              },
+              "role": "middle",
+              "opening_class": [
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "regular"
+              ]
+            },
+            {
+              "bays": [
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window",
+                "window"
+              ],
+              "bay_count": 8,
+              "head": "flat",
+              "surround": "none",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "opening_class": 0.95
+              },
+              "role": "top",
+              "opening_class": [
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "wide",
+                "regular"
+              ]
+            }
+          ],
+          "material": "render",
+          "ornament": "none",
+          "cornice": "thin",
+          "string_courses": [],
+          "balconies": [],
+          "occluded_parts": "Four main rows of eight broad white-framed multi-pane school windows; far-right group narrower and far-left clipped. Pale cream render. Low horizontal basement strip separately unknown; street signs and small trees hide parts of lowest main row.",
+          "confidence": {
+            "floors_visible": 0.9,
+            "split": 0.8,
+            "material": 0.85,
+            "ornament": 0.8,
+            "cornice": 0.85,
+            "string_courses": 0.85,
+            "balconies": 0.75,
+            "occluded_parts": 0.8
+          }
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "visible_share": 0.8791208791208791,
+          "wall_share": 0,
+          "register_height_conflict": true,
+          "colour_space": "unmeasured; preserve calibrated pigment",
+          "excluded_rectangles_m": [
+            [
+              0,
+              0,
+              34.501581254568,
+              2.0356043956043957
+            ]
+          ],
+          "notes": "Four main rows of eight broad white-framed multi-pane school windows; far-right group narrower and far-left clipped. Pale cream render. Low horizontal basement strip separately unknown; street signs and small trees hide parts of lowest main row.",
+          "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
+          "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
+        },
+        "split": {
+          "base_height_m": {
+            "value": 2.0356043956043957,
+            "source": "qualitative row-height layout prior",
+            "support": 0.2
+          },
+          "middle_repeats": 3,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "render",
+            "source": "direct structure-only review",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 8,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.9
+        },
+        "windows": {
+          "rectangles_m": [
+            [
+              0.518,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              4.83,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              9.143,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              13.456,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              17.768,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              22.081,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              26.394,
+              2.665,
+              3.278,
+              2.036
+            ],
+            [
+              31.31,
+              2.665,
+              2.07,
+              2.036
+            ],
+            [
+              0.518,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              4.83,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              9.143,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              13.456,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              17.768,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              22.081,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              26.394,
+              6.366,
+              3.278,
+              2.036
+            ],
+            [
+              31.31,
+              6.366,
+              2.07,
+              2.036
+            ],
+            [
+              0.518,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              4.83,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              9.143,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              13.456,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              17.768,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              22.081,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              26.394,
+              10.067,
+              3.278,
+              2.036
+            ],
+            [
+              31.31,
+              10.067,
+              2.07,
+              2.036
+            ],
+            [
+              0.518,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              4.83,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              9.143,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              13.456,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              17.768,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              22.081,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              26.394,
+              13.768,
+              3.278,
+              2.036
+            ],
+            [
+              31.31,
+              13.768,
+              2.07,
+              2.036
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none"
+          ],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": 0.12,
+            "source": "qualitative cornice layout prior",
+            "support": 0.85
+          },
+          "string_courses": {
+            "value": [],
+            "source": "counted floor boundaries",
+            "support": 0.85
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct structure-only review",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103248804K",
+    "seed": "11345391547133610407",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1941,
+      "era": "1920-1959",
+      "levels": 1,
+      "address": "Vahteratie 6",
+      "construction_year": 1941,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103248804K_b9ce97ec50",
+        "width_m": 10.333956163151226,
+        "height_m": 4.17,
+        "geometry": {
+          "p0": [
+            23460225.228,
+            6703572.558
+          ],
+          "p1": [
+            23460219.545,
+            6703581.189
+          ],
+          "normal": [
+            0.8352077233333478,
+            0.5499345950968406
+          ],
+          "base_h": 16.888
+        },
+        "structure": {
+          "wall_id": "103248804K_b9ce97ec50",
+          "render_deferred": "Only a patch of siding is visible through leaves.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper left",
+                "kind": "blue-grey vertical timber siding beneath shallow dark tiled eaves"
+              }
+            ],
+            "confidence": {
+              "material": 0.99,
+              "openings": 0,
+              "whole_count": 0
+            },
+            "occlusion": "Close leaves and shrubs obscure the opening rhythm; material-only observation."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Only a patch of siding is visible through leaves.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "928ff7edfa2beaa0a92dff969c898fb8f4148e5a",
+    "seed": "15289939615389402834",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "",
+      "material_class": "render",
+      "year": null,
+      "era": "unknown",
+      "levels": 1,
+      "address": ""
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "unknown",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "stored-gis-928ff7edfa2beaa0a92dff969c898fb8f4148e5a_0",
+        "width_m": 6.700753513482602,
+        "height_m": 2.4850000000000003,
+        "geometry": {
+          "p0": [
+            23459056.319,
+            6703594.3
+          ],
+          "p1": [
+            23459050.80167797,
+            6703590.497467256
+          ],
+          "normal": [
+            -0.5674783792568859,
+            0.8233882978740821
+          ],
+          "base_h": 6.219
+        },
+        "structure": {
+          "wall_id": "stored-gis-928ff7edfa2beaa0a92dff969c898fb8f4148e5a_0",
+          "render_deferred": "Incomplete visibility or separate facade strips need retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper rear",
+                "kind": "blank pale vertical ribbed cladding"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.85,
+              "whole_count": 0
+            },
+            "occlusion": "Parked vehicle and small trees obscure most stored face; no opening count."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Incomplete visibility or separate facade strips need retained observations.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1034361201",
+    "seed": "16278604350113928699",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "tiili",
+      "material_class": "brick",
+      "year": 1976,
+      "era": "1960+",
+      "levels": 8,
+      "address": "Sirkkalankatu 13",
+      "construction_year": 1976,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 8,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "brick",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1960+",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1034361201_25be640073",
+        "width_m": 34.140091535537266,
+        "height_m": 9.18,
+        "geometry": {
+          "p0": [
+            23460465.689,
+            6704205.127
+          ],
+          "p1": [
+            23460485.954,
+            6704177.652
+          ],
+          "normal": [
+            -0.8047723003893937,
+            -0.5935836457703022
+          ],
+          "base_h": 21.464
+        },
+        "structure": {
+          "wall_id": "1034361201_25be640073",
+          "render_deferred": "Deep French doors with Juliet rails alternate with ordinary windows in two continuous bands.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "main",
+                "rows": 2,
+                "deep_doors_complete_per_row": 8,
+                "kind": "two rows of dark framed windows and deep narrow French doors, eight complete rail groups and one clipped at right"
+              },
+              {
+                "position": "rails",
+                "kind": "black vertical-bar Juliet rails"
+              },
+              {
+                "position": "wall",
+                "kind": "pale small brick with dark infill strips"
+              },
+              {
+                "position": "base",
+                "kind": "dark plinth with small horizontal basement windows"
+              }
+            ],
+            "confidence": {
+              "rows": 0.99,
+              "rail_count": 0.99,
+              "shape": 0.99,
+              "material": 0.95
+            },
+            "occlusion": "Right edge cuts last group. Preserve varying opening depths and dark infill, not an identical window grid."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Deep French doors with Juliet rails alternate with ordinary windows in two continuous bands.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103248807N",
+    "seed": "17381845772529144350",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1941,
+      "era": "1920-1959",
+      "levels": 1,
+      "address": "Kaskenkatu 25",
+      "construction_year": 1941,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103248807N_302393d090",
+        "width_m": 10.317032761594074,
+        "height_m": 4.04,
+        "geometry": {
+          "p0": [
+            23460257.213,
+            6703587.223
+          ],
+          "p1": [
+            23460251.411,
+            6703595.754
+          ],
+          "normal": [
+            0.8268850353224277,
+            0.5623709970827332
+          ],
+          "base_h": 17.112
+        },
+        "structure": {
+          "wall_id": "103248807N_302393d090",
+          "render_deferred": "Incomplete visibility or separate facade strips need retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper visible",
+                "kind": "one broad paired window and one narrower white-framed window in pale yellow vertical timber"
+              },
+              {
+                "position": "roof",
+                "kind": "red tiled roof with shallow eaves"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.85,
+              "whole_count": 0
+            },
+            "occlusion": "Tall hedge and parked vehicles hide lower wall; view tilted, counts partial. Alternate requested."
+          },
+          "revision_of": "103248807N_302393d090",
+          "alternate_review": "Alternate removes vehicle/pole obstruction and confirms broad paired left window and narrow right window; hedge still hides their lower halves."
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Incomplete visibility or separate facade strips need retained observations.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103313219F",
+    "seed": "6817471244800088281",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "",
+      "material_class": "render",
+      "year": null,
+      "era": "1850-1919",
+      "levels": 1,
+      "address": "",
+      "construction_year": 1899,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1850-1919",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103313219F_b73a272b33",
+        "width_m": 19.769213891843986,
+        "height_m": 6.67,
+        "geometry": {
+          "p0": [
+            23458823.705,
+            6704751.583
+          ],
+          "p1": [
+            23458807.142,
+            6704740.79
+          ],
+          "normal": [
+            -0.5459498824103696,
+            0.8378178357471888
+          ],
+          "base_h": 8.029
+        },
+        "structure": {
+          "wall_id": "103313219F_b73a272b33",
+          "render_deferred": "Projecting polygonal timber bay, attic vents and low entry cannot share one flat row.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left",
+                "kind": "two upright flat-headed windows with ornate pale surrounds"
+              },
+              {
+                "position": "centre-left",
+                "kind": "projecting bay window with narrow side face, two front windows, small pediment and curved supporting brackets"
+              },
+              {
+                "position": "right",
+                "kind": "broad multi-pane window, narrow window over low entrance, then two upright windows"
+              },
+              {
+                "position": "attic",
+                "kind": "small square vents in narrow upper band"
+              },
+              {
+                "position": "base",
+                "kind": "dark stone with low door and two basement windows"
+              },
+              {
+                "position": "wall",
+                "kind": "muted brown and green horizontal timber panels with pale pilasters and courses"
+              }
+            ],
+            "confidence": {
+              "bay": 0.99,
+              "side_features": 0.99,
+              "materials": 0.99
+            },
+            "occlusion": "Clear front except tiny edge clipping. Bay geometry and different opening baselines preserved in observations."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Projecting polygonal timber bay, attic vents and low entry cannot share one flat row.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103321654K",
+    "seed": "10920879559788230027",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "",
+      "material_class": "render",
+      "year": null,
+      "era": "1960+",
+      "levels": 12,
+      "address": "",
+      "construction_year": 1966,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 12,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1960+",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103321654K_bab2e92415",
+        "width_m": 18.29471216168113,
+        "height_m": 34.98,
+        "geometry": {
+          "p0": [
+            23458639.268,
+            6703675.941
+          ],
+          "p1": [
+            23458653.01,
+            6703688.018
+          ],
+          "normal": [
+            0.660136103469819,
+            -0.7511460077080117
+          ],
+          "base_h": 9.442
+        },
+        "structure": {
+          "wall_id": "103321654K_bab2e92415",
+          "render_deferred": "Incomplete visibility or separate facade strips need retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper exposed centre",
+                "kind": "tall multi-storey glazed strip with repeated horizontal opaque bands"
+              },
+              {
+                "position": "sides",
+                "kind": "pale brick and small square-window fragments"
+              },
+              {
+                "position": "alternate centre",
+                "kind": "Stacked broad triple-pane glazing in pale horizontal bands, at least four exposed upper and four lower rows; buff square-tiled side fields with tiny side windows. Middle levels tree-obscured."
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.85,
+              "whole_count": 0
+            },
+            "occlusion": "Large trunk and canopy hide most tower wall. Alternate requested."
+          },
+          "revision_of": "103321654K_bab2e92415",
+          "alternate_review": "Alternate reviewed, original visible-feature observations retained where foliage still blocks counts."
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Incomplete visibility or separate facade strips need retained observations.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1032677591",
+    "seed": "16727983632692948929",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "",
+      "material_class": "render",
+      "year": null,
+      "era": "1920-1959",
+      "levels": 7,
+      "address": "",
+      "construction_year": 1954,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 7,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1032677591_f5cc3ad0b4",
+        "width_m": 21.29999934221733,
+        "height_m": 25.65,
+        "geometry": {
+          "p0": [
+            23459215.24,
+            6703438.205
+          ],
+          "p1": [
+            23459196.926,
+            6703449.081
+          ],
+          "normal": [
+            0.5106103444147675,
+            0.8598122330931518
+          ],
+          "base_h": 23.302
+        },
+        "structure": {
+          "wall_id": "1032677591_f5cc3ad0b4",
+          "render_deferred": "Incomplete visibility or separate facade strips need retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper",
+                "rows_visible": 3,
+                "kind": "at least three rows of four square white-framed windows flanking central recessed balconies"
+              },
+              {
+                "position": "wall",
+                "kind": "pale yellow render"
+              },
+              {
+                "position": "ground",
+                "kind": "central glazed entrance beneath trees"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.85,
+              "whole_count": 0
+            },
+            "occlusion": "Trees cover lower floors and side boundaries; complete count unknown. Alternate requested."
+          },
+          "revision_of": "1032677591_f5cc3ad0b4",
+          "alternate_review": "Alternate reviewed, original visible-feature observations retained where foliage still blocks counts."
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Incomplete visibility or separate facade strips need retained observations.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103267748N",
+    "seed": "8874407314287926350",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "material": "",
+      "material_class": "render",
+      "year": null,
+      "era": "1920-1959",
+      "levels": 7,
+      "address": "",
+      "construction_year": 1953,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 7,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103267748N_006ac556ac",
+        "width_m": 8.929350759661611,
+        "height_m": 25.55,
+        "geometry": {
+          "p0": [
+            23459168.547,
+            6703439.579
+          ],
+          "p1": [
+            23459160.176,
+            6703442.687
+          ],
+          "normal": [
+            0.3480656190646981,
+            0.9374701727655705
+          ],
+          "base_h": 19.079
+        },
+        "structure": {
+          "wall_id": "103267748N_006ac556ac",
+          "floors_visible": 7,
+          "floors": [
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "base",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "middle",
+              "bay_units": [
+                3,
+                1
+              ]
+            },
+            {
+              "bays": [
+                "blank",
+                "window"
+              ],
+              "bay_count": 2,
+              "head": "flat",
+              "surround": "frame",
+              "confidence": {
+                "bay_count": 0.85,
+                "bay_kinds": 0.8,
+                "head": 0.9,
+                "surround": 0.8,
+                "bay_units": 0.95
+              },
+              "role": "top",
+              "bay_units": [
+                3,
+                1
+              ]
+            }
+          ],
+          "material": "render",
+          "ornament": "none",
+          "cornice": "thin",
+          "string_courses": [],
+          "balconies": [],
+          "occluded_parts": "Seven small square white-framed windows in a single right stack beside vertical drainpipe; broad blank pale cream render at left. Lowest window partly hidden by low foreground roof, top eaves clear.",
+          "confidence": {
+            "floors_visible": 0.9,
+            "split": 0.8,
+            "material": 0.85,
+            "ornament": 0.8,
+            "cornice": 0.85,
+            "string_courses": 0.85,
+            "balconies": 0.75,
+            "occluded_parts": 0.8
+          }
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "visible_share": 1.0,
+          "wall_share": 0,
+          "register_height_conflict": false,
+          "colour_space": "unmeasured; preserve calibrated pigment",
+          "excluded_rectangles_m": [],
+          "notes": "Seven small square white-framed windows in a single right stack beside vertical drainpipe; broad blank pale cream render at left. Lowest window partly hidden by low foreground roof, top eaves clear.",
+          "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
+          "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
+        },
+        "split": {
+          "base_height_m": {
+            "value": 3.65,
+            "source": "qualitative row-height layout prior",
+            "support": 0.2
+          },
+          "middle_repeats": 5,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "render",
+            "source": "direct structure-only review",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 2,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.9
+        },
+        "windows": {
+          "rectangles_m": [
+            [
+              7.277,
+              0.621,
+              1.072,
+              2.008
+            ],
+            [
+              7.277,
+              4.271,
+              1.072,
+              2.008
+            ],
+            [
+              7.277,
+              7.92,
+              1.072,
+              2.008
+            ],
+            [
+              7.277,
+              11.57,
+              1.072,
+              2.008
+            ],
+            [
+              7.277,
+              15.22,
+              1.072,
+              2.008
+            ],
+            [
+              7.277,
+              18.87,
+              1.072,
+              2.008
+            ],
+            [
+              7.277,
+              22.52,
+              1.072,
+              2.008
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame"
+          ],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": 0.12,
+            "source": "qualitative cornice layout prior",
+            "support": 0.85
+          },
+          "string_courses": {
+            "value": [],
+            "source": "counted floor boundaries",
+            "support": 0.85
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct structure-only review",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103452258L",
+    "seed": "17793859872861511381",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "puu",
+      "material_class": "wood",
+      "year": 1940,
+      "era": "1920-1959",
+      "levels": 1,
+      "address": "Kupittaankatu 78",
+      "construction_year": 1940,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "wood",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1920-1959",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103452258L_6bc6da4241",
+        "width_m": 8.984479504628954,
+        "height_m": 4.17,
+        "geometry": {
+          "p0": [
+            23460093.645,
+            6703605.786
+          ],
+          "p1": [
+            23460088.659,
+            6703613.26
+          ],
+          "normal": [
+            0.8318790193258083,
+            0.5549570228454915
+          ],
+          "base_h": 16.389
+        },
+        "structure": {
+          "wall_id": "103452258L_6bc6da4241",
+          "render_deferred": "Only upper wall strip is visible above tall hedge.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper right",
+                "kind": "dark horizontal window-top strip in pale grey vertical timber beneath tiled eaves"
+              }
+            ],
+            "confidence": {
+              "material": 0.9,
+              "window": 0.65,
+              "whole_count": 0
+            },
+            "occlusion": "Large sign and hedge obscure nearly entire low facade; no complete opening shapes inferred."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Only upper wall strip is visible above tall hedge.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103258135K",
+    "seed": "6849201239972945105",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "muu materiaali",
+      "material_class": "render",
+      "year": 1911,
+      "era": "1850-1919",
+      "levels": 4,
+      "address": "Sotalaistenkatu 6",
+      "construction_year": 1911,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 4,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1850-1919",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103258135K_78b8af475d",
+        "width_m": 16.55768295885673,
+        "height_m": 16.05,
+        "geometry": {
+          "p0": [
+            23459046.069,
+            6703590.846
+          ],
+          "p1": [
+            23459032.43,
+            6703581.458
+          ],
+          "normal": [
+            -0.5669875443077357,
+            0.8237263651236881
+          ],
+          "base_h": 7.991
+        },
+        "structure": {
+          "wall_id": "103258135K_78b8af475d",
+          "render_deferred": "Projecting polygonal bay and changing right-window count interrupt three upper rows.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper left",
+                "rows": 3,
+                "bay_count": 2,
+                "kind": "two narrow upright dark-framed windows per row"
+              },
+              {
+                "position": "upper centre",
+                "rows": 3,
+                "bay_count": 3,
+                "kind": "three windows around shallow polygonal projecting bay"
+              },
+              {
+                "position": "upper right",
+                "kind": "two narrow windows top, one smaller square window on each of two lower rows"
+              },
+              {
+                "position": "ground",
+                "kind": "grey rusticated stone with chamfered shop-window heads and narrow pale doors"
+              },
+              {
+                "position": "wall",
+                "kind": "ochre render, historic dark painted lettering and thin cornices"
+              }
+            ],
+            "confidence": {
+              "rows": 0.99,
+              "groups": 0.99,
+              "materials": 0.99
+            },
+            "occlusion": "Car hides shop bottoms; return plane at right separate. Bay geometry must not become flat uniform rhythm."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Projecting polygonal bay and changing right-window count interrupt three upper rows.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103443354C",
+    "seed": "7710295125778772704",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "puu",
+      "material_class": "wood",
+      "year": 1890,
+      "era": "1850-1919",
+      "levels": 1,
+      "address": "Uudenmaankatu 15",
+      "construction_year": 1890,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "wood",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1850-1919",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103443354C_5e3f4d6a93",
+        "width_m": 20.84538579562618,
+        "height_m": 7.84,
+        "geometry": {
+          "p0": [
+            23460488.399,
+            6704125.375
+          ],
+          "p1": [
+            23460470.644,
+            6704114.453
+          ],
+          "normal": [
+            -0.5239528837381842,
+            0.851747248673244
+          ],
+          "base_h": 20.15
+        },
+        "structure": {
+          "wall_id": "103443354C_5e3f4d6a93",
+          "render_deferred": "Seven timber main windows, tiny attic vents and low central doorway occupy distinct bands.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "main",
+                "bay_count": 7,
+                "kind": "seven tall cross-divided windows with projecting cornice lintels; third has triangular pediment"
+              },
+              {
+                "position": "low centre-left",
+                "kind": "timber entrance beneath shallow canopy under pedimented window"
+              },
+              {
+                "position": "attic",
+                "kind": "many tiny square vents and carved brackets beneath projecting cornice"
+              },
+              {
+                "position": "wall",
+                "kind": "muted brown horizontal timber with dark green pilasters and trim"
+              }
+            ],
+            "confidence": {
+              "main_count": 0.99,
+              "pediment": 0.99,
+              "material": 0.99
+            },
+            "occlusion": "Trees hide lower window parts and base; fence crosses foreground. Vent count unknown."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Seven timber main windows, tiny attic vents and low central doorway occupy distinct bands.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1034433730",
+    "seed": "16793672501990128405",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "betoni",
+      "material_class": "concrete",
+      "year": 1896,
+      "era": "1850-1919",
+      "levels": 3,
+      "address": "T\u00e4htitorninkatu 6",
+      "construction_year": 1896,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 3,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "concrete",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1850-1919",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1034433730_83f4768bc3",
+        "width_m": 14.269627781747213,
+        "height_m": 14.16,
+        "geometry": {
+          "p0": [
+            23460375.424,
+            6703968.383
+          ],
+          "p1": [
+            23460383.27,
+            6703956.464
+          ],
+          "normal": [
+            -0.8352705608718765,
+            -0.5498391493344039
+          ],
+          "base_h": 21.112
+        },
+        "structure": {
+          "wall_id": "1034433730_83f4768bc3",
+          "render_deferred": "Two projecting bay stacks flank flat centre windows and ornate lower row.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper",
+                "rows": 2,
+                "kind": "two levels of projecting box bays at left and right, narrow flat central windows"
+              },
+              {
+                "position": "lower main",
+                "bay_count": 3,
+                "kind": "three broad paired window groups with decorative pilasters, cornices and round medallions"
+              },
+              {
+                "position": "base",
+                "kind": "rusticated pale stone with small paired basement windows"
+              },
+              {
+                "position": "wall",
+                "kind": "pale cream render"
+              }
+            ],
+            "confidence": {
+              "rows": 0.99,
+              "bays": 0.99,
+              "ornament": 0.99,
+              "material": 0.99
+            },
+            "occlusion": "Crop tilted and bay side planes visible; counts structural only. Alternate requested."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Two projecting bay stacks flank flat centre windows and ornate lower row.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1034433741",
+    "seed": "6093044070707856994",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "puu",
+      "material_class": "wood",
+      "year": 1900,
+      "era": "1850-1919",
+      "levels": 1,
+      "address": "T\u00e4htitorninkatu 6",
+      "construction_year": 1900,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "wood",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1850-1919",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1034433741_843498f3a7",
+        "width_m": 9.982961684518726,
+        "height_m": 6.85,
+        "geometry": {
+          "p0": [
+            23460369.904,
+            6703976.701
+          ],
+          "p1": [
+            23460375.424,
+            6703968.383
+          ],
+          "normal": [
+            -0.8332196659503862,
+            -0.5529421201839544
+          ],
+          "base_h": 22.146
+        },
+        "structure": {
+          "wall_id": "1034433741_843498f3a7",
+          "render_deferred": "Partial visibility or separate facade structures require retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "main",
+                "kind": "at least three upright cross-divided white-framed windows in pale pink horizontal timber"
+              },
+              {
+                "position": "base",
+                "kind": "two broad glass-block/basement glazing groups in brown stone plinth"
+              },
+              {
+                "position": "trim",
+                "kind": "decorative pale surrounds and vertical lower boards"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.9,
+              "whole_count": 0
+            },
+            "occlusion": "Tilted crop cuts upper and left edge; alternate requested."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Partial visibility or separate facade structures require retained observations.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1033132693",
+    "seed": "6785145240878539671",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "tiili",
+      "material_class": "brick",
+      "year": 1992,
+      "era": "1960+",
+      "levels": 2,
+      "address": "Ratapihankatu 32",
+      "construction_year": 1992,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 2,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "brick",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1960+",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1033132693_4311cc57ae",
+        "width_m": 35.06946542522356,
+        "height_m": 3.98,
+        "geometry": {
+          "p0": [
+            23459159.681,
+            6704969.979
+          ],
+          "p1": [
+            23459130.9,
+            6704949.941
+          ],
+          "normal": [
+            -0.5713802522415555,
+            0.8206854496994426
+          ],
+          "base_h": 8.784
+        },
+        "structure": {
+          "wall_id": "1033132693_4311cc57ae",
+          "render_deferred": "Low parking/service wall consists of grille bands rather than room windows.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper low band",
+                "kind": "long series of dark horizontal ventilation grilles in red-brown brick separated by pale vertical piers"
+              },
+              {
+                "position": "lower",
+                "kind": "brick wall with surface graffiti and fence in front"
+              }
+            ],
+            "confidence": {
+              "grilles": 0.99,
+              "material": 0.99,
+              "whole_count": 0
+            },
+            "occlusion": "Trees hide middle/right band, cars and signs obscure base."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Low parking/service wall consists of grille bands rather than room windows.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "1034318166",
+    "seed": "10785971191312740234",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "",
+      "material_class": "render",
+      "year": null,
+      "era": "1960+",
+      "levels": 1,
+      "address": "",
+      "construction_year": 1964,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "render",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1960+",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "1034318166_0dddec6c99",
+        "width_m": 19.38680801509152,
+        "height_m": 3.22,
+        "geometry": {
+          "p0": [
+            23460537.465,
+            6704610.798
+          ],
+          "p1": [
+            23460548.25,
+            6704594.688
+          ],
+          "normal": [
+            -0.8309774351607837,
+            -0.5563061227899666
+          ],
+          "base_h": 11.971
+        },
+        "structure": {
+          "wall_id": "1034318166_0dddec6c99",
+          "render_deferred": "Long blank low wall and barred gate have no ordinary window rhythm.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "main",
+                "kind": "blank pale concrete/render wall with surface graffiti"
+              },
+              {
+                "position": "far left",
+                "kind": "wide metal barred vehicle gate with narrow glazing/vent strip above"
+              }
+            ],
+            "confidence": {
+              "blank": 0.99,
+              "gate": 0.99,
+              "material": 0.9
+            },
+            "occlusion": "Trees cross wall in a few places, but blank surface clear."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Long blank low wall and barred gate have no ordinary window rhythm.",
+          "colour_space": "unmeasured"
+        }
+      }
+    ],
+    "review": {
+      "method": "direct structure-only route survey; prior pilot retained",
+      "scope": "matched walls only",
+      "independent": false
+    }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103443372Y",
+    "seed": "9797756575560825025",
+    "source": "photographed",
+    "needs_review": true,
+    "attributes": {
+      "material": "puu",
+      "material_class": "wood",
+      "year": 1893,
+      "era": "1850-1919",
+      "levels": 1,
+      "address": "T\u00e4htitorninkatu 6",
+      "construction_year": 1893,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "wood",
+      "source": "register",
+      "support": 0.4
+    },
+    "style_era": {
+      "value": "1850-1919",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": null,
+    "walls": [
+      {
+        "wall_id": "103443372Y_2032dc8829",
+        "width_m": 25.732763647745948,
+        "height_m": 7.19,
+        "geometry": {
+          "p0": [
+            23460383.27,
+            6703956.464
+          ],
+          "p1": [
+            23460397.455,
+            6703934.994
+          ],
+          "normal": [
+            -0.8343448956218072,
+            -0.5512427733311663
+          ],
+          "base_h": 19.39
+        },
+        "structure": {
+          "wall_id": "103443372Y_2032dc8829",
+          "render_deferred": "Partial visibility or separate facade structures require retained observations.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "upper fragment",
+                "kind": "upright white-framed windows in pale pink horizontal timber"
+              },
+              {
+                "position": "base",
+                "kind": "red brick plinth with small basement windows and pale vertical trim blocks over rough stone foundation"
+              }
+            ],
+            "confidence": {
+              "features": 0.95,
+              "material": 0.9,
+              "whole_count": 0
+            },
+            "occlusion": "Severely tilted crop cuts window heads and shows much road; no whole bay count. Alternate requested for straight view."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Partial visibility or separate facade structures require retained observations.",
           "colour_space": "unmeasured"
         }
       }
