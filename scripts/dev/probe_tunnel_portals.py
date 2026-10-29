@@ -21,6 +21,7 @@ from turku3d.col.format import read_col
 
 
 def vertical_hits(triangles, point):
+
     xz = triangles[:, :, [0, 2]]
     use = (xz.min(axis=1) <= point + 1e-6).all(axis=1) & (xz.max(axis=1) >= point - 1e-6).all(
         axis=1
@@ -42,6 +43,8 @@ def vertical_hits(triangles, point):
 
 
 def audit_collision(tile, inputs, manifest, out):
+
+    from turku3d import config as C
     from turku3d.coarse.bridge_join import terrain_sampler
     from turku3d.coarse.build import grid_mesh
     from turku3d.coarse.extrusion import extrude
@@ -159,6 +162,7 @@ print(json.dumps(audit_collision(tile, inputs, json.loads((out/'manifest.json').
         return
     if args.root is None or args.wfs_cache is None:
         parser.error("--local requires --root and --wfs-cache")
+
     args.root.mkdir(parents=True, exist_ok=True)
     sources = Sources()
     sources.wfs = _Files(args.wfs_cache, "*/*.summary.json")
