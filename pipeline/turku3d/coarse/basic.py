@@ -65,33 +65,60 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None):
     building_meshes = []
     for (b, shell), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
         roof, ridx, floor, fidx = shell[:4]
-        widx = (np.array([[0, 3, 2], [0, 2, 1]])[None, :, :]
-                + np.arange(len(walls) // 4)[:, None, None] * 4).reshape(-1, 3)
-        for surface, vertices, triangles in (("roof", roof, ridx), ("building", walls, widx),
-                                               ("building", floor, fidx)):
+        widx = (
+            np.array([[0, 3, 2], [0, 2, 1]])[None, :, :]
+            + np.arange(len(walls) // 4)[:, None, None] * 4
+        ).reshape(-1, 3)
+        for surface, vertices, triangles in (
+            ("roof", roof, ridx),
+            ("building", walls, widx),
+            ("building", floor, fidx),
+        ):
             if not len(triangles):
                 continue
             rgb = np.asarray(COLOURS[surface]) / 255
-            linear = np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4)
-            building_meshes.append(GlbMesh(
-                f"basic_{b.key}_{surface}", vertices - tile.origin, triangles,
-                color=(*map(float, linear), 1.0),
-                extras=dict(layer="buildings", surface=surface, building_id=b.facade_key),
-            ))
+            linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+            building_meshes.append(
+                GlbMesh(
+                    f"basic_{b.key}_{surface}",
+                    vertices - tile.origin,
+                    triangles,
+                    color=(*map(float, linear), 1.0),
+                    extras=dict(layer="buildings", surface=surface, building_id=b.facade_key),
+                )
+            )
     from turku3d.wall_assembly import assemble_structures
 
-    meshes = building_meshes + assemble_structures(meshes, building_meshes)
+    meshes = assemble_structures(building_meshes + meshes)
     validate_meshes(meshes, tile.id)
     if root is not None:
         from turku3d.wall_surfaces import validate_neighbours
-        validate_neighbours(meshes, shells, tile, root)
+
+        validate_neighbours(meshes, shells, tile, root, pass_kind="first")
     data = build_glb(
         meshes, root_translation=tile.origin, root_extras={"basic": True, "tile": tile.id}
     )
-    return data, sum(len(m.indices) for m in meshes), [float(pos[:, 1].min()), float(pos[:, 1].max())]
+    return (
+        data,
+        sum(len(m.indices) for m in meshes),
+        [float(pos[:, 1].min()), float(pos[:, 1].max())],
+    )
 
 
-def publish(tile, out, cells, collision, roads, code, input_key, buildings, seconds, started, shells=(), wall_context=()):
+def publish(
+    tile,
+    out,
+    cells,
+    collision,
+    roads,
+    code,
+    input_key,
+    buildings,
+    seconds,
+    started,
+    shells=(),
+    wall_context=(),
+):
     from .build import _entry, _write
     from .collision_key import code_hash
 

@@ -27,8 +27,10 @@ def mesh(points, identity="test"):
 def test_build_guard_reports_wall_ids_and_near_parallel_triangle_overlap():
     first = mesh(quad(), "first-building")
     second = mesh(quad(z=0.004), "second-building")
-    with pytest.raises(ValueError, match="first-building.*second-building"):
-        validate_meshes([first, second], "t0_0_0")
+    assert validate_meshes([first, second], "t0_0_0")["violations"] == 2
+    from turku3d.wall_assembly import assemble_structures
+
+    assert validate_meshes(assemble_structures([first, second]), "t0_0_0")["violations"] == 0
     second.positions[:, 2] = 0.02
     assert validate_meshes([first, second], "t0_0_0")["violations"] == 0
 
@@ -66,8 +68,8 @@ def test_neighbour_admission_rejects_duplicate_owners_and_overlapping_boundary(t
     with pytest.raises(ValueError, match="wall ownership"):
         validate_neighbours([], [(alias, None)], left, tmp_path)
     alias.key = "different-building"
-    with pytest.raises(ValueError, match="wall neighbour invariant"):
-        validate_neighbours([mesh(quad(240, 260, z=10))], [(alias, None)], left, tmp_path)
+    # Cross-tile overlaps are reported, not fatal: a failed admission left tiles without their textured pass.
+    validate_neighbours([mesh(quad(240, 260, z=10))], [(alias, None)], left, tmp_path)
 
 
 @pytest.mark.parametrize("identity", ["103277347A", "103304667L", "1032865783", "1032865794"])
@@ -129,3 +131,45 @@ def test_shared_frontage_has_same_owner_from_either_neighbour():
     left = assemble_walls([first], [second])[0]
     right = assemble_walls([second], [first])[0]
     assert len(left) == 4 and not len(right)
+
+
+def test_back_to_back_party_walls_do_not_compete():
+    first = mesh(quad())
+    second = mesh(quad(z=0.001))
+    second.indices = second.indices[:, ::-1]
+    assert validate_meshes([first, second], "fixture")["violations"] == 0
+
+
+@pytest.mark.parametrize("pass_kind,content_hash", [("first", "v1"), ("full", "v2")])
+def test_neighbours_ignore_other_passes_and_versions(tmp_path, pass_kind, content_hash):
+    left, right = C.VisualTile(0, 0, 0), C.VisualTile(0, 1, 0)
+    validate_neighbours(
+        [mesh(quad(240, 260))], [], left, tmp_path, pass_kind="full", content_hash="v1"
+    )
+    meshes = [mesh(quad(-10, 10))]
+    result = validate_neighbours(
+        meshes, [], right, tmp_path, pass_kind=pass_kind, content_hash=content_hash
+    )
+    assert result["resolved"] == 0
+    assert len(meshes) == 1
+
+
+def test_matching_neighbour_removes_duplicate_without_failing(tmp_path):
+    import json
+
+    left, right = C.VisualTile(0, 0, 0), C.VisualTile(0, 1, 0)
+    validate_neighbours([mesh(quad(240, 260))], [], left, tmp_path, content_hash="v1")
+    meshes = [mesh(quad(-10, 10))]
+    result = validate_neighbours(meshes, [], right, tmp_path, content_hash="v1")
+    assert result["resolved"] == 2
+    assert not meshes
+    record = json.loads((tmp_path / ".wall-surfaces" / "full" / f"{right.id}.json").read_text())
+    assert record["pass_kind"] == "full" and record["content_hash"] == "v1"
+
+
+def test_sloping_wall_plane_uses_actual_surface_not_vertical_proxy():
+    first = quad()
+    first[2:, 2] = 0.05
+    second = first.copy()
+    second[:, 2] += 0.02
+    assert not overlaps([first, second], ["a", "b"])

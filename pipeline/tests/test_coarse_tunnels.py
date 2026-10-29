@@ -383,7 +383,33 @@ def test_portal_jambs_meet_sloping_header_without_coplanar_overlap():
     tile = C.VisualTile(0, 0, 0)
     pos = np.array([[0, 2, 0], [50, 2, 0], [0, 4, 50], [50, 4, 50]], float)
     idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
-    ways = [("portal", shapely.LineString([(10, 10), (30, 15)]),
-             {"highway": "service", "width": "4", "tunnel": "yes"})]
-    result = produce(tile, ways, pos, idx, [], extrude, lambda x, z: 2 + z * .04)
+    ways = [
+        (
+            "portal",
+            shapely.LineString([(10, 10), (30, 15)]),
+            {"highway": "service", "width": "4", "tunnel": "yes"},
+        )
+    ]
+    result = produce(tile, ways, pos, idx, [], extrude, lambda x, z: 2 + z * 0.04)
     assert validate_meshes(result.visuals(tile), tile.id)["violations"] == 0
+
+
+def test_tunnel_cuts_building_around_complete_lining_before_facade_paint():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [50, 2, 0], [0, 2, 50], [50, 2, 50]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    building = Building("lining", shapely.box(10, 5, 30, 15), 2, 14, "facade_plaster")
+    ways = [
+        (
+            "lining",
+            shapely.LineString([(5, 10), (35, 10)]),
+            {"highway": "service", "width": "4", "tunnel": "yes"},
+        )
+    ]
+    result = produce(tile, ways, pos, idx, [(building, extrude(building))], extrude, lambda x, z: 2)
+    ground_parts = [b.footprint for b, _ in result.shells if b.base == 2]
+    # Clear road z=8..12, plus 0.4 m wall lining on each side. The new
+    # building cut must be outside both lining faces, including at neighbours.
+    lining = shapely.box(10, 7.6, 30, 12.4)
+    assert sum(p.intersection(lining).area for p in ground_parts) < 1e-8
+    assert any(b.base > 2 for b, _ in result.shells)

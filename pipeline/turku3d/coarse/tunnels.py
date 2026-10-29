@@ -426,7 +426,12 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
 
         # OSM also maps roads below buildings as tunnel=yes or covered/layer ways.
         # The tube and the building shell must leave the same full-width corridor clear.
-        passages.append((corridor, float(np.max(floor) + clearance + 0.35)))
+        # The lining occupies 0.4 m outside the clear road corridor. Cutting
+        # only the road creates a second inward-facing building wall on its
+        # inner face. Both tile owners use the complete way and the same cut.
+        passages.append(
+            (corridor.buffer(0.406, join_style="mitre"), float(np.max(floor) + clearance + 0.35))
+        )
         portal_offsets = (
             np.array([surface_sample(*xz[0]) - floor[0], surface_sample(*xz[-1]) - floor[-1]])
             if surface_sample is not None
@@ -606,8 +611,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             # A single U-shaped frame owns the mouth. Its jambs and thickness
             # stay outside the clear carriageway, including at skewed portals.
             frame = Faces()
-            header_line = np.array([left[end] + offset[end] * 1.7,
-                                    right[end] - offset[end] * 1.7])
+            header_line = np.array([left[end] + offset[end] * 1.7, right[end] - offset[end] * 1.7])
             header_bottom = np.array([left_floor[end], right_floor[end]]) + clearance
             header_vector = header_line[1] - header_line[0]
             for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
@@ -617,8 +621,10 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     "jamb",
                     [a, b],
                     [side_floor[end] - 0.2] * 2,
-                    header_bottom[0] + ((np.array([a, b]) - header_line[0]) @ header_vector)
-                    / (header_vector @ header_vector) * (header_bottom[1] - header_bottom[0]),
+                    header_bottom[0]
+                    + ((np.array([a, b]) - header_line[0]) @ header_vector)
+                    / (header_vector @ header_vector)
+                    * (header_bottom[1] - header_bottom[0]),
                     surface_sample or sample,
                     tile.size / CELLS,
                     thickness=0.4,

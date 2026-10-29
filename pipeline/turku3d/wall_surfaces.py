@@ -1,4 +1,4 @@
-"""Planar wall partitioning and fail-closed visible-surface validation."""
+"""Planar wall partitioning and visible-surface diagnostics."""
 
 import numpy as np
 import shapely
@@ -85,26 +85,29 @@ def overlaps(faces, ids, *, split=None):
         js = js[(js < i) & (high[js, 1] > low[i, 1]) & (low[js, 1] < high[i, 1])]
         js = js[
             (normals[js] @ normals[i] > PARALLEL)
-            & ((abs(normals[js, 1]) < 0.01) | (abs(normals[i, 1]) < 0.01))
+            & ((abs(normals[js, 1]) < 0.02) | (abs(normals[i, 1]) < 0.02))
         ]
         if not len(js):
             continue
         direction = np.array([-normals[i, 2], 0, normals[i, 0]])
         direction /= np.linalg.norm(direction)
-        a = shapely.Polygon(np.c_[(p - p[0]) @ direction, p[:, 1]])
+        vertical = np.cross(normals[i], direction)
+        basis = np.array([direction, vertical])
+        a = shapely.Polygon((p - p[0]) @ basis.T)
         for j in js:
+            from turku3d.wall_assembly import band_polygon
+
             q = points[j]
-            b = shapely.Polygon(np.c_[(q - p[0]) @ direction, q[:, 1]])
-            # 50 micrometres is below float32 precision at long tile overhangs.
-            # Touching tessellation edges are not overlapping surface interiors.
+            b = shapely.Polygon((q - p[0]) @ basis.T)
+            # Solve the plane-distance band over the actual shared polygon,
+            # including sloping triangles and only partly coincident planes.
             common = a.buffer(-0.00005).intersection(b.buffer(-0.00005))
-            if common.area <= MIN_AREA:
-                continue
-            # Plane separation at shared frontage, not at distant edge endpoints.
-            xy = shapely.get_coordinates(common)
-            probe = p[0] + xy[:, :1] * direction
-            probe[:, 1] = xy[:, 1]
-            if np.max(np.abs((probe - q[0]) @ normals[j])) <= DISTANCE:
+            common = (
+                band_polygon(common, basis @ normals[j], (p[0] - q[0]) @ normals[j], DISTANCE)
+                if not common.is_empty
+                else common
+            )
+            if common.area > MIN_AREA:
                 result.append(dict(first=ids[j], second=ids[i], area=float(common.area)))
     return result
 
@@ -127,9 +130,9 @@ def wall_faces(meshes):
 def validate_meshes(meshes, tile):
     faces, ids = wall_faces(meshes)
     violations = overlaps(faces, ids)
-    if violations:
-        raise ValueError(f"wall surface invariant {tile}: {violations[:20]}")
-    return dict(faces=len(faces), violations=0)
+    # Geometry is resolved at assembly. Surface evidence must never prevent the
+    # structural first pass or an appearance upgrade from being served.
+    return dict(faces=len(faces), violations=len(violations), overlaps=violations)
 
 
 def validate_ownership(shells, tile):
@@ -145,19 +148,24 @@ def validate_ownership(shells, tile):
             raise ValueError(f"wall ownership {b.key}: {owner} emitted in {tile.id}")
 
 
-def validate_neighbours(meshes, shells, tile, root):
-    """Serialize boundary admission so concurrent neighbour builds cannot both pass.
+def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content_hash=None):
+    """Resolve comparable neighbour evidence under one serialized admission.
 
-    Records are geometry evidence, never served assets. Every newly admitted tile
-    checks all previous neighbours; rebuilding either side rechecks the pair.
+    Records carry the visual pass and generator content hash. Already admitted
+    geometry takes precedence over a new duplicate, never over another pass or
+    version. Ownership contradictions alone are programming errors.
     """
     import fcntl
     import json
     from pathlib import Path
 
     from turku3d import config as C
+    from turku3d.coarse.packaging import code_hash
+    from turku3d.package.gltf import GlbMesh
+    from turku3d.wall_assembly import assemble_structures
 
     validate_ownership(shells, tile)
+    content_hash = content_hash or code_hash()
     owners = sorted({b.key for b, _ in shells})
     faces, ids = [], []
     box = tile.bbox
@@ -176,6 +184,9 @@ def validate_neighbours(meshes, shells, tile, root):
         ids.append(f"{tile.id}/{identity}")
     directory = Path(root) / ".wall-surfaces"
     directory.mkdir(parents=True, exist_ok=True)
+    records = directory / pass_kind
+    records.mkdir(exist_ok=True)
+    removed = 0
     with (directory / "admission.lock").open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         for di in (-1, 0, 1):
@@ -183,10 +194,16 @@ def validate_neighbours(meshes, shells, tile, root):
                 if di == dj == 0:
                     continue
                 neighbour = C.VisualTile(0, tile.i + di, tile.j + dj).id
-                path = directory / f"{neighbour}.json"
+                path = records / f"{neighbour}.json"
                 if not path.exists():
                     continue
                 record = json.loads(path.read_text())
+                # Legacy evidence has no comparable generation identity.
+                if (record.get("pass_kind"), record.get("content_hash")) != (
+                    pass_kind,
+                    content_hash,
+                ):
+                    continue
                 duplicate = set(owners).intersection(record["owners"])
                 if duplicate:
                     raise ValueError(f"wall ownership {tile.id}/{neighbour}: {sorted(duplicate)}")
@@ -198,11 +215,34 @@ def validate_neighbours(meshes, shells, tile, root):
                     v for v in violations if v["first"].split("/")[0] != v["second"].split("/")[0]
                 ]
                 if violations:
-                    raise ValueError(f"wall neighbour invariant {tile.id}: {violations[:20]}")
-        path = directory / f"{tile.id}.json"
+                    # The already admitted neighbour owns this surface. Subtract
+                    # only the competing frontage, retaining UVs and materials.
+                    points = np.asarray(record["faces"], float).reshape(-1, 3) - tile.origin
+                    protected = GlbMesh(
+                        "neighbour",
+                        points,
+                        np.arange(len(points), dtype=np.uint32).reshape(-1, 3),
+                    )
+                    meshes[:] = assemble_structures(meshes, [protected])
+                    removed += len(violations)
+                    local_faces, local_ids = wall_faces(meshes)
+                    faces = [(face + tile.origin).tolist() for face in local_faces]
+                    ids = [f"{tile.id}/{identity}" for identity in local_ids]
+        path = records / f"{tile.id}.json"
         temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(dict(owners=owners, faces=faces, ids=ids)))
+        temporary.write_text(
+            json.dumps(
+                dict(
+                    owners=owners,
+                    faces=faces,
+                    ids=ids,
+                    pass_kind=pass_kind,
+                    content_hash=content_hash,
+                )
+            )
+        )
         temporary.replace(path)
+    return dict(resolved=removed, pass_kind=pass_kind, content_hash=content_hash)
 
 
 def layer_meshes(paths):
