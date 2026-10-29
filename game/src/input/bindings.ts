@@ -4,7 +4,7 @@ export type Binding =
   | { kind: 'button'; index: number }
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
-  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'map',
+  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'photoCharacter', 'copyPosition', 'map',
   'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
@@ -27,6 +27,8 @@ export const DEFAULT_BINDINGS: Bindings = {
   vehicleReset: [button(1), key('KeyR')], hud: [key('F3'), key('KeyH')],
   // Safe reset (gameplay/recovery.ts): read only while the player is lost, when Y does not enter or exit a car.
   respawn: [button(3), key('KeyR')],
+  positionHud: [button(14), key('KeyP')], photoCharacter: [button(15), key('KeyV')],
+  copyPosition: [key('KeyL')],
   map: [button(8), key('KeyM')],
   // Shop menus (ui/shopMenu.ts): D-pad or left stick, A selects, B leaves. Read only while a menu is open.
   menuUp: [button(12), axis(1, -1), key('ArrowUp'), key('KeyW')],
