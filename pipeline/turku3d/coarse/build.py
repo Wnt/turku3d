@@ -639,7 +639,6 @@ def build(
             "props",
             source_key(
                 props_visual,
-                structures_stage,
                 grid_height,
                 base / "props/__init__.py",
                 base / "props/models.py",
