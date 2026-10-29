@@ -53,9 +53,6 @@ def relocate(work, destination):
 
 def compress_existing(root):
     started = time.monotonic()
-    destination.mkdir(parents=True, exist_ok=True)
-    if work.stat().st_dev == destination.stat().st_dev:
-        raise RuntimeError('cache destination must use the boot volume')
     before = after = count = 0
     # Caller has stopped builders; namespace lock files remain in place.
     for path in root.rglob('*.pkl'):

@@ -289,3 +289,20 @@ def test_large_stage_entry_is_compressed_and_legacy_entry_is_read(tmp_path):
                      + pickle.dumps(value, protocol=5))
     assert cache.run('wall', 'v1', [], lambda: b'changed') == value
     assert cache.metrics['wall']['cached']
+
+
+def test_existing_stage_entries_compress_once(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location('cache_storage', Path(__file__).resolve().parents[2]
+                                              / 'tools/remote-drafts/cache-storage.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cache = StageCache(tmp_path)
+    cache.run('large', 'v1', [], lambda: b'brick' * 200000)
+    target = next((tmp_path / 'large').glob('*.pkl'))
+    first = module.compress_existing(tmp_path)
+    second = module.compress_existing(tmp_path)
+    assert first['files'] == 0  # Newly written entries already use the compressed format.
+    assert second['before'] == second['after'] == target.stat().st_size
