@@ -124,9 +124,17 @@ def wall_parts(vertices, wall, style):
         )
         for i, r in enumerate(windows.get("rectangles_m", []))
     ]
+    base = wall["base"]
+    base_shapes = base.get("head_shapes", [])
+    base_surrounds = base.get("surround_shapes", [])
     boxes += [
-        (r, 1, field(wall["base"], "head_shape", "flat"), None)
-        for r in wall["base"].get("openings_m", [])
+        (
+            r,
+            1,
+            base_shapes[i] if i < len(base_shapes) else field(base, "head_shape", "flat"),
+            base_surrounds[i] if i < len(base_surrounds) else None,
+        )
+        for i, r in enumerate(base.get("openings_m", []))
     ]
     boxes += [
         (

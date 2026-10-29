@@ -78,13 +78,23 @@ def test_form_rejects_inconsistent_counts_and_missing_confidence():
 
 def test_one_row_shop_strip_does_not_clear_unobserved_upper_storeys():
     row, form = fixture()
-    form["floors"] = form["floors"][:1]
+    form["floors"] = form["floors"][1:]
     form["floors_visible"] = 1
     form["string_courses"] = []
     row["height_m"] = 3.5
     wall = compile_structure(row, form, 8)
     assert wall["observation"]["scope"] == "ground-only"
     assert wall["height_m"] == 3.5
+    assert wall["split"]["middle_repeats"] is None
+    assert wall["windows"]["rectangles_m"] == []
+    assert len(wall["base"]["openings_m"]) == 2
+    assert wall["base"]["head_shapes"] == ["flat", "segmental-arch"]
+    assert wall["base"]["surround_shapes"] == ["pediment", "pediment"]
+    vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 20, 0], [0, 20, 0]], float)
+    wall.update(measured_geometry=wall["geometry"], measured_size=[12, 3.5])
+    parts = list(wall_parts(vertices, wall, compile_wall(wall, 8)))
+    assert sorted(p[2]["detail"][3] for p in parts if p[2]["detail"][3]) == [1, 5]
+    assert any(p[0][:, 1].max() == 20 and p[2]["module"] < 42 for p in parts)
 
 
 def test_paired_pointed_windows_and_short_rows_preserve_structural_counts():
@@ -111,6 +121,8 @@ def test_characterized_complex_wall_keeps_existing_artwork_until_renderer_suppor
     )
     wall = compile_structure(row, form, 4)
     assert wall["observation"]["needs_review"]
+    assert wall["windows"]["rectangles_m"] == []
+    assert wall["base"]["openings_m"] == []
     assert wall["structure"]["facade_observations"]["sections"][0]["kind"] == "clock"
 
 

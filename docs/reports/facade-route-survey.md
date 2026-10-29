@@ -193,7 +193,7 @@ is 43%, ten points above the measured start. The local evidence footprint is
 | 600–750 m | 291 | 108 | 183 | 30 | 78 |
 | Cumulative 0–750 m | 1,049 | 337 | 712 | 120 | 217 |
 
-This publication adds data only. Readings distinguish ventilation louvres from
+This publication adds readings and restores the shared program contract for deferred and ground-only records. Readings distinguish ventilation louvres from
 glazing, blind masonry arches from portals, reflected windows from actual
 openings, offset stair windows, isolated window stacks, repeated balcony rows,
 classical fanlights and arched vehicle doors. One reused-crop revision corrects
@@ -214,3 +214,12 @@ The previous slice passed selected checks in 16.745 s, Pages package/upload in
 facade asset/kit tests in 5.762 s. This data-only slice selects the actual-library
 review-boundary checks before publishing, followed by broader facade program and
 structure compatibility checks.
+
+The actual-library pre-merge check exposed omitted empty opening sections on
+deferred records. These now explicitly contain no window/base rectangles.
+Ground-only glazing now uses `base.openings_m` with no upper-window rectangles or
+repeated middle storeys; per-opening head and surround shapes remain intact in
+the painter. Tests retain their assertions and additionally check preserved upper
+facades and ground opening shapes. `publications/ring04-contract/` supersedes the
+original program snapshot; `migrations/20261029-program-contract/` preserves the
+before/after records and changed-wall list. Original raw forms are unchanged.

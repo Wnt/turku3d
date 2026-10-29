@@ -4425,6 +4425,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -4788,6 +4794,7 @@
             "occluded_parts": 0.8
           }
         },
+        "material_bands": [],
         "observation": {
           "needs_review": false,
           "scope": "ground-only",
@@ -4798,15 +4805,15 @@
           "excluded_rectangles_m": [],
           "notes": "Ground-only retail strip. Supermarket glazing, blue double entrance, side window, dark entrance, two barber windows, a barber door and last window. Posters cover glass; no inference about upper floors or cladding.",
           "opening_extent": "counted rows and bays; dimensions are layout priors, not measured rectangles",
-          "dimension_source": "LOD2 wall extent, register storeys checked, equal row/bay layout priors"
+          "dimension_source": "LOD2 wall extent, register storeys checked, qualitative row heights and counted bay units; dimensions remain layout priors"
         },
         "split": {
           "base_height_m": {
             "value": 3.585,
-            "source": "equal-height layout prior",
+            "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -4833,60 +4840,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              0.254,
-              0.609,
-              1.611,
-              2.725
-            ],
-            [
-              2.374,
-              0.609,
-              1.611,
-              2.725
-            ],
-            [
-              6.612,
-              0.609,
-              1.611,
-              2.725
-            ],
-            [
-              10.85,
-              0.609,
-              1.611,
-              2.725
-            ],
-            [
-              12.97,
-              0.609,
-              1.611,
-              2.725
-            ],
-            [
-              17.208,
-              0.609,
-              1.611,
-              2.725
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "none",
-            "none",
-            "none",
-            "none",
-            "none",
-            "none"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -4949,7 +4905,60 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              0.254,
+              0.609,
+              1.611,
+              2.725
+            ],
+            [
+              2.374,
+              0.609,
+              1.611,
+              2.725
+            ],
+            [
+              6.612,
+              0.609,
+              1.611,
+              2.725
+            ],
+            [
+              10.85,
+              0.609,
+              1.611,
+              2.725
+            ],
+            [
+              12.97,
+              0.609,
+              1.611,
+              2.725
+            ],
+            [
+              17.208,
+              0.609,
+              1.611,
+              2.725
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "none",
+            "none",
+            "none",
+            "none",
+            "none",
+            "none"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -4961,7 +4970,7 @@
             {
               "rect_m": [
                 4.789,
-                0.0,
+                0,
                 1.017,
                 2.725
               ],
@@ -4973,7 +4982,7 @@
             {
               "rect_m": [
                 9.028,
-                0.0,
+                0,
                 1.017,
                 2.725
               ],
@@ -4985,7 +4994,7 @@
             {
               "rect_m": [
                 15.386,
-                0.0,
+                0,
                 1.017,
                 2.725
               ],
@@ -7014,6 +7023,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -8009,6 +8024,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -8084,6 +8105,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -9249,6 +9276,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -10278,6 +10311,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -10353,6 +10392,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -10424,6 +10469,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -10487,6 +10538,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -12978,6 +13035,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -13915,6 +13978,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -14529,6 +14598,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -14591,6 +14666,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -14661,6 +14742,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -15318,6 +15405,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -15398,6 +15491,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -15511,6 +15610,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -16314,6 +16419,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -16436,6 +16547,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -16881,6 +16998,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -16984,6 +17107,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -17105,6 +17234,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -17701,7 +17836,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -17794,6 +17929,8 @@
             "support": 0.0
           },
           "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -17941,6 +18078,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -18504,6 +18647,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -18620,6 +18769,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -19950,6 +20105,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -20034,6 +20195,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -20091,6 +20258,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -20200,6 +20373,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -20561,6 +20740,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -20626,6 +20811,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -20756,6 +20947,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -20870,6 +21067,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -21402,6 +21605,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -24243,6 +24452,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -24352,6 +24567,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -24414,6 +24635,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -24816,6 +25043,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -24884,6 +25117,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -24951,6 +25190,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -25434,6 +25679,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -28020,6 +28271,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -28111,7 +28368,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -28138,20 +28395,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              1.899,
-              0.949,
-              34.177,
-              3.069
-            ]
-          ],
-          "head_shapes": [
-            "flat"
-          ],
-          "surround_shapes": [
-            "none"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -28214,7 +28460,20 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              1.899,
+              0.949,
+              34.177,
+              3.069
+            ]
+          ],
+          "head_shapes": [
+            "flat"
+          ],
+          "surround_shapes": [
+            "none"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -28392,6 +28651,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -28518,7 +28783,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -28545,20 +28810,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              1.369,
-              0.636,
-              24.633,
-              2.057
-            ]
-          ],
-          "head_shapes": [
-            "flat"
-          ],
-          "surround_shapes": [
-            "none"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -28621,7 +28875,20 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              1.369,
+              0.636,
+              24.633,
+              2.057
+            ]
+          ],
+          "head_shapes": [
+            "flat"
+          ],
+          "surround_shapes": [
+            "none"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -28776,7 +29043,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -28869,6 +29136,8 @@
             "support": 0.0
           },
           "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -29064,6 +29333,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -29138,6 +29413,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -29250,6 +29531,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -29604,6 +29891,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -29715,6 +30008,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -29790,6 +30089,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -29856,6 +30161,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -29934,6 +30245,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -30004,6 +30321,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -30108,6 +30431,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -30170,6 +30499,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -30857,6 +31192,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -30965,6 +31306,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -31069,6 +31416,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -31134,6 +31487,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -31238,6 +31597,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -31383,7 +31748,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -31410,68 +31775,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              0.824,
-              1.176,
-              1.52,
-              3.806
-            ],
-            [
-              3.991,
-              1.176,
-              1.52,
-              3.806
-            ],
-            [
-              7.158,
-              1.176,
-              1.52,
-              3.806
-            ],
-            [
-              10.325,
-              1.176,
-              1.52,
-              3.806
-            ],
-            [
-              13.493,
-              1.176,
-              1.52,
-              3.806
-            ],
-            [
-              16.66,
-              1.176,
-              1.52,
-              3.806
-            ],
-            [
-              19.827,
-              1.176,
-              1.52,
-              3.806
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "frame",
-            "frame",
-            "frame",
-            "frame",
-            "frame",
-            "frame",
-            "frame"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -31534,7 +31840,68 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              0.824,
+              1.176,
+              1.52,
+              3.806
+            ],
+            [
+              3.991,
+              1.176,
+              1.52,
+              3.806
+            ],
+            [
+              7.158,
+              1.176,
+              1.52,
+              3.806
+            ],
+            [
+              10.325,
+              1.176,
+              1.52,
+              3.806
+            ],
+            [
+              13.493,
+              1.176,
+              1.52,
+              3.806
+            ],
+            [
+              16.66,
+              1.176,
+              1.52,
+              3.806
+            ],
+            [
+              19.827,
+              1.176,
+              1.52,
+              3.806
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -31710,6 +32077,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -31790,6 +32163,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -31864,6 +32243,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -31968,6 +32353,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -32034,6 +32425,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -32106,6 +32503,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -32196,7 +32599,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -32289,6 +32692,8 @@
             "support": 0.0
           },
           "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -32465,6 +32870,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -33305,6 +33716,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -34729,7 +35146,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -34756,52 +35173,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              2.434,
-              0.607,
-              1.652,
-              2.713
-            ],
-            [
-              4.608,
-              0.607,
-              1.652,
-              2.713
-            ],
-            [
-              6.782,
-              0.607,
-              1.652,
-              2.713
-            ],
-            [
-              8.955,
-              0.607,
-              1.652,
-              2.713
-            ],
-            [
-              11.129,
-              0.607,
-              1.652,
-              2.713
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "none",
-            "none",
-            "none",
-            "none",
-            "none"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -34864,7 +35238,52 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              2.434,
+              0.607,
+              1.652,
+              2.713
+            ],
+            [
+              4.608,
+              0.607,
+              1.652,
+              2.713
+            ],
+            [
+              6.782,
+              0.607,
+              1.652,
+              2.713
+            ],
+            [
+              8.955,
+              0.607,
+              1.652,
+              2.713
+            ],
+            [
+              11.129,
+              0.607,
+              1.652,
+              2.713
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "none",
+            "none",
+            "none",
+            "none",
+            "none"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -37261,6 +37680,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -37326,6 +37751,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -37437,6 +37868,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -37498,6 +37935,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -37602,7 +38045,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -37629,36 +38072,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              0.531,
-              0.731,
-              3.364,
-              3.268
-            ],
-            [
-              4.957,
-              0.731,
-              3.364,
-              3.268
-            ],
-            [
-              11.595,
-              0.731,
-              3.364,
-              3.268
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "none",
-            "none",
-            "none"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -37721,7 +38137,36 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              0.531,
+              0.731,
+              3.364,
+              3.268
+            ],
+            [
+              4.957,
+              0.731,
+              3.364,
+              3.268
+            ],
+            [
+              11.595,
+              0.731,
+              3.364,
+              3.268
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "none",
+            "none",
+            "none"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -37881,6 +38326,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -37953,6 +38404,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -38064,6 +38521,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -38597,6 +39060,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -38727,6 +39196,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -38802,6 +39277,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -38918,6 +39399,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -40344,6 +40831,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -40457,6 +40950,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -40527,6 +41026,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -41210,6 +41715,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -41326,6 +41837,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -41476,7 +41993,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -41503,60 +42020,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              0.42,
-              1.185,
-              2.662,
-              5.297
-            ],
-            [
-              5.674,
-              1.185,
-              2.662,
-              5.297
-            ],
-            [
-              9.176,
-              1.185,
-              2.662,
-              5.297
-            ],
-            [
-              14.43,
-              1.185,
-              2.662,
-              5.297
-            ],
-            [
-              17.932,
-              1.185,
-              2.662,
-              5.297
-            ],
-            [
-              23.186,
-              1.185,
-              2.662,
-              5.297
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "frame",
-            "frame",
-            "frame",
-            "frame",
-            "frame",
-            "frame"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -41619,7 +42085,60 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              0.42,
+              1.185,
+              2.662,
+              5.297
+            ],
+            [
+              5.674,
+              1.185,
+              2.662,
+              5.297
+            ],
+            [
+              9.176,
+              1.185,
+              2.662,
+              5.297
+            ],
+            [
+              14.43,
+              1.185,
+              2.662,
+              5.297
+            ],
+            [
+              17.932,
+              1.185,
+              2.662,
+              5.297
+            ],
+            [
+              23.186,
+              1.185,
+              2.662,
+              5.297
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame",
+            "frame"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -41841,6 +42360,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -41953,6 +42478,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -42896,6 +43427,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -43022,6 +43559,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -44020,6 +44563,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -44950,6 +45499,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -45022,6 +45577,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -45093,6 +45654,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -45162,6 +45729,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -45234,6 +45807,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -45300,6 +45879,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -45365,6 +45950,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -45477,6 +46068,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -45607,7 +46204,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -45700,6 +46297,8 @@
             "support": 0.0
           },
           "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -46397,6 +46996,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -47309,6 +47914,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -47384,6 +47995,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -47451,6 +48068,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -47516,6 +48139,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -47585,6 +48214,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -48063,6 +48698,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -48123,6 +48764,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -48185,6 +48832,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -48242,6 +48895,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -48308,6 +48967,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -48366,6 +49031,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -48422,6 +49093,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -48484,6 +49161,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -48544,6 +49227,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -48612,6 +49301,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -48732,6 +49427,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -49159,6 +49860,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -49269,6 +49976,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -49387,6 +50100,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -49467,6 +50186,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -49541,6 +50266,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -50221,6 +50952,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -51932,6 +52669,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -52047,6 +52790,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -52157,6 +52906,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -52278,6 +53033,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -52398,6 +53159,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -52509,6 +53276,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -52569,6 +53342,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -52671,6 +53450,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -52737,6 +53522,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -52840,6 +53631,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -52949,6 +53746,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -53014,6 +53817,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -53118,6 +53927,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -53226,6 +54041,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -53820,6 +54641,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -53893,6 +54720,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -54013,6 +54846,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -54120,6 +54959,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -54246,6 +55091,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -54857,6 +55708,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -55323,6 +56180,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -55439,6 +56302,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -55514,6 +56383,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -55618,6 +56493,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -55678,6 +56559,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -55788,6 +56675,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -55889,6 +56782,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -56003,6 +56902,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -56114,6 +57019,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -56194,6 +57105,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -57091,6 +58008,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -58181,6 +59104,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -58266,6 +59195,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -58384,6 +59319,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -58824,6 +59765,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -58929,6 +59876,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -59032,6 +59985,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -59130,6 +60089,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -59227,6 +60192,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -59292,6 +60263,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -59352,6 +60329,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -59481,6 +60464,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -59582,6 +60571,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -61103,6 +62098,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -61192,7 +62193,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -61285,6 +62286,8 @@
             "support": 0.0
           },
           "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -61422,6 +62425,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -61486,6 +62495,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -61595,6 +62610,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -61661,6 +62682,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -61801,7 +62828,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -61828,7 +62855,72 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [
             [
               0.75,
               1.134,
@@ -61898,69 +62990,6 @@
             "frame",
             "pediment"
           ],
-          "head_shape": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "size_m": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "aspect": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "sill_fraction": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "frame_colour": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "divisions": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "recess_m": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          }
-        },
-        "base": {
-          "colour": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "material": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "plinth_height_m": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "glazing_share": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "shopfront": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
-          },
-          "openings_m": [],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -62566,6 +63595,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -62676,6 +63711,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -62784,6 +63825,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -62899,6 +63946,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -63584,6 +64637,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -64112,6 +65171,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -64824,6 +65889,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -64940,6 +66011,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -65046,6 +66123,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -65117,6 +66200,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -65184,6 +66273,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -65292,6 +66387,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -65354,6 +66455,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -65420,6 +66527,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -65490,6 +66603,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -67091,6 +68210,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -67903,6 +69028,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -67966,6 +69097,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -68520,6 +69657,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -68587,6 +69730,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -68657,6 +69806,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -69688,7 +70843,7 @@
             "source": "qualitative row-height layout prior",
             "support": 0.2
           },
-          "middle_repeats": 0,
+          "middle_repeats": null,
           "top_height_m": {
             "value": null,
             "source": "unmeasured",
@@ -69715,28 +70870,9 @@
           "support": 0.9
         },
         "windows": {
-          "rectangles_m": [
-            [
-              0.439,
-              0.575,
-              2.778,
-              2.569
-            ],
-            [
-              7.75,
-              0.575,
-              2.778,
-              2.569
-            ]
-          ],
-          "head_shapes": [
-            "flat",
-            "flat"
-          ],
-          "surround_shapes": [
-            "none",
-            "none"
-          ],
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
           "head_shape": {
             "value": null,
             "source": "unmeasured",
@@ -69799,7 +70935,28 @@
             "source": "unmeasured",
             "support": 0.0
           },
-          "openings_m": [],
+          "openings_m": [
+            [
+              0.439,
+              0.575,
+              2.778,
+              2.569
+            ],
+            [
+              7.75,
+              0.575,
+              2.778,
+              2.569
+            ]
+          ],
+          "head_shapes": [
+            "flat",
+            "flat"
+          ],
+          "surround_shapes": [
+            "none",
+            "none"
+          ],
           "variant": {
             "value": null,
             "source": "unmeasured",
@@ -69947,6 +71104,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -70008,6 +71171,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -70111,6 +71280,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -71291,6 +72466,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -71401,6 +72582,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -71466,6 +72653,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -72359,6 +73552,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -72467,6 +73666,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -72569,6 +73774,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -72636,6 +73847,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -72748,6 +73965,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -72832,6 +74055,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -72902,6 +74131,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -72966,6 +74201,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -73046,6 +74287,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -73844,6 +75091,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -73905,6 +75158,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -74014,6 +75273,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -74540,6 +75805,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -77412,6 +78683,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -77519,6 +78796,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -77616,6 +78899,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -77676,6 +78965,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -78535,6 +79830,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -78631,6 +79932,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -78732,6 +80039,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,
@@ -78843,6 +80156,12 @@
             "support": 0.0
           }
         },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
         "observation": {
           "needs_review": true,
           "scope": "characterized; renderer deferred",
@@ -78944,6 +80263,12 @@
             "source": "unmeasured",
             "support": 0.0
           }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
         },
         "observation": {
           "needs_review": true,

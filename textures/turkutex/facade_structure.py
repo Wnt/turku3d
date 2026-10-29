@@ -150,6 +150,8 @@ def compile_structure(row, form, register_floors):
             geometry={k: row[k] for k in ("p0", "p1", "normal", "base_h")},
             structure=copy.deepcopy(form),
             wall=dict(colour=unknown(), material=unknown()),
+            windows=dict(rectangles_m=[]),
+            base=dict(openings_m=[]),
             observation=dict(
                 needs_review=True,
                 scope="characterized; renderer deferred",
@@ -161,6 +163,7 @@ def compile_structure(row, form, register_floors):
     W, H = row["width_m"], row["height_m"]
     rows = form["floors"]
     count = len(rows)
+    ground_only = count == 1 and register_floors and register_floors > 1
     # Count conflicts remain visible in provenance and never change shell height
     # or storeys. The observed rows partition only this measured facade extent.
     weights = [
@@ -277,9 +280,7 @@ def compile_structure(row, form, register_floors):
         material_bands=material_bands,
         observation=dict(
             needs_review=False,
-            scope="ground-only"
-            if count == 1 and register_floors and register_floors > 1
-            else "full-wall",
+            scope="ground-only" if ground_only else "full-wall",
             visible_share=1 - sum(b[2] * b[3] for b in excluded) / (W * H),
             wall_share=0,
             register_height_conflict=register_floors is not None and register_floors != count,
@@ -291,7 +292,7 @@ def compile_structure(row, form, register_floors):
         ),
         split=dict(
             base_height_m=value(heights[0], "qualitative row-height layout prior", 0.2),
-            middle_repeats=max(0, count - 2),
+            middle_repeats=None if ground_only else max(0, count - 2),
             top_height_m=unknown(),
         ),
         wall=dict(colour=unknown(), material=observed(form["material"], "material")),
@@ -303,9 +304,9 @@ def compile_structure(row, form, register_floors):
             support=confidence["floors_visible"],
         ),
         windows=dict(
-            rectangles_m=windows,
-            head_shapes=heads,
-            surround_shapes=surrounds,
+            rectangles_m=[] if ground_only else windows,
+            head_shapes=[] if ground_only else heads,
+            surround_shapes=[] if ground_only else surrounds,
             head_shape=unknown(),
             size_m=unknown(),
             aspect=unknown(),
@@ -320,7 +321,9 @@ def compile_structure(row, form, register_floors):
             plinth_height_m=unknown(),
             glazing_share=unknown(),
             shopfront=unknown(),
-            openings_m=[],
+            openings_m=windows if ground_only else [],
+            head_shapes=heads if ground_only else [],
+            surround_shapes=surrounds if ground_only else [],
             variant=unknown(),
         ),
         doors=dict(candidates=doors, type=unknown(), canopy=unknown()),
