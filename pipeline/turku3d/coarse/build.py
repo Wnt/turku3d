@@ -30,7 +30,7 @@ from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 from turku3d.wall_surfaces import paint_partition, trapezoids
 
-from . import banks, bridges, fences, gardens, kerbs, parked, road_top, surfaces
+from . import banks, boats, bridges, fences, gardens, kerbs, parked, road_top, surfaces
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
@@ -46,6 +46,7 @@ from .stages import (
     props_visual,
     roof_crop,
     roof_fallback,
+    structures_stage,
     valid_roof_pixels,
 )
 
@@ -292,20 +293,21 @@ def build(
     )
     from . import stairs
 
-    stair_meshes, dry, solid = stairs.from_inputs(
-        cache, tile, inputs, grid_pos, surface_sample, dry, solid, ground_sources, osm_decks
+    dry, river, bank, solid, stair_meshes, boat_meshes, structure_seconds = structures_stage(
+        cache,
+        tile,
+        inputs,
+        grid_pos,
+        surface_sample,
+        dry,
+        river,
+        bank,
+        solid,
+        ground_sources,
+        osm_decks,
+        tunnels.openings,
     )
-    seconds.update(
-        stairs_geometry=cache.metrics["stairs"]["seconds"],
-        stair_ground=cache.metrics["stair_ground"]["seconds"],
-    )
-    # Keep later terrain enrichment outside the tunnel's walkable volume.
-    from .openings import stage as opening_stage
-
-    dry, river, bank, solid, stair_meshes = opening_stage(
-        cache, tunnels.openings, dry, river, bank, solid, stair_meshes
-    )
-    seconds["opening_clearance"] = cache.metrics["opening_clearance"]["seconds"]
+    seconds.update(structure_seconds)
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
@@ -420,7 +422,7 @@ def build(
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
-        pos, idx, mat = stairs.collision(ct, stair_meshes, pos, idx, mat)
+        pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes], pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
@@ -474,6 +476,7 @@ def build(
             wall_context,
             cache=cache,
             gardens=gardens.stats(tile, inputs.gardens),
+            boats=boats.stats(tile, inputs.boats, boat_meshes),
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -592,6 +595,7 @@ def build(
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
+    ground_meshes.extend(boats.visuals(tile, boat_meshes))
     ground_meshes.extend(
         tunnels.terrain_visuals(tile, corrected_ortho, inputs.streets, visual_regions)
     )
@@ -743,6 +747,7 @@ def build(
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
         stairs=stairs.stats(stair_meshes),
         gardens=gardens.stats(tile, inputs.gardens),
+        boats=boats.stats(tile, inputs.boats, boat_meshes),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_ortho_cleanup=cleanup_stats,
         ground_colour_calibration=colour_stats,

@@ -144,6 +144,7 @@ def publish(
     wall_context=(),
     cache=None,
     gardens=None,
+    boats=None,
 ):
     from .build import _entry, _write
     from .collision_key import code_hash
@@ -171,6 +172,7 @@ def publish(
         inputs=input_key,
         buildings=buildings,
         gardens=gardens or {},
+        boats=boats or {},
         collision=collision,
         roads=roads_entry,
         visual={tile.id: _entry(url, data, level=0, tris=triangles, h=height, coarse=True)},

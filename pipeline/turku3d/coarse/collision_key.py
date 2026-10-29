@@ -66,7 +66,7 @@ def structural_source(path):
                 selected.append(node)
             continue
         if path.name == "stages.py":
-            if node.name in {"deck_stage", "kerb_inputs", "cached_terrain"}:
+            if node.name in {"deck_stage", "kerb_inputs", "cached_terrain", "structures_stage"}:
                 selected.append(node)
             continue
         if node.name in {"jpeg", "ortho_uv", "default_library"}:

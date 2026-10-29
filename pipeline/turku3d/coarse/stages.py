@@ -181,3 +181,30 @@ def cached_terrain(cache, tile, inputs, common):
         ],
         lambda: terrain_stage(tile, inputs),
     )
+
+
+def structures_stage(
+    cache, tile, inputs, grid_pos, sample, dry, river, bank, solid, sources, decks, openings
+):
+    """Compose mapped stairs, retaining edges and moored boats, then preserve passages."""
+    from . import boats, stairs
+    from .openings import stage as opening_stage
+
+    stair_meshes, dry, solid = stairs.from_inputs(
+        cache, tile, inputs, grid_pos, sample, dry, solid, sources, decks
+    )
+    boat_meshes = boats.stage(cache, tile, inputs.boats)
+    dry, river, bank, solid, stair_meshes = opening_stage(
+        cache, openings, dry, river, bank, solid, stair_meshes
+    )
+    boat_meshes = openings.structures(boat_meshes)
+    seconds = {
+        dest: cache.metrics[src]["seconds"]
+        for dest, src in (
+            ("stairs_geometry", "stairs"),
+            ("stair_ground", "stair_ground"),
+            ("opening_clearance", "opening_clearance"),
+            ("boats", "boats"),
+        )
+    }
+    return dry, river, bank, solid, stair_meshes, boat_meshes, seconds
