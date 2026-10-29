@@ -227,3 +227,27 @@ def test_batched_overlap_index_keeps_both_wall_axes_and_chunk_boundaries(split):
     result = overlaps(faces, list(range(len(faces))), split=split)
     assert {(r["first"], r["second"]) for r in result} == {(0, 520), (519, 521)}
     assert all(99.9 < r["area"] < 100 for r in result)
+
+
+def test_batched_assembly_preserves_partial_walls_across_both_axes_and_chunk_edges():
+    from turku3d.wall_assembly import assemble_structures
+
+    walls = []
+    for i in range(520):
+        points = quad(bottom=i * 12, top=i * 12 + 10)
+        if i % 2:
+            points = points[:, [2, 1, 0]]
+        walls.append(mesh(points, f'wall{i}'))
+    duplicate = copy.deepcopy(walls[-1])
+    duplicate.name = 'partial'
+    duplicate.positions[:, 1] += 5
+    result = assemble_structures([*walls, duplicate])
+    assert len(result) == len(walls) + 1
+    for before, after in zip(walls, result, strict=False):
+        assert before is after
+    remaining = result[-1]
+    assert remaining.positions[:, 1].min() == pytest.approx(walls[-1].positions[:, 1].max())
+    tris = remaining.positions[remaining.indices]
+    area = np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1).sum() / 2
+    assert area == pytest.approx(50)
+    assert validate_meshes(result, 'fixture')['violations'] == 0
