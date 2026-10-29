@@ -9,15 +9,8 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 from deploy_drafts import HOME
 from facade_publish import remote
-from turku3d import config as C
-from turku3d.coarse import tunnels
-from turku3d.coarse.build import build
-from turku3d.coarse.inputs import gather
-from turku3d.coarse.sources import Sources, _Files
-from turku3d.col.format import read_col
 
 
 def vertical_hits(triangles, point):
@@ -43,11 +36,13 @@ def vertical_hits(triangles, point):
 
 
 def audit_collision(tile, inputs, manifest, out):
-
+    import numpy as np
     from turku3d import config as C
+    from turku3d.coarse import tunnels
     from turku3d.coarse.bridge_join import terrain_sampler
     from turku3d.coarse.build import grid_mesh
     from turku3d.coarse.extrusion import extrude
+    from turku3d.col.format import read_col
 
     ground = terrain_sampler(inputs.points)
     p, ix = grid_mesh(tile, inputs.heights)
@@ -162,6 +157,11 @@ print(json.dumps(audit_collision(tile, inputs, json.loads((out/'manifest.json').
         return
     if args.root is None or args.wfs_cache is None:
         parser.error("--local requires --root and --wfs-cache")
+
+    from turku3d import config as C
+    from turku3d.coarse.build import build
+    from turku3d.coarse.inputs import gather
+    from turku3d.coarse.sources import Sources, _Files
 
     args.root.mkdir(parents=True, exist_ok=True)
     sources = Sources()
