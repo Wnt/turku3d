@@ -125,6 +125,18 @@ def main():
             assert manifest['pass_kind'] == ('first' if first else 'full')
             for entry in [*manifest['visual'].values(), *manifest['collision'].values()]:
                 assert (out / entry['url']).is_file(), entry
+            if not first:
+                assert manifest['visual'][tile]['brotli_bytes'] <= 8_000_000
+                data = (out / manifest['visual'][tile]['url']).read_bytes()
+                size = struct.unpack_from('<I', data, 12)[0]
+                doc = json.loads(data[20:20+size])
+                for item in [*doc.get('images', []), *doc.get('buffers', [])]:
+                    uri = item.get('uri')
+                    if uri:
+                        asset = (out / uri).resolve()
+                        assert asset.is_file(), uri
+                        assert asset.stat().st_size <= 8_000_000, uri
+                        assert asset.stem == __import__('hashlib').sha256(asset.read_bytes()).hexdigest(), uri
             stages = json.loads((out / 'stage-times.json').read_text())
             row = dict(tile=tile, pass_kind=label, seconds=round(elapsed, 3), counts=actual,
                        source_counts=expected, stages=stages, manifest_seconds=manifest['seconds'],

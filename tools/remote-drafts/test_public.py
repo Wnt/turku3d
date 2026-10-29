@@ -32,6 +32,7 @@ class PublicTest(unittest.TestCase):
         self.assertEqual(
             public.public_route("/coarse/t0_-2_2/manifest.json", bounds), ("manifest", "t0_-2_2")
         )
+        self.assertEqual(public.public_route("/coarse/shared/" + "a" * 64 + ".bin", bounds), ("asset", None))
         for path in (
             "/coarse/status",
             "/coarse/want",

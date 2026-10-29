@@ -201,7 +201,9 @@ def assemble_structures(meshes, protected=()):
 def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None):
     """Single architectural assembly before any packaged visual can be published."""
     import json
+    from pathlib import Path
 
+    from turku3d.stage_cache import source_key
     from turku3d.coarse.build import _write
     from turku3d.layers import write_visual
     from turku3d.wall_surfaces import layer_meshes, validate_neighbours
@@ -211,34 +213,45 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
             m.extras.pop("facade_program") for m in building_meshes if "facade_program" in m.extras
         ]
         _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
-        write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
+        def buildings(directory):
+            write_visual(directory / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
+
+        if cache is None:
+            buildings(stage)
+        else:
+            cache.files("building_layer", source_key(Path(__file__).with_name("layers.py"),
+                        Path(__file__).parent / "package/gltf.py"),
+                        [tile, building_meshes], stage, buildings)
         layer_files.append(stage / "buildings.vis.glb")
 
-    wall_layers = layer_meshes(layer_files)
-    protected = [
-        m for m in wall_layers if m.extras.get("material_key") in {"facade_kit", "facade_stored"}
-    ]
-    secondary = [
-        m
-        for m in wall_layers
-        if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
-    ]
     def assemble():
-        result = assemble_structures(protected + secondary)
-        return result
+        wall_layers = layer_meshes(layer_files)
+        protected = [
+            m for m in wall_layers if m.extras.get("material_key") in {"facade_kit", "facade_stored"}
+        ]
+        secondary = [
+            m for m in wall_layers
+            if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
+        ]
+        return assemble_structures(protected + secondary)
 
     if cache is None:
         wall_layers = assemble()
     else:
-        from pathlib import Path
-        from turku3d.stage_cache import source_key
-
         wall_layers = cache.run(
             "wall_meshes", source_key(Path(__file__), Path(__file__).with_name("wall_surfaces.py")),
             [path.read_bytes() for path in layer_files], assemble,
         )
     validate_neighbours(wall_layers, shells, tile, out.parent)
-    write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
+    def architecture(directory):
+        write_visual(directory / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
+
+    if cache is None:
+        architecture(stage)
+    else:
+        cache.files("wall_visual", source_key(Path(__file__).with_name("layers.py"),
+                    Path(__file__).parent / "package/gltf.py"),
+                    [tile, wall_layers], stage, architecture)
     layer_files = [p for p in layer_files if p.name == "vegetation.vis.glb"]
     layer_files.append(stage / "architecture.vis.glb")
 

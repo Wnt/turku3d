@@ -41,7 +41,7 @@ TILE = re.compile(r"^t0_-?\d+_-?\d+$")
 FILE = re.compile(
     r"^(vis(?:\.[0-9a-f]{64})?\.glb|(?:manifest|collision)\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
 )
-SHARED = re.compile(r"^[0-9a-f]{64}\.(?:ktx2|glb)$")
+SHARED = re.compile(r"^[0-9a-f]{64}\.(?:ktx2|glb|bin)$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
 PENDING_EXIT = 3  # python -m turku3d.coarse build: inputs missing, {"pending": [units]} on stdout
 RETRY_SECONDS = 120.0  # a failed tile (no coverage, network error) is retried after this
@@ -57,6 +57,7 @@ MIME = {
     ".glb": "model/gltf-binary",
     ".col": "application/octet-stream",
     ".ktx2": "image/ktx2",
+    ".bin": "application/octet-stream",
 }
 
 
