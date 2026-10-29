@@ -28,12 +28,15 @@ def band_polygon(polygon, coefficients, offset, tolerance=0.006):
     return polygon.intersection(shapely.Polygon(points)) if len(points) >= 3 else shapely.Polygon()
 
 
-def assemble_structures(meshes, protected=()):
+def assemble_structures(meshes, protected=(), *, protected_only=False):
     """One wall assembly across buildings, passages, portal frames and other layers.
 
     Facade paint is already partitioned and remains authoritative. Secondary wall
     triangles retain UVs/materials on exposed remainders; collision is unchanged.
+    Neighbour admission cuts already assembled meshes against protected faces only.
     """
+    if protected_only and not protected:
+        return list(meshes)
     records, refs = [], []
     for mi, mesh in enumerate([*protected, *meshes]):
         triangles = np.asarray(mesh.positions, np.float32).astype(float)[mesh.indices]
@@ -44,6 +47,9 @@ def assemble_structures(meshes, protected=()):
             refs.append((mi - len(protected), ti))
     if not records:
         return list(meshes)
+    # A neighbour pass must not repeat local cuts after another float32 conversion.
+    indexed_count = (next((i for i, (mi, _) in enumerate(refs) if mi >= 0), len(refs))
+                     if protected_only else len(refs))
     points = np.array([p for p, _ in records])
     normals = np.array([n for _, n in records])
     low, high = points.min(axis=1), points.max(axis=1)
@@ -54,7 +60,7 @@ def assemble_structures(meshes, protected=()):
     changed = {}
     original_boxes = shapely.box(low[:, 0] - 0.006, low[:, 2] - 0.006,
                                 high[:, 0] + 0.006, high[:, 2] + 0.006)
-    original_tree = shapely.STRtree(original_boxes)
+    original_tree = shapely.STRtree(original_boxes[:indexed_count])
     # A vertical wall's x/z box contains all its floors. Index height and its
     # dominant horizontal span, then apply the original full 3D/plane filters.
     for axis in (0, 2):
@@ -62,7 +68,7 @@ def assemble_structures(meshes, protected=()):
         rows = rows[np.array([refs[i][0] >= 0 for i in rows], dtype=bool)]
         boxes = shapely.box(low[:, axis] - 0.006, low[:, 1],
                             high[:, axis] + 0.006, high[:, 1])
-        tree = shapely.STRtree(boxes)
+        tree = shapely.STRtree(boxes[:indexed_count])
         for start in range(0, len(rows), 512):
             local, js = tree.query(boxes[rows[start:start+512]])
             ii = rows[start:start+512][local]
@@ -94,6 +100,9 @@ def assemble_structures(meshes, protected=()):
             for i in np.unique(ii[shapely.area(intersections) > 1e-8]):
                 mi, ti = refs[i]
                 js = original_tree.query(original_boxes[i])
+                if protected_only:
+                    # Keep external coverage in its original protected record order.
+                    js.sort()
                 js = js[
                     (js < i)
                     & (normals[js] @ normals[i] > 0.99998)

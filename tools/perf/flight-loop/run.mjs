@@ -32,10 +32,18 @@ const context = await chromium.launchPersistentContext(profile, {
   viewport: null, args: chromeArgs(['--window-size=1280,900', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
 });
 let monitor, healthTimer, trace = false, session;
+const page = context.pages()[0];
+const saveResult = async interrupted => {
+  const result = await page.evaluate(() => window.__flight && ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
+    resources: window.__resources, resizes: window.__resizes, captures: window.__captures }));
+  if (!result) return;
+  Object.assign(result, { direction, route, ...(interrupted ? { interrupted } : {}) });
+  fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
+  return result;
+};
 const started = Date.now();
 const deadline = setTimeout(() => void context.close(), 600000);
 try {
-  const page = context.pages()[0];
   session = await context.newCDPSession(page);
   await session.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await session.send('Network.enable');
@@ -59,13 +67,14 @@ try {
     window.__longTasks = [];
     window.__resources = [];
     window.__resizes = [];
+    window.__captures = [];
     addEventListener('resize', () => window.__resizes.push({ at: Date.now(), width: innerWidth, height: innerHeight }));
     performance.setResourceTimingBufferSize(20000);
     new PerformanceObserver(list => window.__resources.push(...list.getEntries().map(e => ({ ...e.toJSON(), at: performance.timeOrigin + e.startTime })))).observe({ type: 'resource', buffered: true });
     new PerformanceObserver(list => window.__longTasks.push(...list.getEntries().map(e => ({ at: performance.timeOrigin + e.startTime, ms: e.duration })))).observe({ type: 'longtask', buffered: true });
   });
   await session.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing,disabled-by-default-devtools.timeline', transferMode: 'ReturnAsStream' }); trace = true;
-  const cold = execFileSync('ssh', [...ssh, `python3 - cold ${label} ${route.cold.join(',')}`], { input: host, encoding: 'utf8', timeout: 15000 });
+  const cold = execFileSync('ssh', [...ssh, `python3 - cold ${label} ${route.cold.join(',')}`], { input: host, encoding: 'utf8', timeout: 135000 });
   fs.writeFileSync(path.join(output, 'cold.jsonl'), cold);
   const hostLog = fs.openSync(path.join(output, 'host.jsonl'), 'w');
   monitor = spawn('ssh', [...ssh, `python3 -u - monitor 600 ${route.cold.join(',')}`], { stdio: ['pipe', hostLog, hostLog] });
@@ -97,22 +106,38 @@ try {
   while (Date.now() - started < 540000) {
     const state = await page.evaluate(() => ({ phase: window.__flight.phase, done: window.__flight.done, last: window.__flight.samples.at(-1) }));
     log('progress.jsonl', state);
-    const before = await page.evaluate(dimensions);
-    const capture = await session.send('Page.captureScreenshot', { format: 'jpeg', quality: 75, fromSurface: true });
-    fs.writeFileSync(path.join(output, `screen-${String(shot++).padStart(3, '0')}.jpg`), Buffer.from(capture.data, 'base64'));
-    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
-    const after = await page.evaluate(dimensions);
-    log('screenshots.jsonl', { shot: shot - 1, before, after });
-    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Window or renderer dimensions changed during screenshot capture');
+    await page.evaluate(() => {
+      // Hold only the adaptive-resolution decision during capture. Otherwise its
+      // normal scale probe can resize the drawing buffer between the two checks.
+      const resolution = window.__game.resolution;
+      window.__captureResolutionUpdate = resolution.update;
+      resolution.update = () => resolution.scale;
+      window.__captures.push({ at: performance.timeOrigin + performance.now() });
+    });
+    try {
+      const before = await page.evaluate(dimensions);
+      const capture = await session.send('Page.captureScreenshot', { format: 'jpeg', quality: 75, fromSurface: true });
+      fs.writeFileSync(path.join(output, `screen-${String(shot++).padStart(3, '0')}.jpg`), Buffer.from(capture.data, 'base64'));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+      const after = await page.evaluate(dimensions);
+      log('screenshots.jsonl', { shot: shot - 1, before, after });
+      if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('Window or renderer dimensions changed during screenshot capture');
+    } finally {
+      await page.evaluate(() => {
+        window.__game.resolution.update = window.__captureResolutionUpdate;
+        window.__captures.at(-1).end = performance.timeOrigin + performance.now();
+        delete window.__captureResolutionUpdate;
+      });
+    }
     if (state.done) break;
     await page.waitForTimeout(4000);
   }
-  const result = await page.evaluate(() => ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
-    resources: window.__resources, resizes: window.__resizes }));
-  result.direction = direction; result.route = route;
-  fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
+  const result = await saveResult();
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
   if (!result.done) throw new Error('Flight did not complete before deadline');
+} catch (error) {
+  await saveResult(error.message).catch(() => {});
+  throw error;
 } finally {
   clearTimeout(deadline); clearInterval(healthTimer);
   if (trace) {

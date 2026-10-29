@@ -39,6 +39,19 @@ def get(port, route):
 
 
 def cold(label):
+    until = time.monotonic() + 120
+    while True:
+        try:
+            _locked_cold(label)
+            return
+        except RuntimeError as error:
+            if "building" not in str(error) or time.monotonic() >= until:
+                raise
+            emit("cold-wait", reason=str(error))
+            time.sleep(2)
+
+
+def _locked_cold(label):
     # Retiring producers are not listed in the active producer's scheduler file.
     # Their full passes still own the same tile lock and may still publish outputs.
     with ExitStack() as stack:

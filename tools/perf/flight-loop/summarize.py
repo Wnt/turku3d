@@ -61,7 +61,7 @@ def summarize(root):
         and any(ext in r["name"] for ext in (".glb", ".col", ".ktx2", ".bin"))
     ]
     local = rows(root / "host.jsonl")
-    cold = rows(root / "cold.jsonl")[0]["at"]
+    cold = next(row["at"] for row in rows(root / "cold.jsonl") if row["kind"] == "cold")
     stages = {tile: [] for tile in targets}
     outcomes = []
     for row in local:
@@ -99,6 +99,18 @@ def summarize(root):
             if e["kind"] != "visual-collision" or e.get("id") in targets
         ],
         frame_ms=percentiles([r[1] for r in result["frames"]]),
+        frame_excluding_capture_ms=percentiles(
+            [
+                ms
+                for at, ms in result["frames"]
+                if not any(
+                    at >= c["at"] and at - ms <= c.get("end", c["at"])
+                    for c in result.get("captures", [])
+                )
+            ]
+        )
+        if result.get("captures")
+        else None,
         long_tasks_ms=percentiles([r["ms"] for r in result["longTasks"]]),
         return_assets=dict(
             cdp_headers_ms=percentiles([r["ms"] for r in assets]),

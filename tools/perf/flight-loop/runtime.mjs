@@ -47,7 +47,9 @@ export function installFlight(route) {
       if (travelled >= crossing && f.target === 0) { event('crossing', { tile: targets[0], feet: state.feet }); f.target = 1; }
       if (travelled >= firstEdge + 430) { f.phase = 'settle'; event('crossing', { tile: targets[1], feet: state.feet }); speed = 0; turnAt = t; }
     } else if (f.phase === 'settle') {
-      if (targets.every(id => g.coarse.entries.get(id)?.pass === 'full') || t - turnAt > 90000) {
+      const full = targets.every(id => g.coarse.entries.get(id)?.pass === 'full');
+      if (full || t - turnAt > 300000) {
+        if (!full) event('full-timeout', { targets });
         f.phase = 'return'; event('turn', { feet: state.feet, full: targets.map(id => g.coarse.entries.get(id)?.pass) });
       }
     } else if (f.phase === 'return') {

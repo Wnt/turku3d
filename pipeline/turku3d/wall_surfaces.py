@@ -248,7 +248,7 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
                         points = np.asarray(record["faces"], float).reshape(-1, 3) - tile.origin
                         protected = GlbMesh("neighbour", points,
                                             np.arange(len(points), dtype=np.uint32).reshape(-1, 3))
-                        result = assemble_structures(result, [protected])
+                        result = assemble_structures(result, [protected], protected_only=True)
                         removed += len(violations)
                         faces, ids = boundary_faces(result, tile)
                 return result, faces, ids, removed

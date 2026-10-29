@@ -186,3 +186,47 @@ reading/parsing neighbour JSON took 0.65 s, recursive neighbour hashing 8.65 s,
 old boundary extraction 8.16 s and overlap detection 11.29 s. Only four violations
 against one neighbour triggered reassembly of the entire tile. Further work targets
 that unnecessary breadth while preserving generated facade surfaces.
+
+## 2026-10-30, iteration 4: east, capture assertion corrected
+
+Slice `bef3a911` deployed after selected checks passed in 1.16 s. Pages took
+6.96 s including packaging; OCI took 11.15 s. Multiplayer stayed running and
+reported three players during deployment. Rolling health remained red; a separate
+`col-budget` task owns a pre-existing 1,137,704-byte collision cell overflow on
+`t0_-1_-2`/`c_-3_-8`, outside this flight's reset. Our investigation identified
+exact duplicate float32 rail vertices; physical rails must remain.
+
+The east capture (`after-03`) observed first/full models with validated collision
+for `t0_2_1` by 16.50/28.76 s and `t0_3_1` by 24.68/36.91 s. These are upper bounds
+from four-second progress snapshots, relative to the first snapshot, because the
+capture assertion stopped the run before final in-page telemetry was saved. The
+flight had turned back, but there is **no completed return measurement**.
+
+All 14 screenshots were inspected: 3 exposes the empty frontier; 4–6 show first
+terrain and plain buildings; 7–9 show vegetation and full-detail upgrades; 10–11
+show populated streets; 12–13 expose missing surroundings beyond the turn.
+The window stayed **1280×813 CSS pixels with zero resize events** throughout.
+At shot 13, normal adaptive resolution raised the internal buffer from
+1325×841 to 1445×918 while CSS size remained fixed. This was a false capture
+assertion, not a device-metrics resize. The recorder now holds the resolution
+controller only during capture, restores it immediately, retains capture intervals
+for frame-stat exclusion, and saves partial telemetry on errors. Full-arrival
+observation may now continue for five minutes before an explicit timeout event.
+
+### Next performance slice: incremental neighbour cuts
+
+Actual dense OCI meshes (740,622 triangles, 420 meshes) showed four external
+wall overlaps triggering a repeated assembly of the whole tile. Neighbour
+admission now indexes only protected neighbour faces; normal within-tile assembly
+is unchanged. With matched cProfile instrumentation, the same call improved from
+**over 58 s unfinished to 7.10 s complete** (more than 8.16×); the unprofiled new
+call took 5.81 s. External overlaps fell from four to zero, matching legacy output.
+Internal and changed/unchanged cross contacts remained zero; **417 original mesh
+objects were retained** and three changed. UVs and facade programs stay attached.
+
+This is deliberately not a byte-identical comparison with the old repeated
+float32 recuts: it retains 0.1294 m² (0.0000372% of wall area) that the legacy
+neighbour pass removed incidentally inside the already-assembled tile. Existing
+wall, facade-overlap and reviewed paint/arch checks passed (25 cases). No tests
+were added. Next run repeats the worst north route with corrected capture and
+records full arrival, cache reuse and visual evidence.
