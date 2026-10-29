@@ -80,7 +80,7 @@ from urllib.request import urlopen
 end=time.monotonic()+305
 while time.monotonic()<end:
  memory={line.split(':')[0]:int(line.split()[1])*1024 for line in pathlib.Path('/proc/meminfo').read_text().splitlines()}
- row=dict(at=time.time(),available=memory['MemAvailable'],cpu=pathlib.Path('/proc/stat').read_text().splitlines()[0])
+ row=dict(at=time.time(),available=memory['MemAvailable'],swap_used=memory['SwapTotal']-memory['SwapFree'],cpu=pathlib.Path('/proc/stat').read_text().splitlines()[0])
  try:
   with urlopen('http://127.0.0.1:7764/coarse/health',timeout=2) as r:row['health']=json.load(r)
   with urlopen('http://127.0.0.1:7700/healthz',timeout=2) as r:row['multiplayer']=json.load(r)
@@ -172,6 +172,10 @@ while time.monotonic()<end:
             + [s["available"] for s in samples]
         ),
         telemetry_samples=len(samples),
+        swap_used_peak=max(
+            [before["memory"]["SwapUsed"], after["memory"]["SwapUsed"]]
+            + [s["swap_used"] for s in samples]
+        ),
         health_alerts=health_alerts,
         disk_free_after=after["disk_free"],
     )
@@ -186,6 +190,7 @@ while time.monotonic()<end:
         and result["same_generator"]
         and warmed
         and overlap >= 110
+        and result["swap_used_peak"] <= 1024**3
         and after["disk_free"]["/"] >= 5 * 1024**3
         and after["disk_free"]["/srv/turku3d"] >= 15 * 1024**3
     )

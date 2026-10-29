@@ -31,7 +31,9 @@ def save(path, value):
 
 
 def summary(row):
-    return json.dumps({k: row[k] for k in ("commit", "code", "coverage", "disk_free", "timings")})
+    return json.dumps(
+        {k: row[k] for k in ("commit", "code", "coverage", "disk_free", "memory", "timings")}
+    )
 
 
 def watch(output, deadline):
