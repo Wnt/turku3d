@@ -1,7 +1,7 @@
 # Route-ordered facade survey
 
-Latest coverage: complete candidate classification through 1,200 m route distance;
-see the eighth publication below. Original publication counts remain historical.
+Latest coverage: complete candidate classification through 1,350 m route distance;
+see the ninth publication below. Original publication counts remain historical.
 
 The first published ring covers 0–150 m of walking route distance from the
 pizzeria at engine (77.1, 187.6). Its 62 candidate walls have 12 accepted readings
@@ -314,3 +314,38 @@ alternates, validation and publication work. Per-batch timings remain available;
 these are not pure annotation speeds. Weekly account quota is 57%, versus 33%
 at the measured start and 54% at the previous publication. Continue outward;
 new reading stops at 82%.
+
+## Ninth publication: through 1,350 m
+
+All 369 candidates in the 1,200–1,350 m ring are classified: 70 characterized
+(5 painter eligible, 65 descriptive/deferred) and 299 rejected. Dense hedges
+and trees conceal many low facades and stored garden structures in this ring.
+Alternate views recovered timber siding, porch and window details where possible.
+The usable programs add historic timber window rhythms and clear apartment end-wall
+window stacks. Mixed balcony planes, shop ribbons, mesh screens and opaque service
+panels remain descriptive; their existing artwork is preserved.
+
+A saved revision corrects one earlier descriptive balcony count from eleven to ten
+visible glazed levels. The original answer and source evidence remain intact.
+
+| Route ring (m) | Candidates | Characterized | Rejected | Painter eligible | Deferred |
+|---|---:|---:|---:|---:|---:|
+| 0–150 | 88 | 26 | 62 | 17 | 9 |
+| 150–300 | 140 | 46 | 94 | 18 | 28 |
+| 300–450 | 187 | 69 | 118 | 33 | 36 |
+| 450–600 | 343 | 88 | 255 | 22 | 66 |
+| 600–750 | 291 | 108 | 183 | 30 | 78 |
+| 750–900 | 380 | 115 | 265 | 51 | 64 |
+| 900–1050 | 345 | 133 | 212 | 35 | 98 |
+| 1050–1200 | 444 | 113 | 331 | 21 | 92 |
+| 1200–1350 | 369 | 70 | 299 | 5 | 65 |
+| Total | 2587 | 768 | 1819 | 232 | 536 |
+
+The immutable `publications/ring08/` snapshot and all append-only metadata/programs
+are mirrored to OCI. Elapsed time is 26,322.8 seconds,
+10.2 seconds per classified candidate. The latest publication
+interval is 1,821.3 seconds / 369 candidates = 4.9 seconds per candidate,
+including preparation, alternate reads, checks and waits. Per-view batch timing remains
+in each `finished.json`; these candidate averages include unavailable-view rejections.
+Weekly account quota is 58%, up 25 points from the measured 33% start. Reading
+continues outward with the 82% stop threshold.
