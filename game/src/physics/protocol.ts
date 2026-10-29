@@ -10,7 +10,7 @@ export interface CharacterInput {
   vx: number; vz: number;
   jump: boolean;
   /** Developer fly mode (gameplay/flyMode.ts): no gravity, jump or step-up; the character moves with `vy` (m/s)
-   *  vertically and keeps its collisions. Absent: walking. */
+   *  vertically, keeping real collisions but ignoring playable-area edge walls. Absent: walking. */
   fly?: { vy: number };
 }
 export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean }

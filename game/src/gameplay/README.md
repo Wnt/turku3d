@@ -211,10 +211,13 @@ frame (the feet on foot, the body of the driven car in a car) and applies one ru
   via `setCharacterEnabled` with a position, a vehicle via `resetVehicle`) of the probed actor
   farther than 10 m from where it stood is a teleport: samples and any lost state are dropped and
   the rules wait for the next safe frame. Nearer placements (leaving a car, R in a car) keep them.
-- **Flying** (developer fly mode, localhost only, `flyMode.ts`): every flying frame calls `RecoveryMonitor.hold`:
-  no samples, nobody lost. After the flight the rules stay unarmed until the first grounded contact; then they
-  arm with the samples from before the flight (none: the next safe frame arms them), so a landing in the river
-  returns the player to where they took off.
+- **Flying** (developer fly mode, localhost or `?dev=1`, `flyMode.ts`): every flying frame calls `RecoveryMonitor.hold`:
+  no samples, nobody lost. Flight ignores physics edge walls and unloaded-collision movement holds in every
+  direction, while real buildings still collide. Streaming and generation demand follow the flying player
+  beyond the built area; the minimap does not constrain movement. After flight ends outside the generated area,
+  normal lost rules resume using pre-flight samples. Inside the area they wait for the first grounded contact,
+  so landing in the river returns the player to where they took off. With no pre-flight sample, the next safe
+  frame arms recovery as usual.
 - **Lost**: below the lowest ground of the loaded tiles (manifest `h[0]`) minus 5 m, more than 5 m
   outside the area's bounding box, more than 2 s with the feet or car body over 0.3 m under the
   river surface (no swimming), or more than 3 s without ground contact. The edge of the built area is

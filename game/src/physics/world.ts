@@ -194,8 +194,9 @@ export class PhysicsWorld {
     const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
     const p0 = col.translation();
     if (input.fly) {
-      // Flight: the commanded velocity, collisions kept; leaving it falls from rest.
-      cc.computeColliderMovement(col, { x: input.vx * DT, y: input.fly.vy * DT, z: input.vz * DT }, flags, filter);
+      // Flight keeps real collisions, but crosses artificial playable-area barriers.
+      cc.computeColliderMovement(col, { x: input.vx * DT, y: input.fly.vy * DT, z: input.vz * DT }, flags, filter,
+        collider => !this.edges.isWall(collider));
       const m = cc.computedMovement();
       col.setTranslation({ x: p0.x + m.x, y: p0.y + m.y, z: p0.z + m.z });
       this.charVy = 0;
@@ -435,13 +436,13 @@ export class PhysicsWorld {
       // This decision belongs to the worker, immediately before every fixed substep: main-thread
       // braking cannot stop gravity, an evicted parked car, or a late input after a flight toggle.
       let safeCharacter: CharacterInput | null = { ...character, jump: this.jumpPending };
-      if (this.charCollider && this.charEnabled) {
+      if (this.charCollider && this.charEnabled && !character.fly) {
         const p = this.charCollider.translation();
         const covered = collisionCovers(this.residentCells, p.x, p.z,
           p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin);
         if (!covered) {
-          // Flight can cross unbuilt areas, but cannot descend through their visible ground.
-          safeCharacter = character.fly ? { ...safeCharacter, fly: { vy: Math.max(0, character.fly.vy) } } : null;
+          // Normal play waits for collision; developer flight moves freely over missing cells.
+          safeCharacter = null;
           this.charVy = 0; this.charVel = { x: 0, y: 0, z: 0 }; this.charGrounded = false;
         }
       }

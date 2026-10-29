@@ -18,7 +18,7 @@ interface PlayerFrame {
   grounded: boolean;
   /** The character's facing (`PlayerVisual.root.rotation.y`, forward = (sin, cos) in x/z). */
   facing: number;
-  /** Developer fly mode is on: the rules hold until the first grounded contact after it. */
+  /** Developer fly mode is on: rules hold during flight; outside the area they resume when flight ends. */
   flying: boolean;
 }
 

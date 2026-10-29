@@ -173,12 +173,12 @@ describe('developer fly mode', () => {
     // Flying 200 m up and outside the area for a minute: held every frame, nothing sampled, never lost.
     for (let t = 5; t < 65; t++) {
       m.hold();
-      expect(m.update(probe(t, 300, { y: 200, grounded: false, vy: 0 }), 0)).toBe(false);
+      expect(m.lost).toBeNull();
     }
     expect(m.lost).toBeNull();
     expect(m.armed).toBe(false);
     // Flight off: a fall without ground stays unarmed until the first grounded contact.
-    for (let t = 65; t < 75; t++) expect(m.update(probe(t, 300, { y: 200 - (t - 65) * 10, grounded: false, vy: -10 }), 0)).toBe(false);
+    for (let t = 65; t < 75; t++) expect(m.update(probe(t, 30, { y: 200 - (t - 65) * 10, grounded: false, vy: -10 }), 0)).toBe(false);
     expect(m.armed).toBe(false);
     expect(m.samples.length).toBe(samples);
     // Landing in the river: grounded, so the rules arm with the samples from before the flight and the river counts.
@@ -186,6 +186,16 @@ describe('developer fly mode', () => {
     expect(m.armed).toBe(true);
     m.update(probe(78, 30, { waterDepth: 1 }), 0);
     expect(m.lost?.reason).toBe('water');
+    expect(m.target().x).toBe(30);
+  });
+  test('flight ending outside the area resumes normal lost rules without waiting for ground', () => {
+    const m = new RecoveryMonitor(area);
+    m.update(probe(1, 30), 0);
+    m.hold();
+    expect(m.lost).toBeNull();
+    expect(m.update(probe(2, 300, { y: 200, grounded: false, loaded: false }), 0)).toBe(false);
+    expect(m.lost?.reason).toBe('outside');
+    expect(m.update(probe(2 + RECOVERY.countdown, 300, { y: 200, grounded: false, loaded: false }), 0)).toBe(true);
     expect(m.target().x).toBe(30);
   });
   test('a teleport (restart) ends the hold: the first safe frame arms as usual', () => {
