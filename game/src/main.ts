@@ -20,7 +20,7 @@ import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
-import { CollisionStreamer } from './world/collisionStreaming';
+import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles } from './world/coarseTiles';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
@@ -246,6 +246,9 @@ async function runPlay() {
   const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
+  // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
+  streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
+  coarse.preload([requested], streamer.radius);
   const tWait = performance.now();
   let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
   while (!placed) {

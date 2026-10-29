@@ -154,3 +154,18 @@ test('preloads the union of distant starts and does not evict either while the m
   s.update(1000, 30, true);
   expect(physics.loaded.has('c_0_0')).toBe(false);
 });
+
+test('startup coverage expands into the normal streaming ring without dropping spawn support', async () => {
+  const { manifest, physics } = fakes(16, 16);
+  const s = new CollisionStreamer(manifest, physics as never, 80);
+  for (let k = 0; k < 20; k++) { s.update(300, 300, true); await new Promise(r => setTimeout(r, 0)); }
+  const startCells = [...physics.loaded.keys()];
+  expect(s.supports(300, 300, 3)).toBe(true);
+  expect(s.progressAt(300, 300).loaded).toBe(s.progressAt(300, 300).total);
+  const shortCount = startCells.length;
+  s.radius = 200;
+  expect(s.progressAt(300, 300).total).toBeGreaterThan(shortCount * 2);
+  for (let k = 0; k < 30; k++) { s.update(300, 300, true); await new Promise(r => setTimeout(r, 0)); }
+  expect(s.progressAt(300, 300).loaded).toBe(s.progressAt(300, 300).total);
+  for (const id of startCells) expect(physics.loaded.has(id)).toBe(true);
+});
