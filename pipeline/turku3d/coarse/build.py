@@ -30,6 +30,7 @@ from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 
 from . import banks, bridges, fences, kerbs, parked, surfaces
+from .forests import draft_trees
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
@@ -162,23 +163,6 @@ def grid_height(tile: C.VisualTile, grid_pos: np.ndarray, x: float, z: float) ->
     n = CELLS + 1
     heights = grid_pos[:, 1].reshape(n, n)
     return surfaces.grid_height(tile, heights, x, z)
-
-
-def draft_trees(tile, grid_pos, trees, water, shells):
-    """OSM trees on dry ground outside buildings, as vegetation layer trees (unmeasured)."""
-    from turku3d.vegetation.trees import VARIANTS, Tree, variant
-
-    blocked = shapely.union_all([*water, *(b.footprint for b, _ in shells)])
-    result = []
-    for object_id, x, z, height, conifer in trees:
-        if not blocked.is_empty and blocked.covers(shapely.Point(x, z)):
-            continue
-        tree = Tree(object_id, x, z, "osm", y=grid_height(tile, grid_pos, x, z), height=height)
-        tree.crown_radius = float(np.clip(height * 0.3, 1.5, 7.0))
-        tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
-        tree.variant = VARIANTS[3] if conifer else variant("", height)
-        result.append(tree)
-    return result
 
 
 def default_library() -> Path:
@@ -403,7 +387,7 @@ def build(
             inputs.markings,
         ),
     )
-    from .forests import BUSH_CAP, TREE_CAP, produce, trunks
+    from .forests import BUSH_CAP, TREE_CAP, path_ground, path_surfaces, produce, trunks
     seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
 
     vegetation_start = time.perf_counter()
@@ -415,6 +399,8 @@ def build(
             source_key(
                 Path(__file__).with_name("forests.py"),
                 base / "vegetation/trees.py",
+                base / "vegetation/visual.py",
+                *sorted((base / "vegetation/assets").glob("*.glb")),
                 draft_trees,
                 grid_height,
                 *common,
@@ -537,12 +523,14 @@ def build(
         surfaces.classify(dry.positions[dry.indices].mean(axis=1), inputs.ortho, tile, []),
     )
     t_surface = time.perf_counter()
+    forest_paths = path_surfaces(inputs)
+    visual_regions = [*inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
         visual_materials,
         dry_keep,
-        [*inputs.surfaces, *inputs.streets],
+        [*visual_regions, *inputs.streets],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
@@ -562,7 +550,7 @@ def build(
     )
     from . import ortho_cleanup
 
-    clean_args = (tile, inputs.ortho, inputs.streets, inputs.surfaces,
+    clean_args = (tile, inputs.ortho, inputs.streets, visual_regions,
                   inputs.ortho_canopy, inputs.heights, inputs.markings,
                   [b.footprint for b in blds], inputs.water, inputs.parking)
     ground_ortho, cleanup_stats = cache.run(
@@ -572,6 +560,12 @@ def build(
         clean_args,
         lambda: ortho_cleanup.clean(*clean_args),
     )
+    ground_ortho = cache.run(
+        "forest_path_ground",
+        source_key(path_ground, surfaces.fallback, *common),
+        [tile, ground_ortho, forest_paths],
+        lambda: path_ground(tile, ground_ortho, forest_paths),
+    )
     from . import ground_colour
 
     ortho_paths = inputs.sources.get("ortho", ())
@@ -579,10 +573,10 @@ def build(
     corrected_ortho, colour_stats = cache.run(
         "ground_colour",
         source_key(Path(ground_colour.__file__), ground_colour.TABLE, *common),
-        (tile, ground_ortho, inputs.ortho, inputs.streets, inputs.surfaces,
+        (tile, ground_ortho, inputs.ortho, inputs.streets, visual_regions,
          [b.footprint for b in blds], inputs.water, mosaic),
         lambda: ground_colour.apply(tile, ground_ortho, inputs.ortho,
-                                    inputs.streets, inputs.surfaces,
+                                    inputs.streets, visual_regions,
                                     [b.footprint for b in blds], inputs.water, mosaic),
     )
     seconds.update({name: cache.metrics[name]["seconds"] for name in ("ground_ortho", "ground_colour")})

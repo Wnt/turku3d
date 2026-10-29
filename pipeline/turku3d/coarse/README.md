@@ -377,6 +377,11 @@ Missing spot heights do not block a build. The input owner can also populate a t
 Area vegetation (`forests.py`) uses OSM forest/wood, scrub/heath, parks/gardens and tree rows,
 with seeded Poisson-disc fallback (5 m trunk spacing; 180/ha woodland, 40/ha park).
 Buildings, city street polygons, OSM road/path corridors and water exclude new trunks.
+Foot/cycle-class paths additionally exclude every tree source by its visible mesh envelope:
+centre distance must be at least 2 m plus the variant's normalized flared-base radius times
+crown scale, and at least 1 m plus crown radius. Car-road clearance is unchanged.
+Mapped paths through forest land cover override forest-floor visuals and aerial foliage;
+existing explicit surface materials remain. Terrain collision and structural stage keys do not change.
 OSM sports tracks, pitches, stadiums, outdoor sports centres, playgrounds, recreation
 grounds, BMX/cycling tracks and raceways exclude area-generated trees and bushes,
 including canopy candidates. Closed outlines exclude their interior; open lines and

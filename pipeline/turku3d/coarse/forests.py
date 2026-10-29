@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import lru_cache
 
 import numpy as np
 import shapely
@@ -120,6 +121,86 @@ def scatter(geometry, density, blocked, seed, spacing=SPACING, limit=TREE_CAP, o
     return result
 
 
+@lru_cache(maxsize=len(VARIANTS))
+def trunk_base_radius(name):
+    """Radius of the visible flared base in the same unit-radius mesh as instancing."""
+    from turku3d.vegetation.visual import prototypes
+
+    bases = [
+        mesh.positions[mesh.positions[:, 1] <= 0.1][:, [0, 2]]
+        for mesh in prototypes(name)
+        if mesh.extras["material_key"] == "tree_bark"
+    ]
+    return float(np.linalg.norm(np.concatenate(bases), axis=1).max())
+
+
+def path_lines(roads):
+    """Foot/cycle-class graph lines; car-road clearance remains the existing two metres."""
+    from turku3d.roads import CLASS_SHIFT
+    from turku3d.roads.layer import graph_ways
+
+    if not roads or not roads.get("json"):
+        return []
+    return [
+        shapely.LineString(coords)
+        for coords, flags in graph_ways(json.loads(roads["json"]))
+        if flags >> CLASS_SHIFT == 0
+    ]
+
+
+def clears_path(tree, paths):
+    """Keep the visible trunk outside ±2 m and the crown outside the inner ±1 m."""
+    if paths.is_empty:
+        return True
+    distance = paths.distance(shapely.Point(tree.x, tree.z))
+    return distance >= max(
+        2.0 + trunk_base_radius(tree.variant) * tree.crown_radius,
+        1.0 + tree.crown_radius,
+    )
+
+
+def path_surfaces(inputs):
+    """Expose forest paths in visual ground only, preserving terrain/structural caches."""
+    from turku3d.col.materials import mat_id
+
+    forest = shapely.union_all([
+        geom for _, geom, kind, _ in inputs.forests if kind in DENSITY
+    ])
+    if forest.is_empty:
+        return []
+    corridors = shapely.union_all(path_lines(inputs.roads)).buffer(1.25).intersection(forest)
+    if corridors.is_empty:
+        return []
+    # Gravel fallback for forest tracks; retain mapped asphalt/paving/soil where available.
+    return [(corridors, mat_id("gravel")), *[
+        (geom.intersection(corridors), material)
+        for geom, material in inputs.surfaces
+        if material != mat_id("grass") and geom.intersects(corridors)
+    ]]
+
+
+def path_ground(tile, ortho, regions):
+    """Replace aerial forest-floor foliage over mapped paths with their ground material."""
+    from turku3d.col.materials import mat_id
+    from .surfaces import BINDINGS, fallback
+
+    if not regions:
+        return ortho
+    output = ortho.copy()
+    rows, cols = np.indices(ortho.shape[:2])
+    x = tile.origin[0] + (cols + 0.5) * tile.size / ortho.shape[1]
+    z = tile.origin[2] + (rows + 0.5) * tile.size / ortho.shape[0]
+    channels = {mat_id(key): channel for key, channel in BINDINGS.items()}
+    for geom, material in regions:
+        mask = shapely.intersects_xy(geom, x, z)
+        texture = fallback(channels[material])
+        # Match the existing ground fallback's world-anchored 128 px/metre sampling.
+        iy = np.floor(z[mask] * 128).astype(int) % texture.shape[0]
+        ix = np.floor(x[mask] * 128).astype(int) % texture.shape[1]
+        output[mask] = texture[iy, ix]
+    return output
+
+
 def produce(tile, inputs, height_at, mapped):
     """Reuse vegetation Tree/prototypes; only trees (never edge bushes) receive trunk collision."""
     blocked = shapely.union_all(
@@ -139,10 +220,14 @@ def produce(tile, inputs, height_at, mapped):
             coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
             paths.append(shapely.LineString(coords).buffer(2))
         blocked = shapely.union_all([blocked, *paths])
+    paths = shapely.union_all(path_lines(roads))
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
     )
-    trees = [t for t in mapped if not blocked.covers(shapely.Point(t.x, t.z))][:TREE_CAP]
+    trees = [
+        t for t in mapped
+        if not blocked.covers(shapely.Point(t.x, t.z)) and clears_path(t, paths)
+    ][:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:
@@ -207,7 +292,8 @@ def produce(tile, inputs, height_at, mapped):
             t.crown_radius = float(np.clip(height * 0.28, 1.2, 6))
             t.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
             t.variant = VARIANTS[3] if conifer else variant("", height)
-            trees.append(t)
+            if clears_path(t, paths):
+                trees.append(t)
         if kind in ("forest", "wood", "scrub") and len(bushes) < BUSH_CAP:
             edge = geom.intersection(geom.boundary.buffer(3))
             for x, z in scatter(
@@ -219,19 +305,19 @@ def produce(tile, inputs, height_at, mapped):
                 limit=BUSH_CAP - len(bushes),
                 occupied=[(t.x, t.z) for t in trees + bushes],
             ):
-                bushes.append(
-                    Tree(
-                        f"bush:{identity}:{x:.2f}:{z:.2f}",
-                        x,
-                        z,
-                        "bush",
-                        y=height_at(x, z),
-                        height=float(rng.uniform(0.7, 1.6)),
-                        crown_radius=1.1,
-                        trunk_radius=0,
-                        variant=VARIANTS[0],
-                    )
+                bush = Tree(
+                    f"bush:{identity}:{x:.2f}:{z:.2f}",
+                    x,
+                    z,
+                    "bush",
+                    y=height_at(x, z),
+                    height=float(rng.uniform(0.7, 1.6)),
+                    crown_radius=1.1,
+                    trunk_radius=0,
+                    variant=VARIANTS[0],
                 )
+                if clears_path(bush, paths):
+                    bushes.append(bush)
     return deduplicate(trees, SPACING), bushes
 
 
@@ -248,4 +334,24 @@ def trunks(trees, ct):
         height = min(t.height * 0.55, 8.0)
         centre = (t.x - ct.origin[0], t.y + height / 2, t.z - ct.origin[2])
         result.append(Primitive.cylinder(mat_id("tree_trunk"), centre, height / 2, t.trunk_radius))
+    return result
+
+
+def draft_trees(tile, grid_pos, trees, water, shells):
+    """OSM trees on dry ground outside buildings, as vegetation layer trees (unmeasured)."""
+    from .inputs import CELLS
+    from .surfaces import grid_height
+
+    heights = grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1)
+
+    blocked = shapely.union_all([*water, *(b.footprint for b, _ in shells)])
+    result = []
+    for object_id, x, z, height, conifer in trees:
+        if not blocked.is_empty and blocked.covers(shapely.Point(x, z)):
+            continue
+        tree = Tree(object_id, x, z, "osm", y=grid_height(tile, heights, x, z), height=height)
+        tree.crown_radius = float(np.clip(height * 0.3, 1.5, 7.0))
+        tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
+        tree.variant = VARIANTS[3] if conifer else variant("", height)
+        result.append(tree)
     return result
