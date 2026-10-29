@@ -48,6 +48,7 @@ def number(value, default):
 def produce(tile, prepared, sample):
     meshes, openings = [], []
     rows, areas = prepared or ((), ())
+    window = shapely.box(*tile.bbox.as_tuple())
     for key, line, tags in rows:
         if line.length < 0.2 or tags.get("step_count") == "0":
             continue
@@ -56,6 +57,10 @@ def produce(tile, prepared, sample):
         area = next((a for a in areas if a.covers(line.interpolate(0.5, normalized=True))), None)
         if area is not None and "width" not in tags:
             width = np.clip(area.area / line.length, 0.5, 30)
+        # Include ample room for the bounded miter and one-metre landing aprons.
+        # Off-tile flights must not prepare neighbouring terrain just to be clipped away.
+        if line.distance(window) > width * 5 + 1:
+            continue
         a, b = np.asarray(line.coords)[[0, -1], :2]
         bottom, top = sample(*a), sample(*b)
         if top < bottom:
@@ -81,7 +86,7 @@ def produce(tile, prepared, sample):
         original = np.asarray(line.coords)[:, :2]
         bends = np.r_[0, np.cumsum(np.linalg.norm(np.diff(original, axis=0), axis=1))]
         distances = np.unique(np.r_[np.linspace(0, line.length, count + 1), bends])
-        centres = np.array([line.interpolate(float(d)).coords[0] for d in distances])
+        centres = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         directions = np.diff(centres, axis=0)
         directions /= np.linalg.norm(directions, axis=1)[:, None]
         normals = np.c_[-directions[:, 1], directions[:, 0]]
@@ -97,33 +102,51 @@ def produce(tile, prepared, sample):
             * width
             / 2
         )
-        previous = bottom
-        for i, (p, q) in enumerate(zip(centres[:-1], centres[1:], strict=True)):
-            step = min(count, int((distances[i] + distances[i + 1]) / 2 / line.length * count) + 1)
-            low, high = previous, bottom + rise * step / count
-            previous = high
-            corners = [p + offsets[i], q + offsets[i + 1], q - offsets[i + 1], p - offsets[i]]
-            offset = offsets[i]
-            tread = np.array([[x, high, z] for x, z in corners])
-            faces.face(tread, tread[:, [0, 2]])
-            riser = np.array(
+        step = np.minimum(
+            count, ((distances[:-1] + distances[1:]) / 2 / line.length * count).astype(int) + 1
+        )
+        high = bottom + rise * step / count
+        low = np.r_[bottom, high[:-1]]
+        left, right = centres + offsets, centres - offsets
+
+        def points(xz, height):
+            return np.c_[xz[:, 0], height, xz[:, 1]]
+
+        # A flight is a batch of independent treads, risers and side faces.
+        # Share height samples at adjacent step corners, but retain each step's
+        # original foundation and flat shading.
+        tread_xz = np.stack([left[:-1], left[1:], right[1:], right[:-1]], axis=1)
+        tread = np.empty((*tread_xz.shape[:2], 3))
+        tread[:, :, [0, 2]] = tread_xz
+        tread[:, :, 1] = high[:, None]
+        indices = (np.arange(len(high))[:, None, None] * 4 + [[0, 1, 2], [0, 2, 3]]).reshape(-1, 3)
+        faces.triangles(tread.reshape(-1, 3), indices, tread_xz.reshape(-1, 2))
+        faces.quads(
+            np.stack(
                 [
-                    [(p - offset)[0], low, (p - offset)[1]],
-                    [(p + offset)[0], low, (p + offset)[1]],
-                    [(p + offset)[0], high, (p + offset)[1]],
-                    [(p - offset)[0], high, (p - offset)[1]],
-                ]
+                    points(right[:-1], low),
+                    points(left[:-1], low),
+                    points(left[:-1], high),
+                    points(right[:-1], high),
+                ],
+                axis=1,
             )
-            faces.face(riser)
-            for u, v in ((corners[0], corners[1]), (corners[2], corners[3])):
-                faces.face(
+        )
+        for side, reverse in ((left, False), (right, True)):
+            ground = np.array([sample(x, z) for x, z in side])
+            u, v = (side[1:], side[:-1]) if reverse else (side[:-1], side[1:])
+            gu, gv = (ground[1:], ground[:-1]) if reverse else (ground[:-1], ground[1:])
+            faces.quads(
+                np.stack(
                     [
-                        [u[0], min(sample(*u), low) - 0.05, u[1]],
-                        [v[0], min(sample(*v), low) - 0.05, v[1]],
-                        [v[0], high, v[1]],
-                        [u[0], high, u[1]],
-                    ]
+                        points(u, np.minimum(gu, low) - 0.05),
+                        points(v, np.minimum(gv, low) - 0.05),
+                        points(v, high),
+                        points(u, high),
+                    ],
+                    axis=1,
                 )
+            )
         from .inputs import CELLS
         from .kerbs import terrain_patches
 

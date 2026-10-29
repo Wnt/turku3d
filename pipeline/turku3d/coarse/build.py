@@ -358,6 +358,7 @@ def build(
     dry, river, bank, solid = banks.stage(
         cache, tile, grid_pos, grid_idx, inputs, tunnels.keep, level, bool(osm_decks)
     )
+    seconds["river_banks"] = cache.metrics["river_banks"]["seconds"]
     from . import stairs
 
     stair_meshes, dry, solid = stairs.stage(
@@ -370,6 +371,8 @@ def build(
         solid,
         kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
     )
+    seconds["stairs_geometry"] = cache.metrics["stairs"]["seconds"]
+    seconds["stair_ground"] = cache.metrics["stair_ground"]["seconds"]
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
@@ -401,6 +404,7 @@ def build(
         ),
     )
     from .forests import BUSH_CAP, TREE_CAP, produce, trunks
+    seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
 
     vegetation_start = time.perf_counter()
     trees, bushes = (

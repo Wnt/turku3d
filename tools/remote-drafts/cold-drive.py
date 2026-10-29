@@ -8,10 +8,12 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 
@@ -23,6 +25,11 @@ def main():
     parser.add_argument("--speed-kmh", type=float, default=120)
     args = parser.parse_args()
     args.root = args.root.resolve()
+    args.root.parent.mkdir(parents=True, exist_ok=True)
+    if shutil.disk_usage(args.root.parent).free < 8 * 2**30:
+        raise RuntimeError(
+            "Cold diagnostic needs 8 GiB free for its caches and live-service margin"
+        )
     args.root.mkdir(parents=True, exist_ok=False)
     os.environ["TURKU3D_WORK"] = str(args.root)
 
@@ -61,7 +68,7 @@ def main():
         serving = threading.Thread(target=server.serve_forever, daemon=True)
         serving.start()
         try:
-            subprocess.run(
+            with subprocess.Popen(
                 [
                     sys.executable,
                     str(Path(__file__).with_name("ten-drivers.py")),
@@ -76,11 +83,29 @@ def main():
                     "--speed-kmh",
                     str(args.speed_kmh),
                 ],
-                check=True,
-                timeout=550,
                 stdout=log,
                 stderr=log,
-            )
+            ) as probe:
+                deadline = time.monotonic() + 550
+                try:
+                    while probe.poll() is None:
+                        if shutil.disk_usage(args.root).free < 2 * 2**30:
+                            raise RuntimeError(
+                                "Stopped cold diagnostic before exhausting the data volume"
+                            )
+                        if time.monotonic() > deadline:
+                            raise TimeoutError("Cold diagnostic exceeded 550 seconds")
+                        time.sleep(1)
+                    if probe.returncode:
+                        raise subprocess.CalledProcessError(probe.returncode, probe.args)
+                finally:
+                    if probe.poll() is None:
+                        probe.terminate()
+                        try:
+                            probe.wait(5)
+                        except subprocess.TimeoutExpired:
+                            probe.kill()
+                            probe.wait()
         finally:
             server.shutdown()
             builder.stop()
