@@ -67,16 +67,19 @@ test('atlas recipe hits skip every decode and composite across tiles; only chang
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-cache-'));
   const request = tile => ({ textureCache:path.join(root, tile), sharedTextureCache:path.join(root, 'shared') });
   const calls = [];
+  const decode = async bytes => {
+    calls.push(['decode', 'extract']);
+    const value = bytes[28];
+    const data = await sharp({ create:{ width:64, height:64, channels:3, background:{ r:value, g:50, b:100 } } }).raw().toBuffer();
+    return { data, width:64, height:64 };
+  };
   const run = async (tool, args) => {
     calls.push([tool, args[0]]);
-    if (tool === 'ktx' && args[0] === 'extract') {
-      const value = fs.readFileSync(args[3])[28];
-      await sharp({ create:{ width:64, height:64, channels:3, background:{ r:value, g:50, b:100 } } }).png().toFile(args[4]);
-    } else if (tool === 'toktx') fs.copyFileSync(args.at(-1), args.at(-2));
+    if (tool === 'toktx') fs.copyFileSync(args.at(-1), args.at(-2));
   };
   try {
     const first = atlasFixture();
-    assert.deepEqual(await atlasFacades(first, request('a'), { sharp, run, KHRTextureBasisu }), { pages:1, facades:2 });
+    assert.deepEqual(await atlasFacades(first, request('a'), { sharp, run, KHRTextureBasisu, decode }), { pages:1, facades:2 });
     assert.equal(calls.filter(([tool]) => tool === 'toktx').length, 3);
     assert.equal(calls.filter(([, op]) => op === 'extract').length, 6);
     const packed = doc => doc.getRoot().listTextures().filter(t => t.getName().startsWith('facade_atlas')).map(t => t.getImage());
@@ -90,7 +93,7 @@ test('atlas recipe hits skip every decode and composite across tiles; only chang
     assert.deepEqual(uv(cached), uv(first));
     calls.length = 0;
     const changed = atlasFixture(1);
-    await atlasFacades(changed, request('c'), { sharp, run, KHRTextureBasisu });
+    await atlasFacades(changed, request('c'), { sharp, run, KHRTextureBasisu, decode });
     assert.equal(calls.filter(([tool]) => tool === 'toktx').length, 1);
     assert.equal(calls.filter(([, op]) => op === 'extract').length, 1);
     assert.deepEqual(packed(changed).slice(1), packed(first).slice(1));

@@ -12,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--commit', required=True)
     parser.add_argument("--assembly-baseline")
+    parser.add_argument("--atlas-baseline")
     args = parser.parse_args()
     source = remote(f'readlink -f {HOME}/repo')
     if source != f'{HOME}/sources/{args.commit}':
@@ -22,6 +23,8 @@ def main():
                          '--assets', '/srv/turku3d/work/coarse', '--tiles', 't0_0_0', 't0_0_-2']
     if args.assembly_baseline:
         arguments += ['--assembly-baseline', f'{HOME}/sources/{args.assembly_baseline}/pipeline/turku3d/wall_assembly.py']
+    if args.atlas_baseline:
+        arguments += ['--atlas-baseline', args.atlas_baseline]
     command = shlex.join(arguments)
     try:
         print(remote(f'TURKU3D_DRAFT_SOURCE={shlex.quote(source)} ' + command), flush=True)
