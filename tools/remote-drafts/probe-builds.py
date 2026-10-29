@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 
@@ -22,10 +23,11 @@ def source_counts(root, tile_id, first_pass):
 def run(root, *, tile_id, first_budget, full_budget):
     from turku3d.coarse.build_health import BuildHealth
     started = time.monotonic()
-    out = root / '.build-probe'
-    out.mkdir(parents=True, exist_ok=True)
+    # Keep the parent for shared content-addressed stage/input caches, while every
+    # frozen job owns its manifests, staging files, logs and child packager outputs.
+    out = Path(tempfile.mkdtemp(prefix='.build-probe-', dir=root))
     telemetry = BuildHealth(root)
-    result = dict(tile=tile_id, passes={})
+    result = dict(tile=tile_id, output=str(out), passes={})
     with (out / 'worker.log').open('w') as log:
         proc = subprocess.Popen([sys.executable, '-m', 'turku3d.coarse', 'worker'],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log,
