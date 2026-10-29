@@ -230,20 +230,56 @@ def constrain(positions, indices, materials, keep, scene):
     """Insert paving/slope breaklines before assigning heights; preserve every triangle remainder."""
     from .surfaces import split_boundaries
 
-    regions = []
+    if not scene:
+        return positions, indices, materials, keep
+    cores = [p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in scene]
+    zones = []
+    left, right = shapely.STRtree(cores).query(cores, predicate="intersects")
+    for a, b in zip(left[left < right], right[left < right], strict=True):
+        overlap = cores[a].intersection(cores[b])
+        query = shapely.get_coordinates(shapely.segmentize(overlap, 4))
+        if not len(query):
+            continue
+        positions_at_overlap = np.c_[query[:, 0], np.full(len(query), -999.0), query[:, 1]]
+        levels = np.array([grade(positions_at_overlap, [scene[i]])[:, 1] for i in (a, b)])
+        if np.any((levels > -900).all(axis=0) & (abs(levels[0] - levels[1]) > 0.35)):
+            zones.append(overlap.buffer(max(scene[a]["width"], scene[b]["width"]) / 2 + 3))
+    regions, detailed, ends = [], [], []
     for patch in scene:
         for radius in (patch["width"] / 2, patch["width"] / 2 + 3):
+            regions.append((patch["line"].buffer(radius, cap_style="flat", join_style="mitre"), 0))
             for sign in (-1, 1):
-                regions.append(
-                    (patch["line"].buffer(sign * radius, single_sided=True, join_style="mitre"), 0)
+                detailed.append(
+                    patch["line"].buffer(sign * radius, single_sided=True, join_style="mitre")
                 )
-    if not regions:
-        return positions, indices, materials, keep
-    # Surface overlays use last-region precedence. Polygonize their complete
-    # linework first so an outer band or another corridor cannot erase an inner
-    # paving edge or centreline and bridge two independently fitted levels.
-    boundaries = shapely.union_all(shapely.boundary([g for g, _ in regions]))
-    regions = [(g, 0) for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(boundaries)))]
+        supported = np.isfinite(patch["heights"][:, 3])
+        for i in np.flatnonzero(supported[:-1] != supported[1:]):
+            station = patch["knots"][i if supported[i] else i + 1]
+            line = patch["line"]
+            a, b = [
+                np.asarray(line.interpolate(s).coords)[0]
+                for s in (max(0, station - 0.05), min(line.length, station + 0.05))
+            ]
+            length = np.linalg.norm(b - a)
+            if length < 1e-9:
+                continue
+            normal = np.array([a[1] - b[1], b[0] - a[0]]) / length
+            centre = np.asarray(line.interpolate(station).coords)[0]
+            radius = patch["width"] / 2 + 3
+            section = shapely.LineString(
+                [centre - (radius + 1e-6) * normal, centre + (radius + 1e-6) * normal]
+            )
+            ends.append(section)
+            zones.append(section.buffer(radius, cap_style="flat"))
+    if zones:
+        # Surface overlays use last-region precedence. Preserve all intersecting
+        # edges and centrelines only where distinct fitted levels overlap or
+        # survey support ends. Ordinary junctions retain their existing mesh.
+        zone = shapely.union_all(zones)
+        boundaries = shapely.union_all([*shapely.boundary(detailed), *ends]).intersection(zone)
+        boundaries = shapely.union_all([boundaries, zone.boundary])
+        partitions = shapely.get_parts(shapely.polygonize(shapely.get_parts(boundaries)))
+        regions.extend((g, 0) for g in partitions if zone.covers(g.representative_point()))
     # The split is geometric only: restore each cut piece's original material.
     p, ix, ids, _ = split_boundaries(
         positions, indices, materials, keep, regions, preserve_materials=True

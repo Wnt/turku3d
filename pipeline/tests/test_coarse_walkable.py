@@ -178,3 +178,30 @@ def test_area_audit_separates_floor_height_from_projected_coverage():
     missing = area_metrics(triangle[:, :, :] + [100, 0, 0], domain, [patch])
     assert missing["collision_holes"] == 1
     assert missing["collision_hole_area_m2"] == domain.area
+
+
+def test_supported_paving_end_is_constrained_before_an_unsurveyed_gap():
+    from turku3d.coarse.walkable_audit import heights
+
+    values = np.full((6, 7), 2.0)
+    values[3:5] = np.nan
+    patch = dict(
+        line=shapely.LineString([(0, 10.4), (40, 10.4)]),
+        width=3,
+        knots=np.arange(0, 41, 8),
+        cross=np.array([-7.5, -4.5, -1.5, 0, 1.5, 4.5, 7.5]),
+        heights=values,
+    )
+    x, z = np.meshgrid(np.arange(0, 41, 2.5), np.arange(5, 21, 2.5))
+    pos = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
+    n = x.shape[1]
+    a = (np.arange(x.shape[0] - 1)[:, None] * n + np.arange(n - 1)).ravel()
+    idx = np.r_[np.c_[a, a + n, a + 1], np.c_[a + 1, a + n, a + n + 1]].astype(np.uint32)
+    p, ix, _, _ = walkable.constrain(
+        pos, idx, np.full(len(idx), 8, np.uint8), np.ones(len(idx), bool), [patch]
+    )
+    x = np.arange(2, 16.01, 0.25)
+    query = np.c_[x, np.full(len(x), 10.4)]
+    np.testing.assert_allclose(heights(p[ix], query, np.full(len(query), 2)), 2, atol=1e-6)
+    # The gap itself remains unsupported rather than extending paving under a bridge.
+    assert walkable.grade(np.array([[20, -999.0, 10.4]]), [patch])[0, 1] == -999
