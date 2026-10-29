@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import * as R from '@dimforge/rapier3d';
 import fs from 'node:fs';
 import { TyreEffects } from '../../src/vehicle/tyreEffects';
-import { longitudinalSlip, acceptsTyreMarks, tyreStrength } from '../../src/vehicle/tyreSlip';
+import { longitudinalSlip, acceptsTyreMarks, tyreStrength, TyreSlipFilter } from '../../src/vehicle/tyreSlip';
 import { PhysicsWorld } from '../../src/physics/world';
 import { GameplayAudio } from '../../src/audio/gameplay';
 import type { AudioEvent } from '../../src/audio/mix';
@@ -17,7 +17,7 @@ function wheel(material: number = MAT.road): WheelState {
 }
 const meshes = (fx: TyreEffects) => fx.root.children as THREE.Mesh[];
 function advance(fx: TyreEffects, x: number, w: WheelState, dt = 1 / 30, slot = 0) {
-  fx.begin(dt); fx.vehicle(slot, { ...pos, x }, q, [w], 'car', dt); fx.end(new THREE.PerspectiveCamera());
+  fx.begin(dt); fx.vehicle(slot, { ...pos, x }, q, [w], 'car', dt, 11); fx.end(new THREE.PerspectiveCamera());
 }
 
 test('shared slip signal rejects soft surfaces, airborne wheels, rest and malformed remote data', () => {
@@ -39,6 +39,7 @@ test('shared slip signal rejects soft surfaces, airborne wheels, rest and malfor
 test('strips follow contact slopes and break across grass, lost contact and teleports', () => {
   const fx = new TyreEffects(new THREE.Group(), 'low'), w = wheel();
   w.tyre!.normal = { x: -Math.SQRT1_2, y: Math.SQRT1_2, z: 0 };
+  for (let i = 0; i < 10; i++) advance(fx, 0, w);
   advance(fx, 0, w); w.tyre!.point.y += 0.3; advance(fx, 0.3, w);
   const geometry = meshes(fx)[0].geometry;
   const strength = geometry.getAttribute('tyreStrength'), p = geometry.getAttribute('position');
@@ -51,6 +52,7 @@ test('strips follow contact slopes and break across grass, lost contact and tele
   w.tyre!.material = MAT.grass; advance(fx, 0.9, w);
   w.tyre!.material = MAT.road; advance(fx, 1.2, w);
   expect(strength.getX(8)).toBe(0);
+  for (let i = 0; i < 10; i++) advance(fx, 1.2, w);
   advance(fx, 10, w); expect(strength.getX(8)).toBe(0);
   advance(fx, 10.3, w); expect(strength.getX(8)).toBeGreaterThan(0);
   w.contact = false; advance(fx, 10.6, w);
@@ -106,8 +108,74 @@ test('screech audio uses exactly the same contact/material slip strength as the 
     vehicle: { pos, rot: q, linvel: { x: 10, y: 0, z: 5 }, speed: 11, forwardSpeed: 10, wheels: [w], curbStrike: null },
     input: { throttle: 1, steer: 1, brake: 0, handbrake: true }, position: pos,
     forward: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } };
-  audio.update(frame);
-  expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: tyreStrength(w) });
-  w.tyre!.material = MAT.grass; audio.update(frame);
+  const filter = new TyreSlipFilter(1);
+  for (let i = 0; i < 30; i++) {
+    frame.tick++; frame.time += 1 / 60; audio.update(frame);
+    const slip = filter.update(0, w, frame.vehicle.speed, 1 / 60);
+    expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip });
+  }
+  expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: tyreStrength(w, frame.vehicle.speed) });
+  w.tyre!.material = MAT.grass; frame.tick++; audio.update(frame);
   expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: 0 });
+});
+
+
+test('bumpy straight driving never starts local or replicated marks, smoke or screech', () => {
+  for (const dt of [1 / 60, 1 / 30]) {
+    const fx = new TyreEffects(new THREE.Group(), 'high'), filter = new TyreSlipFilter(1), w = wheel();
+    const remote = fx.reserve(), events: AudioEvent[] = [], audio = new GameplayAudio(e => events.push(e));
+    for (let i = 0; i < 180; i++) {
+      const phase = i % 12;
+      w.contact = phase !== 0;
+      w.suspension = phase === 1 ? 0.4 : 0.3;
+      w.tyre!.lateral = phase < 4 ? 6 : 1.8;
+      w.tyre!.longitudinal = phase < 4 ? 8 : 0.5;
+      expect(filter.update(0, w, 18, dt)).toBe(0);
+      audio.update({ tick: 1 + i * Math.round(dt * 60), time: i * dt, paused: false, mode: 'car', connected: false,
+        character: null, vehicle: { pos, rot: q, linvel: { x: 18, y: 0, z: 0 }, speed: 18, forwardSpeed: 18,
+          wheels: [w], curbStrike: null }, input: null, position: pos,
+        forward: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } });
+      expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: 0 });
+      fx.begin(dt);
+      for (const slot of [0, remote]) fx.vehicle(slot, { ...pos, x: i * 18 * dt }, q, [w], 'car', dt, 18);
+      fx.end(new THREE.PerspectiveCamera());
+    }
+    expect(Array.from(meshes(fx)[0].geometry.getAttribute('tyreStrength').array).some(v => v > 0)).toBe(false);
+    expect(Array.from(meshes(fx)[1].geometry.getAttribute('tyreOpacity').array).some(v => v > 0)).toBe(false);
+    // A suspension velocity spike also rejects otherwise continuous grounded slip.
+    w.contact = true; w.tyre!.lateral = 8;
+    for (let i = 0; i < 60; i++) {
+      w.suspension = i % 2 ? 0.4 : 0.3;
+      expect(filter.update(0, w, 18, dt)).toBe(0);
+    }
+    fx.dispose();
+  }
+});
+
+test('sustained handbrake, power slide and cornering emit after settling with a brief release', () => {
+  for (const [lateral, longitudinal] of [[0, 8], [4, 6], [6, 0]]) {
+    const fx = new TyreEffects(new THREE.Group(), 'high'), filter = new TyreSlipFilter(1), w = wheel();
+    w.tyre!.lateral = lateral; w.tyre!.longitudinal = longitudinal;
+    const slot = fx.reserve(); let strength = 0;
+    for (let i = 0; i < 60; i++) {
+      strength = filter.update(0, w, 12, 1 / 60);
+      if (i < 12) expect(strength).toBe(0);
+      fx.begin(1 / 60);
+      for (const id of [0, slot]) fx.vehicle(id, { ...pos, x: i * 0.2 }, q, [w], 'car', 1 / 60, 12);
+      fx.end(new THREE.PerspectiveCamera());
+    }
+    expect(strength).toBeGreaterThan(0.8);
+    expect(meshes(fx)[0].geometry.getAttribute('tyreStrength').getX(0)).toBeGreaterThan(0.8);
+    expect(Array.from(meshes(fx)[1].geometry.getAttribute('tyreOpacity').array).some(v => v > 0)).toBe(true);
+    w.tyre!.lateral = w.tyre!.longitudinal = 0;
+    expect(filter.update(0, w, 12, 1 / 60)).toBeGreaterThan(0);
+    for (let i = 0; i < 7; i++) strength = filter.update(0, w, 12, 1 / 60);
+    expect(strength).toBe(0);
+    w.tyre!.longitudinal = 8;
+    for (let i = 0; i < 30; i++) filter.update(0, w, 12, 1 / 60);
+    w.contact = false; expect(filter.update(0, w, 12, 1 / 60)).toBe(0);
+    w.contact = true;
+    for (let i = 0; i < 8; i++) expect(filter.update(0, w, 12, 1 / 60)).toBe(0);
+    fx.dispose();
+  }
 });

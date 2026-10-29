@@ -53,14 +53,15 @@ function distantCharacter(): THREE.Mesh {
 
 function nickname(nick: string): THREE.Sprite {
   const canvas = document.createElement('canvas');
-  canvas.width = 128; canvas.height = 48;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = 'rgba(13, 24, 31, 0.86)'; ctx.fillRect(6, 2, 116, 42);
+  ctx.font = 'bold 30px sans-serif';
+  canvas.width = Math.ceil(ctx.measureText(nick).width) + 24; canvas.height = 48;
+  ctx.fillStyle = 'rgba(13, 24, 31, 0.86)'; ctx.fillRect(0, 2, canvas.width, 42);
   ctx.fillStyle = '#fff'; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(nick, 64, 33);
+  ctx.fillText(nick, canvas.width / 2, 33);
   const texture = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
-  sprite.scale.set(1.2, 0.45, 1);
+  sprite.scale.set(canvas.width / 48 * 0.45, 0.45, 1);
   return sprite;
 }
 
@@ -169,7 +170,7 @@ export class RemotePlayers {
       });
       if (effectsDt > 0 && now - remote.receivedAt < 300 && pose.mode !== 'foot' && pose.wheels) {
         // Network ground points are relative to the physical chassis, including parked-model cars.
-        this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt);
+        this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt, Math.hypot(pose.vE, pose.vN));
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });

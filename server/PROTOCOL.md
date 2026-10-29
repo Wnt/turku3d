@@ -37,7 +37,8 @@ and end exclusive; `tz` is always `"Europe/Helsinki"`. `id` is the local hour wi
 its offset, e.g. `2026-10-25T03+03` then `2026-10-25T03+02`. The spring transition
 skips `03`. Each interval lasts 3600 elapsed seconds, even on the 23/25-hour days.
 
-`Player` is `{id,nick,spawn,pose}`: UUID `id`, two-uppercase-letter `nick`,
+`Player` is `{id,nick,spawn,pose}`: UUID `id`, two-word CamelCase `nick` (friendly adjective + noun, ASCII letters, at most 16 characters,
+e.g. `TurboHerring` or `SneakyPizza`),
 `spawn:{E,N,yaw}`, and latest pose without `id`, or `null` before any pose.
 `Score` is `{nick,money,deliveries,rank,online}`; `deliveries` counts paid drop-offs.
 The live roster includes self; match self by `you.id`. It contains no session tokens.
@@ -219,11 +220,13 @@ A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","
 | `error` | `code:"protocol",reload:true` | Missing/unsupported `v` in a JSON object; close 1002 follows. Reload a matching client. |
 | `error` | `code:"nicknames",reload:false` | All available nicknames used in this hour; close 1013 follows. Retry next hour. |
 
-Nicknames are randomly chosen from A–Z pairs except `SS,SA,HH,KK,FU`. Names stay
-reserved throughout an hour, including disconnected participants (671 possible).
-At rollover, only connected sessions continue, with money/deliveries zeroed and a
-different random nickname per player. Their ID/token/spawn/pose and paid-order IDs
-stay intact; idle connections stay idle. Disconnected sessions expire at rollover.
+Nicknames are random friendly adjective + noun combinations in CamelCase. The
+curated pool has 6,552 names of at most 16 ASCII letters. Names stay reserved
+throughout an hour, including disconnected participants. At rollover, only
+connected sessions continue, with money/deliveries zeroed and a different random
+nickname per player. Their ID/token/spawn/pose and paid-order IDs stay intact;
+idle connections stay idle. Disconnected sessions expire at rollover. Archived
+hours retain their original nicknames, including legacy two-letter names.
 Spawns rotate through sixteen fixed street-side positions in join order, repeating
 after sixteen new players; reconnect preserves the assigned point. The client snaps
 the feet to ground and handles temporary occupation by other players. A reset's

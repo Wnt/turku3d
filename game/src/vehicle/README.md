@@ -173,7 +173,11 @@ frame. Lateral slip is sideways m/s. Rapier's ray vehicle has no wheel angular i
 is estimated from engine/brake impulse demanded beyond suspension-load × friction × timestep. `WheelState.tyre`
 contains both speeds, the actual wheel collider's triangle/primitive material and chassis-local contact point/normal.
 Sleeping vehicles omit it. This adds no ground rays. `tyreStrength` supplies the same hard-surface/contact-gated
-signal to visual effects and the existing tyre screech loop.
+demand to visual effects and the existing tyre screech loop. Both apply `TyreSlipFilter`: 80 ms of settled
+contact followed by 180 ms of continuous sliding, with a 100 ms release. Contact loss, invalid/soft surfaces
+and suspension travel faster than 1.5 m/s reset the trigger immediately. Lateral/longitudinal thresholds
+start at 2.2/2.8 m/s and rise with vehicle speed, suppressing small straight-road disturbances. Remote
+visuals use the same filter with replicated suspension/contact metadata and planar velocity. Handling is unchanged.
 
 `TyreEffects` owns 4,096 ground quad segments and 384 instanced analytic soft smoke sprites, two shared materials
 and two draws. Both draws exist before startup warmup, with zero initial opacity, so first use creates no pipeline.

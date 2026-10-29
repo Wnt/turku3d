@@ -4,7 +4,7 @@ import type { Quat, WheelState } from '../physics/protocol';
 import type { V3 } from '../core/origin';
 import type { QualityTier } from '../render/quality';
 import type { VehicleKind } from '../physics/constants';
-import { tyreStrength } from './tyreSlip';
+import { TyreSlipFilter } from './tyreSlip';
 
 const SEGMENTS = 4096, PARTICLES = 384, TRACKS = 33 * 4;
 const LIFE = 3;
@@ -24,6 +24,8 @@ export class TyreEffects {
   private readonly track = new Float64Array(TRACKS * 9);
   private readonly active = new Uint8Array(TRACKS);
   private readonly emission = new Float32Array(TRACKS);
+  private readonly slip = new TyreSlipFilter(TRACKS);
+  private readonly seen = new Uint8Array(TRACKS);
   private readonly touched = new Uint8Array(TRACKS);
   private readonly reserved = new Uint8Array(33);
   private readonly particles = new Float32Array(PARTICLES * 6);
@@ -87,20 +89,23 @@ export class TyreEffects {
   release(slot: number) {
     if (slot < 1) return;
     this.reserved[slot] = 0;
+    for (let i = slot * 4; i < (slot + 1) * 4; i++) this.slip.reset(i);
     this.active.fill(0, slot * 4, (slot + 1) * 4);
     this.emission.fill(0, slot * 4, (slot + 1) * 4);
   }
   begin(dt: number) {
     this.elapsed += dt;
     this.time.value = this.elapsed;
-    this.touched.fill(0);
+    this.touched.fill(0); this.seen.fill(0);
   }
 
-  vehicle(slot: number, pos: V3, rot: Quat, wheels: readonly WheelState[], kind: VehicleKind, dt: number) {
+  vehicle(slot: number, pos: V3, rot: Quat, wheels: readonly WheelState[], kind: VehicleKind, dt: number, speed: number) {
     if (slot < 0 || slot >= 33 || kind === 'scooter') return;
     this.rotation.set(rot.x, rot.y, rot.z, rot.w);
     for (let i = 0; i < wheels.length && i < 4; i++) {
-      const wheel = wheels[i], t = wheel.tyre, slip = tyreStrength(wheel), id = slot * 4 + i, k = id * 9;
+      const wheel = wheels[i], t = wheel.tyre, id = slot * 4 + i, k = id * 9;
+      this.seen[id] = 1;
+      const slip = this.slip.update(id, wheel, speed, dt);
       if (!t || slip <= 0) continue;
       this.point.set(t.point.x, t.point.y, t.point.z).applyQuaternion(this.rotation);
       this.point.x += pos.x; this.point.y += pos.y; this.point.z += pos.z;
@@ -163,7 +168,10 @@ export class TyreEffects {
   }
 
   end(camera: THREE.Camera) {
-    for (let i = 0; i < TRACKS; i++) if (!this.touched[i]) { this.active[i] = 0; this.emission[i] = 0; }
+    for (let i = 0; i < TRACKS; i++) {
+      if (!this.seen[i]) this.slip.reset(i);
+      if (!this.touched[i]) { this.active[i] = 0; this.emission[i] = 0; }
+    }
     if (this.marksDirty) {
       this.positions.needsUpdate = this.born.needsUpdate = this.strength.needsUpdate = this.order.needsUpdate = true;
       this.marksDirty = false;

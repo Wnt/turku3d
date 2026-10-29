@@ -251,7 +251,12 @@ export class Minimap {
       ctx.beginPath(); ctx.arc(size / 2 + sx, size / 2 + sy, 5, 0, Math.PI * 2);
       ctx.fillStyle = '#e88cff'; ctx.fill();
       ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(remote.nick, size / 2 + sx, size / 2 + sy - 8);
+      const labelWidth = Math.min(ctx.measureText(remote.nick).width, size - 12);
+      const labelX = Math.max(6 + labelWidth / 2, Math.min(size - 6 - labelWidth / 2, size / 2 + sx));
+      ctx.strokeStyle = '#10252d'; ctx.lineWidth = 3;
+      const labelY = Math.max(14, size / 2 + sy - 8);
+      ctx.strokeText(remote.nick, labelX, labelY, size - 12);
+      ctx.fillText(remote.nick, labelX, labelY, size - 12);
     }
     for (const target of this.state.targets) {
       let [sx, sy] = project(target.point, centre, rotation, k);

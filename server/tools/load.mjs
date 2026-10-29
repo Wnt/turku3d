@@ -1,4 +1,5 @@
 // Isolated server child: CPU excludes fake clients. No production traffic/data.
+import { validNickname } from '../nicks.js';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -38,7 +39,7 @@ try {
     ws.send(JSON.stringify({ v: 2, type: 'hello' }));
     const [message] = await welcome;
     const joined = JSON.parse(message);
-    if (joined.type !== 'welcome') throw Error('Expected welcome');
+    if (joined.type !== 'welcome' || !validNickname(joined.you?.nick)) throw Error('Expected welcome');
     identities[i] = joined.you.id;
     ws.loadIndex = i;
   }));

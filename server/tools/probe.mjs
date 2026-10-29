@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { validNickname } from '../nicks.js';
 
 const url = process.argv[2] ?? 'wss://turku.lab.madekivi.fi/';
 const ws = new WebSocket(url, { origin: 'https://wnt.github.io', handshakeTimeout: 10_000 });
@@ -8,7 +9,7 @@ ws.on('open', () => ws.send(JSON.stringify({ v: 2, type: 'hello' })));
 ws.on('message', data => {
   const m = JSON.parse(data.toString());
   if (m.type !== 'welcome') return;
-  if (m.v !== 2 || !m.you?.id || !m.you?.nick || !m.session || m.hour?.tz !== 'Europe/Helsinki'
+  if (m.v !== 2 || !m.you?.id || !validNickname(m.you?.nick) || !m.session || m.hour?.tz !== 'Europe/Helsinki'
     || !Number.isFinite(m.serverTime) || !Array.isArray(m.vehicles?.upsert) || !Array.isArray(m.vehicles?.sources)) {
     console.error('Invalid welcome'); process.exitCode = 1; ws.close(); return;
   }

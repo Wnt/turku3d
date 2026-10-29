@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { WebSocket } from 'ws';
+import { validNickname } from '../nicks.js';
 
 const url = process.argv[2] ?? 'wss://turku.lab.madekivi.fi/';
 const clients = [];
@@ -29,6 +30,9 @@ try {
   assert.equal(second.v, 2);
   assert.equal(second.hour.tz, 'Europe/Helsinki');
   assert.notEqual(first.you.id, second.you.id);
+  assert(validNickname(first.you.nick));
+  assert(validNickname(second.you.nick));
+  assert.notEqual(first.you.nick, second.you.nick);
   assert(second.players.some(p => p.id === first.you.id));
   assert(second.players.some(p => p.id === second.you.id));
   console.log(JSON.stringify({ ok: true, endpoint: url, players: second.players.length, presence: true }));
