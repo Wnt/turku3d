@@ -80,3 +80,17 @@ bash pipeline/env/run.sh python scripts/dev/probe_facade_materials.py \
 
 Delivery timings, rolling-health smoke and deployed outcomes are recorded in the
 owning task's result/check logs. No new screenshots are generated.
+
+## First deployed evidence and probe correction
+
+The first deployed `t0_0_1` run passed first/full generation in **3.542 / 17.851 s**,
+with **7 buildings / 16 collision cells** matching source in both passes. The
+probe initially looked for a temporary staging GLB after packaging had removed
+it. The correction reads the same emitted layer bytes from its content-addressed
+`building_layer` cache, using the completed build's stage key.
+
+A read-only check of that retained OCI layer confirms **1,113 Kristiinankatu wall
+fragments / 1,133 paint ranges**, all stone, from height 3.512 through 29.036 m.
+Their colours are mineral `#7e96a4`, `#827d74` and light-stone `#b9bebd`. The concrete
+control has 48 wall fragments / 52 paint ranges, all concrete. The owned forward
+run repeats the build and includes the neighbouring tile's two stone controls.
