@@ -1,4 +1,4 @@
-// Owned headed Chrome, real Pages build, normal caching and a repeatable cold southbound flight.
+// Owned headed Chrome, real Pages build, normal caching and repeatable cold flights.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -20,12 +20,14 @@ const directions = {
 const direction = process.argv[3] ?? 'south', route = directions[direction];
 if (!route) throw new Error('Direction must be south, west, north or east');
 const output = path.join(reportsRoot, 'flight-loop', label);
+const profile = path.join(process.env.TURKU3D_BROWSER_DIR, label);
+if (fs.existsSync(profile) || fs.existsSync(output)) throw new Error('Use a new label for an empty profile and unambiguous evidence');
 fs.mkdirSync(output, { recursive: true });
 const log = (file, row) => fs.appendFileSync(path.join(output, file), JSON.stringify({ at: Date.now(), ...row }) + '\n');
 const ssh = ['-i', path.join(os.homedir(), '.ssh/oci_cuttlefish'), '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=8', 'ubuntu@82.70.50.61'];
 const host = fs.readFileSync(new URL('./host.py', import.meta.url), 'utf8');
 const url = 'https://wnt.github.io/turku-game/game/?dev=1';
-const context = await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR, label), {
+const context = await chromium.launchPersistentContext(profile, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: false,
   viewport: { width: 1280, height: 800 }, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
 });
@@ -40,21 +42,24 @@ try {
   const requests = new Map();
   session.on('Network.requestWillBeSent', e => {
     requests.set(e.requestId, { at: e.wallTime * 1000, monotonic: e.timestamp, url: e.request.url });
-    log('network.jsonl', { kind: 'request', id: e.requestId, wall: e.wallTime * 1000, url: e.request.url, type: e.type });
+    log('network.jsonl', { kind: 'request', id: e.requestId, wall: e.wallTime * 1000, monotonic: e.timestamp, url: e.request.url, type: e.type });
   });
   session.on('Network.responseReceived', e => {
     const r = e.response, row = requests.get(e.requestId);
-    log('network.jsonl', { kind: 'response', id: e.requestId, url: r.url, status: r.status, ms: row ? (e.timestamp - row.monotonic) * 1000 : null,
+    log('network.jsonl', { kind: 'response', id: e.requestId, url: r.url, status: r.status, monotonic: e.timestamp, ms: row ? (e.timestamp - row.monotonic) * 1000 : null,
       sw: r.fromServiceWorker, source: r.serviceWorkerResponseSource, disk: r.fromDiskCache, protocol: r.protocol,
       timing: r.timing, cache: r.headers['cache-control'] ?? r.headers['Cache-Control'],
       storedBytes: r.headers['x-turku3d-cache-bytes'] ?? r.headers['X-Turku3D-Cache-Bytes'] });
   });
-  session.on('Network.loadingFinished', e => { const r = requests.get(e.requestId); log('network.jsonl', { kind: 'finished', id: e.requestId, url: r?.url, ms: r ? (e.timestamp - r.monotonic) * 1000 : null, bytes: e.encodedDataLength }); });
+  session.on('Network.loadingFinished', e => { const r = requests.get(e.requestId); log('network.jsonl', { kind: 'finished', id: e.requestId, url: r?.url, monotonic: e.timestamp, ms: r ? (e.timestamp - r.monotonic) * 1000 : null, bytes: e.encodedDataLength }); });
   session.on('Network.loadingFailed', e => log('network.jsonl', { kind: 'failed', id: e.requestId, url: requests.get(e.requestId)?.url, error: e.errorText }));
   page.on('console', m => log('console.jsonl', { kind: m.type(), text: m.text() }));
   page.on('pageerror', e => log('console.jsonl', { kind: 'exception', text: e.message }));
   await page.addInitScript(() => {
     window.__longTasks = [];
+    window.__resources = [];
+    performance.setResourceTimingBufferSize(20000);
+    new PerformanceObserver(list => window.__resources.push(...list.getEntries().map(e => ({ ...e.toJSON(), at: performance.timeOrigin + e.startTime })))).observe({ type: 'resource', buffered: true });
     new PerformanceObserver(list => window.__longTasks.push(...list.getEntries().map(e => ({ at: performance.timeOrigin + e.startTime, ms: e.duration })))).observe({ type: 'longtask', buffered: true });
   });
   await session.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing,disabled-by-default-devtools.timeline', transferMode: 'ReturnAsStream' }); trace = true;
@@ -93,7 +98,7 @@ try {
     await page.waitForTimeout(4000);
   }
   const result = await page.evaluate(() => ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
-    resources: performance.getEntriesByType('resource').map(r => r.toJSON()) }));
+    resources: window.__resources }));
   result.direction = direction; result.route = route;
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
