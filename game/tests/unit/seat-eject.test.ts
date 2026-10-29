@@ -133,6 +133,28 @@ test('only an explicit seat_taken denial ejects after grace at the current vehic
   expect(h.shared.seatExit(performance.now())).toEqual(driverSide({ ...h.state, pos: { x: 300, y: 4.4, z: 400 } }));
 });
 
+test('recreating a borrowed car after a restart keeps its actor identity after the driver exits', async () => {
+  const h = setup();
+  h.shared.release('truck');
+  await vi.advanceTimersByTimeAsync(55);
+  const borrowed = { ...h.vehicle, id: 'other:truck', creator: 'other' };
+  h.welcome([borrowed]);
+  h.state.id = borrowed.id;
+  h.shared.drive(borrowed.id);
+  await h.reply(await h.request(), true, borrowed);
+  h.welcome([], 'new-self');
+  const request = await h.request();
+  expect(request).toMatchObject({ id: 'new-self:other:truck', localId: 'other:truck' });
+  const recreated = { ...borrowed, id: 'new-self:other:truck', localId: borrowed.id,
+    creator: 'new-self', owner: 'new-self', occupant: 'new-self' };
+  await h.reply(request, true, recreated);
+  h.update();
+  h.shared.release(borrowed.id);
+  h.update();
+  expect(h.shared.record(borrowed.id)?.id).toBe(recreated.id);
+  expect(h.physics.removeVehicle).not.toHaveBeenCalled();
+});
+
 test('recovering ownership during conflict grace cancels the exit; stale replies cannot revoke it', async () => {
   const h = setup();
   const competing = { ...h.vehicle, owner: 'other', occupant: 'other', epoch: 2, revision: 2 };

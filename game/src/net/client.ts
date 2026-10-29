@@ -215,7 +215,7 @@ export class MultiplayerClient extends EventTarget {
         }
         if (pending) { clearTimeout(pending.timer); this.vehicleRequests.delete(String(msg.request));
           pending.resolve(msg.ok ? msg.vehicle as SharedVehicle : null); }
-        else if (expired && msg.ok && vehicle?.occupant === this.state.you?.id && vehicle.id !== this.heldSeat) {
+        else if (expired && msg.ok && vehicle && vehicle.occupant === this.state.you?.id && vehicle.id !== this.heldSeat) {
           // Only an abandoned entry attempt frees a late grant. Delayed register
           // replies and reclaim replies must never release a seat we're driving.
           this.queue({ type: 'vehicle', action: 'release', request: crypto.randomUUID(), id: vehicle.id });

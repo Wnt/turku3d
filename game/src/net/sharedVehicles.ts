@@ -82,7 +82,10 @@ export class SharedVehicles {
   record(localId: string | null): SharedVehicle | undefined {
     return [...this.client.state.vehicles.values()].find(v => this.localId(v) === localId);
   }
-  hasSeat(localId: string): boolean { return this.record(localId)?.occupant === this.client.state.you?.id; }
+  hasSeat(localId: string): boolean {
+    const self = this.client.state.you?.id;
+    return !!self && this.record(localId)?.occupant === self;
+  }
   drive(local: string) {
     if (this.driving?.local === local) return;
     const vehicle = this.record(local) ?? this.client.state.vehicles.get(local) ?? null;
