@@ -76,6 +76,19 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(result["result"], "deploy-failed")
         self.assertEqual(result["commit"], "a" * 40)
 
+    def test_canary_rejection_is_reported_as_failed_deploy_to_finish(self):
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(delivery, "deploy", return_value={}),
+            patch("deploy_drafts.deploy", side_effect=ValueError("full canary exceeded budget")),
+            patch.object(delivery.coord, "send"),
+            patch.object(delivery, "ledger"),
+        ):
+            result = delivery.after_merge("test", Path(temp), "a" * 40,
+                                          {"changed_paths": ["pipeline/turku3d/coarse/build.py"]}, Path(temp))
+        self.assertEqual(result["result"], "generator-deploy-failed")
+        self.assertIn("full canary exceeded", result["error"])
+
     def test_server_only_changes_deploy_oci(self):
         self.check_source_deployment("server/economy.js")
 

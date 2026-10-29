@@ -156,21 +156,8 @@ def after_merge(name, repo, commit, selected, path):
         row["result"] = "deployed"
         try:
             generator_patterns = (
-                "pipeline/turku3d/coarse/*",
-                "pipeline/turku3d/facade_kit.py",
-                "pipeline/turku3d/facade_assets.py",
-                "pipeline/turku3d/facade_program*.py",
-                "pipeline/turku3d/wall_*.py",
-                "pipeline/turku3d/package/*",
-                "pipeline/turku3d/buildings/*",
-                "pipeline/turku3d/config.py",
-                "textures/turkutex/facade_fast_render.py",
-                "textures/turkutex/facade_archetypes.py",
-                "textures/turkutex/facade_program.py",
-                "textures/library/facade-programs.json",
-                "tools/remote-drafts/*",
-                "server/*",
-                "scripts/dev/deploy_drafts.py",
+                "pipeline/*", "textures/*", "tools/remote-drafts/*",
+                "server/*", "scripts/dev/deploy_drafts.py",
             )
             generator_changed = any(
                 fnmatch.fnmatchcase(file, pattern)
@@ -180,7 +167,11 @@ def after_merge(name, repo, commit, selected, path):
             if generator_changed:
                 import deploy_drafts
 
-                row["generator"] = deploy_drafts.deploy(repo, commit)
+                try:
+                    row["generator"] = deploy_drafts.deploy(repo, commit)
+                except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                    row.update(result="generator-deploy-failed", error=str(exc)[-2000:])
+                    raise
             row["smoke"] = smoke(repo, row["pages"], path)
             if not row["smoke"]["ok"]:
                 coord.send(

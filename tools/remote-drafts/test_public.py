@@ -64,6 +64,7 @@ class PublicTest(unittest.TestCase):
             requests = []
             builder = SimpleNamespace(
                 root=root,
+                build_health=__import__("turku3d.coarse.build_health", fromlist=["BuildHealth"]).BuildHealth(root),
                 failure_count=0, failed={},
                 lock=threading.Condition(),
                 priority={"t0_1_1": 0},

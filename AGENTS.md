@@ -34,12 +34,19 @@ Pages carries only the game; the world and assets come through the tunnel/OCI ho
    quick suite stays tiny; a new quick test needs a strong reason. Full tiles, area
    rebuilds, exhaustive renders and browser suites are not completion requirements.
 6. Immediately after merging into main, deploy to Pages. Deployment is **package +
-   upload only**: no tests, tile builds, deploy lock, queue/coalescing rules, verified-only
-   releases, rollback or rollback preparation. Move forward with a new fix when needed.
+   upload only**. OCI generator source changes run a spawn first/full canary before
+   switching slots, in parallel with standby health; unchanged stages reuse caches.
+   Either pass failing or full exceeding twice its recorded median (40 s maximum)
+   keeps the old slot serving. Client-only deploys skip the canary. No deploy lock,
+   queue/coalescing rules, rollback or rollback preparation. Move forward with a new fix when needed.
    Publishing does not wait for an agent's host slot. Stay comfortably within ten Pages
    builds per hour by completing useful slices; do not implement a deployment queue.
 7. After deployment, run curl-level smoke checks of the integration points, **five
-   seconds total**, with no browser. Then start one agent-owned selective bigger test
+   seconds total**, with no browser. A generator change is not done until its full
+   pass has built on the deployed host. `/coarse/health` and `codex-task checks`
+   expose 15-minute per-pass outcomes, latency and error kinds; the sentinel flags
+   repeated failures and poor full-pass success/latency while players are online.
+   Then start one agent-owned selective bigger test
    run with a **hard ten-minute wall budget** including slot waits. Read recent runs
    with `codex-task checks` before choosing it. It runs asynchronously from frozen
    deployed source and survives a new rebase or sandbox removal. At most one forward
@@ -84,9 +91,11 @@ For a change with no affected quick tests, provide `--no-tests-reason` instead o
 
 `finish` sends that notice, rebases, runs the selected checks in parallel with the
 mandatory repository-wide policy and Chrome-launch policy stages within 30 seconds,
-merges into main, announces the merge, packages/uploads Pages, runs five-second smoke
+merges into main, announces the merge, packages/uploads Pages, canaries changed OCI
+generator source before switching slots, runs five-second smoke
 probes and starts the selective async run. A merge conflict or red quick selection
-leaves main unchanged. An upload or later test failure never rolls main back. The
+leaves main unchanged. An OCI canary failure keeps the old slot serving and requires a forward fix.
+An upload or later test failure never rolls main back. The
 runner's turn-end compatibility command uses the recorded selection; call `finish`
 yourself for each green slice. Do not end DONE without selecting affected checks.
 

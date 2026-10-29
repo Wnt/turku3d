@@ -10,11 +10,35 @@ import subprocess
 import tarfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from facade_publish import HOST, SSH, remote
 
 HOME = "/home/ubuntu/turku3d-drafts"
+
+
+def generator_hash_command(destination):
+    # Source contents, never commit IDs or mtimes; a Pages-only edit skips OCI entirely.
+    script = """import hashlib,pathlib
+root=pathlib.Path(DESTINATION)
+h=hashlib.sha256()
+for directory in ('pipeline', 'textures', 'tools/remote-drafts'):
+ for p in sorted((root/directory).rglob('*')):
+  if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc':
+   h.update(p.relative_to(root).as_posix().encode()); h.update(b'\\0'); h.update(p.read_bytes())
+print(h.hexdigest())
+""".replace('DESTINATION', repr(destination))
+    return "python3 -c " + shlex.quote(script)
+
+
+def canary(destination):
+    command = (f"TURKU3D_DRAFT_SOURCE={destination} {destination}/tools/remote-drafts/run.sh "
+               f"python {destination}/tools/remote-drafts/canary.py --root /srv/turku3d/work/coarse")
+    try:
+        return json.loads(remote(command))
+    except subprocess.CalledProcessError as error:
+        raise ValueError('OCI canary failed; old slot still serves: ' + error.stderr[-2000:]) from error
 
 
 def deploy_multiplayer(destination):
@@ -61,6 +85,14 @@ def deploy(repo, commit):
         capture_output=True,
         text=True,
     )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        new_hash = pool.submit(remote, generator_hash_command(destination))
+        old_hash = pool.submit(remote, generator_hash_command(previous))
+        generator_changed = new_hash.result() != old_hash.result()
+    if not generator_changed:
+        return dict(commit=commit, seconds=round(time.monotonic() - started, 3),
+                    generator_unchanged=True, canary=None,
+                    multiplayer=deploy_multiplayer(destination))
     # Keep the old producer serving while a standby binds the alternate port. Its
     # workers stay paused until the old process group has stopped writing caches.
     active = remote(f"cat {HOME}/ACTIVE_PORT 2>/dev/null || echo 7765")
@@ -92,7 +124,18 @@ while time.monotonic()<end:
  time.sleep(.1)
 else: raise SystemExit('standby draft producer did not become ready within5s')
 """
-    instance = remote("python3 -c " + shlex.quote(health))
+    validation_started = time.monotonic()
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            smoke = pool.submit(remote, "python3 -c " + shlex.quote(health))
+            build = pool.submit(canary, destination)
+            instance = smoke.result()
+            canary_result = build.result()
+    except Exception:
+        # The proxy/source pointers are untouched. Stop only the standby we started.
+        remote(f"systemctl --user stop {unit}")
+        raise
+    canary_result['validation_wall_seconds'] = round(time.monotonic() - validation_started, 3)
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
     remote(
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
@@ -151,6 +194,7 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         rsync=result.stdout,
         multiplayer=multiplayer,
         cache_storage=cache_storage,
+        canary=canary_result,
     )
 
 
