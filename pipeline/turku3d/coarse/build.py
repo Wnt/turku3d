@@ -31,7 +31,7 @@ from turku3d.stage_cache import StageCache, source_key
 from turku3d.wall_surfaces import paint_partition, trapezoids
 
 from . import banks, boats, bridges, fences, gardens, kerbs, parked, road_top, surfaces, walkable
-from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
+from .collision import collision_tiles, compact_collision  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
 from .forests import draft_trees
@@ -411,7 +411,7 @@ def build(
         pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes], pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
-        col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
+        compact_collision(col)
         if first_pass:
             basic_cells.append((ct, col))
         data = cache.run(
@@ -431,7 +431,7 @@ def build(
         collision[ct.id] = _entry(
             f"col/{ct.id}.col",
             data,
-            tris=len(idx),
+            tris=len(col.indices),
             prims=len(primitives),
             h=[float(lo), float(hi)],
             flags=col.computed_flags(),
