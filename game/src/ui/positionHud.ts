@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { engineToEN, VISUAL_L0, TRUE_NORTH_GRID_BEARING_DEG } from '../core/origin';
 import { enToLatLon } from '../core/geographic';
+import type { Input } from '../input';
 import type { VisualTiles } from '../world/tiles';
 
 const STORAGE_KEY = 'turku3d.position-hud.v1';
@@ -24,6 +25,7 @@ export function positionReadout(position: THREE.Vector3, direction: THREE.Vector
 export class PositionHud {
   readonly element = Object.assign(document.createElement('div'), { id: 'position-hud' });
   visible = true;
+  characterHidden = false;
   private lastUpdate = -Infinity;
   private direction = new THREE.Vector3();
   private ray = new THREE.Raycaster();
@@ -35,6 +37,12 @@ export class PositionHud {
     try { this.visible = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { /* Session default. */ }
     document.body.append(this.element);
     this.element.hidden = !this.visible;
+  }
+
+  handle(input: Input, playing: boolean) {
+    if (!playing) return;
+    if (input.consume('positionHud')) this.toggle();
+    if (input.consume('photoCharacter')) this.characterHidden = !this.characterHidden;
   }
 
   toggle() {
