@@ -1,4 +1,4 @@
-"""Optional cached lidar profiles for mapped bridge-access stairs."""
+"""Optional cached lidar profiles for mapped stair flights and their landings."""
 
 import numpy as np
 import shapely
@@ -46,11 +46,11 @@ def measure(line, width, points, classes):
 
 
 def attach(rows, paths, bridges, footways):
-    """Survey only bridge-connected flights; ordinary stairs keep the cheap terrain path."""
+    """Survey complete mapped flights, including ordinary quay and embankment stairs."""
     from turku3d import config as C
     from turku3d.lidar import TileStore
 
-    if not paths or not bridges:
+    if not paths:
         return
     ends = shapely.union_all([line.boundary for line in bridges])
     access = shapely.union_all(
@@ -66,8 +66,8 @@ def attach(rows, paths, bridges, footways):
     sources = {p.stem: p for p in paths}
     store = TileStore(source_paths=sources)
     for _, line, tags in rows:
-        if line.boundary.distance(access) > 0.05:
-            continue
+        if tags.get("bridge", "no") != "no" and line.boundary.distance(access) > 0.05:
+            continue  # A standalone suspended stair needs its own deck evidence.
         bbox = C.BBoxLocal(*line.buffer(2).bounds)
         if any(block.name not in sources for block in C.laz_tiles_for_bbox(bbox)):
             continue
