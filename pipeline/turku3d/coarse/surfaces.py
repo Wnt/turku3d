@@ -110,6 +110,8 @@ def osm_surfaces(tile, path):
             or tags.get("leisure") in ("park", "garden", "nature_reserve")
         ):
             key = "grass"
+        if not key and tags.get("amenity") == "parking" and tags.get("parking") not in ("multi-storey", "underground"):
+            key = "road"
         if not key and highway:
             key = (
                 "paving_slab"

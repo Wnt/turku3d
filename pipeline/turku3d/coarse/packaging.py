@@ -33,6 +33,7 @@ PRODUCERS = (
     "input_keys",
     "sources",
     "surfaces",
+    "ortho_cleanup",
     "bridges",
     "bridge_details",
     "bridge_join",

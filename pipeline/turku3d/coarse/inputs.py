@@ -62,6 +62,7 @@ DEPENDENCIES = {
     "tunnels": ("tunnels.py", "bridge_details.py", "underpasses.py", "area.py", "../spatial.py"),
     "stairs": ("stairs.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
+    "ortho_canopy": ("ortho_cleanup.py", "../vegetation/trees.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
     "appearance": ("register.py", "../spatial.py"),
@@ -106,6 +107,7 @@ class Inputs:
     barriers: list = ()  # OSM barrier geometries, tags and deliberate road membership
     forests: list = ()
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    ortho_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
@@ -418,6 +420,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     osm = sources.osm_source(tile)
     return {
         "ground": None if missing else laz,
+        "ortho_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs[:3])
@@ -458,12 +461,16 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
     pyarrow.set_cpu_count(1)
     pyarrow.set_io_thread_count(1)
+    if dataset == "ortho_canopy":
+        from .ortho_cleanup import canopy_points
+
+        return canopy_points(tile, paths)
     if dataset == "parking":
         from .parked import prepare as prepare_parking
 
         return prepare_parking(tile, *paths)
     if dataset == "appearance":
-        from .register import read_osm, read_register, dated_footprints
+        from .register import dated_footprints, read_osm, read_register
 
         appearance = read_osm(tile, paths[0]) if paths[0] else {}
         appearance["dated_footprints"] = dated_footprints(tile, paths[1], read_register(paths[2:]))
@@ -583,6 +590,7 @@ def gather(
     for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
         if first_pass and dataset in {
             "parking",
+            "ortho_canopy",
             "trees",
             "forests",
             "barriers",
@@ -667,6 +675,7 @@ def gather(
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),
         canopy=ground.get("canopy", np.empty((0, 3))),
+        ortho_canopy=values["ortho_canopy"] if not first_pass else np.empty((0, 3)),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
         stairs=values["stairs"] or ((), ()),

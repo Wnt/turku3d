@@ -372,7 +372,9 @@ def test_structural_job_completes_then_visual_job_uses_spare_worker(tmp_path, mo
         def close(self):
             pass
 
-        def __call__(self, tile, out, *, first_pass):
+        def __call__(self, tile, out, *, first_pass, on_started=None):
+            if on_started:
+                on_started()
             calls.append(first_pass)
             out.mkdir(exist_ok=True)
             record = dict(
