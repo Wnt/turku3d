@@ -6,7 +6,8 @@ import { VisualPassComparison } from './visualPass';
 import { splitCollisionBundle, type CollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, lookaheadTile, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, lookaheadTile, retainDraftTile, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { CoarseLookahead } from './coarseLookahead';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -113,8 +114,7 @@ export class CoarseTiles {
   private demandRetries = 0;
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
-  private lookaheadCandidate?: string;
-  private lookaheadTask?: { id: string };
+  private lookahead = new CoarseLookahead();
   private materials = new SharedMaterials();
   private comparison: VisualPassComparison;
   get visualPass() { return this.comparison.pass; }
@@ -211,20 +211,8 @@ export class CoarseTiles {
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     const candidate = this.startup ? undefined : lookaheadTile(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
-    // Two consecutive motion checks avoid loading from placement velocity or a brief heading change.
-    const lookahead = candidate && candidate === this.lookaheadCandidate
-      && (!this.lookaheadTask || this.lookaheadTask.id === candidate) ? candidate : undefined;
-    this.lookaheadCandidate = candidate;
-    // Load the 3x3 window; retain already requested models for another 75 m beyond
-    // its maximum axis distance. Boundary jitter cannot repeatedly discard/rebuild
-    // a column. The retained square still bounds residency to at most 4x4 per start.
-    const retain = (id: string) => [{ x, z }, ...this.retainedStarts].some(point => {
-      const match = /^t0_(-?\d+)_(-?\d+)$/.exec(id);
-      if (!match) return false;
-      const x0 = +match[1] * VISUAL_L0, z0 = +match[2] * VISUAL_L0;
-      return Math.max(x0 - point.x, point.x - x0 - VISUAL_L0,
-        z0 - point.z, point.z - z0 - VISUAL_L0) <= VISUAL_L0 + 75;
-    });
+    const lookahead = this.lookahead.select(candidate);
+    const retain = (id: string) => retainDraftTile(id, [{ x, z }, ...this.retainedStarts]);
     // Deleting an entry also invalidates in-flight preparation.
     for (const [id, e] of this.entries) {
       if (wanted.includes(id) || id === lookahead || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
@@ -247,15 +235,11 @@ export class CoarseTiles {
         void this.refreshDraft(id, e, distToL0(id, x, z));
     }
     // Core requests always start first. This separate slot limits speculative preparation only.
-    if (lookahead && !this.lookaheadTask) {
+    if (lookahead) {
       const e = this.entry(lookahead), distance = distToL0(lookahead, x, z);
-      const request = due(e) ? () => this.poll(lookahead, e, distance, true)
+      this.lookahead.run(lookahead, () => due(e) ? this.poll(lookahead, e, distance, true)
         : e.state === 'draft' && !e.refreshing && (now >= e.nextPoll || (!e.retries && (e.version ?? -1) < this.version))
-          ? () => this.refreshDraft(lookahead, e, distance) : null;
-      if (request) {
-        const task = this.lookaheadTask = { id: lookahead };
-        void request().finally(() => { if (this.lookaheadTask === task) this.lookaheadTask = undefined; });
-      }
+          ? this.refreshDraft(lookahead, e, distance) : null);
     }
     // All other ahead tiles request builds without loading model or collision resources.
     for (const id of ahead) {

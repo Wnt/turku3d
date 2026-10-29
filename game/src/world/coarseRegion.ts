@@ -39,6 +39,15 @@ export function wantedTiles(x: number, z: number): string[] {
     .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b));
 }
 
+/** Retain the normal window plus 75 m of boundary hysteresis, at most 4x4 per start. */
+export function retainDraftTile(id: string, points: readonly { x: number; z: number }[]) {
+  const tile = parse(id);
+  if (!tile || tile.level !== 0) return false;
+  const x0 = tile.i * VISUAL_L0, z0 = tile.j * VISUAL_L0;
+  return points.some(point => Math.max(x0 - point.x, point.x - x0 - VISUAL_L0,
+    z0 - point.z, point.z - z0 - VISUAL_L0) <= VISUAL_L0 + 75);
+}
+
 /** The 16 collision cells (62.5 m) of L0 tile `id`. */
 export function cellsOf(id: string): string[] {
   const t = parse(id);
