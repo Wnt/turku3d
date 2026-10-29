@@ -16,10 +16,18 @@ const duration = baseline ? 0 : Number(process.env.REVISIT_SECONDS ?? 300);
 assert(duration >= 0 && duration <= 300, 'Replay must fit the ten-minute post-deploy budget');
 const output = path.join(reportsRoot, 'revisit-cache'); fs.mkdirSync(output, { recursive: true });
 const publishedWorker = 'https://wnt.github.io/turku-game/game/isolation.js';
-const worker = process.env.IMMUTABLE_WORKER ? fs.readFileSync(process.env.IMMUTABLE_WORKER, 'utf8')
-  : await (await fetch(`${publishedWorker}?probe=${Date.now()}`)).text();
+let worker;
+const publishWait = performance.now();
+do {
+  worker = process.env.IMMUTABLE_WORKER ? fs.readFileSync(process.env.IMMUTABLE_WORKER, 'utf8')
+    : await (await fetch(`${publishedWorker}?probe=${Date.now()}`, { signal: AbortSignal.timeout(5000), cache: 'no-store' })).text();
+  if (baseline || worker.includes('turku3d-asset-index')) break;
+  // Packaging/upload does not wait for GitHub Pages CDN propagation. This observation belongs
+  // in the bounded post-deploy probe, never in deployment or the five-second smoke.
+  if (performance.now() - publishWait >= 120_000) throw new Error('Pages still serves the old SW after 120 seconds');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+} while (true);
 assert(worker.includes('turku3d-immutable-v1'));
-if (!baseline) assert(worker.includes('turku3d-asset-index'), 'Deployed SW must contain the new index');
 const base = 'https://turku.lab.madekivi.fi';
 const root = `${base}/coarse/t0_0_0/`;
 const fragment = await (await fetch(`${root}collision.json`)).json();
@@ -53,7 +61,7 @@ await server.listen();
 const local = `http://127.0.0.1:${port(3)}/cache/probe`;
 let context;
 process.on('SIGTERM', async () => { await context?.close(); await server.close(); process.exit(143); });
-const result = { baseline, duration, before, tileAssets: tileSet.length, publishedWorker };
+const result = { baseline, duration, publishWaitMs: performance.now() - publishWait, before, tileAssets: tileSet.length, publishedWorker };
 const profile = path.join(process.env.TURKU3D_BROWSER_DIR, `revisit-${baseline ? 'before' : 'after'}-${Date.now()}`);
 const launch = async () => chromium.launchPersistentContext(profile, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true, args: chromeArgs(),
