@@ -61,7 +61,7 @@ def test_road_deck_is_continuous_original_terrain_with_clear_lower_passage():
         ]
     )
     assert deck.difference(retained).area < 1e-8
-    np.testing.assert_allclose([sample(x, 100) for x in (90, 98, 100, 102, 110)], 24.7)
+    np.testing.assert_allclose([sample(x, 100) for x in np.linspace(86, 114, 57)], 24.7)
     roof = next(m for m in result.meshes if m.object_id.endswith(":roof"))
     np.testing.assert_allclose(
         roof.positions[:, 1], [sample(x, z) - 0.3 for x, _, z in roof.positions]
@@ -93,7 +93,7 @@ def test_deck_repair_is_bitwise_identical_on_tile_boundary():
     left = a[1][a[1][:, 0] == 250]
     right = b[1][b[1][:, 0] == 250]
     np.testing.assert_array_equal(left, right)
-    np.testing.assert_array_equal(a[0][a[0][:, 0] < 240], a[1][a[1][:, 0] < 240])
+    np.testing.assert_array_equal(a[0][a[0][:, 0] < 235], a[1][a[1][:, 0] < 235])
 
 
 def test_only_crossing_surface_roads_select_box_underpass():

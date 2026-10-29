@@ -51,7 +51,8 @@ def repair(tile, grid_pos, ways, bank_sample):
     """Bridge lower passage lidar with the two banks, changing only a narrow terrain strip.
 
     Full-way bank profiles and world-aligned grid vertices give adjacent tiles identical heights.
-    The outer six metres include the wall, coarse-grid support and the verge blend.
+    Sample intact terrain ten metres beyond each wall: its coarse TIN includes
+    a wider trough than the clear passage. Interpolate the complete strip to those banks.
     """
     from .inputs import CELLS
 
@@ -66,7 +67,7 @@ def repair(tile, grid_pos, ways, bank_sample):
         direction = np.gradient(xz, axis=0)
         direction /= np.linalg.norm(direction, axis=1)[:, None]
         normal = np.c_[-direction[:, 1], direction[:, 0]]
-        radius = width / 2 + 6
+        radius = width / 2 + 10
         banks = np.array(
             [[bank_sample(*q) for q in xz + normal * sign * radius] for sign in (-1, 1)]
         )
@@ -90,10 +91,7 @@ def repair(tile, grid_pos, ways, bank_sample):
             across = np.clip(((query[use] - centre) * normal).sum(axis=1) / radius, -1, 1)
             left, right = [np.interp(ds, distances, side) for side in banks]
             target = left * (1 - across) / 2 + right * (1 + across) / 2
-            # Beyond the supporting vertices, blend into unchanged terrain.
-            inner = radius - 6 + 0.4 + step * np.sqrt(2)
-            blend = np.clip((radius - abs(across) * radius) / max(radius - inner, 0.1), 0, 1)
-            heights[use] += np.maximum(target - heights[use], 0) * blend
+            heights[use] = np.maximum(target, heights[use])
         return heights
 
     positions = grid_pos.copy()
@@ -153,7 +151,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
     original_surface = surface_sample
     carried_mask = exclusion(inputs.tunnels)
     if not carried_mask.is_empty:
-        grid_pos, lifted = repair(tile, grid_pos, inputs.tunnels, ground_sampler(original_surface))
+        grid_pos, lifted = repair(tile, grid_pos, inputs.tunnels, original_surface)
         surface_sample = sampler(tile, grid_pos, original_surface, lifted)
     tunnels = cache.run(
         "tunnels",
