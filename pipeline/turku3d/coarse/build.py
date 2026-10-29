@@ -403,7 +403,7 @@ def build(
             inputs.markings,
         ),
     )
-    from .forests import BUSH_CAP, TREE_CAP, produce, trunks
+    from .forests import BUSH_CAP, TREE_CAP, path_ground, path_surfaces, produce, trunks
     seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
 
     vegetation_start = time.perf_counter()
@@ -415,6 +415,8 @@ def build(
             source_key(
                 Path(__file__).with_name("forests.py"),
                 base / "vegetation/trees.py",
+                base / "vegetation/visual.py",
+                *sorted((base / "vegetation/assets").glob("*.glb")),
                 draft_trees,
                 grid_height,
                 *common,
@@ -537,12 +539,14 @@ def build(
         surfaces.classify(dry.positions[dry.indices].mean(axis=1), inputs.ortho, tile, []),
     )
     t_surface = time.perf_counter()
+    forest_paths = path_surfaces(inputs)
+    visual_regions = [*inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
         visual_materials,
         dry_keep,
-        [*inputs.surfaces, *inputs.streets],
+        [*visual_regions, *inputs.streets],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
@@ -562,7 +566,7 @@ def build(
     )
     from . import ortho_cleanup
 
-    clean_args = (tile, inputs.ortho, inputs.streets, inputs.surfaces,
+    clean_args = (tile, inputs.ortho, inputs.streets, visual_regions,
                   inputs.ortho_canopy, inputs.heights, inputs.markings,
                   [b.footprint for b in blds], inputs.water, inputs.parking)
     ground_ortho, cleanup_stats = cache.run(
@@ -572,6 +576,12 @@ def build(
         clean_args,
         lambda: ortho_cleanup.clean(*clean_args),
     )
+    ground_ortho = cache.run(
+        "forest_path_ground",
+        source_key(path_ground, surfaces.fallback, *common),
+        [tile, ground_ortho, forest_paths],
+        lambda: path_ground(tile, ground_ortho, forest_paths),
+    )
     from . import ground_colour
 
     ortho_paths = inputs.sources.get("ortho", ())
@@ -579,10 +589,10 @@ def build(
     corrected_ortho, colour_stats = cache.run(
         "ground_colour",
         source_key(Path(ground_colour.__file__), ground_colour.TABLE, *common),
-        (tile, ground_ortho, inputs.ortho, inputs.streets, inputs.surfaces,
+        (tile, ground_ortho, inputs.ortho, inputs.streets, visual_regions,
          [b.footprint for b in blds], inputs.water, mosaic),
         lambda: ground_colour.apply(tile, ground_ortho, inputs.ortho,
-                                    inputs.streets, inputs.surfaces,
+                                    inputs.streets, visual_regions,
                                     [b.footprint for b in blds], inputs.water, mosaic),
     )
     seconds.update({name: cache.metrics[name]["seconds"] for name in ("ground_ortho", "ground_colour")})
