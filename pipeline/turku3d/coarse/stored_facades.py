@@ -173,6 +173,7 @@ def wall_meshes(b, walls, origin):
         return []
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
+    from turku3d.facade_component_geometry import plan, geometry, surface_parts, slots
 
     stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []
@@ -192,7 +193,11 @@ def wall_meshes(b, walls, origin):
         vertices = walls[start : start + 4]
         match = match_prepared(vertices, stored)
         wall = program["walls"][start // 4]
-        reviewed = bool(wall.get("measured_wall_id")) and not wall.get("render_sections")
+        plans = plan(vertices, wall)
+        components, _ = geometry(vertices, plans, b.facade_key, origin)
+        meshes.extend(components)
+        wall["rendered_components"] = [p["kind"] for p in plans]
+        reviewed = bool(wall.get("measured_wall_id")) and "render_sections" not in wall
         wall["paint_source"] = (
             "reviewed-program" if reviewed else
             "stored-facade-map" if match else
@@ -207,13 +212,16 @@ def wall_meshes(b, walls, origin):
                 if match is not None and instruction.get("unreviewed"):
                     fallback = match_prepared(points, stored)
                     if fallback is not None:
-                        meshes.append(stored_mesh(b, points, fallback, origin, f"{start}_{len(meshes)}"))
+                        for p, uv in surface_parts(points, fallback[1], plans):
+                            meshes.append(stored_mesh(b, p, (fallback[0], uv), origin, f"{start}_{len(meshes)}"))
                         continue
                 instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
-                instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
-                program_parts.append((points, uv))
+                for p, tex in surface_parts(points, uv, plans):
+                    instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
+                    program_parts.append((p, tex))
             continue
-        meshes.append(stored_mesh(b, vertices, match, origin, start))
+        for p, uv in surface_parts(vertices, match[1], plans):
+            meshes.append(stored_mesh(b, p, (match[0], uv), origin, f"{start}_{len(meshes)}"))
     if program_parts:
         meshes.append(
             GlbMesh(
@@ -243,6 +251,10 @@ def wall_meshes(b, walls, origin):
     if meshes:
         # build() exports this diagnostic program separately before writing the layer GLB.
         meshes[0].extras["facade_program"] = program
+        from turku3d.facade_programs import measured
+        component_slots = slots(walls, measured(b.facade_key), getattr(b, "facade_passage", None))
+        if component_slots:
+            meshes[0].extras["facade_component_slots"] = component_slots
     return meshes
 
 

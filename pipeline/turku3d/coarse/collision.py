@@ -27,6 +27,10 @@ def current(builder, tile):
                 if value.get("pass_kind") == "first"
                 else builder.input_key
             )
+            if value.get("pass_kind") != "first" and "building_keys" in value:
+                from turku3d.facade_kit import parameter_hash
+                if value.get("facade_params") != parameter_hash(value["building_keys"]):
+                    continue
             key = key_for(tile)
             if key is not None and value.get("inputs") != key:
                 continue
@@ -71,7 +75,7 @@ def solid_triangles(pos, idx, mat):
 
 
 def collision_tiles(
-    tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None, shore=None
+    tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None, shore=None, *, facade_components=False
 ):
     """Split ground along the 62.5 m grid; carved building parts retain the original owner."""
     cells_per_side = round(np.sqrt(len(grid_pos))) - 1
@@ -102,6 +106,9 @@ def collision_tiles(
             c = b.footprint.centroid
             if getattr(b, "_collision_owner", C.CollisionTile.at(c.x, c.y)) != ct:
                 continue
+            if facade_components:
+                from turku3d.facade_component_geometry import collision_walls
+                walls, wall_idx = collision_walls(b, walls)
             for pos, idx, mid in (
                 (roof, roof_idx, mat_id("roof")),
                 (floor, floor_idx, mat_id("building")),

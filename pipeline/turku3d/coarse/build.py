@@ -472,7 +472,7 @@ def build(
     cols = {}
     basic_cells = []
     for ct, (pos, idx, mat) in collision_tiles(
-        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid
+        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid, facade_components=not first_pass
     ).items():
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
