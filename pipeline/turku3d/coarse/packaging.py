@@ -28,6 +28,7 @@ PRODUCERS = (
     "packaging",
     "stages",
     "inputs",
+    "input_keys",
     "sources",
     "surfaces",
     "bridges",
@@ -82,7 +83,9 @@ def producer_paths():
 def code_hash() -> str:
     """Producer identity: the coarse sources plus the shared visual packager they call."""
     h = hashlib.sha256(kit_hash().encode())
-    for p in producer_paths():
+    # __file__ can enter through repo's symlink while C.REPO_ROOT is resolved.
+    # Absolute-prefix ordering must not change identity for identical source bytes.
+    for p in sorted(producer_paths(), key=lambda p: p.as_posix().rsplit("/pipeline/", 1)[-1]):
         h.update(p.name.encode())
         h.update(p.read_bytes())
     return h.hexdigest()[:16]

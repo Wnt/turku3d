@@ -28,6 +28,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from turku3d import config as C
@@ -51,25 +52,38 @@ BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 
 
-def content_paths(paths):
-    """Include raster bytes referenced by VRTs, not just their unchanged XML wrapper."""
+@lru_cache(maxsize=256)
+def _vrt_sources(path, size, modified):
+    """Parse shared mosaic dependencies once per file identity."""
     import xml.etree.ElementTree as ET
 
+    try:
+        nodes = ET.fromstring(path.read_bytes()).iter("SourceFilename")
+        return tuple(
+            path.parent / node.text if node.get("relativeToVRT") == "1" else Path(node.text)
+            for node in nodes
+        )
+    except ET.ParseError:
+        return ()  # Unreadable mosaics fail in the producer, not during HTTP admission.
+
+
+def content_paths(paths):
+    """Include raster bytes referenced by VRTs, not just their unchanged XML wrapper."""
     result = {}
 
     def add(path):
-        path = Path(path)
+        if not isinstance(path, Path):
+            path = Path(path)
         if path in result:
             return
         result[path] = path
-        if path.suffix == ".vrt" and path.is_file():
+        if path.suffix == ".vrt":
             try:
-                nodes = ET.fromstring(path.read_bytes()).iter("SourceFilename")
-                for node in nodes:
-                    source = Path(node.text)
-                    add(path.parent / source if node.get("relativeToVRT") == "1" else source)
-            except ET.ParseError:
-                pass  # Unreadable mosaics fail in the producer, not during HTTP admission.
+                stat = path.stat()
+            except FileNotFoundError:
+                return
+            for source in _vrt_sources(path, stat.st_size, stat.st_mtime_ns):
+                add(source)
 
     for path in paths:
         add(path)
@@ -189,6 +203,8 @@ class _Files:
         self.root, self.pattern, self.parse = root, pattern, parse
         self.cache: dict[Path, tuple[tuple[int, int], dict]] = {}
         self.listing: list[tuple[Path, dict]] = []
+        self.by_name: dict[str, list[tuple[Path, dict]]] = {}
+        self.queries = {}
         self.listed_at = -math.inf
         self.lock = threading.Lock()
 
@@ -219,8 +235,40 @@ class _Files:
                 out.append((path, cached[1]))
             for gone in set(self.cache) - seen:
                 del self.cache[gone]
-            self.listing, self.listed_at = out, time.monotonic()
-            return out
+            if out != self.listing:
+                grouped = {}
+                for path, value in out:
+                    grouped.setdefault(path.name, []).append((path, value))
+                self.by_name, self.listing = grouped, out
+                self.queries.clear()
+            self.listed_at = time.monotonic()
+            return self.listing
+
+    def named(self, name):
+        self.items()
+        return self.by_name.get(name, ())
+
+    def within(self, name, bounds, *, intersect=False):
+        """Reuse per-tile coverage queries until the shared area summaries change."""
+        rows = self.named(name)
+        key = (name, bounds, intersect)
+        cached = self.queries.get(key)
+        if cached is not None and cached[0] is rows:
+            return cached[1]
+        x0, y0, x1, y1 = bounds
+        out = []
+        for path, state in rows:
+            b = state.get("bbox_en")
+            if b is not None and (
+                b[0] <= x1 and b[1] <= y1 and b[2] >= x0 and b[3] >= y0
+                if intersect
+                else b[0] <= x0 and b[1] <= y0 and b[2] >= x1 and b[3] >= y1
+            ):
+                out.append((path, state))
+        if len(self.queries) >= 4096:
+            self.queries.clear()
+        self.queries[key] = rows, out
+        return out
 
 
 class Sources:
@@ -261,25 +309,38 @@ class Sources:
                 "the MML 2 m DEM needs an API key"
             )
         root = C.raw_dir("laz") / "maanpinta"
-        present = [root / f"{b.name}.laz" for b in blocks if self.lidar_present(b)]
-        return present, [b for b in blocks if not self.lidar_present(b)]
+        present = {b: self.lidar_present(b) for b in blocks}
+        return [root / f"{b.name}.laz" for b in blocks if present[b]], [
+            b for b in blocks if not present[b]
+        ]
 
     def lidar_present(self, block: C.LazTile) -> bool:
         path = C.raw_dir("laz") / "maanpinta" / f"{block.name}.laz"
-        if not path.exists():
+        try:
+            size = path.stat().st_size
+        except FileNotFoundError:
             return False
         if self._laz is None:
             from turku3d.fetch.common import Registry
 
             self._laz = Registry(C.raw_dir("laz"))
-        return self._laz.is_complete(path)
+        # This path is already relative to the registry root; avoid resolving
+        # both absolute paths (including every parent symlink) for each request.
+        record = self._laz.records().get(f"maanpinta/{block.name}.laz")
+        return record is not None and record.get("bytes") == size
 
     # -- ortho -----------------------------------------------------------------------------------
     def ortho_source(self, tile: C.VisualTile) -> Path | None:
         """The first ortho mosaic (by name: the 512 px coarse ones before the 5 cm areas) whose
         extent covers the tile. NoCoverage when the block's coarse fetch found no imagery there."""
+        t = tile.bbox.to_en()
         for vrt, bounds in self.mosaics.items():
-            if covers(bounds, tile):
+            if (
+                bounds[0] <= t.emin
+                and bounds[1] <= t.nmin
+                and bounds[2] >= t.emax
+                and bounds[3] >= t.nmax
+            ):
                 return vrt
         own = f"{AREA_PREFIX}{block_of(tile).name}.chunks.json"
         for state_path, state in self.ortho.items():
@@ -294,10 +355,8 @@ class Sources:
     def wfs_source(self, name: str, tile: C.VisualTile) -> tuple[bool, Path | None]:
         """(found, parquet or None for an empty layer) for one WFS layer over the tile."""
         slug = name.replace(":", "_")
-        for summary, s in self.wfs.items():
-            if summary.name != f"{slug}.summary.json" or s.get("status") not in ("ok", "empty"):
-                continue
-            if "bbox_en" not in s or not covers(s["bbox_en"], tile):
+        for summary, s in self.wfs.within(f"{slug}.summary.json", tile.bbox.to_en().as_tuple()):
+            if s.get("status") not in ("ok", "empty"):
                 continue
             if s["status"] == "empty":
                 return True, None
