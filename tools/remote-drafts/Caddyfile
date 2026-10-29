@@ -18,7 +18,11 @@
 
 http://:7764 {
 	bind 127.0.0.1
-	encode zstd gzip {
+	encode {
+		# Cached transfers share CPU with four build workers. Prefer encoder
+		# throughput over size: default gzip exceeded the 10-player p95 budget.
+		zstd fastest
+		gzip 1
 		match {
 			header Content-Type application/json*
 			header Content-Type application/octet-stream*

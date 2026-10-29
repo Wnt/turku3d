@@ -328,5 +328,8 @@ SHA-256 of their bytes. The descriptor cache is bounded to 128 tile versions;
 bundle files follow the same lifetime as other immutable tile payloads. The game
 still checks every cell in the physics worker. Caddy enables negotiated zstd/gzip
 for JSON, collision and GLB, following [its encode directive](https://caddyserver.com/docs/caddyfile/directives/encode).
+Use gzip level 1 and zstd fastest: per-transfer default gzip CPU pushed native
+10-player cached p95 to 1.75–1.98 seconds despite zero serving errors. Two
+isolated level-1 runs measured 1.189–1.203 seconds with identical decoded bytes.
 The public TLS/tunnel connection already negotiates HTTP/2; the loopback upstream
 is HTTP/1.1 and does not need public HTTP/2 server push or a protocol change.
