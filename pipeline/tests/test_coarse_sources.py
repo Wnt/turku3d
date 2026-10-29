@@ -142,6 +142,14 @@ def test_collision_identity_ignores_visual_changes_but_tracks_structure(monkeypa
     changes[build] = original.replace(b"primitives = trunks(trees, ct)", b"primitives = []")
     assert changes[build] != original
     assert collision_key.code_hash() != before
+    changes.clear()
+    visual_before = packaging.code_hash()
+    for name in ("bridge_access", "stair_survey", "retaining", "portals"):
+        helper = build.with_name(name + ".py")
+        changes[helper] = read(helper) + b"\n# structural helper changed\n"
+        assert collision_key.code_hash() != before, name
+        assert packaging.code_hash() != visual_before, name
+        changes.clear()
 
 
 def test_collision_remains_current_during_visual_only_deployment(tmp_path):
@@ -198,6 +206,7 @@ def test_sampler_stage_identities_ignore_other_surface_producers(monkeypatch):
     import importlib.util
     import inspect
     from pathlib import Path
+
     from turku3d.coarse import surfaces
 
     script = Path(__file__).resolve().parents[2] / 'tools/remote-drafts/stage-identities.py'

@@ -292,18 +292,8 @@ def build(
     )
     from . import stairs
 
-    stair_meshes, dry, solid = stairs.stage(
-        cache,
-        tile,
-        inputs.stairs,
-        grid_pos,
-        surface_sample,
-        dry,
-        solid,
-        kerb_inputs(tile, ground_sources) if inputs.stairs[0] or inputs.barriers else None,
-        osm_decks,
-        inputs.barriers,
-        inputs.water,
+    stair_meshes, dry, solid = stairs.from_inputs(
+        cache, tile, inputs, grid_pos, surface_sample, dry, solid, ground_sources, osm_decks
     )
     seconds.update(
         stairs_geometry=cache.metrics["stairs"]["seconds"],
@@ -602,6 +592,9 @@ def build(
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
+    ground_meshes.extend(
+        tunnels.terrain_visuals(tile, corrected_ortho, inputs.streets, visual_regions)
+    )
     ground_meshes.extend(
         surfaces.visuals(
             tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)

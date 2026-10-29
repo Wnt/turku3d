@@ -50,6 +50,7 @@ DEPENDENCIES = {
         "bridge_survey.py",
         "bridge_access.py",
         "tunnels.py",
+        "portals.py",
         "bridge_details.py",
         "underpasses.py",
         "area.py",
@@ -63,6 +64,7 @@ DEPENDENCIES = {
     "tunnels": (
         "road_top.py",
         "tunnels.py",
+        "portals.py",
         "bridge_details.py",
         "underpasses.py",
         "area.py",

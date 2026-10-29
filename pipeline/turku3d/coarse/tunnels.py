@@ -14,10 +14,12 @@ import shapely
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh
-from turku3d.structures.geometry import Faces, Mesh, profile_wall
+from turku3d.structures.geometry import Faces, Mesh
 
+from . import portals
 from .geometry import clip_mesh
 from .openings import Openings
+from .portals import grounded_wall
 
 
 @lru_cache(maxsize=8)
@@ -113,7 +115,7 @@ def prepare(tile, path):
                 continue
             if line.geom_type == "LineString" and line.length > 0.5:
                 out.append((str(row.get("osm_id", k)), line, tags))
-        return carried_roads(merge_parallel([*out, *quay]), roads)
+        return carried_roads(portals.approaches(merge_parallel([*out, *quay]), roads), roads)
 
     ways = cached(
         path,
@@ -123,6 +125,7 @@ def prepare(tile, path):
             Path(__file__).with_name("underpasses.py"),
             Path(__file__).with_name("road_top.py"),
             Path(__file__).with_name("bridge_details.py"),
+            Path(portals.__file__),
         ],
         area_tunnels,
     )
@@ -135,6 +138,7 @@ def merge_parallel(ways):
     Group complete OSM ways before tile filtering so neighbouring tiles use identical portals.
     Curved tunnels remain separate unless their full geometry fits the same near-straight axis.
     """
+    ways = portals.merge_companions(ways, dimensions)
     groups = []
     for way in sorted(ways, key=lambda w: w[0]):
         key, line, tags = way
@@ -223,19 +227,6 @@ def floor_profile(heights, distance):
     return np.minimum(heights, chord)
 
 
-def grounded_wall(object_id, xz, bottom, top, sample, step, *, thickness=0.3):
-    """A straight wall's foundation stays below every terrain plane under its width."""
-    from .kerbs import terrain_patches
-
-    xz = np.asarray(xz, float)
-    direction = xz[1] - xz[0]
-    normal = np.array([-direction[1], direction[0]]) / np.linalg.norm(direction) * thickness / 2
-    footprint = np.array([xz[0] + normal, xz[1] + normal, xz[1] - normal, xz[0] - normal])
-    ground = [sample(x, z) for patch in terrain_patches(footprint, step) for x, z in patch]
-    foundation = min(ground) - 0.2
-    return profile_wall(object_id, xz, np.minimum(bottom, foundation), top, thickness=thickness)
-
-
 def passage_footprint(polygon):
     """Remove submillimetre cut slivers before roof triangulation and float32 collision."""
     return polygon.simplify(0.0005, preserve_topology=True)
@@ -309,9 +300,13 @@ class Tunnels:
                 color=(1, 0.92, 0.65, 1)
                 if m.metadata.get("lamp")
                 else (1, 1, 1, 1)
-                if m.metadata.get("vault")
+                if m.metadata.get("vault") or m.metadata.get("portal")
                 else (0.22, 0.23, 0.24, 1),
-                image=texture("stone") if m.metadata.get("vault") else None,
+                image=texture("stone")
+                if m.metadata.get("vault")
+                else texture("concrete")
+                if m.metadata.get("portal")
+                else None,
                 repeat=True,
                 emissive=(1, 0.85, 0.5) if m.metadata.get("lamp") else (0, 0, 0),
                 extras=dict(
@@ -323,8 +318,11 @@ class Tunnels:
                 ),
             )
             for m in [*self.meshes, *self.ceilings]
-            if m.visual
+            if m.visual and m.object_id != "tunnel:ground-edge"
         ]
+
+    def terrain_visuals(self, tile, rgb, streets=(), regions=()):
+        return portals.terrain_visuals(self.meshes, tile, rgb, streets, regions)
 
     def collision(self, ct, pos, idx, mat):
         positions, indices, materials = [pos], [idx], [mat]
@@ -414,6 +412,14 @@ def produce(
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         height_at = surface_sample if passage and surface_sample is not None else sample
         terrain = np.array([height_at(x, z) for x, z in xz])
+        repaired = np.zeros(2, bool)
+        original_ends = terrain[[0, -1]].copy()
+        if not passage and not road_top and not vaulted:
+            ends, repaired = portals.anchors(line, tags, sample, original_ends, surface_sample)
+            terrain[[0, -1]] = ends
+        mouth_lengths = np.where(
+            repaired, np.clip(np.maximum(width, original_ends - terrain[[0, -1]]), 4, 12), 2
+        )
         floor = terrain if passage else floor_profile(terrain, distances)
         if vaulted:
             floor = np.interp(distances, [0, line.length], [terrain[0], terrain[-1]])
@@ -446,8 +452,10 @@ def produce(
             if corridor.intersects(window):
                 profiles.append((line, distances, floor, width))
                 for i in range(len(xz) - 1):
-                    for side in ([left[i], left[i + 1], right[i + 1]],
-                                 [left[i], right[i + 1], right[i]]):
+                    for side in (
+                        [left[i], left[i + 1], right[i + 1]],
+                        [left[i], right[i + 1], right[i]],
+                    ):
                         q = np.asarray(side)
                         heights = np.array([height_at(x, z) for x, z in q])
                         openings.floors.append(np.c_[q[:, 0], heights, q[:, 1]])
@@ -467,6 +475,7 @@ def produce(
             if surface_sample is not None
             else np.zeros(2)
         )
+        portal_offsets[repaired] = 0
 
         def floor_height(
             query,
@@ -476,6 +485,7 @@ def produce(
             portal_offsets=portal_offsets,
             road_top=road_top,
             clearance=clearance,
+            repaired=repaired,
         ):
             ds = shapely.line_locate_point(line, shapely.points(query))
             h = np.interp(ds, distances, floor)
@@ -491,6 +501,7 @@ def produce(
                 # ordinary crossfall, but never pull a floor up the enclosing hillside.
                 crossfall = 0.1 * np.linalg.norm(query[near] - centre, axis=1)
                 endpoint = np.where(ds[near] < line.length / 2, 0, 1)
+                crossfall = np.where(repaired[endpoint], np.minimum(crossfall, 0.1), crossfall)
                 correction = portal_offsets[endpoint] + np.clip(
                     ground - road_height, -crossfall, crossfall
                 )
@@ -590,12 +601,16 @@ def produce(
         # Carve the same apron from terrain; otherwise its old triangles can still
         # cross the opening even when the tube itself is clear.
         aprons = []
-        for end, outward in ((0, -direction[0]), (-1, direction[-1])):
+        for portal_index, (end, outward) in enumerate(((0, -direction[0]), (-1, direction[-1]))):
             inner = np.array([left[end], right[end]])
             # The repaired grid can affect two diagonals beyond the portal.
             # Meet intact terrain beyond that support, rather than ending inside
             # its raised triangles. Both visuals and collision use this mesh.
-            apron_length = max(7, 2 * np.sqrt(2) * tile.size / CELLS + 1) if road_top else 2
+            apron_length = (
+                max(7, 2 * np.sqrt(2) * tile.size / CELLS + 1)
+                if road_top
+                else mouth_lengths[portal_index]
+            )
             outer = inner + outward * apron_length
             apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
             aprons.append(apron)
@@ -607,11 +622,12 @@ def produce(
                 base = floor_height(
                     patch - along[:, None] * apron_length * outward if road_top else patch
                 )
-                if road_top:
+                if road_top or repaired[portal_index]:
                     # A straight approach to the outer cross-section avoids
                     # reproducing the lidar/grid hump midway through the blend.
                     target = patch + (1 - along)[:, None] * apron_length * outward
-                    ground = np.array([deck_sample(x, z) for x, z in target])
+                    outer_sample = deck_sample if road_top else (surface_sample or sample)
+                    ground = np.array([outer_sample(x, z) for x, z in target])
                 else:
                     ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
                 height = base + (ground - base) * along
@@ -619,10 +635,7 @@ def produce(
         cut_corridor = shapely.union_all([corridor, *aprons])
         # At the mouth the frame replaces the bank, including high triangles
         # whose tips used to survive above the clearance test as rock slabs.
-        mouths = shapely.union_all(
-            [corridor.intersection(shapely.Point(*point).buffer(2)) for point in (xz[0], xz[-1])]
-            + aprons
-        )
+        mouths = portals.mouths(corridor, xz, left, right, direction, aprons, repaired)
         profiles.append((line, distances, floor_height(xz), width))
         meshes.append(
             road.mesh(
@@ -634,6 +647,7 @@ def produce(
         )
         openings.add(meshes[-1], clearance)
         meshes.append(tube.mesh(f"tunnel:{key}:roof", "wall"))
+        meshes.extend(portals.dividers(key, tags, floor_height))
         if lamps.indices:
             lamp = lamps.mesh(f"tunnel:{key}:lights", "wall")
             lamp.metadata["lamp"] = True
@@ -667,42 +681,39 @@ def produce(
                 wall.triangles(section.positions, section.indices, section.uvs)
             if wall.indices:
                 meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
-        for end in () if vaulted else (0, -1):
-            # A single U-shaped frame owns the mouth. Its jambs and thickness
-            # stay outside the clear carriageway, including at skewed portals.
-            frame = Faces()
-            header_line = np.array([left[end] + offset[end] * 1.7, right[end] - offset[end] * 1.7])
-            header_bottom = (
-                np.array([deck_sample(*q) for q in header_line]) - 0.3
-                if road_top
-                else np.array([left_floor[end], right_floor[end]]) + clearance
-            )
-            header_vector = header_line[1] - header_line[0]
-            for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
-                a = side[end] + sign * offset[end] * 0.2
-                b = a + sign * offset[end] * 1.5
-                jamb = grounded_wall(
-                    "jamb",
-                    [a, b],
-                    [side_floor[end] - 0.2] * 2,
-                    header_bottom[0]
-                    + ((np.array([a, b]) - header_line[0]) @ header_vector)
-                    / (header_vector @ header_vector)
-                    * (header_bottom[1] - header_bottom[0]),
+        if not vaulted:
+            meshes.extend(
+                portals.frames(
+                    key,
+                    left,
+                    right,
+                    offset,
+                    left_floor,
+                    right_floor,
                     surface_sample or sample,
                     tile.size / CELLS,
-                    thickness=0.4,
+                    clearance,
+                    road_top,
+                    deck_sample,
+                    repaired,
                 )
-                frame.triangles(jamb.positions, jamb.indices, jamb.uvs)
-            header = profile_wall(
-                "header",
-                header_line,
-                header_bottom,
-                header_bottom + 0.3,
-                thickness=0.4,
             )
-            frame.triangles(header.positions, header.indices, header.uvs)
-            meshes.append(frame.mesh(f"tunnel:{key}:portal:{end}", "wall"))
+            if not road_top:
+                meshes.extend(
+                    portals.wings(
+                        key,
+                        xz,
+                        left,
+                        right,
+                        offset,
+                        direction,
+                        left_floor,
+                        right_floor,
+                        surface_sample or sample,
+                        tile.size / CELLS,
+                        mouth_lengths,
+                    )
+                )
         if road_top:
             for mesh in meshes:
                 if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.object_id.endswith(

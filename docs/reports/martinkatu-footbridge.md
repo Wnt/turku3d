@@ -70,3 +70,11 @@ selection assumption: every `draft_*` mesh was treated as a terrain palette
 entry, including the new independently textured stair/rock meshes. The forward
 correction selects recognized terrain channels, preserves the existing curb
 library binding, and still rejects unknown materials on actual ground meshes.
+
+The corrected deployed-source selective run passed in 54.144 s. Martinkatu's
+first/full builds took 3.850/12.678 s with 16 buildings and 16 collision cells;
+Teatterisilta took 4.359/15.730 s with 11 buildings and 16 cells. All counts match
+source, and the deployed geometry assertions confirm the measured span,
+5.697 m clearance, two columns, all three stair profiles and seven retaining
+outputs. Older failed/slow builds remain in the rolling health window; the
+representative forward builds are green.
