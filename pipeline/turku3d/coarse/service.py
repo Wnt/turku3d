@@ -22,15 +22,16 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from turku3d import config as C
-from turku3d.facade_kit import parameter_hash
 
+from .build_health import BuildHealth, error_kind
 from .collision import current as collision_current
-from .collision import fragment as collision_fragment
 from .collision_key import current_code as current_collision_code
 from .demand import Demand, write_snapshot
 from .packaging import current_code
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
+from .service_state import failed_identity, tile_current
+from .service_state import snapshot as state_snapshot
 from .serving import retained_fragment as collision_fragment
 from .sources import NoCoverage, Sources, Unit
 from .upgrade_queue import next_job, next_upgrade
@@ -226,35 +227,10 @@ class Builder:
         return self.root / tile / "manifest.json"
 
     def built(self, tile: str, code: str | None = None) -> bool:
-        """``code``: the producer hash when the caller checks many tiles (hashed once, not per tile)."""
-        path = self.manifest(tile)
-        if not path.exists():
-            return False
-        try:
-            m = json.loads(path.read_text())
-        except (OSError, ValueError):
-            return False
-        self.code_seen = code = code or self.code()
-        if m.get("code") != code:
-            return False
-        if "building_keys" in m and m.get("facade_params") != parameter_hash(m["building_keys"]):
-            return False
-        try:
-            key = (
-                (self.structural_input_key or self.input_key)
-                if m.get("pass_kind") == "first"
-                else self.input_key
-            )
-            now = key(tile)
-        except NoCoverage:
-            return True
-        return now is None or m.get("inputs") == now
+        return tile_current(self, tile, code)
 
     def failure_key(self, tile):
-        try:
-            return self.code(), self.input_key(tile)
-        except NoCoverage:
-            return self.code(), None
+        return failed_identity(self, tile)
 
     def cached(self, tile: str) -> bool:
         return complete_tile(self.root, tile, FILE)
@@ -594,37 +570,7 @@ class Builder:
             self.request(tile, distance)
 
     def status(self) -> dict:
-        """The builders' in-memory state, small: no manifest, input or source file is read, so it
-        answers in milliseconds however loaded the host and however many drafts are on disk."""
-        with self.lock:
-            order = self.order()
-            eta = self.eta()
-            shown = [*sorted(self.building), *order[:STATUS_ITEMS]]
-            return {
-                "state": "building" if self.building else "idle",
-                "building": sorted(self.building),
-                "upgrading": sorted(self.upgrading),
-                "foreground": sum(
-                    self.demand.rank(t) is not None
-                    for t in set(order) | set(self.building) | set(self.pending)
-                ),
-                "queued": len(order),
-                "queue": order[:STATUS_ITEMS],
-                "eta": {tile: eta[tile] for tile in shown},
-                "version": self.version,
-                "built": self.built_count,
-                "failure_count": self.failure_count,
-                "failed": {
-                    tile: error for tile, (error, _) in list(self.failed.items())[-STATUS_ITEMS:]
-                },
-                "pending": {
-                    tile: units for tile, (units, _) in list(self.pending.items())[-STATUS_ITEMS:]
-                },
-                "timings": dict(self.timings),
-                "code": self.code_seen,
-                "draining": self.draining,
-                "prebuild": self.idle.status() if self.idle else None,
-            }
+        return state_snapshot(self, STATUS_ITEMS)
 
     def drain(self) -> None:
         """No further builds start; the running ones finish (the service is about to restart)."""

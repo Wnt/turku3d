@@ -178,7 +178,7 @@ class IdlePrebuild:
 
     def remember(self):
         now = time.time()
-        for _, tiles, urgent, visible in self.builder.demand.clients.values():
+        for _, _tiles, urgent, visible in self.builder.demand.clients.values():
             for tile in urgent | visible:
                 self.recent[tile] = now
         self.recent = dict(
