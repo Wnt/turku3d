@@ -381,7 +381,9 @@ def cut_ground(mesh, openings):
     ).compact()
 
 
-def stage(cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks=(), barriers=()):
+def stage(
+    cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks=(), barriers=(), water=()
+):
     from pathlib import Path
 
     from turku3d import config as C
@@ -397,6 +399,7 @@ def stage(cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks
         Path(__file__).with_name("bridge_details.py"),
         Path(__file__).with_name("stair_survey.py"),
         Path(retaining.__file__),
+        Path(__file__).with_name("gardens.py"),
         base / "bridges/build.py",
         Path(C.__file__),
         base / "structures/geometry.py",
@@ -405,7 +408,7 @@ def stage(cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks
 
     def geometry():
         flights, flight_cuts = produce(tile, prepared, sample, decks)
-        walls, wall_cuts = retaining.produce(tile, barriers, sample, flight_cuts)
+        walls, wall_cuts = retaining.produce(tile, barriers, sample, flight_cuts, water)
         return [*walls, *flights], [*wall_cuts, *flight_cuts]
 
     meshes, openings = cache.run(
@@ -418,6 +421,7 @@ def stage(cache, tile, prepared, grid_pos, sample, dry, solid, neighbours, decks
             neighbours,
             [(d.way, d.line, d.stations, d.heights) for d in decks],
             barriers,
+            water,
         ],
         geometry,
     )

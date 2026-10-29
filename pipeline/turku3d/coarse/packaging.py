@@ -20,6 +20,9 @@ BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 # Geometry/material dependencies only. Service, fetch scheduling, audits and benchmarks
 # must not invalidate finished world tiles when their orchestration changes.
 PRODUCERS = (
+    "gardens",
+    "garden_inputs",
+    "retaining",
     "build",
     "basic",
     "area",
