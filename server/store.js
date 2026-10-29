@@ -10,6 +10,17 @@ export class ScoreStore {
     mkdirSync(directory, { recursive: true });
   }
 
+  rounds() {
+    try { return JSON.parse(readFileSync(join(this.directory, 'rounds.json'), 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  }
+
+  writeRounds(rounds) {
+    const path = join(this.directory, 'rounds.json');
+    writeFileSync(`${path}.tmp`, JSON.stringify(rounds), { mode: 0o600 });
+    renameSync(`${path}.tmp`, path);
+  }
+
   write(hour, players) {
     const path = join(this.directory, `${hour.id}.json`);
     // Atomic replacement: readers never observe half a completed hour.
