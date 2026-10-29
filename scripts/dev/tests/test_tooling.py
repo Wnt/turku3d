@@ -329,6 +329,14 @@ class ToolingTests(Fixture):
         self.commit(self.base / "wt/unmerged/repo")
         (self.base / "wt/dirty/repo/dirty.txt").write_text("dirty")
         (self.base / "wt/landed/work/cache/filler").write_bytes(b"x" * 4096)
+        reports = self.base / "wt/landed/work/reports"
+        (reports / "nested").mkdir()
+        (reports / "nested/photo.jpg").write_bytes(b"evidence")
+        result_text = f"[Photo]({reports}/nested/photo.jpg)"
+        (reports / "result.md").write_text(result_text)
+        task = self.base / "tasks/landed"
+        task.mkdir(parents=True)
+        (task / "last.md").write_text(result_text)
         rows = self.cli("wt", "du").stdout
         self.assertIn("landed", rows)
         self.assertIn("unmerged", rows)
@@ -337,6 +345,10 @@ class ToolingTests(Fixture):
         result = self.cli("wt", "prune-landed").stdout
         self.assertIn("landed: removed; freed", result)
         self.assertFalse((self.base / "wt/landed").exists())
+        self.assertEqual((task / "reports/nested/photo.jpg").read_bytes(), b"evidence")
+        expected = f"[Photo]({task}/reports/nested/photo.jpg)"
+        self.assertEqual((task / "last.md").read_text(), expected)
+        self.assertEqual((task / "reports/result.md").read_text(), expected)
         self.assertTrue((self.base / "wt/unmerged").exists())
         self.assertTrue((self.base / "wt/dirty").exists())
 

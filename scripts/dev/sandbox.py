@@ -517,6 +517,42 @@ def reap_browsers(name):
     return [pid for pid, _ in candidates]
 
 
+def preserve_reports(name, home):
+    """Move evidence out of a disposable sandbox before either cleanup entrypoint."""
+    source = home / "work/reports"
+    task = tasks_root() / name
+    target = task / "reports"
+    if not source.is_dir():
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    history = task / "reports-history" / str(time.time_ns())
+
+    def merge(src, dst):
+        for item in src.iterdir():
+            dest = dst / item.name
+            if item.is_dir() and not item.is_symlink() and dest.is_dir() and not dest.is_symlink():
+                merge(item, dest)
+                item.rmdir()
+            else:
+                if dest.exists() or dest.is_symlink():
+                    previous = history / dest.relative_to(target)
+                    previous.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(dest), str(previous))
+                shutil.move(str(item), str(dest))
+
+    merge(source, target)
+    source.rmdir()
+    # Both copied result files and the runner's final result must link to durable evidence.
+    for document in [*target.rglob("*.md"), *task.glob("*.md")]:
+        if document.is_symlink():
+            continue
+        text = document.read_text()
+        updated = text.replace(str(source), str(target))
+        if updated != text:
+            document.write_text(updated)
+    print(f"{name}: preserved reports in {target}")
+
+
 def remove(name, force=False):
     with lock(root() / ".registry/lock"):
         home = sandbox(name)
@@ -537,6 +573,7 @@ def remove(name, force=False):
         cache = home / "work/cache"
         cached = disk_bytes(cache) if cache.is_dir() else 0
         print(f"{name}: removing sandbox cache {format_bytes(cached)} ({cached} bytes)")
+        preserve_reports(name, home)
         git("worktree", "remove", *(["--force"] if force else []), str(repo))
         git("branch", "-D", f"wt/{name}")
         shutil.rmtree(home)

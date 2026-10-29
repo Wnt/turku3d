@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import live_cache
@@ -50,3 +51,27 @@ class DiskRetentionTests(unittest.TestCase):
             (home / "work/cache").mkdir(parents=True)
             (home / "work/cache/small").write_text("cache")
             self.assertIn("WARNING", sandbox.cache_warning(home, limit=1))
+
+    def test_reports_merge_keeps_previous_evidence_and_rewrites_links(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "sandbox"
+            source = home / "work/reports"
+            target = root / "tasks/pilot/reports"
+            for path in (source / "nested", target / "nested"):
+                path.mkdir(parents=True)
+            (source / "nested/photo.jpg").write_bytes(b"new")
+            (target / "nested/photo.jpg").write_bytes(b"old")
+            (target / "retained.txt").write_text("keep")
+            (source / "result.md").write_text(f"[Photo]({source}/nested/photo.jpg)")
+            with patch.object(sandbox, "tasks_root", return_value=root / "tasks"):
+                sandbox.preserve_reports("pilot", home)
+                sandbox.preserve_reports("pilot", home)  # Safe retry after a later cleanup failure.
+            self.assertFalse(source.exists())
+            self.assertEqual((target / "nested/photo.jpg").read_bytes(), b"new")
+            self.assertEqual((target / "retained.txt").read_text(), "keep")
+            self.assertEqual(
+                (target / "result.md").read_text(), f"[Photo]({target}/nested/photo.jpg)"
+            )
+            previous = list((target.parent / "reports-history").glob("*/nested/photo.jpg"))
+            self.assertEqual([p.read_bytes() for p in previous], [b"old"])
