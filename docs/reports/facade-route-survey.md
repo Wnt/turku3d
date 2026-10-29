@@ -253,3 +253,10 @@ since the previous publication is 3,434.2 s for 380 candidates (9.0 s/candidate)
 including preparation, alternate views, corrections and waits. Integer account
 quota is 49%, versus 33% at the measured start and 46% at the preceding snapshot.
 The 82% new-reading cutoff remains in force; work continues with the next ring.
+
+The actual-library gate encountered the first four buildings with missing/zero
+register storey counts. Their five walls are descriptive/deferred. The library
+check now verifies the complete established storey provenance contract: exact
+register value, register source/support 1 for known counts, unavailable source
+and support 0 for missing counts. No count is inferred from photographs, and no
+program data was changed to satisfy the check.
