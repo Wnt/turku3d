@@ -148,6 +148,7 @@ def inputs(tmp_path):
 
 def test_basic_visual_and_collision_publish_before_texture_work(tmp_path, inputs, monkeypatch):
     import importlib
+
     from turku3d.coarse.collision import fragment
 
     module = importlib.import_module("turku3d.coarse.build")
