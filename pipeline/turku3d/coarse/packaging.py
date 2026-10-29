@@ -172,6 +172,7 @@ def _package_visual(
         facadeDensity={},
         groundBinding=None,
         textureCache=str(stage.parent / ".texture-cache"),
+        sharedTextureCache=str(work / ".compiled-textures"),
         coarseTerrain=False,
         draftTextures=True,
         facadeKit=None if first_pass else ensure_kit(work / "shared"),
