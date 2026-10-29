@@ -9,39 +9,48 @@ from turku3d.package.gltf import GlbMesh
 
 def match_wall(points, facades):
     """Only near-collinear, overlapping walls of the same stable building may share a map."""
-    if not facades:
+    return match_prepared(points, prepare_walls(facades))
+
+
+def prepare_walls(facades):
+    """Convert invariant surveyed segments once for all of a building's roof fragments."""
+    rows = []
+    for facade in facades:
+        en = np.asarray(facade["coordinates"], float)[:, :2]
+        segment = np.column_stack((en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]))
+        width = float(np.linalg.norm(segment[-1] - segment[0]))
+        if width >= 0.1:
+            outward = np.asarray(facade["normal"])[[0, 2]] if facade.get("normal") is not None else [0, 0]
+            rows.append((facade, segment[0], (segment[-1] - segment[0]) / width, width, outward))
+    if not rows:
         return None
+    return ([r[0] for r in rows], *[np.asarray([r[i] for r in rows]) for i in range(1, 5)])
+
+
+def match_prepared(points, prepared):
+    if prepared is None:
+        return None
+    facades, starts, tangents, widths, outward = prepared
     xz = np.asarray(points)[:, [0, 2]]
     a, b = xz[0], xz[1]
     length = float(np.linalg.norm(b - a))
     if length < 1e-6:
         return None
     direction = (b - a) / length
-    matches = []
-    for f in facades:
-        outward = np.array([direction[1], -direction[0]])
-        if f.get("normal") is not None and np.dot(outward, np.asarray(f["normal"])[[0, 2]]) < 0.95:
-            continue
-        en = np.asarray(f["coordinates"], float)[:, :2]
-        segment = np.c_[en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]]
-        p, q = segment[0], segment[-1]
-        width = np.linalg.norm(q - p)
-        if width < 0.1:
-            continue
-        tangent = (q - p) / width
-        if abs(np.dot(tangent, direction)) < 0.995:
-            continue
-        normal = np.array([-tangent[1], tangent[0]])
-        distance = np.max(np.abs((xz - p) @ normal))
-        along = (xz - p) @ tangent
-        coverage = max(0, min(along.max(), width) - max(along.min(), 0)) / length
-        if distance > 0.65 or coverage < 0.8:
-            continue
-        matches.append((distance + (1 - coverage), f, along))
-    if not matches:
+    delta = xz[None, :, :] - starts[:, None, :]
+    normals = np.column_stack((-tangents[:, 1], tangents[:, 0]))
+    distance = np.abs(np.einsum("nvi,ni->nv", delta, normals)).max(axis=1)
+    along = np.einsum("nvi,ni->nv", delta, tangents)
+    coverage = np.maximum(0, np.minimum(along.max(axis=1), widths) - np.maximum(along.min(axis=1), 0)) / length
+    side = outward @ [direction[1], -direction[0]]
+    valid = (np.abs(tangents @ direction) >= 0.995) & (distance <= 0.65) & (coverage >= 0.8)
+    valid &= (np.linalg.norm(outward, axis=1) == 0) | (side >= 0.95)
+    matches = np.flatnonzero(valid)
+    if not len(matches):
         return None
-    _, facade, along = min(matches, key=lambda row: row[0])
-    uv = np.c_[along, np.asarray(points)[:, 1] - facade["base_height"]]
+    index = matches[np.argmin((distance + 1 - coverage)[matches])]
+    facade = facades[index]
+    uv = np.column_stack((along[index], np.asarray(points)[:, 1] - facade["base_height"]))
     transform = facade["metadata"].get("uv")
     if transform:
         scale, offset = np.asarray(transform["scale"]), np.asarray(transform["offset"])
@@ -55,7 +64,7 @@ def wall_meshes(b, walls, origin):
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
 
-    stored = building(b.facade_key).get("facades", [])
+    stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
     # is the eave, including when a gable side has several collinear segments.
@@ -71,7 +80,7 @@ def wall_meshes(b, walls, origin):
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
-        match = match_wall(vertices, stored)
+        match = match_prepared(vertices, stored)
         if match is None:
             style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
             style["origin"][1] = b.base

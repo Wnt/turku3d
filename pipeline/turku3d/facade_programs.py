@@ -160,12 +160,12 @@ def resolve(building, vertices, eaves):
     vectors = edge_b - edge_a
     lengths = np.linalg.norm(vectors, axis=1)
     tangents = vectors / np.maximum(lengths[:, None], 1e-9)
+    normal = np.column_stack((tangents[:, 1], -tangents[:, 0]))
     for index in range(0, len(vertices), 4):
         p = vertices[index : index + 4]
         width = float(np.linalg.norm(p[1] - p[0]))
         direction = (p[1, [0, 2]] - p[0, [0, 2]]) / max(width, 1e-9)
         along = np.sum((p[0, [0, 2]] - edge_a) * tangents, axis=1)
-        normal = np.c_[tangents[:, 1], -tangents[:, 0]]
         distance = np.abs(np.sum((p[0, [0, 2]] - edge_a) * normal, axis=1))
         candidates = np.flatnonzero(
             (tangents @ direction > 0.995)
