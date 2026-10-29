@@ -47,7 +47,10 @@ The snapshot validates generator, raw-input and facade identities and referenced
 payload lengths. Coverage uses the complete planned denominator; unavailable tiles
 are never counted as built. ETA is an optimistic four-worker estimate from recent
 successful first/full worker means; player interruptions, ring barriers and long
-tails add time. Keep **5 GiB free on `/` and 15 GiB on `/srv/turku3d`**. Retention
+tails add time.
+The watch also reports an ETA from observed frozen-cache coverage growth once
+four more tiles and two minutes have elapsed, including player interruptions.
+Keep **5 GiB free on `/` and 15 GiB on `/srv/turku3d`**. Retention
 protects current full/first manifests and their payloads, including `last-full.json`;
 do not delete warmed tile directories, shared assets, raw inputs or facade stores.
 
