@@ -1,6 +1,6 @@
 // Real WebSockets, isolated room by default. Pass a URL explicitly to probe a deployment.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { WebSocket } from 'ws';
@@ -8,7 +8,9 @@ import { once } from 'node:events';
 import { createServer } from '../http.js';
 import { ScoreStore } from '../store.js';
 
-const directory = mkdtempSync(join(process.env.TURKU3D_WORK ?? tmpdir(), 'mp-vehicles-'));
+const work = process.env.TURKU3D_WORK ?? tmpdir();
+mkdirSync(work, { recursive: true });
+const directory = mkdtempSync(join(work, 'mp-vehicles-'));
 const sockets = [];
 let app;
 const timeout = setTimeout(() => { for (const s of sockets) s.ws.terminate(); process.exitCode = 1; }, 12000);

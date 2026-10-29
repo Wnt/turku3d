@@ -45,8 +45,11 @@ and four articulated wheels per driver. The final three-second sample accepted a
 server input and 3.30 MB/s output (JSON payload; ~0.21 MB/s per nearby player), and
 16.85% of one Mac CPU core. All parked records were silent after registration.
 These are synthetic transport measurements on the Mac, not OCI latency or visual
-collision-fidelity measurements. The selected post-deploy run repeats this workload
-for 30 seconds from frozen deployed source; the task delivery receipt owns its result.
+collision-fidelity measurements. The first frozen-source 30-second run accepted all 9,264 poses with zero rejections,
+32 connections retained, 3.35 MB/s output and 25.45% of one Mac core. Its following
+lifecycle probe initially failed because the frozen work directory did not yet exist;
+the forward fix makes both tools create their own work root before temporary files.
+The delivery receipt owns the repeated post-deploy result.
 
 ## Remaining shared-city work, in priority order
 
