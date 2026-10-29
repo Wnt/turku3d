@@ -67,7 +67,8 @@ def produce(tile, scene, dry, wet, bank, solid):
 
     window = shapely.box(*tile.bbox.as_tuple())
     for body, level, _ in scene.get("pools", ()):
-        outer = body.buffer(0.3, join_style="mitre")
+        body = shapely.orient_polygons(body)
+        outer = shapely.orient_polygons(body.buffer(0.3, join_style="mitre"))
         if not outer.intersects(window):
             continue
         dry, solid = cut_ground(dry, [outer]), cut_ground(solid, [outer])
