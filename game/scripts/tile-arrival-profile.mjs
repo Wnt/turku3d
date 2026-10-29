@@ -24,20 +24,15 @@ const context = await chromium.launchPersistentContext(path.join(process.env.TUR
 });
 const hardStop = setTimeout(() => { void context.close(); }, (seconds + 200) * 1000);
 try {
-  // Measure a candidate production bundle at the unchanged public origin/OCI endpoint.
-  // Context routing also serves the isolation worker's requests after it takes control.
-  if (process.env.ARRIVAL_GAME_ROOT) await context.route('https://wnt.github.io/turku-game/game/**', async route => {
-    const root = path.resolve(process.env.ARRIVAL_GAME_ROOT);
-    const relative = decodeURIComponent(new URL(route.request().url()).pathname.slice('/turku-game/game/'.length)) || 'index.html';
-    const file = path.resolve(root, relative);
-    if (!file.startsWith(root + path.sep)) return route.abort();
-    await route.fulfill({ path: file });
+  // Test a candidate isolation/cache worker with the unchanged deployed game and OCI.
+  if (process.env.ARRIVAL_WORKER) await context.route('https://wnt.github.io/turku-game/game/isolation.js', async route => {
+    await route.fulfill({ path: path.resolve(process.env.ARRIVAL_WORKER), contentType: 'application/javascript' });
   });
   const page = await context.newPage();
   const assets = [];
   page.on('response', async response => {
     if (!/\/coarse\/.*[./][a-f0-9]{64}\.(?:glb|ktx2|bin|col|json)(?:\?|$)/.test(response.url())) return;
-    const headers = await response.allHeaders();
+    const headers = await response.allHeaders().catch(() => ({}));
     assets.push({ url: response.url(), status: response.status(), cached: !!headers['x-turku3d-cache-bytes'],
       timing: response.request().timing() });
   });
@@ -161,7 +156,14 @@ try {
   });
   result.page_errors=errors;
   result.assets=assets;
-  result.source=process.env.ARRIVAL_GAME_ROOT ?? gameUrl.href;
+  result.source={game:gameUrl.href,worker:process.env.ARRIVAL_WORKER ?? 'deployed'};
+  result.cache=await page.evaluate(async () => {
+    const names=await caches.keys();
+    const cache=names.includes('turku3d-immutable-v1') ? await caches.open('turku3d-immutable-v1') : null;
+    const keys=await cache?.keys() ?? [];
+    const sizes=await Promise.all(keys.map(async key=>Number((await cache.match(key))?.headers.get('X-Turku3D-Cache-Bytes')) || 0));
+    return {controlled:!!navigator.serviceWorker.controller,files:keys.length,bytes:sizes.reduce((sum,size)=>sum+size,0)};
+  });
   fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
   await page.screenshot({path:path.join(out,'end.png')});
   console.log(JSON.stringify({report:out,speed_kmh:speed,crossings:result.crossings,

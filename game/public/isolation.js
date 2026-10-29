@@ -2,7 +2,9 @@
 // keep their normal freshness rules so a new generator is discovered immediately.
 const TILE_CACHE = 'turku3d-immutable-v1';
 const MAX_BYTES = 192 * 1024 * 1024;
-const MAX_FILES = 768;
+// A tile can reference hundreds of small shared facade maps. The byte budget
+// remains primary; allow a complete route's maps to survive a revisit.
+const MAX_FILES = 4096;
 let writes = Promise.resolve(), inventory;
 
 function immutableAsset(request) {
