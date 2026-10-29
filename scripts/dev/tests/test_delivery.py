@@ -95,7 +95,6 @@ class DeliveryTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as temp,
             patch.object(delivery, "deploy", return_value={}),
             patch("deploy_drafts.deploy", return_value={"multiplayer": "presence ok"}) as deploy,
-            patch("deploy_drafts.prewarm", return_value=None),
             patch.object(delivery, "smoke", return_value={"ok": True}),
             patch.object(delivery, "environment", return_value={}),
             patch.object(post_deploy, "start", return_value={}),
