@@ -97,12 +97,24 @@ export class ParkedCarVisuals {
       if (!source) throw new Error(`Parked car model ${key} has no mesh`);
       this.sources.set(key, source);
     }));
-    for (const { mesh } of this.groups.values()) { mesh.removeFromParent(); mesh.dispose(); }
-    this.groups.clear();
-    for (const key of new Set(cars.map(c => `${c.model}/${c.color}`))) {
+    const keys = new Set(cars.map(c => `${c.model}/${c.color}`));
+    for (const [key, { mesh }] of this.groups) {
+      if (keys.has(key)) continue;
+      mesh.removeFromParent(); mesh.dispose(); this.groups.delete(key);
+    }
+    for (const key of keys) {
       const source = this.sources.get(key)!;
       const members = cars.filter(c => `${c.model}/${c.color}` === key);
-      const mesh = new THREE.InstancedMesh(source.geometry, source.material, members.length);
+      const previous = this.groups.get(key);
+      if (previous && previous.mesh.instanceMatrix.count >= members.length) {
+        previous.cars = members; previous.mesh.count = members.length;
+        this.scene.add(previous.mesh);
+        continue;
+      }
+      if (previous) { previous.mesh.removeFromParent(); previous.mesh.dispose(); }
+      const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(members.length)));
+      const mesh = new THREE.InstancedMesh(source.geometry, source.material, capacity);
+      mesh.count = members.length;
       const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
       members.forEach((_car, i) => mesh.setMatrixAt(i, hidden));
       mesh.name = `parked/${key}`;

@@ -3,6 +3,7 @@ import { loading } from '../core/loading';
 import * as THREE from 'three/webgpu';
 import { GameRenderer } from './shadowMaterials';
 import { renderPixelRatio } from './quality';
+import { retainRendererPrograms } from './programCache';
 
 /**
  * Mobile performance guard: without an explicit ?backend=, touch devices (phones, tablets) use WebGL2 unless
@@ -27,6 +28,7 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   renderer.toneMappingExposure = 0.65;
   canvasParent.appendChild(renderer.domElement);
   await renderer.init();
+  retainRendererPrograms(renderer);
   const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
   const device = (renderer.backend as { device?: GPUDevice }).device;
   const info = device?.adapterInfo;

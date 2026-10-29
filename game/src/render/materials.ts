@@ -54,6 +54,7 @@ export class MaterialStyler {
   private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
   private preparing: Promise<void> = Promise.resolve();
   private riverKeys = new Map<THREE.Mesh, string>();
+  private riverSources = new Map<THREE.Mesh, THREE.Mesh['material']>();
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean, tileset?: string) {
     this.ground = tileset ? new GroundBindings(renderer, new URL(tileset, location.href).href) : null;
@@ -78,6 +79,7 @@ export class MaterialStyler {
         }
         const kind = surfaceStyle(key);
         if (kind === 'water') {
+          if (!this.riverSources.has(mesh)) this.riverSources.set(mesh, mesh.material);
           mesh.layers.disable(REFLECTION_LAYER);
           mesh.updateWorldMatrix(true, false);
           const normal = new THREE.Vector3(0, 1, 0);
@@ -149,6 +151,8 @@ export class MaterialStyler {
       shared.meshes.delete(mesh); this.riverKeys.delete(mesh);
       if (shared.meshes.size) shared.river.attach(shared.meshes.values().next().value!);
       else { shared.river.dispose(); this.rivers.delete(key); }
+      // CoarseTiles owns the glTF material; it must not dispose another tile's shared river.
+      mesh.material = this.riverSources.get(mesh)!; this.riverSources.delete(mesh);
     }
     for (const material of owned.materials) material.dispose();
     // The tile renderer owns and disposes the original GLB textures, geometries and source materials.

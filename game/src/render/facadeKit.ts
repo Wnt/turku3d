@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import { attribute, color, float, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
 import { interleaveProgram } from './facadeProgramAttributes';
+import type { SharedMaterials } from './sharedMaterials';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -53,30 +54,26 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
 }
 
 /** Bind draft facade materials and draw just in front of coplanar published terrain. */
-export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer) {
+export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer, shared?: SharedMaterials) {
   const cache = new Map<THREE.Material, THREE.Material>();
   model.traverse(o => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     interleaveProgram(mesh.geometry);
     mesh.castShadow = true; mesh.receiveShadow = true;
-    let vegetation = false;
-    for (let owner: THREE.Object3D | null = mesh; owner; owner = owner.parent) {
-      if (owner.userData.layer === 'vegetation') { vegetation = true; break; }
-    }
     const style = (source: THREE.Material) => {
       if (cache.has(source)) return cache.get(source)!;
       const pbr = source as THREE.MeshStandardMaterial;
       let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
-      if (vegetation && pbr.type === 'MeshStandardMaterial' && !pbr.vertexColors &&
+      if (pbr.type === 'MeshStandardMaterial' &&
           !Object.values(pbr).some(value => value?.isTexture)) {
-        // Keep ordinary PBR
-        // materials so runtime LOD can combine bark/crown with vertex colours.
-        node = pbr.clone();
+        // Plain car/tree/prop colours need no per-tile node graph. LOD can still combine bark/crown.
+        node = pbr;
       } else {
         node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
       }
       node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
+      if (shared) node = shared.acquire(node, model) as typeof node;
       cache.set(source, node);
       return node;
     };

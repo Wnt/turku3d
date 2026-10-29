@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../render/quality';
+import { SharedMaterials } from '../render/sharedMaterials';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
@@ -151,6 +152,7 @@ interface Model {
 /** One shared per-frame instance budget for published and draft models, on either backend. */
 export class VegetationLod {
   private models = new Map<THREE.Object3D, Model>();
+  private materials = new SharedMaterials();
   private frustum = new THREE.Frustum();
   private projection = new THREE.Matrix4();
   private sphere = new THREE.Sphere();
@@ -177,6 +179,7 @@ export class VegetationLod {
     for (const mesh of [...data.sources.map(source => source.mesh).filter(mesh => !replaced.has(mesh)), ...data.combined]) {
       const owner = vegetationOwner(mesh)!;
       if (data.combined.includes(mesh)) {
+        mesh.material = this.materials.acquire(mesh.material as THREE.Material);
         data.geometries.push(mesh.geometry); data.materials.push(mesh.material as THREE.Material);
       }
       const foliage = owner.userData.material_key !== 'tree_bark';
@@ -187,13 +190,14 @@ export class VegetationLod {
       const farSource = combined.find(part => part.mesh === mesh)?.farGeometry ?? mesh.geometry;
       const far = foliage && !mergeFar ? crossedTree(farSource) : null;
       data.geometries.push(mid); if (far) data.geometries.push(far);
-      const farMaterial = far ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material).clone() : null;
+      let farMaterial = far ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material).clone() : null;
       if (farMaterial) {
         if (mesh.userData.foliageColor) {
           (farMaterial as THREE.MeshStandardMaterial).vertexColors = false;
           (farMaterial as THREE.MeshStandardMaterial).color.fromArray(mesh.userData.foliageColor);
         }
-        farMaterial.side = THREE.DoubleSide; data.materials.push(farMaterial);
+        farMaterial.side = THREE.DoubleSide;
+        farMaterial = this.materials.acquire(farMaterial); data.materials.push(farMaterial);
       }
       const cells = new Map<string, number[]>();
       for (let i = 0; i < mesh.count; i++) {
@@ -318,7 +322,7 @@ export class VegetationLod {
     for (const mesh of data.combined) { mesh.removeFromParent(); mesh.dispose(); }
     for (const source of data.sources) { source.mesh.visible = source.visible; source.mesh.castShadow = source.shadow; }
     for (const geometry of data.geometries) geometry.dispose();
-    for (const material of data.materials) material.dispose();
+    for (const material of data.materials) this.materials.release(material);
     this.models.delete(model);
   }
 }
