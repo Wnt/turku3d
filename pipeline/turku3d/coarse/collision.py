@@ -29,6 +29,7 @@ def current(builder, tile):
             )
             if value.get("pass_kind") != "first" and "building_keys" in value:
                 from turku3d.facade_kit import parameter_hash
+
                 if value.get("facade_params") != parameter_hash(value["building_keys"]):
                     continue
             key = key_for(tile)
@@ -74,8 +75,44 @@ def solid_triangles(pos, idx, mat):
     return idx[keep], mat[keep]
 
 
+def compact_collision(col):
+    """Weld exact stored position bits, then remove invalid faces and unused vertices.
+
+    Clipped terrain and structure faces carry independent vertex arrays. Encoding
+    that visual-style soup wastes collision bytes and Rapier memory, especially
+    on stair railings. Work after tile-local float32 conversion so every retained
+    triangle corner and seam keeps its exact bits; never round or simplify it.
+    """
+    corners = col.positions[col.indices].reshape(-1, 3)
+    bits = np.ascontiguousarray(corners).view(np.uint32)
+    # Keep coincident faces of different materials/classes independent, including
+    # water sensors over solid surfaces. Only identical material faces may merge.
+    keys = np.column_stack([bits, np.repeat(col.materials, 3)])
+    _, first, inverse = np.unique(keys, axis=0, return_index=True, return_inverse=True)
+    # Keep first-use order for the lossless meshopt encoder.
+    order = np.argsort(first)
+    rank = np.empty(len(order), np.uint32)
+    rank[order] = np.arange(len(order), dtype=np.uint32)
+    positions = corners[first[order]]
+    indices = rank[inverse].reshape(-1, 3)
+    indices, materials = solid_triangles(positions, indices, col.materials)
+    used, remapped = np.unique(indices, return_inverse=True)
+    col.positions = positions[used]
+    col.indices = remapped.reshape(-1, 3).astype(np.uint32)
+    col.materials = materials
+
+
 def collision_tiles(
-    tile, grid_pos, grid_idx, materials, level, shells, ground_keep=None, shore=None, *, facade_components=False
+    tile,
+    grid_pos,
+    grid_idx,
+    materials,
+    level,
+    shells,
+    ground_keep=None,
+    shore=None,
+    *,
+    facade_components=False,
 ):
     """Split ground along the 62.5 m grid; carved building parts retain the original owner."""
     cells_per_side = round(np.sqrt(len(grid_pos))) - 1
@@ -108,6 +145,7 @@ def collision_tiles(
                 continue
             if facade_components:
                 from turku3d.facade_component_geometry import collision_walls
+
                 walls, wall_idx = collision_walls(b, walls)
             for pos, idx, mid in (
                 (roof, roof_idx, mat_id("roof")),

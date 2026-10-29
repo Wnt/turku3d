@@ -20,6 +20,24 @@ def source_counts(root, tile_id, first_pass):
     return dict(buildings=len(inputs.buildings), collision=int(C.VISUAL_TILE_SIZE / C.COLLISION_TILE_SIZE) ** 2)
 
 
+def collision_counts(root, manifest):
+    """Decode deployed bytes and compare actual streaming cost with the manifest."""
+    from turku3d.col.format import MAX_FILE_BYTES, check_tile, read_col
+
+    cells = {}
+    for cell, entry in manifest['collision'].items():
+        data = (root / entry['url']).read_bytes()
+        col = read_col(data)
+        errors = check_tile(col)
+        if errors or len(data) > MAX_FILE_BYTES:
+            raise RuntimeError(f'{cell}: invalid collision: {errors}; {len(data)} bytes')
+        if (col.id, len(data), len(col.indices), len(col.primitives)) != (
+                cell, entry['bytes'], entry['tris'], entry['prims']):
+            raise RuntimeError(f'{cell}: collision counts differ from manifest')
+        cells[cell] = dict(bytes=len(data), vertices=len(col.positions), triangles=len(col.indices))
+    return dict(cells=cells, max_bytes=max(c['bytes'] for c in cells.values()))
+
+
 def run(root, *, tile_id, first_budget, full_budget):
     from turku3d.coarse.build_health import BuildHealth
     started = time.monotonic()
@@ -60,6 +78,7 @@ def run(root, *, tile_id, first_budget, full_budget):
                         actual = dict(buildings=manifest['buildings'], collision=len(manifest['collision']))
                         if actual != counts:
                             raise RuntimeError(f'{kind} counts {actual} differ from source {counts}')
+                        collision = collision_counts(out, manifest)
                     except Exception as error:
                         telemetry.record(kind, 'FAILED', time.monotonic() - t, type(error).__name__)
                         raise
@@ -67,6 +86,7 @@ def run(root, *, tile_id, first_budget, full_budget):
                     telemetry.record(kind, 'built', seconds)
                     result['passes'][kind] = dict(seconds=seconds, budget_seconds=limit,
                                                   counts=actual, source_counts=counts,
+                                                  collision=collision,
                                                   source_seconds=round(source_seconds, 3))
         finally:
             if proc.poll() is None:
