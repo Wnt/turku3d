@@ -230,3 +230,85 @@ neighbour pass removed incidentally inside the already-assembled tile. Existing
 wall, facade-overlap and reviewed paint/arch checks passed (25 cases). No tests
 were added. Next run repeats the worst north route with corrected capture and
 records full arrival, cache reuse and visual evidence.
+
+## 2026-10-30, iteration 5: north completed; cold assembly and return working set
+
+Deployed `fa89bb2b`, selected checks 3.42 s; completed `after-04` in 245.96 s
+including startup/evidence. There were 52 screenshots, all inspected: first-pass
+geometry is present by frames 3–5, full details appear progressively through 10–11,
+and 12–41 are the deliberate wait for both target full passes. Return frames 42–46
+show the city, but 47 exposes a temporary blank region near home; 48–51 repopulate
+it. Every capture preserved window/canvas dimensions; zero window resize events.
+Adaptive resolution continued normally between captures.
+
+| Measurement, after flight install | North repeat |
+| --- | ---: |
+| `t0_0_-1` first visual + validated collision | 10.15 s |
+| `t0_0_-2` first / full visual + validated collision | 20.77 / 86.59 s |
+| `t0_0_-1` retained older full visual + paired collision | 171.97 s |
+| Turn / return / observation complete | 171.51 / 196.87 / 208.88 s |
+| Frame median / p90, excluding capture intervals | 8.35 / 16.93 ms |
+| Return resource-duration median / p90 | 3.82 / 54.36 ms |
+| Return GLB resource-duration median / maximum | 1,232.12 / 1,716.56 ms |
+| Observed peak main-thread heap | 3,179.47 MiB |
+
+The prior north first arrivals were 158.21/162.76 s. This improvement removes the
+visible first-boundary stall, but it is not an isolated A/B: retired work, CPU
+contention and generator versions differ. `col-budget` published its exact collision
+compaction during this recording; observed source/instance changes were around
++109.7/+182.7 s. `t0_0_-1`'s +171.97 s full arrival was explicitly stale;
+current-generation full finished at +218.78 s, after flight observation ended.
+Most multiplayer samples reported two players. CPU was saturated during the first
+108 s (CPU-pressure median 57%); memory and I/O pressure stayed low.
+
+Cold local `wall_meshes` now dominates: `0_-1` spent 117.33 s there out of
+153.96 s service, with 15.10 s neighbour processing and 0.00047 s admission wait.
+`0_-2` spent 43.78 s in local walls out of 55.42 s. Later generations reused the
+same local geometry keys in 0.33/0.72 s; warm `0_-1` still spent 16.89 s processing
+neighbours. Replacement first work also waited about 34 s behind its retiring
+same-tile full build; tile retention remains necessary for atomic publication.
+
+Return's 393 asset responses were 241 service-worker storage, 139 HTTP cache and
+13 network. All nine returning GLBs repeated exact earlier hashes: this is a raw
+cache capacity miss, not changed content. The measured unique set was 191.23 MiB
+(159.41 MiB full, 31.82 MiB first), exceeding the 128 MiB limit. Full-only retention
+would still miss seven of nine return loads. The next measured cap is 256 MiB;
+model ownership is unchanged. Post-flight forced GC is recorded separately from
+flight timings to distinguish retained memory from temporary allocation peaks.
+
+The largest full north model also expands to 225 MiB of facade-program attributes.
+Static batching currently clones, deinterleaves and repacks them; a guarded direct
+packed-buffer merge is being measured. No rendered feature or field is omitted.
+
+The 48 HTTP failures were 36 fallback 404s on the pre-existing failing `t0_-1_-2`
+and 12 ahead-request 429s under queue pressure; there were no failed GLB/texture
+requests or collision-bundle errors. The collision owner has landed exact vertex
+compaction, preserving rails and material seams. The loop continues with cold local
+wall filtering and packed-program batching, then another south/return comparison.
+
+The north reset waited 10 s for active tile locks before moving outputs aside;
+this preparation delay is outside the flight-install timings above. The subsequent
+first-arrival comparison therefore includes a corrected reset protocol as well as
+performance changes.
+
+### Next slice, measured independently
+
+Split neighbour overlap indexing now excludes faces that the existing split filter
+would always discard: matched cProfile **12.16→4.34 s**, identical qualifying pairs
+and exact area values for seven real neighbour snapshots, with 23.65 MiB lower peak
+RSS. Cold within-tile assembly applies order, height and 3D bounds before gathering
+normal vectors: **19.19→13.80 s** on 256 real dense-facade chunks, with identical
+projected pair order and area bytes. Three complete real facade cuts also matched
+exact output hashes (30,238 input / 30,242 output triangles).
+
+Client batching directly concatenates compatible packed facade-program buffers,
+transforming/merging standard attributes through the existing path. Unsupported
+layouts retain the general merger. A cached real north model matched every final
+attribute/index byte, matrix, bound and semantic range across 46 output meshes;
+release restored original geometries unchanged. The CPU probe improved batching
+**635→213 ms**, and process peak RSS **1,278→1,008 MiB**. Texture loading was stubbed
+in this CPU probe; browser/GPU behavior is the next deployed observation. The byte
+cache cap and post-flight GC measurements described above are part of this slice.
+
+Other agents' collision compaction and reflection/resource-retirement changes are
+rebased before the next run and must be included when interpreting client timings.
