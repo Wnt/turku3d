@@ -1,3 +1,4 @@
+import type { TyreEffects } from '../vehicle/tyreEffects';
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -17,7 +18,7 @@ import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
 interface Remote {
   player: NetPlayer; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
   car: THREE.Object3D; scooter: THREE.Object3D; truck: THREE.Object3D; vehicleKey: string;
-  label: THREE.Sprite; lastT: number;
+  label: THREE.Sprite; lastT: number; effectSlot: number; receivedAt: number;
 }
 
 const FULL_MODEL_DISTANCE = 6;
@@ -68,9 +69,9 @@ export class RemotePlayers {
   frameMs = 0;
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
     private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
-      parked: ParkedCarVisuals }) {}
+      parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
-  update(client: MultiplayerClient, now: number, local: V3) {
+  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0) {
     const t0 = performance.now();
     const selfId = client.state.you?.id;
     const players = client.state.connected ? client.state.players.filter(p => p.id !== selfId) : [];
@@ -79,6 +80,7 @@ export class RemotePlayers {
       remote.foot?.removeFromParent(); remote.distant.removeFromParent(); remote.car.removeFromParent(); remote.scooter.removeFromParent();
       remote.truck.removeFromParent(); remote.label.removeFromParent();
       (remote.label.material as THREE.SpriteMaterial).map?.dispose(); remote.label.material.dispose();
+      this.tyreEffects.release(remote.effectSlot);
       this.remotes.delete(id);
     }
     const bodies: RemoteBody[] = [];
@@ -93,11 +95,11 @@ export class RemotePlayers {
         const truck = this.sources.truck.root.clone(true);
         const label = nickname(p.nick);
         this.root.add(distant, car, scooter, truck, label);
-        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player' };
+        remote = { player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player', effectSlot: this.tyreEffects.reserve(), receivedAt: now };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
-      if (p.pose && p.pose.t !== remote.lastT) { remote.buffer.push(p.pose, now); remote.lastT = p.pose.t; }
+      if (p.pose && p.pose.t !== remote.lastT) { remote.buffer.push(p.pose, now); remote.lastT = p.pose.t; remote.receivedAt = now; }
       const pose = remote.buffer.sample(now);
       if (pose?.mode === 'car' && pose.vehicle && pose.vehicle !== remote.vehicleKey) {
         const model = pose.vehicle === 'player' ? this.sources.car.root.clone(true) : this.sources.parked.remoteModel(pose.vehicle);
@@ -139,6 +141,10 @@ export class RemotePlayers {
         wheel.rotation.set(0, w.steer, 0);
         wheel.children[0].rotation.z = -w.rotation;
       });
+      if (effectsDt > 0 && now - remote.receivedAt < 300 && pose.mode !== 'foot' && pose.wheels) {
+        // Network ground points are relative to the physical chassis, including parked-model cars.
+        this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt);
+      }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
     }
@@ -176,6 +182,7 @@ export class RemotePlayers {
   dispose() {
     this.physics.setRemotes([]);
     for (const r of this.remotes.values()) {
+      this.tyreEffects.release(r.effectSlot);
       r.foot?.removeFromParent(); r.distant.removeFromParent(); r.car.removeFromParent(); r.scooter.removeFromParent();
       r.truck.removeFromParent(); r.label.removeFromParent();
       (r.label.material as THREE.SpriteMaterial).map?.dispose(); r.label.material.dispose();

@@ -2,7 +2,29 @@ import { test, expect, vi } from 'vitest';
 import { AdaptiveResolution } from '../../src/render/adaptiveResolution';
 import { UploadBudget } from '../../src/render/uploadBudget';
 import * as THREE from 'three/webgpu';
-import { textureUploads } from '../../src/render/textureUploads';
+import { modelTextures, textureUploads } from '../../src/render/textureUploads';
+import { texture } from 'three/tsl';
+
+test('texture discovery visits shared shader expressions once across meshes and material slots', () => {
+  const map = new THREE.Texture(), ordinary = new THREE.Texture();
+  let expression = texture(map);
+  const nodes = [expression];
+  for (let i = 0; i < 16; i++) {
+    expression = expression.add(expression) as typeof expression;
+    nodes.push(expression);
+  }
+  const visits = nodes.map(node => vi.spyOn(node, 'getChildren'));
+  try {
+    const material = new THREE.MeshStandardNodeMaterial();
+    material.colorNode = expression; material.roughnessNode = expression;
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(new THREE.BoxGeometry(), [material, material.clone()]),
+      new THREE.Mesh(new THREE.BoxGeometry(), material),
+      new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map: ordinary })));
+    expect(modelTextures(scene)).toEqual(new Set([map, ordinary]));
+    for (const visit of visits) expect(visit).toHaveBeenCalledOnce();
+  } finally { for (const visit of visits) visit.mockRestore(); }
+});
 
 function frames(controller: AdaptiveResolution, time: number, count: number, interval: number) {
   for (let i = 0; i < count; i++) controller.update(time += interval);

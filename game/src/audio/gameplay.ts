@@ -1,7 +1,7 @@
 import type { V3 } from '../core/origin';
 import type { CharacterState, VehicleInput, VehicleState } from '../physics/protocol';
 import { VEHICLES, type VehicleKind } from '../physics/constants';
-import { rotate } from '../vehicle/math';
+import { tyreStrength } from '../vehicle/tyreSlip';
 import { clamp, type AudioEvent } from './mix';
 
 /** Converts game snapshots into audio events once per physics tick, independent of render FPS. */
@@ -49,13 +49,13 @@ export class GameplayAudio {
       this.emit({ type: 'door', position: v?.pos ?? this.doorPosition, open: false }); this.doorPosition = null;
     }
     if (v) {
-      const lateral = rotate({ x: 0, y: 0, z: 1 }, v.rot);
-      const sideSpeed = Math.abs(v.linvel.x * lateral.x + v.linvel.z * lateral.z);
+      let slip = 0;
+      for (const wheel of v.wheels) slip = Math.max(slip, tyreStrength(wheel));
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
       const kind = v.kind ?? 'car', rpm = engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
       this.emit({ type: 'car', kind, position: v.pos, rpm,
-        throttle, speed: contact ? v.speed : 0, slip: contact ? Math.max(sideSpeed / 5, input?.handbrake ? 0.9 : 0) : 0,
+        throttle, speed: contact ? v.speed : 0, slip,
         running: mode === 'car' });
     }
     if (frame.paused || frame.tick === this.tick) return;

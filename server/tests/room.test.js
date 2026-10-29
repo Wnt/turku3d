@@ -145,7 +145,8 @@ test('vehicle quaternion and wheel state relay unchanged; malformed transforms a
   const f = fixture(), a = f.connect(), b = f.connect();
   b.messages.length = 0;
   const rot = { x: 0.6, y: 0, z: 0, w: 0.8 };
-  const wheels = [{ pos: { x: 1, y: -0.3, z: 1 }, steer: 0.2, rotation: 12, contact: true, suspension: 0.1 }];
+  const wheels = [{ pos: { x: 1, y: -0.3, z: 1 }, steer: 0.2, rotation: 12, contact: true, suspension: 0.1,
+    tyre: { point: { x: 1, y: -0.7, z: 1 }, normal: { x: 0, y: 1, z: 0 }, material: 1, lateral: 5, longitudinal: 3 } }];
   const car = { ...pose, mode: 'car', vehicle: 'player', rot, wheels };
   a.send(car); f.room.flushPoses();
   assert.deepEqual(b.messages[0].poses[0].rot, rot);
