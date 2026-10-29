@@ -134,8 +134,6 @@ def managed_build(operation):
             remember_full(out)
             remember(out, time.time(), previous)
             prune_tile(out)
-            # These are intermediates, already embedded in the referenced package result.
-            shutil.rmtree(out / ".texture-cache", ignore_errors=True)
             return result
     return build
 
@@ -159,7 +157,7 @@ def _prune(root):
                 if directory.is_dir() and not directory.is_symlink():
                     deleted += prune_entries(directory)
             # No active package references these after the tile lock is acquired.
-            for name in (".texture-cache", ".stage"):
+            for name in (".stage",):
                 directory = out / name
                 if directory.is_dir() and not directory.is_symlink():
                     deleted += sum(p.stat().st_size for p in directory.rglob("*") if p.is_file())

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 
-export function cachedEncoder(encoder, identity, directory) {
+export function cachedEncoder(encoder, identity, directory, used = () => {}) {
   const stats = { hits: 0, misses: 0 };
   return {
     stats,
@@ -20,6 +20,7 @@ export function cachedEncoder(encoder, identity, directory) {
         if (fs.existsSync(file)) {
           const data = fs.readFileSync(file);
           if (data.length >= 32 && createHash('sha256').update(data.subarray(32)).digest().equals(data.subarray(0, 32))) {
+            used(file);
             stats.hits++;
             return data.subarray(32);
           }
@@ -29,6 +30,7 @@ export function cachedEncoder(encoder, identity, directory) {
         const temp = `${file}.${process.pid}.tmp`;
         fs.writeFileSync(temp, Buffer.concat([createHash('sha256').update(data).digest(), data]));
         fs.renameSync(temp, file);
+        used(file);
         return data;
       },
     },

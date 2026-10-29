@@ -65,18 +65,30 @@ def assemble_structures(meshes, protected=()):
         if not len(js):
             continue
         p, n = records[i]
+        separation = (points[js] - p[0]) @ n
+        js = js[(separation.min(axis=1) <= 0.006) & (separation.max(axis=1) >= -0.006)]
+        if not len(js):
+            continue
         u = np.array([-n[2], 0, n[0]])
         u /= np.linalg.norm(u)
         v = np.cross(n, u)
         basis = np.array([u, v])
         xy = (p - p[0]) @ basis.T
         surface = shapely.Polygon(xy)
+        projected = (points[js] - p[0]) @ basis.T
+        # Reject touching tessellation edges before constructing GEOS polygons.
+        keep = ((projected.max(axis=1) > xy.min(axis=0) + 1e-9)
+                & (projected.min(axis=1) < xy.max(axis=0) - 1e-9)).all(axis=1)
+        js = js[keep]
         occluders = []
         for j in js:
             q = points[j]
             polygon = shapely.Polygon((q - p[0]) @ basis.T)
+            polygon = surface.intersection(polygon)
+            if polygon.area <= 1e-8:
+                continue
             polygon = band_polygon(polygon, basis @ normals[j], (p[0] - q[0]) @ normals[j])
-            if not polygon.is_empty and surface.intersection(polygon).area > 1e-8:
+            if polygon.area > 1e-8:
                 occluders.append(polygon)
         if not occluders:
             continue
@@ -123,7 +135,7 @@ def assemble_structures(meshes, protected=()):
     return result
 
 
-def assemble_layers(tile, layer_files, building_meshes, shells, out, stage):
+def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None):
     """Single architectural assembly before any packaged visual can be published."""
     import json
 
@@ -148,8 +160,21 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage):
         for m in wall_layers
         if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
     ]
-    wall_layers = assemble_structures(protected + secondary)
-    validate_meshes(wall_layers, tile.id)
+    def assemble():
+        result = assemble_structures(protected + secondary)
+        validate_meshes(result, tile.id)
+        return result
+
+    if cache is None:
+        wall_layers = assemble()
+    else:
+        from pathlib import Path
+        from turku3d.stage_cache import source_key
+
+        wall_layers = cache.run(
+            "wall_meshes", source_key(Path(__file__), Path(__file__).with_name("wall_surfaces.py")),
+            [path.read_bytes() for path in layer_files], assemble,
+        )
     validate_neighbours(wall_layers, shells, tile, out.parent)
     write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
     layer_files = [p for p in layer_files if p.name in {"vegetation.vis.glb", "props.vis.glb"}]

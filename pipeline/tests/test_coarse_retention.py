@@ -99,7 +99,7 @@ def test_managed_publish_keeps_old_and_removes_only_intermediates(tmp_path):
         return new
     new = build("t0_0_0", out)
     assert (out / old).exists() and (out / new).exists()
-    assert not (out / ".texture-cache").exists()
+    assert (out / ".texture-cache/image.ktx2").read_bytes() == b"encoded"
     assert json.loads((out / ".retention.json").read_text())[0]["files"] == [old]
 
 

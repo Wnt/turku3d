@@ -1,4 +1,5 @@
 import { instanceFacadeComponents } from "./facade_components.mjs";
+import { useTextureCache, retainTextureCache } from './texture_cache.mjs';
 // Explicit GLB assembly: bind/encode textures first, then lossless meshopt. No L0 simplification or position quantization.
 import fs from 'node:fs';
 import { cachedEncoder } from './encode_cache.mjs';
@@ -23,10 +24,10 @@ const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrim
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 const sharp = (await dep('sharp')).default;
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
-let meshCache;
+let meshCache, cacheRequest;
 const meshEncoder = cachedEncoder(MeshoptEncoder,
   createHash('sha256').update(fs.readFileSync(require.resolve('meshoptimizer/encoder'))).digest('hex'),
-  () => meshCache);
+  () => meshCache, file => useTextureCache(cacheRequest, file));
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.encoder': meshEncoder.encoder, 'meshopt.decoder': MeshoptDecoder });
 function run(tool, args) {
@@ -48,8 +49,8 @@ async function encodeFacade(t, request) {
     .update(codec).update(JSON.stringify(target)).update(t.getImage()).digest('hex');
   const mapping = path.join(request.textureCache, key + '.hash');
   if (fs.existsSync(mapping)) {
-    const cached = path.join(request.textureCache, fs.readFileSync(mapping, 'utf8') + '.ktx2');
-    if (fs.existsSync(cached)) { t.setImage(fs.readFileSync(cached)); return; }
+    const cached = path.join(request.textureCache, fs.readFileSync(useTextureCache(request, mapping), 'utf8') + '.ktx2');
+    if (fs.existsSync(cached)) { t.setImage(fs.readFileSync(useTextureCache(request, cached))); return; }
   }
   const workKey = `${key}.${process.pid}`;
   const source = path.join(request.textureCache, workKey + '.source.ktx2');
@@ -59,7 +60,7 @@ async function encodeFacade(t, request) {
   fs.writeFileSync(source, t.getImage());
   try {
     run('ktx', ['extract', '--transcode', 'rgb8', source, png]);
-    run('sips', ['-z', String(target[1]), String(target[0]), png, '--out', resized]);
+    await sharp(png).resize(target[0], target[1], { fit:'fill' }).png().toFile(resized);
     // Equal 6-bit pixels differ by at most 3/255 in each channel. This safely
     // shares visually indistinguishable maps from independent facade exports.
     const { data, info } = await sharp(resized).raw().toBuffer({ resolveWithObject:true });
@@ -77,13 +78,14 @@ async function encodeFacade(t, request) {
       run('ktx', ['validate', '--gltf-basisu', temp]);
       fs.renameSync(temp, dest);
     }
-    t.setImage(fs.readFileSync(dest));
-    fs.writeFileSync(mapping, content);
+    t.setImage(fs.readFileSync(useTextureCache(request, dest)));
+    fs.writeFileSync(useTextureCache(request, mapping), content);
   } finally {
     for (const file of [source, png, resized, temp]) if (file && fs.existsSync(file)) fs.unlinkSync(file);
   }
 }
 async function assembleVisual(request) {
+  cacheRequest = request;
   meshCache = path.join(request.textureCache, 'meshopt');
   const initialHits = meshEncoder.stats.hits, initialMisses = meshEncoder.stats.misses;
   const seconds = {};
@@ -243,7 +245,7 @@ async function assembleVisual(request) {
       fs.renameSync(temp, dest);
       fs.unlinkSync(input);
     }
-    t.setImage(fs.readFileSync(dest)).setMimeType('image/ktx2');
+    t.setImage(fs.readFileSync(useTextureCache(request, dest))).setMimeType('image/ktx2');
     doc.createExtension(KHRTextureBasisu).setRequired(true);
   }
   stage('textures');
@@ -295,6 +297,7 @@ async function assembleVisual(request) {
   }
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
   stage('packaging');
+  retainTextureCache(request);
   fs.writeFileSync(request.stats, JSON.stringify({ mesh_cache: { hits:meshEncoder.stats.hits-initialHits, misses:meshEncoder.stats.misses-initialMisses }, seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
     textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));

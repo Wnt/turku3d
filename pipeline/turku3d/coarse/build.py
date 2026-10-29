@@ -528,7 +528,7 @@ def build(
             seconds,
             started,
             shells,
-            wall_context,
+            wall_context, cache=cache,
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -686,7 +686,7 @@ def build(
     from turku3d.wall_assembly import assemble_layers
 
     with cache.measure("wall_assembly"):
-        layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage)
+        layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache)
 
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))

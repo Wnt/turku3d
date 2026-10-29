@@ -63,7 +63,9 @@ def overlaps(faces, ids, *, split=None):
     if not len(faces):
         return []
     points = [np.asarray(p, float) for p in faces]
-    normals = np.array([np.cross(p[1] - p[0], p[-1] - p[0]) for p in points])
+    first = np.array([p[0] for p in points])
+    normals = np.cross(np.array([p[1] for p in points]) - first,
+                       np.array([p[-1] for p in points]) - first)
     lengths = np.linalg.norm(normals, axis=1)
     normals /= np.maximum(lengths[:, None], 1e-20)
     low = np.array([p.min(axis=0) for p in points])
@@ -93,15 +95,26 @@ def overlaps(faces, ids, *, split=None):
         direction /= np.linalg.norm(direction)
         vertical = np.cross(normals[i], direction)
         basis = np.array([direction, vertical])
-        a = shapely.Polygon((p - p[0]) @ basis.T)
+        projected_p = (p - p[0]) @ basis.T
+        a = shapely.Polygon(projected_p)
         for j in js:
             from turku3d.wall_assembly import band_polygon
 
             q = points[j]
-            b = shapely.Polygon((q - p[0]) @ basis.T)
+            separation = (p - q[0]) @ normals[j]
+            if separation.min() > DISTANCE or separation.max() < -DISTANCE:
+                continue
+            projected_q = (q - p[0]) @ basis.T
+            if (np.any(projected_q.max(axis=0) <= projected_p.min(axis=0) + 0.00005)
+                    or np.any(projected_q.min(axis=0) >= projected_p.max(axis=0) - 0.00005)):
+                continue
+            b = shapely.Polygon(projected_q)
             # Solve the plane-distance band over the actual shared polygon,
             # including sloping triangles and only partly coincident planes.
-            common = a.buffer(-0.00005).intersection(b.buffer(-0.00005))
+            common = a.intersection(b)
+            if common.area <= MIN_AREA:
+                continue
+            common = common.buffer(-0.00005)
             common = (
                 band_polygon(common, basis @ normals[j], (p[0] - q[0]) @ normals[j], DISTANCE)
                 if not common.is_empty
@@ -166,83 +179,76 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
 
     validate_ownership(shells, tile)
     content_hash = content_hash or code_hash()
+    from turku3d.stage_cache import StageCache, source_key
+    from turku3d import wall_assembly
+
     owners = sorted({b.key for b, _ in shells})
+    directory = Path(root) / ".wall-surfaces"
+    directory.mkdir(parents=True, exist_ok=True)
+    records = directory / pass_kind
+    records.mkdir(exist_ok=True)
+    with (directory / "admission.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        neighbours = []
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                if di == dj == 0:
+                    continue
+                path = records / f"{C.VisualTile(0, tile.i + di, tile.j + dj).id}.json"
+                if not path.exists():
+                    continue
+                record = json.loads(path.read_text())
+                if (record.get("pass_kind"), record.get("content_hash")) != (pass_kind, content_hash):
+                    continue
+                duplicate = set(owners).intersection(record["owners"])
+                if duplicate:
+                    raise ValueError(f"wall ownership {tile.id}/{path.stem}: {sorted(duplicate)}")
+                neighbours.append(record)
+
+        def resolve():
+            result = list(meshes)
+            removed = 0
+            faces, ids = boundary_faces(result, tile)
+            for record in neighbours:
+                violations = overlaps(faces + record["faces"], ids + record["ids"], split=len(faces))
+                if violations:
+                    points = np.asarray(record["faces"], float).reshape(-1, 3) - tile.origin
+                    protected = GlbMesh("neighbour", points,
+                                        np.arange(len(points), dtype=np.uint32).reshape(-1, 3))
+                    result = assemble_structures(result, [protected])
+                    removed += len(violations)
+                    faces, ids = boundary_faces(result, tile)
+            return result, faces, ids, removed
+
+        cache = StageCache(Path(root) / ".stages" / tile.id, retain=True)
+        resolved, faces, ids, removed = cache.run(
+            "wall_neighbours_" + pass_kind,
+            source_key(Path(__file__), Path(wall_assembly.__file__)),
+            [meshes, neighbours, tile], resolve,
+        )
+        meshes[:] = resolved
+        path = records / f"{tile.id}.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(dict(owners=owners, faces=faces, ids=ids,
+                                            pass_kind=pass_kind, content_hash=content_hash)))
+        temporary.replace(path)
+    return dict(resolved=removed, pass_kind=pass_kind, content_hash=content_hash)
+
+
+def boundary_faces(meshes, tile):
+    """Keep boundary evidence bounded even after subtracting a neighbour surface."""
     faces, ids = [], []
     box = tile.bbox
     local_faces, local_ids = wall_faces(meshes)
     for local, identity in zip(local_faces, local_ids, strict=True):
         face = local + tile.origin
         lo, hi = face.min(axis=0), face.max(axis=0)
-        if (
-            lo[0] > box.xmin + DISTANCE
-            and hi[0] < box.xmax - DISTANCE
-            and lo[2] > box.zmin + DISTANCE
-            and hi[2] < box.zmax - DISTANCE
-        ):
+        if (lo[0] > box.xmin + DISTANCE and hi[0] < box.xmax - DISTANCE
+                and lo[2] > box.zmin + DISTANCE and hi[2] < box.zmax - DISTANCE):
             continue
         faces.append(face.tolist())
         ids.append(f"{tile.id}/{identity}")
-    directory = Path(root) / ".wall-surfaces"
-    directory.mkdir(parents=True, exist_ok=True)
-    records = directory / pass_kind
-    records.mkdir(exist_ok=True)
-    removed = 0
-    with (directory / "admission.lock").open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        for di in (-1, 0, 1):
-            for dj in (-1, 0, 1):
-                if di == dj == 0:
-                    continue
-                neighbour = C.VisualTile(0, tile.i + di, tile.j + dj).id
-                path = records / f"{neighbour}.json"
-                if not path.exists():
-                    continue
-                record = json.loads(path.read_text())
-                # Legacy evidence has no comparable generation identity.
-                if (record.get("pass_kind"), record.get("content_hash")) != (
-                    pass_kind,
-                    content_hash,
-                ):
-                    continue
-                duplicate = set(owners).intersection(record["owners"])
-                if duplicate:
-                    raise ValueError(f"wall ownership {tile.id}/{neighbour}: {sorted(duplicate)}")
-                violations = overlaps(
-                    faces + record["faces"], ids + record["ids"], split=len(faces)
-                )
-                # Both records have already passed their own tile check.
-                violations = [
-                    v for v in violations if v["first"].split("/")[0] != v["second"].split("/")[0]
-                ]
-                if violations:
-                    # The already admitted neighbour owns this surface. Subtract
-                    # only the competing frontage, retaining UVs and materials.
-                    points = np.asarray(record["faces"], float).reshape(-1, 3) - tile.origin
-                    protected = GlbMesh(
-                        "neighbour",
-                        points,
-                        np.arange(len(points), dtype=np.uint32).reshape(-1, 3),
-                    )
-                    meshes[:] = assemble_structures(meshes, [protected])
-                    removed += len(violations)
-                    local_faces, local_ids = wall_faces(meshes)
-                    faces = [(face + tile.origin).tolist() for face in local_faces]
-                    ids = [f"{tile.id}/{identity}" for identity in local_ids]
-        path = records / f"{tile.id}.json"
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(
-            json.dumps(
-                dict(
-                    owners=owners,
-                    faces=faces,
-                    ids=ids,
-                    pass_kind=pass_kind,
-                    content_hash=content_hash,
-                )
-            )
-        )
-        temporary.replace(path)
-    return dict(resolved=removed, pass_kind=pass_kind, content_hash=content_hash)
+    return faces, ids
 
 
 def layer_meshes(paths):
