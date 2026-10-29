@@ -11,6 +11,8 @@ import shapely
 
 from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 
+from .forest_paths import path_corridors
+
 # Measured with runtime LOD at Kupittaa; retain the 5 m placement clearance.
 TREE_CAP = 768
 BUSH_CAP = 24
@@ -32,6 +34,8 @@ def open_surface(tags):
     return (
         tags.get("indoor") != "yes"
         and tags.get("building", "no") == "no"
+        # Recreation land use can describe an entire wooded park, not a playing surface.
+        and not any(tags.get(k) in DENSITY for k in ("natural", "landuse", "leisure"))
         and (
             tags.get("leisure")
             in {"track", "pitch", "stadium", "sports_centre", "playground", "recreation_ground"}
@@ -134,81 +138,12 @@ def trunk_base_radius(name):
     return float(np.linalg.norm(np.concatenate(bases), axis=1).max())
 
 
-def path_lines(roads):
-    """Foot/cycle-class graph lines; car-road clearance remains the existing two metres."""
-    from turku3d.roads import CLASS_SHIFT
-    from turku3d.roads.layer import graph_ways
-
-    if not roads or not roads.get("json"):
-        return []
-    return [
-        shapely.LineString(coords)
-        for coords, flags in graph_ways(json.loads(roads["json"]))
-        if flags >> CLASS_SHIFT == 0
-    ]
-
-
 def clears_path(tree, paths):
-    """Keep the visible trunk outside ±2 m and the crown outside the inner ±1 m."""
+    """Keep the visible trunk outside the path footprint; crowns may overhang it."""
     if paths.is_empty:
         return True
     distance = paths.distance(shapely.Point(tree.x, tree.z))
-    return distance >= max(
-        2.0 + trunk_base_radius(tree.variant) * tree.crown_radius,
-        1.0 + tree.crown_radius,
-    )
-
-
-def path_surfaces(inputs):
-    """Expose forest paths in visual ground only, preserving terrain/structural caches."""
-    from turku3d.col.materials import mat_id
-
-    forest = shapely.union_all([
-        geom for _, geom, kind, _ in inputs.forests if kind in DENSITY
-    ])
-    if forest.is_empty:
-        return []
-    corridors = polygonal(shapely.union_all(path_lines(inputs.roads)).buffer(1.25).intersection(forest))
-    if corridors.is_empty:
-        return []
-    # Gravel fallback for forest tracks; retain mapped asphalt/paving/soil where available.
-    mapped = [
-        (polygonal(geom.intersection(corridors)), material)
-        for geom, material in inputs.surfaces
-        if material != mat_id("grass") and geom.intersects(corridors)
-    ]
-    return [(corridors, mat_id("gravel")), *[(g, m) for g, m in mapped if not g.is_empty]]
-
-
-def polygonal(geom):
-    # Snapped, valid, area-only regions: raw buffer/intersection slivers made the surface overlay
-    # in split_boundaries fail with GEOS "Unable to determine overlay result geometry dimension".
-    geom = shapely.make_valid(shapely.set_precision(geom, 0.01))
-    parts = [g for g in shapely.get_parts(geom) if g.geom_type in ("Polygon", "MultiPolygon") and g.area > 1e-4]
-    return shapely.union_all(parts) if parts else shapely.Polygon()
-
-
-def path_ground(tile, ortho, regions):
-    """Replace aerial forest-floor foliage over mapped paths with their ground material."""
-    from turku3d.col.materials import mat_id
-
-    from .surfaces import BINDINGS, fallback
-
-    if not regions:
-        return ortho
-    output = ortho.copy()
-    rows, cols = np.indices(ortho.shape[:2])
-    x = tile.origin[0] + (cols + 0.5) * tile.size / ortho.shape[1]
-    z = tile.origin[2] + (rows + 0.5) * tile.size / ortho.shape[0]
-    channels = {mat_id(key): channel for key, channel in BINDINGS.items()}
-    for geom, material in regions:
-        mask = shapely.intersects_xy(geom, x, z)
-        texture = fallback(channels[material])
-        # Match the existing ground fallback's world-anchored 128 px/metre sampling.
-        iy = np.floor(z[mask] * 128).astype(int) % texture.shape[0]
-        ix = np.floor(x[mask] * 128).astype(int) % texture.shape[1]
-        output[mask] = texture[iy, ix]
-    return output
+    return distance >= trunk_base_radius(tree.variant) * tree.crown_radius
 
 
 def produce(tile, inputs, height_at, mapped, carried=None):
@@ -220,23 +155,28 @@ def produce(tile, inputs, height_at, mapped, carried=None):
             *(g.buffer(1) for g, _ in inputs.streets),
         ]
     )
-    # OSM paths cover park paths absent from the city street polygons.
+    # Car roads retain their existing centreline clearance. Foot/cycle paths use
+    # their actual footprint, shared with the visual path surface below.
+    from turku3d.roads import CLASS_SHIFT
+
     roads = inputs.roads
     if roads and roads.get("json"):
         graph = json.loads(roads["json"])
         nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
         paths = []
         for edge in graph["edges"]:
+            if edge[2] >> CLASS_SHIFT == 0:
+                continue
             coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
             paths.append(shapely.LineString(coords).buffer(2))
         blocked = shapely.union_all([blocked, *paths])
-    paths = shapely.union_all(path_lines(roads))
+    paths = path_corridors(inputs)
+    blocked = shapely.union_all([blocked, paths])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
     )
     trees = [
-        t for t in mapped
-        if not blocked.covers(shapely.Point(t.x, t.z)) and clears_path(t, paths)
+        t for t in mapped if not blocked.covers(shapely.Point(t.x, t.z)) and clears_path(t, paths)
     ][:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())

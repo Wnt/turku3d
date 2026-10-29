@@ -321,7 +321,8 @@ def build(
             inputs.markings,
         ),
     )
-    from .forests import BUSH_CAP, TREE_CAP, path_ground, path_surfaces, produce, trunks
+    from .forest_paths import path_ground, path_surfaces
+    from .forests import BUSH_CAP, TREE_CAP, produce, trunks
 
     seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
 
@@ -333,6 +334,7 @@ def build(
             "vegetation",
             source_key(
                 Path(__file__).with_name("forests.py"),
+                Path(__file__).with_name("forest_paths.py"),
                 base / "vegetation/trees.py",
                 base / "vegetation/visual.py",
                 *sorted((base / "vegetation/assets").glob("*.glb")),
@@ -349,6 +351,7 @@ def build(
                 inputs.roads,
                 inputs.canopy,
                 inputs.forests,
+                inputs.vegetation_paths,
                 inputs.trees,
                 shells,
                 carried_mask,

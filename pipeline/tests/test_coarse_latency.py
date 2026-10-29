@@ -217,6 +217,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "trees",
         "barriers",
         "forests",
+        "vegetation_paths",
         "tunnels",
         "stairs",
         "poles",
