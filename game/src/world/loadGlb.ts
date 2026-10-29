@@ -3,6 +3,7 @@ import type { GLTFLoader, GLTF, GLTFLoaderPlugin } from 'three/addons/loaders/GL
 import { PreparationBudget } from '../render/preparationBudget';
 import { applyJsonRecords } from './glbRecords';
 import type { decodeGlb } from './decodeGlb';
+import { sharedAssetKey, sharedBuffers } from './sharedAssets';
 
 type Decoded = ReturnType<typeof decodeGlb>;
 let worker: Worker | undefined, sequence = 0;
@@ -36,6 +37,13 @@ function decode(buffer: ArrayBuffer): Promise<Decoded> {
 export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
     name: 'TURKU_decoded_glb', beforeRoot: async () => {
+      // External meshopt buffers share the same immutable bytes across separate glTF parsers.
+      const original = parser.loadBuffer.bind(parser);
+      parser.loadBuffer = index => {
+        const uri = parser.json.buffers?.[index]?.uri;
+        const key = uri && sharedAssetKey(new URL(uri, path).href);
+        return key ? sharedBuffers.get(key, () => original(index)) : original(index);
+      };
       if (decoded.binary) (parser as unknown as { cache: { add(key: string, value: Promise<ArrayBuffer>): void } }).cache.add('buffer:0', Promise.resolve(decoded.binary));
     },
   });

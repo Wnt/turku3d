@@ -1,4 +1,5 @@
 import type * as THREE from 'three/webgpu';
+import { releaseModelTextures } from './sharedAssets';
 import { disposeDraw, type SharedMaterials } from '../render/sharedMaterials';
 
 /** Release all render contexts before tile-owned buffers; shared materials keep their other owners. */
@@ -14,6 +15,6 @@ export function disposeModelResources(model: THREE.Object3D, shared: SharedMater
     }
   });
   for (const geometry of geometries) geometry.dispose();
-  for (const texture of textures) texture.dispose();
+  releaseModelTextures(model, textures);
   shared.releaseModel(model, materials);
 }

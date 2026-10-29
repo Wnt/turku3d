@@ -1,4 +1,5 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { FileLoader } from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { decodeGlb } from '../../src/world/decodeGlb';
 import { parseDecodedGlb } from '../../src/world/loadGlb';
@@ -33,4 +34,23 @@ test('bounded worker records preserve nested arrays, nulls and literal prototype
   for (let i = 0; i < records.length; i += 3) applyJsonRecords(objects, records.slice(i, i + 3));
   expect(objects[0]).toEqual(json);
   expect(Object.getPrototypeOf(objects[0])).toBe(Object.prototype);
+});
+
+
+test('external shared buffers are fetched once across separate glTF parsers', async () => {
+  const binary = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer;
+  const load = vi.spyOn(FileLoader.prototype, 'load').mockImplementation((_url, done) => { queueMicrotask(() => done?.(binary)); });
+  const json = { asset: { version: '2.0' }, buffers: [{ byteLength: 36, uri: `/coarse/shared/${'b'.repeat(64)}.bin` }],
+    bufferViews: [{ buffer: 0, byteLength: 36 }],
+    accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }], nodes: [{ mesh: 0 }], scenes: [{ nodes: [0] }], scene: 0 };
+  try {
+    const results = await Promise.all(Array.from({ length: 3 }, () =>
+      parseDecodedGlb(new GLTFLoader(), { json: structuredClone(json), binary: null }, 'https://example.test/coarse/t0_0_0/')));
+    expect(load).toHaveBeenCalledTimes(1);
+    for (const result of results) {
+      const mesh = result.scene.children[0] as import('three').Mesh;
+      expect([...mesh.geometry.attributes.position.array]).toEqual([...new Float32Array(binary)]);
+    }
+  } finally { load.mockRestore(); }
 });
