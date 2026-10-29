@@ -44,14 +44,33 @@ test('identical GPU textures survive either tile unloading; sampler/UV variants 
   const a = model(texture), b = model(texture.clone());
   const offset = texture.clone(); offset.offset.x = .5;
   const c = model(offset);
-  shareModelTextures(a); shareModelTextures(b); shareModelTextures(c);
-  expect(map(a)).toBe(map(b)); expect(map(c)).not.toBe(map(a));
+  const rendered = offset.clone(); rendered.updateMatrix();
+  const d = model(rendered);
+  shareModelTextures(a); shareModelTextures(b); shareModelTextures(c); shareModelTextures(d);
+  expect(map(a)).toBe(map(b)); expect(map(c)).not.toBe(map(a)); expect(map(c)).toBe(map(d));
   const dispose = vi.fn(); map(a).addEventListener('dispose', dispose);
   releaseModelTextures(a, new Set([map(a)]));
   expect(dispose).not.toHaveBeenCalled(); expect(map(b).source).toBe(texture.source);
   releaseModelTextures(b, new Set([map(b)]));
   expect(dispose).not.toHaveBeenCalled(); // Bounded idle cache preserves a quick revisit.
   releaseModelTextures(c, new Set([map(c)]));
+  releaseModelTextures(d, new Set([map(d)]));
   const local = new THREE.Texture(), localDispose = vi.fn(); local.addEventListener('dispose', localDispose);
   releaseModelTextures(model(local), new Set([local])); expect(localDispose).toHaveBeenCalledOnce();
+});
+
+
+test('a resident decoded source survives eviction from the bounded template cache', async () => {
+  const url = `https://turku.lab.madekivi.fi/coarse/shared/${'e'.repeat(64)}.ktx2`;
+  const template = new THREE.CompressedTexture([{ data: new Uint8Array(65 * 1024 ** 2), width: 4, height: 4 }], 4, 4);
+  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, done) => { queueMicrotask(() => done?.(template)); });
+  try {
+    const loader = new LoadingKtx(), first = await loader.loadAsync(url), scene = model(first);
+    shareModelTextures(scene);
+    expect((await loader.loadAsync(url)).source).toBe(first.source);
+    expect(load).toHaveBeenCalledTimes(1);
+    const dispose = vi.fn(); map(scene).addEventListener('dispose', dispose);
+    releaseModelTextures(scene, new Set([map(scene)]));
+    expect(dispose).toHaveBeenCalledOnce(); // The now-idle oversize texture is evicted.
+  } finally { load.mockRestore(); }
 });

@@ -34,7 +34,7 @@ export function textureBytes(texture: THREE.Texture): number {
     || (texture.image as { data?: ArrayBufferView })?.data?.byteLength || 0;
 }
 
-interface Resident { texture: THREE.Texture; users: number; bytes: number }
+interface Resident { key: string; texture: THREE.Texture; users: number; bytes: number }
 const residents = new Map<string, Resident>();
 const owners = new WeakMap<THREE.Object3D, Set<Resident>>();
 const managed = new WeakSet<THREE.Texture>();
@@ -48,7 +48,7 @@ function textureKey(texture: THREE.Texture): string | undefined {
     texture.magFilter, texture.minFilter, texture.anisotropy, texture.flipY, texture.premultiplyAlpha,
     texture.unpackAlignment, texture.generateMipmaps, texture.mapping, texture.format, texture.type,
     texture.offset.toArray(), texture.repeat.toArray(), texture.center.toArray(), texture.rotation,
-    texture.matrixAutoUpdate, texture.matrix.toArray()]);
+    texture.matrixAutoUpdate, texture.matrixAutoUpdate ? null : texture.matrix.toArray()]);
 }
 function trimTextures() {
   let idle = [...residents.values()].reduce((sum, entry) => sum + (entry.users ? 0 : entry.bytes), 0);
@@ -57,6 +57,10 @@ function trimTextures() {
     if (entry.users) continue;
     residents.delete(key); idle -= entry.bytes; entry.texture.dispose();
   }
+}
+/** Recover decoded data still retained by a live/idle GPU texture even after the byte cache evicts it. */
+export function residentTexture(content: string): THREE.Texture | undefined {
+  for (const entry of residents.values()) if (entry.texture.userData.sharedAsset === content) return entry.texture;
 }
 /** Runs before upload: identical final glTF textures use one object and one GPU allocation. */
 export function shareModelTextures(model: THREE.Object3D) {
@@ -75,7 +79,7 @@ export function shareModelTextures(model: THREE.Object3D) {
         if (!key) continue;
         let entry = residents.get(key);
         if (!entry) {
-          entry = { texture, users: 0, bytes: textureBytes(texture) };
+          entry = { key, texture, users: 0, bytes: textureBytes(texture) };
           managed.add(texture);
         }
         residents.delete(key); residents.set(key, entry);
@@ -93,7 +97,7 @@ export function releaseModelTextures(model: THREE.Object3D, textures: Set<THREE.
   for (const entry of owners.get(model) ?? []) {
     entry.users--;
     // The moment the last owner leaves is this idle entry's most recent use.
-    const key = textureKey(entry.texture)!;
+    const key = entry.key;
     residents.delete(key); residents.set(key, entry);
   }
   owners.delete(model); trimTextures();
