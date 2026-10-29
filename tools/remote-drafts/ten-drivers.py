@@ -1,9 +1,9 @@
-"""Ten independent route-hinted drivers against real HTTP drafts, with OCI telemetry.
+"""Independent route-hinted drivers against real HTTP drafts, with OCI telemetry.
 
 Uses actual directed city roads, 30 s hints and the game's 3x3 visible ring.
 Startup waits for all ten current tiles; that delay is reported separately.
 Ahead tiles request generation; the visible ring downloads and SHA-256 checks
-all sixteen cells, matching coarseTiles.ts polling and retry intervals.
+all sixteen cells and the paired visual, matching coarseTiles.ts retry intervals.
 Run through host_slots.py with a hard ten-minute external timeout.
 """
 
@@ -32,7 +32,8 @@ def get(base, path, binary=False, timeout=5):
         return 0, {}
 
 
-def routes(graph):
+def routes(graph, drivers=10, start_office=False):
+    from turku3d import config as C
     from turku3d.content.addresses import Graph
     from turku3d.roads import CAR, ONEWAY
 
@@ -47,12 +48,12 @@ def routes(graph):
         if not edge["flags"] & ONEWAY:
             adjacency.setdefault(b, []).append((a, edge["cum"][-1], points[::-1]))
     result = []
-    for k in range(10):
-        angle = 2 * math.pi * k / 10
+    for k in range(drivers):
+        angle = 2 * math.pi * k / drivers
         direction = math.cos(angle), math.sin(angle)
-        start = min(
-            adjacency, key=lambda n: math.dist(nodes[n], (direction[0] * 600, direction[1] * 600))
-        )
+        x, _, z = C.en_to_local(C.OFFICE_E, C.OFFICE_N, 0)
+        origin = (x, z) if start_office else (direction[0] * 600, direction[1] * 600)
+        start = min(adjacency, key=lambda n: math.dist(nodes[n], origin))
         target = (direction[0] * 3000, direction[1] * 3000)
         distances, previous, queue = {start: 0}, {}, [(0, start)]
         while queue:
@@ -132,11 +133,13 @@ def main():
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--seconds", type=float, default=120)
     ap.add_argument("--speed-kmh", type=float, default=120)
+    ap.add_argument("--drivers", type=int, default=10)
+    ap.add_argument("--start-office", action="store_true")
     args = ap.parse_args()
     status, navigation = get(args.base, "navigation.json", timeout=60)
     if status != 200:
         raise RuntimeError(f"City road graph unavailable: HTTP {status}")
-    paths = routes(navigation["roads"])
+    paths = routes(navigation["roads"], args.drivers, args.start_office)
     for path in paths:
         path["crossings"] = crossings(path)
     speed = args.speed_kmh / 3.6
@@ -153,7 +156,8 @@ def main():
             states[tile] = dict(at=time.monotonic() - started, status=status, **manifest)
             return status, None
         entries = manifest.get("collision", {})
-        if len(entries) != 16:
+        visual = manifest.get("visual", {}).get(tile)
+        if len(entries) != 16 or not visual:
             return 0, None
         if not load:
             return 200, "prefetched"
@@ -166,7 +170,7 @@ def main():
                 and hashlib.sha256(body).hexdigest() == entry["sha256"]
             )
 
-        if not all(payloads.map(download, entries.values())):
+        if not all(payloads.map(download, [*entries.values(), visual])):
             return 0, None
         return 200, time.monotonic() - started
 
@@ -269,7 +273,7 @@ def main():
                 )
             )
             time.sleep(max(0, 1 - (time.monotonic() - tick)))
-        for i in range(10):
+        for i in range(args.drivers):
             get(args.base, "demand?client=" + client_prefix + "-" + str(i) + "&tiles=")
         for key, future in pending.items():
             _, at = future.result()
@@ -298,7 +302,8 @@ def main():
     )
     late = [r for r in rows if r["lateness"] is None or r["lateness"] > 0]
     summary = dict(
-        drivers=10,
+        drivers=args.drivers,
+        readiness="collision-and-visual-payloads",
         speed_kmh=args.speed_kmh,
         drive_seconds=args.seconds,
         startup_seconds=startup,

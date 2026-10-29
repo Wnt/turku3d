@@ -111,12 +111,16 @@ they finish at reduced priority. Overdue stale builds are cancelled too. The
 spawn warmer pauses and yields running background jobs whenever player work is
 pending. Legacy clients still work through expiring per-tile requests.
 
-`GET /coarse/<tile>/collision.json?client=<id>` publishes the sixteen structural
-payloads before visual assembly and texture packaging. The game validates and
-installs those cells immediately, then loads the ordinary visual manifest. A
-visual failure does not discard current structural coverage. Collision responses
-use the same producer/input freshness checks as full manifests; old payload URLs
-remain content-addressed. `manifest.json` still describes a completed visual pass.
+`GET /coarse/<tile>/collision.json?client=<id>` publishes sixteen collision cells
+together with a cheap flat-colour basic GLB and road graph. Ground, roads, building
+shells, bridges and tunnels are visible before the tile becomes drivable. The
+first pass does no texture encoding, facade work or decorative prop generation.
+The client validates collision and prepares the model before installing the pair;
+legacy collision-only responses remain hidden. Full textures and objects arrive
+through `manifest.json`, and upgrades also swap collision and visuals together.
+A failed texture pass preserves the previous complete pair. Structural producer
+and raw-input identities control freshness independently of facade/texture code;
+payload URLs remain content-addressed.
 New urgent crossings reclaim occupied upgrade slots, retaining completed stage
 caches and the upgrade lease. Admission grows with live clients, bounded at 256
 jobs, so ten independent paths do not compete for a single 24-job window.

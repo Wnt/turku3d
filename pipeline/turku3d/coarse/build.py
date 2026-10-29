@@ -226,7 +226,6 @@ def build(
     library: Path | None = None,
     sources=None,
     first_pass: bool = False,
-    collision_only: bool = False,
 ) -> dict:
     """Write ``out/{manifest.json, vis.glb, col/c_i_j.col, roads.json}``; shared KTX2 go to out/../shared.
 
@@ -296,7 +295,6 @@ def build(
 
     t = time.perf_counter()
     blds = inputs.buildings
-    facade_params = parameter_hash(b.facade_key for b in blds)
     shells = cache.run(
         "buildings",
         source_key(
@@ -465,6 +463,7 @@ def build(
     t = time.perf_counter()
     collision = {}
     cols = {}
+    basic_cells = []
     for ct, (pos, idx, mat) in collision_tiles(
         tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid
     ).items():
@@ -475,6 +474,8 @@ def build(
         primitives = trunks(trees, ct) + barrier_cols[ct]
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         col.indices, col.materials = solid_triangles(col.positions, col.indices, col.materials)
+        if first_pass:
+            basic_cells.append((ct, col))
         data = cache.run(
             "collision_" + ct.id,
             source_key(
@@ -505,20 +506,22 @@ def build(
         collision[cid]["url"] = url
         _write(out / "col" / f"{cid}.col", data)
     seconds["collision_ready"] = time.perf_counter() - started
-    structural = dict(
-        coarse=True,
-        tile=tile.id,
-        collision=collision,
-        code=producer_code,
-        collision_code=collision_code_hash(),
-        inputs=inputs.key,
-        pass_kind="first" if first_pass else "full",
-        buildings=len(blds),
-        seconds={**seconds, "total": seconds["collision_ready"]},
-    )
-    _write(out / "collision.json", json.dumps(structural).encode())
-    if collision_only:
-        return structural
+    if first_pass:
+        from .basic import publish
+
+        return publish(
+            tile,
+            out,
+            basic_cells,
+            collision,
+            tunnels.roads(bridge_roads),
+            producer_code,
+            inputs.key,
+            len(blds),
+            seconds,
+            started,
+        )
+    facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
     dry_keep = np.ones(len(dry.indices), bool)
     visual_materials = surfaces.slope_fallback(dry.positions, dry.indices, dry.material)
@@ -528,28 +531,20 @@ def build(
         surfaces.classify(dry.positions[dry.indices].mean(axis=1), inputs.ortho, tile, []),
     )
     t_surface = time.perf_counter()
-    if first_pass:
-        surface_pos, surface_idx, surface_ids = (
-            dry.positions,
-            dry.indices,
-            visual_materials,
-        )
-        surface_normals = None
-    else:
-        surface_args = (
-            dry.positions,
-            dry.indices,
-            visual_materials,
-            dry_keep,
-            [*inputs.surfaces, *inputs.streets],
-            fallback_materials,
-        )
-        surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
-            "surface_boundaries",
-            source_key(surfaces.split_boundaries, base / "package/gltf.py", *common),
-            surface_args,
-            lambda: surfaces.split_boundaries(*surface_args),
-        )
+    surface_args = (
+        dry.positions,
+        dry.indices,
+        visual_materials,
+        dry_keep,
+        [*inputs.surfaces, *inputs.streets],
+        fallback_materials,
+    )
+    surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
+        "surface_boundaries",
+        source_key(surfaces.split_boundaries, base / "package/gltf.py", *common),
+        surface_args,
+        lambda: surfaces.split_boundaries(*surface_args),
+    )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
     visual_args = (
         tile,
@@ -562,8 +557,8 @@ def build(
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
-        [visual_args, None if first_pass else inputs.ortho, surfaces.KEYS, surfaces.BINDINGS],
-        lambda: surfaces.visuals(*visual_args, ortho=None if first_pass else inputs.ortho),
+        [visual_args, inputs.ortho, surfaces.KEYS, surfaces.BINDINGS],
+        lambda: surfaces.visuals(*visual_args, ortho=inputs.ortho),
     )
     paint_args = (
         tile,
@@ -573,15 +568,11 @@ def build(
         np.ones(len(surface_idx), bool),
         inputs.markings,
     )
-    paint = (
-        None
-        if first_pass
-        else cache.run(
-            "markings",
-            source_key(surfaces.paint_visual, base / "package/gltf.py", *common),
-            paint_args,
-            lambda: surfaces.paint_visual(*paint_args),
-        )
+    paint = cache.run(
+        "markings",
+        source_key(surfaces.paint_visual, base / "package/gltf.py", *common),
+        paint_args,
+        lambda: surfaces.paint_visual(*paint_args),
     )
     if paint is not None:
         ground_meshes.append(paint)
@@ -654,8 +645,8 @@ def build(
             ortho_uv,
             *common,
         ),
-        [tile, shells, inputs.ortho if not first_pass else None, first_pass, facade_params],
-        lambda: building_visual(tile, shells, inputs.ortho, first_pass),
+        [tile, shells, inputs.ortho, False, facade_params],
+        lambda: building_visual(tile, shells, inputs.ortho, False),
     )
     if building_meshes:
         programs = [m.extras.pop("facade_program") for m in building_meshes
@@ -672,12 +663,11 @@ def build(
     seconds["visual_geometry"] = time.perf_counter() - t
     t_library = time.perf_counter()
     surface_library = library or default_library()
-    if not first_pass:
-        surface_library = surfaces.library(out.parent, surface_library, surface_channels)
+    surface_library = surfaces.library(out.parent, surface_library, surface_channels)
     seconds["surface_library"] = time.perf_counter() - t_library
     t_package = time.perf_counter()
     vis, stats = package_visual(
-        tile, layer_files, stage, out.parent, surface_library, first_pass=first_pass
+        tile, layer_files, stage, out.parent, surface_library, first_pass=False
     )
     seconds["package"] = time.perf_counter() - t_package
     seconds.update({"package_" + k: v for k, v in stats.get("seconds", {}).items()})
@@ -706,9 +696,10 @@ def build(
         format=FORMAT,
         version=VERSION,
         coarse=True,
-        pass_kind="first" if first_pass else "full",
+        pass_kind="full",
         tile=tile.id,
         code=producer_code,
+        collision_code=collision_code_hash(),
         built=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         origin_en=list(C.ORIGIN),
         grid=dict(visual_l0=C.VISUAL_TILE_SIZE, collision=C.COLLISION_TILE_SIZE, cells=CELLS),
@@ -767,6 +758,7 @@ def build(
         seconds={k: round(v, 3) for k, v in seconds.items()},
     )
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
+    _write(out / "collision.json", json.dumps(manifest).encode())
     cache.metrics.update(json.loads((stage / "package-times.json").read_text()))
     cache.report(out / "stage-times.json")
     shutil.rmtree(stage, ignore_errors=True)

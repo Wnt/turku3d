@@ -12,7 +12,7 @@ from turku3d.ground.water import add_river_bed
 
 
 def current(builder, tile):
-    """Only current, atomically published structural payloads can bypass visuals."""
+    """Only current, atomically published visual/collision pairs are usable."""
     codes = {}
     for name in ("collision.json", "manifest.json"):
         try:
@@ -31,7 +31,11 @@ def current(builder, tile):
             if key is not None and value.get("inputs") != key:
                 continue
             cells = {c.id for c in C.VisualTile.parse(tile).collision_tiles()}
-            if value.get("tile") == tile and set(value.get("collision", {})) == cells:
+            if (
+                value.get("tile") == tile
+                and set(value.get("collision", {})) == cells
+                and value.get("visual", {}).get(tile)
+            ):
                 return value
         except (OSError, ValueError, KeyError, TypeError):
             continue
@@ -43,7 +47,11 @@ def fragment(builder, tile):
     return (
         None
         if value is None
-        else {k: value[k] for k in ("coarse", "tile", "collision", "pass_kind")}
+        else {
+            k: value[k]
+            for k in ("coarse", "tile", "collision", "visual", "pass_kind", "roads")
+            if k in value
+        }
     )
 
 

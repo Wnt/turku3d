@@ -344,51 +344,56 @@ export class CoarseTiles {
   }
 
   /** Keep resident collision and geometry until an upgraded draft is fully ready. */
-  private async refreshDraft(id: string, e: Entry, d: number, supplied?: CoarseFragment) {
+  private async refreshDraft(id: string, e: Entry, d: number) {
     e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 2000;
     try {
-      let fragment = supplied;
-      if (!fragment) {
-        const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
-        if (!res.ok || res.status === 202) return;
-        fragment = await res.json() as CoarseFragment;
-      }
-      if (!fragment.coarse || fragment.tile !== id) throw new DraftRejected(`${id}: invalid draft fragment`);
-      const visualChanged = fragment.visual[id]?.sha256 !== e.visualHash;
-      const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
-      if (missing.length) throw new DraftRejected(`${id}: incomplete collision`);
-      const base = new URL(`${this.root}${id}/`, this.page);
-      const changed = Object.entries(fragment.collision).filter(([cid, entry]) => entry.sha256 !== e.collision.get(cid)?.sha256);
-      await Promise.all(changed.map(async ([cid, entry]) => {
-        const col = await this.request(new URL(entry.url, base).href);
-        if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
-        const buf = await col.arrayBuffer();
-        if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
-        await this.host.checkCollision(buf);
-      }));
-      if (this.entries.get(id) !== e || e.state !== 'draft') return;
-      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
-      const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
-        .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
-      if (this.entries.get(id) !== e || e.state !== 'draft') return;
-      if (!visualChanged) {
-        this.takeVehicles(e, fragment, base);
-        if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
-        return;
-      }
-      const model = await this.load(new URL(fragment.visual[id].url, base).href);
-      if (this.entries.get(id) !== e || e.state !== 'draft') { this.dispose(model); return; }
-      if (!await this.prepareModel(id, e, model)) return;
-      this.host.scene.add(model);
-      const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
-      this.takeVehicles(e, fragment, base);
-      if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
-      if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
-      this.host.trackModel?.(model, id);
+      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
+      if (!res.ok || res.status === 202) return;
+      const fragment = await res.json() as CoarseFragment;
+      await this.applyFragment(id, e, fragment);
     } catch (err) {
       if (err instanceof ServiceDown) this.down();
       else console.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
     } finally { e.refreshing = false; }
+  }
+
+  /** Commit a validated visual/collision pair together after model preparation. */
+  private async applyFragment(id: string, e: Entry, fragment: CoarseFragment) {
+    const state = e.state;
+    if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: invalid draft fragment`);
+    const visualChanged = !e.model || fragment.visual[id].sha256 !== e.visualHash;
+    const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
+    if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
+    const base = new URL(`${this.root}${id}/`, this.page);
+    const changed = Object.entries(fragment.collision).filter(([cid, entry]) => !e.collision.has(cid) || entry.sha256 !== e.collision.get(cid)?.sha256);
+    await Promise.all(changed.map(async ([cid, entry]) => {
+      const col = await this.request(new URL(entry.url, base).href);
+      if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
+      const buf = await col.arrayBuffer();
+      if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
+      await this.host.checkCollision(buf).catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
+    }));
+    if (this.entries.get(id) !== e || e.state !== state) return;
+    const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
+      .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
+    if (this.entries.get(id) !== e || e.state !== state) return;
+    if (!visualChanged) {
+      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
+      this.takeVehicles(e, fragment, base);
+      if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
+      return;
+    }
+    const model = await this.load(new URL(fragment.visual[id].url, base).href);
+    if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
+    if (!await this.prepareModel(id, e, model)) return;
+    this.host.scene.add(model);
+    const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
+    this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
+    e.state = 'draft';
+    this.takeVehicles(e, fragment, base);
+    if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
+    if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
+    this.host.trackModel?.(model, id);
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
@@ -415,25 +420,18 @@ export class CoarseTiles {
         e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;
         return;
       }
+      let fragment = await res.json() as CoarseFragment;
+      // A legacy collision-only response cannot expose invisible obstacles.
+      if (!fragment.visual?.[id]) {
+        res = await this.request(`${this.root}${id}/manifest.json${query}`);
+        if (res.status === 202) { e.state = 'pending'; e.nextPoll = this.clock + 2000; return; }
+        if (!res.ok) throw new DraftRejected(`${id}: no visible draft`);
+        fragment = await res.json() as CoarseFragment;
+      }
+      if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: no visible draft`);
       if (!load) { e.state = 'built'; e.nextPoll = 0; return; }
-      const fragment = await res.json() as CoarseFragment;
-      if (!fragment.coarse || fragment.tile !== id) throw new Error(`${id}: not a coarse tile fragment`);
-      const base = new URL(`${this.root}${id}/`, this.page);
-      // Every cell belongs to this draft and must decode before the model becomes visible.
-      const own = Object.entries(fragment.collision);
-      const uncovered = cellsOf(id).filter(cid => !fragment.collision[cid]);
-      if (uncovered.length) throw new DraftRejected(`no collision for ${uncovered.length} of 16 cells (${uncovered[0]})`);
-      await Promise.all(own.map(async ([cid, entry]) => {
-        const col = await this.request(new URL(entry.url, base).href);
-        if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
-        const buf = await col.arrayBuffer();
-        if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: ${buf.byteLength} bytes, manifest ${entry.bytes}`);
-        await this.host.checkCollision(buf).catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
-      }));
-      if (this.entries.get(id) !== e) return;
-      this.take(e, own.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
-      e.state = 'draft'; e.nextPoll = this.clock + 2000;
-      await this.refreshDraft(id, e, d, fragment.visual?.[id] ? fragment : undefined);
+      await this.applyFragment(id, e, fragment);
+      e.nextPoll = this.clock + 2000;
     } catch (err) {
       if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down(); return; }
       const rejected = err instanceof DraftRejected;
