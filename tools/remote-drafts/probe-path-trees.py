@@ -62,6 +62,13 @@ def main(root, assets):
         corridor = shapely.union_all([g for g, _ in forest_paths])
         centers = positions[indices].mean(axis=1)
         inside = shapely.contains_xy(corridor, centers[:, 0], centers[:, 2])
+        # GEOS/earcut can emit zero-area triangles on a shared polygon boundary.
+        # Their centroids can drift ~1e-13 m across the boundary. Use the same
+        # 1e-7 m² geometric significance as split_boundaries' polygon filter.
+        area = shapely.area(shapely.polygons(positions[indices][:, :, [0, 2]]))
+        degenerate_grass_area = float(area[inside & (materials == mat_id("grass"))].sum())
+        assert degenerate_grass_area <= 1e-6, degenerate_grass_area
+        inside &= area >= 1e-7
         assert inside.any()
         assert not np.any(materials[inside] == mat_id("grass")), "forest floor still covers path"
         # Reproduce all tree sources from gathered inputs and the cached measured ground.
@@ -74,6 +81,7 @@ def main(root, assets):
         structural = {name: metrics[name]["cached"] for name in
                       ("terrain", "bridges", "buildings", "tunnels", "stairs", "kerbs", "fences")}
         result.update(trees=len(trees), bushes=len(bushes), path_triangles=int(inside.sum()),
+                      degenerate_grass_area=degenerate_grass_area,
                       minimum_trunk_edge=min(p[0] for p in margins),
                       minimum_crown_edge=min(p[1] for p in margins), structural_cache_hits=structural,
                       stages={name: dict(cached=value.get("cached"), seconds=value["seconds"])
