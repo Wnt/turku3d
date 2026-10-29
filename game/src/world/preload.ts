@@ -32,7 +32,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   const { streamer, coarse, materials, renderer, scene, camera, env, renderFrame } = world;
   env.follow(new THREE.Vector3(focus.x, camera.position.y, focus.z));
   worldLoad.update({ phase: 'loading' });
-  const downloaded = loading.begin('360° world preload');
+  const downloaded = loading.begin('Nearby world preload');
   const started = performance.now();
   let stable = 0;
   let lastCounts = '';
@@ -47,7 +47,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     worldLoad.update({ visual: { loaded: drafts.loaded, total: drafts.total },
       collision: { loaded: collision.loaded, total: collision.total }, textures: { loaded: 0, pending: materials?.ground?.pending ?? 0 }, errors });
     const counts = `${drafts.loaded}/${drafts.total} models · ${collision.loaded}/${collision.total} collision cells`;
-    if (counts !== lastCounts) { loading.note(`360° preload · ${counts}`); lastCounts = counts; }
+    if (counts !== lastCounts) { loading.note(`Nearby preload · ${counts}`); lastCounts = counts; }
     if (errors.length) throw new Error(`world preload: ${errors.join('; ')}`);
     if (performance.now() - started > 600_000) throw new Error(`World generation timed out after 10 minutes: ${coarse?.status}. ${JSON.stringify(worldLoad.snapshot())}`);
     stable = drafts.total > 0 && !materials?.ground?.pending && drafts.loaded === drafts.total && collision.loaded === collision.total

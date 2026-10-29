@@ -15,6 +15,7 @@ export class LoadingScreen {
   private draft = '';
   private readyMessage = 'Ready · choose Multiplayer to enter the city';
   private failure: string | null = null;
+  private completedProgress = 0;
 
   constructor(qa: boolean) {
     if (qa) { this.element.hidden = true; loading.stop(); return; }
@@ -63,17 +64,22 @@ export class LoadingScreen {
   fail(error: string) { if (this.finished) return; this.failure = error; this.draw(); this.element.classList.remove('menu-ready'); }
 
   private draw() {
-    this.active.textContent = this.failure ? `Loading failed · ${this.failure}` : loading.active.join(' · ') || (this.menuReady ? this.readyMessage : 'Preparing the city');
-    this.progress.max = Math.max(1, loading.total);
-    this.progress.value = loading.completed;
-    this.count.textContent = `${loading.completed} / ${loading.total} tasks complete · more discovered as tiles stream`;
     const world = worldLoad.snapshot();
-    const total = world.visual.total + world.collision.total + world.compile.total;
-    if (total) {
-      this.progress.max = total;
-      this.progress.value = world.visual.loaded + world.collision.loaded + world.compile.done;
-      this.count.textContent = `${world.visual.loaded}/${world.visual.total} models · ${world.collision.loaded}/${world.collision.total} collision cells · ${world.textures.loaded} GPU textures · ${world.compile.done}/${world.compile.total} warmup views · ${loadBytes(world.bytesLoaded)}`;
-    }
+    const stage = this.menuReady ? this.readyMessage : world.phase === 'compiling' ? 'Preparing graphics' : 'Preparing nearby streets';
+    this.active.textContent = this.failure ? `Loading failed · ${this.failure}` : stage;
+    // Stage-weighted, monotonic progress: discovering more work cannot move the bar backwards.
+    // Counts below remain exact; these weights describe stages, not an ETA.
+    const total = world.visual.total + world.collision.total;
+    const next = this.menuReady ? 1 : world.phase === 'compiling'
+      ? 0.75 + 0.24 * world.compile.done / Math.max(1, world.compile.total)
+      : total ? 0.75 * (world.visual.loaded + world.collision.loaded) / total : 0;
+    this.completedProgress = Math.max(this.completedProgress, next);
+    this.progress.max = 1;
+    if (total || this.menuReady) this.progress.value = this.completedProgress;
+    else this.progress.removeAttribute('value');
+    this.count.textContent = total
+      ? `${world.visual.loaded}/${world.visual.total} models · ${world.collision.loaded}/${world.collision.total} collision cells · ${world.textures.loaded} GPU textures · ${world.compile.done}/${world.compile.total} warmup views · ${loadBytes(world.bytesLoaded)}`
+      : `${loading.completed} tasks complete · ${loading.active[0] ?? 'Starting the engine'}`;
     this.log.textContent = loading.log.slice(-9).join('\n');
   }
 }

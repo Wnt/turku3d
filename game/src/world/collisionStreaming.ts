@@ -12,6 +12,8 @@ import type { CharacterInput, VehicleInput } from '../physics/protocol';
 
 /** Seconds of travel along the heading whose collision is loaded ahead, beyond the radius (collision tiles are small). */
 const AHEAD_SECONDS = 8;
+/** Covers the complete 80 m safe-street search. Runtime swept coverage still guards every actor. */
+export const STARTUP_COLLISION_RADIUS = 80;
 /** Below this speed (m/s) nothing is loaded ahead. */
 const AHEAD_MIN_SPEED = 3;
 /** The hold near unloaded collision: the speed that stops within the distance left at this deceleration (m/s²),

@@ -2,8 +2,8 @@
 
 The draft service is the only world source in play and QA, on localhost and Pages.
 The game starts with an empty runtime inventory (`draftManifest`) and requests the
-nearest-first draft window around the spawn. It finds a nearby mapped street with actual worker-acknowledged collision and samples the car chassis and player footprints, rejecting roofs, walls and unsupported ground. It waits for actual spawn collision,
-then `preloadStarts` retains the collision-radius union of all selectable starts
+nearest-first 80 m draft footprint around the spawn. It finds a nearby mapped street with actual worker-acknowledged collision and samples the car chassis and player footprints, rejecting roofs, walls and unsupported ground. It waits for actual spawn collision,
+then `preloadStarts` retains the 80 m collision union of all selectable starts
 while the loading screen uploads textures and warms the GPU. An offline service
 keeps startup waiting and reports its state; there is no static tile fallback.
 
@@ -11,7 +11,9 @@ keeps startup waiting and reports its state; there is no static tile fallback.
 cells in the physics worker, styles the GLB offscreen, and only then exposes the model.
 `VisualTiles` owns resident models, shadow batches and model lifecycle events; it
 performs no HTTP requests. `CollisionStreamer` loads the draft collision inventory
-by distance and velocity, keeps edge walls at missing cells, and swaps changed cells.
+by distance and velocity, keeps edge walls at missing cells, and swaps changed cells. Entering play restores the normal 200 m ring and velocity lookahead.
+The 80 m startup footprint covers the safe-street search; worker swept coverage and
+speed holds still prevent movement onto collision that has not arrived.
 
 The local service receives position/velocity hints. Pages uses the public HTTPS
 endpoint selected by `VITE_DRAFT_URL` (default `https://turku.lab.madekivi.fi/coarse/`),

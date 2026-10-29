@@ -4,7 +4,7 @@ import type { SaveGameController } from '../gameplay/saveGame';
 import { startPoints, warmupStarts } from '../gameplay/startPoints';
 import { preloadWorld } from './preload';
 
-/** Retain the union, rather than preloading candidates sequentially and evicting an earlier choice. */
+/** Retain nearby ground for all menu choices; the ordinary distance/velocity ring resumes on entry. */
 export async function preloadStarts(world: PlayWorld, feet: { x: number; z: number }, games: (SaveGame | null)[],
   multiplayer: (PlayWorld['spawn']) | null, saves: SaveGameController, audio: Promise<void>[]) {
   const { streamer, coarse } = world;
@@ -23,6 +23,7 @@ export async function preloadStarts(world: PlayWorld, feet: { x: number; z: numb
     if (!retained) return;
     retained = false;
     streamer.retainedStarts = [];
+    streamer.radius = world.params.collisionRadius;
     if (coarse) coarse.retainedStarts = [];
     releaseDrafts?.();
   };

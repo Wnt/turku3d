@@ -14,10 +14,10 @@
       #loading-screen { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 70% 25%, #234e56, #08191f 75%); color: #edf4f3; font: 14px/1.5 system-ui, sans-serif; pointer-events: none; }
       .loading-panel { width: min(720px, calc(100vw - 64px)); }
       .loading-panel h1 { font-size: clamp(26px, 4vw, 42px); margin: 10px 0 24px; }
-      .loading-active { color: #a1ebd3; overflow-wrap: anywhere; max-height: 5em; overflow: hidden; }
+      .loading-active { color: #a1ebd3; overflow-wrap: anywhere; height: 3em; overflow: hidden; }
       .loading-panel progress { width: 100%; height: 6px; accent-color: #a1ebd3; }
-      .loading-count { color: #a6bdbb; font-size: 12px; }
-      .loading-log { color: #9eb5b7; font: 12px/1.8 ui-monospace, Menlo, monospace; height: 17em; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid #47636c; padding-top: 16px; }
+      .loading-count { color: #a6bdbb; font-size: 12px; height: 3em; overflow: hidden; font-variant-numeric: tabular-nums; }
+      .loading-log { color: #9eb5b7; font: 12px/1.8 ui-monospace, Menlo, monospace; height: min(17em, 30vh); overflow: hidden; font-variant-numeric: tabular-nums; white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid #47636c; padding-top: 16px; }
       #loading-screen.menu-ready { inset: auto 12px 12px auto; display: block; width: min(300px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px; border: 1px solid #47636c; border-radius: 8px; background: #08191fe8; }
       .menu-ready .loading-panel { width: 100%; }
       .menu-ready h1, .menu-ready .eyebrow, .menu-ready .loading-log { display: none; }
@@ -155,7 +155,7 @@
       <div class="loading-panel">
         <span class="eyebrow">TURKU3D / CITY BOOT</span><h1>Bringing Turku to life</h1>
         <p class="loading-active" role="status">Downloading game modules…</p>
-        <progress aria-label="Completed loading tasks"></progress><p class="loading-count">Waiting for the engine</p>
+        <progress aria-label="City loading progress"></progress><p class="loading-count">Waiting for the engine</p>
         <pre class="loading-log" aria-label="Technical loading log"></pre>
       </div>
     </section>
