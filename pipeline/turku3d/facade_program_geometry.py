@@ -66,7 +66,9 @@ def wall_parts(vertices, wall, style):
     ]:
         part = quad(*bounds)
         if part:
-            above_full_wall = bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
+            above_full_wall = (
+                bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
+            )
             yield *part, blank if above_full_wall else style
     part = quad(x0, x1, y0, y1)
     if part:
@@ -93,12 +95,31 @@ def wall_parts(vertices, wall, style):
                 yield part[0] + normal * 0.002, part[1], band
     windows = wall["windows"]
     shapes = windows.get("head_shapes", [])
-    boxes = [(r, 1, shapes[i] if i < len(shapes) else field(windows, "head_shape", "flat"))
-             for i, r in enumerate(windows.get("rectangles_m", []))]
-    boxes += [(r, 1, field(wall["base"], "head_shape", "flat")) for r in wall["base"].get("openings_m", [])]
-    boxes += [(d["rect_m"], 2, d.get("head_shape", field(wall["doors"], "head_shape", "flat")))
-              for d in wall["doors"].get("candidates", []) if "rect_m" in d]
-    for (x, y, w, h), kind, shape in boxes:
+    surrounds = windows.get("surround_shapes", [])
+    boxes = [
+        (
+            r,
+            1,
+            shapes[i] if i < len(shapes) else field(windows, "head_shape", "flat"),
+            surrounds[i] if i < len(surrounds) else None,
+        )
+        for i, r in enumerate(windows.get("rectangles_m", []))
+    ]
+    boxes += [
+        (r, 1, field(wall["base"], "head_shape", "flat"), None)
+        for r in wall["base"].get("openings_m", [])
+    ]
+    boxes += [
+        (
+            d["rect_m"],
+            2,
+            d.get("head_shape", field(wall["doors"], "head_shape", "flat")),
+            d.get("surround"),
+        )
+        for d in wall["doors"].get("candidates", [])
+        if "rect_m" in d
+    ]
+    for (x, y, w, h), kind, shape, surround in boxes:
         source_left, source_right = sorted([offset + x * sign, offset + (x + w) * sign])
         left, right = max(x0, source_left), min(x1, source_right)
         bottom, top = max(y0, y0 + y), min(y1, y0 + y + h)
@@ -122,6 +143,41 @@ def wall_parts(vertices, wall, style):
             detail=[0, 0, 0, kind + 4 * HEAD_SHAPES.get(shape, 0)],
         )
         yield points, uv, patch
+        # Qualitative reviewed surrounds use bounded metric layout priors.
+        # Pediments are triangular strips; rustication is interrupted stonework.
+        if surround in ("frame", "pediment", "rustication"):
+            thickness = min(0.14, w * 0.09)
+            strips = [
+                (x - thickness, y - thickness, w + 2 * thickness, thickness),
+                (x - thickness, y + h, w + 2 * thickness, thickness),
+            ]
+            if surround == "rustication":
+                strips += [
+                    (xx, yy, thickness, min(0.24, y + h - yy))
+                    for xx in (x - thickness, x + w)
+                    for yy in np.arange(y, y + h, 0.32)
+                ]
+            else:
+                strips += [(xx, y, thickness, h) for xx in (x - thickness, x + w)]
+            if surround == "pediment":
+                for t in np.linspace(0, 1, 16, endpoint=False):
+                    strips.append(
+                        (x + w * t, y + h + thickness + min(t, 1 - t) * w * 0.35, w / 16, thickness)
+                    )
+            decoration = {
+                **blank,
+                "wall": style["trim"],
+                "base": style["trim"],
+                "bands": [0, 0, 0, 0],
+                "detail": [0, 0, 0, 0],
+            }
+            for left, bottom, rw, rh in strips:
+                left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
+                part = quad(
+                    max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
+                )
+                if part:
+                    yield part[0] + normal * 0.002, part[1], decoration
     # Reviewed balcony rails are positioned rectangles, not a repeated bay pattern.
     balconies = wall.get("balconies", {}).get("value") or []
     rail_style = {
@@ -136,6 +192,8 @@ def wall_parts(vertices, wall, style):
         strips += [(bar, y, 0.04, h) for bar in np.arange(x, x + w, 0.22)]
         for left, bottom, rw, rh in strips:
             left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
-            part = quad(max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh))
+            part = quad(
+                max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
+            )
             if part:
                 yield part[0] + normal * 0.004, part[1], rail_style
