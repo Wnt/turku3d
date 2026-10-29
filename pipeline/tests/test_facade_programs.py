@@ -83,6 +83,7 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     blank = [row for row in parts if row[2]["module"] >= 42]
     # The blank background is cut around the two openings, never drawn behind them.
     import shapely
+
     assert max(row[0][:, 1].max() for row in blank) == 6
     assert sum(shapely.Polygon(row[1]).area for row in blank) == pytest.approx(23.3 * 4 - 10)
     assert any(row[0][:, 1].min() == 6 and row[2]["module"] < 42 for row in parts)
@@ -138,7 +139,11 @@ def test_fallback_periods_are_seeded_and_explicit_evidence_wins():
     assert inferred_period(dict(period_neighbours=[("far", 1890, 81)])) == (None, "plain")
     # A protected residential building is period evidence, not automatically a civic hall.
     assert archetype(dict(heritage="2", register_id="home")) in {
-        "empire", "neo_renaissance", "jugend", "nordic_classicism"}
+        "empire",
+        "neo_renaissance",
+        "jugend",
+        "nordic_classicism",
+    }
 
 
 def test_period_evidence_uses_neighbours_across_tile_edge_without_mutating_dates():
@@ -148,19 +153,27 @@ def test_period_evidence_uses_neighbours_across_tile_edge_without_mutating_dates
 
     b = Building("home", shapely.box(240, 0, 250, 20), 0, 12, "facade_plaster")
     b.attributes = dict(construction_year=1930, levels=4, material_class="brick")
-    enrich(b, {}, dict(buildings=[(b.footprint, dict(
-        construction_year=2010, levels=8, material_class="wood"))]))
+    enrich(
+        b,
+        {},
+        dict(
+            buildings=[(b.footprint, dict(construction_year=2010, levels=8, material_class="wood"))]
+        ),
+    )
     assert b.attributes["construction_year"] == 1930
     assert b.attributes["levels"] == 4
     assert b.attributes["material_class"] == "brick"
     period_evidence(b, [])
     assert "period_neighbours" not in b.attributes
     b.attributes.pop("construction_year")
-    period_evidence(b, [
-        ("home", 1930, b.footprint),
-        ("attached", 1890, shapely.box(250, 0, 260, 20)),
-        ("remote", 2010, shapely.box(400, 0, 410, 20)),
-    ])
+    period_evidence(
+        b,
+        [
+            ("home", 1930, b.footprint),
+            ("attached", 1890, shapely.box(250, 0, 260, 20)),
+            ("remote", 2010, shapely.box(400, 0, 410, 20)),
+        ],
+    )
     assert b.attributes["period_neighbours"] == [("attached", 1890, 0.0)]
     assert "construction_year" not in b.attributes
 
@@ -173,20 +186,46 @@ def test_cached_dated_footprints_and_osm_tags_feed_fallback(tmp_path):
     from turku3d.coarse.register import enrich, period_evidence
 
     lod2 = tmp_path / "bldg.parquet"
-    pq.write_table(pa.Table.from_pylist([
-        dict(feature_key="near", pysyvarakennustunnus="dated", yearOfConstruction="1890",
-             geometry_local=shapely.to_wkb(shapely.box(250, 0, 260, 20))),
-    ]), lod2)
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                dict(
+                    feature_key="near",
+                    pysyvarakennustunnus="dated",
+                    yearOfConstruction="1890",
+                    geometry_local=shapely.to_wkb(shapely.box(250, 0, 260, 20)),
+                ),
+            ]
+        ),
+        lod2,
+    )
     osm = tmp_path / "osm.parquet"
-    pq.write_table(pa.Table.from_pylist([
-        dict(tags=json.dumps(dict(building="apartments", start_date="1905", heritage="2",
-                                  **{"building:cladding": "brick", "roof:shape": "mansard"})),
-             geometry_local=shapely.to_wkb(shapely.box(240, 0, 250, 20))),
-        dict(tags=json.dumps(dict(entrance="yes", amenity="cafe")),
-             geometry_local=shapely.to_wkb(shapely.Point(240, 5))),
-        dict(tags=json.dumps(dict(entrance="yes", shop="bakery")),
-             geometry_local=shapely.to_wkb(shapely.Point(240, 10))),
-    ]), osm)
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                dict(
+                    tags=json.dumps(
+                        dict(
+                            building="apartments",
+                            start_date="1905",
+                            heritage="2",
+                            **{"building:cladding": "brick", "roof:shape": "mansard"},
+                        )
+                    ),
+                    geometry_local=shapely.to_wkb(shapely.box(240, 0, 250, 20)),
+                ),
+                dict(
+                    tags=json.dumps(dict(entrance="yes", amenity="cafe")),
+                    geometry_local=shapely.to_wkb(shapely.Point(240, 5)),
+                ),
+                dict(
+                    tags=json.dumps(dict(entrance="yes", shop="bakery")),
+                    geometry_local=shapely.to_wkb(shapely.Point(240, 10)),
+                ),
+            ]
+        ),
+        osm,
+    )
     evidence = _prepare_one(C.VisualTile(0, 0, 0), "appearance", [osm, lod2])
     b = Building("home", shapely.box(240, 0, 250, 20), 0, 12, "facade_plaster")
     enrich(b, {}, evidence)
@@ -216,35 +255,62 @@ def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_
     from turku3d.facade_kit import renderer
 
     reviewed = program()["walls"][0]
-    reviewed.update(width_m=8, height_m=12, geometry=dict(
-        p0=[C.ORIGIN_E, C.ORIGIN_N], p1=[C.ORIGIN_E + 8, C.ORIGIN_N],
-        base_h=3, normal=[0, 0, -1]),
-        observation=dict(needs_review=False, scope="full-wall"))
+    reviewed.update(
+        width_m=8,
+        height_m=12,
+        geometry=dict(
+            p0=[C.ORIGIN_E, C.ORIGIN_N],
+            p1=[C.ORIGIN_E + 8, C.ORIGIN_N],
+            base_h=3,
+            normal=[0, 0, -1],
+        ),
+        observation=dict(needs_review=False, scope="full-wall"),
+    )
     reviewed["bays"]["support"] = 0.9
-    reviewed["windows"].update(rectangles_m=[[1, 1, 2, 2]], head_shape={"value": "round-arch", "support": .9})
-    reviewed["doors"].update(candidates=[{"rect_m": [4, 0, 1, 3]}], head_shape={"value": "segmental-arch", "support": .9})
-    reviewed["split"]["base_height_m"] = {"value": 2, "support": .9}
+    reviewed["windows"].update(
+        rectangles_m=[[1, 1, 2, 2]], head_shape={"value": "round-arch", "support": 0.9}
+    )
+    reviewed["doors"].update(
+        candidates=[{"rect_m": [4, 0, 1, 3]}],
+        head_shape={"value": "segmental-arch", "support": 0.9},
+    )
+    reviewed["split"]["base_height_m"] = {"value": 2, "support": 0.9}
     monkeypatch.setattr(fp, "measured", lambda key: dict(needs_review=False, walls=[reviewed]))
     description = renderer().register_description("stable", "stable", {}, 10, 12)
     description["wall_colour"] = "#123456"
     monkeypatch.setattr(fp, "read_description", lambda key: description)
-    facades = [dict(coordinates=[[C.ORIGIN_E, C.ORIGIN_N - z],
-                                [C.ORIGIN_E + 10, C.ORIGIN_N - z]],
-                    base_height=3, metadata=dict(facade_index=i)) for i, z in enumerate((0, 2))]
-    monkeypatch.setattr(sf, "building", lambda key: dict(facades=facades))
+    facades = [
+        dict(
+            coordinates=[[C.ORIGIN_E, C.ORIGIN_N - z], [C.ORIGIN_E + 10, C.ORIGIN_N - z]],
+            base_height=3,
+            metadata=dict(facade_index=i),
+        )
+        for i, z in enumerate((0, 2))
+    ]
+    from turku3d import facade_assets
+
+    monkeypatch.setattr(facade_assets, "building", lambda key: dict(facades=facades))
     vertices = np.array([[0, 3, 0], [10, 3, 0], [10, 15, 0], [0, 15, 0]], float)
-    b = SimpleNamespace(key="part", facade_key="stable", base=3, top=15,
-                        footprint=shapely.box(0, 0, 10, 2), attributes={"levels": 4})
+    b = SimpleNamespace(
+        key="part",
+        facade_key="stable",
+        base=3,
+        top=15,
+        footprint=shapely.box(0, 0, 10, 2),
+        attributes={"levels": 4},
+    )
     meshes = sf.wall_meshes(b, np.concatenate([vertices, vertices + [0, 0, 2]]), np.zeros(3))
     diagnostic = meshes[0].extras["facade_program"]
     assert diagnostic["storeys"]["value"] == 4
     assert diagnostic["source"] == "reviewed-overlay"
-    assert [w["paint_source"] for w in diagnostic["walls"]] == ["reviewed-program", "stored-facade-map"]
+    assert [w["paint_source"] for w in diagnostic["walls"]] == [
+        "reviewed-program",
+        "existing-description",
+    ]
     stored = [m for m in meshes if m.extras["material_key"] == "facade_stored"]
-    assert [m.extras.get("facade_index") for m in stored] == [0, 1]
-    # The unobserved 8..10 m strip retains its existing map, with no second base wall.
-    np.testing.assert_allclose(stored[0].positions[:, 0], [8, 10, 10, 8])
+    assert stored == []  # Unobserved strips also use generated material and layout.
     from turku3d.wall_surfaces import validate_meshes
+
     assert validate_meshes(meshes, "fixture")["violations"] == 0
     wall = diagnostic["walls"][0]
     assert wall["wall_id"] == "stable:0"
@@ -273,8 +339,12 @@ def test_pilot_bank_has_three_observed_rows_and_arches_without_changing_register
 
 def test_arch_opening_split_across_fragments_keeps_whole_opening_origin():
     wall = program()["walls"][0]
-    wall.update(measured_geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N],
-        p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2), measured_size=[23.3, 10])
+    wall.update(
+        measured_geometry=dict(
+            p0=[C.ORIGIN_E, C.ORIGIN_N], p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2
+        ),
+        measured_size=[23.3, 10],
+    )
     wall["windows"].update(rectangles_m=[[3, 1, 4, 3]], head_shapes=["round-arch"])
     vertices = np.array([[5, 2, 0], [10, 2, 0], [10, 12, 0], [5, 12, 0]], float)
     parts = list(wall_parts(vertices, wall, compile_wall(wall, 4)))

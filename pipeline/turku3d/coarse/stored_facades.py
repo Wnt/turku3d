@@ -1,9 +1,8 @@
-"""Bind existing facade maps to surveyed draft walls without changing their geometry."""
+"""Surveyed wall matching, exposed shell ownership and generated facade assembly."""
 
 import numpy as np
 
 from turku3d import config as C
-from turku3d.facade_assets import building
 from turku3d.package.gltf import GlbMesh
 
 
@@ -20,7 +19,9 @@ def prepare_walls(facades):
         segment = np.column_stack((en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]))
         width = float(np.linalg.norm(segment[-1] - segment[0]))
         if width >= 0.1:
-            outward = np.asarray(facade["normal"])[[0, 2]] if facade.get("normal") is not None else [0, 0]
+            outward = (
+                np.asarray(facade["normal"])[[0, 2]] if facade.get("normal") is not None else [0, 0]
+            )
             rows.append((facade, segment[0], (segment[-1] - segment[0]) / width, width, outward))
     if not rows:
         return None
@@ -41,9 +42,14 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
     normals = np.column_stack((-tangents[:, 1], tangents[:, 0]))
     distance = np.abs(np.einsum("nvi,ni->nv", delta, normals)).max(axis=1)
     along = np.einsum("nvi,ni->nv", delta, tangents)
-    coverage = np.maximum(0, np.minimum(along.max(axis=1), widths) - np.maximum(along.min(axis=1), 0)) / length
+    coverage = (
+        np.maximum(0, np.minimum(along.max(axis=1), widths) - np.maximum(along.min(axis=1), 0))
+        / length
+    )
     side = outward @ [direction[1], -direction[0]]
-    valid = (np.abs(tangents @ direction) >= 0.995) & (distance <= 0.65) & (coverage >= min_coverage)
+    valid = (
+        (np.abs(tangents @ direction) >= 0.995) & (distance <= 0.65) & (coverage >= min_coverage)
+    )
     valid &= (np.linalg.norm(outward, axis=1) == 0) | (side >= 0.95)
     matches = np.flatnonzero(valid)
     if not len(matches):
@@ -58,7 +64,6 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
         # atlas packing, where sampling past an edge would instead leak into another wall.
         uv = (np.clip(uv * scale + offset, 0, 1) - offset) / scale
     return facade, uv
-
 
 
 def exposed_wall_quads(walls, *, with_owners=False, emit=None):
@@ -82,8 +87,9 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
     priority = sorted(range(len(quads)), key=lambda i: (-quads[i, 2:, 1].max(), -lengths[i], i))
     rank = np.argsort(priority)
     low, high = quads.min(axis=1), quads.max(axis=1)
-    bounds = shapely.box(low[:, 0] - .006, low[:, 2] - .006,
-                         high[:, 0] + .006, high[:, 2] + .006)
+    bounds = shapely.box(
+        low[:, 0] - 0.006, low[:, 2] - 0.006, high[:, 0] + 0.006, high[:, 2] + 0.006
+    )
     tree = shapely.STRtree(bounds)
     result, owners = [], []
     for i, vertices in enumerate(quads):
@@ -91,8 +97,12 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
             continue
         direction = directions[i]
         others = tree.query(bounds[i])
-        others = others[(rank[others] < rank[i]) & (directions[others] @ direction > .99998)
-                        & (high[others, 1] > low[i, 1]) & (low[others, 1] < high[i, 1])]
+        others = others[
+            (rank[others] < rank[i])
+            & (directions[others] @ direction > 0.99998)
+            & (high[others, 1] > low[i, 1])
+            & (low[others, 1] < high[i, 1])
+        ]
         if not len(others):
             result.append(vertices)
             owners.append(i)
@@ -112,10 +122,10 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
         intercept = across[:, 0] - along[:, 0] * slope
         parallel = abs(slope) < 1e-12
         safe_slope = np.where(parallel, 1, slope)
-        ends_a, ends_b = (-.006 - intercept) / safe_slope, (.006 - intercept) / safe_slope
+        ends_a, ends_b = (-0.006 - intercept) / safe_slope, (0.006 - intercept) / safe_slope
         near_left = np.where(parallel, -np.inf, np.minimum(ends_a, ends_b))
         near_right = np.where(parallel, np.inf, np.maximum(ends_a, ends_b))
-        near_right = np.where(parallel & (abs(intercept) > .006), -np.inf, near_right)
+        near_right = np.where(parallel & (abs(intercept) > 0.006), -np.inf, near_right)
         shared_left = np.maximum(shared_left, near_left)
         shared_right = np.minimum(shared_right, near_right)
         candidates = np.flatnonzero(shared_right > shared_left)
@@ -124,9 +134,12 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
             owners.append(i)
             continue
         surface = shapely.Polygon(np.c_[[0, lengths[i], lengths[i], 0], vertices[:, 1]])
-        occluders = [shapely.Polygon(np.c_[along[j], quads[others[j], :, 1]]).intersection(
-            shapely.box(shared_left[j], -10000, shared_right[j], 10000)
-        ) for j in candidates]
+        occluders = [
+            shapely.Polygon(np.c_[along[j], quads[others[j], :, 1]]).intersection(
+                shapely.box(shared_left[j], -10000, shared_right[j], 10000)
+            )
+            for j in candidates
+        ]
         remainder = surface.difference(shapely.union_all(occluders))
         if remainder.equals(surface):
             result.append(vertices)
@@ -150,15 +163,17 @@ def assemble_walls(shells, context=()):
     # Stable source order makes shared-frontage ownership independent of which
     # neighbour builds first. Context is used for occlusion, never emitted here.
     all_shells = [*shells, *context]
-    order = sorted(range(len(all_shells)), key=lambda i: (
-        all_shells[i][0].key, all_shells[i][0].base, all_shells[i][0].footprint.wkb
-    ))
+    order = sorted(
+        range(len(all_shells)),
+        key=lambda i: (all_shells[i][0].key, all_shells[i][0].base, all_shells[i][0].footprint.wkb),
+    )
     shells = [all_shells[i] for i in order]
     counts = [len(shell[4]) // 4 for _, shell in shells]
     if not sum(counts):
         return [np.empty((0, 3)) for _ in range(requested)]
     walls, owners = exposed_wall_quads(
-        np.concatenate([shell[4] for _, shell in shells]), with_owners=True,
+        np.concatenate([shell[4] for _, shell in shells]),
+        with_owners=True,
         emit=np.repeat(np.array(order) < requested, counts),
     )
     source = np.repeat(np.arange(len(shells)), counts)
@@ -175,7 +190,6 @@ def wall_meshes(b, walls, origin):
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
 
-    stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
     # is the eave, including when a gable side has several collinear segments.
@@ -192,7 +206,6 @@ def wall_meshes(b, walls, origin):
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
-        match = match_prepared(vertices, stored)
         wall = program["walls"][start // 4]
         plans = plan(vertices, wall)
         components, _ = geometry(vertices, plans, b.facade_key, origin)
@@ -202,43 +215,33 @@ def wall_meshes(b, walls, origin):
             "render_sections" not in wall or bool(wall["render_sections"])
         )
         wall["paint_source"] = (
-            "reviewed-program" if reviewed else
-            "stored-facade-map" if match else
-            "existing-description" if program.get("description_source") else "rule-sampled"
+            "reviewed-program"
+            if reviewed
+            else "existing-description"
+            if program.get("description_source")
+            else "rule-sampled"
         )
-        if match:
-            wall["stored_facade_index"] = match[0]["metadata"]["facade_index"]
-        if match is None or reviewed:
-            style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
-            style["origin"][1] = b.base
-            for points, uv, instruction in wall_parts(vertices, program["walls"][start // 4], style):
-                if match is not None and instruction.get("unreviewed"):
-                    fallback = match_prepared(points, stored)
-                    if fallback is not None:
-                        for p, uv in surface_parts(points, fallback[1], plans):
-                            meshes.append(stored_mesh(b, p, (fallback[0], uv), origin, f"{start}_{len(meshes)}"))
-                        continue
-                instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
-                for p, tex in surface_parts(points, uv, plans):
-                    # Retessellation can emit thousands of adjacent quads with
-                    # the same program. Keep one exact contiguous vertex range
-                    # instead of serializing its full style for every quad.
-                    if instruction == previous_instruction:
-                        instructions[-1]["count"] += 4
-                    else:
-                        instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
-                        previous_instruction = instruction
-                    program_parts.append((p, tex))
-            continue
-        for p, uv in surface_parts(vertices, match[1], plans):
-            meshes.append(stored_mesh(b, p, (match[0], uv), origin, f"{start}_{len(meshes)}"))
+        style = compile_wall(wall, program["storeys"]["value"])
+        style["origin"][1] = b.base
+        for points, uv, instruction in wall_parts(vertices, wall, style):
+            instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
+            for p, tex in surface_parts(points, uv, plans):
+                # Coalesce only adjacent ranges with identical generated paint.
+                if instruction == previous_instruction:
+                    instructions[-1]["count"] += 4
+                else:
+                    instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
+                    previous_instruction = instruction
+                program_parts.append((p, tex))
     if program_parts:
         meshes.append(
             GlbMesh(
                 f"walls_{b.key}",
                 np.concatenate([p for p, _ in program_parts]) - origin,
-                (np.array([[0, 3, 2], [0, 2, 1]], np.uint32)[None, :, :]
-                 + 4 * np.arange(len(program_parts), dtype=np.uint32)[:, None, None]).reshape(-1, 3),
+                (
+                    np.array([[0, 3, 2], [0, 2, 1]], np.uint32)[None, :, :]
+                    + 4 * np.arange(len(program_parts), dtype=np.uint32)[:, None, None]
+                ).reshape(-1, 3),
                 uvs=np.concatenate([uv for _, uv in program_parts]),
                 color=(1, 1, 1, 1),
                 extras=dict(
@@ -260,24 +263,8 @@ def wall_meshes(b, walls, origin):
         # build() exports this diagnostic program separately before writing the layer GLB.
         meshes[0].extras["facade_program"] = program
         from turku3d.facade_programs import measured
+
         component_slots = slots(walls, measured(b.facade_key), getattr(b, "facade_passage", None))
         if component_slots:
             meshes[0].extras["facade_component_slots"] = component_slots
     return meshes
-
-
-def stored_mesh(b, vertices, match, origin, suffix):
-    f, uv = match
-    meta = f["metadata"]
-    return GlbMesh(
-        f"stored_{b.facade_key}_{meta['facade_index']}_{suffix}",
-        vertices - origin,
-        np.array([[0, 3, 2], [0, 2, 1]], np.uint32),
-        uvs=uv, color=(1, 1, 1, 1),
-        extras=dict(
-            layer="buildings", object_id=f"walls_{b.key}_{suffix}",
-            building_id=meta.get("building_id", b.facade_key),
-            facade_index=meta["facade_index"], material_key="facade_stored",
-            surface="wall", base_height=b.base, top_height=b.top,
-        ),
-    )

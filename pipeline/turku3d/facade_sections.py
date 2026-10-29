@@ -1,4 +1,4 @@
-"""Compile partial readings without replacing preserved maps or unobserved regions."""
+"""Compile partial readings over generated treatment for unobserved regions."""
 
 import copy
 
@@ -19,8 +19,11 @@ def prepare(program):
         if form.get("floors"):
             # Recompile retained forms so old published arrays cannot bypass the
             # current per-row confidence policy. Never mutate the source files.
-            wall.update(compile_structure({**wall, **wall["geometry"]}, form,
-                                          program.get("storeys", {}).get("value")))
+            wall.update(
+                compile_structure(
+                    {**wall, **wall["geometry"]}, form, program.get("storeys", {}).get("value")
+                )
+            )
         if not form.get("render_deferred"):
             # An explicitly reviewed negative clears sampled balcony rails.
             if form.get("balconies") == [] and form.get("confidence", {}).get("balconies", 0) > 0:
@@ -36,7 +39,9 @@ def prepare(program):
         wall["geometry_pending"] = pending
         wall["render_sections"] = parts
         wall["unsupported"] = unsupported
-        wall["observation"].update(needs_review=not bool(parts or features), scope="partial-sections")
+        wall["observation"].update(
+            needs_review=not bool(parts or features), scope="partial-sections"
+        )
     program["needs_review"] = all(
         w.get("observation", {}).get("needs_review", True) for w in program.get("walls", [])
     )
@@ -73,6 +78,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         if part is None:
             continue
         from turku3d.facade_inference import material
+
         mat = material(section["material"])
         if section["kind"] is None:
             module = style["module"]
@@ -90,7 +96,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         form = dict(
             wall_id=wall["wall_id"],
             floors_visible=rows,
-            material=section["material"],
+            material={"plaster": "render", "concrete": "concrete_panel"}.get(mat, mat),
             ornament=None,
             cornice=None,
             string_courses=[],

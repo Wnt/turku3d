@@ -5,8 +5,8 @@ import copy
 import numpy as np
 
 from turku3d import config as C
-from turku3d.facade_kit import MATERIALS
 from turku3d.facade_inference import material as normalize_material
+from turku3d.facade_kit import MATERIALS
 from turku3d.facade_programs import HEAD_SHAPES, field
 
 
@@ -112,7 +112,7 @@ def _paint_layers(vertices, wall, style):
             if part:
                 band = {
                     **style,
-                    "module": 42,
+                    "module": style.get("trim_module", blank["module"]),
                     "wall": style["trim"],
                     "base": style["trim"],
                     "bands": [0, 0, 0, 0],
@@ -126,8 +126,12 @@ def _paint_layers(vertices, wall, style):
         (
             r,
             1,
-            shapes[i] if i < len(shapes) and shapes[i] is not None else field(windows, "head_shape", "flat"),
-            surrounds[i] if i < len(surrounds) and surrounds[i] is not None else field(windows, "surround_shape"),
+            shapes[i]
+            if i < len(shapes) and shapes[i] is not None
+            else field(windows, "head_shape", "flat"),
+            surrounds[i]
+            if i < len(surrounds) and surrounds[i] is not None
+            else field(windows, "surround_shape"),
         )
         for i, r in enumerate(windows.get("rectangles_m", []))
     ]
@@ -138,7 +142,9 @@ def _paint_layers(vertices, wall, style):
         (
             r,
             1,
-            base_shapes[i] if i < len(base_shapes) and base_shapes[i] is not None else field(base, "head_shape", "flat"),
+            base_shapes[i]
+            if i < len(base_shapes) and base_shapes[i] is not None
+            else field(base, "head_shape", "flat"),
             base_surrounds[i] if i < len(base_surrounds) else None,
         )
         for i, r in enumerate(base.get("openings_m", []))
@@ -153,8 +159,10 @@ def _paint_layers(vertices, wall, style):
         for d in wall["doors"].get("candidates", [])
         if "rect_m" in d
     ]
-    boxes += [(n["rect_m"], 4, n.get("head_shape", "flat"), n.get("surround"))
-              for n in wall.get("niches", [])]
+    boxes += [
+        (n["rect_m"], 4, n.get("head_shape", "flat"), n.get("surround"))
+        for n in wall.get("niches", [])
+    ]
     for (x, y, w, h), kind, shape, surround in boxes:
         source_left, source_right = sorted([offset + x * sign, offset + (x + w) * sign])
         left, right = max(x0, source_left), min(x1, source_right)
@@ -186,20 +194,28 @@ def _paint_layers(vertices, wall, style):
         if kind == 4:
             # A blind niche is an opaque recessed wall panel, never glass or a
             # ground-level door. Keep its counted window-like position and arch.
-            colour = "#" + "".join(f"{round(int(style['wall'][i:i+2], 16) * .92):02x}"
-                                    for i in (1, 3, 5))
-            niche = {**blank, "wall": colour, "base": colour,
-                     "bands": [0, 0, 0, 0], "detail": [0, 0, 0, 0]}
-            radius = {"round-arch": min(w / 2, h / 2),
-                      "segmental-arch": min(w / 4, h / 3),
-                      "pointed-arch": min(w / 2, h / 2)}.get(shape, 0)
+            colour = "#" + "".join(
+                f"{round(int(style['wall'][i : i + 2], 16) * 0.92):02x}" for i in (1, 3, 5)
+            )
+            niche = {
+                **blank,
+                "wall": colour,
+                "base": colour,
+                "bands": [0, 0, 0, 0],
+                "detail": [0, 0, 0, 0],
+            }
+            radius = {
+                "round-arch": min(w / 2, h / 2),
+                "segmental-arch": min(w / 4, h / 3),
+                "pointed-arch": min(w / 2, h / 2),
+            }.get(shape, 0)
             xs = np.linspace(source_left, source_right, 17 if radius else 2)
             for xa, xb in zip(xs[:-1], xs[1:], strict=True):
                 xa, xb = max(left, xa), min(right, xb)
                 roof = []
                 for xx in (xa, xb):
                     t = np.clip(2 * (xx - source_left) / w - 1, -1, 1)
-                    curve = 1 - abs(t) if shape == "pointed-arch" else np.sqrt(max(0, 1 - t*t))
+                    curve = 1 - abs(t) if shape == "pointed-arch" else np.sqrt(max(0, 1 - t * t))
                     roof.append(min(top, y0 + y + h - radius + radius * curve))
                 strip = quad(xa, xb, bottom, max(roof))
                 if strip is not None and min(roof) >= bottom:
@@ -231,6 +247,7 @@ def _paint_layers(vertices, wall, style):
                     )
             decoration = {
                 **blank,
+                "module": style.get("trim_module", blank["module"]),
                 "wall": style["trim"],
                 "base": style["trim"],
                 "bands": [0, 0, 0, 0],
@@ -244,6 +261,7 @@ def _paint_layers(vertices, wall, style):
                 if part:
                     yield *part, decoration, 3
     from turku3d.facade_style_geometry import details
+
     yield from details(wall, style, blank, boxes, quad, x0, x1, y0, y1, offset, sign)
 
     # Ornament levels are bounded layout priors, not invented sculptures or lettering.
@@ -252,6 +270,7 @@ def _paint_layers(vertices, wall, style):
         thickness = {"low": 0.035, "medium": 0.07, "high": 0.11}[ornament]
         decoration = {
             **blank,
+            "module": style.get("trim_module", blank["module"]),
             "wall": style["trim"],
             "base": style["trim"],
             "bands": [0, 0, 0, 0],
