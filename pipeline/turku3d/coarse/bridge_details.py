@@ -41,7 +41,9 @@ def style(way):
         else "concrete"
     )
     thickness = (
-        (0.28 if foot else 0.6) if structure in ("arch", "humpback") else (0.45 if foot else 0.85)
+        (0.28 if foot else 0.6)
+        if structure in ("arch", "humpback")
+        else ((0.32 if way.get("stair_access") else 0.45) if foot else 0.85)
     )
     if rail:
         thickness = 1.1
@@ -75,7 +77,7 @@ def style(way):
         foot=foot,
         railway=rail,
         support=body,
-        rail_surface="steel",
+        rail_surface="paint" if way.get("stair_access") and body == "concrete" else "steel",
         arch_edge=False,
     )
     result.update(PROFILES.get(tags.get("wikidata"), {}))
@@ -95,12 +97,15 @@ def combine(meshes, key):
             mesh.material,
             mesh.metadata.get("surface", "concrete"),
             mesh.metadata.get("collision", True),
+            mesh.visual,
         )
         faces = groups.setdefault(group, Faces())
         faces.triangles(mesh.positions, mesh.indices, mesh.uvs)
     return [
-        appearance(f.mesh(f"{key}:{surface}:{i}", material), surface, collision=solid)
-        for i, ((material, surface, solid), f) in enumerate(groups.items())
+        appearance(
+            f.mesh(f"{key}:{surface}:{i}", material, visual=visible), surface, collision=solid
+        )
+        for i, ((material, surface, solid, visible), f) in enumerate(groups.items())
         if f.indices
     ]
 
@@ -109,6 +114,102 @@ def wall(key, line, bottom, top, thickness, surface, material="wall"):
     return appearance(
         profile_wall(key, line, bottom, top, thickness=thickness, material=material), surface
     )
+
+
+def tube(key, a, b, radius, surface="paint", material="railing", sides=6):
+    """Low-sided round stock for handrails, balusters and concrete columns."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    direction = b - a
+    length = np.linalg.norm(direction)
+    direction /= length
+    normal = np.cross(direction, [0, 1, 0] if abs(direction[1]) < 0.9 else [1, 0, 0])
+    normal /= np.linalg.norm(normal)
+    other = np.cross(direction, normal)
+    angle = np.arange(sides) * (2 * np.pi / sides)
+    ring = radius * (np.cos(angle)[:, None] * normal + np.sin(angle)[:, None] * other)
+    bottom, top = a + ring, b + ring
+    faces = Faces()
+    for i in range(sides):
+        j = (i + 1) % sides
+        faces.face([bottom[i], bottom[j], top[j], top[i]])
+    faces.face(bottom[::-1])
+    faces.face(top)
+    return appearance(faces.mesh(key, material), surface)
+
+
+def handrail(key, line, heights, height=1.1, surface="paint"):
+    """Tubular top/bottom rails and close vertical infill on a measured profile."""
+    from .bridges import samples
+
+    stations, posts = samples(line, 0.16)
+    yy = np.interp(stations, heights[0], heights[1])
+    meshes = []
+    rail_s = np.unique(np.r_[heights[0], 0, line.length])
+    rail_p = shapely.get_coordinates(shapely.line_interpolate_point(line, rail_s))
+    rail_y = np.interp(rail_s, heights[0], heights[1])
+    for lift, radius in ((0.12, 0.018), (height, 0.028)):
+        for a, b, ya, yb in zip(rail_p[:-1], rail_p[1:], rail_y[:-1], rail_y[1:], strict=True):
+            meshes.append(
+                tube(key, [a[0], ya + lift, a[1]], [b[0], yb + lift, b[1]], radius, surface)
+            )
+    for i, (point, y) in enumerate(zip(posts, yy, strict=True)):
+        meshes.append(
+            tube(
+                key,
+                [point[0], y + 0.1, point[1]],
+                [point[0], y + height, point[1]],
+                0.024 if i % 10 == 0 else 0.012,
+                surface,
+            )
+        )
+    return meshes
+
+
+def roadside_supports(way, height_at, sample_ground, polygon, obstacles):
+    """Slim columns immediately outside the crossed carriageways, never in a lane."""
+    from .bridges import PATHS
+
+    roads = [w for w in way.get("under", []) if w["tags"].get("highway") not in PATHS]
+    if not roads:
+        return []
+    axis = way["line"]
+    road = shapely.union_all([w["line"].buffer(w["width"] / 2) for w in roads])
+    crossing = axis.intersection(road.buffer(0.65))
+    meshes = []
+    stations = sorted(
+        {
+            axis.project(shapely.Point(p))
+            for part in shapely.get_parts(crossing)
+            if part.geom_type == "LineString"
+            for p in (part.coords[0], part.coords[-1])
+        }
+    )
+    if not stations:
+        return []
+    for station in (stations[0], stations[-1]):
+        p = np.asarray(axis.interpolate(float(station)).coords[0])
+        footprint = shapely.Point(p).buffer(0.28)
+        if (
+            road.intersects(footprint)
+            or obstacles.intersects(footprint)
+            or not polygon.covers(footprint)
+        ):
+            continue
+        top = float(height_at(np.array([p]))[0]) - style(way)["thickness"]
+        bottom = float(sample_ground(np.array([p]))[0]) - 0.25
+        if top - bottom > 1:
+            meshes.append(
+                tube(
+                    f"draft-bridge:{way['id']}:column",
+                    [p[0], bottom, p[1]],
+                    [p[0], top, p[1]],
+                    0.26,
+                    "concrete",
+                    "wall",
+                    sides=8,
+                )
+            )
+    return meshes
 
 
 # Survey/OSM outlines can split one crossing into adjacent road and path decks.
@@ -182,12 +283,21 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
     key = f"draft-bridge:{way['id']}"
     spec = style(way)
     meshes = []
+    road_footbridge = spec["foot"] and any(
+        w["tags"].get("highway") not in PATHS for w in way.get("under", [])
+    )
     # Join source vertices before rejecting fragments shorter than one post bay.
     for part in shapely.get_parts(shapely.line_merge(rail_lines)):
         if part.geom_type not in ("LineString", "LinearRing") or part.length < 1.8:
             continue
         _, side = samples(part, 1.8)
         base = height_at(side)
+        if spec["foot"] and spec["railing"] not in ("stone", "concrete", "wall", "parapet"):
+            distances = np.array([part.project(shapely.Point(p)) for p in side])
+            meshes.extend(
+                handrail(key, part, (distances, base), spec["rail_height"], spec["rail_surface"])
+            )
+            continue
         # A raised edge beam has visible depth and anchors the posts.
         for a, b, y0, y1 in zip(side[:-1], side[1:], base[:-1], base[1:], strict=True):
             line, hh = np.array([a, b]), np.array([y0, y1])
@@ -242,7 +352,17 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
     direction = (b - a) / np.linalg.norm(b - a)
     normal = np.array([-direction[1], direction[0]])
     # End walls extend into the bank, never across a mapped lower way.
-    if not way.get("landing"):
+    if road_footbridge:
+        meshes.extend(
+            roadside_supports(
+                way,
+                height_at,
+                sample_ground,
+                polygon,
+                way.get("obstacles", shapely.GeometryCollection()),
+            )
+        )
+    if not way.get("landing") and not road_footbridge:
         for endpoint, sign in ((a, -1), (b, 1)):
             centre = endpoint + direction * sign * 0.8
             line = np.array(
@@ -255,11 +375,16 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
             meshes.append(wall(key, line, bottom, top, 1.6, spec["support"]))
     # Type-based supports are explicitly fallback dimensions, not claimed lidar measurements.
     stations = []
-    if not way.get("landing") and spec["structure"] not in (
-        "arch",
-        "humpback",
-        "suspension",
-        "cable-stayed",
+    if (
+        not way.get("landing")
+        and not road_footbridge
+        and spec["structure"]
+        not in (
+            "arch",
+            "humpback",
+            "suspension",
+            "cable-stayed",
+        )
     ):
         spans = max(1, int(np.ceil(axis.length / (35 if spec["foot"] else 40))))
         stations = np.linspace(0, axis.length, spans + 1)[1:-1].tolist()
@@ -397,6 +522,7 @@ def texture(surface):
         "wood": (110, 91, 70),
         "ballast": (107, 103, 95),
         "paint": (224, 222, 206),
+        "rock": (127, 128, 122),
     }
     noise = rng.normal(0, 4 if surface != "steel" else 1, (128, 128))
     if surface == "stone":
@@ -405,6 +531,9 @@ def texture(surface):
         noise += 4 * np.sin(x * np.pi / 2) - 24 * (x % 32 < 2)
     elif surface == "ballast":
         noise += np.repeat(np.repeat(rng.normal(0, 14, (32, 32)), 4, 0), 4, 1)
+    elif surface == "rock":
+        noise += 9 * np.sin(x * np.pi / 32 + 2 * np.sin(y * np.pi / 64))
+        noise -= 28 * (np.abs(np.sin((x + y) * np.pi / 64)) < 0.06)
     pixels = np.clip(np.array(palette[surface])[None, None, :] + noise[:, :, None], 0, 255).astype(
         np.uint8
     )

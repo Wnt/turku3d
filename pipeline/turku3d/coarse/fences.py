@@ -80,6 +80,8 @@ def prepare(tile, path):
     window = shapely.box(*tile.bbox.as_tuple())
     for _, row in source_rows(path, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
+        if tags.get("natural") == "cliff":
+            tags = dict(tags, barrier="retaining_wall")
         if (
             not tags.get("highway")
             and tags.get("barrier") not in DEFAULTS

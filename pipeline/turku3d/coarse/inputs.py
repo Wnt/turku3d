@@ -48,6 +48,7 @@ DEPENDENCIES = {
     "roads": (
         "bridges.py",
         "bridge_survey.py",
+        "bridge_access.py",
         "tunnels.py",
         "bridge_details.py",
         "underpasses.py",
@@ -67,7 +68,7 @@ DEPENDENCIES = {
         "area.py",
         "../spatial.py",
     ),
-    "stairs": ("stairs.py", "../spatial.py"),
+    "stairs": ("stairs.py", "stair_survey.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "ortho_canopy": ("ortho_cleanup.py", "../vegetation/trees.py"),
     "markings": ("surfaces.py", "../spatial.py"),
@@ -454,7 +455,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "tunnels": [osm] if osm else None,
-        "stairs": [osm] if osm else None,
+        "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm]
         if all(found for found, _ in wfs)
         else None,
@@ -516,7 +517,7 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "stairs":
         from .stairs import prepare as prepare_stairs
 
-        return prepare_stairs(tile, paths[0])
+        return prepare_stairs(tile, paths[0], paths[1:])
     if dataset == "tunnels":
         from .tunnels import prepare as prepare_tunnels
 
