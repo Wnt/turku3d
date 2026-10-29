@@ -1,124 +1,59 @@
-# LAN party, 30 October 2026
+# LAN warm-up, 30 October 2026
 
-Readiness owner: `lan-party-readiness`. Jonni plays on his own machine; probes use
-the assigned Mac sandbox and OCI only. Public game:
-<https://wnt.github.io/turku-game/game/>. Generator and multiplayer:
-<https://turku.lab.madekivi.fi/>.
+Jonni's own OCI playtests are the primary LAN readiness evidence. This agent owns
+cache warm-up, the generator freeze and coverage reporting.
 
-## Freeze and prewarm
+Generator freeze: **30 October 04:00 Europe/Helsinki (02:00 UTC)** unless the
+orchestrator changes it. The host `~/turku3d-drafts/LAN_FREEZE.json` records the
+cutoff, then the frozen commit, producer hash and active unit. Changed generator
+deploys are refused after cutoff; fix forward with the orchestrator. No rollbacks.
 
-Generator cutoff: **30 October 04:00 Europe/Helsinki (02:00 UTC)** unless the
-orchestrator changes it. The host `~/turku3d-drafts/LAN_FREEZE.json` stores the
-cutoff and, when captured, the deployed commit, producer hash and service unit.
-After cutoff, changed generator deployment is refused before the producer switch.
-Client-only Pages fixes remain allowed and require the ten-player smoke below.
-Coordinate forward exceptions with the orchestrator; never roll back.
+The normal scheduler yields to player demand. With players present, at most one
+spare worker warms fully prepared inputs and any queued player work preempts it.
+After 120 seconds without players it uses all four workers: spawn rings, the
+**885-tile mission/delivery corridor** (153 sites, 12 landmarks), then the wider
+**2,401-tile walk**. Recent outer probes follow that walk when fully idle.
+NoCoverage is unavailable source area, not a build failure; its retries wait for
+a changed generator/input identity. Do not disconnect players or start a bulk builder.
 
-From this task's checkout:
+Rebuildable caches live at **`/srv/turku3d/fast-cache`**. Keep the existing symlinks
+for `.stages`, `.inputs`, lidar, coarse-roofs, coarse-area and input caches intact;
+**do not move them back to the boot disk**. Keep at least 5 GiB free on `/` and
+15 GiB on the data volume. Low disk pauses warming; it must not delete warmed
+stages to chase boot space. Current manifests and last-full payloads stay protected.
+
+From the assigned checkout, run one observer only:
 
 ```sh
 source ../sandbox.env
-python3 scripts/dev/lan_freeze.py arm --freeze-at 2026-10-30T04:00:00+02:00
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/lan_party.py watch
 ```
 
-Run one watcher only. It sends the 03:30 reminder, records the frozen generator,
-reports prewarm start/50%/done, and tests when the mission corridor is warm while
-continuing wider coverage afterward. Receipts are in
-`$TURKU3D_WORK/reports/lan-party/{freeze,latest,watch-state}.json` and
-`coverage.jsonl`. Deadline: 09:00 EET. If warming is incomplete, the watcher starts
-the test at 08:45 and reports incomplete coverage explicitly.
+It sends the 03:30 freeze reminder, captures the frozen
+commit at 04:00, and reports warm-up start/50%/done or incomplete coverage by09:00.
+Receipts: `$TURKU3D_WORK/reports/lan-party/{freeze,latest,watch-state}.json` and
+`coverage.jsonl`. Coverage checks current generator/input/facade identities and
+payload lengths. Unsupported tiles remain separate from built coverage. ETA uses
+recent worker means, then observed frozen-cache growth; player interruptions count.
 
-The normal scheduler uses at most one spare worker while players are online and
-all four workers after 120 seconds without player activity. Order: spawn rings,
-**885** mission-corridor tiles (153 destinations,
-12 landmarks), then **2,401** tiles in the wider walk. It builds structural
-first + textured full passes and skips current full identities. Player demand
-and multiplayer presence preempt warming. Do not disconnect players or start a
-competing bulk builder. `NoCoverage` tiles are unavailable source area, reported
-separately from built coverage and genuine generation failures.
+Inspect operational warm-up health on OCI:
 
 ```sh
-python3 scripts/dev/lan_party.py snapshot
-python3 scripts/dev/lan_freeze.py status
-```
-
-The snapshot validates generator, raw-input and facade identities and referenced
-payload lengths. Coverage uses the complete planned denominator; unavailable tiles
-are never counted as built. ETA is an optimistic four-worker estimate from recent
-successful first/full worker means; player interruptions, ring barriers and long
-tails add time.
-The watch also reports an ETA from observed frozen-cache coverage growth once
-four more tiles and two minutes have elapsed, including player interruptions.
-Keep **5 GiB free on `/` and 15 GiB on `/srv/turku3d`**. Retention
-protects current full/first manifests and their payloads, including `last-full.json`;
-do not delete warmed tile directories, shared assets, raw inputs or facade stores.
-
-## Start and verify
-
-Use the repository's SSH identity (the `oci-drafts` alias is not configured here):
-
-```sh
-ssh -o IdentitiesOnly=yes -i ~/.ssh/oci_cuttlefish ubuntu@82.70.50.61
-# On OCI, use the recorded active slot; do not start the retired turku-drafts unit.
-systemctl --user start "$(cat ~/turku3d-drafts/ACTIVE_UNIT)" turku-mp-server turku-drafts-proxy turku-forwarder-agent
-df -h / /srv/turku3d
-free -h                       # available RAM and swap used
-swapon --show --bytes          # expected: 2 GiB zstd zram, no boot-disk swap
 curl --max-time 2 -fsS http://127.0.0.1:7764/coarse/health
 curl --max-time 2 -fsS http://127.0.0.1:7700/healthz
-tail -n 20 ~/turku3d-drafts/reports/service.log
+free -h
+swapon --show --bytes
+df -h / /srv/turku3d
 ```
 
-From the Mac, curl smoke stays within five seconds total. Inspect response bodies:
+Read `prebuild` mode/capacity/cached/route_cached/unavailable/failed and rolling
+full outcomes, p50 and error kinds. HTTP200 alone is insufficient; full failures,
+cancellations or p50>10s keep health red. `codex-task checks --last 3` exposes the
+sentinel alert line; empty samples prove availability only. Multiplayer needs
+`ok:true`. OCI has 2 GiB zstd zram; swap above about1GiB means too many workers.
 
-```sh
-curl --max-time 2 -fsS https://turku.lab.madekivi.fi/coarse/health
-curl --max-time 2 -fsS https://turku.lab.madekivi.fi/healthz
-scripts/dev/codex-task checks --last 3
-```
-
-The `checks` sentinel line must have `alerts: []`. Generator health must be online,
-not draining, with no recent genuine full failures/cancellations, full success
-at least 99%, and full p50 at most 10 s. Empty build samples prove availability
-only. Inspect `prebuild` progress/failures and `visual_audits` too. Multiplayer
-must have `ok: true`; compare rejection/pose counters over the test, not their
-lifetime totals. The ten-player receipt reports latency, accepted/rejected poses,
-CPU/RAM samples, payload readiness and rendered arrival/frame times.
-OCI has persistent 2 GiB zstd zram swap with `vm.swappiness=10`. During the
-ten-player test, **swap used above about 1 GiB means too many workers**; the
-readiness receipt records peak swap and stays red above that threshold. Report
-the pressure to the orchestrator before changing the frozen worker configuration.
-
-```sh
-# This command owns a hard 600 s wall budget, including host/browser slot waits.
-python3 scripts/dev/lan_test.py --output "$TURKU3D_WORK/reports/lan-party/ten-player"
-```
-
-It runs `ten-drivers.py` at 50 km/h on ten real directed routes, ten production
-multiplayer sockets at 20 Hz, and `probe_tile_arrival.py --warmed-cache`
-concurrently. Require zero late/missing crossings, ten surviving sockets, no new
-rejections, at least 95% accepted poses, ping p95 <250 ms, full visuals by arrival
-+5 s, frame p95 <=33.3 ms / p99 <=50 ms, and at least 110 seconds of overlapping
-socket/render measurement. One rendered client measures frames; this is not ten
-simultaneous GPU clients. The HTTP drivers check collision/basic visuals; the
-shared client yardstick checks textured arrival. Unavailable source tiles remain
-a known play-area limit even when every supported tile is warmed.
-
-## If generation lags
-
-Check `prebuild.state`, workers, queue, disk, failures and player presence first.
-When players leave, let idle warming resume; raise useful warmed coverage before
-inviting all players. More than four CPU workers is not a safe speed fix on this
-four-core host. If low disk persists, report it; do not sacrifice warmed output.
-For a wedged producer, record health/logs and restart only its recorded active
-unit on OCI: `systemctl --user restart "$(cat ~/turku3d-drafts/ACTIVE_UNIT)"`.
-This keeps the source and disk cache; multiplayer and the tunnel stay running.
-Allow in-flight work to drain. Multiplayer restarts lose current-hour sessions
-and scores, so reserve them for an identified multiplayer failure.
-
-Fix forward on an isolated branch, select affected checks and use
-`codex-task finish`; do not bypass the freeze for a generator fix. Report red
-smoke or test results immediately to the orchestrator with the exact commit and
-receipt path. An HTTP 200, old full manifest or partial route warm is insufficient
-evidence of LAN readiness.
+If generation lags, let player demand win and check queue, inputs, disk and errors.
+Report blockers to the orchestrator. For an identified wedged producer, record logs
+and restart only `systemctl --user restart "$(cat ~/turku3d-drafts/ACTIVE_UNIT)"`.
+Keep multiplayer/tunnel running; multiplayer restart loses current-hour sessions.
+Do not bypass the freeze, prune warmed outputs or claim LAN acceptance from warm-up.

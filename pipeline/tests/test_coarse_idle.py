@@ -162,13 +162,11 @@ def test_visible_warm_job_is_promoted_and_never_cancelled(tmp_path):
     assert "t0_0_0" not in b.cancelled
 
 
-def test_boot_floor_recovers_and_does_not_reclaim_at_twelve_gib(tmp_path):
+def test_boot_floor_recovers_at_five_gib(tmp_path):
     b, idle, now = idle_builder(tmp_path, [(0, "t0_0_0")])
     idle.free = lambda: {"data": MIN_FREE + 1, "boot": 12 * 1024**3}
-    idle.reclaim_outer_stages = Mock()
     idle.tick()
     assert b.priority
-    idle.reclaim_outer_stages.assert_not_called()
     idle.free = lambda: {"data": MIN_FREE + 1, "boot": MIN_BOOT_FREE - 1}
     idle.tick()
     assert idle.state == "low-disk"
@@ -176,6 +174,18 @@ def test_boot_floor_recovers_and_does_not_reclaim_at_twelve_gib(tmp_path):
     idle.free = lambda: {"data": MIN_FREE + 1, "boot": MIN_BOOT_FREE + 1}
     idle.tick()
     assert b.priority and not idle.disk_stopped
+
+
+def test_low_boot_space_preserves_data_volume_stage_cache(tmp_path):
+    b, idle, _ = idle_builder(tmp_path, [(0, "t0_0_0")])
+    cache = tmp_path / ".stages/t0_24_24/terrain/entry.pkl"
+    cache.parent.mkdir(parents=True)
+    cache.write_bytes(b"warmed-stage")
+    idle.free = lambda: {"data": MIN_FREE + 1, "boot": MIN_BOOT_FREE - 1}
+    idle.tick()
+    assert idle.state == "low-disk"
+    assert not b.priority
+    assert cache.read_bytes() == b"warmed-stage"
 
 
 def test_recent_visible_tiles_survive_restart_without_player_positions(tmp_path):
@@ -186,6 +196,16 @@ def test_recent_visible_tiles_survive_restart_without_player_positions(tmp_path)
     idle2.tick()
     assert "t0_4_2" in idle2.recent
     assert next(idle2.candidates()) == (-1, "t0_4_2")
+
+
+def test_fully_idle_walk_precedes_recent_outer_probe_history(tmp_path):
+    walk = [(0, "t0_0_0"), (1, "t0_1_0"), (43, "t0_2_2")]
+    _, idle, now = idle_builder(tmp_path, walk)
+    idle.walk = walk
+    idle.recent = {"t0_24_24": 1, "t0_2_2": 2}
+    idle.online = False
+    now[0] = IDLE_SECONDS + 1
+    assert list(idle.candidates()) == [*walk, (-1, "t0_24_24")]
 
 
 def test_finished_warm_slot_is_reused_when_route_order_changes(tmp_path):

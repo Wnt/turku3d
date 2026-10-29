@@ -4,7 +4,22 @@ import json
 
 from turku3d.facade_kit import parameter_hash
 
+from .build_health import error_kind
 from .sources import NoCoverage
+
+
+def unavailable_reply(builder, tile):
+    error = builder.failed.get(tile, (None, 0))[0]
+    if (
+        error
+        and error_kind(error) == "NoCoverage"
+        and builder.failure_codes.get(tile) == builder.failure_key(tile)
+    ):
+        builder.priority.pop(tile, None)
+        builder.upgrade_queue.discard(tile)
+        builder.journal.discard(tile)
+        return dict(state="failed", error=error)
+    return None
 
 
 def tile_current(self, tile: str, code: str | None = None) -> bool:

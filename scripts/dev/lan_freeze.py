@@ -17,7 +17,7 @@ p=pathlib.Path({MARKER!r})
 if p.exists():
  r=json.loads(p.read_text())
  if datetime.datetime.now(datetime.timezone.utc) >= datetime.datetime.fromisoformat(r['freeze_at']):
-  raise SystemExit('LAN generator freeze active since '+r['freeze_at']+'; publish client-only Pages fixes and run the ten-player smoke. Coordinate a forward generator exception with orchestrator.')
+  raise SystemExit('LAN generator freeze active since '+r['freeze_at']+'; publish client-only Pages fixes. Coordinate a forward generator exception with orchestrator.')
 """)
 
 

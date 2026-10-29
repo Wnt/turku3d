@@ -171,8 +171,11 @@ class IdlePrebuild:
         recent = sorted(self.recent, key=self.recent.get, reverse=True)
         ring_limit = self.summary.get("route_last_ring", 0)
         walk = self.walk if self.fully_idle() else [(r, t) for r, t in self.walk if r <= ring_limit]
+        preferred = [*((-2, t) for t in ahead), *((-1, t) for t in recent)]
+        # With no players, finish spawn/mission rings before recent outer probes.
+        ordered = [*walk, *preferred] if self.fully_idle() else [*preferred, *walk]
         seen = set()
-        for ring, tile in [*((-2, t) for t in ahead), *((-1, t) for t in recent), *walk]:
+        for ring, tile in ordered:
             if tile not in seen:
                 seen.add(tile)
                 yield ring, tile
@@ -200,37 +203,8 @@ class IdlePrebuild:
         available = self.free()
         return available if isinstance(available, dict) else {"data": available, "boot": available}
 
-    def reclaim_outer_stages(self):
-        """Drop only outermost rebuildable stage entries, never served payloads."""
-        from .retention import tile_lock
-
-        root = self.builder.root / ".stages"
-        candidates = []
-        with self.builder.lock:
-            active = set(self.builder.building)
-        for stage in root.glob("t0_*_*"):
-            if not stage.is_dir() or stage.name in active:
-                continue
-            try:
-                tile = C.VisualTile.parse(stage.name)
-            except ValueError:
-                continue
-            candidates.append((max(abs(tile.i), abs(tile.j)), stage))
-        for _, stage in sorted(candidates, reverse=True):
-            if self.free_bytes()["boot"] >= MIN_BOOT_FREE:
-                break
-            with tile_lock(self.builder.root / stage.name, blocking=False) as acquired:
-                if not acquired:
-                    continue
-                for file in stage.rglob("*.pkl"):
-                    if file.is_file() and not file.is_symlink():
-                        file.unlink()
-
     def disk_ok(self):
         available = self.free_bytes()
-        if available["boot"] < MIN_BOOT_FREE:
-            self.reclaim_outer_stages()
-            available = self.free_bytes()
         if available["data"] < MIN_FREE or available["boot"] < MIN_BOOT_FREE:
             with self.builder.lock:
                 self.disk_stopped = True
