@@ -19,10 +19,13 @@ def upgrade_order(builder, tile):
 def next_upgrade(builder):
     if builder.draining:
         return None
-    # Leave one of the fixed worker slots available for a newly predicted crossing.
-    if builder.demand.clients and len(builder.upgrading) >= max(1, builder.workers - 1):
-        return None
+    # Reserve crossing capacity even between leases: a returning client must
+    # never need to kill a committed full pass to obtain its first-pass worker.
+    # Explicitly preemptible idle jobs may still fill the entire pool.
+    idle_tiles = builder.idle.tiles if builder.idle is not None else set()
     for tile in sorted(builder.upgrade_queue, key=lambda t: upgrade_order(builder, t)):
+        if tile not in idle_tiles and len(builder.upgrading) >= max(1, builder.workers - 1):
+            continue
         if tile in builder.building:
             continue
         if tile in builder.failed and time.time() - builder.failed[tile][1] < 120:

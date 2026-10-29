@@ -298,6 +298,7 @@ def test_idle_foreground_workers_upgrade_old_served_tiles_in_request_order(tmp_p
     from turku3d.coarse.upgrade_queue import next_job
 
     builder = Builder(tmp_path, code="test", workers=0)
+    builder.workers = 4
     builder.upgrade_queue.update(("t0_0_0", "t0_5_5", "t0_3_-2"))
     builder.requested = {tile: time.time() - 300 for tile in builder.upgrade_queue}
     builder.upgrade_requested["t0_5_5"] = time.time()

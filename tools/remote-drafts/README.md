@@ -118,9 +118,13 @@ Manifest polls carry `client=`; a delayed poll for a removed id cannot revive it
 Four worker processes handle all passes. Upcoming first passes rank first, then
 upgrades on the path/in view, then remaining wanted neighbours. One slot stays
 available for fresh crossings while upgrades run. Obsolete queued, input-pending
-and upgrade jobs are discarded. Obsolete running workers and their packaging
-children are cancelled, except around their estimated final two seconds, when
-they finish at reduced priority. Overdue stale builds are cancelled too. Idle warming pauses and cancels running jobs whenever player work is pending. Legacy clients still work through expiring per-tile requests.
+and upgrade jobs are discarded. Once a foreground full pass starts, it finishes
+even if the player turns, leaves its tile list or misses the 12-second lease.
+The crossing slot remains reserved between leases as well. Obsolete first-pass
+workers are cancelled except around their estimated final two seconds, when
+they finish at reduced priority. Idle warming remains preemptible and cancels
+its jobs whenever player work is pending. Legacy clients still work through
+expiring per-tile requests.
 
 `GET /coarse/<tile>/collision.json?client=<id>` publishes sixteen collision cells
 together with a cheap flat-colour basic GLB and road graph. Ground, roads, building
@@ -132,8 +136,8 @@ through `manifest.json`, and upgrades also swap collision and visuals together.
 A failed texture pass preserves the previous complete pair. Structural producer
 and raw-input identities control freshness independently of facade/texture code;
 payload URLs remain content-addressed.
-New urgent crossings reclaim occupied upgrade slots, retaining completed stage
-caches and the upgrade lease. Admission grows with live clients, bounded at 256
+New urgent crossings use the reserved worker instead of interrupting upgrades.
+Admission grows with live clients, bounded at 256
 jobs, so ten independent paths do not compete for a single 24-job window.
 
 Private `work/coarse/.scheduler.json` records the live queue and worker state once

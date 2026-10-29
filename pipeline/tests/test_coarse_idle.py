@@ -54,6 +54,23 @@ def test_current_full_tiles_are_skipped_first_pass_is_upgraded(tmp_path):
     assert not b.priority
 
 
+def test_only_explicit_idle_upgrades_can_fill_the_reserved_crossing_slot(tmp_path):
+    from turku3d.coarse.upgrade_queue import next_job
+
+    tiles = [f't0_{i}_0' for i in range(4)]
+    b, idle, now = idle_builder(tmp_path, [(0, tile) for tile in tiles])
+    b.two_pass = True
+    idle.tiles.update(tiles)
+    b.upgrade_queue.update(tiles)
+    for tile in tiles:
+        assert next_job(b) == ((tile, 0), True)
+        b.building[tile] = 0
+    with b.lock:
+        idle.activity()
+    assert b.cancelled == set(tiles)
+    assert b.run.cancel.call_count == 4
+
+
 def test_presence_failure_and_disk_floor_fail_closed(tmp_path):
     b, idle, now = idle_builder(tmp_path, [(0, 't0_0_0')])
     now[0] = IDLE_SECONDS

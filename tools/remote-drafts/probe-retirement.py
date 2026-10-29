@@ -21,11 +21,14 @@ def get(url):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--assets', type=Path, default=Path('/srv/turku3d/work/coarse'))
+    parser.add_argument('--churn-demand', action='store_true',
+                        help='Replace/expire the full-pass lease instead of terminating its parent')
     args = parser.parse_args()
     work = args.root
     root = work / 'coarse'
     root.mkdir(parents=True, exist_ok=False)
-    assets = Path('/srv/turku3d/work/coarse')
+    assets = args.assets
     tile = 't0_0_0'
     for name in ('.inputs', '.stages'):
         source = assets / name / tile
@@ -67,8 +70,24 @@ def main():
             else:
                 raise TimeoutError('full pass did not start')
             signalled = time.monotonic()
+            changed_at = time.time()
+            if args.churn_demand:
+                # Remove a real running upgrade from the want-list, retain a
+                # different urgent crossing, then stop heartbeats past the TTL.
+                # None of these HTTP updates may kill the packaging children.
+                for tiles in ['', 't0_9_9', '', 't0_8_9']:
+                    get(base + f'demand?client=retirement-test&tiles={tiles}&urgent={tiles}')
+                while time.monotonic() - signalled < 300:
+                    manifest = json.loads((root / tile / 'manifest.json').read_text())
+                    if manifest['pass_kind'] == 'full' and time.monotonic() - signalled > 13:
+                        break
+                    if proc.poll() is not None:
+                        raise RuntimeError('producer exited during demand churn')
+                    time.sleep(.25)
+                else:
+                    raise TimeoutError('full pass did not finish after its lease expired')
             proc.send_signal(signal.SIGTERM)  # KillMode=mixed: children receive no signal.
-            assert proc.wait(timeout=300) == 0
+            assert proc.wait(timeout=300 if not args.churn_demand else 15) == 0
             manifest = json.loads((root / tile / 'manifest.json').read_text())
             assert manifest['pass_kind'] == 'full'
             assert len(manifest['collision']) == 16
@@ -77,7 +96,10 @@ def main():
             assert any(row['pass'] == 'first' and row['outcome'] == 'built' for row in jobs), jobs
             assert any(row['pass'] == 'full' and row['outcome'] == 'built' for row in jobs), jobs
             assert not any(row['outcome'] in ('FAILED', 'cancelled') for row in jobs), jobs
+            if args.churn_demand:
+                assert any(row['pass'] == 'full' and row['at'] > changed_at for row in jobs), jobs
             result = dict(root=str(work), seconds=round(time.monotonic()-started, 3),
+                          mode='demand-churn' if args.churn_demand else 'retirement',
                           drain_seconds=round(time.monotonic()-signalled, 3), jobs=jobs,
                           buildings=manifest['buildings'], collision=len(manifest['collision']))
             (work / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
