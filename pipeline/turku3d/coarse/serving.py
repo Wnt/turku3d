@@ -7,7 +7,7 @@ from .collision import current as current_collision
 
 PUBLIC_FIELDS = (
     "coarse", "tile", "visual", "collision", "roads", "pass_kind", "vehicles",
-    "vehicle_models", "stale", "collision_source", "failure",
+    "vehicle_models", "stale", "collision_source", "collision_pending", "failure",
 )
 
 
@@ -18,16 +18,18 @@ def public_fragment(value):
     return result
 
 
-def complete(root, tile, value):
+def complete(root, tile, value, *, visual_only=False):
     from .service import FILE
 
     try:
         if not value.get("coarse") or value.get("tile") != tile:
             return False
-        if set(value["collision"]) != {c.id for c in C.VisualTile.parse(tile).collision_tiles()}:
+        if not visual_only and set(value["collision"]) != {c.id for c in C.VisualTile.parse(tile).collision_tiles()}:
             return False
-        entries = [value["visual"][tile], *value["collision"].values()]
-        if value.get("roads"):
+        entries = [value["visual"][tile]]
+        if not visual_only:
+            entries.extend(value["collision"].values())
+        if not visual_only and value.get("roads"):
             entries.append(value["roads"])
         return all(FILE.fullmatch(e["url"]) and (root / tile / e["url"]).stat().st_size == e["bytes"]
                    for e in entries)
@@ -46,27 +48,28 @@ def retained_fragment(builder, tile):
             and complete(builder.root, tile, manifest)):
         return manifest
     candidates = []
-    for name in ("manifest.json", "last-full.json"):
+    for name in ("manifest.json", "last-full.json", "collision.json", "first.json"):
         path = builder.root / tile / name
         try:
             value = json.loads(path.read_text())
-            if value.get("pass_kind") == "full" and complete(builder.root, tile, value):
-                candidates.append((value.get("built", ""), path.stat().st_mtime_ns, value))
+            if complete(builder.root, tile, value, visual_only=True):
+                candidates.append((value.get("pass_kind") == "full", value.get("built", ""),
+                                   path.stat().st_mtime_ns, value))
         except (OSError, ValueError, TypeError):
             continue
-    candidates.sort(key=lambda row: row[:2], reverse=True)
+    candidates.sort(key=lambda row: row[:3], reverse=True)
     collision = current_collision(builder, tile)
     if collision is not None and not complete(builder.root, tile, collision):
         collision = None
     if collision is None:
-        collision = next((value for _, _, value in candidates if _current_retained_collision(builder, tile, value)), None)
+        collision = next((value for *_, value in candidates if _current_retained_collision(builder, tile, value)), None)
     if collision is None or not complete(builder.root, tile, collision):
-        return None
+        return preview(candidates[0][-1]) if candidates else None
     key_for = ((builder.structural_input_key or builder.input_key)
                if collision.get("pass_kind") == "first" else builder.input_key)
     if key_for(tile) is None:
-        return None
-    value = candidates[0][2] if candidates else collision
+        return preview(candidates[0][-1]) if candidates else None
+    value = candidates[0][-1] if candidates else collision
     # A full replacement publishes atomically, so never prefer the retained generation
     # over a complete current manifest. Fresh first passes still keep full visuals.
     fresh = (value is collision and value.get("code") == builder.code())
@@ -98,3 +101,10 @@ def _current_retained_collision(builder, tile, value):
         if value.get("facade_params") != parameter_hash(value["building_keys"]):
             return False
     return True
+
+
+def preview(value):
+    """Old visuals remain useful even when no old physics can safely be served."""
+    return {"coarse": True, "tile": value["tile"], "visual": value["visual"],
+            "pass_kind": value.get("pass_kind", "first"), "collision": {},
+            "stale": True, "collision_pending": True}

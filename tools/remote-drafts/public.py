@@ -251,14 +251,12 @@ def public_handler(builder, prefetcher, settings):
                     if (
                         tile not in active
                         and not builder.built(tile)
-                        and collision_fragment(builder, tile) is None
                         and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
                         and not builder.demand.admit(builder, tile)
                     ):
                         fragment = collision_fragment(builder, tile)
-                        if fragment is not None:
-                            return self._json(200, public_fragment(fragment))
-                        return self._json(429, {"state": "queue-full"})
+                        if fragment is None:
+                            return self._json(429, {"state": "queue-full"})
                     lease = builder.demand.rank(tile) if hasattr(builder, "demand") else None
                     # Legacy clients/prewarming have background priority, without player motion.
                     t = C.VisualTile.parse(tile)
@@ -268,7 +266,7 @@ def public_handler(builder, prefetcher, settings):
                     distance = lease[1] if lease is not None else distance + 1e6
                     state = builder.request(tile, distance)
                 if route == "collision":
-                    fragment = collision_fragment(builder, tile)
+                    fragment = state.get("fragment") or collision_fragment(builder, tile)
                     if fragment is not None:
                         return self._json(200, public_fragment(fragment))
                 if state["state"] == "failed":

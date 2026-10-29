@@ -62,10 +62,11 @@ def test_obsolete_or_missing_collision_never_serves_even_after_failure(tmp_path,
     if change == "missing":
         (tmp_path / TILE.id / next(iter(old["collision"].values()))["url"]).unlink()
     b = builder(tmp_path)
-    assert retained_fragment(b, TILE.id) is None
+    assert retained_fragment(b, TILE.id)["collision"] == {}
+    assert retained_fragment(b, TILE.id)["collision_pending"]
     import time
     b.failed[TILE.id] = ("replacement failed", time.time())
-    assert "fragment" not in b.request(TILE.id, 0)
+    assert b.request(TILE.id, 0)["fragment"]["collision"] == {}
     b.stop()
 
 
@@ -105,7 +106,8 @@ def test_last_full_can_supply_unchanged_collision_without_primary_pointer(tmp_pa
     b.stop()
 
 
-def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path):
+@pytest.mark.parametrize("current_physics", [True, False])
+def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path, current_physics):
     import importlib.util
     import io
 
@@ -113,7 +115,7 @@ def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path
     public = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(public)
     old = publish(tmp_path, "manifest.json", structural="obsolete")
-    first = publish(tmp_path, "collision.json", code="new", kind="first")
+    first = publish(tmp_path, "collision.json", code="new", kind="first") if current_physics else None
     b = builder(tmp_path)
     cls = public.public_handler(b, None, {"queue_max": 1, "tile_bounds": [-2, -2, 2, 2]})
     b.priority["t0_1_1"] = 0  # Usable retained output bypasses occupied build admission.
@@ -129,10 +131,17 @@ def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path
         body = json.loads(handler.wfile.getvalue())
         assert handler.status == 200
         assert body["stale"] and body["pass_kind"] == "full"
-        assert body["visual"] == old["visual"] and body["collision"] == first["collision"]
-        assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in first["collision"].values())
+        assert body["visual"] == old["visual"]
+        if current_physics:
+            assert body["collision"] == first["collision"]
+            assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in first["collision"].values())
+            assert TILE.id in b.upgrade_queue
+        else:
+            assert body["collision"] == {} and body["collision_pending"]
+            assert "collision_bundle" not in body
+            assert TILE.id in b.priority
         assert not {"code", "inputs", "seconds"} & body.keys()
-        assert TILE.id in b.upgrade_queue and TILE.id in b.journal.rows
+        assert TILE.id in b.journal.rows
     b.stop()
 
 
@@ -140,5 +149,28 @@ def test_unknown_input_identity_never_authorizes_stale_collision(tmp_path):
     publish(tmp_path, "manifest.json")
     b = builder(tmp_path)
     b.input_key = lambda _: None
-    assert retained_fragment(b, TILE.id) is None
+    assert retained_fragment(b, TILE.id)["collision"] == {}
+    assert retained_fragment(b, TILE.id)["collision_pending"]
+    b.stop()
+
+
+def test_first_pass_visual_survives_structural_deploy_before_new_collision(tmp_path):
+    old = publish(tmp_path, "collision.json", structural="obsolete", kind="first")
+    b = builder(tmp_path)
+    value = b.request(TILE.id, 0)["fragment"]
+    assert value["visual"] == old["visual"]
+    assert value["collision_pending"] and value["collision"] == {}
+    assert TILE.id in b.priority
+    b.stop()
+
+
+def test_full_preview_does_not_need_obsolete_collision_or_roads_payloads(tmp_path):
+    old = publish(tmp_path, "manifest.json", structural="obsolete")
+    for entry in old["collision"].values():
+        (tmp_path / TILE.id / entry["url"]).unlink()
+    b = builder(tmp_path)
+    value = b.request(TILE.id, 0)["fragment"]
+    assert value["visual"] == old["visual"]
+    assert value["pass_kind"] == "full" and value["collision"] == {}
+    assert "vehicles" not in value and "roads" not in value
     b.stop()

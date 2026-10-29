@@ -638,8 +638,10 @@ change the manifest producer hash and request a fresh build.
 
 A requested outdated tile immediately serves retained full visuals with `stale: true`
 while rebuilding, if current collision is available. Unchanged structural producer and
-input identities permit retained collision; otherwise the new structural first pass
-must publish first. Both fragment endpoints prefer the newest complete full visuals,
+input identities permit retained collision; otherwise `collision_pending: true` exposes
+retained visuals with an empty collision map until the new first pass publishes.
+The client keeps resident support and never installs obsolete collision for a preview.
+Both fragment endpoints prefer the newest complete full visuals,
 including `last-full.json`, paired with current collision. Failure never relaxes this
 collision requirement. Resident clients poll every two seconds and swap prepared models;
 identical collision hashes retain resident colliders. Service logs report errors and
