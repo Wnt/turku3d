@@ -2,6 +2,7 @@ import type * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
+import { shareModelTextures } from '../world/sharedAssets';
 
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
 export function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
@@ -70,6 +71,7 @@ class TextureUploads {
   /** Runs after glTF assigns colour space, UV transforms and samplers, before the model can be drawn. */
   plugin(): GLTFLoaderPlugin {
     return { name: 'TURKU_texture_upload_budget', afterRoot: async result => {
+      shareModelTextures(result.scene);
       await Promise.all([...modelTextures(result.scene)].map(texture => this.enqueue(texture)));
     } };
   }
