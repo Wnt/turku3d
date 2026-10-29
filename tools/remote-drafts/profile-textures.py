@@ -38,6 +38,8 @@ def main():
     parser.add_argument('--reuse-caches', type=Path)
     parser.add_argument('--visual-baseline', type=Path)
     parser.add_argument('--audit', action='store_true')
+    parser.add_argument('--passes', nargs='+', choices=['first', 'full-cold', 'full-repeat', 'repackage'],
+                        default=['first', 'full-cold', 'full-repeat', 'repackage'])
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     if args.reuse_caches:
@@ -110,7 +112,8 @@ def main():
                   cache_seed=str(args.reuse_caches) if args.reuse_caches else None, runs=[])
     for tile in args.tiles:
         out = args.root / tile
-        for label, first in [('first', True), ('full-cold', False), ('full-repeat', False), ('repackage', False)]:
+        for label in args.passes:
+            first = label == 'first'
             if args.reuse_caches and label == 'full-cold':
                 label = 'full-changed-stages'
             if label == 'repackage':
@@ -169,7 +172,8 @@ def main():
         print(json.dumps(dict(audits=report['audits'])), flush=True)
         assert report['audits']['pending'] == 0, report['audits']
         assert report['audits']['failed'] == 0, report['audits']
-        assert report['audits']['passed'] >= len(args.tiles) * 2, report['audits']
+        expected_passes = int('first' in args.passes) + int(any(p != 'first' for p in args.passes))
+        assert report['audits']['passed'] >= len(args.tiles) * expected_passes, report['audits']
     report['load_end'] = os.getloadavg()
     (args.root / 'measurement.json').write_text(json.dumps(report, indent=2) + '\n')
 

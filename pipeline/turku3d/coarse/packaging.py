@@ -53,6 +53,10 @@ PRODUCERS = (
 )
 
 
+def package_sources():
+    return sorted(p for p in BRIDGE.parent.glob("*.mjs") if not p.name.endswith(".test.mjs"))
+
+
 def producer_paths():
     from turku3d.facade_programs import source_paths
 
@@ -67,7 +71,7 @@ def producer_paths():
             Path(__file__).parents[1] / "stage_cache.py",
             Path(__file__).parents[1] / "spatial.py",
             Path(__file__).parents[1] / "roads/__init__.py",
-            *BRIDGE.parent.glob("*.mjs"),
+            *package_sources(),
             *sorted((C.REPO_ROOT / "game/public/basis").glob("basis_transcoder.*")),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",
             Path(__file__).parents[1] / "ground/materials.py",
@@ -242,7 +246,7 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
     visual, stats, assets = cache.run(
         "package",
         source_key(
-            *sorted(BRIDGE.parent.glob("*.mjs")),
+            *package_sources(),
             *sorted((C.REPO_ROOT / "game/public/basis").glob("basis_transcoder.*")),
             Path(__file__).parents[1] / "stage_cache.py",
             C.REPO_ROOT / "pipeline/env/package-lock.json",

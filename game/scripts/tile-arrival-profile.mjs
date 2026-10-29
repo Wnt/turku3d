@@ -51,6 +51,8 @@ try {
   });
   await page.goto('https://wnt.github.io/turku-game/game/?mp=wss%3A%2F%2Farrival.invalid%2F', {waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.__game?.ready, null, {timeout:150000});
+  await page.screenshot({path:path.join(out,'ready.png')});
+  console.log(JSON.stringify({label,stage:'ready'}));
   await page.locator('[data-option="multiplayer"]').click();
   await page.evaluate(({speed})=>{
     const game=window.__game, coarse=game.coarse, camera=window.__render.camera;
@@ -95,6 +97,7 @@ try {
     scene.onBeforeRender=function(...args){before.apply(this,args);if(args[2]!==camera)return;
       const p=pose();camera.position.set(p.x-6,speed>100 ? 70 : 9,p.z+3);camera.lookAt(p.x+25,5,p.z);camera.updateMatrixWorld();};
   },{speed});
+  console.log(JSON.stringify({label,stage:'traversing',speed_kmh:speed,seconds}));
   await page.waitForTimeout(seconds*1000);
   const result=await page.evaluate(()=>{
     const p=window.__arrival,now=performance.now();

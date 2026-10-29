@@ -38,7 +38,9 @@ from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .retention import managed_build
 from .sources import Sources
-from .stages import building_visual, deck_stage, kerb_inputs, props_visual
+from .stages import (building_visual, deck_stage, kerb_inputs, props_visual,
+                     roof_crop, roof_fallback, valid_roof_pixels)
+from turku3d.wall_surfaces import paint_partition, trapezoids
 
 FORMAT = "turku3d-coarse-tile"
 VERSION = 1
@@ -642,13 +644,13 @@ def build(
         "building_visual",
         source_key(
             building_visual,
-            Path(__file__).with_name("stages.py"),
+            roof_crop, roof_fallback, valid_roof_pixels,
             Path(__file__).with_name("stored_facades.py"),
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
             *facade_program_sources(),
-            base / "wall_surfaces.py",
+            paint_partition, trapezoids,
             jpeg,
             ortho_uv,
             *common,
