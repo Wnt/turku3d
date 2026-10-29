@@ -15,18 +15,97 @@ def test_structural_inputs_do_not_wait_for_orthophoto_or_signs(raw, tmp_path):
     ortho = sources.ortho_source(tile)
     saved = ortho.read_bytes()
     ortho.unlink()
-    decorative = C.raw_dir('wfs') / f'coarse-{block_of(tile).name}' / (WFS_LAYERS[-1].replace(':', '_') + '.summary.json')
+    decorative = (
+        C.raw_dir("wfs")
+        / f"coarse-{block_of(tile).name}"
+        / (WFS_LAYERS[-1].replace(":", "_") + ".summary.json")
+    )
     summary = decorative.read_bytes()
     decorative.unlink()
     sources.invalidate()
-    assert {u.dataset for u in sources.missing_for_service(tile)} == {'ortho', 'wfs'}
+    assert {u.dataset for u in sources.missing_for_service(tile)} == {"ortho", "wfs"}
     assert sources.missing_for_service(tile, first_pass=True) == []
     key = sources.input_key(tile, first_pass=True)
     assert key and sources.input_key(tile) is None
-    prepared = gather(tile, tmp_path / 'coarse', sources, first_pass=True)
+    prepared = gather(tile, tmp_path / "coarse", sources, first_pass=True)
     assert prepared.key == key and prepared.buildings and prepared.roads
     ortho.write_bytes(saved)
     decorative.write_bytes(summary)
     sources.invalidate()
     assert sources.input_key(tile, first_pass=True) == key
     assert sources.input_key(tile) is not None
+
+
+def test_prepared_keys_track_only_affected_input_producers(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs
+
+    path = Path(inputs.__file__)
+    original = path.read_bytes()
+    read = Path.read_bytes
+    edited = [original]
+    monkeypatch.setattr(Path, "read_bytes", lambda p: edited[0] if p == path else read(p))
+    before = {name: inputs._key([], name) for name in ("ground", "wfs", "roads")}
+    edited[0] = original.replace(b"top = base + 3.0", b"top = base + 4.0")
+    assert edited[0] != original
+    assert inputs._key([], "wfs") != before["wfs"]
+    assert inputs._key([], "ground") == before["ground"]
+    assert inputs._key([], "roads") == before["roads"]
+    edited[0] = original.replace(
+        b"missing = sources.missing(tile, first_pass=first_pass)", b"missing = []"
+    )
+    assert edited[0] != original
+    assert {name: inputs._key([], name) for name in before} == before
+    edited[0] = original.replace(b"step = tile.size / CELLS", b"step = tile.size / (CELLS * 2)")
+    assert inputs._key([], "ground") != before["ground"]
+    assert inputs._key([], "wfs") == before["wfs"]
+
+
+def test_producer_identity_is_independent_of_symlink_entrypoint(tmp_path):
+    import importlib.util
+    from turku3d.coarse import packaging
+
+    link = tmp_path / "repo"
+    link.symlink_to(C.REPO_ROOT, target_is_directory=True)
+    spec = importlib.util.spec_from_file_location(
+        "turku3d.coarse.linked_packaging", link / "pipeline/turku3d/coarse/packaging.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.code_hash() == packaging.code_hash()
+
+
+def test_named_source_index_refreshes_changed_and_removed_summaries(tmp_path):
+    import json
+    from turku3d.coarse.sources import _Files
+
+    summary = tmp_path / "a.summary.json"
+    state = {"status": "empty", "bbox_en": [0, 0, 10, 10]}
+    summary.write_text(json.dumps(state))
+    files = _Files(tmp_path, "*.json")
+    assert files.within(summary.name, (2, 2, 8, 8)) == [(summary, state)]
+    assert not files.within(summary.name, (8, 8, 12, 12))
+    assert files.within(summary.name, (8, 8, 12, 12), intersect=True) == [(summary, state)]
+    state = {"status": "ok", "bbox_en": [0, 0, 5, 5]}
+    summary.write_text(json.dumps(state))
+    files.invalidate()
+    assert files.named(summary.name) == [(summary, state)]
+    assert not files.within(summary.name, (2, 2, 8, 8))
+    summary.unlink()
+    files.invalidate()
+    assert files.named(summary.name) == ()
+
+
+def test_nested_vrt_dependencies_follow_child_edits(tmp_path):
+    from turku3d.coarse.sources import content_paths
+
+    parent, child = tmp_path / "parent.vrt", tmp_path / "child.vrt"
+
+    def vrt(name):
+        return f'<VRTDataset><SourceFilename relativeToVRT="1">{name}</SourceFilename></VRTDataset>'
+
+    parent.write_text(vrt(child.name))
+    child.write_text(vrt("old.tif"))
+    assert content_paths([parent]) == [parent, child, tmp_path / "old.tif"]
+    child.write_text(vrt("replacement.tif"))
+    assert content_paths([parent]) == [parent, child, tmp_path / "replacement.tif"]

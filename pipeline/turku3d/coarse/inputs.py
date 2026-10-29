@@ -8,8 +8,8 @@ Each dataset is reduced to what the build needs and cached under ``<coarse root>
 as ``<dataset>.<key>.pkl``: ``ground`` (key points of the tile + POINT_MARGIN and the CELLS grid
 heights interpolated over their TIN), ``ortho`` (ORTHO_PX RGB), ``wfs`` (building shells,
 street-area polygons with their collision material, water polygons), ``roads`` (the tile's
-encoded OSM street graph, ``roads.json``) and ``trees`` (the OSM ``natural=tree`` points in it). The key hashes this module's source and the identities
-(path, size, mtime) of the raw files read, so new raw data or changed code prepares it again.
+encoded OSM street graph, ``roads.json``) and ``trees`` (the OSM ``natural=tree`` points in it). The key hashes each dataset's producers and raw content,
+so only affected datasets are prepared again when code or raw inputs change.
 ``prepare`` fills the cache for whatever is on disk; the prefetcher runs it in the background for
 the tiles near the player, so the build itself starts from the small cached files.
 """
@@ -73,7 +73,6 @@ DEPENDENCIES = {
         "../spatial.py",
     ),
 }
-CODE = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -361,7 +360,9 @@ def prepare_trees(tile: C.VisualTile, osm: Path) -> list:
 
 
 def _key(paths: list[Path], dataset: str = "") -> str:
-    h = hashlib.sha256(CODE.encode())
+    from .input_keys import producer_code
+
+    h = hashlib.sha256(producer_code(dataset))
     for name in DEPENDENCIES.get(dataset.removesuffix("-first"), ()):
         h.update(
             Path(__file__).with_name(name).read_bytes()

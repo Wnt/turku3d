@@ -11,20 +11,13 @@ def spot_sources(tile, sources):
     """Optional nearby city vectors, including both ends of cross-tile bridges."""
     window = tile.bbox.buffered(500)
     paths = []
-    for summary, state in sources.wfs.items():
-        if summary.name != "kanta_Korkeuspiste.summary.json" or state.get("status") != "ok":
+    for summary, state in sources.wfs.within(
+        "kanta_Korkeuspiste.summary.json", window.to_en().as_tuple(), intersect=True
+    ):
+        if state.get("status") != "ok":
             continue
-        if "bbox_en" not in state:
-            continue
-        bbox = C.BBoxEN(*state["bbox_en"]).to_local()
         path = summary.with_suffix("").with_suffix(".parquet")
-        if (
-            bbox.xmin <= window.xmax
-            and bbox.xmax >= window.xmin
-            and bbox.zmin <= window.zmax
-            and bbox.zmax >= window.zmin
-            and path.exists()
-        ):
+        if path.exists():
             paths.append(path)
     return sorted(set(paths))
 

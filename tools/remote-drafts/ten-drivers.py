@@ -2,7 +2,8 @@
 
 Uses actual directed city roads, 30 s hints and the game's 3x3 visible ring.
 Startup waits for all ten current tiles; that delay is reported separately.
-Collision readiness includes downloading and SHA-256 checking all sixteen cells.
+Ahead tiles request generation; the visible ring downloads and SHA-256 checks
+all sixteen cells, matching coarseTiles.ts polling and retry intervals.
 Run through host_slots.py with a hard ten-minute external timeout.
 """
 
@@ -143,9 +144,10 @@ def main():
     started, moving = time.monotonic(), None
     initial_cpu, samples, ready, pending, first_request, statuses = cpu(), [], {}, {}, {}, {}
     states, demands = {}, {}
+    prefetched, retry_at = set(), {}
     initial = {f"{i}/{cell(*point(route, 0))}" for i, route in enumerate(paths)}
 
-    def fetch_collision(tile, client):
+    def fetch_collision(tile, client, load):
         status, manifest = get(args.base, tile + "/collision.json?client=" + client)
         if status != 200:
             states[tile] = dict(at=time.monotonic() - started, status=status, **manifest)
@@ -153,19 +155,25 @@ def main():
         entries = manifest.get("collision", {})
         if len(entries) != 16:
             return 0, None
-        for entry in entries.values():
+        if not load:
+            return 200, "prefetched"
+
+        def download(entry):
             status, body = get(args.base, tile + "/" + entry["url"], binary=True)
-            if (
-                status != 200
-                or len(body) != entry["bytes"]
-                or hashlib.sha256(body).hexdigest() != entry["sha256"]
-            ):
-                return 0, None
+            return (
+                status == 200
+                and len(body) == entry["bytes"]
+                and hashlib.sha256(body).hexdigest() == entry["sha256"]
+            )
+
+        if not all(payloads.map(download, entries.values())):
+            return 0, None
         return 200, time.monotonic() - started
 
     with (
         concurrent.futures.ThreadPoolExecutor(max_workers=32) as pool,
         concurrent.futures.ThreadPoolExecutor(max_workers=10) as clients,
+        concurrent.futures.ThreadPoolExecutor(max_workers=64) as payloads,
     ):
         while time.monotonic() - started < 540:
             tick = time.monotonic()
@@ -202,16 +210,29 @@ def main():
                     )
                 )
                 plans.append(
-                    (i, here, wanted, client, clients.submit(get, args.base, "demand?" + query))
+                    (
+                        i,
+                        here,
+                        wanted,
+                        set(visible),
+                        client,
+                        clients.submit(get, args.base, "demand?" + query),
+                    )
                 )
-            for i, here, wanted, client, lease in plans:
+            for i, here, wanted, visible, client, lease in plans:
                 demand_status, _ = lease.result()
                 demands[demand_status] = demands.get(demand_status, 0) + 1
                 for tile in wanted:
                     key = f"{i}/{tile}"
                     first_request.setdefault(key, elapsed)
-                    if key not in ready and key not in pending:
-                        pending[key] = pool.submit(fetch_collision, tile, client)
+                    load = tile in visible
+                    if (
+                        key not in ready
+                        and key not in pending
+                        and elapsed >= retry_at.get(key, 0)
+                        and (load or key not in prefetched)
+                    ):
+                        pending[key] = pool.submit(fetch_collision, tile, client, load)
                 # Full visuals compete with first passes just as in the game.
                 if f"{i}/{here}" in ready:
                     pool.submit(get, args.base, here + "/manifest.json?client=" + client)
@@ -219,8 +240,12 @@ def main():
                 if future.done():
                     status, at = future.result()
                     statuses[status] = statuses.get(status, 0) + 1
-                    if at is not None:
+                    if at == "prefetched":
+                        prefetched.add(tile)
+                    elif at is not None:
                         ready[tile] = at
+                    else:
+                        retry_at[tile] = elapsed + (2 if status == 202 else 5)
                     del pending[tile]
             if moving is None and initial <= ready.keys():
                 moving = time.monotonic()
@@ -240,11 +265,16 @@ def main():
                     wanted=len(wanted_all),
                     ready=len(ready),
                     cpu=cpu(),
+                    producer_code=scheduler.get("code"),
                 )
             )
             time.sleep(max(0, 1 - (time.monotonic() - tick)))
         for i in range(10):
             get(args.base, "demand?client=" + client_prefix + "-" + str(i) + "&tiles=")
+        for key, future in pending.items():
+            _, at = future.result()
+            if isinstance(at, (float, int)):
+                ready[key] = at
     startup = None if moving is None else moving - started
     rows = []
     for driver, route in enumerate(paths):
@@ -280,6 +310,7 @@ def main():
         host_cpu_percent=busy,
         http=statuses,
         demand_http=demands,
+        producer_codes=sorted({s["producer_code"] for s in samples if s["producer_code"]}),
         passed=startup is not None and bool(rows) and not late,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
