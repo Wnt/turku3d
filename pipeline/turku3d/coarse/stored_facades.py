@@ -60,10 +60,87 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
     return facade, uv
 
 
+
+def exposed_wall_quads(walls):
+    """Paint one surface per outward wall, including near-coincident LOD2 slivers.
+
+    Roof-part solids remain closed for collision. Their independently simplified
+    rings can put two outward faces within millimetres of each other, especially
+    where a narrow fallback roof strip borders a surveyed roof. Subtract covered
+    areas in wall metres before assigning facade programs, keeping the taller
+    face and any exposed remainder. Opposite-facing solid boundaries are retained.
+    """
+    import shapely
+
+    quads = np.asarray(walls).reshape(-1, 4, 3)
+    if not len(quads):
+        return walls
+    starts = quads[:, 0][:, [0, 2]]
+    directions = quads[:, 1][:, [0, 2]] - starts
+    lengths = np.linalg.norm(directions, axis=1)
+    directions = directions / lengths[:, None]
+    priority = sorted(range(len(quads)), key=lambda i: (-quads[i, 2:, 1].max(), -lengths[i], i))
+    rank = np.argsort(priority)
+    result = []
+    for i, vertices in enumerate(quads):
+        direction = directions[i]
+        normal = np.array([-direction[1], direction[0]])
+        delta = quads[:, :, [0, 2]] - starts[i]
+        along = delta @ direction
+        # Compare planes only over their shared frontage. A long surveyed edge
+        # may diverge beyond a short sliver without changing that overlap.
+        across = delta[:, :2] @ normal
+        slope = (across[:, 1] - across[:, 0]) / np.maximum(along[:, 1] - along[:, 0], 1e-9)
+        shared_left = np.maximum(0, along[:, :2].min(axis=1))
+        shared_right = np.minimum(lengths[i], along[:, :2].max(axis=1))
+        distance = np.maximum(
+            np.abs(across[:, 0] + (shared_left - along[:, 0]) * slope),
+            np.abs(across[:, 0] + (shared_right - along[:, 0]) * slope),
+        )
+        candidates = np.flatnonzero(
+            (rank < rank[i]) & (directions @ direction > 0.99999)
+            & (distance <= 0.005) & (along.max(axis=1) > 0)
+            & (along.min(axis=1) < lengths[i])
+        )
+        if not len(candidates):
+            result.append(vertices)
+            continue
+        surface = shapely.Polygon(np.c_[along[i], vertices[:, 1]])
+        occluders = [shapely.Polygon(np.c_[along[j], quads[j, :, 1]]) for j in candidates]
+        remainder = surface.difference(shapely.union_all(occluders))
+        if remainder.equals(surface):
+            result.append(vertices)
+            continue
+        # Vertical slabs of the planar difference are trapezoids, preserving
+        # sloping eaves and partial-height overlaps without extra paint layers.
+        for polygon in shapely.get_parts(remainder):
+            if polygon.geom_type != "Polygon" or polygon.area < 1e-6:
+                continue
+            cuts = sorted(set(np.asarray(polygon.exterior.coords)[:, 0]))
+            for left, right in zip(cuts, cuts[1:]):
+                if right - left < 1e-6:
+                    continue
+                slab = polygon.intersection(shapely.box(left, -10000, right, 10000))
+                for part in shapely.get_parts(slab):
+                    if part.geom_type != "Polygon" or part.area < 1e-6:
+                        continue
+                    xy = np.asarray(part.exterior.coords)
+                    lo = xy[np.isclose(xy[:, 0], left, atol=1e-7, rtol=0), 1]
+                    hi = xy[np.isclose(xy[:, 0], right, atol=1e-7, rtol=0), 1]
+                    if not len(lo) or not len(hi):
+                        continue
+                    points = np.array([vertices[0]] * 4)
+                    points[:, [0, 2]] = starts[i] + np.array([left, right, right, left])[:, None] * direction
+                    points[:, 1] = [lo.min(), hi.min(), hi.max(), lo.max()]
+                    result.append(points)
+    return np.asarray(result, float).reshape(-1, 3)
+
+
 def wall_meshes(b, walls, origin):
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
 
+    walls = exposed_wall_quads(walls)
     stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
