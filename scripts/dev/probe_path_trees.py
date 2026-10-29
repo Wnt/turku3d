@@ -10,7 +10,9 @@ from facade_publish import remote
 
 commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
 source = f"{HOME}/sources/{commit}"
-assert remote(f"readlink -f {HOME}/repo") == source, "source is not deployed"
+# finish records this commit's successful deployment before starting the frozen job.
+# A newer deployment may already be live after the shared slot wait.
+remote(f"test -d {shlex.quote(source)}")
 root = f"/srv/turku3d/work/path-tree-clearance-{uuid.uuid4().hex[:12]}"
 command = shlex.join(["timeout", "--kill-after=3", "540", f"{source}/tools/remote-drafts/run.sh",
                       "python", f"{source}/tools/remote-drafts/probe-path-trees.py", root,
