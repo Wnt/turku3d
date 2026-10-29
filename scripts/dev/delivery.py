@@ -188,8 +188,6 @@ def after_merge(name, repo, commit, selected, path):
                     f"{name}: post-deploy smoke failed",
                     f"Main {commit}; inspect {path / 'smoke'}. Nothing reverted.",
                 )
-            if generator_changed:
-                row["prewarm"] = deploy_drafts.prewarm()
             row["async"] = post_deploy.start(name, repo, commit, selected, environment(repo))
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             row["post_deploy_error"] = str(exc)[-1000:]
