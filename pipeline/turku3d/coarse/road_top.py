@@ -159,7 +159,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
         "tunnels",
         source_key(
             grid_height,
-            C.__file__,
+            Path(C.__file__),
             base / "col/materials_v1.json",
             Path(__file__).with_name("tunnels.py"),
             Path(__file__),

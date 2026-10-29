@@ -328,6 +328,8 @@ class Tunnels:
         positions, indices, materials = [pos], [idx], [mat]
         count = len(pos)
         for mesh in self.meshes:
+            if mesh.metadata.get("lamp"):
+                continue
             # Duplicate boundary triangles into both cells, so either streamed cell seals the tube.
             triangles = mesh.positions[mesh.indices][:, :, [0, 2]]
             b = ct.bbox
@@ -684,6 +686,10 @@ def produce(
                 if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.object_id.endswith(
                     ":floor"
                 ):
+                    if mesh.metadata.get("lamp"):
+                        mesh.positions[:, 1] = [
+                            deck_sample(x, z) - 0.301 for x, _, z in mesh.positions
+                        ]
                     mesh.positions[:, 1] = np.minimum(
                         mesh.positions[:, 1],
                         [deck_sample(x, z) - 0.03 for x, _, z in mesh.positions],
