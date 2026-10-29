@@ -13,6 +13,7 @@ AUDIT = r"""
 import json,pickle
 from pathlib import Path
 import numpy as np
+import shapely
 from turku3d import config as C
 from turku3d.coarse.inputs import gather
 from turku3d.coarse.sources import Sources
@@ -42,7 +43,10 @@ for name,output in OUTPUTS.items():
         assert boat['cabin_parts']>0,boat
     look=visuals(tile,meshes)
     keys=sorted({m.extras['material_key']for m in look})
-    assert 'boat_hull' in keys and 'boat_deck' in keys and 'boat_glass' in keys
+    assert 'boat_hull' in keys and 'boat_deck' in keys,(name,keys)
+    window=shapely.box(*tile.bbox.as_tuple())
+    has_cabin=any(g.intersection(window).area>1e-4 for b in inputs.boats for g,_ in b['cabins'])
+    assert ('boat_glass' in keys)==has_cabin,(name,has_cabin,keys)
     assert not any('facade' in k or 'plaster' in k for k in keys)
     solid=sum(len(m.indices)for m in meshes if m.metadata.get('collision',True))
     assert solid<14000,(name,solid)
@@ -91,9 +95,12 @@ def main():
             "OUTPUTS=" + repr(outputs) + "\n" + AUDIT,
         ]
     )
-    result["geometry"] = json.loads(
-        remote(f"TURKU3D_DRAFT_SOURCE={shlex.quote(source)} " + command)
-    )
+    try:
+        result["geometry"] = json.loads(
+            remote(f"TURKU3D_DRAFT_SOURCE={shlex.quote(source)} " + command)
+        )
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(error.stderr[-2000:]) from error
     print(json.dumps(result), flush=True)
 
 

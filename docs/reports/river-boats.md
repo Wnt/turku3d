@@ -48,3 +48,12 @@ Current main's `request_journal.request_tile` deliberately returns `built` when 
 retained first visual exists. This unrelated serving assertion is reported to
 coordination and is not part of the selected boat gate. The deployed first/full
 probe supplies the publication evidence for this change.
+
+The first deployed run built all four tiles successfully. First/full seconds:
+`t0_0_1` 14.865/40.046, `t0_1_1` 7.724/11.302,
+`t0_-1_1` 8.517/8.134, `t0_-2_2` 13.223/26.935. Ordinary-building counts were
+7/21/23/9 respectively, with all 16 collision cells and exact source counts.
+The final audit initially required glass on every fragment, including Donna's
+bow-only `t0_1_1` fragment whose mapped cabin coverage is exactly zero. The audit
+now checks glass presence and absence against actual source cabin coverage per
+tile; the generator itself needs no correction. One forward audit fix is used.
