@@ -238,11 +238,8 @@ def produce(tile, records):
         centre = np.asarray(outline.centroid.coords[0])
         low, high = water + 0.05, water + 0.14
 
-        def skin(y):
-            scale = 0.88 + 0.12 * (y - (water - 0.7)) / (deck - (water - 0.7))
-            return centre + (ring - centre) * (scale + 0.001)
-
-        lo, hi = skin(low), skin(high)
+        scale = 0.88 + 0.12 * (np.array([low, high]) - (water - 0.7)) / (deck - (water - 0.7))
+        lo, hi = centre + (ring - centre) * (scale[:, None, None] + 0.001)
         for i in range(len(ring) - 1):
             band.face(
                 [
