@@ -224,7 +224,7 @@ class DeliveryTests(unittest.TestCase):
 
     def test_async_browser_probe_uses_one_admission_and_retains_budget_wrapper(self):
         command = (
-            'python3 scripts/dev/host_slots.py browser node probe.mjs '
+            "python3 scripts/dev/host_slots.py browser node probe.mjs "
             '"https://example.test/?dev=1&backend=webgpu"'
         )
         self.assertEqual(post_deploy.admitted_command(command), command)

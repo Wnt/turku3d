@@ -34,10 +34,7 @@ def admitted_command(command):
         and not operators
     ):
         return command
-    return (
-        f"{sys.executable} scripts/dev/host_slots.py build -- /bin/sh -c "
-        + shlex.quote(command)
-    )
+    return f"{sys.executable} scripts/dev/host_slots.py build -- /bin/sh -c " + shlex.quote(command)
 
 
 def history():
