@@ -103,6 +103,8 @@ def measurement_source(source):
 def compatible_request(previous, current):
     if previous['plan_sha256'] != current['plan_sha256']:
         return False
+    if previous.get('oci_source') != current.get('oci_source'):
+        return False
     repo = Path(__file__).resolve().parents[2]
     before = previous['commit']
     old = subprocess.check_output(['git', 'show', f'{before}:tools/refs/gmaps_ground_score.py'], cwd=repo)
@@ -124,6 +126,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--label', required=True, help='New immutable generator measurement label')
     parser.add_argument('--workers', type=int, default=2, choices=(1, 2))
+    parser.add_argument('--oci-from',
+                        help='Reuse immutable own-scene snapshots from an earlier scoring label')
     args = parser.parse_args()
     import gmaps_round3 as base
     from gmaps_oci import freeze_current
@@ -136,7 +140,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     request = dict(commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                    plan_sha256=hashlib.sha256(json.dumps(base.PLAN, sort_keys=True).encode()).hexdigest(),
-                   export_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+                   export_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                   oci_source=args.oci_from)
     request_path = out / 'request.json'
     if request_path.exists():
         previous = json.loads(request_path.read_text())
@@ -169,9 +174,18 @@ def main():
                 tile = row['tile']
                 if tile not in snapshots:
                     frozen = out / 'oci' / tile / 'snapshot.json'
-                    own = json.loads(frozen.read_text()) if frozen.exists() else freeze_current(tile, out / 'oci')
+                    if frozen.exists():
+                        own = json.loads(frozen.read_text())
+                    elif args.oci_from:
+                        prior = base.ROOT / 'calibration' / args.oci_from / 'oci' / tile / 'snapshot.json'
+                        own = json.loads(prior.read_text())
+                        if own['status'] != 'frozen' or own['tile'] != tile:
+                            raise ValueError('Reused OCI snapshot is not a frozen matching tile')
+                    else:
+                        own = freeze_current(tile, out / 'oci')
                     if hashlib.sha256(Path(own['path']).read_bytes()).hexdigest() != own['sha256']:
                         raise ValueError('Frozen own source has changed')
+                    frozen.parent.mkdir(parents=True, exist_ok=True)
                     atomic_json(frozen, own)
                     snapshots[tile] = own
                 pending[pool.submit(score, row, root, snapshots[tile])] = row
