@@ -36,6 +36,9 @@ class ProbeTests(unittest.TestCase):
         def spawn(args, **kwargs):
             return original([probe.sys.executable, '-u', '-c', script], **kwargs)
         with (patch.object(probe.subprocess, 'Popen', side_effect=spawn),
+              # This fixture tests process/deadline handling; its artifact bytes
+              # are deliberately synthetic. Real .col decoding has pipeline tests.
+              patch.object(probe, 'collision_counts', return_value={'max_bytes': 123}),
               patch.object(probe, 'source_counts', return_value={'buildings': 2, 'collision': 1})):
             return probe.run(root, tile_id='t0_0_0', first_budget=2, full_budget=.04 if delay else 2)
 
@@ -44,6 +47,7 @@ class ProbeTests(unittest.TestCase):
             root = Path(temp)
             result = self.run_worker(root)
             self.assertEqual(result['passes']['full']['counts'], {'buildings': 2, 'collision': 1})
+            self.assertEqual(result['passes']['full']['collision'], {'max_bytes': 123})
             health = [json.loads(line) for line in (root / '.build-health.jsonl').read_text().splitlines()]
             self.assertEqual([(r['pass'], r['outcome']) for r in health], [('first', 'built'), ('full', 'built')])
 

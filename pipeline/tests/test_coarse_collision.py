@@ -1,6 +1,7 @@
 """Dense clipped structures must fit streaming budgets without moving collision."""
 
 import numpy as np
+import pytest
 from turku3d.coarse.collision import compact_collision
 from turku3d.col.format import ColTile, read_col, write_col
 from turku3d.col.materials import mat_id
@@ -62,3 +63,30 @@ def test_dense_triangle_soup_fits_budget_after_exact_welding():
     assert len(col.positions) == n + 2
     assert len(write_col(col, encoding="raw", optimize=False)) < 1_000_000
     np.testing.assert_array_equal(col.positions[col.indices].view(np.uint32), expected)
+
+
+def test_deployed_probe_decodes_collision_and_rejects_manifest_count_mismatch(tmp_path):
+    import runpy
+
+    from turku3d import config as C
+
+    counts = runpy.run_path(str(C.REPO_ROOT / "tools/remote-drafts/probe-builds.py"))[
+        "collision_counts"
+    ]
+    p = np.array([[0, 0, 0], [0, 0, 1], [1, 0, 0]], np.float32)
+    col = ColTile(0, 0, p, [[0, 1, 2]], [mat_id("curb")])
+    data = write_col(col, encoding="raw", optimize=False)
+    (tmp_path / "test.col").write_bytes(data)
+    entry = dict(url="test.col", bytes=len(data), tris=1, prims=0)
+    manifest = dict(collision={col.id: entry})
+    result = counts(tmp_path, manifest)
+    assert result == dict(
+        cells={col.id: dict(bytes=len(data), vertices=3, triangles=1)}, max_bytes=len(data)
+    )
+    entry["tris"] = 2
+    with pytest.raises(RuntimeError, match="counts differ from manifest"):
+        counts(tmp_path, manifest)
+    entry["tris"] = 1
+    (tmp_path / "test.col").write_bytes(data[:-1])
+    with pytest.raises(ValueError):
+        counts(tmp_path, manifest)
