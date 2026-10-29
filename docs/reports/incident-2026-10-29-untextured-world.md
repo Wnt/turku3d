@@ -37,3 +37,11 @@ Incremental timing evidence in `.deploy-canary/stage-times.json` showed inputs a
 The initial mandatory policy retries exposed missing isolated Node dependencies (root TypeScript, game Playwright and QA Playwright). Installing each sandbox-local lockfile dependency set resolved them; no assertions were changed.
 
 After the rejected attempt, all three integration curl probes passed in 0.405 seconds, and 22 selective scheduler/retention/public-boundary tests passed asynchronously in 0.986 seconds. These synthetic results are explicitly not evidence of successful real full-pass generation.
+
+## Deployed health and selected real-build evidence
+
+The corrected ungated workflow deployed `fd2f4e29acba` to OCI slot 7765 in 20.011 seconds, with no build gate. The health-aware five-second smoke passed in 0.261 seconds. This deployment included the pending facade component publication. Build-health evaluation adds no extra network request: it parses the health JSON fetched by curl within the shared five-second deadline.
+
+The selected asynchronous investigation used frozen source `fd2f4e29acba` while subsequent source publication continued independently. It built real spawn `t0_0_0` on OCI using shared stage/input caches and separate output pointers. First pass took **9.382 seconds**; full pass took **178.293 seconds**. Both manifests contained **46 buildings**, matching the independently gathered source inputs, and **16 collision tiles**, matching the configured subdivision. Selected budgets were 120 and 180 seconds to observe completion during the known incident, rather than make package/upload wait for a build. Total async wall time including admission was **191.323 seconds**, within ten minutes.
+
+This successful spawn build is not a world-recovery claim. The rolling health signal subsequently showed four full builds, eight failures and two cancellations, p50 30.758 seconds and p90 178.293 seconds. It correctly flagged poor full-pass success, excessive p50 and repeated error kinds. Live failures on `t0_-2_1` and `t0_-2_3` reported `ValueError: mesh extras require layer, object_id and material_key`; the facade owner was notified and identified a component missing `object_id`. The performance owner separately deployed `acaf1405`; its later timing evidence must be evaluated separately from this frozen-source run.
