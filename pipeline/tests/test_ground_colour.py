@@ -33,3 +33,16 @@ def test_only_supported_unblocked_ground_changes(monkeypatch):
     assert np.array_equal(output[1, 0], source[1, 0])  # building
     assert np.array_equal(output[:, 2], source[:, 2])  # unsupported classes
     assert stats['asphalt']['pixels'] == 2
+
+
+def test_calibration_table_invalidates_visuals_without_collision(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import collision_key, packaging
+
+    visual_before = packaging.code_hash()
+    collision_before = collision_key.code_hash()
+    read = Path.read_bytes
+    table = ground_colour.TABLE
+    monkeypatch.setattr(Path, 'read_bytes', lambda path: read(path) + b' ' if path == table else read(path))
+    assert packaging.code_hash() != visual_before
+    assert collision_key.code_hash() == collision_before

@@ -34,6 +34,7 @@ PRODUCERS = (
     "sources",
     "surfaces",
     "ortho_cleanup",
+    "ground_colour",
     "bridges",
     "bridge_details",
     "bridge_join",
@@ -59,6 +60,7 @@ def producer_paths():
         [
             *source_paths(),
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
+            Path(__file__).with_name("ground_colour.json"),
             Path(__file__).parents[1] / "stage_cache.py",
             Path(__file__).parents[1] / "spatial.py",
             Path(__file__).parents[1] / "roads/__init__.py",

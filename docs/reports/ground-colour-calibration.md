@@ -16,6 +16,19 @@ eligible and seven incomplete quarters. Reference data remain private at
 `/srv/turku3d/private/gmaps-data/round3/` on OCI. Existing report and decoded-manifest
 bytes are preserved when relocating inventory pointers.
 
+The current-generator baseline has completed every eligible record: 50 scored,
+three abstentions and seven incomplete. These are **partial baseline** medians,
+not the requested 57-quarter result:
+
+| Metric | Quarter support | Median |
+| --- | ---: | ---: |
+| Ground colour CIE76 ΔE | 50 | 14.96 |
+| Roof colour CIE76 ΔE | 44 | 14.71 |
+| Exposed-ground height RMSE | 50 | 0.08 m |
+| Road height MAE | 50 | 0.06 m |
+| Roof height MAE | 45 | 0.21 m |
+| Wall colour CIE76 ΔE | 0 | unavailable; facade-kit v4 is unsupported by the private sampler |
+
 Current-generator scoring uses a separate resumable batch index and immutable,
 hash-verified OCI snapshots. Materialization into the invoking sandbox includes
 sibling shared textures; only these own-generator inputs enter the scorer's own
@@ -35,9 +48,14 @@ are enabled only by training cross-validation. Mosaic identifiers are available
 input VRT names, not independently identified original aerial-flight sheets.
 
 Corrections exclude buildings, water and bright aerial paint. Unsupported classes
-retain their input. The production generator does not yet call this correction:
-the complete baseline, holdout result and paired scene re-score remain outstanding.
-No before/after improvement is claimed from the partial inventory.
+retain their input. A provisional fit of the 50 scored quarters held out 11
+tile-disjoint quarters (22%). Training-only validation selected 0.75 correction
+strength and rejected per-mosaic residuals. Its holdout material-sample median
+fell from 11.21 to 6.45 CIE76 ΔE **in the colour model**, before rendering or
+scene scoring. The production stage and provisional aggregate coefficients are
+prepared on this branch, but the complete 57-quarter baseline, final fit,
+deployment and paired scene re-score remain outstanding. No rendered-world
+before/after improvement is claimed.
 
 The installed private facade sampler supports facade-kit v1-v3. Current v4 batches
 abstain from wall colour measurement; unavailable wall support must be reported

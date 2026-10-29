@@ -573,11 +573,25 @@ def build(
         lambda: ortho_cleanup.clean(*clean_args),
     )
     seconds["ground_ortho"] = cache.metrics["ground_ortho"]["seconds"]
+    from . import ground_colour
+
+    ortho_paths = inputs.sources.get("ortho", ())
+    mosaic = Path(ortho_paths[0]).name if ortho_paths and ortho_paths[0] else None
+    corrected_ortho, colour_stats = cache.run(
+        "ground_colour",
+        source_key(Path(ground_colour.__file__), ground_colour.TABLE, *common),
+        (tile, ground_ortho, inputs.ortho, inputs.streets, inputs.surfaces,
+         [b.footprint for b in blds], inputs.water, mosaic),
+        lambda: ground_colour.apply(tile, ground_ortho, inputs.ortho,
+                                    inputs.streets, inputs.surfaces,
+                                    [b.footprint for b in blds], inputs.water, mosaic),
+    )
+    seconds["ground_colour"] = cache.metrics["ground_colour"]["seconds"]
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
-        [visual_args, ground_ortho, surfaces.KEYS, surfaces.BINDINGS],
-        lambda: surfaces.visuals(*visual_args, ortho=ground_ortho),
+        [visual_args, corrected_ortho, surfaces.KEYS, surfaces.BINDINGS],
+        lambda: surfaces.visuals(*visual_args, ortho=corrected_ortho),
     )
     paint_args = (
         tile,
@@ -745,6 +759,7 @@ def build(
         stairs=dict(flights=len(stair_meshes), triangles=sum(len(m.indices) for m in stair_meshes)),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_ortho_cleanup=cleanup_stats,
+        ground_colour_calibration=colour_stats,
         ground_surfaces={
             surfaces.KEYS[c]: int(
                 sum(
