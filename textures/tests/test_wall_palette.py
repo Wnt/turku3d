@@ -1,6 +1,8 @@
 """Distribution identity and building-level statistical separation."""
 
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 
 import numpy as np
@@ -103,3 +105,53 @@ def test_palette_table_edit_invalidates_producer_and_building_visual_dependencie
     key = source_key(*facade_kit.palette_sources())
     data.write_text('{"groups":456}')
     assert source_key(*facade_kit.palette_sources()) != key
+
+
+def test_checkpoint_rejects_changed_retained_source(tmp_path):
+    path = Path(__file__).resolve().parents[2] / "tools/refs/rescore_wall_palette.py"
+    spec = importlib.util.spec_from_file_location("rescore_checkpoint", path)
+    scorer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scorer)
+    payload = b"immutable deployed bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    source = tmp_path / f"own-score-{digest[:16]}" / "source.glb"
+    source.parent.mkdir()
+    source.write_bytes(payload)
+    report = tmp_path / "compare-score-after" / "report.json"
+    report.parent.mkdir()
+    report.write_text(
+        json.dumps(
+            dict(reference_sha256="reference", build_sha256=digest, facades=dict(colour_groups={}))
+        )
+    )
+    before = tmp_path / "before.json"
+    before.write_bytes(report.read_bytes())
+    result = dict(report=str(report), own_sha256=digest)
+    assert scorer.verified_pair(dict(report=str(before)), result) == []
+    source.write_bytes(b"changed deployed bytes")
+    with pytest.raises(ValueError, match="Retained own source changed"):
+        scorer.verified_pair(dict(report=str(before)), result)
+
+
+def test_checkpoint_rejects_a_different_palette(tmp_path):
+    repo = Path(__file__).resolve().parents[2]
+    path = repo / "tools/refs/rescore_wall_palette.py"
+    spec = importlib.util.spec_from_file_location("rescore_model_checkpoint", path)
+    scorer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(scorer)
+    coverage, output, job = tmp_path / "before.json", tmp_path / "after", tmp_path / "job"
+    model = job / "repo/textures/turkutex/wall_palette.json"
+    model.parent.mkdir(parents=True)
+    model.write_bytes((repo / "textures/turkutex/wall_palette.json").read_bytes() + b" ")
+    import os
+
+    (job / "request.json").write_text(
+        json.dumps(
+            dict(
+                name=os.environ.get("TURKU3D_SANDBOX", "test"),
+                commands=[f"score --coverage {coverage} --out {output} --expected-quarters 28"],
+            )
+        )
+    )
+    with pytest.raises(ValueError, match="Checkpoint colour source changed"):
+        scorer.resume_checkpoint(job, coverage, output, {}, 28)
