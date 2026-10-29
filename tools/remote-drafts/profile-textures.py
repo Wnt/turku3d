@@ -1,6 +1,7 @@
 """Selective first/full cold, repeat and texture-reuse measurements on real OCI tiles."""
 import argparse
 import importlib
+import importlib.util
 import json
 import os
 import shutil
@@ -42,7 +43,6 @@ def main():
     module.package_visual = capture
     assembly_comparisons = []
     if args.assembly_baseline:
-        import importlib.util
         import numpy as np
         from turku3d import wall_assembly
 
