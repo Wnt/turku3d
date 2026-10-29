@@ -200,9 +200,9 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
             p = panos[i]
             if row["wall_id"] in originals:
                 previous = originals[row["wall_id"]]["view"]["pano"]
-                if (
-                    p["id"] == previous["id"]
-                    or np.linalg.norm(xy[i] - [previous["E"], previous["N"]]) < 4
+                if p["id"] == previous["id"] or (
+                    p.get("date") == previous.get("date")
+                    and np.linalg.norm(xy[i] - [previous["E"], previous["N"]]) < 4
                 ):
                     continue
             views = evaluate(
@@ -359,7 +359,11 @@ def compile_batch(root, batch, publish):
         # the new count-only survey sees exactly the same span.
         line = LineString([wall["geometry"]["p0"], wall["geometry"]["p1"]])
         existing = False
-        for old in program["walls"]:
+        for wall_index, old in enumerate(program["walls"]):
+            if form.get("revision_of") and old["wall_id"] == wall["wall_id"] and "structure" in old:
+                program["walls"][wall_index] = wall
+                existing = True
+                break
             g = old.get("geometry", {})
             if "p0" in g and not old["observation"]["needs_review"]:
                 other = LineString([g["p0"], g["p1"]])
@@ -371,7 +375,7 @@ def compile_batch(root, batch, publish):
                     break
         if not existing:
             program["walls"].append(wall)
-        program["needs_review"] = False
+        program["needs_review"] = all(w["observation"]["needs_review"] for w in program["walls"])
         program["review"] = dict(
             method="direct structure-only route survey; prior pilot retained",
             scope="matched walls only",
@@ -390,6 +394,11 @@ def compile_batch(root, batch, publish):
             batch=batch,
             status="rejected" if form.get("reject") else "done",
             reason=form.get("reason"),
+            render_status="deferred"
+            if form.get("render_deferred")
+            else "rejected"
+            if form.get("reject")
+            else "eligible",
         )
     usage = snapshot()
     start = json.loads((directory / "start.json").read_text())

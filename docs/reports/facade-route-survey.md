@@ -12,8 +12,9 @@ The frozen navigation snapshot contains 153 delivery destinations, including all
 corridor: primary/secondary/tertiary streets, foot/car delivery routes and stored
 facade buildings. Rings are 150 m wide, sorted by route distance. The shared
 `pipeline/turku3d/routes_rings.py` computes the route ordering for other consumers.
-The initial inventory matches 237 of 347 stored building identities; unresolved
-identities remain listed in the durable queue summary for subsequent expansion.
+The initial inventory matched 237 of 347 stored building identities. A subsequent
+binding-based supplement resolved all 110 missing identities and added 391 walls;
+all 347 stored identities now have queue entries (7,645 candidates in total).
 
 ## Reading and preservation
 
@@ -26,8 +27,9 @@ full panorama copies are deleted after cropping; original sources are untouched.
 
 The fixed form records rows bottom-to-top, bay kinds left-to-right, head shapes,
 surrounds, material, ornament level, cornice, floor-boundary string courses,
-balconies, occlusions and field confidence. Equal-row/bay layout priors turn
-counts into openings on measured wall extents. Opening sizes are not photographic
+balconies, occlusions and field confidence. Qualitative row heights, bay units and paired-opening counts turn
+counts into openings on measured wall extents. Continuous ribbon glazing can keep
+its pane count unknown. Floor material bands and pointed heads are supported. Opening sizes are not photographic
 measurements. Conflicting counts do not change register storeys or shell height.
 Unknown bays retain prior treatment. The painter supports frame, pediment and
 rusticated surrounds; detailed sculptural ornament is recorded but not recreated.
@@ -80,5 +82,30 @@ PYTHONPATH=pipeline:textures PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 OPENBLAS_NUM_THREA
 
 New batch names prevent accidental replacement of evidence. An alternate uses
 `--alternate-from BATCH --wall-ids ID ...`; source selection excludes the first
-panorama and camera positions within four metres of it. Per-building program
+panorama and same-date camera positions within four metres of it. Historical
+views at the same position remain useful for temporary occlusions. Per-building program
 hashes preserve selective appearance invalidation; no area rebuild is required.
+
+## Second publication: complete classification through 300 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: |
+| 0–150 m | 88 | 18 | 70 | 1 |
+| 150–300 m | 140 | 39 | 101 | 21 |
+
+The 57 characterized walls include 35 eligible for the current painter and 22
+with structured observations retained for later compilation. Deferral is separate
+from rejection: mixed stair strips, clock towers, blind niches, permanent parking
+screens, partial views and uneven storefront sections retain useful descriptive
+evidence without replacing the original art with an unsuitable repeated layout.
+Confidence and unknown counts remain explicit. Earlier mixed-section and clock
+rejections were enriched through append-only revisions.
+
+Paired windows, pointed portal heads, qualitative short rows, unequal bay units,
+continuous ribbons and per-floor material bands extend the form/compiler. A
+single observed ground strip does not replace upper-floor treatment. Original
+precise pilot rectangles remain preferred. The second durable publication is
+`publications/ring01/`; original and revision forms remain in their batch folders.
+Weekly account quota is 38% (33% at start). Batch elapsed time includes alternate
+view preparation, schema work and deployment interruptions; it must not be read
+as pure visual annotation time. Complete timings are in each `finished.json`.
