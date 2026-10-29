@@ -1,5 +1,6 @@
 // Safe-reset driver for main.ts: builds the per-frame probe from the physics state, samples the river surface,
 // runs the RecoveryMonitor rules and performs the reset through the physics worker. See README.md "Safe reset".
+import { FlippedCarMonitor, recoveryVehicle } from './flippedCar';
 import * as THREE from 'three/webgpu';
 import { collisionTileAt } from '../core/origin';
 import type { Manifest } from '../world/manifest';
@@ -24,6 +25,8 @@ interface PlayerFrame {
 const tileId = (x: number, z: number) => { const t = collisionTileAt(x, z); return `c_${t.i}_${t.j}`; };
 
 export class SafeReset {
+  private readonly flipped = new FlippedCarMonitor();
+  flippedCarId: string | null = null;
   readonly monitor: RecoveryMonitor;
   /** Game-clock seconds: unpaused frames only, so the countdown waits while paused or in a menu. */
   time = 0;
@@ -93,14 +96,20 @@ export class SafeReset {
   }
 
   /** The lost prompt or the edge notice for this frame; true when the edge notice shows. */
-  render(feet: THREE.Vector3, button: string) {
+  render(feet: THREE.Vector3, button: string, flipButton: string) {
     const lost = this.monitor.lost;
     const nearEdge = !lost && this.area.edgeDistance(feet.x, feet.z) <= RECOVERY.edgeWarning;
     this.hud.setEdge(nearEdge);
     // A fall that resolved without a reset (landed safely, or a restart) removes its countdown prompt.
     if (lost) this.hud.lost(lost.reason, this.monitor.countdown(this.time) ?? 0, button);
     else this.hud.clearLost();
+    this.hud.setFlipped(!lost && this.flippedCarId !== null, flipButton);
     return nearEdge;
+  }
+
+  updateFlipped(dt: number, drivenId: string | null, feet: THREE.Vector3, mayDrive: (id: string) => boolean) {
+    const vehicle = recoveryVehicle(this.physics.latest?.vehicles ?? [], drivenId, feet, mayDrive);
+    this.flippedCarId = this.flipped.update(dt, vehicle) ? vehicle?.id ?? null : null;
   }
 
   snapshot(feet: THREE.Vector3) {

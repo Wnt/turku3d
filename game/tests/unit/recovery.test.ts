@@ -1,3 +1,5 @@
+import { FlippedCarMonitor, recoveryVehicle } from '../../src/gameplay/flippedCar';
+import type { VehicleState } from '../../src/physics/protocol';
 import { describe, expect, test } from 'vitest';
 import { PlayableArea, RECOVERY, RecoveryMonitor, lostReason, lowestGround, type Probe } from '../../src/gameplay/recovery';
 
@@ -192,5 +194,35 @@ describe('developer fly mode', () => {
     m.restart(0);
     m.update(probe(1, 30), 0);
     expect(m.armed).toBe(true);
+  });
+});
+
+
+describe('flipped car notice', () => {
+  const feet = { x: 0, y: 0, z: 0 };
+  const car = (id = 'player', x = 0): VehicleState => ({ id, pos: { x, y: 0, z: 0 },
+    rot: { x: 1, y: 0, z: 0, w: 0 }, linvel: { x: 0, y: 0, z: 0 }, speed: 0, forwardSpeed: 0,
+    wheels: [], curbStrike: null });
+  test('waits for stillness and clears immediately on upright, movement, absence or another car', () => {
+    const m = new FlippedCarMonitor(), v = car();
+    expect(m.update(0.5, v)).toBe(false);
+    expect(m.update(0.5, v)).toBe(true);
+    expect(m.update(0.1, { ...v, rot: { x: 0, y: 0, z: 0, w: 1 } })).toBe(false);
+    expect(m.update(1, v)).toBe(false); // still rotating into the flipped pose
+    expect(m.update(1, v)).toBe(true);
+    expect(m.update(0.1, { ...v, linvel: { x: 1, y: 0, z: 0 } })).toBe(false);
+    expect(m.update(1, v)).toBe(true);
+    expect(m.update(0.1, car('other'))).toBe(false);
+    expect(m.update(1, null)).toBe(false);
+    expect(m.update(0.5, v)).toBe(false);
+    expect(m.update(0.5, v)).toBe(true); // can reappear after walking back
+  });
+  test('selects the driven car or the nearest reachable car the player may drive', () => {
+    const vehicles = [car('locked', 1), car('near', 2), car('far', 10)];
+    const allowed = (id: string) => id !== 'locked';
+    expect(recoveryVehicle(vehicles, 'far', feet, allowed)?.id).toBe('far');
+    expect(recoveryVehicle(vehicles, null, feet, allowed)?.id).toBe('near');
+    expect(recoveryVehicle(vehicles, null, { ...feet, y: 5 }, allowed)).toBeNull();
+    expect(recoveryVehicle(vehicles, null, { ...feet, x: 20 }, allowed)).toBeNull();
   });
 });

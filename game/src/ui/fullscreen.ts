@@ -1,6 +1,6 @@
 // Fullscreen policy for touch play: the start screen works in the normal browser view, the 3D scene runs only in
 // fullscreen. Closing the start screen requests fullscreen inside the tap; leaving fullscreen while the scene runs
-// pauses the game behind a "Tap to continue in fullscreen" overlay. Keyboard and gamepad players are never affected.
+// pauses the game behind a "Tap to continue in fullscreen" overlay. Desktop players opt in with the HUD button or F10.
 
 export interface FullscreenFacts {
   /** The player is on touch input (`Input.source === 'touch'`). */
@@ -35,7 +35,15 @@ export function fullscreenHint(touchDevice: boolean, supported: boolean, standal
 
 export class FullscreenPolicy {
   readonly overlay = document.createElement('div');
+  readonly button = document.createElement('button');
   readonly supported: boolean;
+  private readonly changed = () => {
+    const active = document.fullscreenElement === this.root;
+    this.button.textContent = active ? '⊡' : '⛶';
+    this.button.title = `${active ? 'Exit' : 'Enter'} fullscreen (F10)`;
+    this.button.setAttribute('aria-label', this.button.title);
+    this.button.setAttribute('aria-pressed', String(active));
+  };
   private inScene = false;
   private own = false;
   private wakeLock: WakeLockSentinel | null = null;
@@ -43,6 +51,13 @@ export class FullscreenPolicy {
 
   constructor(private readonly root: HTMLElement = document.documentElement) {
     this.supported = typeof root.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
+    this.button.id = 'fullscreen-toggle';
+    this.button.type = 'button';
+    this.button.hidden = true;
+    this.button.addEventListener('click', () => this.toggle());
+    document.body.append(this.button);
+    document.addEventListener('fullscreenchange', this.changed);
+    this.changed();
     this.overlay.id = 'fullscreen-overlay';
     this.overlay.hidden = true;
     this.overlay.setAttribute('role', 'dialog');
@@ -56,12 +71,15 @@ export class FullscreenPolicy {
   /** Removes the overlay and the page listener and releases the wake lock (a hot-swapped play session). */
   dispose() {
     document.removeEventListener('visibilitychange', this.visibility);
+    document.removeEventListener('fullscreenchange', this.changed);
+    this.button.remove();
     this.overlay.remove();
     void this.wakeLock?.release();
   }
 
   get standalone() {
-    return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches
+    return matchMedia('(display-mode: standalone)').matches
+      || (!document.fullscreenElement && matchMedia('(display-mode: fullscreen)').matches)
       || (navigator as { standalone?: boolean }).standalone === true;
   }
 
@@ -73,6 +91,7 @@ export class FullscreenPolicy {
 
   /** Per frame: shows or hides the overlay and returns the paused state after the policy's pause or resume. */
   update(touch: boolean, paused: boolean): boolean {
+    this.button.hidden = touch || !this.inScene || !this.supported || this.standalone;
     const blocking = mustBlock({ touch, inScene: this.inScene, fullscreen: document.fullscreenElement !== null,
       standalone: this.standalone, supported: this.supported });
     this.overlay.hidden = !blocking;
@@ -82,6 +101,13 @@ export class FullscreenPolicy {
   }
 
   get blocking() { return !this.overlay.hidden; }
+
+  /** Desktop clicks and F10 call synchronously from a user gesture; fullscreenchange owns the icon. */
+  toggle() {
+    if (!this.supported || this.standalone) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void this.root.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+  }
 
   private request() {
     if (!this.supported || this.standalone) return;

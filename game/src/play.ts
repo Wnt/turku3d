@@ -36,6 +36,7 @@ import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
 import { createGameplay, compassDeg } from './gameplay';
+import { recoveryVehicle } from './gameplay/flippedCar';
 import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
 import { DropoffGuard } from './gameplay/missions/dropoffs';
@@ -73,7 +74,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const listeners = new AbortController();
   const audio = hot?.audio ?? new GameAudio();
   const audioPreload = audio.preload();
-  const input = new Input(renderer.domElement, () => { void audio.unlock(); });
+  const fullscreen = new FullscreenPolicy();
+  const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle());
   const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
   const audioGameplay = new GameplayAudio(event => {
     audio.emit(event);
@@ -87,7 +89,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   for (const id of SLOT_IDS) keepSavedVehicle(manifest, saves.get(id)?.lastVehicle);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
-  const fullscreen = new FullscreenPolicy();
   const startScreen = new StartScreen(input, {
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
     onClose: () => { world.loadingScreen.enter(); fullscreen.enterScene(input.source === 'touch'); } });
@@ -347,8 +348,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         leaveCar(driverSide(vs));
       }
     }
-    if (mode === 'car' && !paused && !lost && input.consume('vehicleReset') && vs) {
-      physics.resetVehicle({ x: vs.pos.x, y: vs.pos.y + 1.5, z: vs.pos.z }, yawOf(vs.rot), drivenId ?? 'player');
+    if (!paused && !lost && input.consume('vehicleReset')) {
+      const target = recoveryVehicle(physics.latest?.vehicles ?? [], mode === 'car' ? drivenId : null, feet, id => missions.mayDrive(id));
+      if (target && (mode === 'car' || target.id === recovery.flippedCarId)) {
+        physics.resetVehicle({ x: target.pos.x, y: target.pos.y + 1.5, z: target.pos.z }, yawOf(target.rot), target.id);
+      }
     }
 
     let charIn: CharacterInput = { vx: 0, vz: 0, jump: false };
@@ -445,6 +449,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       recovery.update(dt, { mode, drivenId, feet, vel, grounded, facing: player.root.rotation.y,
         flying: mode === 'foot' && !!fly?.active }, resetNow);
     }
+    recovery.updateFlipped(paused || startScreen.active || menuOpen ? 0 : dt, mode === 'car' ? drivenId : null, feet, id => missions.mayDrive(id));
     // renderVehicle interpolates the driven vehicle (the start car while on foot); the others follow the latest step.
     const latestOf = (id: string) => (drivenId ?? 'player') === id ? renderVehicle : st?.vehicles.find(v => v.id === id) ?? null;
     const carState = latestOf('player');
@@ -500,7 +505,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       : mapDirection.set(Math.sin(player.root.rotation.y), 0, Math.cos(player.root.rotation.y));
     const facingDeg = compassDeg(facing.x, facing.z);
     camera.getWorldDirection(mapDirection);
-    const nearEdge = recovery.render(feet, input.source === 'touch' ? 'Reset' : input.prompt('respawn'));
+    const nearEdge = recovery.render(feet, input.source === 'touch' ? 'Reset' : input.prompt('respawn'), input.prompt('vehicleReset'));
     if (multiplayerPlaying) minimap.setRemotes(remotePlayers.markers());
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });

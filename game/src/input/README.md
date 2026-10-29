@@ -19,10 +19,13 @@ the frame takes the largest magnitude of the three sources.
 
 ## Safe reset
 
-`respawn` (Xbox Y, keyboard R, touch Reset) returns a lost player to solid ground; `vehicleReset` (R) does the
-same in a car. Both are read only while the player is lost (gameplay/recovery.ts); Y is `interact` otherwise, and
-while lost `interact` is swallowed so Y never enters or leaves a car. Outside the lost state R keeps flipping the
-car upright in place.
+`respawn` (Xbox Y, keyboard R, touch Reset) returns a lost player to solid ground; `vehicleReset` (Xbox B / R) does the
+same in a car. While lost either action recovers the player (gameplay/recovery.ts); Y is `interact` otherwise, and
+while lost `interact` is swallowed so Y never enters or leaves a car. Outside the lost state B / R flips the driven car upright in place, or a flipped car within 4 m on foot.
+The recovery notice appears after a second of stillness on the side or roof and clears each frame when no longer relevant.
+
+F10 toggles desktop fullscreen synchronously from the keyboard gesture; it has no gameplay action.
+The HUD button uses the same toggle. Esc exits fullscreen through the browser; fullscreenchange updates the button.
 
 ## Fly mode
 
