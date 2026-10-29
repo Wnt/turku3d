@@ -162,8 +162,13 @@ try {
     const cache=names.includes('turku3d-immutable-v1') ? await caches.open('turku3d-immutable-v1') : null;
     const keys=await cache?.keys() ?? [];
     const sizes=await Promise.all(keys.map(async key=>Number((await cache.match(key))?.headers.get('X-Turku3D-Cache-Bytes')) || 0));
-    return {controlled:!!navigator.serviceWorker.controller,files:keys.length,bytes:sizes.reduce((sum,size)=>sum+size,0)};
+    return {controlled:!!navigator.serviceWorker.controller,files:keys.length,bytes:sizes.reduce((sum,size)=>sum+size,0),
+      extensions:keys.reduce((counts,key)=>{const ext=new URL(key.url).pathname.split('.').at(-1);counts[ext]=(counts[ext]??0)+1;return counts;},{})};
   });
+  result.worker=await Promise.all(context.serviceWorkers().map(worker=>worker.evaluate(()=>({
+    url:self.location.href,cache:typeof TILE_CACHE==='undefined' ? null : TILE_CACHE,
+    files:typeof MAX_FILES==='undefined' ? null : MAX_FILES,
+  })).catch(()=>null)));
   fs.writeFileSync(path.join(out,'result.json'),JSON.stringify(result,null,2));
   await page.screenshot({path:path.join(out,'end.png')});
   console.log(JSON.stringify({report:out,speed_kmh:speed,crossings:result.crossings,
