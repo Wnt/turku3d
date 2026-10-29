@@ -18,6 +18,7 @@ import { codecRunner, completed } from './codec.mjs';
 import { compileTexture } from './texture_compile.mjs';
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { splitVisualBuffers } from './split_buffers.mjs';
 import { externalizeLibraryImages } from './shared_images.mjs';
 
 const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.join(os.homedir(), 'turku3d/tools/npm'), 'package.json'));
@@ -165,7 +166,10 @@ async function assembleVisual(request) {
   stage('binding');
   fs.mkdirSync(request.textureCache, { recursive:true });
   if (request.level === 0 && !request.firstPass) {
-    request.facadeAtlas = await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
+    // Drafts reuse the authored GPU-ready maps directly across tiles. Rebuilding
+    // a per-tile atlas would decode and recompress the same source on arrival.
+    request.facadeAtlas = request.draftTextures ? { pages:0, reused_sources:true }
+      : await atlasFacades(doc, request, { sharp, run, KHRTextureBasisu });
     await atlasPropSigns(doc, sharp);
   }
   stage('facades');
@@ -185,7 +189,7 @@ async function assembleVisual(request) {
   // Cache encoded images independently of tiles. Coarse parents reuse the same GPU textures.
   fs.mkdirSync(request.textureCache, { recursive:true });
   for (const t of doc.getRoot().listTextures()) {
-    if (t.getExtras().facade_map && t.getMimeType() === 'image/ktx2') await encodeFacade(t, request);
+    if (!request.draftTextures && t.getExtras().facade_map && t.getMimeType() === 'image/ktx2') await encodeFacade(t, request);
   }
   await completed(doc.getRoot().listTextures().map(async t => {
     if (t.getMimeType() === 'image/ktx2') return;
@@ -232,7 +236,7 @@ async function assembleVisual(request) {
     t.dispose();
   }
   const sharedHashes = new Set(doc.getRoot().listTextures()
-    .filter(t => t.getExtras().shared_library)
+    .filter(t => request.draftTextures || t.getExtras().shared_library)
     .map(t => createHash('sha256').update(t.getImage()).digest('hex')));
   const packed = doc;
   packed.createExtension(EXTMeshoptCompression).setRequired(true)
@@ -240,6 +244,15 @@ async function assembleVisual(request) {
   await io.write(request.output, packed);
   const shared = externalizeLibraryImages(request.output, sharedHashes,
     path.join(path.dirname(path.dirname(request.output)), 'shared'));
+  const wireSize = bytes => brotliCompressSync(bytes, { params: {
+    [zlibConstants.BROTLI_PARAM_QUALITY]: 5,
+    [zlibConstants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
+  } }).length;
+  let wire = wireSize(fs.readFileSync(request.output));
+  if (request.draftTextures && wire > 8_000_000) {
+    shared.push(...splitVisualBuffers(request.output, path.join(path.dirname(path.dirname(request.output)), 'shared')));
+    wire = wireSize(fs.readFileSync(request.output));
+  }
   let after = before, decoded = doc, error = null;
   let wallSurfaces = { state: 'pending' };
   if (!request.auditRoot) {
@@ -262,12 +275,6 @@ async function assembleVisual(request) {
     }
   }
   stage('shipped_surface_audit');
-  const bytes = fs.readFileSync(request.output);
-  // Match tools/dev/serve-dist.mjs: the budget is the size actually sent by our server.
-  const wire = brotliCompressSync(bytes, { params: {
-    [zlibConstants.BROTLI_PARAM_QUALITY]: 5,
-    [zlibConstants.BROTLI_PARAM_SIZE_HINT]: bytes.length,
-  } }).length;
   // Core getBounds sees only prototype geometry, not EXT_mesh_gpu_instancing transforms.
   const bounds = { min:[Infinity,Infinity,Infinity], max:[-Infinity,-Infinity,-Infinity] };
   for (const mesh of after) for (let i=0; i<mesh.v.length; i++) {

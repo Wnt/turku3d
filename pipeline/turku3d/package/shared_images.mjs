@@ -22,7 +22,12 @@ export function externalizeLibraryImages(filename, sharedHashes, sharedDir) {
     if (!sharedHashes.has(hash)) continue;
     const name = `${hash}.ktx2`;
     fs.mkdirSync(sharedDir, { recursive: true });
-    fs.writeFileSync(path.join(sharedDir, name), data);
+    const destination = path.join(sharedDir, name);
+    if (!fs.existsSync(destination)) {
+      const temp = destination + `.${process.pid}.tmp`;
+      fs.writeFileSync(temp, data);
+      fs.renameSync(temp, destination);
+    }
     image.uri = `../shared/${name}`;
     delete image.bufferView;
     removed.add(json.bufferViews.indexOf(view));

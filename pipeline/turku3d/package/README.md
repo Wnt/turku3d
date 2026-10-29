@@ -293,3 +293,20 @@ Their generic library albedo is omitted while normal/ORM detail remains shared. 
 colours survive material deduplication and batching, so light, dark and coloured roofs
 retain the measured orthophoto brightness without adding a material for every building.
 Roof classes without measured RGB retain their library fallback.
+
+## On-demand draft arrival
+
+Draft packaging binds the existing authored KTX2 facade maps directly, including
+normal/ORM maps and their metre UV transforms, rather than decoding and re-encoding
+them into a new tile atlas. Reviewed and learned programs and 3D components remain.
+Every draft texture is a separate immutable content-addressed shared asset, so
+neighbouring tiles and later revisions reuse browser-cached bytes. Static layer
+assembly retains its atlas policy. An oversized compressed draft GLB moves binary
+buffer views into shared chunks of at most 4 MB, retaining lossless geometry and
+the 8 MB wire limit per response. JSON-only GLBs and external buffers use standard
+glTF loading; shared .bin routes have the same hash-only boundary as textures.
+
+Pure decoded-wall and compression precision audits run after publication through
+the durable serial auditor. `/coarse/health` reports pending/passed/failed audits;
+failures retain evidence and require a forward geometry fix. Neighbour wall
+resolution remains before publication because it changes geometry.

@@ -251,6 +251,8 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
         package,
     )
     for name, data in assets.items():
-        _write(work / "shared" / name, data)
+        destination = work / "shared" / name
+        if not destination.exists():
+            _write(destination, data)
     cache.report(stage / "package-times.json")
     return visual, stats

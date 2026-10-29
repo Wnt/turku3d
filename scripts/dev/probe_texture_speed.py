@@ -18,14 +18,18 @@ def main():
     parser.add_argument('--reuse-caches')
     parser.add_argument('--visual-baseline')
     parser.add_argument('--audit', action='store_true')
+    parser.add_argument('--tiles', nargs='+', default=['t0_0_0', 't0_0_-2'])
     args = parser.parse_args()
     source = remote(f'readlink -f {HOME}/repo')
-    if source != f'{HOME}/sources/{args.commit}':
-        raise SystemExit(f'Deployed source differs: {source}')
-    root = f'/srv/turku3d/work/pipeline-speed-max-{uuid.uuid4().hex[:12]}'
+    frozen = f'{HOME}/sources/{args.commit}'
+    remote(f'test -d {shlex.quote(frozen)}')
+    if source != frozen:
+        print(f'Active source moved to {source}; checking frozen published {args.commit}', flush=True)
+    source = frozen
+    root = f'/srv/turku3d/work/tile-arrival-parity-{uuid.uuid4().hex[:12]}'
     arguments = ['timeout', '--kill-after=3', '540', f'{source}/tools/remote-drafts/run.sh',
                          'python', f'{source}/tools/remote-drafts/profile-textures.py', '--root', root,
-                         '--assets', '/srv/turku3d/work/coarse', '--tiles', 't0_0_0', 't0_0_-2']
+                         '--assets', '/srv/turku3d/work/coarse', '--tiles', *args.tiles]
     if args.assembly_baseline:
         arguments += ['--assembly-baseline', f'{HOME}/sources/{args.assembly_baseline}/pipeline/turku3d/wall_assembly.py']
     if args.atlas_baseline:
