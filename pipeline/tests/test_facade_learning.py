@@ -115,3 +115,33 @@ def test_opaque_service_door_is_not_glazing():
     vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 10, 0], [0, 10, 0]], float)
     parts = list(wall_parts(vertices, wall, compile_wall(wall, 2)))
     assert any(p[2]["module"] == 48 and p[2]["wall"] == "#55534e" for p in parts)
+
+
+def test_learned_multiple_windows_surrounds_and_balconies_reach_metric_painter():
+    from turkutex.facade_learned_layout import expand
+
+    row, _ = fixture()
+    wall = sample("synthetic", dict(levels=2), [row])["walls"][0]
+    wall["bays"].update(count=4, pitch_m=3, rhythm="ribbon")
+    wall["base"].update(variant=dict(value="windows"), glazing_share=dict(value=0))
+    wall["learned_layout"] = dict(windows_per_bay=2, surround="pediment", balcony=True)
+    expand(wall, 2, {k: row[k] for k in ("p0", "p1", "base_h")})
+    assert len(wall["windows"]["rectangles_m"]) == 12
+    assert wall["windows"]["surround_shapes"] == ["pediment"] * 12
+    assert len(wall["balconies"]["value"]) == 2
+    assert not wall.get("measured_wall_id")
+    assert wall["observation"]["opening_extent"] == "sampled learned grammar; no photo measurement"
+
+
+def test_ornament_levels_add_distinct_bounded_trim():
+    from turku3d.facade_program_geometry import wall_parts
+
+    row, form = fixture()
+    vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 10, 0], [0, 10, 0]], float)
+    sizes = []
+    for level in ("none", "low", "medium", "high"):
+        form["ornament"] = level
+        wall = compile_structure(row, form, 2)
+        wall.update(measured_geometry=wall["geometry"], measured_size=[12, 8])
+        sizes.append(len(list(wall_parts(vertices, wall, compile_wall(wall, 2)))))
+    assert all(a < b for a, b in zip(sizes, sizes[1:], strict=False))
