@@ -35,6 +35,14 @@ export class SeatedVehicles {
     this.byId[id] = truck;
   }
 
+  /** Untouched draft trucks leave with their source tile; bought/borrowed vehicles remain. */
+  retainTrucks(ids: ReadonlySet<string>) {
+    for (const [id, truck] of this.extraTrucks) {
+      if (ids.has(id)) continue;
+      truck.dispose(); this.extraTrucks.delete(id); delete this.byId[id];
+    }
+  }
+
   /** The seated visual for physics vehicle `id`; undefined for a car, whose driver disappears into it. */
   of(id: string | null | undefined) { return id ? this.byId[id] : undefined; }
 

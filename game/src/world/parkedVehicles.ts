@@ -14,7 +14,7 @@ export class ParkedVehicles {
   private next = 0;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
-    private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck'>) {}
+    private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>) {}
 
   update(x: number, z: number, driven: string | null, now: number) {
     if (driven) {
@@ -36,6 +36,7 @@ export class ParkedVehicles {
       if (key !== this.inventory) {
         await this.visuals.load(this.manifest);
         await Promise.all([...cars.values()].filter(v => v.model === 'truck').map(v => this.seated.addTruck(v.object_id)));
+        this.seated.retainTrucks(new Set(cars.keys()));
         this.inventory = key;
       }
       const present = new Set(this.physics.latest?.vehicles.map(v => v.id));

@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { TRUCK } from '../physics/constants';
 import type { VehicleState } from '../physics/protocol';
+import { disposeDraw } from '../render/sharedMaterials';
 
 /** Body-local Kenney frame of `truck.glb` (public/assets/vehicles/README.md): +Z forward, wheel centres at
  *  z 0.885 / -0.735, a 1.5 m wide body whose bottom sits 0.15 m above the tyre contact. */
@@ -51,6 +52,19 @@ export class TruckVisual {
     this.seat.rotation.y = Math.PI / 2;
     this.root.add(this.seat);
     scene.add(this.root);
+  }
+
+  dispose() {
+    this.root.removeFromParent();
+    const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
+    this.root.traverse(object => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      disposeDraw(mesh); geometries.add(mesh.geometry);
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material);
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) if (![CAGE, SHOCK, LENS].includes(material as THREE.MeshStandardMaterial)) material.dispose();
   }
 
   async load(url: string) {

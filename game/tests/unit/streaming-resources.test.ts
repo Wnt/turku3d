@@ -1,5 +1,8 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
+import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
+import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { mrt, normalView, velocity } from 'three/tsl';
 // @ts-expect-error r186 internal pipeline manager has no DefinitelyTyped declaration.
 import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
@@ -8,6 +11,45 @@ import { tintDraft } from '../../src/render/facadeKit';
 import { VegetationLod } from '../../src/world/vegetationLod';
 import { CoarseTiles, cellsOf, wantedTiles } from '../../src/world/coarseTiles';
 import { draftManifest } from '../../src/world/manifest';
+import { GameRenderer } from '../../src/render/shadowMaterials';
+import { ParkedCarVisuals } from '../../src/actors/car';
+
+test.each([false, true])('r186 generates identical instanced vertex programs for different batch sizes (velocity=%s)', motion => {
+  type ShaderBuilder = NodeBuilder & { scene: THREE.Scene; camera: THREE.Camera; build(): void; vertexShader: string };
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
+  if (motion) { renderer.setRenderTarget(new THREE.RenderTarget()); renderer.setMRT(mrt({ output: normalView, velocity })); }
+  const shaders = (shared: boolean) => [3, 17].map(count => {
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicNodeMaterial(), count);
+    const backend = renderer.backend as typeof renderer.backend & { createNodeBuilder(object: THREE.Object3D, renderer: THREE.WebGPURenderer): ShaderBuilder };
+    const builder = backend.createNodeBuilder(mesh, renderer);
+    builder.scene = new THREE.Scene(); builder.camera = new THREE.PerspectiveCamera();
+    if (shared) renderer.debug.onNodeBuilderCreated!(builder, { object: mesh });
+    builder.build();
+    return builder.vertexShader;
+  });
+  const original = shaders(false), fixed = shaders(true);
+  expect(original[0]).not.toBe(original[1]);
+  expect(fixed[0]).toBe(fixed[1]);
+  expect(fixed[0]).not.toMatch(/array<mat4x4<f32>,\s*(3|17)>/);
+});
+
+test('updating parked inventory preserves existing draws and their instance buffers', async () => {
+  const asset = new THREE.Group(); asset.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+  const load = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockResolvedValue({ scene: asset } as GLTF);
+  try {
+    const scene = new THREE.Scene(), visuals = new ParkedCarVisuals(scene), manifest = draftManifest('http://localhost/');
+    manifest.vehicle_models = { 'sedan/blue': { url: 'sedan.glb', sha256: 'same', bytes: 1 } };
+    const car = { object_id: 'one', model: 'sedan', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
+      width: 2, length: 4, height: 1.5, clear_front_m: 10, clear_rear_m: 10 };
+    manifest.vehicles = [car]; await visuals.load(manifest);
+    const draw = scene.children[0] as THREE.InstancedMesh, buffer = draw.instanceMatrix;
+    manifest.vehicles.push({ ...car, object_id: 'two' }); await visuals.load(manifest);
+    expect(scene.children).toEqual([draw]); expect(draw.instanceMatrix).toBe(buffer); expect(draw.count).toBe(2);
+    manifest.vehicles = []; await visuals.load(manifest);
+    expect(scene.children).toHaveLength(0); expect(load).toHaveBeenCalledOnce();
+  } finally { load.mockRestore(); }
+});
 
 test('separate tile instances share exact PBR materials and release only after the final owner', () => {
   const shared = new SharedMaterials(), renderer = {} as THREE.WebGPURenderer;
