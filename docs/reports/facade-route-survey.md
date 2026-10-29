@@ -185,3 +185,41 @@ Elapsed time from the first batch is 9,797.6 seconds, 12.9 s/candidate including
 preparation, schema changes, retries, deployments and waits. Weekly account quota
 is 43%, ten points above the measured start. The local evidence footprint is
 176 MB. Reading continues outward with the same 82% stopping threshold.
+
+## Fifth publication: complete classification through 750 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Painter eligible | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 600–750 m | 291 | 108 | 183 | 30 | 78 |
+| Cumulative 0–750 m | 1,049 | 337 | 712 | 120 | 217 |
+
+This publication adds readings and restores the shared program contract for deferred and ground-only records. Readings distinguish ventilation louvres from
+glazing, blind masonry arches from portals, reflected windows from actual
+openings, offset stair windows, isolated window stacks, repeated balcony rows,
+classical fanlights and arched vehicle doors. One reused-crop revision corrects
+an opening-size label: narrow upright windows occupy a normal fraction of their
+storey, so they use the regular-height prior rather than the tall-opening prior.
+Original answers remain available beside the correction.
+
+`publications/ring04/` freezes the programs, complete queue state and source
+exclusions. The new ring took 4,548 seconds between publication snapshots,
+15.6 s/candidate; cumulative elapsed time is 14,345.6 seconds, 13.7 s/candidate.
+These wall-clock figures include preparation, code/record checks, waiting and
+publication work, not just annotation. Per-batch timings and quota readings are
+retained. Weekly account quota is 46%, thirteen integer points above the measured
+33% start. Reading continues at 750 m, with new reading stopping at 82%.
+
+The previous slice passed selected checks in 16.745 s, Pages package/upload in
+10.848 s, OCI activation in 19.811 s, curl smoke in 0.263 s and frozen-source
+facade asset/kit tests in 5.762 s. This data-only slice selects the actual-library
+review-boundary checks before publishing, followed by broader facade program and
+structure compatibility checks.
+
+The actual-library pre-merge check exposed omitted empty opening sections on
+deferred records. These now explicitly contain no window/base rectangles.
+Ground-only glazing now uses `base.openings_m` with no upper-window rectangles or
+repeated middle storeys; per-opening head and surround shapes remain intact in
+the painter. Tests retain their assertions and additionally check preserved upper
+facades and ground opening shapes. `publications/ring04-contract/` supersedes the
+original program snapshot; `migrations/20261029-program-contract/` preserves the
+before/after records and changed-wall list. Original raw forms are unchanged.
