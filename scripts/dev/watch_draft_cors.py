@@ -9,7 +9,7 @@ from pathlib import Path
 
 def probe(pair):
     method, path = pair
-    result = subprocess.run(["curl", "-sS", "--max-time", "3", "-X", method,
+    result = subprocess.run(["curl", "-sS", "--max-time", "30", "-X", method,
                              "-H", "Origin: https://wnt.github.io", "-D", "-",
                              "https://turku.lab.madekivi.fi/coarse/" + path], capture_output=True, text=True)
     headers, _, body = result.stdout.partition("\r\n\r\n")
@@ -44,7 +44,7 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(dict(instances=instances, rows=rows)))
             time.sleep(.3)
-    print(json.dumps({"responses": len(rows), "non_cors": sum(not r["cors"] for r in rows),
+    print(json.dumps({"responses": len(rows), "non_cors": sum(r["status"] > 0 and not r["cors"] for r in rows),
                       "transport_errors": sum(bool(r["exit"]) for r in rows), "instances": instances}), flush=True)
 
 
