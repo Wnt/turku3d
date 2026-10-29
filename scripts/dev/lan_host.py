@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import statistics
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +19,7 @@ def get(path):
 
 def snapshot():
     from turku3d import config as C
-    from turku3d.coarse.idle import route_walk, spawn_tiles
+    from turku3d.coarse.idle import IDLE_SECONDS, IdlePrebuild, route_walk, spawn_tiles
     from turku3d.coarse.service import Builder
     from turku3d.coarse.sources import NoCoverage, Sources
 
@@ -39,6 +40,23 @@ def snapshot():
         plan = dict(walk=walk, summary=summary, spawn=spawn_tiles())
         plan_path.write_text(json.dumps(plan) + "\n")
     sources = Sources()
+    # Forecast the real scheduler's idle order from its actual plan/history,
+    # without admitting work or overriding live player presence.
+    preview = object.__new__(IdlePrebuild)
+    preview.builder = SimpleNamespace(
+        lock=threading.Condition(), demand=SimpleNamespace(clients={})
+    )
+    preview.walk, preview.summary = plan["walk"], plan["summary"]
+    preview.online, preview.last_player, preview.clock = False, 0, lambda: IDLE_SECONDS + 1
+    recent_path = root / ".warm-recent.json"
+    preview.recent = json.loads(recent_path.read_text()) if recent_path.exists() else {}
+    candidates = list(preview.candidates())
+    planned = [tuple(row) for row in plan["walk"]]
+    idle_order = dict(
+        first=candidates[:12],
+        recent_tiles=len(preview.recent),
+        follows_walk=candidates[: len(planned)] == planned,
+    )
     checker = SimpleNamespace(
         manifest=lambda tile: root / tile / "manifest.json",
         input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
@@ -133,6 +151,7 @@ def snapshot():
         ),
         plan=str(plan_path),
         plan_summary=plan["summary"],
+        fully_idle_order=idle_order,
         missing=missing,
         broken=broken,
         unavailable=sorted(unavailable),

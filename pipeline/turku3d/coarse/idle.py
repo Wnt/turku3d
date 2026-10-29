@@ -171,8 +171,11 @@ class IdlePrebuild:
         recent = sorted(self.recent, key=self.recent.get, reverse=True)
         ring_limit = self.summary.get("route_last_ring", 0)
         walk = self.walk if self.fully_idle() else [(r, t) for r, t in self.walk if r <= ring_limit]
+        preferred = [*((-2, t) for t in ahead), *((-1, t) for t in recent)]
+        # With no players, finish spawn/mission rings before recent outer probes.
+        ordered = [*walk, *preferred] if self.fully_idle() else [*preferred, *walk]
         seen = set()
-        for ring, tile in [*((-2, t) for t in ahead), *((-1, t) for t in recent), *walk]:
+        for ring, tile in ordered:
             if tile not in seen:
                 seen.add(tile)
                 yield ring, tile

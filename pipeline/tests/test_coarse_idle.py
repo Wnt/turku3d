@@ -188,6 +188,16 @@ def test_recent_visible_tiles_survive_restart_without_player_positions(tmp_path)
     assert next(idle2.candidates()) == (-1, "t0_4_2")
 
 
+def test_fully_idle_walk_precedes_recent_outer_probe_history(tmp_path):
+    walk = [(0, "t0_0_0"), (1, "t0_1_0"), (43, "t0_2_2")]
+    _, idle, now = idle_builder(tmp_path, walk)
+    idle.walk = walk
+    idle.recent = {"t0_24_24": 1, "t0_2_2": 2}
+    idle.online = False
+    now[0] = IDLE_SECONDS + 1
+    assert list(idle.candidates()) == [*walk, (-1, "t0_24_24")]
+
+
 def test_finished_warm_slot_is_reused_when_route_order_changes(tmp_path):
     b, idle, now = idle_builder(tmp_path, [(0, "t0_0_0"), (0, "t0_1_0")])
     idle.tick()
