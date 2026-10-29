@@ -72,26 +72,30 @@ def produce(tile, scene, dry, wet, bank, solid):
             continue
         dry, solid = cut_ground(dry, [outer]), cut_ground(solid, [outer])
         stone, water, bed = Faces(), Faces(), Faces()
-        horizontal(stone, outer.difference(body).intersection(window), level + 0.06)
-        horizontal(water, body.intersection(window), level - 0.12)
-        horizontal(bed, body.intersection(window), level - 0.65)
-        # Vertical masonry faces only on the real pool ring, never a tile edge.
-        for ring, bottom, reverse in (
-            (body.boundary, level - 0.65, False),
-            (outer.boundary, level, True),
-        ):
-            for line in shapely.get_parts(ring.intersection(window)):
-                coords = np.asarray(line.coords)
-                for a, b in zip(coords[:-1], coords[1:], strict=True):
-                    p = np.array(
-                        [
-                            [a[0], bottom, a[1]],
-                            [b[0], bottom, b[1]],
-                            [b[0], level + 0.06, b[1]],
-                            [a[0], level + 0.06, a[1]],
-                        ]
-                    )
-                    stone.face(p[::-1] if reverse else p)
+        for cell in tile.collision_tiles():
+            cell_window = shapely.box(*cell.bbox.as_tuple())
+            horizontal(stone, outer.difference(body).intersection(cell_window), level + 0.06)
+            horizontal(water, body.intersection(cell_window), level - 0.12)
+            horizontal(bed, body.intersection(cell_window), level - 0.65)
+            # Real rim only, split at collision seams as well as visual tile edges.
+            for ring, bottom, reverse in (
+                (body.boundary, level - 0.65, False),
+                (outer.boundary, level, True),
+            ):
+                for line in shapely.get_parts(ring.intersection(cell_window)):
+                    if line.geom_type not in ("LineString", "LinearRing"):
+                        continue
+                    coords = np.asarray(line.coords)
+                    for a, b in zip(coords[:-1], coords[1:], strict=True):
+                        p = np.array(
+                            [
+                                [a[0], bottom, a[1]],
+                                [b[0], bottom, b[1]],
+                                [b[0], level + 0.06, b[1]],
+                                [a[0], level + 0.06, a[1]],
+                            ]
+                        )
+                        stone.face(p[::-1] if reverse else p)
         rim, surface, floor = mesh(stone, "quay"), mesh(water, "water"), mesh(bed, "soil")
         dry = join(dry, rim)
         wet = join(wet, surface)
