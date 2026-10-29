@@ -1,6 +1,5 @@
 """Native OCI serving acceptance using the forwarder's exact ten-player load tool."""
 import argparse
-import datetime
 import json
 import subprocess
 import time
@@ -30,10 +29,6 @@ def main():
     parser.add_argument("--load-tool", type=Path, default=Path.home() /
                         "turku3d-drafts/agent-work/forwarder-capacity/forwarder-tunnel-load-arm64")
     args = parser.parse_args()
-    # Jonni's interactive OCI testing has priority until this explicit boundary.
-    if args.clients > 1 and datetime.datetime.now(datetime.UTC) < datetime.datetime(
-            2026, 10, 29, 23, tzinfo=datetime.UTC):
-        parser.error("Ten-client OCI load is allowed only after 2026-10-29 23:00 UTC")
     args.output.mkdir(parents=True, exist_ok=True)
     before = health(args.base)
     counters = listen_drops()
