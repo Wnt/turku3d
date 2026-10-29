@@ -471,6 +471,33 @@ def test_bent_stair_and_landings_cover_the_entire_terrain_cut():
         assert np.isfinite(point).all()
 
 
+def test_descending_bent_stair_merges_roundoff_stations_without_losing_geometry():
+    from turku3d.coarse import stairs
+
+    # Reversing a bent way changes the floating-point sum of segment lengths.
+    line = shapely.LineString([
+        (1016, 1020.7346), (1014, 1020.1137), (1011, 1020.3912), (1010, 1020.5167)
+    ])
+
+    def sample(x, z):
+        assert np.isfinite([x, z]).all()
+        return 0.3 * (x - 1000)
+
+    with np.errstate(invalid="raise", divide="raise"):
+        meshes, openings = stairs.produce(
+            C.VisualTile(0, 4, 4),
+            ([("descending", line, {"width": "2.4"})], []),
+            sample,
+        )
+    assert meshes and len(openings) == 1
+    assert all(np.isfinite(m.positions).all() for m in meshes)
+    triangles = meshes[0].positions[meshes[0].indices]
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    top = shapely.union_all(shapely.polygons(triangles[normals[:, 1] > 1e-8][:, :, [0, 2]]))
+    assert openings[0].difference(top).area < 1e-8
+    assert np.isclose(triangles[:, :, 1], sample(*line.coords[0])).any()
+
+
 def test_boundary_cut_repairs_invalid_overlay_without_losing_surface_area():
     from turku3d.coarse.surfaces import split_boundaries
 
