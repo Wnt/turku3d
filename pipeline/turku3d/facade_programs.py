@@ -249,7 +249,7 @@ HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2}
 def compile_wall(wall, floors):
     width, height = wall["width_m"], wall["height_m"]
     material = field(wall["wall"], "material", "plaster")
-    material = "plaster" if material == "render" else material
+    material = {"render": "plaster", "concrete_panel": "concrete"}.get(material, material)
     material = material if material in MATERIALS else "plaster"
     count = max(0, int(wall["bays"]["count"]))
     count = count if floors else 0
