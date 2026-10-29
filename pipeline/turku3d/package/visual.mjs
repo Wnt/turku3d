@@ -222,7 +222,12 @@ async function assembleVisual(request) {
     }
     // Draft (coarse) tiles take the fastest ETC1S effort: half the encode time at the same size.
     const effort = srgb && request.draftTextures ? ['--clevel','0'] : [];
-    const options = ['--t2','--genmipmap','--threads','2','--assign_oetf', srgb ? 'srgb' : 'linear',
+    // WebGPU rejects block-compressed textures whose sides are not multiples of 4, and one invalid texture
+    // blacks out the whole frame. Per-building crops have arbitrary sizes; UVs are normalized, so stretch.
+    const { width, height } = await sharp(Buffer.from(t.getImage())).metadata();
+    const aligned = [width, height].map(v => Math.ceil(v / 4) * 4);
+    const resize = aligned[0] !== width || aligned[1] !== height ? ['--resize', `${aligned[0]}x${aligned[1]}`] : [];
+    const options = ['--t2','--genmipmap','--threads','2','--assign_oetf', srgb ? 'srgb' : 'linear', ...resize,
       '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : ['--uastc_quality','2','--zcmp', request.draftTextures ? '6' : '18'])];
     const key = createHash('sha256').update('ktx-4.4.2-v1').update(JSON.stringify(options)).update(t.getImage()).digest('hex');
     const dest = path.join(request.textureCache, key + '.ktx2');
