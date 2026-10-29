@@ -22,12 +22,21 @@ test('the marker band follows the ground along each true edge and leaves with it
     return o.z > 40 ? null : { point: { x: o.x, y: 2 + o.z / 100, z: o.z } };
   } };
   const marker = new EdgeMarker(rays, { c_1_0: { h: [2, 3] } });
+  const warmup = marker.group.getObjectByName('edge-material-warmup') as THREE.Mesh;
+  expect(warmup.visible).toBe(true);
+  expect(warmup.frustumCulled).toBe(false);
+  expect([...warmup.geometry.getAttribute('position').array].every(v => v === 0)).toBe(true);
   let edges: [number, number, number][] = [[1, 0, 0], [1, 0, 3]];
   marker.update(() => edges, 0);
   await new Promise(r => setTimeout(r, 0));
   expect(marker.count).toBe(2);
   expect(probes.every(([, , top]) => top === 9)).toBe(true);
   const band = marker.group.children.find(c => c.name === 'edge 1_0_0') as THREE.Mesh;
+  expect(warmup.visible).toBe(false);
+  expect(warmup.parent).toBe(marker.group);
+  expect(band.material).toBe(warmup.material);
+  expect(Object.keys(band.geometry.attributes)).toEqual(Object.keys(warmup.geometry.attributes));
+  expect(band.geometry.index!.array.constructor).toBe(warmup.geometry.index!.array.constructor);
   const pos = band.geometry.getAttribute('position');
   // Bottom 0.3 m under the ground, top 1.1 m above it; past z 40 the rays miss and the last height carries on.
   expect(pos.getX(0)).toBe(125);

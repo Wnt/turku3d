@@ -225,3 +225,24 @@ Air reproduction and validation use the capture-only [renderer scenario](../../.
 using the normal browser slot. It matches dev-served Air captures without requesting a production build slot.
 `make render-perf` remains the production-build command. Both write per-commit measurements under
 `$TURKU3D_WORK/reports/perf/`.
+
+Android main-thread follow-up (2026-10-29): boundary-band position/UV variants now
+participate in startup warmup through a degenerate indexed mesh. It becomes hidden
+when gameplay starts and retains the shared material's node-builder cache across
+periods with no real edges. Dynamic bands keep their original appearance and bounds.
+This closes the two synchronous first-use builds observed after the earlier
+`first-play-stalls` fixes; it does not change mobile quality defaults.
+
+Capture public gameplay without `?dev=1` on pinned Mac Chrome with touch emulation
+(844×390 CSS pixels, DPR 3) and 6× CPU throttling:
+
+```sh
+TURKU3D_PROFILE_MOBILE=1 TURKU3D_PROFILE_CACHES=warm TURKU3D_PROFILE_SECONDS=60 \
+  python3 scripts/dev/host_slots.py browser -- node game/scripts/initial-load-profile.mjs android-public
+```
+
+Add `TURKU3D_PROFILE_DRIVE=1` for the two-minute street-driving scenario. Add
+`TURKU3D_PROFILE_EDGE_WARMUP=1` to wait for the deployed implementation and require
+zero boundary-band node builds during play. Reports include fps, >50 ms frames,
+node-build identities and CPU/trace captures under the sandbox's `reports/initial-load`.
+The throttled Mac results compare this client implementation; they are not phone fps.
