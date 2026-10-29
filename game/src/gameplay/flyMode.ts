@@ -5,10 +5,10 @@
 import { SPEED } from '../actors/player';
 
 export const FLY = {
-  /** Flying speed (m/s), horizontal and vertical: twelve times the walking speed. */
-  speed: 12 * SPEED.walk,
+  /** Flying speed (m/s), horizontal and vertical: 48 times the walking speed. */
+  speed: 48 * SPEED.walk,
   /** While the sprint modifier (A, Shift) is held: four times the flying speed. */
-  fastSpeed: 4 * 12 * SPEED.walk,
+  fastSpeed: 4 * 48 * SPEED.walk,
   /** Two jump presses within this many seconds toggle flight. */
   doubleTap: 0.35,
 } as const;
