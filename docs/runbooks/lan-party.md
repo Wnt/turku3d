@@ -42,7 +42,8 @@ After the protected test window, inspect operational health on OCI:
 ```sh
 curl --max-time 2 -fsS http://127.0.0.1:7764/coarse/health
 curl --max-time 2 -fsS http://127.0.0.1:7700/healthz
-free -h; swapon --show --bytes
+free -h
+swapon --show --bytes
 df -h / /srv/turku3d
 ```
 

@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 DEADLINE = "2026-10-30T09:00:00+02:00"
 QUIET_UNTIL = "2026-10-29T23:00:00+00:00"
 LOCAL_CHECKS = "bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse_idle.py pipeline/tests/test_coarse_unavailable.py"
+LOCAL_ASYNC_CHECKS = "bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py -k 'builder_queues_nearest_first_and_reports_failures or structural_job_completes_then_visual_job_uses_spare_worker'"
 
 
 def message(subject, body, target="orchestrator", kind="note"):
@@ -41,7 +42,7 @@ def wait_until(when):
 def snapshot():
     if time.time() < datetime.fromisoformat(QUIET_UNTIL).timestamp():
         raise RuntimeError("OCI observer is quiet until 23:00 UTC for Jonni's own tests")
-    command = "timeout --kill-after=2 75 /home/ubuntu/turku3d-drafts/run.sh python -c "
+    command = "timeout --kill-after=2 75 nice -n 15 /home/ubuntu/turku3d-drafts/run.sh python -c "
     return json.loads(lan_freeze.remote(command + shlex.quote((HERE / "lan_host.py").read_text())))
 
 
@@ -67,12 +68,18 @@ def deliver_after(output, result):
         "--test",
         "python3 -m unittest scripts/dev/tests/test_build_health.py scripts/dev/tests/test_lan_freeze.py",
         "--async-test",
-        LOCAL_CHECKS,
+        LOCAL_ASYNC_CHECKS,
         "--async-reason",
-        "Warm-up-only scope: local scheduler/coverage regressions; no OCI probes, browser or load runs during Jonni's tests.",
+        "Warm-up-only scope: local worker-lifecycle integration on fixtures; no OCI, browser or load probes.",
     ]
-    with (output / "delivery.log").open("w") as stream:
-        code = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT).returncode
+    for attempt in range(2):
+        with (output / "delivery.log").open("w" if attempt == 0 else "a") as stream:
+            code = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT).returncode
+        if (
+            code == 0
+            or "main moved during selected tests" not in (output / "delivery.log").read_text()
+        ):
+            break  # Retry only the explicit pre-merge race, never a failed deployment.
     save(
         output / "delivery-state.json",
         dict(state="delivered" if code == 0 else "blocked", exit=code, pid=os.getpid()),
