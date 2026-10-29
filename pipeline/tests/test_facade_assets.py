@@ -242,6 +242,15 @@ def test_mixed_reviewed_section_overrides_map_but_keeps_hidden_ground(monkeypatc
     assert niches and all(s['detail'][3] == 0 for s in niches)
     assert validate_meshes(meshes, 'fixture')['violations'] == 0
 
+    # A partial material observation has no authority to replace mapped openings.
+    form['facade_observations']['sections'] = [dict(position='upper', material='brick')]
+    observed = prepare(dict(building_id='stable', storeys=dict(value=2),
+                            walls=[compile_structure(row, form, 2)]))
+    meshes = wall_meshes(b, wall(), np.zeros(3))
+    assert all(m.extras['material_key'] == 'facade_stored' for m in meshes)
+    area = sum(shapely.Polygon(m.positions[:, [0, 1]]).area for m in meshes)
+    assert area == 120
+
 
 def test_bundled_description_is_normal_fallback_with_alias_and_tile_hash(tmp_path, monkeypatch):
     monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'work'))
