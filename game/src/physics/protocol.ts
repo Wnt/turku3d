@@ -48,6 +48,8 @@ export type ToWorker =
   | { type: 'stateAck'; revision: number }
   | { type: 'loadTile'; id: string; buffer: ArrayBuffer }
   | { type: 'unloadTile'; id: string }
+  /** A known collision payload is actively fetching/being installed, not queued or retrying. */
+  | { type: 'loadingTile'; id: string; loading: boolean }
   /** Collision tiles that exist (published or draft) but may not be loaded: no edge wall faces them (edgeWalls.ts). */
   | { type: 'knownTiles'; add: string[]; remove: string[] }
   /** Decode a tile without adding it; answered with 'checkResult'. */
@@ -74,7 +76,7 @@ export type FromWorker =
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
-  | { type: 'state'; publishedAt?: number; revision?: number; actorsDelta?: boolean; removedVehicles?: string[]; removedPoles?: string[]; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[] }
+  | { type: 'state'; coverageBlock?: { actor: string; recover: boolean } | null; publishedAt?: number; revision?: number; actorsDelta?: boolean; removedVehicles?: string[]; removedPoles?: string[]; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[] }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }

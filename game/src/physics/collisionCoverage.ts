@@ -13,3 +13,25 @@ export function collisionCovers(loaded: { has(id: string): boolean }, x: number,
   }
   return true;
 }
+
+
+/** Maximum simulated seconds waiting for active collision loads before safe reset. */
+export const COVERAGE_HOLD_SECONDS = 2.5;
+
+/** Current player's hold survives skipped snapshots; placement or restored coverage clears it. */
+export class PlayerCoverageHold {
+  state: { actor: string; recover: boolean } | null = null;
+  private since = 0;
+
+  block(actor: string, time: number, loading: boolean) {
+    if (this.state?.actor !== actor) {
+      this.since = time;
+      this.state = { actor, recover: false };
+    }
+    this.state.recover ||= !loading || time - this.since >= COVERAGE_HOLD_SECONDS;
+  }
+
+  clear(actor?: string) {
+    if (actor === undefined || this.state?.actor === actor) this.state = null;
+  }
+}

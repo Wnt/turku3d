@@ -45,7 +45,7 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
   for (const p of poles) { if (p.brokeNow) localBreaks.add(p.id); p.brokeNow = localBreaks.has(p.id); }
   const poleDelta = poleUpdates.sample(poles, revision, acknowledged);
   const state: PhysicsState = { type: 'state', seq, revision, actorsDelta: true, removedVehicles: vehicleDelta.removed, removedPoles: poleDelta.removed, substeps, tick: pw.tick, remainder: pw.remainder,
-    previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle,
+    previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, coverageBlock: pw.coverageBlock,
     stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(),
     vehicles: vehicleDelta.updates, poles: poleDelta.updates, publishedAt: performance.timeOrigin + performance.now() };
   if (stateMailbox) stateMailbox.write(state);
@@ -97,6 +97,7 @@ async function handle(msg: ToWorker) {
       pw.unloadTile(msg.id);
       post({ type: 'tileUnloaded', id: msg.id });
       break;
+    case 'loadingTile': pw.setTileLoading(msg.id, msg.loading); break;
     case 'knownTiles': pw.edges.setKnown(msg.add, msg.remove); break;
     case 'spawnCharacter': pw.spawnCharacter(msg.pos); break;
     case 'setCharacterEnabled': pw.setCharacterEnabled(msg.enabled, msg.pos); break;

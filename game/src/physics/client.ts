@@ -105,6 +105,7 @@ export class PhysicsClient {
       this.send({ type: 'checkTile', id, buffer }, [buffer]);
     });
   }
+  setTileLoading(id: string, loading: boolean) { this.send({ type: 'loadingTile', id, loading }); }
   unloadTile(id: string) { this.send({ type: 'unloadTile', id }); this.loaded.delete(id); }
   /** Collision tiles that exist but may not be loaded: edge walls stand only where none does (physics/edgeWalls.ts). */
   setKnown(add: string[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'knownTiles', add, remove }); }

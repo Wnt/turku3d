@@ -61,6 +61,13 @@ export class SafeReset {
       this.waterDepth = null;
       return;
     }
+    // Worker coverage holds cannot use the fall countdown: a fixed body never falls.
+    // Do not record held poses as safe samples, even if stale wheel contacts still say grounded.
+    const block = this.physics.latest?.coverageBlock;
+    if (block?.actor === (player.mode === 'car' ? player.drivenId : 'character')) {
+      if (block.recover && this.monitor.samples.length) void this.recover(player);
+      return;
+    }
     const probe = this.probe(player);
     if (!probe) return;
     this.at.set(probe.x, probe.y, probe.z);
@@ -139,7 +146,8 @@ export class SafeReset {
   /** Puts the player (or the driven car, upright and still) back at the chosen safe sample. */
   private async recover(player: PlayerFrame) {
     this.recovering = true;
-    const target = this.monitor.target();
+    const sample = this.monitor.target();
+    const target = { ...sample, ...this.area.inset(sample, RECOVERY.edgeMargin + (player.mode === 'car' ? RECOVERY.carMargin : 0)) };
     console.info(`[recovery] reset (${this.monitor.lost?.reason ?? 'button'}) from ${player.feet.x.toFixed(1)},${player.feet.y.toFixed(1)},${player.feet.z.toFixed(1)} `
       + `to ${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}`);
     const id = tileId(target.x, target.z);

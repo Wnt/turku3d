@@ -48,7 +48,7 @@ test('retained neighbour registers and loads its collision, removing the reporte
   const loaded = new Map<string, unknown>([['c_-4_7', {}]]), known = new Set<string>();
   const physics = { loaded, loadTile: vi.fn(async (cid: string) => { loaded.set(cid, {}); }),
     unloadTile: vi.fn((cid: string) => loaded.delete(cid)),
-    setKnown: (add: string[], remove: string[]) => { add.forEach(cid => known.add(cid)); remove.forEach(cid => known.delete(cid)); } };
+    setTileLoading: () => {}, setKnown: (add: string[], remove: string[]) => { add.forEach(cid => known.add(cid)); remove.forEach(cid => known.delete(cid)); } };
   const streamer = new CollisionStreamer(manifest, physics as never, 80);
   const checkCollision = vi.fn(async () => 2);
   let phase = 'retained', release!: (model: THREE.Object3D) => void;

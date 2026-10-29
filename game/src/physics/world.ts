@@ -2,7 +2,7 @@
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
 import { collisionTileId, type V3 } from '../core/origin';
-import { collisionCovers } from './collisionCoverage';
+import { collisionCovers, PlayerCoverageHold } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { TriLocator } from './triLocator';
@@ -17,6 +17,8 @@ import type { CharacterInput, CharacterState, PoleSpec, PoleState, RayFilter, Ra
 
 type R = typeof RAPIER_NS;
 
+export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
+
 /** Rapier interaction groups: high 16 bits membership, low 16 bits filter. */
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
@@ -27,7 +29,11 @@ export class PhysicsWorld {
   readonly world: RAPIER_NS.World;
   private tiles = new Map<string, LoadedTile>();
   private residentCells = new Set<string>();
-  private heldVehicles = new Set<string>();
+  private heldVehicles = new Map<string, { velocity: V3; angular: V3 }>();
+  private loadingCells = new Set<string>();
+  private coverageHold = new PlayerCoverageHold();
+  get coverageBlock() { return this.coverageHold.state; }
+
   private vehicleRadii = new Map<string, number>();
   private colliderInfo = new Map<number, ColliderInfo>();
   private acc = 0;
@@ -66,6 +72,10 @@ export class PhysicsWorld {
     this.poleEvents = new R.EventQueue(true);
     this.curbQueries = new CurbQueries(R, this.world);
     this.edges = new EdgeWalls(R, this.world);
+  }
+
+  setTileLoading(id: string, loading: boolean) {
+    if (loading) this.loadingCells.add(id); else this.loadingCells.delete(id);
   }
 
   // ------------------------------------------------------------------ tiles
@@ -169,6 +179,7 @@ export class PhysicsWorld {
           .setCollisionGroups(groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC)),
       );
     }
+    this.coverageHold.clear('character');
     this.setCharacterFeet(feet);
     this.charVy = 0;
     this.charGrounded = false;
@@ -182,6 +193,7 @@ export class PhysicsWorld {
 
   setCharacterEnabled(enabled: boolean, feet?: V3) {
     if (!this.charCollider) return;
+    if (!enabled || feet) this.coverageHold.clear('character');
     if (feet) this.setCharacterFeet(feet);
     this.charEnabled = enabled;
     this.charCollider.setEnabled(enabled);
@@ -283,7 +295,7 @@ export class PhysicsWorld {
     const id = spec.id ?? 'player';
     const existing = this.vehicles.get(id);
     if (existing) {
-      existing.reset(pos, yaw);
+      this.resetVehicle(pos, yaw, id);
       if (spec.rot) existing.body.setRotation(spec.rot, true);
       if (spec.linvel) existing.body.setLinvel(spec.linvel, true);
       return;
@@ -310,10 +322,19 @@ export class PhysicsWorld {
 
   driveVehicle(id: string | null) {
     if (id && !this.vehicles.has(id)) throw new Error(`unknown vehicle ${id}`);
+    this.coverageHold.clear();
     this.drivenId = id;
     if (id) this.vehicles.get(id)!.body.wakeUp();
   }
-  resetVehicle(pos: V3, yaw: number, id = 'player') { this.vehicles.get(id)?.reset(pos, yaw); }
+  resetVehicle(pos: V3, yaw: number, id = 'player') {
+    const car = this.vehicles.get(id);
+    if (!car) return;
+    this.coverageHold.clear(id);
+    this.heldVehicles.delete(id);
+    car.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+    car.reset(pos, yaw);
+    this.vehicleSnapshots.delete(id);
+  }
   vehicleState(): VehicleState | null { return this.vehicles.get(this.drivenId ?? 'player')?.state() ?? null; }
   vehicleStates(): VehicleState[] {
     return [...this.vehicles].map(([id, vehicle]) => {
@@ -436,28 +457,37 @@ export class PhysicsWorld {
       // This decision belongs to the worker, immediately before every fixed substep: main-thread
       // braking cannot stop gravity, an evicted parked car, or a late input after a flight toggle.
       let safeCharacter: CharacterInput | null = { ...character, jump: this.jumpPending };
+      if (character.fly) this.coverageHold.clear('character');
       if (this.charCollider && this.charEnabled && !character.fly) {
         const p = this.charCollider.translation();
         const covered = collisionCovers(this.residentCells, p.x, p.z,
           p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin);
         if (!covered) {
-          // Normal play waits for collision; developer flight moves freely over missing cells.
+          this.coverageHold.block('character', this.tick * DT, collisionCovers({ has: id => this.residentCells.has(id) || this.loadingCells.has(id) },
+            p.x, p.z, p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin));
           safeCharacter = null;
           this.charVy = 0; this.charVel = { x: 0, y: 0, z: 0 }; this.charGrounded = false;
-        }
+        } else this.coverageHold.clear('character');
       }
       for (const [id, car] of this.vehicles) {
-        const p = car.body.translation(), v = car.body.linvel();
+        const held = this.heldVehicles.get(id);
+        const p = car.body.translation(), v = held?.velocity ?? car.body.linvel();
         const radius = this.vehicleRadii.get(id)!;
         const covered = collisionCovers(this.residentCells, p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius);
-        if (!covered && !this.heldVehicles.has(id)) {
+        if (!covered && id === this.drivenId) {
+          this.coverageHold.block(id, this.tick * DT, collisionCovers({ has: cell => this.residentCells.has(cell) || this.loadingCells.has(cell) },
+            p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius));
+        } else if (covered) this.coverageHold.clear(id);
+        if (!covered && !held) {
+          this.heldVehicles.set(id, { velocity: { ...v }, angular: { ...car.body.angvel() } });
           car.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
           car.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
           car.body.setBodyType(this.R.RigidBodyType.Fixed, false);
-          this.heldVehicles.add(id);
           this.vehicleSnapshots.delete(id);
         } else if (covered && this.heldVehicles.delete(id)) {
           car.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+          car.body.setLinvel(held!.velocity, true);
+          car.body.setAngvel(held!.angular, true);
           car.body.wakeUp();
           this.vehicleSnapshots.delete(id);
         }
