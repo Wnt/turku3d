@@ -58,7 +58,8 @@ def apron_checks(line, width, floor, sample, cols, *, match_floor=True):
         normal = np.array([-outward[1], outward[0]])
         for offset in (-width / 4, 0, width / 4):
             heights = []
-            for distance in np.linspace(-1, 9, 101):
+            distances = np.linspace(-1, 9, 101)
+            for distance in distances:
                 x, z = centre + outward * distance + normal * offset
                 expected, _ = floor_ray(x, z)
                 reference = max(expected) if len(expected) else sample(x, z)
@@ -72,7 +73,10 @@ def apron_checks(line, width, floor, sample, cols, *, match_floor=True):
             steps = abs(np.diff(heights))
             checks.append(dict(
                 end=end, offset=offset, max_step=float(max(steps)),
-                max_grade=float(max(steps) / 0.1),
+                # The 15% design limit belongs to the newly generated apron.
+                # Existing terrain beyond its edge has its own measured grade.
+                max_grade=float(max(steps[(distances[:-1] >= 0) & (distances[1:] <= 7)]) / 0.1),
+                surrounding_grade=float(max(steps[distances[:-1] >= 7]) / 0.1),
                 max_step_at=float(np.argmax(steps) / 10 - 1),
             ))
     return checks
