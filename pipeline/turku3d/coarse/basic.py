@@ -102,8 +102,9 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
         meshes = assemble()
     else:
         from pathlib import Path
-        from turku3d.stage_cache import source_key
+
         from turku3d import wall_assembly, wall_surfaces
+        from turku3d.stage_cache import source_key
 
         meshes = cache.run(
             "basic_walls",
@@ -112,9 +113,9 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
             assemble,
         )
     if root is not None:
-        from turku3d.wall_surfaces import validate_neighbours
-
         from contextlib import nullcontext
+
+        from turku3d.wall_surfaces import validate_neighbours
 
         with cache.measure("basic_neighbours") if cache else nullcontext():
             validate_neighbours(meshes, shells, tile, root, pass_kind="first")
