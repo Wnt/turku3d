@@ -1,8 +1,7 @@
 # LAN warm-up, 30 October 2026
 
 Jonni's own OCI playtests are the primary LAN readiness evidence. This agent owns
-cache warm-up only. The waiting restriction is lifted; warm-up work proceeds now.
-No automatic load test is scheduled by this observer.
+cache warm-up, the generator freeze and coverage reporting.
 
 Generator freeze: **30 October 04:00 Europe/Helsinki (02:00 UTC)** unless the
 orchestrator changes it. The host `~/turku3d-drafts/LAN_FREEZE.json` records the
