@@ -190,10 +190,19 @@ export class CoarseTiles {
     const wanted = this.wantedStarts(x, z).sort(byArrival);
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
-    // The drawn window is independent of travel history and build-ahead demand. Deleting the entry
-    // also invalidates in-flight preparation, so a late response cannot republish a departed tile.
+    // Load the 3x3 window; retain already requested models for another 75 m beyond
+    // its maximum axis distance. Boundary jitter cannot repeatedly discard/rebuild
+    // a column. The retained square still bounds residency to at most 4x4 per start.
+    const retain = (id: string) => [{ x, z }, ...this.retainedStarts].some(point => {
+      const match = /^t0_(-?\d+)_(-?\d+)$/.exec(id);
+      if (!match) return false;
+      const x0 = +match[1] * VISUAL_L0, z0 = +match[2] * VISUAL_L0;
+      return Math.max(x0 - point.x, point.x - x0 - VISUAL_L0,
+        z0 - point.z, point.z - z0 - VISUAL_L0) <= VISUAL_L0 + 75;
+    });
+    // Deleting an entry also invalidates in-flight preparation.
     for (const [id, e] of this.entries) {
-      if (wanted.includes(id) || (!e.resident && ahead.includes(id))) continue;
+      if (wanted.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
       this.drop(e); this.entries.delete(id);
     }
     if (this.outage) {

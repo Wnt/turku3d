@@ -1,6 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../render/quality';
 import { SharedMaterials } from '../render/sharedMaterials';
+import { PreparationBudget } from '../render/preparationBudget';
+import { PrototypeGeometry } from './prototypeGeometry';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
@@ -11,7 +13,7 @@ export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
 }
 
 /** Opaque untextured parts with identical placements can share vertex colours and one draw. */
-function combineParts(sources: THREE.InstancedMesh[]): { mesh: THREE.InstancedMesh; parts: THREE.InstancedMesh[]; farGeometry?: THREE.BufferGeometry }[] {
+function* combineParts(sources: THREE.InstancedMesh[], cache: PrototypeGeometry, owned: THREE.BufferGeometry[]): Generator<void, { mesh: THREE.InstancedMesh; parts: THREE.InstancedMesh[]; farGeometry?: THREE.BufferGeometry }[]> {
   const key = (mesh: THREE.InstancedMesh) => {
     const material = mesh.material as THREE.MeshStandardMaterial;
     if (Array.isArray(mesh.material) || !material.isMeshStandardMaterial ||
@@ -24,6 +26,7 @@ function combineParts(sources: THREE.InstancedMesh[]): { mesh: THREE.InstancedMe
   };
   const pending = [...sources], combined: { mesh: THREE.InstancedMesh; parts: THREE.InstancedMesh[]; farGeometry?: THREE.BufferGeometry }[] = [];
   while (pending.length) {
+    yield;
     const first = pending.shift()!, signature = key(first);
     if (!signature) continue;
     first.updateMatrix();
@@ -36,23 +39,28 @@ function combineParts(sources: THREE.InstancedMesh[]): { mesh: THREE.InstancedMe
       }
     }
     if (parts.length < 2) continue;
-    const positions: number[] = [], normals: number[] = [], colours: number[] = [], indices: number[] = [];
-    for (const part of parts) {
-      const p = part.geometry.getAttribute('position'), n = part.geometry.getAttribute('normal');
-      const colour = (part.material as THREE.MeshStandardMaterial).color, offset = positions.length / 3;
-      for (let i = 0; i < p.count; i++) {
-        positions.push(p.getX(i), p.getY(i), p.getZ(i));
-        normals.push(n.getX(i), n.getY(i), n.getZ(i));
-        colours.push(colour.r, colour.g, colour.b);
+    const geometryKey = parts.map(part => `${cache.signature(part.geometry)}:${(part.material as THREE.MeshStandardMaterial).color.toArray()}`).join('|');
+    const geometry = cache.acquire(`combined:${geometryKey}`, () => {
+      const positions: number[] = [], normals: number[] = [], colours: number[] = [], indices: number[] = [];
+      for (const part of parts) {
+        const p = part.geometry.getAttribute('position'), n = part.geometry.getAttribute('normal');
+        const colour = (part.material as THREE.MeshStandardMaterial).color, offset = positions.length / 3;
+        for (let i = 0; i < p.count; i++) {
+          positions.push(p.getX(i), p.getY(i), p.getZ(i));
+          normals.push(n.getX(i), n.getY(i), n.getZ(i));
+          colours.push(colour.r, colour.g, colour.b);
+        }
+        const index = part.geometry.index;
+        for (let i = 0; i < (index?.count ?? p.count); i++) indices.push(offset + (index?.getX(i) ?? i));
       }
-      const index = part.geometry.index;
-      for (let i = 0; i < (index?.count ?? p.count); i++) indices.push(offset + (index?.getX(i) ?? i));
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-    geometry.setIndex(indices);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+      geometry.setIndex(indices);
+      return geometry;
+    });
+    owned.push(geometry);
     const material = (first.material as THREE.MeshStandardMaterial).clone();
     material.color.setRGB(1, 1, 1); material.vertexColors = true;
     const mesh = new THREE.InstancedMesh(geometry, material, first.count);
@@ -153,6 +161,8 @@ interface Model {
 export class VegetationLod {
   private models = new Map<THREE.Object3D, Model>();
   private materials = new SharedMaterials();
+  private prototypes = new PrototypeGeometry();
+  private budget = new PreparationBudget();
   private frustum = new THREE.Frustum();
   private projection = new THREE.Matrix4();
   private sphere = new THREE.Sphere();
@@ -162,6 +172,19 @@ export class VegetationLod {
   constructor(private tier: QualityTier) {}
 
   add(model: THREE.Object3D) {
+    const steps = this.addSteps(model);
+    while (!steps.next().done) { /* Synchronous fixture/startup caller. */ }
+  }
+
+  async addAsync(model: THREE.Object3D) {
+    const steps = this.addSteps(model);
+    while (!steps.next().done) {
+      const pending = this.budget.checkpoint();
+      if (pending) await pending;
+    }
+  }
+
+  private *addSteps(model: THREE.Object3D): Generator<void> {
     if (this.models.has(model)) return;
     const data: Model = { combined: [], sources: [], draws: [], buckets: [], geometries: [], materials: [] };
     // Collect before adding children: traversal must never revisit generated meshes.
@@ -172,23 +195,24 @@ export class VegetationLod {
     if (!data.sources.length) return;
     this.models.set(model, data);
     const matrix = new THREE.Matrix4(), sphere = new THREE.Sphere();
-    const combined = combineParts(data.sources.map(source => source.mesh));
+    const combined = yield* combineParts(data.sources.map(source => source.mesh), this.prototypes, data.geometries);
     data.combined = combined.map(part => part.mesh);
     const replaced = new Set(combined.flatMap(part => part.parts));
     for (const { mesh } of data.sources) { mesh.visible = false; mesh.castShadow = false; }
     for (const mesh of [...data.sources.map(source => source.mesh).filter(mesh => !replaced.has(mesh)), ...data.combined]) {
+      yield;
       const owner = vegetationOwner(mesh)!;
       if (data.combined.includes(mesh)) {
         mesh.material = this.materials.acquire(mesh.material as THREE.Material);
-        data.geometries.push(mesh.geometry); data.materials.push(mesh.material as THREE.Material);
+        data.materials.push(mesh.material as THREE.Material);
       }
       const foliage = owner.userData.material_key !== 'tree_bark';
-      const mid = clusteredTree(mesh.geometry);
+      const mid = this.prototypes.acquire(`mid:${this.prototypes.signature(mesh.geometry)}`, () => clusteredTree(mesh.geometry));
       // A clustered crown can be cheaper than the 32-triangle silhouette.
       // Share its mid/far draw rather than add geometry and another draw call.
       const mergeFar = foliage && (mid.index?.count ?? mid.getAttribute('position').count) <= 96;
       const farSource = combined.find(part => part.mesh === mesh)?.farGeometry ?? mesh.geometry;
-      const far = foliage && !mergeFar ? crossedTree(farSource) : null;
+      const far = foliage && !mergeFar ? this.prototypes.acquire(`far:${this.prototypes.signature(farSource)}`, () => crossedTree(farSource)) : null;
       data.geometries.push(mid); if (far) data.geometries.push(far);
       let farMaterial = far ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material).clone() : null;
       if (farMaterial) {
@@ -201,6 +225,7 @@ export class VegetationLod {
       }
       const cells = new Map<string, number[]>();
       for (let i = 0; i < mesh.count; i++) {
+        if (i % 256 === 0) yield;
         mesh.getMatrixAt(i, matrix);
         const key = `${Math.floor(matrix.elements[12] / 50)},${Math.floor(matrix.elements[14] / 50)}`;
         if (!cells.has(key)) cells.set(key, []);
@@ -224,16 +249,18 @@ export class VegetationLod {
       mesh.parent!.add(root);
       const draw: Draw = { root, levels, foliage, mergeFar, selections: [[], [], []], previous: [[], [], []] };
       data.draws.push(draw);
-      mesh.geometry.computeBoundingSphere();
+      if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
       const all = new THREE.Sphere().makeEmpty();
       for (const ids of cells.values()) {
         const bounds = new THREE.Sphere().makeEmpty();
         const matrices = new Float32Array(ids.length * 16);
-        ids.forEach((id, i) => {
+        for (let i = 0; i < ids.length; i++) {
+          if (i % 256 === 0) yield;
+          const id = ids[i];
           mesh.getMatrixAt(id, matrix); matrix.toArray(matrices, i * 16);
           sphere.copy(mesh.geometry.boundingSphere!).applyMatrix4(matrix);
           bounds.union(sphere);
-        });
+        }
         all.union(bounds);
         data.buckets.push({ draw, matrices, objectIds: ids.map(id => owner.userData.instance_object_ids?.[id]), bounds, distance: 0, selectedCount: 0, selectedLevel: -1, count: ids.length, index: data.buckets.length });
       }
@@ -321,7 +348,7 @@ export class VegetationLod {
     }
     for (const mesh of data.combined) { mesh.removeFromParent(); mesh.dispose(); }
     for (const source of data.sources) { source.mesh.visible = source.visible; source.mesh.castShadow = source.shadow; }
-    for (const geometry of data.geometries) geometry.dispose();
+    for (const geometry of data.geometries) this.prototypes.release(geometry);
     for (const material of data.materials) this.materials.release(material);
     this.models.delete(model);
   }
