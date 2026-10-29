@@ -197,7 +197,9 @@ def wall_meshes(b, walls, origin):
         components, _ = geometry(vertices, plans, b.facade_key, origin)
         meshes.extend(components)
         wall["rendered_components"] = [p["kind"] for p in plans]
-        reviewed = bool(wall.get("measured_wall_id")) and "render_sections" not in wall
+        reviewed = bool(wall.get("measured_wall_id")) and (
+            "render_sections" not in wall or bool(wall["render_sections"])
+        )
         wall["paint_source"] = (
             "reviewed-program" if reviewed else
             "stored-facade-map" if match else

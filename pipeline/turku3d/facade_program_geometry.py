@@ -105,7 +105,7 @@ def _paint_layers(vertices, wall, style):
         left, right = sorted([offset + x * sign, offset + (x + w) * sign])
         part = quad(max(x0, left), min(x1, right), max(y0, y0 + y), min(y1, y0 + y + h))
         if part:
-            yield *part, style, 2
+            yield *part, {**style, "unreviewed": True}, 2
     courses = wall["trim"].get("string_courses", {}).get("value")
     if isinstance(courses, list):
         for height in courses:
@@ -154,6 +154,8 @@ def _paint_layers(vertices, wall, style):
         for d in wall["doors"].get("candidates", [])
         if "rect_m" in d
     ]
+    boxes += [(n["rect_m"], 4, n.get("head_shape", "flat"), n.get("surround"))
+              for n in wall.get("niches", [])]
     for (x, y, w, h), kind, shape, surround in boxes:
         source_left, source_right = sorted([offset + x * sign, offset + (x + w) * sign])
         left, right = max(x0, source_left), min(x1, source_right)
@@ -182,7 +184,31 @@ def _paint_layers(vertices, wall, style):
             opening=[0.98, 0.95, 0.02, 0],
             detail=[0, 0, 0, kind + 4 * HEAD_SHAPES.get(shape, 0)],
         )
-        yield points, uv, patch, 4
+        if kind == 4:
+            # A blind niche is an opaque recessed wall panel, never glass or a
+            # ground-level door. Keep its counted window-like position and arch.
+            colour = "#" + "".join(f"{round(int(style['wall'][i:i+2], 16) * .92):02x}"
+                                    for i in (1, 3, 5))
+            niche = {**blank, "wall": colour, "base": colour,
+                     "bands": [0, 0, 0, 0], "detail": [0, 0, 0, 0]}
+            radius = {"round-arch": min(w / 2, h / 2),
+                      "segmental-arch": min(w / 4, h / 3),
+                      "pointed-arch": min(w / 2, h / 2)}.get(shape, 0)
+            xs = np.linspace(source_left, source_right, 17 if radius else 2)
+            for xa, xb in zip(xs[:-1], xs[1:], strict=True):
+                xa, xb = max(left, xa), min(right, xb)
+                roof = []
+                for xx in (xa, xb):
+                    t = np.clip(2 * (xx - source_left) / w - 1, -1, 1)
+                    curve = 1 - abs(t) if shape == "pointed-arch" else np.sqrt(max(0, 1 - t*t))
+                    roof.append(min(top, y0 + y + h - radius + radius * curve))
+                strip = quad(xa, xb, bottom, max(roof))
+                if strip is not None and min(roof) >= bottom:
+                    strip[0][2:, 1] = np.minimum(strip[0][2:, 1], roof[::-1])
+                    strip[1][:, 1] = strip[0][:, 1]
+                    yield *strip, niche, 4
+        else:
+            yield points, uv, patch, 4
         # Qualitative reviewed surrounds use bounded metric layout priors.
         # Pediments are triangular strips; rustication is interrupted stonework.
         if surround in ("frame", "pediment", "rustication"):

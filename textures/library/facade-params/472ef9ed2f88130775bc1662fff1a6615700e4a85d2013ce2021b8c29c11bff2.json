@@ -1,0 +1,33 @@
+{
+  "building_key": "103295893K",
+  "description": {
+    "facade_id": "lr15_se",
+    "wall_visible": true,
+    "problem": "",
+    "material": "wood",
+    "wall_colour": "#BDBBB0",
+    "trim_colour": "#7C847C",
+    "storeys": 1,
+    "window_columns": 14,
+    "window_width": 0.4875,
+    "window_height": 0.4182,
+    "ground_floor": "windows",
+    "ground_openings": 14,
+    "roof_line": "cornice",
+    "plinth": true,
+    "features": [
+      "pilasters",
+      "string_courses",
+      "ornament"
+    ]
+  },
+  "width_m": 38.77,
+  "source": "retained-pilot-description",
+  "engine": "stored",
+  "provenance": {
+    "document": "docs/pilot/textures/pilot.json",
+    "facade": "lr15_se",
+    "section": "label.answer",
+    "notes": "Normalized existing labels; dimensions remain pilot estimates. Reviewed wall programs override bay types and layout."
+  }
+}

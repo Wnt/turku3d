@@ -93,7 +93,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                 dict(
                     role="base" if i == 0 else "middle",
                     bay_count=count,
-                    bays=[section["kind"]] * count,
+                    bays=section.get("bays") or [section["kind"]] * count,
                     head=section["head"],
                     surround=section["surround"],
                     confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")},

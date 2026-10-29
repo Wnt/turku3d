@@ -10,7 +10,7 @@ import math
 
 from .facade_program import unknown, value
 
-KINDS = {"window", "door", "shop", "blank", "arched portal", "opaque door", "unknown"}
+KINDS = {"window", "door", "shop", "blank", "blind niche", "arched portal", "opaque door", "unknown"}
 HEADS = {
     "flat": "flat",
     "segmental": "segmental-arch",
@@ -180,7 +180,7 @@ def compile_structure(row, form, register_floors):
             else unknown()
         )
 
-    windows, heads, surrounds, doors, excluded, balconies = [], [], [], [], [], []
+    windows, heads, surrounds, doors, excluded, balconies, niches = [], [], [], [], [], [], []
     material_bands = []
     for floor, reading in enumerate(rows):
         floor_height = heights[floor]
@@ -253,7 +253,9 @@ def compile_structure(row, form, register_floors):
                     round(width, 3),
                     round(height, 3),
                 ]
-                if is_door:
+                if kind == "blind niche":
+                    niches.append(dict(rect_m=box, head_shape=head, surround=surround))
+                elif is_door:
                     doors.append(
                         dict(
                             rect_m=box,
@@ -279,6 +281,7 @@ def compile_structure(row, form, register_floors):
         geometry={k: row[k] for k in ("p0", "p1", "normal", "base_h")},
         structure=copy.deepcopy(form),
         material_bands=material_bands,
+        niches=niches,
         observation=dict(
             needs_review=False,
             scope="ground-only" if ground_only else "full-wall",
