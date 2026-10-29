@@ -246,6 +246,35 @@ def _polygon_faces(faces, polygon, height):
             faces.face(p)
 
 
+def ground_cuts(tree, positions, indices, corridor, mouths, floor_height, clearance):
+    """Intersect and classify candidate terrain triangles in native batches."""
+    candidates = tree.query(corridor, predicate="intersects")
+    triangles = positions[indices[candidates]]
+    polygons = shapely.polygons(triangles[:, :, [0, 2]])
+    overlap = shapely.intersection(polygons, corridor)
+    valid = shapely.area(overlap) >= 1e-10
+    candidates, triangles, polygons, overlap = (
+        a[valid] for a in (candidates, triangles, polygons, overlap)
+    )
+    if not len(candidates):
+        return []
+    query, owner = shapely.get_coordinates(overlap, return_index=True)
+    matrix = np.concatenate([triangles[:, :, [0, 2]], np.ones((*triangles.shape[:2], 1))], axis=2)
+    coeff = np.linalg.solve(matrix, triangles[:, :, 1, None])[:, :, 0]
+    delta = np.sum(query * coeff[owner, :2], axis=1) + coeff[owner, 2] - floor_height(query)
+    low, high = np.full(len(candidates), np.inf), np.full(len(candidates), -np.inf)
+    np.minimum.at(low, owner, delta)
+    np.maximum.at(high, owner, delta)
+    mouth_only = (high <= -0.25) | (low >= clearance + 0.35)
+    accepted = np.ones(len(candidates), bool)
+    accepted[mouth_only] = shapely.area(shapely.intersection(polygons[mouth_only], mouths)) >= 1e-10
+    return [
+        (int(tid), mouths if only else corridor)
+        for tid, only, keep in zip(candidates, mouth_only, accepted, strict=True)
+        if keep
+    ]
+
+
 @dataclass
 class Tunnels:
     keep: np.ndarray
@@ -565,8 +594,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     tile.size / CELLS,
                     thickness=0.4,
                 )
-                for tri in section.indices:
-                    wall.face(section.positions[tri], section.uvs[tri])
+                wall.triangles(section.positions, section.indices, section.uvs)
             if wall.indices:
                 meshes.append(wall.mesh(f"tunnel:{key}:{name}", "wall"))
         for end in () if vaulted else (0, -1):
@@ -585,8 +613,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     tile.size / CELLS,
                     thickness=0.4,
                 )
-                for tri in jamb.indices:
-                    frame.face(jamb.positions[tri], jamb.uvs[tri])
+                frame.triangles(jamb.positions, jamb.indices, jamb.uvs)
             header = profile_wall(
                 "header",
                 [left[end] + offset[end] * 1.7, right[end] - offset[end] * 1.7],
@@ -594,8 +621,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 [left_floor[end] + clearance + 0.3, right_floor[end] + clearance + 0.3],
                 thickness=0.4,
             )
-            for tri in header.indices:
-                frame.face(header.positions[tri], header.uvs[tri])
+            frame.triangles(header.positions, header.indices, header.uvs)
             meshes.append(frame.mesh(f"tunnel:{key}:portal:{end}", "wall"))
         if vaulted:
             for mesh in meshes:
@@ -603,22 +629,9 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     mesh.metadata["vault"] = True
         if tree is None:
             tree = shapely.STRtree(shapely.polygons(grid_pos[grid_idx][:, :, [0, 2]]))
-        candidates = tree.query(cut_corridor, predicate="intersects")
-        for tid in candidates:
-            p = grid_pos[grid_idx[tid]]
-            overlap = shapely.Polygon(p[:, [0, 2]]).intersection(cut_corridor)
-            if overlap.area < 1e-10:
-                continue
-            query = shapely.get_coordinates(overlap)
-            coeff = np.linalg.solve(np.c_[p[:, [0, 2]], np.ones(3)], p[:, 1])
-            delta = np.c_[query, np.ones(len(query))] @ coeff - floor_height(query)
-            # A triangle can cross the entire clear box with all three vertices
-            # outside it. Test the height range on the actual corridor intersection.
-            cut = cut_corridor
-            if delta.max() <= -0.25 or delta.min() >= clearance + 0.35:
-                cut = mouths
-                if shapely.Polygon(p[:, [0, 2]]).intersection(cut).area < 1e-10:
-                    continue
+        for tid, cut in ground_cuts(
+            tree, grid_pos, grid_idx, cut_corridor, mouths, floor_height, clearance
+        ):
             keep[tid] = False
             cuts[tid] = cuts[tid].union(cut) if tid in cuts else cut
     remainder = Faces()
