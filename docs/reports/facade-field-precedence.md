@@ -20,6 +20,11 @@ source. Historicist style priors add bounded pilaster, pediment/surround, cornic
 inset balustrade and shop-fascia treatment around supported opening layouts.
 These details are labelled priors, not claimed measurements or invented signage.
 
+Existing supported same-wall photo colours also remain usable as explicitly
+uncalibrated appearance priors instead of being discarded for an era colour.
+They cannot overwrite a supported calibrated description, and are never copied
+to another wall. This covers Linnankatu's shorter previously read segments too.
+
 Two new wall-local pigment descriptors are medians of manually reviewed patches
 from existing characterization crops. Only descriptors, normalized patch boxes
 and crop checksums are committed; images remain private. They are explicitly

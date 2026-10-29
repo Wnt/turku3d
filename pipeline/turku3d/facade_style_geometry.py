@@ -16,7 +16,7 @@ def details(wall, style, blank, boxes, quad, x0, x1, y0, y1, offset, sign):
     width, height = wall['measured_size']
     form = wall.get('structure', {})
     rows = form.get('floors', [])
-    ground = height / max(1, len(rows))
+    ground = height / len(rows) if rows else style['ground']
     trim = {**blank, 'module': 42, 'wall': style['trim'], 'base': style['trim'],
             'bands': [0, 0, 0, 0], 'detail': [0, 0, 0, 0]}
 

@@ -103,6 +103,11 @@ def apply_prior(wall, archetype, attrs, own, record):
     # patches, used only when that field has no calibrated observation.
     for section, key in (("wall", "colour"), ("trim", "colour")):
         item = local.get(section, {}).get(key)
+        if not supported(item) and own and not supported(wall[section].get(key)):
+            photographed = own.get(section, {}).get(key)
+            if supported(photographed):
+                item = {**photographed, "source": photographed.get("source", "photo") +
+                        "; uncalibrated same-wall appearance prior"}
         if supported(item):
             wall[section][key] = copy.deepcopy(item)
             if section == "wall":
@@ -110,7 +115,7 @@ def apply_prior(wall, archetype, attrs, own, record):
     for key, item in local.get("details", {}).items():
         if supported(item):
             wall.setdefault("appearance_details", {})[key] = copy.deepcopy(item)
-    if historic and own and own.get("structure"):
+    if historic and own:
         wall.setdefault("appearance_details", {}).setdefault("pilasters", v(True, "historicist style prior"))
         wall["appearance_details"].setdefault("balustrades", v(True, "historicist style prior"))
     return local

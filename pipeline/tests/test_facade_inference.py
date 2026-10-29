@@ -83,3 +83,19 @@ def test_target_descriptors_are_wall_local_and_hashed(tmp_path, monkeypatch):
     before = program_hash('103295896N')
     monkeypatch.setattr(C, 'REPO_ROOT', tmp_path)
     assert program_hash('103295896N') != before
+
+
+def test_existing_uncalibrated_patch_is_a_wall_local_prior_not_discarded():
+    from turku3d.facade_inference import apply_prior
+    from turkutex.facade_archetypes import sample
+    wall = sample('test', dict(levels=3, construction_year=1887),
+                  [dict(wall_id='test', width_m=20, height_m=12)])['walls'][0]
+    own = dict(wall_id='own', wall=dict(colour=dict(value='#ac958b', support=.65,
+                                                  source='reviewed wall patch')))
+    other = copy.deepcopy(wall)
+    apply_prior(wall, 'neo_renaissance', {}, own, {})
+    apply_prior(other, 'neo_renaissance', {}, dict(wall_id='other'), {})
+    assert wall['wall']['colour']['value'] == '#ac958b'
+    assert 'uncalibrated' in wall['wall']['colour']['source']
+    assert other['wall']['colour']['value'] != '#ac958b'
+    assert wall['appearance_details']['pilasters']['value']
