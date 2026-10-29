@@ -105,3 +105,29 @@ the fallback). This keeps the exchange correct when the renderer skips snapshots
 without resending hundreds of stationary actors. `stateBytes` reports shared packet
 size for the manual allocation diagnostic. Initial actor discovery can be a larger
 one-time snapshot; subsequent packets contain only actors that changed.
+
+
+## Bounded collision coverage holds
+
+Before each runtime substep, `world.ts` checks the character capsule and every car's
+swept footprint against worker-resident cells. `CollisionStreamer` sends
+`loadingTile` for the lifetime of actual known-cell requests, including worker
+installation, and clears it on success/failure. Queued and retrying cells are not
+active loads. The character and driven car wait at most 2.5 simulated seconds while
+all missing cells actively load. A missing source, stopped request or timeout sets
+`coverageBlock.recover` immediately; `SafeReset` uses the existing safe-sample reset
+without the fall countdown. It keeps the player in their current car and resets its
+body upright, dynamic and still. Held poses never become safe samples. The request
+is repeated in state snapshots until coverage returns or placement clears it, so
+skipped shared-mailbox frames cannot lose recovery. Flight bypasses character holds.
+
+Parked cars retain indefinite holds. Held cars preserve their original linear and
+angular motion for coverage checks and resume it if collision arrives in time;
+zeroing the fixed body's velocity cannot falsely release a swept-edge hold.
+Explicit reset clears both the fixed-body hold and its recovery request.
+
+Focused Node tests (no browser or scripted in-game run):
+
+```sh
+npm --prefix game test -- --run tests/unit/coverage-recovery.test.ts tests/unit/collision-coverage.test.ts tests/unit/streaming.test.ts tests/unit/recovery.test.ts
+```

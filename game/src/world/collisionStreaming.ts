@@ -16,7 +16,7 @@ export const STARTUP_COLLISION_RADIUS = 80;
 const AHEAD_MIN_SPEED = 3;
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
-type Physics = Pick<PhysicsClient, 'loaded' | 'loadTile' | 'unloadTile' | 'setKnown' | 'onError'>;
+type Physics = Pick<PhysicsClient, 'loaded' | 'loadTile' | 'unloadTile' | 'setKnown' | 'setTileLoading' | 'onError'>;
 
 export class CollisionStreamer {
   private loading = new Set<string>();
@@ -123,6 +123,7 @@ export class CollisionStreamer {
 
   private async fetchAndLoad(id: string) {
     const e = this.manifest.collision[id];
+    this.physics.setTileLoading(id, true);
     const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
     try {
       const cached = this.prepared.get(id);
@@ -154,6 +155,7 @@ export class CollisionStreamer {
       }
     } finally {
       this.loading.delete(id);
+      this.physics.setTileLoading(id, false);
     }
   }
   /** A new tile release changed these entries: loaded ones are fetched again and replace their colliders in one

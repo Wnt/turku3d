@@ -42,8 +42,12 @@ QA uses the same draft service at its `?cam=` coordinates.
 A failed draft under the player, car or another selectable start remains required.
 Failures elsewhere may be skipped while their five-second retries continue. Payload
 404s back off and retry; a failed worker replacement clears the main-thread resident
-entry so coverage never claims colliders that the worker removed. Worker substeps
-hold both the character and every car when the swept footprint lacks collision.
+entry so coverage never claims colliders that the worker removed. Worker substeps check every swept footprint. The character and driven vehicle wait
+only for cells with active collision requests, for at most 2.5 simulated seconds.
+Unknown cells, deferred/failed requests and expired holds request immediate safe
+recovery to the last safe sample, preserving the occupied car. Active request state
+ends on success or failure; retry backoff does not extend a hold. Parked cars may
+remain held. No main-thread speed slowdown is applied.
 
 Manual public startup evidence (isolated Chrome, requires a browser slot):
 

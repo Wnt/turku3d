@@ -1,5 +1,5 @@
 // CollisionStreamer: which tiles it requests/unloads, the tiles it loads ahead of a moving player, which tiles it tells
-// the worker exist (no edge wall faces them), the gentle hold near unloaded ones, and that a city-sized manifest does
+// the worker exist (no edge wall faces them), active collision load lifetimes, and that a city-sized manifest does
 // not stall the main thread.
 import { test, expect, vi } from 'vitest';
 import { CollisionStreamer } from '../../src/world/collisionStreaming';
@@ -11,7 +11,7 @@ function fakes(ni: number, nj: number) {
   const loaded = new Map<string, unknown>();
   const known = new Set<string>();
   const physics = { loaded, known, loadTile: vi.fn(async (id: string) => { loaded.set(id, {}); }), unloadTile: vi.fn((id: string) => loaded.delete(id)),
-    setKnown: vi.fn((add: string[], remove: string[]) => { for (const id of add) known.add(id); for (const id of remove) known.delete(id); }) };
+    setTileLoading: vi.fn(), setKnown: vi.fn((add: string[], remove: string[]) => { for (const id of add) known.add(id); for (const id of remove) known.delete(id); }) };
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) })));
   return { manifest, physics };
 }
@@ -165,4 +165,21 @@ test('validated bytes transfer to Rapier without refetch, but stale versions can
   s.refresh(['c_0_0']);
   await new Promise(r => setTimeout(r, 0));
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+
+test('only active known collision requests permit a worker hold; failures clear loading before retry', async () => {
+  const { manifest, physics } = fakes(1, 1);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  let reject!: (error: Error) => void;
+  vi.mocked(fetch).mockReturnValueOnce(new Promise((_, no) => { reject = no; }));
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  try {
+    s.update(20, 20, true);
+    expect(physics.setTileLoading.mock.calls).toEqual([['c_0_0', true]]);
+    reject(new Error('offline'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(physics.setTileLoading.mock.calls).toEqual([['c_0_0', true], ['c_0_0', false]]);
+    expect(s.pending).toBe(0);
+  } finally { warn.mockRestore(); }
 });
