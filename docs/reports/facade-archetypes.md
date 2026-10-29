@@ -99,6 +99,75 @@ construction years and 6,114 missing register storey counts.
 Zero office/shopping counts reflect sparse use/cladding fields in this cache;
 live OSM can supply those classifications. They are not estimates of city totals.
 
+## Undated-building fallback (2026-10-29)
+
+The fallback now draws a stable period from explicitly dated footprints within
+80 m, weighted by `1 / (5 + distance_m)^2`. Distance is between footprints, so
+party walls and adjacent frontages dominate distant buildings. Complete source
+features in the existing 100 m input margin supply donors across tile ownership
+edges. Repeated roof surfaces and overlapping OSM representations do not multiply
+one building's vote. Inferred dates never become donor dates or overwrite the
+construction-year/storey fields.
+
+Explicit use, cladding and construction dates retain precedence. Register years,
+materials and storeys also resist replacement by conflicting OSM values. OSM
+`start_date`, building/use/amenity/office, heritage/historic, roof shape/material
+and building material/cladding add evidence. Shop and amenity/office entrance
+points within 1 m affect ground treatment; they do not turn an apartment block
+into a shopping centre or invent a POI. Heritage supports an older period rather
+than automatically labelling a residential building civic.
+
+Without dated neighbours, central cadastral districts I–IX or a conservative
+centre location envelope use an authored period mix from Empire through 1990s
+housing. The weights are architectural priors, not a survey-derived model.
+Storeys, footprint area/compactness, courtyard rings and mansard/gambrel roofs
+weakly favour older centre forms. Outside supported contexts, the plain fallback
+remains available. A separate seed stream uses register ID, then OSM ID, then the
+building ID; donor order and unrelated recipe fields do not change its draw.
+Existing AI descriptions, stored maps and reviewed Linnankatu authority are
+unchanged by these rule/enrichment changes.
+
+The same **21,774 cached IDs** now have this distribution. This inventory uses
+cached register fields and LOD2 footprint proximity; live OSM can further refine
+actual generated tiles. Of 5,622 undated IDs, 5,458 have nearby dated candidates,
+one uses the centre prior without neighbours, and 163 have neither. Explicit
+use/cladding still classifies some of those 163: **131 buildings retain the plain
+contemporary fallback**. The contemporary family totals **3,089**, down from
+7,022; that total also includes supported contemporary periods and must not be
+read as a missing-data count.
+
+| Family | Updated cached IDs |
+| --- | ---: |
+| Empire | 123 |
+| Neo-Renaissance | 202 |
+| Jugend | 500 |
+| Nordic classicism | 1,756 |
+| Functionalism | 1,242 |
+| Postwar plaster | 3,695 |
+| Postwar brick | 14 |
+| Sixties slab | 1,649 |
+| Concrete panel | 1,629 |
+| Postmodern brick | 20 |
+| Postmodern plaster | 3,311 |
+| Contemporary housing | 3,089 |
+| Glass office | 0 |
+| Metal office | 0 |
+| Traditional timber | 167 |
+| Modern timber | 19 |
+| Industrial brick | 39 |
+| Warehouse | 3,937 |
+| Shopping | 0 |
+| Civic | 382 |
+
+The inventory took 19.3 s on the local cached input. Direct production appearance
+and WFS preparation was also exercised on `t0_0_0`, `t0_0_1` and `t0_1_0`, with
+106/70/87 dated footprint donors respectively. This checks data enrichment, not
+visual fidelity. Raw assignments and production diagnostics remain in the
+sandbox under `reports/archetypes/`. No screenshots, driving checks or area builds
+were requested. The appearance dataset hashes its own LOD2/register/OSM inputs;
+unchanged ground and WFS preparation stays reusable, and served tiles regenerate
+on demand through the existing stage caches.
+
 ## Local visual and timing evidence
 
 Local captures are under `$TURKU3D_WORK/reports/texture-sanity/{before,after}/`:
