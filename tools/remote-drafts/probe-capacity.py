@@ -30,7 +30,13 @@ def main():
                         "turku3d-drafts/agent-work/forwarder-capacity/forwarder-tunnel-load-arm64")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
     before = health(args.base)
+    # A just-activated slot may still be selecting its next job. Observe real
+    # build contention instead of accidentally benchmarking that idle interval.
+    while not before["active_builds"] and time.monotonic() - start < 30:
+        time.sleep(1)
+        before = health(args.base)
     counters = listen_drops()
     with urllib.request.urlopen(args.base + "/coarse/t0_0_0/manifest.json", timeout=5) as reply:
         manifest = json.load(reply)
@@ -40,7 +46,6 @@ def main():
     paths = dict(cached=assets, mixed=["/coarse/health", "/coarse/t0_0_0/manifest.json",
                                     "/coarse/not-a-tile/manifest.json", *assets])
     results, failures = [], []
-    start = time.monotonic()
     for repeat in range(args.repeats):
         for kind, entries in paths.items():
             path = args.output / f"{kind}-paths.txt"
