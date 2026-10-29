@@ -9,25 +9,30 @@ all quarters. All 29 incomplete quarters still lacked required metadata or termi
 payloads; none became eligible through relocation alone.
 
 A native, screenshot-free recovery pass restored 22 quarters in 289.5 browser
-seconds. The default five-minute browser allocation stopped the pass with seven
-quarters still incomplete. The portable `reference-inventory.json` records 53
-eligible and seven incomplete quarters. Reference data remain private at
+seconds. After the browser allocation was raised to ten minutes, a second pass
+restored the seven remaining quarters. The portable `reference-inventory.json`
+now records all 60 as eligible; OCI independently verified every referenced
+response body. Reference data remain private at
 `~/turku3d/private/gmaps-data/round3/` and
 `/srv/turku3d/private/gmaps-data/round3/` on OCI. Existing report and decoded-manifest
 bytes are preserved when relocating inventory pointers.
 
-The current-generator baseline has completed every eligible record: 50 scored,
-three abstentions and seven incomplete. These are **partial baseline** medians,
-not the requested 57-quarter result:
+The pre-calibration baseline scored 50 quarters before the final seven captures
+were restored. The deployed pilot correction was then scored on the full set:
+57 scored quarters and the same three calibration abstentions.
 
-| Metric | Quarter support | Median |
+| Metric | Pilot quarter support | Pilot median |
 | --- | ---: | ---: |
-| Ground colour CIE76 ΔE | 50 | 14.96 |
-| Roof colour CIE76 ΔE | 44 | 14.71 |
-| Exposed-ground height RMSE | 50 | 0.08 m |
-| Road height MAE | 50 | 0.06 m |
-| Roof height MAE | 45 | 0.21 m |
-| Wall colour CIE76 ΔE | 0 | unavailable; facade-kit v4 is unsupported by the private sampler |
+| Ground colour CIE76 ΔE | 57 | 11.52 |
+| Roof colour CIE76 ΔE | 50 | 14.85 |
+| Exposed-ground height RMSE | 57 | 0.08 m |
+| Road height MAE | 57 | 0.06 m |
+| Roof height MAE | 52 | 0.21 m |
+| Wall colour CIE76 ΔE | 1 | 23.07; facade-kit v4 is unsupported by the private sampler |
+
+Across the 50 quarters shared by the pre-calibration baseline and pilot, matched
+reference hashes and ground sample counts were identical. Their rendered ground
+median fell from 14.96 to 10.98 ΔE; 42 of 50 quarters improved.
 
 Current-generator scoring uses a separate resumable batch index and immutable,
 hash-verified OCI snapshots. Materialization into the invoking sandbox includes
@@ -42,20 +47,20 @@ The fitter requires all 57 scored baseline quarters. A deterministic tile-disjoi
 split reserves 12 quarters (21.1%, the rounded-up 20% holdout) and trains on 45.
 No tile occurs in both splits. Training-only leave-one-tile-out validation selects
 the strength of bounded additive D65 Lab corrections for asphalt, paving,
-gravel/earth and grass. A class needs five independent training tiles. Source-mosaic
+gravel and grass. A class needs five independent training tiles. Source-mosaic
 residuals need three training tiles, are shrunk towards the surface correction and
 are enabled only by training cross-validation. Mosaic identifiers are available
 input VRT names, not independently identified original aerial-flight sheets.
 
 Corrections exclude buildings, water and bright aerial paint. Unsupported classes
-retain their input. A provisional fit of the 50 scored quarters held out 11
-tile-disjoint quarters (22%). Training-only validation selected 0.75 correction
-strength and rejected per-mosaic residuals. Its holdout material-sample median
-fell from 11.21 to 6.45 CIE76 ΔE **in the colour model**, before rendering or
-scene scoring. The production stage and provisional aggregate coefficients are
-prepared on this branch, but the complete 57-quarter baseline, final fit,
-deployment and paired scene re-score remain outstanding. No rendered-world
-before/after improvement is claimed.
+retain their input. The deployed pilot fit of the original 50 held out 11
+tile-disjoint quarters (22%). Its model-predicted holdout median fell from 11.21
+to 6.45 ΔE. The full-set residual fit pins those 11 quarters and adds one newly
+captured quarter, so all 12 final holdouts (21.1%) remain blind to the pilot.
+Training-only validation selected 0.25 residual strength and no mosaic-specific
+correction. The 12-quarter holdout material-sample median is predicted to fall
+from 6.80 to 6.66 ΔE. The actual paired rendered re-score of the final model is
+still outstanding; that prediction is not a rendered-world result.
 
 The installed private facade sampler supports facade-kit v1-v3. Current v4 batches
 abstain from wall colour measurement; unavailable wall support must be reported
@@ -72,12 +77,13 @@ python3 tools/refs/gmaps_inventory.py --root "$GMAPS_ROOT"
 
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- \
   bash pipeline/env/run.sh python tools/refs/gmaps_ground_score.py \
-  --label baseline-full-20261029
+  --label pilot-full-20261029
 
-# Requires the completed 57-quarter current baseline.
 bash pipeline/env/run.sh python tools/refs/fit_ground_colour.py \
-  --coverage "$GMAPS_ROOT/calibration/baseline-full-20261029/coverage.json" \
-  --out "$TURKU3D_WORK/reports/ground-colour-fit"
+  --coverage "$GMAPS_ROOT/calibration/pilot-full-20261029/coverage.json" \
+  --base-model pipeline/turku3d/coarse/ground_colour.json \
+  --holdout-policy "$GMAPS_ROOT/calibration/final-ground-20261029/holdout-policy.json" \
+  --out "$TURKU3D_WORK/reports/final-ground-fit"
 
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 bash pipeline/env/run.sh python -m pytest -q \
   tools/refs/test_gmaps_inventory.py tools/refs/test_gmaps_ground_score.py \
