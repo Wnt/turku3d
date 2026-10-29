@@ -673,6 +673,8 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                         part = copy.copy(b)
                         part.footprint = shapely.geometry.polygon.orient(passage_footprint(poly), 1)
                         part.base = base
+                        if base > b.base:
+                            part.facade_passage = dict(floor=b.base, ceiling=base)
                         part.attributes = b.attributes.copy()
                         centre = b.footprint.centroid
                         part._collision_owner = getattr(

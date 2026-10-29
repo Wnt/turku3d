@@ -173,7 +173,7 @@ def wall_meshes(b, walls, origin):
         return []
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
-    from turku3d.facade_component_geometry import plan, geometry, surface_parts
+    from turku3d.facade_component_geometry import plan, geometry, surface_parts, slots
 
     stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []
@@ -251,6 +251,10 @@ def wall_meshes(b, walls, origin):
     if meshes:
         # build() exports this diagnostic program separately before writing the layer GLB.
         meshes[0].extras["facade_program"] = program
+        from turku3d.facade_programs import measured
+        component_slots = slots(walls, measured(b.facade_key), getattr(b, "facade_passage", None))
+        if component_slots:
+            meshes[0].extras["facade_component_slots"] = component_slots
     return meshes
 
 

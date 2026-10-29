@@ -20,14 +20,46 @@ KINDS = (
     ("recess", r"recessed (?:entry|entrance|frontage|glazed frontage)"),
     ("artwork", r"clock|mural|signboard|raised lettering"),
 )
-ROW_KEYS = ("rows", "row_count", "rows_per_stack", "floor_count", "whole_wall_rows",
-            "whole_wall_row_count", "whole_wall_floor_count", "balcony_levels",
-            "complete_balcony_levels_visible", "whole_level_count", "rows_visible", "visible_rows",
-            "complete_glazing_rows_visible", "balcony_levels_visible")
-COUNT_KEYS = ("stacks", "balcony_stacks", "whole_stack_count", "column_count",
-              "count", "bay_count", "whole_bay_count", "whole_wall_bay_count", "bays", "bays_per_row")
-DEPTH = dict(bay=.45, recess=.65, balcony=1.1, glazed_balcony=1.1, loggia=1.1,
-             veranda=1.4, stairs=1.2, arcade=1.8, passage=0, artwork=.04)
+ROW_KEYS = (
+    "rows",
+    "row_count",
+    "rows_per_stack",
+    "floor_count",
+    "whole_wall_rows",
+    "whole_wall_row_count",
+    "whole_wall_floor_count",
+    "balcony_levels",
+    "complete_balcony_levels_visible",
+    "whole_level_count",
+    "rows_visible",
+    "visible_rows",
+    "complete_glazing_rows_visible",
+    "balcony_levels_visible",
+)
+COUNT_KEYS = (
+    "stacks",
+    "balcony_stacks",
+    "whole_stack_count",
+    "column_count",
+    "count",
+    "bay_count",
+    "whole_bay_count",
+    "whole_wall_bay_count",
+    "bays",
+    "bays_per_row",
+)
+DEPTH = dict(
+    bay=0.45,
+    recess=0.65,
+    balcony=1.1,
+    glazed_balcony=1.1,
+    loggia=1.1,
+    veranda=1.4,
+    stairs=1.2,
+    arcade=1.8,
+    passage=0,
+    artwork=0.04,
+)
 
 
 def integer(section, keys, default=None):
@@ -42,13 +74,33 @@ def kind_of(text):
     return next((k for k, pattern in KINDS if re.search(pattern, text.lower())), None)
 
 
-NUMBERS = {word: i for i, word in enumerate(
-    ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"))}
+NUMBERS = {
+    word: i
+    for i, word in enumerate(
+        (
+            "zero",
+            "one",
+            "two",
+            "three",
+            "four",
+            "five",
+            "six",
+            "seven",
+            "eight",
+            "nine",
+            "ten",
+            "eleven",
+            "twelve",
+        )
+    )
+}
 NUMBER = r"(?:[1-9]|1[0-2]|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
 
 
 def counted(text, noun):
-    match = re.search(rf"\b({NUMBER}) (?:complete |visible |adjacent |vertical |projecting )*(?:{noun})\b", text)
+    match = re.search(
+        rf"\b({NUMBER}) (?:complete |visible |adjacent |vertical |projecting )*(?:{noun})\b", text
+    )
     if match:
         value = match[1]
         return int(value) if value.isdigit() else NUMBERS[value]
@@ -71,9 +123,15 @@ def components(form, floors):
         if isinstance(bays, list) and extent:
             for i, bay in enumerate(bays):
                 if isinstance(bay, str) and kind_of(bay):
-                    x,y,w,h = extent
-                    expanded.append({**section, "kind": bay, "bays": 1,
-                                     "bounds": [x+w*i/len(bays),y,w/len(bays),h]})
+                    x, y, w, h = extent
+                    expanded.append(
+                        {
+                            **section,
+                            "kind": bay,
+                            "bays": 1,
+                            "bounds": [x + w * i / len(bays), y, w / len(bays), h],
+                        }
+                    )
         else:
             expanded.append(section)
     for index, section in enumerate(expanded):
@@ -85,14 +143,23 @@ def components(form, floors):
             continue
         position = str(section.get("position", ""))
         extent = section.get("bounds") or bounds(position, floors)
-        if (section.get("belongs_to_facade") is False or extent is None
-                or re.search(r"clipped|fragment|hidden|occluded|alternate|lower.bound|\bor\b", text)
-                or "at least" in text or any("lower_bound" in key for key in section)):
+        if (
+            section.get("belongs_to_facade") is False
+            or extent is None
+            or re.search(r"clipped|fragment|hidden|occluded|alternate|lower.bound|\bor\b", text)
+            or "at least" in text
+            or any("lower_bound" in key for key in section)
+        ):
             pending.append(f"section {index}: {kind}: unresolved extent/count/plane")
             continue
-        if (len(extent) != 4 or not np.isfinite(extent).all() or min(extent) < 0
-                or min(extent[2:]) <= 0 or extent[0] + extent[2] > 1.001
-                or extent[1] + extent[3] > 1.001):
+        if (
+            len(extent) != 4
+            or not np.isfinite(extent).all()
+            or min(extent) < 0
+            or min(extent[2:]) <= 0
+            or extent[0] + extent[2] > 1.001
+            or extent[1] + extent[3] > 1.001
+        ):
             pending.append(f"section {index}: invalid bounds")
             continue
         if kind == "artwork" and "bounds" not in section:
@@ -105,22 +172,33 @@ def components(form, floors):
             # Text counts are admitted only with an explicit component noun; no
             # window count, pane count or "at least" phrase becomes a balcony count.
             if "at least" not in combined:
-                rows = rows or counted(combined, r"(?:balcony )?levels|rows of (?:glazed )?balconies")
-                count = count or counted(combined, r"(?:balcony )?stacks|stacks of .*balconies|balcony bays")
+                rows = rows or counted(
+                    combined, r"(?:balcony )?levels|rows of (?:glazed )?balconies"
+                )
+                count = count or counted(
+                    combined, r"(?:balcony )?stacks|stacks of .*balconies|balcony bays"
+                )
             if not kind_of(text) and "stack" in features:
                 if "left" in features and "right" not in features.split("stack")[0]:
-                    extent = [extent[0],extent[1],extent[2]*.33,extent[3]]
+                    extent = [extent[0], extent[1], extent[2] * 0.33, extent[3]]
                 elif "central" in features or "centre" in features:
-                    extent = [extent[0]+extent[2]*.33,extent[1],extent[2]*.34,extent[3]]
+                    extent = [extent[0] + extent[2] * 0.33, extent[1], extent[2] * 0.34, extent[3]]
         if kind in {"balcony", "glazed_balcony", "loggia"}:
             if rows is None:
-                if re.search(r"\bone\b|\bsingle\b", text) or (section.get("count") == 1 and "stack" not in text):
+                if re.search(r"\bone\b|\bsingle\b", text) or (
+                    section.get("count") == 1 and "stack" not in text
+                ):
                     rows = 1
                 else:
                     pending.append(f"section {index}: {kind}: missing complete level count")
                     continue
             # A located vertical strip is one stack; a whole-wall band is not.
-            if count is None and (extent[2] < .5 or re.search(r"\bone\b|\bsingle\b|continuous|spanning frontage|horizontal.*bands", text)):
+            if count is None and (
+                extent[2] < 0.5
+                or re.search(
+                    r"\bone\b|\bsingle\b|continuous|spanning frontage|horizontal.*bands", text
+                )
+            ):
                 count = 1
             if count is None:
                 pending.append(f"section {index}: {kind}: missing complete stack count")
@@ -132,12 +210,21 @@ def components(form, floors):
         if not isinstance(depth, (float, int)) or not np.isfinite(depth) or not 0 <= depth <= 4:
             pending.append(f"section {index}: invalid depth")
             continue
-        result.append(dict(
-            section=index, kind=kind, bounds=list(extent), rows=rows or 1, count=count or 1,
-            depth_m=max(.04, depth),
-            dimensions_source="reading" if "bounds" in section and "depth_m" in section else "named-section and conservative dimension priors",
-            head=section.get("head", "round" if "arch" in text else "flat"),
-            rise_m=section.get("rise_m"), run_m=section.get("run_m"),
-            direction=-1 if "left" in features else 1,
-        ))
+        result.append(
+            dict(
+                section=index,
+                kind=kind,
+                bounds=list(extent),
+                rows=rows or 1,
+                count=count or 1,
+                depth_m=max(0.04, depth),
+                dimensions_source="reading"
+                if "bounds" in section and "depth_m" in section
+                else "named-section and conservative dimension priors",
+                head=section.get("head", "round" if "arch" in text else "flat"),
+                rise_m=section.get("rise_m"),
+                run_m=section.get("run_m"),
+                direction=-1 if "left" in features else 1,
+            )
+        )
     return result, pending

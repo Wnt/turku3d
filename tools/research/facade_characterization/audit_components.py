@@ -22,10 +22,16 @@ from turkutex.facade_sections import sections
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path,default=C.data_root()/'facade-characterization/publications/ring42/programs.json')
+    parser.add_argument('--baseline',type=Path,help='Frozen private inventory of the original 349 walls')
     parser.add_argument('--out',type=Path,default=C.work_root()/'reports/facade-components')
     args=parser.parse_args()
     args.out.mkdir(parents=True,exist_ok=True)
     programs=json.loads(args.source.read_text())
+    baseline_path=args.baseline or args.out/'baseline.json'
+    baseline=json.loads(baseline_path.read_text()) if baseline_path.exists() else None
+    if baseline and baseline['source_sha256'] != hashlib.sha256(args.source.read_bytes()).hexdigest():
+        raise ValueError('baseline belongs to another publication')
+    original=set(baseline['wall_ids']) if baseline else None
     rows=[]
     counts=Counter()
     kinds=Counter()
@@ -36,6 +42,7 @@ def main():
             if not form.get('render_deferred'):
                 continue
             paint,_=sections(form,program['storeys']['value'])
+            was_unrendered=wall['wall_id'] in original if original is not None else not bool(paint)
             descriptors,pending=components(form,program['storeys']['value'])
             g=wall['geometry']
             coords=g.get('coordinates') or [g['p0'],g['p1']]
@@ -52,17 +59,19 @@ def main():
             except ValueError as error:
                 failures.append(dict(wall=wall['wall_id'],error=str(error)))
             emitted=sorted(set(p['kind'] for p in plans))
-            if not paint:
+            if was_unrendered:
                 counts['previously_unrendered']+=1
                 counts['newly_with_geometry' if emitted else 'still_without_geometry']+=1
                 kinds.update(emitted)
             counts['deferred_with_geometry']+=bool(emitted)
-            rows.append(dict(wall=wall['wall_id'],previously_unrendered=not bool(paint),
+            rows.append(dict(wall=wall['wall_id'],previously_unrendered=was_unrendered,
                              emitted=emitted,pending=pending,
                              slots=[d for d in descriptors if d['kind'] in {'artwork','passage'}],
                              component_count=len(plans),triangles=sum(len(m.indices) for m in meshes)))
             if emitted and not (args.out/'representative.glb').exists():
                 (args.out/'representative.glb').write_bytes(build_glb(meshes,root_translation=a))
+    if original is None:
+        baseline_path.write_text(json.dumps(dict(source_sha256=hashlib.sha256(args.source.read_bytes()).hexdigest(),wall_ids=[w['wall'] for w in rows if w['previously_unrendered']]),indent=2)+'\n')
     result=dict(source_sha256=hashlib.sha256(args.source.read_bytes()).hexdigest(),counts=dict(counts),
                 newly_supported_kinds=dict(kinds),invariant_failures=failures,walls=rows)
     (args.out/'audit.json').write_text(json.dumps(result,indent=2)+'\n')
