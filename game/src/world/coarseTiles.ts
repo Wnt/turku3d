@@ -1,6 +1,7 @@
 // Draft service is the only world source. Each visible tile owns all sixteen collision cells.
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
+import { recordFreshness, type DraftFreshness } from './coarseFreshness';
 import { VisualPassComparison } from './visualPass';
 import { splitCollisionBundle, type CollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
@@ -44,7 +45,7 @@ interface CoarseFragment { stale?: boolean; pass_kind?: 'first' | 'full'; coarse
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
-interface Entry {
+interface Entry extends DraftFreshness {
   state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
@@ -56,8 +57,6 @@ interface Entry {
   version?: number; visualHash?: string; refreshing?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
   resident?: boolean; retries?: number;
-  /** Measured visible fallback duration, including identical-content revalidation. */
-  stale?: boolean; staleSince?: number; staleSeconds?: number;
 }
 
 export interface CoarseHost {
@@ -451,7 +450,7 @@ export class CoarseTiles {
     if (this.entries.get(id) !== e || e.state !== state) { if (model) this.dispose(model); return; }
     const roads = streets.status === 'fulfilled' ? streets.value : null;
     if (!visualChanged) {
-      this.recordFreshness(e, fragment);
+      recordFreshness(e, fragment);
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
@@ -459,7 +458,7 @@ export class CoarseTiles {
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
     if (!await this.prepareModel(id, e, model)) return;
-    this.recordFreshness(e, fragment);
+    recordFreshness(e, fragment);
     // Detach before attaching: scene hooks must never observe both passes.
     const old = e.model;
     old?.removeFromParent();
@@ -472,17 +471,6 @@ export class CoarseTiles {
     if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
-  }
-
-  private recordFreshness(e: Entry, fragment: CoarseFragment) {
-    const now = performance.now();
-    if (fragment.stale) e.staleSince ??= now;
-    else if (e.staleSince !== undefined) {
-      e.staleSeconds = (now - e.staleSince) / 1000;
-      e.staleSince = undefined;
-    }
-    e.stale = fragment.stale === true;
-    e.pass = fragment.pass_kind;
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
