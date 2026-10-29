@@ -88,7 +88,10 @@ def assemble_structures(meshes, protected=()):
             # Native projection is only a conservative rejection stage. Near
             # parallel distance bands amplify tiny rounding differences, so actual
             # cuts retain the predecessor's scalar basis and STRtree order.
-            for i in np.unique(ii[shapely.area(intersections) > 0]):
+            # Match the scalar cut admission area. Numerical touching-edge slivers
+            # below this threshold cannot produce an occluder, but used to send
+            # dense facade tessellation through the expensive scalar loop.
+            for i in np.unique(ii[shapely.area(intersections) > 1e-8]):
                 mi, ti = refs[i]
                 js = original_tree.query(original_boxes[i])
                 js = js[

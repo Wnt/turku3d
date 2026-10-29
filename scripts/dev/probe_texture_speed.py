@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--visual-baseline')
     parser.add_argument('--audit', action='store_true')
     parser.add_argument('--tiles', nargs='+', default=['t0_0_0', 't0_0_-2'])
+    parser.add_argument('--passes', nargs='+')
     args = parser.parse_args()
     source = remote(f'readlink -f {HOME}/repo')
     frozen = f'{HOME}/sources/{args.commit}'
@@ -40,6 +41,8 @@ def main():
         arguments += ['--visual-baseline', args.visual_baseline]
     if args.audit:
         arguments += ['--audit']
+    if args.passes:
+        arguments += ['--passes', *args.passes]
     command = shlex.join(arguments)
     started = time.monotonic()
     try:
