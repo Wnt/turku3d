@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
+import WebSocket from '../../server/node_modules/ws/wrapper.mjs';
 import { createServer } from '../../server/http.js';
 import { ScoreStore } from '../../server/store.js';
 import { isolateBrowser, reportsRoot, port } from '../../tools/dev/environment.mjs';
@@ -27,7 +28,9 @@ if (requirement === 'bundled') {
     let current = html.includes('rel="modulepreload"') && html.includes('City loading progress');
     if (current && process.env.TURKU3D_PROFILE_WORKER === '1') {
       const entry = html.match(/href="([^"]*assets\/main-[^"]+\.js)"/);
-      current = !!entry && (await fetch(new URL(entry[1], url)).then(r => r.text())).includes('packProgram.worker-');
+      const source = entry ? await fetch(new URL(entry[1], url)).then(r => r.text()) : '';
+      const worker = source.match(/decodeGlb\.worker-[A-Za-z0-9_-]+\.js/);
+      current = !!worker && (await fetch(new URL(`assets/${worker[0]}`, url)).then(r => r.text())).includes('32768');
     }
     if (current) break;
     if (Date.now() >= deadline) throw new Error('Pages still serves the previous startup implementation');
@@ -41,11 +44,27 @@ const context = await chromium.launchPersistentContext(path.join(process.env.TUR
 let room;
 const hardStop = setTimeout(() => { void context.close(); }, 440_000);
 try {
-  for (const cache of ['cold', 'warm']) {
+  for (const cache of (process.env.TURKU3D_PROFILE_CACHES ?? 'cold,warm').split(',')) {
     room = createServer({ store: new ScoreStore(path.join(out, `${cache}-scores`)) });
     await new Promise((resolve, reject) => { room.server.once('error', reject); room.server.listen(port(4), '127.0.0.1', resolve); });
-    const runUrl = new URL(url); runUrl.searchParams.set('mp', `ws://127.0.0.1:${port(4)}/`);
+    const runUrl = new URL(url); runUrl.searchParams.set('mp', 'wss://first-play.invalid/');
     const page = await context.newPage(), cdp = await context.newCDPSession(page);
+    // Route through Playwright's host transport: HTTPS Pages cannot open insecure loopback WebSockets.
+    await page.routeWebSocket('wss://first-play.invalid/', socket => {
+      const upstream = new WebSocket(`ws://127.0.0.1:${port(4)}/`, { origin: new URL(url).origin });
+      const queued = [];
+      socket.onMessage(message => { if (upstream.readyState === WebSocket.OPEN) upstream.send(message); else queued.push(message); });
+      upstream.on('open', () => { for (const message of queued) upstream.send(message); queued.length = 0; });
+      upstream.on('message', (data, binary) => socket.send(binary ? data : data.toString()));
+      upstream.on('error', error => { console.error(error.message); socket.close(); });
+      upstream.on('close', () => socket.close());
+      socket.onClose(() => upstream.close());
+    });
+    await page.route('https://first-play.invalid/**', async route => {
+      const request = new URL(route.request().url());
+      const response = await route.fetch({ url: `http://127.0.0.1:${port(4)}${request.pathname}${request.search}` });
+      await route.fulfill({ response });
+    });
     await cdp.send('Network.enable');
     if (cache === 'cold') await cdp.send('Network.clearBrowserCache');
     await cdp.send('Performance.enable');
@@ -122,9 +141,14 @@ try {
           frames: window.__air.frames, poses: window.__air.poses, route: window.__air.route,
           extensions: window.__air.extensions, perf: window.__perf, state: window.__game.state(),
         }))));
+        const routeEvidence = await page.evaluate(() => {
+          const points = window.__air.poses.filter(p => p.phase === 'drive').map(p => p.state.vehicle?.pos).filter(Boolean);
+          return { distance: points.slice(1).reduce((n, p, i) => n + Math.hypot(p[0] - points[i][0], p[2] - points[i][2]), 0),
+            tiles: [...new Set(points.map(p => `${Math.floor(p[0] / 250)},${Math.floor(p[2] / 250)}`))] };
+        });
         const driving = await page.evaluate(() => window.__air.frames.filter(row => row[2] === 'drive').map(row => row[1]));
         driving.sort((a, b) => a - b);
-        const summary = { cache: 'drive', count: driving.length, p50: driving[Math.floor(driving.length * .5)],
+        const summary = { cache: 'drive', ...routeEvidence, count: driving.length, p50: driving[Math.floor(driving.length * .5)],
           p95: driving[Math.floor(driving.length * .95)], p99: driving[Math.floor(driving.length * .99)],
           max: driving.at(-1), over50: driving.filter(ms => ms > 50).length };
         checks.push(summary); console.log(JSON.stringify(summary));
@@ -170,6 +194,7 @@ try {
     }
   }
   if (strict) for (const check of checks) {
+    if (check.cache === 'drive') assert.ok(check.distance > 250 && check.tiles.length >= 3, 'drive crosses new tiles');
     assert.equal(check.over50, 0, `${check.cache}: zero frames over 50 ms`);
     assert.ok(check.p99 <= 33, `${check.cache}: p99 <= 33 ms (observed ${check.p99})`);
   }

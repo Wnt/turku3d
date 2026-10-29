@@ -25,3 +25,12 @@ test('worker container decoding retains binary accessors, metadata and relative 
   expect([...mesh.geometry.attributes.position.array]).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0]);
   expect(() => decodeGlb(buffer.slice(0, -1))).toThrow('header');
 });
+
+test('bounded worker records preserve nested arrays, nulls and literal prototype metadata', async () => {
+  const { jsonRecords, applyJsonRecords } = await import('../../src/world/glbRecords');
+  const json = JSON.parse('{"meshes":[{"extras":{"__proto__":{"safe":true},"values":[1,null,"a",[]]}}],"asset":{"version":"2.0"}}');
+  const objects: Record<string, unknown>[] = [{}], records = [...jsonRecords(json)];
+  for (let i = 0; i < records.length; i += 3) applyJsonRecords(objects, records.slice(i, i + 3));
+  expect(objects[0]).toEqual(json);
+  expect(Object.getPrototypeOf(objects[0])).toBe(Object.prototype);
+});

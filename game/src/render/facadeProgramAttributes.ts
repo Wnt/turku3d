@@ -1,4 +1,5 @@
 import { BufferGeometry, InterleavedBuffer, InterleavedBufferAttribute } from 'three/webgpu';
+import { PreparationBudget } from './preparationBudget';
 import { packProgram, type ProgramField } from './packProgram';
 
 function programFields(geometry: BufferGeometry) {
@@ -26,7 +27,14 @@ export function interleaveProgram(geometry: BufferGeometry) {
 
 let worker: Worker | undefined, sequence = 0;
 const pending = new Map<number, { resolve: (packed: Float32Array) => void; reject: (error: Error) => void }>();
-function packAsync(fields: ProgramField[]): Promise<Float32Array> {
+const copyBudget = new PreparationBudget();
+async function packAsync(fields: ProgramField[]): Promise<Float32Array> {
+  const copies: ProgramField[] = [];
+  for (const field of fields) {
+    copies.push({ ...field, array: field.array.slice() });
+    const nextFrame = copyBudget.checkpoint();
+    if (nextFrame) await nextFrame;
+  }
   if (!worker) {
     worker = new Worker(new URL('./packProgram.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
@@ -41,8 +49,8 @@ function packAsync(fields: ProgramField[]): Promise<Float32Array> {
   const id = ++sequence;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    // Clone input: glTF may share its backing buffers with other attributes or primitives.
-    worker!.postMessage({ id, fields });
+    // Transfer only each field's bytes, never the full shared GLB backing buffer or a live attribute.
+    worker!.postMessage({ id, fields: copies }, copies.map(field => field.array.buffer as ArrayBuffer));
   });
 }
 /** Streamed geometry remains hidden until the worker returns its final transferable vertex buffer. */
