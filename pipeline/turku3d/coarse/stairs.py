@@ -101,6 +101,9 @@ def produce(tile, prepared, sample, decks=()):
             line = shapely.LineString(list(line.coords)[::-1])
             bottom, top = top, bottom
             knots, levels = line.length - knots[::-1], levels[::-1]
+        # Reversed segment sums can differ by an ulp. Anchor both ends exactly:
+        # even a tiny negative station means "from the far end" to Shapely.
+        knots[[0, -1]] = [0, line.length]
         rise = top - bottom
         if rise < 0.06:
             # Incline can recover a flight whose sparse terrain samples are level.
@@ -121,6 +124,7 @@ def produce(tile, prepared, sample, decks=()):
         # rectangular steps leave triangular holes inside the cut corridor.
         original = np.asarray(line.coords)[:, :2]
         bends = np.r_[0, np.cumsum(np.linalg.norm(np.diff(original, axis=0), axis=1))]
+        bends[-1] = line.length
         # Measured plateaus remain flat; each rising interval owns its own treads.
         levels = np.maximum.accumulate(np.clip(levels, bottom, top))
         counts = np.maximum(1, np.rint(np.diff(levels) / rise * count).astype(int))
@@ -134,6 +138,15 @@ def produce(tile, prepared, sample, decks=()):
                 ],
             ]
         )
+        # A tread boundary and mapped bend can represent the same station with
+        # different roundoff. Keep the mapped bend, never a zero-length tread.
+        near = np.clip(np.searchsorted(bends, distances), 1, len(bends) - 1)
+        nearest = np.where(
+            np.abs(distances - bends[near - 1]) < np.abs(distances - bends[near]), near - 1, near
+        )
+        snap = np.abs(distances - bends[nearest]) < 1e-8
+        distances[snap] = bends[nearest[snap]]
+        distances = np.unique(distances)
         centres = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         directions = np.diff(centres, axis=0)
         directions /= np.linalg.norm(directions, axis=1)[:, None]
