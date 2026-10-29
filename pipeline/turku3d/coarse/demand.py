@@ -70,6 +70,12 @@ class Demand:
                      now - builder.requested.get(tile, 0) > 12 or foreground))
             if not stale:
                 continue
+            # A full pass is a completion commitment. Movement, a missing
+            # heartbeat or an inaccurate ETA must not discard minutes of work.
+            # Admission reserves crossing capacity before starting upgrades;
+            # idle background jobs remain cancellable by IdlePrebuild.pause.
+            if tile in builder.upgrading:
+                continue
             builder.priority.pop(tile, None)
             builder.pending.pop(tile, None)
             builder.upgrade_queue.discard(tile)
@@ -87,25 +93,6 @@ class Demand:
                     if builder.run.cancel(tile):
                         builder.cancelled.add(tile)
         self.managed.intersection_update(active | {t for _, ts, _, _ in self.clients.values() for t in ts})
-        # Only reclaim a slot when no worker can start a collision-critical job.
-        # Keep at least three quarters of the pool finishing its current work:
-        # an existing first pass (or pending cancellation) already supplies that
-        # capacity, so repeated demand heartbeats cannot cancel the survivors.
-        urgent = any((rank := self.rank(t)) is not None and rank[0] == 0
-                     for t in builder.priority)
-        free = max(0, builder.workers - len(builder.building)) + len(builder.cancelled)
-        first = len(set(builder.building) - builder.upgrading)
-        allowance = max(1, builder.workers // 4) - first - len(builder.cancelled)
-        if not urgent or free or allowance <= 0:
-            return
-        # Sacrifice the least invested upgrade, preserving work near completion.
-        candidates = sorted(builder.upgrading - builder.cancelled,
-                            key=lambda t: builder.building[t], reverse=True)
-        for tile in candidates[:allowance]:
-            if hasattr(builder.run, "cancel") and builder.run.cancel(tile):
-                builder.cancelled.add(tile)
-                if self.rank(tile) is not None:
-                    builder.upgrade_queue.add(tile)
 
 
 def write_snapshot(root, value):

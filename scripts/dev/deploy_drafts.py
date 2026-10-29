@@ -23,7 +23,7 @@ def generator_hash_command(destination):
     script = """import hashlib,pathlib
 root=pathlib.Path(DESTINATION)
 h=hashlib.sha256()
-for directory in ('pipeline', 'textures', 'tools/remote-drafts'):
+for directory in ('pipeline', 'textures', 'tools/remote-drafts', 'game/public/basis'):
  for p in sorted((root/directory).rglob('*')):
   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc':
    h.update(p.relative_to(root).as_posix().encode()); h.update(b'\\0'); h.update(p.read_bytes())

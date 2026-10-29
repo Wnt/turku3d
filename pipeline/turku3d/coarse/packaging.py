@@ -67,6 +67,7 @@ def producer_paths():
             Path(__file__).parents[1] / "spatial.py",
             Path(__file__).parents[1] / "roads/__init__.py",
             *BRIDGE.parent.glob("*.mjs"),
+            *sorted((C.REPO_ROOT / "game/public/basis").glob("basis_transcoder.*")),
             Path(__file__).parents[1] / "buildings/source_surfaces.py",
             Path(__file__).parents[1] / "ground/materials.py",
             Path(__file__).parents[1] / "bridges/build.py",
@@ -240,6 +241,7 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
         "package",
         source_key(
             *sorted(BRIDGE.parent.glob("*.mjs")),
+            *sorted((C.REPO_ROOT / "game/public/basis").glob("basis_transcoder.*")),
             Path(__file__).parents[1] / "stage_cache.py",
             C.REPO_ROOT / "pipeline/env/package-lock.json",
             _package_visual,

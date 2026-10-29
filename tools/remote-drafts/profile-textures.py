@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import shutil
+import struct
 import time
 from pathlib import Path
 
@@ -13,12 +14,27 @@ from turku3d.coarse.inputs import gather
 from turku3d.coarse.sources import Sources
 
 
+def facade_atlases(file):
+    data = file.read_bytes()
+    size = struct.unpack_from('<I', data, 12)[0]
+    document = json.loads(data[20:20+size])
+    binary = data[28+size:]
+    result = {}
+    for image in document.get('images', []):
+        if image.get('name', '').startswith('facade_atlas_'):
+            view = document['bufferViews'][image['bufferView']]
+            offset = view.get('byteOffset', 0)
+            result[image['name']] = binary[offset:offset+view['byteLength']]
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--assets', type=Path, required=True)
     parser.add_argument('--tiles', nargs='+', required=True)
     parser.add_argument("--assembly-baseline", type=Path)
+    parser.add_argument("--atlas-baseline", type=Path)
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     # Copy prepared inputs and authored/shared assets, never generated stage/codec caches.
@@ -101,6 +117,11 @@ def main():
                        source_counts=expected, stages=stages, manifest_seconds=manifest['seconds'],
                        package=package_stats.copy(), visual=manifest['visual'],
                        assembly_comparisons=assembly_comparisons.copy())
+            if args.atlas_baseline and not first:
+                before = facade_atlases(args.atlas_baseline / tile / 'vis.glb')
+                after = facade_atlases(out / 'vis.glb')
+                assert before == after, 'Facade atlas encoded bytes changed'
+                row['identical_facade_atlases'] = sorted(after)
             report['runs'].append(row)
             (args.root / 'measurement.json').write_text(json.dumps(report, indent=2) + '\n')
             print(json.dumps(row), flush=True)

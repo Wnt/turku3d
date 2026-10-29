@@ -1,3 +1,4 @@
+import { decodeFacadeRgb, facadeDecoderIdentity } from './facade_decode.mjs';
 import { completed } from './codec.mjs';
 import { compileTexture } from './texture_compile.mjs';
 import fs from 'node:fs';
@@ -28,20 +29,15 @@ function imageSize(texture) {
   return [image.readUInt32LE(20), image.readUInt32LE(24)];
 }
 
-async function extract(texture, target, request, run, sharp) {
+async function extract(texture, target, request, decode, sharp) {
   const bytes = texture.getImage();
-  const key = createHash('sha256').update('facade-atlas-extract-v2').update(bytes)
+  const key = createHash('sha256').update('facade-atlas-rgb-v1').update(facadeDecoderIdentity).update(bytes)
     .update(JSON.stringify(target)).digest('hex');
-  return compileTexture(request, key, 'png', async output => {
-    const input = `${output}.ktx2`;
-    const temp = `${output}.source.png`;
-    fs.writeFileSync(input, bytes);
-    try {
-      await run('ktx', ['extract', '--transcode', 'rgb8', input, temp]);
-      await sharp(temp).resize(target[0], target[1], { fit:'fill' }).png().toFile(output);
-    } finally {
-      for (const file of [input, temp]) fs.rmSync(file, { force:true });
-    }
+  return compileTexture(request, key, 'rgb', async output => {
+    const { data, width, height } = await decode(bytes);
+    const resized = await sharp(data, { raw:{ width, height, channels:3 } })
+      .resize(target[0], target[1], { fit:'fill' }).raw().toBuffer();
+    fs.writeFileSync(output, resized);
   });
 }
 
@@ -69,7 +65,7 @@ function pack(entries) {
   return pages;
 }
 
-export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu }) {
+export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu, decode = decodeFacadeRgb }) {
   const primitives = [];
   const byId = new Map();
   for (const node of doc.getRoot().listNodes()) for (const prim of node.getMesh()?.listPrimitives() ?? []) {
@@ -110,16 +106,18 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu 
     return completed(slots.map(async (slot, slotIndex) => {
       // Lookup before extraction/compositing. Geometry and unrelated slots cannot
       // invalidate an identical page; source bytes and every placement participate.
-      const key = createHash('sha256').update('facade-atlas-recipe-v3').update(slot)
+      const key = createHash('sha256').update('facade-atlas-recipe-v4-raw').update(facadeDecoderIdentity).update(slot)
         .update(JSON.stringify([PAGE, GUTTER, page.height, page.entries.map(entry => [
           entry.x, entry.y, entry.width, entry.height,
           createHash('sha256').update(entry.maps[slotIndex].getImage()).digest('hex'),
         ])])).digest('hex');
       const dest = await compileTexture(request, key, 'ktx2', async output => {
         const inputs = await completed(page.entries.map(async entry => ({ entry,
-          file:await extract(entry.maps[slotIndex], [entry.width, entry.height], request, run, sharp) })));
+          file:await extract(entry.maps[slotIndex], [entry.width, entry.height], request, decode, sharp) })));
         const overlays = await completed(inputs.map(async ({ entry, file }) => ({
-          input:await sharp(file).extend({ top:GUTTER, bottom:GUTTER, left:GUTTER, right:GUTTER, extendWith:'copy' }).png().toBuffer(),
+          input:await sharp(fs.readFileSync(file), { raw:{ width:entry.width, height:entry.height, channels:3 } })
+            .extend({ top:GUTTER, bottom:GUTTER, left:GUTTER, right:GUTTER, extendWith:'copy' }).raw().toBuffer(),
+          raw:{ width:entry.width + 2 * GUTTER, height:entry.height + 2 * GUTTER, channels:3 },
           top:entry.y, left:entry.x,
         })));
         const png = await sharp({ create:{ width:PAGE, height:page.height, channels:3,

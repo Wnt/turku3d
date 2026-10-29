@@ -112,36 +112,54 @@ def test_overlapping_producer_snapshots_do_not_collide(tmp_path, monkeypatch):
     assert not list(tmp_path.glob('*.tmp'))
 
 
-def test_new_crossings_preempt_visual_upgrades_and_keep_their_demand(tmp_path):
+def test_running_full_passes_survive_turns_expiry_and_overdue_estimates(tmp_path, monkeypatch):
     b = Builder(tmp_path, code="test", workers=0)
-    cancelled = []
-    b.run = SimpleNamespace(cancel=lambda t: cancelled.append(t) or True)
+    cancelled, lowered = [], []
+    b.run = SimpleNamespace(cancel=lambda t: cancelled.append(t) or True,
+                            deprioritize=lambda t: lowered.append(t))
     b.workers = 4
+    now = time.time()
     upgrades = [f"t0_{i}_0" for i in range(3)]
-    urgent = ["t0_4_0", "t0_5_0", "t0_6_0"]
-    b.demand.update("driver-a", urgent + upgrades, urgent, upgrades)
-    for tile in upgrades:
-        b.building[tile] = time.time()
+    b.full_recent = [30.0]
+    b.demand.update("driver-a", upgrades, [], upgrades)
+    for tile, elapsed in zip(upgrades, [2, 30, 319]):
+        b.request(tile, 0)
+        b.priority.pop(tile)
+        b.building[tile] = now - elapsed
         b.upgrading.add(tile)
-    for tile in urgent:
-        b.priority[tile] = 0
+    # Keep another player present while the original client turns away, then
+    # expire every lease. Neither path may abandon an admitted full pass.
+    crossing = "t0_9_0"
+    b.demand.update("driver-b", [crossing], [crossing], [])
+    b.request(crossing, 0)
+    b.demand.update("driver-a", [], [], [])
+    for elapsed in [0, TTL + 1, 300]:
+        monkeypatch.setattr(time, "time", lambda: now + elapsed)
+        b.demand.prune(b)
+        assert b.upgrading == set(upgrades)
+        assert set(upgrades) <= b.journal.rows.keys()
+    assert not cancelled and not lowered
+    b.building.clear()
+    b.stop()
+
+
+def test_crossing_slot_is_reserved_before_and_between_client_leases(tmp_path):
+    b = Builder(tmp_path, code="test", workers=0)
+    b.workers = 4
+    upgrades = [f"t0_{i}_0" for i in range(4)]
+    b.upgrade_queue.update(upgrades)
+    # Legacy requests / an expired tab cannot fill the fourth slot either.
+    for tile in upgrades[:3]:
+        assert next_job(b) == ((tile, 0), True)
+        b.building[tile] = time.time()
+    assert next_job(b) is None
+    crossing = "t0_9_0"
+    b.demand.update("returning-driver", [crossing], [crossing], [])
+    b.request(crossing, 0)
     b.demand.prune(b)
-    assert not cancelled  # a free worker already serves the collision queue
-    b.building[urgent[0]] = time.time()
-    b.priority.pop(urgent[0])
-    b.demand.prune(b)
-    assert not cancelled  # one first-pass worker is enough; let all upgrades finish
-    b.building.pop(urgent[0])
-    extra = "t0_9_0"
-    b.demand.update("driver-b", [extra], [], [extra])
-    b.building[extra] = time.time() + 1
-    b.upgrading.add(extra)
-    b.demand.prune(b)
-    assert cancelled == [extra]  # reclaim only the youngest of four full workers
-    assert b.upgrade_queue == set(cancelled)
-    assert set(b.priority) == set(urgent[1:])
-    b.demand.prune(b)
-    assert cancelled == [extra]  # repeated heartbeats cannot cancel survivors
+    assert next_job(b) == ((crossing, 0), False)
+    assert b.upgrading == set(upgrades[:3]) and not b.cancelled
+    b.building.clear()
     b.stop()
 
 

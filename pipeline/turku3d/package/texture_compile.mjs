@@ -21,7 +21,7 @@ function touch(file) {
 // Entries used by an active package have a grace interval. This is a rebuildable
 // cache, separate from published assets and the two retained tile generations.
 export function pruneCompiledTextures(root, now = Date.now(), budget = MAX_BYTES) {
-  const entries = fs.readdirSync(root).filter(name => /^[a-f0-9]{64}\.(png|ktx2)$/.test(name))
+  const entries = fs.readdirSync(root).filter(name => /^[a-f0-9]{64}\.(png|ktx2|rgb)$/.test(name))
     .flatMap(name => {
       const file = path.join(root, name);
       try { const stat = fs.statSync(file); return [{ file, bytes:stat.size, used:stat.mtimeMs }]; }

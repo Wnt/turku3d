@@ -47,7 +47,7 @@ test('failed and terminated compilation never poisons a later request', async ()
 test('shared cache evicts old unused encodes while preserving recently used assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'compile-'));
   try {
-    const old = path.join(root, `${'a'.repeat(64)}.ktx2`), recent = path.join(root, `${'b'.repeat(64)}.ktx2`);
+    const old = path.join(root, `${'a'.repeat(64)}.rgb`), recent = path.join(root, `${'b'.repeat(64)}.ktx2`);
     for (const file of [old, recent]) fs.writeFileSync(file, '1234');
     fs.utimesSync(old, 1, 1);
     pruneCompiledTextures(root, Date.now(), 4);
