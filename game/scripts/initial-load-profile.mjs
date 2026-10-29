@@ -13,6 +13,7 @@ import { isolateBrowser, reportsRoot, port } from '../../tools/dev/environment.m
 
 isolateBrowser();
 const [label = 'current', url = 'https://wnt.github.io/turku-game/game/', requirement = 'bundled'] = process.argv.slice(2);
+const mobile = process.env.TURKU3D_PROFILE_MOBILE === '1';
 const diagnostic = process.env.TURKU3D_PROFILE_TRACE !== '0';
 const seconds = Number(process.env.TURKU3D_PROFILE_SECONDS ?? 30);
 const strict = process.env.TURKU3D_PROFILE_STRICT === '1';
@@ -26,11 +27,12 @@ if (requirement === 'bundled') {
   for (;;) {
     const html = await fetch(`${url}?startup-publication=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(5000) }).then(r => r.text());
     let current = html.includes('rel="modulepreload"') && html.includes('City loading progress');
-    if (current && process.env.TURKU3D_PROFILE_WORKER === '1') {
+    if (current && (process.env.TURKU3D_PROFILE_WORKER === '1' || process.env.TURKU3D_PROFILE_EDGE_WARMUP === '1')) {
       const entry = html.match(/href="([^"]*assets\/main-[^"]+\.js)"/);
       const source = entry ? await fetch(new URL(entry[1], url)).then(r => r.text()) : '';
+      if (process.env.TURKU3D_PROFILE_EDGE_WARMUP === '1') current &&= source.includes('edge-material-warmup');
       const worker = source.match(/decodeGlb\.worker-[A-Za-z0-9_-]+\.js/);
-      current = !!worker && (await fetch(new URL(`assets/${worker[0]}`, url)).then(r => r.text())).includes('32768');
+      if (process.env.TURKU3D_PROFILE_WORKER === '1') current &&= !!worker && (await fetch(new URL(`assets/${worker[0]}`, url)).then(r => r.text())).includes('32768');
     }
     if (current) break;
     if (Date.now() >= deadline) throw new Error('Pages still serves the previous startup implementation');
@@ -39,7 +41,8 @@ if (requirement === 'bundled') {
 }
 const context = await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR, `initial-load-${label}`), {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
-  viewport: { width: 2560, height: 1440 }, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
+  viewport: mobile ? { width: 844, height: 390 } : { width: 2560, height: 1440 },
+  hasTouch: mobile, isMobile: mobile, deviceScaleFactor: mobile ? 3 : 1, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
 });
 let room;
 const hardStop = setTimeout(() => { void context.close(); }, 440_000);
@@ -49,6 +52,9 @@ try {
     await new Promise((resolve, reject) => { room.server.once('error', reject); room.server.listen(port(4), '127.0.0.1', resolve); });
     const runUrl = new URL(url); runUrl.searchParams.set('mp', 'wss://first-play.invalid/');
     const page = await context.newPage(), cdp = await context.newCDPSession(page);
+    if (mobile) {
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
+    }
     // Route through Playwright's host transport: HTTPS Pages cannot open insecure loopback WebSockets.
     await page.routeWebSocket('wss://first-play.invalid/', socket => {
       const upstream = new WebSocket(`ws://127.0.0.1:${port(4)}/`, { origin: new URL(url).origin });
@@ -127,6 +133,10 @@ try {
       await page.screenshot({ path: path.join(out, `${cache}-ready.png`) });
       await page.evaluate(() => { window.__initialLoad.click = performance.now(); });
       await page.locator('[data-option="multiplayer"]').click({ timeout: 5000 });
+      if (mobile) await page.evaluate(() => {
+        const input = window.__game.input, update = input.update.bind(input);
+        input.update = (...args) => { update(...args); input.lookX = 0.002; };
+      });
       await page.waitForFunction(() => window.__initialLoad.done, null, { timeout: (seconds + 10) * 1000 });
       await page.screenshot({ path: path.join(out, `${cache}-playing.png`) });
       if (drive && cache === 'warm') {
@@ -148,7 +158,7 @@ try {
         });
         const driving = await page.evaluate(() => window.__air.frames.filter(row => row[2] === 'drive').map(row => row[1]));
         driving.sort((a, b) => a - b);
-        const summary = { cache: 'drive', ...routeEvidence, count: driving.length, p50: driving[Math.floor(driving.length * .5)],
+        const summary = { cache: 'drive', ...routeEvidence, fps: driving.length * 1000 / driving.reduce((sum, ms) => sum + ms, 0), count: driving.length, p50: driving[Math.floor(driving.length * .5)],
           p95: driving[Math.floor(driving.length * .95)], p99: driving[Math.floor(driving.length * .99)],
           max: driving.at(-1), over50: driving.filter(ms => ms > 50).length };
         checks.push(summary); console.log(JSON.stringify(summary));
@@ -173,11 +183,14 @@ try {
     }
     const sorted = [...result.frames ?? []].sort((a, b) => a - b);
     const percentile = q => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
+    const playBuilds = (result.streaming ?? []).filter(row => row.start >= result.firstFrame && row.kind.startsWith('node-build-'));
     result.summary = { label, cache, readyMs: result.ready, firstFrameMs: result.firstFrame,
       paintMs: result.paints?.find(e => e.name === 'first-contentful-paint')?.startTime,
       isolationReloadMs: result.timeOrigin - navigated,
       clickToFrameMs: result.firstFrame - result.click,
-      frames: { count: sorted.length, p50: percentile(.5), p95: percentile(.95), p99: percentile(.99), max: sorted.at(-1), over50: sorted.filter(n => n > 50).length },
+      nodeBuilds: { sync: playBuilds.filter(row => row.kind === 'node-build-sync').length, async: playBuilds.filter(row => row.kind === 'node-build-async').length },
+      mobile, cpuThrottle: mobile ? 6 : 1,
+      frames: { fps: sorted.length * 1000 / sorted.reduce((sum, ms) => sum + ms, 0), count: sorted.length, p50: percentile(.5), p95: percentile(.95), p99: percentile(.99), max: sorted.at(-1), over50: sorted.filter(n => n > 50).length },
       requests: requests.size, bytes: [...requests.values()].reduce((n, r) => n + (r.bytes ?? 0), 0), failure, errors };
     fs.writeFileSync(path.join(out, `${cache}.json`), JSON.stringify({ ...result, requests: [...requests.values()] }, null, 2));
     console.log(JSON.stringify(result.summary));
@@ -185,6 +198,10 @@ try {
     await page.close();
     await room.close(); room = null;
     if (failure) throw new Error(failure);
+    if (process.env.TURKU3D_PROFILE_EDGE_WARMUP === '1') {
+      assert(diagnostic, 'node-build validation needs streaming instrumentation');
+      assert.equal(playBuilds.filter(row => row.kind === 'node-build-sync' && row.ancestry.includes('edge-marker')).length, 0, 'boundary bands reuse startup node builds');
+    }
     assert.deepEqual(errors, []);
     assert.deepEqual(result.state.errors, []);
     assert.ok(sorted.length > 100, 'real game frames');

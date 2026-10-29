@@ -37,6 +37,7 @@ export class EdgeMarker {
   private bands = new Map<string, THREE.Mesh | null>();
   private material: THREE.MeshBasicNodeMaterial;
   private nextCheck = 0;
+  private readonly warmup: THREE.Mesh;
 
   /** `collision`: the live manifest record, for each tile's height range (`h`). */
   constructor(private rays: Rays, private collision: Readonly<Record<string, { h: [number, number] }>>) {
@@ -48,10 +49,23 @@ export class EdgeMarker {
     m.colorNode = mix(mix(vec3(0.07, 0.07, 0.08), vec3(1, 0.72, 0.12), stripe), vec3(1, 0.9, 0.5), step(0.9, v));
     m.opacityNode = mix(float(0.85), float(0.4), v).max(step(0.9, v).mul(0.9));
     this.material = m;
+    // Edges arrive after the first worker replies. Keep their exact indexed position/UV
+    // variant resident from startup warmup, including both sides of the transparent band.
+    // Degenerate triangles produce no pixels; the retained hidden draw keeps r186's node
+    // builder cache alive even when the last real edge disappears during streaming.
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(8), 2));
+    geometry.setIndex([0, 1, 2, 2, 1, 3]);
+    this.warmup = new THREE.Mesh(geometry, m);
+    this.warmup.name = 'edge-material-warmup';
+    this.warmup.frustumCulled = false;
+    this.group.add(this.warmup);
   }
 
   /** The bands along `edges` ([i, j, side], see CollisionStreamer.trueEdges); checked at most 4x per second. */
   update(edges: () => [number, number, number][], now = performance.now()) {
+    this.warmup.visible = false;
     if (now < this.nextCheck) return;
     this.nextCheck = now + 250;
     const want = new Set(edges().map(e => e.join('_')));
@@ -97,6 +111,7 @@ export class EdgeMarker {
     for (const mesh of this.bands.values()) mesh?.geometry.dispose();
     this.bands.clear();
     this.group.removeFromParent();
+    this.warmup.geometry.dispose();
     this.material.dispose();
   }
 }

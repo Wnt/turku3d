@@ -34,7 +34,11 @@ export function installStreamingProfile() {
     const builder = renderer.debug.onNodeBuilderCreated;
     renderer.debug.onNodeBuilderCreated = (node, object) => {
       builder?.(node, object);
-      const identity = { ...describe(object.object), material: object.material.name, context: object.context.id };
+      const identity = { ...describe(object.object), material: object.material.name, materialType: object.material.type,
+        materialId: object.material.uuid, materialVersion: object.material.version, objectId: object.object.uuid,
+        context: object.context.id, flowContext: renderer.contextNode.id, key: object.initialCacheKey,
+        dynamicKey: object.getDynamicCacheKey(), instanced: !!object.object.isInstancedMesh,
+        shadow: !!object.material.isShadowPassMaterial, frame: renderer.info.render.frame };
       wrap(node, 'build', 'node-build-sync', () => identity);
       wrap(node, 'buildAsync', 'node-build-async', () => identity);
     };
