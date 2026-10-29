@@ -209,6 +209,9 @@ class Builder:
             thread.start()
 
     def _maintain(self):
+        from .retention import prune
+
+        next_prune = 0
         while True:
             with self.lock:
                 if self.stopped:
@@ -222,6 +225,12 @@ class Builder:
                     # Telemetry must not stop demand expiry/cancellation when storage is unavailable.
                     print(f"coarse scheduler snapshot: {error}", file=sys.stderr, flush=True)
                 self.lock.notify_all()
+            if not self.draining and time.monotonic() >= next_prune:
+                try:
+                    prune(self.root)
+                except (OSError, ValueError) as error:
+                    print(f"coarse retention: {error}", file=sys.stderr, flush=True)
+                next_prune = time.monotonic() + 60
             time.sleep(1)
 
     def job_rank(self, tile, distance=0):

@@ -166,7 +166,7 @@ def _package_visual(
         facadeBindings=[],
         facadeDensity={},
         groundBinding=None,
-        textureCache=str(work / ".texture-cache"),
+        textureCache=str(stage.parent / ".texture-cache"),
         coarseTerrain=False,
         draftTextures=True,
         facadeKit=None if first_pass else ensure_kit(work / "shared"),
@@ -213,7 +213,7 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
         for slot, path in kit["maps"].items():
             files["kit/" + slot] = Path(path)
         kit = {k: v for k, v in kit.items() if k != "maps"}
-    cache = StageCache(work / ".stages" / tile.id)
+    cache = StageCache(work / ".stages" / tile.id, retain=True)
 
     def package():
         visual, stats = _package_visual(
