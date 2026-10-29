@@ -66,7 +66,7 @@ def main():
                     row = curl(base + case)
                     row["case"] = case
                     rows.append(row)
-                    assert row["cors"] and row["retry"] and row["status"] == (500 if case == "upstream-500" else 502), row
+                    assert row["cors"] and row["retry"] and row["status"] == (500 if case == "upstream-500" else 504), row
             finally:
                 server.shutdown()
                 server.server_close()
