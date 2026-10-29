@@ -183,11 +183,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     physics.setCharacterEnabled(true, at ?? undefined);
     orbit.distance = 4.5;
   };
-  /** In the vehicle `id`: a rider stays visible on the scooter and in the truck's open cab; a driver disappears into
-   *  a car. */
+  /** Enter `id`; riders remain visible on the scooter and in the truck's open cab. */
   const enterVehicle = (id: string) => {
     fly?.set(false);
     drivenId = id;
+    if (multiplayerPlaying) sharedVehicles?.drive(id);
     saveGame.usedVehicle(id);
     if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId);
     mode = 'car';
@@ -430,8 +430,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
-      if (drivenId && multiplayer.state.connected && sharedVehicles?.record(drivenId) && !sharedVehicles.hasSeat(drivenId)) leaveCar(vs ? driverSide(vs) : feet);
-      sharedVehicles?.update(now);
+      sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
+      if (drivenId && seatExit) leaveCar(seatExit);
       remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
     physics.updateInput(charIn, carIn, !paused && (!multiplayerPlaying || !!multiplayer?.state.connected));
@@ -465,7 +465,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       const updates = sharedVehicles?.updates(now) ?? [];
       const sent = multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: poseMode === 'foot' ? null : shared?.pose.vehicle ?? vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
-        ...(poseMode !== 'foot' && shared ? { vehicleId: shared.id } : {}),
+        ...(poseMode !== 'foot' && shared && sharedVehicles?.hasSeat(drivenId!) ? { vehicleId: shared.id } : {}),
         carrying: missions.phase === 'carrying' }, updates);
       if (sent) sharedVehicles?.sentUpdates(updates);
     }

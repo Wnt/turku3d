@@ -4,7 +4,7 @@ import { hourAt } from './hours.js';
 import { nickname } from './nicks.js';
 import { validDelivery } from './economy.js';
 import { validPose, cleanPose } from './pose.js';
-import { VehicleRegistry } from './vehicles.js';
+import { VehicleRegistry, VEHICLE_LIMITS } from './vehicles.js';
 
 export const VERSION = 2;
 export const LIMITS = Object.freeze({ connections: 32, acceptedPerSecond: 20, disconnectPerSecond: 25,
@@ -51,8 +51,9 @@ export class Room {
   disconnect(c) {
     if (!this.connections.delete(c)) return;
     if (c.player?.connection === c) {
-      this.vehicles.releasePlayer(c.player);
+      this.vehicles.disconnectPlayer(c.player);
       c.player.connection = null;
+      c.player.disconnectedAt = this.now();
       c.player.online = false;
       c.player.dirty = false;
       this.presence();
@@ -124,6 +125,7 @@ export class Room {
     }
     c.player = p;
     p.connection = c;
+    p.disconnectedAt = null;
     p.online = true;
     p.lastPoseAt = now;
     this.welcome(c);
@@ -213,7 +215,8 @@ export class Room {
     this.vehicles.expire(now);
     while (now >= Date.parse(this.hour.end)) {
       this.store.write(this.hour, this.scores().map(({ nick, earned, deliveries, rank }) => ({ nick, earned, deliveries, rank })));
-      const continuing = [...this.players.values()].filter(p => p.connection);
+      const continuing = [...this.players.values()].filter(p => p.connection
+        || now - p.disconnectedAt < VEHICLE_LIMITS.reconnectMs);
       this.hour = hourAt(Date.parse(this.hour.end));
       this.brokenPoles.clear();
       this.players.clear(); this.sessions.clear(); this.usedNicks.clear();
@@ -240,7 +243,6 @@ export class Room {
     }
     for (const p of this.players.values()) {
       if (p.online && now - p.lastPoseAt >= LIMITS.idleMs) {
-        this.vehicles.releasePlayer(p);
         p.online = false; p.dirty = false; changed = true;
       }
     }

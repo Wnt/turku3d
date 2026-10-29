@@ -115,7 +115,7 @@ server response. One player can hold one seat; a simultaneous second claim loses
 ```
 {v:2,type:"vehicle",action:"register"|"acquire",request,id,source,localId,half,pose}
 {v:2,type:"vehicle",action:"acquire"|"release",request,id}
-{v:2,type:"vehicle_result",request,ok,vehicle:SharedVehicle|null}
+{v:2,type:"vehicle_result",request,ok,vehicle:SharedVehicle|null,reason?:"seat_taken"}
 ```
 
 `request` and IDs use `[A-Za-z0-9_.:-]`, maximum 180 characters. A new record must
@@ -123,8 +123,16 @@ be within 150 m of the sender; acquisition within 7 horizontal metres. Existing
 records keep their model, source and size regardless of a competing registration.
 Registration makes a moved car visible without occupying it. Acquiring an empty
 vehicle transfers simulation; release keeps its current simulation with the last
-driver. Disconnect/idle releases seats and zeros retained velocities; reconnect
-keeps identity and empty vehicles. Clients restore an owned record's full pose,
+driver. Connected holders keep their seats regardless of pose idle time (including
+long loading stalls). Disconnect zeros retained velocities and reserves occupied
+seats for five minutes; reconnect/socket replacement preserves the holder and epoch.
+Only explicit release or departure beyond that reservation frees a seat. Re-acquiring
+one's own seat bypasses the proximity check. A competing acquisition returns
+`ok:false,reason:"seat_taken"` and the current holder; other denials omit the reason.
+Clients reclaim the driven seat after welcome, preserve their live body through
+empty/missing registry snapshots, and only exit on this explicit conflict after
+three seconds of grace, at the vehicle's current driver side. Recovered ownership
+cancels the exit. Clients restore an owned record's full pose,
 including flipped rotation, rather than creating another car in the initial slot.
 
 A pose message can include `vehicleId` for the occupied registry vehicle (the server

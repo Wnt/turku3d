@@ -27,6 +27,14 @@ patches. Resting snapshots are dirty-filtered; the server does not echo owner's 
 `vehicle_impulse` deduplication precedes a clamped worker impulse at the chassis centre.
 Empty target ownership transfers to the hitter, so paused/distant owners cannot freeze it.
 
+Driving is retained through registry refreshes and reconnects. `SharedVehicles`
+reclaims the seat after welcome and preserves the local body until an explicit
+`seat_taken` acquisition denial survives three seconds of grace. A forced exit
+uses the current registry chassis pose, including when the local body is missing.
+Connected pose stalls never revoke seats; disconnected holders have a five-minute
+reservation. A restart that loses server sessions re-registers the driven vehicle
+from its current local pose. Late register/reclaim replies never release that seat.
+
 Carried pizzas are now visible on remote walking characters. Welcome's server time
 aligns the day cycle (explicit developer/QA time overrides stay explicit).
 

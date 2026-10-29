@@ -1,7 +1,7 @@
 import { validPose, cleanPose } from './pose.js';
 import { contactImpulse, TUNING } from './vehicle-contact.js';
 
-export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, radius: 250, updates: 8 };
+export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, reconnectMs: 300_000, radius: 250, updates: 8 };
 const idOK = id => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(id);
 const distance = (a, b) => Math.hypot(a.E - b.E, a.N - b.N);
 const publicVehicle = v => ({ id: v.id, source: v.source, creator: v.creator, localId: v.localId,
@@ -23,8 +23,8 @@ export class VehicleRegistry {
   }
   sources() { return [...this.entries.values()].flatMap(v => v.source ? [v.source] : []); }
   command(p, m, now) {
-    const reply = (ok, v = null) => this.room.send(p.connection, 'vehicle_result', {
-      request: m.request, ok, vehicle: v ? publicVehicle(v) : null });
+    const reply = (ok, v = null, reason) => this.room.send(p.connection, 'vehicle_result', {
+      request: m.request, ok, vehicle: v ? publicVehicle(v) : null, ...(reason ? { reason } : {}) });
     if (!idOK(m.id) || !idOK(m.request) || !['register', 'acquire', 'release'].includes(m.action)) {
       this.room.reject(); reply(false); return;
     }
@@ -52,7 +52,10 @@ export class VehicleRegistry {
     }
     if (!v) { reply(false); return; }
     if (m.action === 'acquire') {
-      if ((v.occupant && v.occupant !== p.id) || distance(v.pose, p.pose ?? p.spawn) > 7
+      if (v.occupant && v.occupant !== p.id) { reply(false, v, 'seat_taken'); return; }
+      // A retained driver may have travelled far beyond their last player pose.
+      // Reclaiming their own seat is idempotent, including after socket replacement.
+      if ((v.occupant !== p.id && distance(v.pose, p.pose ?? p.spawn) > 7)
         || [...this.entries.values()].some(other => other.id !== v.id && other.occupant === p.id)) { reply(false, v); return; }
       if (v.owner !== p.id) { v.owner = p.id; v.epoch++; }
       v.occupant = p.id; v.used = now; this.changed(v);
@@ -79,15 +82,22 @@ export class VehicleRegistry {
     }
     return valid;
   }
-  releasePlayer(p) {
+  disconnectPlayer(p) {
     for (const v of this.entries.values()) if (v.owner === p.id) {
-      v.occupant = null;
       v.pose = { ...v.pose, vE: 0, vN: 0, vH: 0 };
       this.changed(v);
     }
   }
   expire(now) {
-    for (const [id, v] of this.entries) if (!v.occupant && now - v.used >= VEHICLE_LIMITS.lifetime) this.entries.delete(id);
+    for (const [id, v] of this.entries) {
+      const holder = this.room.players.get(v.occupant);
+      // Presence idle timers never revoke a connected driver's seat. Only a
+      // genuinely departed holder (with a reconnect reservation) frees it.
+      if (v.occupant && (!holder || (!holder.connection && now - holder.disconnectedAt >= VEHICLE_LIMITS.reconnectMs))) {
+        v.occupant = null; v.used = now; this.changed(v);
+      }
+      if (!v.occupant && now - v.used >= VEHICLE_LIMITS.lifetime) this.entries.delete(id);
+    }
     for (const [key, at] of this.contacts) if (now - at > 1000) this.contacts.delete(key);
   }
   resolveContacts(now) {

@@ -51,7 +51,9 @@ export class MultiplayerClient extends EventTarget {
   private lastSent = -Infinity;
   private token: string | null = null;
   private pendingMessages: object[] = [];
-  private vehicleRequests = new Map<string, { resolve: (vehicle: SharedVehicle | null) => void; timer: ReturnType<typeof setTimeout> }>();
+  private vehicleRequests = new Map<string, { action: VehicleCommand['action']; resolve: (vehicle: SharedVehicle | null) => void; timer: ReturnType<typeof setTimeout> }>();
+  private expiredAcquires = new Set<string>();
+  private heldSeat: string | null = null;
   private deliveryTimer: ReturnType<typeof setTimeout> | null = null;
   private claimed = new Set<string>();
 
@@ -82,6 +84,7 @@ export class MultiplayerClient extends EventTarget {
       this.pendingMessages = this.pendingMessages.filter(m => (m as { type: string }).type !== 'vehicle');
       for (const request of this.vehicleRequests.values()) { clearTimeout(request.timer); request.resolve(null); }
       this.vehicleRequests.clear();
+      this.expiredAcquires.clear();
       this.changed();
       if (!this.closed) {
         const delay = Math.min(15000, 500 * 2 ** Math.min(this.attempts++, 5));
@@ -120,13 +123,19 @@ export class MultiplayerClient extends EventTarget {
     return new Promise(resolve => {
       const timer = setTimeout(() => {
         this.vehicleRequests.delete(request);
+        if (command.action === 'acquire') {
+          this.expiredAcquires.add(request);
+          if (this.expiredAcquires.size > 256) this.expiredAcquires.delete(this.expiredAcquires.values().next().value!);
+        }
         this.pendingMessages = this.pendingMessages.filter(m => (m as { request?: string }).request !== request);
         resolve(null);
       }, 5000);
-      this.vehicleRequests.set(request, { resolve, timer });
+      this.vehicleRequests.set(request, { action: command.action, resolve, timer });
       this.queue({ type: 'vehicle', request, ...command });
     });
   }
+
+  holdSeat(id: string | null) { this.heldSeat = id; }
 
   private queue(message: object) {
     if (this.pendingMessages.length >= 256) return;
@@ -197,12 +206,19 @@ export class MultiplayerClient extends EventTarget {
       case 'vehicles': this.applyVehicles(msg as unknown as VehicleDelta); break;
       case 'vehicle_result': {
         const pending = this.vehicleRequests.get(String(msg.request));
+        const expired = this.expiredAcquires.delete(String(msg.request));
         if (msg.vehicle) this.applyVehicles({ upsert: [msg.vehicle as SharedVehicle], remove: [] });
+        const vehicle = msg.vehicle as SharedVehicle | null;
+        if ((pending?.action === 'acquire' || expired) && msg.ok === false && msg.reason === 'seat_taken'
+          && vehicle?.occupant && vehicle.occupant !== this.state.you?.id && this.state.vehicles.get(vehicle.id) === vehicle) {
+          this.dispatchEvent(new CustomEvent('seatTaken', { detail: vehicle }));
+        }
         if (pending) { clearTimeout(pending.timer); this.vehicleRequests.delete(String(msg.request));
           pending.resolve(msg.ok ? msg.vehicle as SharedVehicle : null); }
-        else if (msg.ok && (msg.vehicle as SharedVehicle | null)?.occupant === this.state.you?.id) {
-          // A timed-out acquisition must not leave an empty driver's seat locked.
-          this.queue({ type: 'vehicle', action: 'release', request: crypto.randomUUID(), id: (msg.vehicle as SharedVehicle).id });
+        else if (expired && msg.ok && vehicle && vehicle.occupant === this.state.you?.id && vehicle.id !== this.heldSeat) {
+          // Only an abandoned entry attempt frees a late grant. Delayed register
+          // replies and reclaim replies must never release a seat we're driving.
+          this.queue({ type: 'vehicle', action: 'release', request: crypto.randomUUID(), id: vehicle.id });
         }
         break;
       }
@@ -232,10 +248,13 @@ export class MultiplayerClient extends EventTarget {
   private applyVehicles(delta: VehicleDelta) {
     if (!delta) return;
     for (const id of delta.remove ?? []) this.state.vehicles.delete(id);
-    for (const vehicle of delta.upsert ?? []) this.state.vehicles.set(vehicle.id, vehicle);
+    for (const vehicle of delta.upsert ?? []) {
+      const old = this.state.vehicles.get(vehicle.id);
+      if (!old || vehicle.revision >= old.revision) this.state.vehicles.set(vehicle.id, vehicle);
+    }
     for (const patch of delta.patches ?? []) {
       const previous = this.state.vehicles.get(patch.id);
-      if (previous) this.state.vehicles.set(patch.id, { ...previous, revision: patch.revision, pose: { ...previous.pose, ...patch.pose } });
+      if (previous && patch.revision >= previous.revision) this.state.vehicles.set(patch.id, { ...previous, revision: patch.revision, pose: { ...previous.pose, ...patch.pose } });
     }
     if (delta.sources) this.state.vehicleSources = new Set(delta.sources);
     this.dispatchEvent(new Event('vehicles'));
