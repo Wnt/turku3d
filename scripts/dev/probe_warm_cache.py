@@ -54,7 +54,7 @@ def main():
         remaining = min(300, int(json.loads(request.read_text())['created'] + 600 - time.time()) - 5)
     if remaining < 20:
         raise SystemExit('Insufficient remaining async budget for an OCI build probe')
-    command = ['timeout','--kill-after=3',str(remaining), source+'/tools/remote-drafts/run.sh', 'python',
+    command = ['nice','-n','19','timeout','--kill-after=3',str(remaining), source+'/tools/remote-drafts/run.sh', 'python',
                root+'/probe-warm-cache.py', '--root',root+'/coarse', '--seconds', str(min(240, remaining-5))]
     if args.before:
         command += ['--overlay',root+'/idle.py']
