@@ -14,11 +14,11 @@ test('nicknames exhaust without collisions or blocked pairs; reroll changes nick
   for (const old of NICKS) assert.notEqual(nickname(new Set(), old), old);
 });
 
-test('joins use twelve fixed spawns in round-robin order, with 32 connections maximum', () => {
+test('joins use sixteen fixed spawns in round-robin order, with 32 connections maximum', () => {
   const f = fixture();
-  assert.equal(SPAWNS.length, 12);
-  assert.equal(new Set(SPAWNS.map(p => `${p.E},${p.N}`)).size, 12);
-  for (let i = 0; i < 32; i++) assert.deepEqual(f.connect().welcome.you.spawn, SPAWNS[i % 12]);
+  assert.equal(SPAWNS.length, 16);
+  assert.equal(new Set(SPAWNS.map(p => `${p.E},${p.N}`)).size, 16);
+  for (let i = 0; i < 32; i++) assert.deepEqual(f.connect().welcome.you.spawn, SPAWNS[i % 16]);
   assert.equal(f.room.connect(() => {}, () => {}), null);
 });
 

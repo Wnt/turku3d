@@ -31,7 +31,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
   const articulated = JSON.stringify([pose.rot, pose.wheels]) !== JSON.stringify([previous.rot, previous.wheels]);
-  const changed = articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.carrying !== previous.carrying
+  const changed = articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
 }
@@ -76,7 +76,7 @@ export class MultiplayerClient extends EventTarget {
       this.ws = null;
       done('Disconnected · retrying');
       this.state.connected = false;
-      this.pendingMessages = [];
+      this.pendingMessages = this.pendingMessages.filter(m => (m as { type: string }).type !== 'vehicle');
       for (const request of this.vehicleRequests.values()) { clearTimeout(request.timer); request.resolve(null); }
       this.vehicleRequests.clear();
       this.changed();
@@ -94,6 +94,8 @@ export class MultiplayerClient extends EventTarget {
     if (this.deliveryTimer) clearTimeout(this.deliveryTimer);
     this.retry = null;
     this.deliveryTimer = null;
+    for (const request of this.vehicleRequests.values()) { clearTimeout(request.timer); request.resolve(null); }
+    this.vehicleRequests.clear();
     this.ws?.close();
     this.ws = null;
     this.state.connected = false;
@@ -158,6 +160,7 @@ export class MultiplayerClient extends EventTarget {
     let msg: Record<string, unknown>;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'error' && msg.reload === true) {
+      this.state.connected = false;
       this.state.error = 'Multiplayer updated. Reload this page to reconnect.';
       this.closed = true; this.ws?.close(); this.changed(); return;
     }
@@ -219,6 +222,10 @@ export class MultiplayerClient extends EventTarget {
     if (!delta) return;
     for (const id of delta.remove ?? []) this.state.vehicles.delete(id);
     for (const vehicle of delta.upsert ?? []) this.state.vehicles.set(vehicle.id, vehicle);
+    for (const patch of delta.patches ?? []) {
+      const previous = this.state.vehicles.get(patch.id);
+      if (previous) this.state.vehicles.set(patch.id, { ...previous, revision: patch.revision, pose: { ...previous.pose, ...patch.pose } });
+    }
     if (delta.sources) this.state.vehicleSources = new Set(delta.sources);
     this.dispatchEvent(new Event('vehicles'));
   }

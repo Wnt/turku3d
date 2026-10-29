@@ -62,9 +62,10 @@ test('interest deltas send resting cars once, remove distant replicas, keep glob
 test('caps, expiry, malformed batches and disconnected owners are bounded', () => {
   const f = fixture(), a = f.connect(); a.send(pose);
   for (let i = 0; i <= VEHICLE_LIMITS.perPlayer; i++) a.send(car(a, { id: `${a.welcome.you.id}:v${i}`, localId: `v${i}` }));
-  assert.equal(result(a).ok, false); assert.equal(f.room.vehicles.entries.size, VEHICLE_LIMITS.perPlayer);
+  assert.equal(result(a).ok, true); assert.equal(f.room.vehicles.entries.size, VEHICLE_LIMITS.perPlayer);
+  assert.equal(f.room.vehicles.entries.has(`${a.welcome.you.id}:v0`), false);
   a.send({ ...pose, vehicles: Array(9).fill(null) });
-  assert.equal(f.room.stats.rejected, 2);
+  assert.equal(f.room.stats.rejected, 1);
   f.room.disconnect(a.c);
   assert.ok([...f.room.vehicles.entries.values()].every(v => v.occupant === null && v.pose.vE === 0));
   f.advance(VEHICLE_LIMITS.lifetime);
@@ -117,4 +118,18 @@ test('16 drivers fit 20 messages/s with 8 records each and 32 socket admission',
   assert.equal(f.room.vehicles.entries.size, 128);
   assert.equal(f.room.stats.rejected, rejected); assert.equal(rejected, 0);
   assert.equal(f.room.connections.size, 32);
+});
+
+test('contact transfers an online owner\'s empty vehicle to its hitter before sending impulses', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
+  a.send(car(a, { action: 'acquire', pose: { ...pose, mode: 'car', vehicle: 'player', yaw: -Math.PI / 2, vE: 10 } }));
+  b.send(car(b, { pose: { ...pose, mode: 'car', vehicle: 'player', E: 178, yaw: -Math.PI / 2, vE: 0 } }));
+  const aid = a.welcome.you.id, bid = b.welcome.you.id;
+  a.messages.length = b.messages.length = 0;
+  f.room.flushPoses();
+  const target = f.room.vehicles.entries.get(`${bid}:player`);
+  assert.equal(target.owner, aid); assert.equal(target.epoch, 2);
+  assert.equal(a.messages[0].type, 'vehicles');
+  assert.equal(a.messages.filter(m => m.type === 'vehicle_impulse').length, 2);
+  assert.equal(b.messages.filter(m => m.type === 'vehicle_impulse').length, 0);
 });

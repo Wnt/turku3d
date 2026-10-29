@@ -1,5 +1,5 @@
 {
-  "comment": "Local east/north metres: E=engine x, N=-engine z; origin EPSG:3877 (23459500,6704500). Derived 2026-10-27 from published tiles/manifest.json spawn [173.3375,3.69475,252.505916667], heading 330.877761905 degrees, facade 103295893K/facade/36. Two rows 2 and 5 m outward from the street-side start, six positions at 3 m spacing along the facade (-7.5 to +7.5 m). All points checked outside published footprints, minimum wall clearance 3.508 m. Ground and local props must be resolved by the client. yaw=-heading*pi/180 (forward -Z).",
+  "comment": "Local east/north metres: E=engine x, N=-engine z; origin EPSG:3877 (23459500,6704500). Derived 2026-10-27 from published tiles/manifest.json spawn [173.3375,3.69475,252.505916667], heading 330.877761905 degrees, facade 103295893K/facade/36. Two rows 2 and 5 m outward from the street-side start, six positions at 3 m spacing along the facade (-7.5 to +7.5 m). All points checked outside published footprints, minimum wall clearance 3.508 m. Ground and local props must be resolved by the client. yaw=-heading*pi/180 (forward -Z). Four additional character spawn points interpolate between adjacent surveyed first-row points, keeping sixteen joining players distinct.",
   "points": [
     {
       "E": 167.759,
@@ -59,6 +59,26 @@
     {
       "E": 182.323,
       "N": -253.224,
+      "yaw": -5.774906
+    },
+    {
+      "E": 169.0695,
+      "N": -257.173,
+      "yaw": -5.774906
+    },
+    {
+      "E": 171.69,
+      "N": -255.713,
+      "yaw": -5.774906
+    },
+    {
+      "E": 174.3105,
+      "N": -254.253,
+      "yaw": -5.774906
+    },
+    {
+      "E": 176.9315,
+      "N": -252.793,
       "yaw": -5.774906
     }
   ]

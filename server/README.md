@@ -1,7 +1,7 @@
 # Multiplayer server
 
 Node 24, ES modules, one pinned dependency (`ws`). Presence and delivery scores are
-server-owned; physics stays in the later game client. The exact client contract is
+server-owned; vehicle seats/leases and bounded shared contact impulses are server-owned too; Rapier simulation stays in the game client. The exact client contract is
 [PROTOCOL.md](PROTOCOL.md). World coordinates are defined by
 [the architecture](../docs/ARCHITECTURE.md#d3-coordinate-system-and-origin).
 
@@ -40,13 +40,15 @@ for the synthetic test world (`?mp=<websocket-url>` still overrides the multipla
 ## Load and public probe
 
 ```sh
-node server/tools/load.mjs 10
+node server/tools/load.mjs 30
+node server/tools/probe-vehicles.mjs  # isolated real-WebSocket seat/exit/late-join/transfer probe
 node server/tools/probe.mjs ws://127.0.0.1:7700/
 node server/tools/probe.mjs wss://turku.lab.madekivi.fi/
 ```
 
-The load tool starts its own server on an ephemeral port and connects 32 fake
-clients at 20 Hz. It reports server-process CPU (100% = one core), JSON bytes/s
+The load tool uses sandbox port base+4 with 32 sockets, 16 drivers at 20 Hz and
+112 resting registry vehicles. The vehicle probe uses base+3. Both use the exported
+sandbox environment; neither opens Chrome. It reports server-process CPU (100% = one core), JSON bytes/s
 in/out, accepted/rejected poses and remaining connections. It uses a temporary
 score directory, removes it afterwards and does not contact the public service.
 Optional duration is 1–300 seconds. The probe sends hello using the allowed Pages
@@ -90,3 +92,6 @@ working directory and Node override; the tunnel stays running.
 Completed hourly data lives in `server/data`; unfinished-hour scores and sessions
 reset on restart. The osgallery-dev files and disabled units are retained through
 2026-11-04 for rollback.
+
+Shared vehicle retention, ownership epochs, nearby deltas and clean v2 reload handling are specified in
+[PROTOCOL.md](PROTOCOL.md). See the [16-player audit](../docs/reports/mp-vehicle-sync.md) for measured limits and remaining city-state work.

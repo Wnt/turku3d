@@ -97,7 +97,7 @@ export class Room {
     if (m.type === 'vehicle') { this.vehicles.command(c.player, m, now); return; }
     if (m.type === 'pose') { this.pose(c.player, m, now); return; }
     if (m.type === 'delivery') { this.delivery(c.player, m); return; }
-    if (m.type === 'world') { this.breakPole(c.player, m, now); return; }
+    if (m.type === 'world') { this.breakPole(c.player, m); return; }
     if (m.type === 'fine') { this.fine(c.player, m); return; }
     this.reject();
   }
@@ -157,6 +157,10 @@ export class Room {
 
   pose(p, m, now) {
     if (!validPose(m)) { this.reject(); return; }
+    if (m.vehicleId !== undefined) {
+      const driven = this.vehicles.entries.get(m.vehicleId);
+      if (!driven || driven.occupant !== p.id || driven.owner !== p.id || driven.pose.mode !== m.mode) { this.reject(); return; }
+    }
     if (m.vehicles !== undefined && !this.vehicles.update(p, m.vehicles, now)) this.reject();
     p.pose = { ...cleanPose(m), ...(typeof m.vehicleId === 'string' ? { vehicleId: m.vehicleId } : {}) };
     p.dirty = true;
@@ -177,7 +181,7 @@ export class Room {
     this.broadcast('scores', { scores: this.scores() });
   }
 
-  breakPole(p, m, now) {
+  breakPole(p, m) {
     if (m.action !== 'break' || !identifier(m.poleId) || !finite(m.t, Number.MAX_SAFE_INTEGER)
       || m.t < 0 || m.by !== p.id || this.brokenPoles.has(m.poleId)) { this.reject(); return; }
     const event = { action: 'break', poleId: m.poleId, by: p.id, t: m.t };
@@ -199,7 +203,8 @@ export class Room {
     if (!dirty.length) return;
     for (const c of this.connections) {
       if (!c.player) continue;
-      const poses = dirty.filter(p => p !== c.player).map(p => ({ id: p.id, ...p.pose }));
+      const poses = dirty.filter(p => p !== c.player && (p.pose.mode === 'foot'
+        || Math.hypot(p.pose.E - (c.player.pose ?? c.player.spawn).E, p.pose.N - (c.player.pose ?? c.player.spawn).N) <= 250)).map(p => ({ id: p.id, ...p.pose }));
       if (poses.length) this.send(c, 'poses', { poses });
     }
     for (const p of dirty) p.dirty = false;

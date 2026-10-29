@@ -44,9 +44,9 @@ test('ownership transfer removes the old body and restores the new owner with fu
   const vehicle = { id: 'self:player', creator: 'self', localId: 'player', source: null, owner: 'self', occupant: null,
     epoch: 1, revision: 1, half: { x: 2.1, y: .3, z: .9 }, pose: vehiclePose(state, 'player', 10) };
   client.state.vehicles.set(vehicle.id, vehicle);
-  shared.update(20); expect(physics.spawnVehicle).not.toHaveBeenCalled();
-  const updates = shared.updates(20); expect(updates).toHaveLength(1); shared.sentUpdates(updates);
-  expect(shared.updates(30)).toEqual([]);
+  shared.update(20); expect(physics.spawnVehicle).toHaveBeenCalledWith(state.pos, expect.any(Number), expect.objectContaining({ rot: state.rot }));
+  const updates = shared.updates(performance.now() + 200); expect(updates).toHaveLength(1); shared.sentUpdates(updates);
+  expect(shared.updates(performance.now() + 300)).toEqual([]);
   client.state.vehicles.set(vehicle.id, { ...vehicle, owner: 'other', epoch: 2 }); shared.sync();
   expect(physics.removeVehicle).toHaveBeenCalledWith('player');
   client.state.vehicles.set('foreign', { ...vehicle, id: 'foreign', creator: 'other', owner: 'self', epoch: 3 }); shared.sync();

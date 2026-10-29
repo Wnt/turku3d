@@ -15,6 +15,7 @@ export class VehicleRegistry {
   snapshot(c) {
     const visible = [...this.entries.values()].filter(v => this.nearby(v, c.player));
     c.vehicleVersions = new Map(visible.map(v => [v.id, v.revision]));
+    c.vehicleSent = new Map(visible.map(v => [v.id, publicVehicle(v)]));
     // Source reservations are tiny and global: streaming the original tile must
     // never resurrect a car whose current position is outside the interest radius.
     c.vehicleSources = this.sources();
@@ -34,11 +35,16 @@ export class VehicleRegistry {
         || (source !== null && (!idOK(source) || m.id !== `park:${source}`))
         || (source === null && m.id !== `${p.id}:${m.localId}`)
         || distance(m.pose, p.pose ?? p.spawn) > 150
-        || [...this.entries.values()].filter(v => v.creator === p.id).length >= VEHICLE_LIMITS.perPlayer
         || this.entries.size >= VEHICLE_LIMITS.total) { this.room.reject(); reply(false); return; }
       const half = m.half ?? Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, TUNING[m.pose.mode].half[i]]));
       if (!['x', 'y', 'z'].every(k => Number.isFinite(half[k]) && half[k] >= 0.1 && half[k] <= 4)) {
         this.room.reject(); reply(false); return;
+      }
+      const own = [...this.entries.values()].filter(v => v.creator === p.id);
+      if (own.length >= VEHICLE_LIMITS.perPlayer) {
+        const oldest = own.filter(v => !v.occupant).sort((a, b) => a.used - b.used)[0];
+        if (!oldest) { reply(false); return; }
+        this.entries.delete(oldest.id);
       }
       v = { id: m.id, source, localId: m.localId, creator: p.id, owner: p.id, occupant: null,
         pose: cleanPose(m.pose), half, epoch: 1, updated: now, used: now, revision: 0, impulseAt: -Infinity };
@@ -66,7 +72,7 @@ export class VehicleRegistry {
         || u.pose.mode !== v.pose.mode || u.pose.vehicle !== v.pose.vehicle) { valid = false; continue; }
       const pose = cleanPose(u.pose);
       // Identical resting bodies do not churn revisions (timestamps aren't state).
-      const { t: _old, ...before } = v.pose, { t: _new, ...after } = pose;
+      const before = { ...v.pose, t: 0 }, after = { ...pose, t: 0 };
       v.updated = now;
       if (JSON.stringify(before) !== JSON.stringify(after)) { v.pose = pose; this.changed(v); }
       if (v.occupant) v.used = now;
@@ -97,9 +103,12 @@ export class VehicleRegistry {
       const impulse = contactImpulse(a, b);
       if (!impulse) continue;
       this.contacts.set(key, now);
-      // An offline simulation cannot apply the other half. Transfer it first,
-      // with the old pose/epoch, then let the live client simulate both bodies.
-      for (const [v, other] of [[a, b], [b, a]]) if (!v.occupant && !this.room.players.get(v.owner)?.online) {
+      // Transfer an empty target to the hitter, even if the old owner is online
+      // but paused or has streamed the ground away. Send the pre-impulse pose
+      // first, so the new simulation restores it and applies exactly one impulse.
+      for (const [v, other] of [[a, b], [b, a]]) if (!v.occupant && v.owner !== other.owner
+        && this.room.players.get(other.owner)?.online && (other.occupant || !this.room.players.get(v.owner)?.online
+          || Math.hypot(other.pose.vE, other.pose.vN) > Math.hypot(v.pose.vE, v.pose.vN) + .2)) {
         v.owner = other.owner; v.epoch++; this.changed(v);
         this.room.send(this.room.players.get(v.owner)?.connection, 'vehicles', { upsert: [publicVehicle(v)], remove: [] });
       }
@@ -119,16 +128,24 @@ export class VehicleRegistry {
     const sources = this.sources();
     for (const c of this.room.connections) {
       if (!c.player) continue;
-      const previous = c.vehicleVersions ?? new Map(), next = new Map(), upsert = [];
+      const previous = c.vehicleVersions ?? new Map(), next = new Map(), upsert = [], patches = [];
+      const sent = c.vehicleSent ?? new Map(), snapshots = new Map();
       for (const v of this.entries.values()) if (this.nearby(v, c.player)) {
         next.set(v.id, v.revision);
-        if (previous.get(v.id) !== v.revision) upsert.push(publicVehicle(v));
+        const snapshot = publicVehicle(v), old = sent.get(v.id);
+        snapshots.set(v.id, snapshot);
+        if (previous.get(v.id) === v.revision) continue;
+        if (!old || old.epoch !== v.epoch || old.occupant !== v.occupant) upsert.push(snapshot);
+        else if (v.owner !== c.player.id) {
+          const pose = Object.fromEntries(Object.entries(v.pose).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(old.pose[key])));
+          patches.push({ id: v.id, revision: v.revision, pose });
+        }
       }
       const remove = [...previous.keys()].filter(id => !next.has(id));
       const sourcesChanged = JSON.stringify(c.vehicleSources) !== JSON.stringify(sources);
-      if (upsert.length || remove.length || sourcesChanged) this.room.send(c, 'vehicles', {
-        upsert, remove, ...(sourcesChanged ? { sources } : {}) });
-      c.vehicleVersions = next; c.vehicleSources = sources;
+      if (upsert.length || patches.length || remove.length || sourcesChanged) this.room.send(c, 'vehicles', {
+        upsert, remove, ...(patches.length ? { patches } : {}), ...(sourcesChanged ? { sources } : {}) });
+      c.vehicleVersions = next; c.vehicleSources = sources; c.vehicleSent = snapshots;
     }
   }
 }

@@ -13,8 +13,20 @@ export function validPose(m) {
         : m.vehicle === 'player' || (typeof m.vehicle === 'string' && m.vehicle.length <= 64
           && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(m.vehicle))));
 }
+// Millimetre chassis/wheel precision and sub-milliradian orientation keep JSON
+// traffic bounded; arbitrary client object fields never enter room snapshots.
+const rounded = n => Math.round(n * 1000) / 1000;
+const vector = v => ({ x: rounded(v.x), y: rounded(v.y), z: rounded(v.z) });
 export function cleanPose(m) {
   const { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying, rot, wheels } = m;
-  return { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying,
-    ...(rot ? { rot } : {}), ...(wheels ? { wheels } : {}) };
+  return { t: Math.round(t), E: rounded(E), N: rounded(N), H: rounded(H), yaw: rounded(yaw),
+    vE: rounded(vE), vN: rounded(vN), vH: rounded(vH), mode, vehicle, carrying,
+    ...(rot ? { rot: { ...vector(rot), w: rounded(rot.w) } } : {}),
+    ...(wheels ? { wheels: wheels.map(({ pos, steer, rotation, contact, suspension, tyre }) => ({
+      pos: vector(pos), steer: rounded(steer), rotation: rounded(rotation), contact, suspension: rounded(suspension),
+      ...(tyre && ['x', 'y', 'z'].every(k => finite(tyre.point?.[k], 10) && finite(tyre.normal?.[k], 1))
+        && finite(tyre.material, 255) && finite(tyre.lateral, 200) && finite(tyre.longitudinal, 200)
+        ? { tyre: { point: vector(tyre.point), normal: vector(tyre.normal), material: tyre.material,
+          lateral: rounded(tyre.lateral), longitudinal: rounded(tyre.longitudinal) } } : {}),
+    })) } : {}) };
 }
