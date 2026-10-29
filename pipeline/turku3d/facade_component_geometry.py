@@ -128,6 +128,7 @@ def quad_mesh(points, name, material, building, origin, **extras):
         roughness=0.28 if material == "glass" else 0.85,
         extras=dict(
             layer="buildings",
+            object_id=name,
             surface="facade-component",
             building_id=building,
             material_key=f"component_{material}",
@@ -138,6 +139,11 @@ def quad_mesh(points, name, material, building, origin, **extras):
 
 def geometry(vertices, plans, building, origin):
     """Return visible meshes and hit boxes; no decorative collider fills an opening."""
+    import hashlib
+
+    # A building can emit the same component index on several surveyed walls.
+    wall_id = hashlib.sha256(np.asarray(vertices, dtype="<f8").tobytes()).hexdigest()[:16]
+    identity = f"component_{building}_{wall_id}"
     meshes, boxes = [], []
     if not plans:
         return meshes, boxes
@@ -154,7 +160,7 @@ def geometry(vertices, plans, building, origin):
     def face(coords, material="wall"):
         meshes.append(
             quad_mesh(
-                world(coords), f"component_{building}_{len(meshes)}", material, building, origin
+                world(coords), f"{identity}_{len(meshes)}", material, building, origin
             )
         )
 
@@ -180,13 +186,14 @@ def geometry(vertices, plans, building, origin):
         size = [x1 - x0, y1 - y0, z1 - z0]
         center = world([[(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2]])[0]
         mesh = GlbMesh(
-            f"component_{building}_{len(meshes)}",
+            f"{identity}_{len(meshes)}",
             points - origin,
             np.concatenate([TRI + i * 4 for i in range(6)]),
             color=COLOURS[material],
             roughness=0.28 if material == "glass" else 0.85,
             extras=dict(
                 layer="buildings",
+                object_id=f"{identity}_{len(meshes)}",
                 surface="facade-component",
                 building_id=building,
                 material_key=f"component_{material}",

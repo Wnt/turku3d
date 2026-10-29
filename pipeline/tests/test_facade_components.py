@@ -38,10 +38,17 @@ def fixture(kind, **kwargs):
 @pytest.mark.parametrize(
     "kind", ["bay", "recess", "balcony", "glazed_balcony", "loggia", "veranda", "arcade", "stairs"]
 )
-def test_components_pass_wall_invariant_and_have_outward_box_normals(kind):
+def test_components_pass_wall_invariant_and_have_outward_box_normals(kind, tmp_path):
     vertices, wall = fixture(kind)
     plans = plan(vertices, wall)
     meshes, boxes = geometry(vertices, plans, "test", np.zeros(3))
+    from turku3d.layers import write_visual
+
+    write_visual(tmp_path / f"{kind}.vis.glb", meshes)
+    ids = {m.extras["object_id"] for m in meshes}
+    assert len(ids) == len(meshes)
+    other, _ = geometry(vertices + [0, 0, 20], plans, "test", np.zeros(3))
+    assert ids.isdisjoint(m.extras["object_id"] for m in other)
     parts = list(surface_parts(vertices, vertices[:, :2], plans))
     meshes += [GlbMesh("wall", p, TRI, uvs=uv) for p, uv in parts]
     assert meshes
