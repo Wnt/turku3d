@@ -89,3 +89,24 @@ test('v3 carries the mapped ground floor and one entrance bay without changing o
   bindFacadeKit(doc, request, material, prim, extras, name => doc.createTexture(name));
   assert.equal(prim.getAttribute('_KIT_LAYOUT').getElement(0, [])[0], 43);
 });
+
+test('program walls retain their own metric grids and patch origins within one primitive', () => {
+  const doc = new Document(), buffer = doc.createBuffer();
+  const pos = doc.createAccessor().setBuffer(buffer).setType('VEC3').setArray(new Float32Array(24));
+  const uv = doc.createAccessor().setBuffer(buffer).setType('VEC2').setArray(new Float32Array(16));
+  const prim = doc.createPrimitive().setAttribute('POSITION', pos).setAttribute('TEXCOORD_0', uv);
+  const p = { start:0, count:4, module:1, bay:3.1, storey:2, ground:2, upper:2,
+    wall:'#808080', trim:'#ffffff', base:'#333333', size:[18.6, 8], opening:[.41,.62,.2,.1],
+    bands:[.4,.3,.1,.2], detail:[.1,0,0,0] };
+  const patch = { ...p, start:4, module:0, bay:2, size:[2, 1.8], origin:[5, 7], detail:[0,0,0,1] };
+  const e = { layer:'buildings', material_key:'facade_kit', building_id:'house', base_height:3,
+    facade_kit:p, facade_kit_walls:[p,patch] };
+  const material = doc.createMaterial();
+  bindFacadeKit(doc, { facadeKit:{version:3,maps:{albedo:'a',normal:'n',orm:'o'}} }, material, prim, e,
+    name => doc.createTexture(name));
+  assert.equal(material.getExtras().facade_kit.version, 4);
+  assert.deepEqual(prim.getAttribute('_KIT_EXTENT').getElement(0, []), [0,3,Math.fround(18.6),8]);
+  assert.deepEqual(prim.getAttribute('_KIT_EXTENT').getElement(4, []), [5,7,2,Math.fround(1.8)]);
+  assert.deepEqual(prim.getAttribute('_KIT_DETAIL').getElement(4, []), [0,0,0,1]);
+  assert.equal(prim.getAttribute('TEXCOORD_0'), uv);
+});

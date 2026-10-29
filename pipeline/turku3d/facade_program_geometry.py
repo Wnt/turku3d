@@ -1,0 +1,136 @@
+"""Paint reviewed opening rectangles without repeating them into unobserved floor bands."""
+
+import copy
+
+import numpy as np
+
+from turku3d import config as C
+
+
+def wall_parts(vertices, wall, style):
+    """Yield (quad, metric UVs, atlas instruction), preserving the measured wall's scope.
+
+    Most walls keep their original four vertices. Reviewed windows are small atlas
+    patches, so they add no image encoding or unique GPU textures. Their coordinates
+    are measured from the source wall, never from a neighbouring facade or a tile edge.
+    """
+    a, b = vertices[0], vertices[1]
+    width = float(np.linalg.norm(b - a))
+    direction = (b - a) / max(width, 1e-6)
+    normal = np.array([direction[2], 0, -direction[0]])
+
+    def quad(x0, x1, y0, y1):
+        left, right = a + x0 * direction, a + x1 * direction
+        tops = [vertices[3, 1] + x / width * (vertices[2, 1] - vertices[3, 1]) for x in (x0, x1)]
+        lo, hi = max(a[1], y0), min(max(tops), y1)
+        if x1 - x0 < 0.01 or hi - lo < 0.01:
+            return None
+        points = np.array([left, right, right, left])
+        points[:, 1] = [lo, lo, min(tops[1], hi), min(tops[0], hi)]
+        if min(points[2:, 1]) < lo + 0.01:
+            return None
+        uv = np.c_[[x0, x1, x1, x0], points[:, 1]]
+        return points, uv
+
+    geometry = wall.get("measured_geometry")
+    if not geometry:
+        yield (
+            vertices,
+            np.array([[0, a[1]], [width, a[1]], [width, vertices[2, 1]], [0, vertices[3, 1]]]),
+            style,
+        )
+        return
+    coordinates = geometry.get("coordinates") or [geometry["p0"], geometry["p1"]]
+    source = np.asarray(coordinates, float)[:, :2]
+    source = np.c_[source[:, 0] - C.ORIGIN_E, np.zeros(2), C.ORIGIN_N - source[:, 1]]
+    source_direction = source[1] - source[0]
+    source_direction /= np.linalg.norm(source_direction)
+    offset = float((source[0] - a) @ direction)
+    sign = float(source_direction @ direction)
+    mw, mh = wall["measured_size"]
+    ends = sorted([offset, offset + mw * sign])
+    x0, x1 = max(0, ends[0]), min(width, ends[1])
+    y0 = float(geometry.get("base_h", a[1]))
+    y1 = y0 + mh
+    blank = {
+        **style,
+        "module": 42 + style["module"] // 6 if style["module"] < 42 else style["module"],
+    }
+    # Retain sampled/AI layouts outside the observed rectangle, especially above shop strips.
+    for bounds in [
+        (0, x0, a[1], max(vertices[:, 1])),
+        (x1, width, a[1], max(vertices[:, 1])),
+        (x0, x1, a[1], y0),
+        (x0, x1, y1, max(vertices[:, 1])),
+    ]:
+        part = quad(*bounds)
+        if part:
+            above_full_wall = bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
+            yield *part, blank if above_full_wall else style
+    part = quad(x0, x1, y0, y1)
+    if part:
+        yield *part, blank
+    # Occluded regions have no measured negative: retain their existing/rule treatment.
+    for x, y, w, h in wall.get("observation", {}).get("excluded_rectangles_m", []):
+        left, right = sorted([offset + x * sign, offset + (x + w) * sign])
+        part = quad(max(x0, left), min(x1, right), max(y0, y0 + y), min(y1, y0 + y + h))
+        if part:
+            yield part[0] + normal * 0.001, part[1], style
+    courses = wall["trim"].get("string_courses", {}).get("value")
+    if isinstance(courses, list):
+        for height in courses:
+            part = quad(x0, x1, y0 + height - 0.06, y0 + height + 0.06)
+            if part:
+                band = {
+                    **style,
+                    "module": 42,
+                    "wall": style["trim"],
+                    "base": style["trim"],
+                    "bands": [0, 0, 0, 0],
+                    "detail": [0, 0, 0, 0],
+                }
+                yield part[0] + normal * 0.002, part[1], band
+    boxes = [(r, 1) for r in wall["windows"].get("rectangles_m", [])]
+    boxes += [(r, 1) for r in wall["base"].get("openings_m", [])]
+    boxes += [(d["rect_m"], 2) for d in wall["doors"].get("candidates", []) if "rect_m" in d]
+    for (x, y, w, h), kind in boxes:
+        left, right = sorted([offset + x * sign, offset + (x + w) * sign])
+        left, right = max(x0, left), min(x1, right)
+        bottom, top = max(y0, y0 + y), min(y1, y0 + y + h)
+        part = quad(left, right, bottom, top)
+        if not part:
+            continue
+        points, uv = part
+        points = points + normal * 0.003
+        patch = copy.deepcopy(style)
+        material = style["module"] // 6 if style["module"] < 42 else style["module"] - 42
+        patch.update(
+            module=material * 6 + (1 if kind == 2 else 0),
+            bay=right - left,
+            storey=top - bottom,
+            ground=2 * (top - bottom) if kind == 2 else 0.001,
+            upper=top - bottom,
+            size=[right - left, top - bottom],
+            origin=[left, bottom],
+            bands=[0, 0, 0, 0],
+            opening=[0.98, 0.95, 0.02, 0],
+            detail=[0, 0, 0, kind],
+        )
+        yield points, uv, patch
+    # Reviewed balcony rails are positioned rectangles, not a repeated bay pattern.
+    balconies = wall.get("balconies", {}).get("value") or []
+    rail_style = {
+        **blank,
+        "wall": style["trim"],
+        "base": style["trim"],
+        "bands": [0, 0, 0, 0],
+        "detail": [0, 0, 0, 0],
+    }
+    for x, y, w, h in balconies:
+        strips = [(x, y, w, min(0.15, h)), (x, y + h - 0.06, w, 0.06)]
+        strips += [(bar, y, 0.04, h) for bar in np.arange(x, x + w, 0.22)]
+        for left, bottom, rw, rh in strips:
+            left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
+            part = quad(max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh))
+            if part:
+                yield part[0] + normal * 0.004, part[1], rail_style

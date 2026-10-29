@@ -1,5 +1,6 @@
 // Shared fallback atlas. Unique generated/derived/fast walls are selected before this binder.
 import { createHash } from 'node:crypto';
+import { bindProgram } from './facade_program.mjs';
 
 export function bindFacadeKit(doc, request, material, prim, e, texture) {
   if (!['buildings', 'buildings_outer'].includes(e.layer) ||
@@ -49,12 +50,16 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
     const c = parseInt(v, 16) / 255;
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
-  attribute('_KIT_LAYOUT', 'VEC3', [p.module, p.bay, p.storey]);
-  attribute('_KIT_WALL', 'VEC3', linear(p.wall));
-  attribute('_KIT_TRIM', 'VEC3', linear(p.trim));
-  attribute('_KIT_ORIGIN', 'VEC2', [u0, v0]);
-  const version = request.facadeKit.version ?? 2;
-  if (version >= 3) {
+  const version = p.opening ? 4 : (request.facadeKit.version ?? 2);
+  if (version === 4) {
+    bindProgram(doc, prim, e, p, linear);
+  } else {
+    attribute('_KIT_LAYOUT', 'VEC3', [p.module, p.bay, p.storey]);
+    attribute('_KIT_WALL', 'VEC3', linear(p.wall));
+    attribute('_KIT_TRIM', 'VEC3', linear(p.trim));
+    attribute('_KIT_ORIGIN', 'VEC2', [u0, v0]);
+  }
+  if (version === 3) {
     const floors = Math.max(1, Math.round(height / p.storey));
     const ground = p.ground ?? (floors > 1 && p.module < 42 && p.module % 3 === 2 ? Math.min(Math.max(p.storey * 1.25, 2.8), 5, height * .6) : p.storey);
     const upper = p.upper ?? (floors > 1 ? (height - ground) / (floors - 1) : ground);

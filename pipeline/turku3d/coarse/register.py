@@ -38,6 +38,7 @@ def attributes(row):
         construction_year=year,
         material_class=MATERIALS.get(material),
         levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
+        levels_source="register" if levels.isdigit() and int(levels) > 0 else None,
         era="unknown"
         if year is None
         else "pre-1850"
@@ -128,6 +129,15 @@ def read_osm(tile, path):
             )
         )
         d["material_class"] = classes.get(tags.get("building:material"))
+        d["levels_source"] = "osm" if d.get("levels") else None
+        if row.get("osm_id") is not None:
+            d["osm_id"] = f"{row.get('osm_type', 'way')}/{row['osm_id']}"
+        d["osm_use"] = (
+            tags.get("amenity")
+            or ("office" if tags.get("office") else None)
+            or tags.get("building:use")
+            or tags.get("building")
+        )
         d["monumental"] = bool(
             tags.get("historic") not in (None, "no")
             or tags.get("heritage") not in (None, "no")
@@ -180,7 +190,8 @@ def enrich(building, registered, osm):
             {
                 k: v
                 for k, v in own.items()
-                if k not in ("levels", "era") or not d.get(k) or d[k] == "unknown"
+                if (k not in ("levels", "levels_source") or not d.get("levels"))
+                and (k != "era" or not d.get(k) or d[k] == "unknown")
             }
         )
     d.update(registered.get(building.facade_key, {}))

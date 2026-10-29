@@ -646,6 +646,10 @@ def build(
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
+            base / "facade_programs.py",
+            base / "facade_program_geometry.py",
+            C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
+            C.REPO_ROOT / "textures/turkutex/facade_program.py",
             jpeg,
             ortho_uv,
             *common,
@@ -654,6 +658,9 @@ def build(
         lambda: building_visual(tile, shells, inputs.ortho, first_pass),
     )
     if building_meshes:
+        programs = [m.extras.pop("facade_program") for m in building_meshes
+                    if "facade_program" in m.extras]
+        _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
         write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
         layer_files.append(stage / "buildings.vis.glb")
 

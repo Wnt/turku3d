@@ -11,6 +11,8 @@ from turku3d.package.gltf import GlbMesh
 
 def match_wall(points, facades):
     """Only near-collinear, overlapping walls of the same stable building may share a map."""
+    if not facades:
+        return None
     xz = np.asarray(points)[:, [0, 2]]
     a, b = xz[0], xz[1]
     length = float(np.linalg.norm(b - a))
@@ -76,7 +78,7 @@ def row_sections(vertices, uv, params, eave):
         yield True, cap, cap_uv
 
 
-def wall_meshes(b, walls, wuv, widx, origin, params):
+def wall_meshes(b, walls, wuv, widx, origin, params, *, programs=False):
     stored = building(b.facade_key).get("facades", [])
     meshes, fallback = [], {False: [], True: []}
     # Each extrusion ring closes before the next roof part starts. Its lowest top
@@ -88,11 +90,27 @@ def wall_meshes(b, walls, wuv, widx, origin, params):
             eave = float(walls[ring_start : end + 4].reshape(-1, 4, 3)[:, 2:, 1].min())
             eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
             ring_start = end + 4
+    program, instructions, program_parts = None, [], []
+    if programs:
+        from turku3d.facade_programs import compile_wall, resolve
+
+        program = resolve(b, walls, eaves)
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
         match = match_wall(vertices, stored)
         if match is None:
+            if program is not None:
+                from turku3d.facade_program_geometry import wall_parts
+
+                style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
+                style["origin"][1] = b.base
+                for points, uv, instruction in wall_parts(
+                    vertices, program["walls"][start // 4], style
+                ):
+                    instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
+                    program_parts.append((points, uv))
+                continue
             if params.get("plinth"):
                 cap = min(b.base + 0.8, min(vertices[2:, 1]))
                 lower = vertices.copy()
@@ -143,6 +161,34 @@ def wall_meshes(b, walls, wuv, widx, origin, params):
                 ),
             )
         )
+    if program_parts:
+        meshes.append(
+            GlbMesh(
+                f"walls_{b.key}",
+                np.concatenate([p for p, _ in program_parts]) - origin,
+                np.concatenate(
+                    [
+                        np.array([[0, 3, 2], [0, 2, 1]], np.uint32) + 4 * i
+                        for i in range(len(program_parts))
+                    ]
+                ),
+                uvs=np.concatenate([uv for _, uv in program_parts]),
+                color=(1, 1, 1, 1),
+                extras=dict(
+                    layer="buildings",
+                    object_id=f"walls_{b.key}",
+                    building_id=b.facade_key,
+                    material_key="facade_kit",
+                    base_height=b.base,
+                    top_height=b.top,
+                    facade_kit=instructions[0],
+                    facade_kit_walls=instructions,
+                ),
+            )
+        )
+    if program is not None and meshes:
+        # build() exports this diagnostic program separately before writing the layer GLB.
+        meshes[0].extras["facade_program"] = program
     for blank, parts in fallback.items():
         if not parts:
             continue

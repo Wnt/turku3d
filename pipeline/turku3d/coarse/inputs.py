@@ -264,7 +264,7 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
                 for column in columns:
                     if column in group.columns:
                         v = str(group[column].iloc[0])
-                        if v not in ("", "0", "None", "nan", "<NA>"):
+                        if v not in ("", "0", "None", "nan", "<NA>", "Ei arvoa"):
                             return v
                 return ""
 
@@ -274,10 +274,12 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
             year = int(year) if year.isdigit() else None
             building.attributes = dict(
                 construction_year=year,
+                register_id=value("pysyvarakennustunnus") or None,
                 use=value("käyttötarkoitus", "usage", "function") or "unknown",
                 footprint_m2=float(footprint.area),
                 district=register_district(value("kiinteistotunnus")),
                 levels=int(levels) if levels.isdigit() and int(levels) > 0 else None,
+                levels_source="register" if levels.isdigit() and int(levels) > 0 else None,
                 era="unknown"
                 if year is None
                 else "pre-1850"

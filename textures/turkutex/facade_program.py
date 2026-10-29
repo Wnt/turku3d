@@ -1,4 +1,4 @@
-"""Offline facade grammar prototype. No production generator imports this module.
+"""Shared facade program contract and offline characterization helpers.
 
 Coordinates are metres from the viewed wall's bottom-left corner. Register floors
 are authoritative; an absent floor count stays unknown. Evidence scores describe
@@ -11,13 +11,8 @@ import copy
 import hashlib
 import math
 
-import cv2
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks
-
-from .facade_cv import colours
 
 VERSION = "facade-program-prototype-1"
 
@@ -39,6 +34,8 @@ def unknown():
 
 def components(mask, width, height, minimum_area=0.08):
     """Metric component bounds; remove slivers and image-spanning misclassifications."""
+    import cv2
+
     h, w = mask.shape
     _, _, stats, _ = cv2.connectedComponentsWithStats(mask.astype("uint8"), 8)
     result = []
@@ -60,6 +57,9 @@ def bay_grid(window_mask, width, height, floors):
     A supported row wins by peak contrast. Missing rows do not change storeys.
     No extrapolation fills hidden columns; the measured count is a lower bound.
     """
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+
     h, w = window_mask.shape
     bands = max(1, floors or 1)
     profiles = []
@@ -96,6 +96,10 @@ def fit_wall(
     rgb, labels, excluded, *, wall_id, width, height, floors, coverage=None, doors=(), entrances=()
 ):
     """Fit a compact split grammar from CMP labels and an independent occluder mask."""
+    import cv2
+
+    from .facade_cv import colours
+
     if labels.shape != rgb.shape[:2] or excluded.shape != labels.shape:
         raise ValueError("mask/image dimensions differ")
     if not math.isfinite(width * height) or min(width, height) <= 0:

@@ -61,7 +61,7 @@ window.probe={async view(v){
  camera.fov=v.fov??55;camera.aspect=(v.width??1280)/(v.height??720);camera.updateProjectionMatrix();renderer.setSize(v.width??1280,v.height??720);
  camera.lookAt(t);camera.updateMatrixWorld();env.follow(camera.position);env.updateIBL();
  // Isolate each tile so before/after counts use identical visibility.
- for(const model of models)model.visible=model.name===v.tile;
+ for(const model of models)model.visible=Boolean(v.context)||model.name===v.tile;
  for(let i=0;i<${performanceOnly ? 120 : 40};i++){lod.update(camera);post.render();await new Promise(requestAnimationFrame);}
  const measured=${performanceOnly ? 240 : 60};perf.reset();const start=performance.now();
  for(let i=0;i<measured;i++){perf.begin();lod.update(camera);post.render();perf.end();await new Promise(requestAnimationFrame);}
