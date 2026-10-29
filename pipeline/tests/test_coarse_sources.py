@@ -2,10 +2,10 @@
 
 from test_coarse_prefetch import _real_raw, raw  # noqa: F401 (shared isolated raw fixture)
 from turku3d import config as C
-from turku3d.coarse.sources import Sources, WFS_LAYERS, block_of, tile_blocks
+from turku3d.coarse.sources import WFS_LAYERS, Sources, block_of, tile_blocks
 
 
-def test_structural_inputs_do_not_wait_for_orthophoto_or_signs(raw, tmp_path):
+def test_structural_inputs_do_not_wait_for_orthophoto_or_signs(raw, tmp_path):  # noqa: F811
     from turku3d.coarse.inputs import gather
 
     tile = C.VisualTile(0, 1, 1)
@@ -38,6 +38,7 @@ def test_structural_inputs_do_not_wait_for_orthophoto_or_signs(raw, tmp_path):
 
 def test_prepared_keys_track_only_affected_input_producers(monkeypatch):
     from pathlib import Path
+
     from turku3d.coarse import inputs
 
     path = Path(inputs.__file__)
@@ -63,6 +64,7 @@ def test_prepared_keys_track_only_affected_input_producers(monkeypatch):
 
 def test_producer_identity_is_independent_of_symlink_entrypoint(tmp_path):
     import importlib.util
+
     from turku3d.coarse import packaging
 
     link = tmp_path / "repo"
@@ -77,6 +79,7 @@ def test_producer_identity_is_independent_of_symlink_entrypoint(tmp_path):
 
 def test_named_source_index_refreshes_changed_and_removed_summaries(tmp_path):
     import json
+
     from turku3d.coarse.sources import _Files
 
     summary = tmp_path / "a.summary.json"
@@ -113,6 +116,7 @@ def test_nested_vrt_dependencies_follow_child_edits(tmp_path):
 
 def test_collision_identity_ignores_visual_changes_but_tracks_structure(monkeypatch):
     from pathlib import Path
+
     from turku3d.coarse import collision_key, packaging
 
     read = Path.read_bytes
@@ -142,6 +146,7 @@ def test_collision_identity_ignores_visual_changes_but_tracks_structure(monkeypa
 
 def test_collision_remains_current_during_visual_only_deployment(tmp_path):
     import json
+
     from turku3d.coarse.collision import fragment
     from turku3d.coarse.service import Builder
 
@@ -163,3 +168,27 @@ def test_collision_remains_current_during_visual_only_deployment(tmp_path):
     assert fragment(builder, tile.id) is not None
     builder.collision_code = lambda: "structure-v2"
     assert fragment(builder, tile.id) is None
+
+
+def test_first_pass_tracks_wall_assembly_but_not_stored_map_binding(monkeypatch):
+    from pathlib import Path
+
+    from turku3d.coarse import collision_key, stored_facades
+
+    read = Path.read_bytes
+    changes = {}
+    monkeypatch.setattr(Path, "read_bytes", lambda p: changes.get(p, read(p)))
+    before = collision_key.code_hash()
+    wall = Path(stored_facades.__file__)
+    original = read(wall)
+    changes[wall] = original.replace(b'"stored-facade-map"', b'"changed-map-binding"')
+    assert changes[wall] != original
+    assert collision_key.code_hash() == before
+    changes[wall] = original.replace(b'.006', b'.007')
+    assert collision_key.code_hash() != before
+    changes.clear()
+    for name in ("wall_assembly.py", "wall_surfaces.py"):
+        helper = wall.parent.parent / name
+        changes[helper] = read(helper) + b"\n# wall assembly dependency changed\n"
+        assert collision_key.code_hash() != before
+        changes.clear()
