@@ -10,6 +10,7 @@ import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
 import { SharedMaterials, disposeDraw } from '../render/sharedMaterials';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadGlb } from './loadGlb';
 import { LoadingKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VISUAL_L0 } from '../core/origin';
@@ -154,7 +155,7 @@ export class CoarseTiles {
     MeshoptDecoder.useWorkers(2);
     const ktx2 = new LoadingKtx().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(this.host.renderer);
     const loader = new GLTFLoader().register(() => textureUploads(this.host.renderer).plugin()).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
-    return async (url: string) => (await loader.loadAsync(url)).scene;
+    return async (url: string) => (await loadGlb(loader, url)).scene;
   }
 
   retainedStarts: readonly { x: number; z: number }[] = [];

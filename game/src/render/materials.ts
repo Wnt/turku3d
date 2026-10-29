@@ -5,7 +5,7 @@ import { modelTextures, textureUploads } from './textureUploads';
 import * as THREE from 'three/webgpu';
 import { materialColor, materialRoughness, texture, positionWorld, mix, vec3, bumpMap, float } from 'three/tsl';
 import { facadeKitMaterial } from './facadeKit';
-import { interleaveProgram } from './facadeProgramAttributes';
+import { interleaveProgram, interleaveProgramAsync } from './facadeProgramAttributes';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
 import { GroundBindings } from './ground/binding';
@@ -58,6 +58,14 @@ export class MaterialStyler {
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean, tileset?: string) {
     this.ground = tileset ? new GroundBindings(renderer, new URL(tileset, location.href).href) : null;
+  }
+
+  async applyAsync(model: THREE.Object3D) {
+    const geometries = new Set<THREE.BufferGeometry>();
+    model.traverse(object => { if ((object as THREE.Mesh).isMesh) geometries.add((object as THREE.Mesh).geometry); });
+    // Serial admission bounds input copies as well as worker output retained before publication.
+    for (const geometry of geometries) await interleaveProgramAsync(geometry);
+    return this.apply(model);
   }
 
   apply(model: THREE.Object3D) {
