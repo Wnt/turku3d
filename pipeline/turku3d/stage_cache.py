@@ -71,6 +71,38 @@ def source_key(*sources) -> str:
     )
 
 
+def prune_entries(directory, key=None):
+    """Keep two explicitly recorded successful results per stage namespace.
+
+    Legacy stores bootstrap their references from the last two completed files.
+    Namespace locks are permanent: unlinking a held lock could admit another writer.
+    """
+    directory = Path(directory)
+    with (directory / ".retention.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _prune_entries(directory, key)
+
+
+def _prune_entries(directory, key=None):
+    pointer = directory / ".retained.json"
+    if pointer.exists():
+        keys = json.loads(pointer.read_text())
+    else:
+        keys = [p.stem for p in sorted(directory.glob("*.pkl"),
+                                      key=lambda p: p.stat().st_mtime, reverse=True)[:2]]
+    if key is not None:
+        keys = [key, *[k for k in keys if k != key]][:2]
+    temporary = pointer.with_suffix(".tmp")
+    temporary.write_text(json.dumps(keys))
+    temporary.replace(pointer)
+    deleted = 0
+    for path in directory.glob("*.pkl"):
+        if path.stem not in keys and not path.is_symlink():
+            deleted += path.stat().st_size
+            path.unlink()
+    return deleted
+
+
 class StageCache:
     """Cache trusted local Python intermediates; checksum and atomic writes reject interrupted entries.
 
@@ -78,8 +110,9 @@ class StageCache:
     Entries are immutable, so reverting a source edit reuses the older result too.
     """
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, retain=False):
         self.root = root
+        self.retain = retain
         self.metrics = {}
 
     def run(self, name, code, inputs, operation):
@@ -88,7 +121,7 @@ class StageCache:
         directory = self.root / name
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{key}.pkl"
-        with (directory / f"{key}.lock").open("a") as lock:
+        with (directory / (".retention.lock" if self.retain else f"{key}.lock")).open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             value, hit = None, False
             if target.exists():
@@ -104,6 +137,8 @@ class StageCache:
                 temporary = target.with_suffix(".tmp")
                 temporary.write_bytes(hashlib.sha256(data).digest() + data)
                 temporary.replace(target)
+            if self.retain:
+                _prune_entries(directory, key)
         self.metrics[name] = dict(
             key=key, cached=hit, seconds=round(time.perf_counter() - started, 6)
         )

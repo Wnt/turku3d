@@ -239,3 +239,30 @@ cat ~/turku3d-drafts/reports/facade-assets.log
 
 `deploy-drafts` publishes generator sources independently of the Pages game.
 Record its producer switch timestamp and the uninterrupted-serving probe in the task result.
+
+## Draft output retention
+
+The active producer sweeps draft products every minute, skipping locked builds.
+Publication and pruning share a permanent per-tile lock. Both public manifests
+protect their referenced immutable payloads; replaced manifests protect all their
+references for 15 minutes after publication (including rapid first/full upgrades).
+The first sweep also protects unknown payloads written in the last 15 minutes,
+because older deployments did not record historical manifest references.
+
+Each draft stage keeps its two most recently used successful content keys, under
+one namespace lock. Existing stores seed those references from their last two
+completed entries. Area stages are scoped by source path. Package intermediates
+are tile-local and removed after successful publication or by an idle-tile sweep;
+the complete package stage already holds their reusable result. The former shared
+`.texture-cache` is removed only after the old producer has stopped and the new
+slot has activated. Do not run this migration against an older active producer.
+Raw-source lidar/class-6 caches are independent of generator versions; prepared
+`.inputs` already replaces older keys per dataset. Raw data, streetlevel caches,
+facade records, texture libraries and published shared assets are outside pruning.
+
+To request the same online sweep explicitly after deployment:
+
+```sh
+ssh oci-drafts '~/turku3d-drafts/run.sh python -m turku3d.coarse.retention --root /srv/turku3d/work/coarse'
+ssh oci-drafts 'df -h /srv/turku3d'
+```

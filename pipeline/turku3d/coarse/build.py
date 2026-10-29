@@ -218,6 +218,10 @@ def terrain_stage(tile, inputs):
     return grid_pos, grid_idx, materials, wet, level
 
 
+from .retention import managed_build
+
+
+@managed_build
 def build(
     tile_id: str,
     out: Path,
@@ -242,7 +246,7 @@ def build(
     seconds.update({"input_" + k: v for k, v in inputs.seconds.items()})
     seconds["inputs_total"] = time.perf_counter() - started
 
-    cache = StageCache(out.parent / ".stages" / tile.id)
+    cache = StageCache(out.parent / ".stages" / tile.id, retain=True)
     base = Path(__file__).parents[1]
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
