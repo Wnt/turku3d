@@ -182,6 +182,7 @@ def test_visual_data_wait_does_not_requeue_structural_job(tmp_path):
     directory.mkdir()
     (directory / 'collision.json').write_text(json.dumps(dict(
         coarse=True, tile=tile, code='test', inputs='structural', pass_kind='first',
+        visual={tile: {'url': 'vis.glb'}},
         collision={c.id: {} for c in C.VisualTile.parse(tile).collision_tiles()},
     )))
     missing = ['ortho/source']

@@ -17,7 +17,7 @@ def paths():
             *(
                 p
                 for p in producer_paths()
-                if p.parent.name != "package" and p.name not in VISUAL_ONLY
+                if (p.parent.name != "package" or p.name == "gltf.py") and p.name not in VISUAL_ONLY
             ),
         },
         key=lambda p: p.as_posix().rsplit("/pipeline/", 1)[-1],
@@ -47,8 +47,9 @@ def structural_source(path):
                 if (
                     isinstance(statement, ast.If)
                     and isinstance(statement.test, ast.Name)
-                    and statement.test.id == "collision_only"
+                    and statement.test.id == "first_pass"
                 ):
+                    prefix.append(statement)
                     break
                 prefix.append(statement)
             if len(prefix) == len(node.body):

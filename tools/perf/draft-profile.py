@@ -23,7 +23,7 @@ def main():
     parser.add_argument("--tiles", nargs="+", default=["t0_1_2"])
     parser.add_argument("--profile", action="store_true")
     parser.add_argument(
-        "--phases", nargs="+", choices=("first", "full", "structural"), default=["first", "full"]
+        "--phases", nargs="+", choices=("first", "full"), default=["first", "full"]
     )
     parser.add_argument(
         "--assets", type=Path, help="reuse prepared shared texture assets, as the live service does"
@@ -43,7 +43,7 @@ def main():
     for tile in args.tiles:
         for phase in args.phases:
             out = args.root / tile / phase / tile
-            if args.assets and phase != "structural":
+            if args.assets:
                 out.parent.mkdir(parents=True, exist_ok=True)
                 for asset in assets.iterdir():
                     (out.parent / asset.name).symlink_to(asset.resolve(), target_is_directory=True)
@@ -58,7 +58,6 @@ def main():
                     out,
                     first_pass=phase != "full",
                     sources=sources,
-                    collision_only=phase == "structural",
                 )
                 if profiler:
                     profiler.disable()

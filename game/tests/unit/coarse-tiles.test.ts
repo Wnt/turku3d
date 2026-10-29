@@ -371,7 +371,7 @@ test('Kaskenkatu requests actual southeast crossings before nearer lateral cells
 
 });
 
-test('collision upgrades immediately while old visuals remain until the replacement is ready', async () => {
+test('visual and collision upgrades commit together after the replacement is ready', async () => {
   const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
   let phase = 'first', release!: (model: THREE.Object3D) => void;
   const first = new THREE.Group(), full = new THREE.Group(), refreshed: string[] = [];
@@ -400,8 +400,8 @@ test('collision upgrades immediately while old visuals remain until the replacem
   phase = 'full';
   coarse.update(600, 100, 16_000); await settle();
   expect(first.parent).toBe(scene);
-  expect(manifest.collision.c_8_0.sha256).toBe('full');
-  expect(refreshed).toEqual(['c_8_0']);
+  expect(manifest.collision.c_8_0.sha256).toBe('first');
+  expect(refreshed).toEqual([]);
   release(full); await settle();
   expect(first.parent).toBeNull();
   expect(full.parent).toBe(scene);
@@ -410,7 +410,7 @@ test('collision upgrades immediately while old visuals remain until the replacem
   expect(refreshed).toEqual(['c_8_0']);
 });
 
-test('a structural fragment installs collision while the visual manifest is still queued', async () => {
+test('a legacy collision-only fragment stays hidden while its visual is queued', async () => {
   const id = 't0_2_0';
   const manifest = { visual: {}, collision: {} } as unknown as Manifest;
   const collision = Object.fromEntries(cellsOf(id).map(cid => [cid,
@@ -429,10 +429,38 @@ test('a structural fragment installs collision while the visual manifest is stil
   });
   coarse.update(600, 100, 0);
   for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0));
-  expect(cellsOf(id).every(cid => manifest.collision[cid])).toBe(true);
-  expect(coarse.entries.get(id)?.state).toBe('draft');
+  expect(cellsOf(id).some(cid => manifest.collision[cid])).toBe(false);
+  expect(coarse.entries.get(id)?.state).toBe('pending');
   expect(coarse.drawn()).toEqual([]);
   expect(loadModel).not.toHaveBeenCalled();
+});
+
+test('basic geometry and collision become resident together after graphics preparation', async () => {
+  const id = 't0_2_0', scene = new THREE.Scene(), model = new THREE.Group();
+  const manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  let release!: () => void;
+  const collision = Object.fromEntries(cellsOf(id).map(cid => [cid,
+    { url: `col/${cid}.col`, sha256: cid, bytes: 4, tris: 2, h: [0, 1] }]));
+  const coarse = new CoarseTiles({ scene, manifest, pageUrl: 'http://127.0.0.1:5171/',
+    renderer: {} as THREE.WebGPURenderer, unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => 2, loadModel: async () => model,
+    styled: () => new Promise<void>(resolve => { release = resolve; }),
+    fetch: (async (url: string) => {
+      const name = new URL(url).pathname;
+      const json = (status: number, body: unknown) => ({ ok: status < 300, status, json: async () => body }) as Response;
+      if (name === `/coarse/${id}/collision.json`) return json(200, { coarse: true, tile: id, collision,
+        visual: { [id]: { url: 'vis.basic.glb', sha256: 'basic' } }, pass_kind: 'first' });
+      if (name.endsWith('.col')) return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) } as Response;
+      return json(202, { state: 'building' });
+    }) as typeof globalThis.fetch });
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.update(600, 100, 0); await settle();
+  expect(model.parent).toBeNull();
+  expect(Object.keys(manifest.collision)).toHaveLength(0);
+  release(); await settle();
+  expect(model.parent).toBe(scene);
+  expect(Object.keys(manifest.collision)).toHaveLength(16);
+  expect(coarse.entries.get(id)?.state).toBe('draft');
 });
 
 test('failed drafts under a start or retained car stay required and recover on a later request', async () => {

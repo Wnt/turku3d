@@ -124,7 +124,10 @@ def test_collision_identity_ignores_visual_changes_but_tracks_structure(monkeypa
     assert collision_key.code_hash() == before
     build = Path(collision_key.__file__).with_name("build.py")
     original = read(build)
-    changes[build] = original.replace(b"if not first_pass:\n", b"if first_pass is False:\n")
+    changes[build] = original.replace(
+        b"surface_library = library or default_library()",
+        b"surface_library = default_library() or library",
+    )
     assert changes[build] != original
     assert collision_key.code_hash() == before
     changes[build] = original.replace(b"primitives = trunks(trees, ct)", b"primitives = []")
@@ -147,6 +150,7 @@ def test_collision_remains_current_during_visual_only_deployment(tmp_path):
         tile=tile.id,
         code="visual-old",
         collision_code="structure-v1",
+        visual={tile.id: {"url": "vis.glb"}},
         collision={cell.id: {} for cell in tile.collision_tiles()},
         pass_kind="first",
     )

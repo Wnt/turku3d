@@ -146,10 +146,7 @@ def inputs(tmp_path):
     )
 
 
-@pytest.mark.parametrize("collision_only", [False, True])
-def test_collision_publishes_even_when_visual_packaging_fails(
-    tmp_path, inputs, monkeypatch, collision_only
-):
+def test_basic_visual_and_collision_publish_before_texture_work(tmp_path, inputs, monkeypatch):
     import importlib
     from turku3d.coarse.collision import fragment
 
@@ -157,28 +154,28 @@ def test_collision_publishes_even_when_visual_packaging_fails(
     out = tmp_path / "coarse" / TILE.id
 
     def fail_visual(*args, **kwargs):
-        early = json.loads((out / "collision.json").read_text())
-        assert len(early["collision"]) == 16
-        for entry in early["collision"].values():
-            assert len((out / entry["url"]).read_bytes()) == entry["bytes"]
-        assert not (out / "manifest.json").exists()
         raise RuntimeError("visual failure")
 
     monkeypatch.setattr(module, "package_visual", fail_visual)
-    if collision_only:
-        m = build(TILE.id, out, inputs=inputs, first_pass=True, collision_only=True)
-        assert len(m["collision"]) == 16
-        assert m["seconds"]["total"] == m["seconds"]["collision_ready"]
-        assert not (out / "manifest.json").exists()
-        assert not list((out / ".stage").glob("*.glb"))
-    else:
-        with pytest.raises(RuntimeError, match="visual failure"):
-            build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library", first_pass=True)
+    first = build(TILE.id, out, inputs=inputs, first_pass=True)
+    record = (out / "collision.json").read_bytes()
+    assert len(first["collision"]) == 16 and first["visual"][TILE.id]
+    visual = first["visual"][TILE.id]
+    js, _ = read_glb((out / visual["url"]).read_bytes())
+    assert js["meshes"] and "textures" not in js and "images" not in js
+    assert js["nodes"][0]["translation"] == list(TILE.origin)
+    assert {n["extras"]["surface"] for n in js["nodes"][1:]} >= {"building", "roof"}
+    assert first["seconds"]["total"] == first["seconds"]["drivable_ready"]
+    assert first["seconds"]["basic_visual"] >= 0
+    for entry in first["collision"].values():
+        assert len((out / entry["url"]).read_bytes()) == entry["bytes"]
+    with pytest.raises(RuntimeError, match="visual failure"):
+        build(TILE.id, out, inputs=inputs, library=tmp_path / "no-library")
+    assert (out / "collision.json").read_bytes() == record
     builder = Builder(out.parent, code=module.code_hash(), workers=0)
-    assert fragment(builder, TILE.id)["collision"]
+    assert fragment(builder, TILE.id)["visual"]
     assert builder.request(TILE.id, 0)["state"] == "queued"
-    assert TILE.id not in builder.priority
-    assert TILE.id in builder.upgrade_queue
+    assert TILE.id not in builder.priority and TILE.id in builder.upgrade_queue
     builder.input_key = lambda _: "new-source"
     assert fragment(builder, TILE.id) is None
     builder.stop()
@@ -383,6 +380,7 @@ def test_structural_job_completes_then_visual_job_uses_spare_worker(tmp_path, mo
                 tile=tile,
                 code="test",
                 pass_kind="first",
+                visual={tile: {"url": "vis.glb"}},
                 collision={c.id: {} for c in C.VisualTile.parse(tile).collision_tiles()},
             )
             if first_pass:
