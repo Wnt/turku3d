@@ -330,9 +330,10 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
     checkCollision: async () => { checks++; },
     loadModel: async url => {
       expect(url).toMatch(/^https:\/\/turku.lab.madekivi.fi\/coarse\//);
-      expect(checks).toBeGreaterThanOrEqual(16);
       loads++;
-      return new THREE.Group();
+      const model = new THREE.Group();
+      model.addEventListener('added', () => expect(checks).toBeGreaterThanOrEqual(16));
+      return model;
     },
     fetch: (async (url: string) => {
       requests.push(url);
