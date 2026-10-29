@@ -128,6 +128,37 @@ class PublicTest(unittest.TestCase):
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertEqual(call("/coarse/health", "OPTIONS")[0], 204)
 
+    def test_parser_unsupported_method_and_exception_responses_have_cors(self):
+        import socket
+        from http.server import ThreadingHTTPServer
+
+        with tempfile.TemporaryDirectory() as temp:
+            builder = SimpleNamespace(root=Path(temp))
+            cls = public.public_handler(builder, None, {"queue_max": 1, "tile_bounds": [-2, -2, 2, 2]})
+            server = ThreadingHTTPServer(("127.0.0.1", 0), cls)
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            try:
+                for method, path, expected in (("PUT", "/coarse/health", 501),
+                                                ("GET", "/coarse/health", 503),
+                                                ("OPTIONS", "/coarse/health", 204),
+                                                ("GET", "/coarse/missing", 404)):
+                    with socket.create_connection(server.server_address, timeout=2) as sock:
+                        sock.sendall(f"{method} {path} HTTP/1.1\r\nHost: localhost\r\nOrigin: https://wnt.github.io\r\nConnection: close\r\n\r\n".encode())
+                        response = b""
+                        while part := sock.recv(65536):
+                            response += part
+                    headers = response.split(b"\r\n\r\n")[0].decode()
+                    self.assertIn(f" {expected} ", headers)
+                    self.assertIn("Access-Control-Allow-Origin: https://wnt.github.io", headers)
+                    if expected == 503:
+                        self.assertIn("Retry-After: 5", headers)
+                        self.assertNotIn("AttributeError", response.decode())
+            finally:
+                server.shutdown()
+                server.server_close()
+                worker.join()
+
     def test_collision_bundle_is_content_addressed_and_reuses_unchanged_cells(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

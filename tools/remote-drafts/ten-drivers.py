@@ -15,20 +15,35 @@ import json
 import math
 import os
 import time
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 
+HTTP_COUNTS = {"responses": 0, "non_cors": 0, "transport_errors": 0}
+HTTP_LOCK = threading.Lock()
+
+
+def count_response(response):
+    with HTTP_LOCK:
+        HTTP_COUNTS["responses"] += 1
+        HTTP_COUNTS["non_cors"] += response.headers.get("Access-Control-Allow-Origin") != "https://wnt.github.io"
+
+
 def get(base, path, binary=False, timeout=5):
     try:
         req = urllib.request.Request(base + path, headers={"Origin": "https://wnt.github.io"})
         with urllib.request.urlopen(req, timeout=timeout) as response:
+            count_response(response)
             return response.status, response.read() if binary else json.load(response)
     except urllib.error.HTTPError as error:
+        count_response(error)
         return error.code, {}
     except (OSError, ValueError):
+        with HTTP_LOCK:
+            HTTP_COUNTS["transport_errors"] += 1
         return 0, {}
 
 
@@ -302,6 +317,7 @@ def main():
     )
     late = [r for r in rows if r["lateness"] is None or r["lateness"] > 0]
     summary = dict(
+        cors=dict(HTTP_COUNTS),
         drivers=args.drivers,
         readiness="collision-and-visual-payloads",
         speed_kmh=args.speed_kmh,

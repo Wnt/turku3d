@@ -77,7 +77,7 @@ def allowed_origin(origin: str | None) -> bool:
     return (
         origin is None
         or origin == "https://wnt.github.io"
-        or bool(re.fullmatch(r"http://localhost(?::[1-9][0-9]{0,4})?", origin))
+        or bool(re.fullmatch(r"http://(?:localhost|127\.0\.0\.1|\[::1\])(?::[1-9][0-9]{0,4})?", origin))
     )
 
 
@@ -110,9 +110,28 @@ def public_handler(builder, prefetcher, settings):
     class PublicHandler(base):
         server_version = "TurkuDrafts"
         sys_version = ""
+        timeout = 35  # Bound admitted slow clients while a retired slot drains.
+
+        def handle_one_request(self):
+            self._response_started = False
+            try:
+                return super().handle_one_request()
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
+            except Exception as error:
+                # Never leak exception text/paths, or write a second HTTP response.
+                print(json.dumps({"http_error": type(error).__name__}), flush=True)
+                self.close_connection = True
+                if not self._response_started:
+                    self._json(503, {"state": "failed"})
+
+        def send_error(self, code, message=None, explain=None):
+            # BaseHTTPRequestHandler parser errors and unsupported methods use this.
+            self._json(code, {"error": "request unavailable"})
 
         def _send(self, status, body, kind="application/json", cache="no-cache"):
-            origin = self.headers.get("Origin")
+            self._response_started = True
+            origin = getattr(self, "headers", {}).get("Origin")
             etag = '"' + hashlib.sha256(body).hexdigest() + '"' if status == 200 else None
             if etag and self.headers.get("If-None-Match") == etag:
                 status, body = 304, b""
@@ -132,13 +151,13 @@ def public_handler(builder, prefetcher, settings):
                 self.send_header("Access-Control-Expose-Headers", "ETag, Retry-After")
             if etag:
                 self.send_header("ETag", etag)
-            if status in (429, 503):
+            if status in (202, 408, 429) or status >= 500:
                 self.send_header("Retry-After", "5")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
             # No IP, query, headers, player position or user-agent in request logs.
-            route, _ = public_route(urlparse(self.path).path, settings["tile_bounds"])
+            route, _ = public_route(urlparse(getattr(self, "path", "")).path, settings["tile_bounds"])
             print(json.dumps({"http": status, "route": route}), flush=True)
 
         def _json(self, status, value):
@@ -308,7 +327,11 @@ def main():
                         multiplayer_present)
     idle.start()
     prefetcher.on_landed = lambda unit: builder.landed()
-    server = Server(("127.0.0.1", int(os.environ.get("TURKU3D_DRAFT_PORT", settings["port"]))), public_handler(builder, prefetcher, settings))
+    class PublicServer(Server):
+        # server_close joins admitted HTTP handlers before process exit.
+        daemon_threads = False
+
+    server = PublicServer(("127.0.0.1", int(os.environ.get("TURKU3D_DRAFT_PORT", settings["port"]))), public_handler(builder, prefetcher, settings))
 
     def stop(*_):
         builder.drain()
@@ -325,10 +348,10 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        server.server_close()
         builder.wait_drained()
         builder.stop()
         prefetcher.stop()
-        server.server_close()
 
 
 if __name__ == "__main__":

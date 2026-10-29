@@ -34,11 +34,18 @@ export const RESTARTING = 'drafts: service restarting';
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
 /** The service did not answer (connection error, or the dev server's 502-504 for it): it is restarting. */
-class ServiceDown extends Error {}
-const gatewayDown = (status: number) => status === 502 || status === 503 || status === 504;
+class ServiceDown extends Error { constructor(readonly retryAfter = 0) { super("draft service temporarily unavailable"); } }
+const gatewayDown = (status: number) => status === 408 || status === 429 || status >= 500;
+const backoff = (attempt: number) => Math.min(30_000, 2000 * 2 ** Math.min(attempt, 4)) * (0.75 + Math.random() * 0.5);
+const retryAfter = (response: Response) => {
+  const value = response.headers?.get('Retry-After');
+  if (!value) return 0;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(value) - Date.now()) || 0;
+};
 
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
-interface Outage { nextProbe: number; probing: boolean }
+interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
 interface CoarseFragment { pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
@@ -57,7 +64,7 @@ interface Entry {
   /** The service's build counter at this entry's last poll. */
   version?: number; visualHash?: string; refreshing?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
-  resident?: boolean;
+  resident?: boolean; retries?: number;
 }
 
 export interface CoarseHost {
@@ -279,11 +286,18 @@ export class CoarseTiles {
   }
 
   /** The service is restarting: one console line, then only status probes until it answers (`probe`). */
-  down() {
+  private nextWarning = -Infinity;
+  private warn(message: string) {
+    if (this.clock < this.nextWarning) return;
+    this.nextWarning = this.clock + 30_000;
+    console.warn(message);
+  }
+
+  down(error?: ServiceDown) {
     if (this.outage) return;
-    this.outage = { nextProbe: this.clock + PROBE_MS, probing: false };
+    this.outage = { nextProbe: this.clock + Math.max(PROBE_MS, error?.retryAfter ?? 0), probing: false, attempts: 0 };
     const message = this.remote ? 'drafts: remote service offline' : RESTARTING;
-    console.warn(`[coarse] ${message}: drafts paused until it answers again`);
+    this.warn(`[coarse] ${message}: drafts paused until it answers again`);
     this.show(message);
   }
 
@@ -295,9 +309,11 @@ export class CoarseTiles {
     outage.probing = true;
     const status = await this.fetch(new URL(`${this.root}${this.remote ? 'health' : 'status'}`, this.page).href,
       { cache: 'no-store', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
-      .then(r => r.ok ? r.json() as Promise<{ state?: string }> : null).catch(() => null);
+      .then(r => {
+        outage.nextProbe = this.clock + Math.max(this.remote ? backoff(outage.attempts++) : PROBE_MS, retryAfter(r));
+        return r.ok ? r.json() as Promise<{ state?: string }> : null;
+      }).catch(() => { outage.nextProbe = this.clock + (this.remote ? backoff(outage.attempts++) : PROBE_MS); return null; });
     outage.probing = false;
-    outage.nextProbe = this.clock + PROBE_MS;
     if (this.outage !== outage || !status || status.state === 'offline') return;
     this.outage = null;
     this.nextCheck = 0;
@@ -315,7 +331,7 @@ export class CoarseTiles {
     const immutable = /\.[0-9a-f]{64}\.(?:col|glb|json)(?:$|\?)/.test(href);
     try { res = await this.fetch(href, { cache: immutable ? 'default' : 'no-cache', signal: AbortSignal.timeout(30_000) }); }
     catch { throw new ServiceDown(); }
-    if (gatewayDown(res.status)) throw new ServiceDown();
+    if (gatewayDown(res.status)) throw new ServiceDown(retryAfter(res));
     return res;
   }
 
@@ -350,7 +366,7 @@ export class CoarseTiles {
       if (this.version < 0) for (const e of this.entries.values()) e.version = version;
       else this.nextCheck = 0;
       this.version = version;
-    } catch { this.down(); }
+    } catch (err) { this.down(err instanceof ServiceDown ? err : undefined); }
   }
 
   /** A replaced want-list releases old tiles immediately; a lost tab expires on the service. */
@@ -368,7 +384,7 @@ export class CoarseTiles {
         this.version = body.version;
         this.nextCheck = 0;
       }
-    } catch { this.down(); }
+    } catch (err) { this.down(err instanceof ServiceDown ? err : undefined); }
     finally { this.demandBusy = false; }
   }
 
@@ -380,9 +396,11 @@ export class CoarseTiles {
       if (!res.ok || res.status === 202) return;
       const fragment = await res.json() as CoarseFragment;
       await this.applyFragment(id, e, fragment);
+      e.retries = 0;
     } catch (err) {
-      if (err instanceof ServiceDown) this.down();
-      else console.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
+      if (err instanceof ServiceDown) this.down(err);
+      else this.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
+      e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1);
     } finally { e.refreshing = false; }
   }
 
@@ -458,10 +476,6 @@ export class CoarseTiles {
       let res = await this.request(`${this.root}${id}/collision.json${query}`);
       // Older producers remain usable while a source deployment is switching.
       if (res.status === 404) res = await this.request(`${this.root}${id}/manifest.json${query}`);
-      if (res.status === 429) {
-        e.state = 'pending'; e.error = 'queue full'; e.readyAt = undefined;
-        e.nextPoll = this.clock + 5000; return;
-      }
       if (res.status === 202) {
         const body = await res.json().catch(() => ({})) as { state?: string; missing?: string[]; eta?: number };
         e.readyAt = typeof body.eta === 'number' ? this.clock + 1000 * body.eta : undefined;
@@ -485,14 +499,15 @@ export class CoarseTiles {
       if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: no visible draft`);
       if (!load) { e.state = 'built'; e.nextPoll = 0; return; }
       await this.applyFragment(id, e, fragment);
+      e.retries = 0;
       e.nextPoll = this.clock + 2000;
     } catch (err) {
-      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = 0; this.down(); return; }
+      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1); this.down(err); return; }
       const rejected = err instanceof DraftRejected;
       // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.
-      e.state = rejected ? 'failed' : 'pending'; e.nextPoll = this.clock + (rejected ? RETRY_MS : 5000);
+      e.state = rejected ? 'failed' : 'pending'; e.nextPoll = this.clock + Math.max(rejected ? RETRY_MS : 0, backoff(e.retries = (e.retries ?? 0) + 1));
       if (rejected) e.error = (err as Error).message;
-      console.warn(`[coarse] ${id}: ${(err as Error).message}`);
+      this.warn(`[coarse] ${id}: ${(err as Error).message}`);
     }
   }
 
