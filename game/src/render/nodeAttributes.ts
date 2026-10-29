@@ -17,6 +17,11 @@ export class NodeAttributes {
   private buffers = new Map<object, { owners: Set<Owner>; attributes: Set<Attribute> }>();
   constructor(private remove: (attribute: Attribute) => void) {}
 
+  dispose() {
+    const owners = new Set([...this.buffers.values()].flatMap(record => [...record.owners]));
+    for (const owner of owners) owner.release();
+  }
+
   track(draw: Draw) {
     const attributes = draw.getAttributes();
     if (this.seen.get(draw) === attributes) return;
@@ -67,4 +72,5 @@ export function ownNodeAttributes(renderer: THREE.WebGPURenderer) {
   const ownership = new NodeAttributes(attribute => internal._attributes.delete(attribute));
   const geometries = internal._geometries, update = geometries.updateForRender;
   geometries.updateForRender = function(draw) { update.call(this, draw); ownership.track(draw); };
+  return () => { ownership.dispose(); geometries.updateForRender = update; };
 }

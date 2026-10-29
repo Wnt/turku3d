@@ -29,3 +29,11 @@ test('geometry retirement also releases generated fields, never ordinary geometr
   object.geometry.dispose(); disposeDraw(object);
   expect(remove).toHaveBeenCalledExactlyOnceWith(generated);
 });
+
+test('renderer retirement releases surviving owners once and removes their event listeners', () => {
+  const remove = vi.fn(), tracker = new NodeAttributes(remove), object = new THREE.Mesh(new THREE.BoxGeometry());
+  const generated = new THREE.Float32BufferAttribute([1, 2, 3], 3);
+  tracker.track({ object, geometry: object.geometry, getAttributes: () => [generated] });
+  tracker.dispose(); tracker.dispose(); disposeDraw(object); object.geometry.dispose();
+  expect(remove).toHaveBeenCalledExactlyOnceWith(generated);
+});
