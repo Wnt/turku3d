@@ -31,6 +31,13 @@ between runs, so total wall time is not a controlled comparison. Canonical colli
 triangles, winding and materials match bitwise on t0_6_-1 and t0_1_2: 32 cells,
 112,822 triangles. The 17 tunnel regression tests pass.
 
+Stair treads, risers and side faces now use native array batches and shared corner
+samples; flights safely outside the tile skip terrain preparation. Separate cProfile
+measurements of `stairs.produce` fall from 1.937 to 0.712 seconds on t0_2_0 and from
+0.601 to 0.016 seconds on t0_-3_1. Canonical collision triangles remain bitwise equal
+on both tiles: 32 cells and 94,379 triangles. Manifest timings now expose river-bank,
+stair geometry, stair ground cuts and kerb geometry separately from input preparation.
+
 ## Measurement method
 
 Hardware: OCI linux-aarch64, four Neoverse-N1 cores, 23 GB RAM. Real city inputs are
@@ -172,6 +179,12 @@ seconds in that identity path, including hashing 154 raw files under the schedul
 lock. Limiting that work to a recent recorded failure reduces the identical ten-request
 cold admission probe to 0.184 seconds. Both measurements include cProfile; they are
 request-admission measurements with no build workers, not tile-generation times.
+
+The first post-fix cold driving rerun is invalid: the shared data volume reached
+ENOSPC before the summary could be written. Its owned derived lidar caches and
+intermediate stages were removed after the process stopped. Production health then
+reported online with zero failed tiles. The diagnostic now requires 8 GiB initial
+headroom and aborts below 2 GiB free. No post-fix driving pass is claimed.
 
 ## Reproduction
 
