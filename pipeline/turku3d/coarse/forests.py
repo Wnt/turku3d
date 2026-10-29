@@ -168,15 +168,24 @@ def path_surfaces(inputs):
     ])
     if forest.is_empty:
         return []
-    corridors = shapely.union_all(path_lines(inputs.roads)).buffer(1.25).intersection(forest)
+    corridors = polygonal(shapely.union_all(path_lines(inputs.roads)).buffer(1.25).intersection(forest))
     if corridors.is_empty:
         return []
     # Gravel fallback for forest tracks; retain mapped asphalt/paving/soil where available.
-    return [(corridors, mat_id("gravel")), *[
-        (geom.intersection(corridors), material)
+    mapped = [
+        (polygonal(geom.intersection(corridors)), material)
         for geom, material in inputs.surfaces
         if material != mat_id("grass") and geom.intersects(corridors)
-    ]]
+    ]
+    return [(corridors, mat_id("gravel")), *[(g, m) for g, m in mapped if not g.is_empty]]
+
+
+def polygonal(geom):
+    # Snapped, valid, area-only regions: raw buffer/intersection slivers made the surface overlay
+    # in split_boundaries fail with GEOS "Unable to determine overlay result geometry dimension".
+    geom = shapely.make_valid(shapely.set_precision(geom, 0.01))
+    parts = [g for g in shapely.get_parts(geom) if g.geom_type in ("Polygon", "MultiPolygon") and g.area > 1e-4]
+    return shapely.union_all(parts) if parts else shapely.Polygon()
 
 
 def path_ground(tile, ortho, regions):
