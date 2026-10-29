@@ -13,11 +13,12 @@ mkdirSync(work, { recursive: true });
 const directory = mkdtempSync(join(work, 'mp-vehicles-'));
 const sockets = [];
 let app;
+let clockOffset = 0;
 const timeout = setTimeout(() => { for (const s of sockets) s.ws.terminate(); process.exitCode = 1; }, 12000);
 try {
   let url = process.argv[2];
   if (!url) {
-    app = createServer({ store: new ScoreStore(directory) });
+    app = createServer({ store: new ScoreStore(directory), now: () => Date.now() + clockOffset });
     app.server.listen(Number(process.env.TURKU3D_PORT_BASE ?? 5400) + 3, '127.0.0.1');
     await once(app.server, 'listening');
     url = `ws://127.0.0.1:${app.server.address().port}`;
@@ -50,8 +51,15 @@ try {
     pose: { ...pose, mode: 'car', vehicle: 'player' } });
   const acquired = await a.wait(m => m.type === 'vehicle_result' && m.request === 'take-a');
   assert.equal(acquired.ok, true);
+  if (app) {
+    clockOffset += 65_000;
+    app.room.tick();
+    assert.equal(app.room.vehicles.entries.get(id).occupant, a.welcome.you.id);
+    a.send({ type: 'pose', ...pose, mode: 'car', vehicle: 'player', vehicleId: id });
+  }
   b.send({ type: 'vehicle', action: 'acquire', request: 'race', id });
-  assert.equal((await b.wait(m => m.type === 'vehicle_result' && m.request === 'race')).ok, false);
+  const raced = await b.wait(m => m.type === 'vehicle_result' && m.request === 'race');
+  assert.equal(raced.ok, false); assert.equal(raced.reason, 'seat_taken');
   a.send({ type: 'vehicle', action: 'release', request: 'leave', id });
   assert.equal((await a.wait(m => m.type === 'vehicle_result' && m.request === 'leave')).ok, true);
   const c = await connect();
@@ -61,8 +69,20 @@ try {
   assert.equal(transfer.ok, true); assert.equal(transfer.vehicle.owner, b.welcome.you.id);
   assert.equal(transfer.vehicle.epoch, acquired.vehicle.epoch + 1);
   const rejoined = await connect(b.welcome.session);
-  assert.ok(rejoined.welcome.vehicles.upsert.some(v => v.id === id && !v.occupant && v.owner === b.welcome.you.id));
-  console.log(JSON.stringify({ ok: true, protocol: 2, sharedVehicles: true, seatRace: true, release: true, lateJoin: true, transfer: true, reconnect: true }));
+  assert.ok(rejoined.welcome.vehicles.upsert.some(v => v.id === id && v.occupant === b.welcome.you.id && v.owner === b.welcome.you.id));
+  rejoined.send({ type: 'vehicle', action: 'acquire', request: 'reclaim', id });
+  const reclaimed = await rejoined.wait(m => m.type === 'vehicle_result' && m.request === 'reclaim');
+  assert.equal(reclaimed.ok, true); assert.equal(reclaimed.vehicle.epoch, transfer.vehicle.epoch);
+  const closed = once(rejoined.ws, 'close');
+  rejoined.ws.close(); await closed;
+  a.send({ type: 'vehicle', action: 'acquire', request: 'reserved', id });
+  assert.equal((await a.wait(m => m.type === 'vehicle_result' && m.request === 'reserved')).reason, 'seat_taken');
+  const restored = await connect(b.welcome.session);
+  assert.ok(restored.welcome.vehicles.upsert.some(v => v.id === id && v.occupant === b.welcome.you.id));
+  restored.send({ type: 'vehicle', action: 'release', request: 'cleanup', id });
+  assert.equal((await restored.wait(m => m.type === 'vehicle_result' && m.request === 'cleanup')).ok, true);
+  console.log(JSON.stringify({ ok: true, protocol: 2, sharedVehicles: true, seatRace: true, release: true, lateJoin: true,
+    transfer: true, reconnect: true, socketReplacement: true, disconnectReservation: true, ...(app ? { stallOverLease: true } : {}) }));
 } finally {
   clearTimeout(timeout);
   for (const { ws } of sockets) ws.terminate();

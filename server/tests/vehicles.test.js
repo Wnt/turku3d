@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { fixture, pose } from './helpers.js';
 import { VEHICLE_LIMITS } from '../vehicles.js';
 import { contactImpulse, TUNING } from '../vehicle-contact.js';
+import { LIMITS } from '../room.js';
 
 function car(client, change = {}) {
   const id = `${client.welcome.you.id}:player`;
@@ -33,6 +34,8 @@ test('parked seat race is atomic, ownership transfers and old epoch updates cann
   const command = car(a, { id: 'park:bay', source: 'bay', action: 'acquire' });
   a.send(command); b.send(command);
   assert.equal(result(a).ok, true); assert.equal(result(b).ok, false);
+  assert.equal(result(b).reason, 'seat_taken');
+  assert.equal(result(b).vehicle.occupant, a.welcome.you.id);
   const old = result(a).vehicle;
   a.send({ type: 'vehicle', action: 'release', id: old.id, request: 'leave' });
   b.send({ type: 'vehicle', action: 'acquire', id: old.id, request: 'take' });
@@ -42,6 +45,55 @@ test('parked seat race is atomic, ownership transfers and old epoch updates cann
   b.send({ ...pose, vehicles: [{ id: old.id, epoch: old.epoch, pose: { ...old.pose, E: 900 } }] });
   assert.equal(f.room.vehicles.entries.get(old.id).pose.E, old.pose.E);
   assert.equal(f.room.stats.rejected, 2);
+});
+
+test('a connected driver keeps the seat through idle and vehicle lifetimes and can resume poses', () => {
+  const f = fixture(), a = f.connect(); a.send(pose);
+  a.send(car(a, { action: 'acquire' }));
+  const v = result(a).vehicle;
+  f.advance(LIMITS.idleMs + 1);
+  assert.equal(f.room.livePlayers().length, 0);
+  assert.equal(f.room.vehicles.entries.get(v.id).occupant, a.welcome.you.id);
+  f.advance(VEHICLE_LIMITS.lifetime + 1);
+  const b = f.connect(); b.send(pose);
+  b.send({ type: 'vehicle', action: 'acquire', id: v.id, request: 'race-after-stall' });
+  assert.equal(result(b).reason, 'seat_taken');
+  a.send({ ...v.pose, type: 'pose', vehicleId: v.id });
+  assert.equal(f.room.players.get(a.welcome.you.id).online, true);
+  assert.equal(f.room.stats.rejected, 0);
+  assert.equal(f.room.vehicles.entries.get(v.id).epoch, v.epoch);
+});
+
+test('driving reconnect and socket replacement retain the seat even far from the last player pose', () => {
+  const f = fixture('2026-10-27T12:59:50Z'), a = f.connect(); a.send(pose);
+  a.send(car(a, { action: 'acquire' }));
+  const v = result(a).vehicle;
+  a.send({ ...pose, vehicles: [{ id: v.id, epoch: v.epoch, pose: { ...v.pose, E: pose.E + 226 } }] });
+  f.room.disconnect(a.c);
+  f.advance(20_000); // Reconnect reservation survives a score-hour boundary too.
+  const b = f.connect(a.welcome.session);
+  assert.equal(b.welcome.you.id, a.welcome.you.id);
+  assert.equal(b.welcome.vehicles.upsert.find(x => x.id === v.id).occupant, b.welcome.you.id);
+  b.send({ type: 'vehicle', action: 'acquire', id: v.id, request: 'reclaim' });
+  assert.equal(result(b).ok, true);
+  assert.equal(result(b).vehicle.epoch, v.epoch);
+  const c = f.connect(a.welcome.session);
+  assert.equal(c.welcome.vehicles.upsert.find(x => x.id === v.id).occupant, c.welcome.you.id);
+  assert.deepEqual(b.closes, [[4001, 'session replaced']]);
+});
+
+test('only an explicit exit or a departed holder after reconnect grace allows another driver', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
+  a.send(car(a, { action: 'acquire' }));
+  const v = result(a).vehicle;
+  f.room.disconnect(a.c);
+  f.advance(VEHICLE_LIMITS.reconnectMs - 1);
+  b.send({ type: 'vehicle', action: 'acquire', id: v.id, request: 'too-soon' });
+  assert.equal(result(b).reason, 'seat_taken');
+  f.advance(1);
+  b.send({ type: 'vehicle', action: 'acquire', id: v.id, request: 'departed' });
+  assert.equal(result(b).ok, true);
+  assert.equal(result(b).vehicle.epoch, v.epoch + 1);
 });
 
 test('interest deltas send resting cars once, remove distant replicas, keep global slot reservations', () => {
