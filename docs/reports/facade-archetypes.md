@@ -8,11 +8,13 @@ or image generation runs at request time.
 
 ## Authority and painting
 
-Existing per-building facade maps bind first, unchanged. Otherwise the compiler
-samples a program, applies an existing AI description, then overlays supported
-fields from a reviewed program on its own matching wall. A wall must match the
-building ID, outward normal, line and overlap. Unknown measured fields do not erase
-supported priors. Unreviewed programs do not override rules.
+Directly reviewed programs own the observed fields on their matching wall, ahead
+of older generated maps, descriptions and sampled rules. Other walls keep their
+stored maps or description/rule treatment. A wall must match the building ID,
+outward normal, line and a meaningful overlap; a roof fragment can extend beyond
+the observed span. The painter clips observations to that overlap. Unknown measured
+fields do not erase supported priors. Unreviewed programs do not override rules.
+The rejected scaffold-covered pilot (1032959071) retains its existing treatment.
 
 Register storeys remain authoritative, including conflicting geometry. OSM storeys
 are not promoted to register measurements. Missing counts stay null and the rule
@@ -66,7 +68,8 @@ The compiler preserves the separately calibrated register colour table from
 [wall-palette-calibration.md](wall-palette-calibration.md), which uses capture
 round 3. Raw measured photographic RGB includes exposure and shadow, so it does
 not replace that table unless a program explicitly declares calibrated albedo.
-Existing validated AI colours and stored maps retain their precedence.
+On reviewed walls the calibrated register palette remains unless the program explicitly
+declares calibrated albedo. Other walls retain existing AI colours and stored maps.
 
 All 21,774 unique IDs in 339 cached LOD2 and 20 cached GIS/Kanta files receive an
 archetype. This covers the available register cache, not uncached city records;
@@ -228,3 +231,40 @@ The renderer command expects the local evidence tiles and dev server on the
 sandbox's port. The inventory writes a JSON report under the sandbox work root.
 The shared measurement evidence is documented separately in
 [the Linnankatu pilot](../research/facade-linnankatu-pilot.md).
+
+
+## Reviewed pilot application and opening heads (2026-10-29)
+
+OCI's earlier `source: rule-sampled` was misleading: individual walls already
+carried `measured_wall_id`, but stored-map binding could bypass those instructions.
+Diagnostics now expose the actual `paint_source` of every wall, a stable generated
+`wall_id`, the reviewed `measured_wall_id` separately, and the building `part_id`.
+Buildings with a reviewed wall advertise `source: reviewed-overlay`.
+
+Opening sections (`windows`, `base`, `doors`) accept a provenance-wrapped
+`head_shape`: `flat`, `segmental-arch` or `round-arch`. `windows.head_shapes` is a
+parallel list for individual `rectangles_m`; a door candidate can override its
+section with a scalar `head_shape`. Missing fields retain a supported prior.
+Archetypes sample heads from a separate stable stream for historic/civic families.
+The painter warps the atlas opening/frame to a circular cap, including portals,
+and samples wall PBR outside the curved head. Flat v4 instructions remain readable;
+head codes use the existing detail attribute and add no GPU buffers or textures.
+Openings clipped by roof fragments retain the full opening origin and dimensions.
+
+Linnankatu 20 has fourteen upper rectangles (seven flat top heads, seven arched
+middle heads), six arched ground windows and one arched central portal. These
+three observed opening rows do not change the register storey count. Linnankatu's
+other explicitly reviewed arch observations are retained in their own programs.
+
+To report every pilot building/part/wall from rebuilt tile diagnostics, run:
+
+```sh
+python3 tools/research/facade_characterization/pilot_sources.py "$TURKU3D_WORK/coarse"
+python3 tools/research/facade_characterization/pilot_sources.py "$TURKU3D_WORK/coarse" --markdown
+```
+
+The audit requires every accepted pilot to bind a reviewed wall, rejects missing
+paint provenance, and lists every other wall's stored-map, description or rule
+source. It explicitly allows the scaffold-rejected pilot to retain its priors.
+Only requested tiles revalidate; changed appearance stages reuse structural and
+collision caches. No area rebuild, screenshot or drive check is required.

@@ -78,7 +78,7 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     style = compile_wall(wall, 4)
     style["origin"][1] = 2
     parts = list(wall_parts(vertices, wall, style))
-    patches = [row for row in parts if row[2]["detail"][3] == 1]
+    patches = [row for row in parts if row[2]["detail"][3] > 0 and row[2]["detail"][3] % 4 == 1]
     assert len(patches) == 2
     assert [row[2]["origin"] for row in patches] == [[1, 3], [8, 3]]
     assert [row[2]["size"] for row in patches] == [[2, 2], [3, 2]]
@@ -205,3 +205,75 @@ def test_cached_dated_footprints_and_osm_tags_feed_fallback(tmp_path):
     # Missing OSM still allows register/LOD2 neighbourhood inference.
     without_osm = _prepare_one(C.VisualTile(0, 0, 0), "appearance", [None, lod2])
     assert without_osm["dated_footprints"][0][:2] == ("dated", 1890)
+
+
+def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_wall(monkeypatch):
+    from types import SimpleNamespace
+
+    import shapely
+    from turku3d import facade_programs as fp
+    from turku3d.coarse import stored_facades as sf
+    from turku3d.facade_kit import renderer
+
+    reviewed = program()["walls"][0]
+    reviewed.update(width_m=8, height_m=12, geometry=dict(
+        p0=[C.ORIGIN_E, C.ORIGIN_N], p1=[C.ORIGIN_E + 8, C.ORIGIN_N],
+        base_h=3, normal=[0, 0, -1]),
+        observation=dict(needs_review=False, scope="full-wall"))
+    reviewed["windows"].update(rectangles_m=[[1, 1, 2, 2]], head_shape={"value": "round-arch"})
+    reviewed["doors"].update(candidates=[{"rect_m": [4, 0, 1, 3]}], head_shape={"value": "segmental-arch"})
+    reviewed["split"]["base_height_m"] = {"value": 2}
+    monkeypatch.setattr(fp, "measured", lambda key: dict(needs_review=False, walls=[reviewed]))
+    description = renderer().register_description("stable", "stable", {}, 10, 12)
+    description["wall_colour"] = "#123456"
+    monkeypatch.setattr(fp, "read_description", lambda key: description)
+    facades = [dict(coordinates=[[C.ORIGIN_E, C.ORIGIN_N - z],
+                                [C.ORIGIN_E + 10, C.ORIGIN_N - z]],
+                    base_height=3, metadata=dict(facade_index=i)) for i, z in enumerate((0, 2))]
+    monkeypatch.setattr(sf, "building", lambda key: dict(facades=facades))
+    vertices = np.array([[0, 3, 0], [10, 3, 0], [10, 15, 0], [0, 15, 0]], float)
+    b = SimpleNamespace(key="part", facade_key="stable", base=3, top=15,
+                        footprint=shapely.box(0, 0, 10, 2), attributes={"levels": 4})
+    meshes = sf.wall_meshes(b, np.concatenate([vertices, vertices + [0, 0, 2]]), np.zeros(3))
+    diagnostic = meshes[0].extras["facade_program"]
+    assert diagnostic["storeys"]["value"] == 4
+    assert diagnostic["source"] == "reviewed-overlay"
+    assert [w["paint_source"] for w in diagnostic["walls"]] == ["reviewed-program", "stored-facade-map"]
+    assert [m.extras.get("facade_index") for m in meshes if m.extras["material_key"] == "facade_stored"] == [1]
+    wall = diagnostic["walls"][0]
+    assert wall["wall_id"] == "stable:0"
+    assert wall["wall"]["colour"]["source"] == "register palette"
+    assert wall["wall"]["colour"]["value"] != "#123456"
+    assert compile_wall(wall, 4)["ground"] == 2
+    instructions = meshes[-1].extras["facade_kit_walls"]
+    assert [p["detail"][3] for p in instructions if p["detail"][3] > 0] == [9, 6]
+    # 80% map coverage is deliberately unnecessary for a clipped reviewed span.
+    reviewed["geometry"]["p1"][0] = C.ORIGIN_E + 4
+    assert matching_wall(vertices, dict(needs_review=False, walls=[reviewed])) is reviewed
+
+
+def test_pilot_bank_has_three_observed_rows_and_arches_without_changing_register():
+    from turku3d.facade_programs import measured
+
+    bank = measured("1032959104")
+    wall = bank["walls"][0]
+    assert len(wall["windows"]["rectangles_m"]) == 14
+    assert wall["windows"]["head_shapes"].count("round-arch") == 7
+    assert wall["windows"]["head_shapes"].count("flat") == 7
+    assert len(wall["base"]["openings_m"]) == 6
+    assert wall["base"]["head_shape"]["value"] == "round-arch"
+    assert wall["doors"]["head_shape"]["value"] == "round-arch"
+
+
+def test_arch_opening_split_across_fragments_keeps_whole_opening_origin():
+    wall = program()["walls"][0]
+    wall.update(measured_geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N],
+        p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2), measured_size=[23.3, 10])
+    wall["windows"].update(rectangles_m=[[3, 1, 4, 3]], head_shapes=["round-arch"])
+    vertices = np.array([[5, 2, 0], [10, 2, 0], [10, 12, 0], [5, 12, 0]], float)
+    parts = list(wall_parts(vertices, wall, compile_wall(wall, 4)))
+    patch = next(p for p in parts if p[2]["detail"][3] == 9)
+    assert patch[2]["origin"] == [-2, 3]
+    assert patch[2]["size"] == [4, 3]
+    assert patch[0][:, 0].min() == 5
+    assert patch[0][:, 0].max() == 7

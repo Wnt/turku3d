@@ -5,6 +5,7 @@ import copy
 import numpy as np
 
 from turku3d import config as C
+from turku3d.facade_programs import HEAD_SHAPES, field
 
 
 def wall_parts(vertices, wall, style):
@@ -90,12 +91,16 @@ def wall_parts(vertices, wall, style):
                     "detail": [0, 0, 0, 0],
                 }
                 yield part[0] + normal * 0.002, part[1], band
-    boxes = [(r, 1) for r in wall["windows"].get("rectangles_m", [])]
-    boxes += [(r, 1) for r in wall["base"].get("openings_m", [])]
-    boxes += [(d["rect_m"], 2) for d in wall["doors"].get("candidates", []) if "rect_m" in d]
-    for (x, y, w, h), kind in boxes:
-        left, right = sorted([offset + x * sign, offset + (x + w) * sign])
-        left, right = max(x0, left), min(x1, right)
+    windows = wall["windows"]
+    shapes = windows.get("head_shapes", [])
+    boxes = [(r, 1, shapes[i] if i < len(shapes) else field(windows, "head_shape", "flat"))
+             for i, r in enumerate(windows.get("rectangles_m", []))]
+    boxes += [(r, 1, field(wall["base"], "head_shape", "flat")) for r in wall["base"].get("openings_m", [])]
+    boxes += [(d["rect_m"], 2, d.get("head_shape", field(wall["doors"], "head_shape", "flat")))
+              for d in wall["doors"].get("candidates", []) if "rect_m" in d]
+    for (x, y, w, h), kind, shape in boxes:
+        source_left, source_right = sorted([offset + x * sign, offset + (x + w) * sign])
+        left, right = max(x0, source_left), min(x1, source_right)
         bottom, top = max(y0, y0 + y), min(y1, y0 + y + h)
         part = quad(left, right, bottom, top)
         if not part:
@@ -106,15 +111,15 @@ def wall_parts(vertices, wall, style):
         material = style["module"] // 6 if style["module"] < 42 else style["module"] - 42
         patch.update(
             module=material * 6 + (1 if kind == 2 else 0),
-            bay=right - left,
-            storey=top - bottom,
-            ground=2 * (top - bottom) if kind == 2 else 0.001,
-            upper=top - bottom,
-            size=[right - left, top - bottom],
-            origin=[left, bottom],
+            bay=w,
+            storey=h,
+            ground=2 * h if kind == 2 else 0.001,
+            upper=h,
+            size=[w, h],
+            origin=[source_left, y0 + y],
             bands=[0, 0, 0, 0],
             opening=[0.98, 0.95, 0.02, 0],
-            detail=[0, 0, 0, kind],
+            detail=[0, 0, 0, kind + 4 * HEAD_SHAPES.get(shape, 0)],
         )
         yield points, uv, patch
     # Reviewed balcony rails are positioned rectangles, not a repeated bay pattern.

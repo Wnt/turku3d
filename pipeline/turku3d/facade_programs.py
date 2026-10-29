@@ -1,6 +1,6 @@
 """Resolve facade programs and compile metric wall instructions for the shared atlas.
 
-Stored generated maps bind first in coarse.stored_facades. Existing descriptions
+Reviewed walls override stored generated maps in coarse.stored_facades. Existing descriptions
 override rules; reviewed photographed wall fields then override only their own wall.
 No measured count changes register storeys. Null fields never erase a supported prior.
 """
@@ -77,7 +77,7 @@ def overlay(target, source):
 def matching_wall(vertices, program):
     if not program or program.get("needs_review", True):
         return None
-    from turku3d.coarse.stored_facades import match_wall
+    from turku3d.coarse.stored_facades import match_prepared, prepare_walls
 
     facades = []
     for wall in program.get("walls", []):
@@ -98,7 +98,10 @@ def matching_wall(vertices, program):
                     wall=wall,
                 )
             )
-    match = match_wall(vertices, facades)
+    # Roof fragments may extend beyond the surveyed span. Match any meaningful
+    # collinear overlap; wall_parts clips the observation and preserves the rest.
+    length = float(np.linalg.norm(vertices[1] - vertices[0]))
+    match = match_prepared(vertices, prepare_walls(facades), min_coverage=max(0.02, 0.1 / max(length, 0.1)))
     return match[0]["wall"] if match else None
 
 
@@ -190,6 +193,7 @@ def resolve(building, vertices, eaves):
         frontage_m=max(g["width_m"] for g in geometry),
     )
     program = sample(building.facade_key, attrs, geometry)
+    program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
     fallback = renderer().register_description(
         str(building.facade_key),
@@ -213,25 +217,33 @@ def resolve(building, vertices, eaves):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         if own:
             # Geometry dimensions and register storeys belong to this actual generated shell.
-            colour = copy.deepcopy(wall["wall"]["colour"])
-            base_colour = copy.deepcopy(wall["base"]["colour"])
+            colour = dict(value=fallback["wall_colour"], source="register palette", support=0)
+            base_colour = copy.deepcopy(colour)
             overlay(
                 wall,
                 {
                     k: v
                     for k, v in own.items()
-                    if k not in ("width_m", "height_m", "split", "geometry", "observation")
+                    if k not in ("wall_id", "width_m", "height_m", "geometry", "observation")
                 },
             )
             wall["observation"] = copy.deepcopy(own["observation"])
             wall["measured_wall_id"] = own["wall_id"]
             wall["measured_geometry"] = copy.deepcopy(own.get("geometry", {}))
             wall["measured_size"] = [own["width_m"], own["height_m"]]
+            wall["paint_source"] = "reviewed-program"
             # Uncalibrated photographed RGB includes light/shadow; do not call it pigment.
             if "calibrated albedo" != own.get("observation", {}).get("colour_space"):
                 wall["wall"]["colour"] = colour
                 wall["base"]["colour"] = base_colour
+    reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
+    if reviewed:
+        program["source"] = "reviewed-overlay"
+        program["representative_wall"] = reviewed[0]["measured_wall_id"]
     return program
+
+
+HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2}
 
 
 def compile_wall(wall, floors):
@@ -287,7 +299,8 @@ def compile_wall(wall, floors):
         detail=[
             0.1 if wall["bays"].get("rhythm") == "paired" else 0,
             int(bool(field(wall, "balconies", []))),
-            int(ground_kind == "plain"),
-            0,
+            int(ground_kind == "plain") + 2 * HEAD_SHAPES.get(
+                field(wall["doors"] if ground_kind == "doors" else wall["base"], "head_shape", "flat"), 0),
+            -HEAD_SHAPES.get(field(wall["windows"], "head_shape", "flat"), 0),
         ],
     )

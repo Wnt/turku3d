@@ -429,6 +429,10 @@ def sample(building_id, attrs, geometry):
     if attrs.get("levels_source") == "osm":
         floors = None
     floors = int(floors) if isinstance(floors, (int, float)) and floors > 0 else None
+    heads = ("flat", "segmental-arch", "round-arch") if r["archetype"] in (
+        "neo_renaissance", "jugend", "civic", "empire", "nordic_classicism"
+    ) else ("flat",)
+    head = random.Random(stable_seed(seed_id, "head_shape")).choice(heads)
     v = lambda x: value(x, "rule sample")  # noqa: E731
     walls = []
     for g in geometry:
@@ -468,6 +472,7 @@ def sample(building_id, attrs, geometry):
                     rhythm=r["rhythm"],
                 ),
                 windows=dict(
+                    head_shape=v(head),
                     size_m=v([pitch * r["window"], wh]),
                     aspect=v(pitch * r["window"] / wh),
                     rectangles_m=[],
@@ -484,8 +489,9 @@ def sample(building_id, attrs, geometry):
                     shopfront=v(r["ground"] == "shops"),
                     variant=v(r["ground"]),
                     openings_m=[],
+                    head_shape=v(head),
                 ),
-                doors=dict(candidates=[], type=v("single"), canopy=unknown()),
+                doors=dict(candidates=[], type=v("single"), canopy=unknown(), head_shape=v(head)),
                 trim=dict(
                     cornice=v(r["cornice"]),
                     string_courses=v(r["courses"]),
