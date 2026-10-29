@@ -14,8 +14,11 @@ class Openings:
     heights: list = field(default_factory=list)
 
     def add(self, mesh, height):
-        self.floors.extend(mesh.positions[mesh.indices])
-        self.heights.extend([height] * len(mesh.indices))
+        triangles = mesh.positions[mesh.indices]
+        normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        triangles = triangles[abs(normal[:, 1]) > 1e-10]
+        self.floors.extend(triangles)
+        self.heights.extend([height] * len(triangles))
 
     def carve(self, positions, indices, uvs=None):
         """Return clipped triangles and their original owners, including vertical walls.
