@@ -53,6 +53,15 @@ the building-level stone prior addresses the reported wrong cladding without
 inventing a measured floor boundary. Source forms remain available for a later
 supported material-band reading.
 
+## Deployed finding and forward fix
+
+The first OCI run built `t0_0_0` first/full in **1.799 / 33.640 seconds**,
+with **46 buildings / 16 collision cells** matching source. Its assertion then
+caught enriched OSM `osm_use=retail` selecting `shopping` before the registered
+1887 era could select historicist details. The one forward fix retains explicit
+pre-1930 period style for retail buildings while keeping their shop ground
+floors. The acceptance assertion is unchanged.
+
 ## Displacement inventory
 
 Read-only evaluation of the previous reviewed-wall eligibility against retained

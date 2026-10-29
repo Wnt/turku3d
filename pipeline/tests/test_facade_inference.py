@@ -99,3 +99,19 @@ def test_existing_uncalibrated_patch_is_a_wall_local_prior_not_discarded():
     assert 'uncalibrated' in wall['wall']['colour']['source']
     assert other['wall']['colour']['value'] != '#ac958b'
     assert wall['appearance_details']['pilasters']['value']
+
+
+def test_real_historic_retail_attributes_keep_style_and_shops():
+    from turkutex.facade_archetypes import archetype, sample
+    attrs = dict(construction_year=1887, era='1850-1919', levels=3,
+                 levels_source='register', material_class='brick', use='1150',
+                 osm_use='retail', ground_floor='shops', register_id='103295896N')
+    assert archetype(attrs) == 'neo_renaissance'
+    assert archetype({**attrs, 'construction_year': 1909}) == 'jugend'
+    assert archetype({**attrs, 'construction_year': 1980}) == 'shopping'
+    program = sample('103295896N', attrs, [dict(wall_id='street',width_m=40,height_m=15)])
+    assert program['walls'][0]['base']['variant']['value'] == 'shops'
+    from turku3d.facade_inference import apply_prior
+    wall = program['walls'][0]
+    apply_prior(wall, program['archetype'], attrs, dict(wall_id='street'), {})
+    assert wall['appearance_details']['pilasters']['value']

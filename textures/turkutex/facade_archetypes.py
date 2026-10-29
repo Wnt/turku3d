@@ -310,7 +310,12 @@ def archetype(attrs):
         return "warehouse"
     if use in ("industrial", "factory", "workshop"):
         return "industrial_brick" if material == "brick" or year and year < 1950 else "warehouse"
-    if use in ("retail", "supermarket", "mall"):
+    # Ground-floor commerce does not turn a dated historic facade into a mall.
+    # Keep the explicit shop use for recipe() while selecting its period style.
+    historic_retail = (year is not None and year < 1930) or (
+        year is None and attrs.get("era") in ("pre-1850", "1850-1919")
+    )
+    if use in ("retail", "supermarket", "mall") and not historic_retail:
         return "shopping"
     if use in ("school", "university", "civic", "church", "museum", "hospital"):
         return "civic"
