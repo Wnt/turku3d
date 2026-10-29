@@ -274,7 +274,7 @@ async function runPlay() {
   const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
-    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,
+    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
     loadingScreen, syncClock: time => dayClock.synchronize(time), clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in

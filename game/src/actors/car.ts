@@ -103,7 +103,8 @@ export class ParkedCarVisuals {
   private rotation = new THREE.Quaternion();
   private scale = new THREE.Vector3(1, 1, 1);
 
-  constructor(private readonly scene: THREE.Object3D) {}
+  constructor(private readonly scene: THREE.Object3D,
+    private readonly prepare: (model: THREE.Object3D) => Promise<void> = async () => {}) {}
 
   async load(manifest: Manifest) {
     this.manifest = manifest;
@@ -133,7 +134,6 @@ export class ParkedCarVisuals {
         this.scene.add(previous.mesh);
         continue;
       }
-      if (previous) { previous.mesh.removeFromParent(); previous.mesh.dispose(); }
       const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(members.length)));
       const mesh = new THREE.InstancedMesh(source.geometry, source.material, capacity);
       mesh.count = members.length;
@@ -141,6 +141,11 @@ export class ParkedCarVisuals {
       members.forEach((_car, i) => mesh.setMatrixAt(i, hidden));
       mesh.name = `parked/${key}`;
       mesh.castShadow = true; mesh.receiveShadow = true;
+      // Instanced node graphs are object-specific even when native pipelines are cached.
+      // Keep the old batch resident until all colour passes and uploads for its replacement are ready.
+      try { await this.prepare(mesh); }
+      catch (error) { mesh.dispose(); throw error; }
+      if (previous) { previous.mesh.removeFromParent(); previous.mesh.dispose(); }
       this.scene.add(mesh);
       this.groups.set(key, { mesh, cars: members });
     }
