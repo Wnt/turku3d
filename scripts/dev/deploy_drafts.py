@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from facade_publish import HOST, SSH, remote
+from lan_freeze import guard_command
 
 HOME = "/home/ubuntu/turku3d-drafts"
 
@@ -28,14 +29,13 @@ for directory in ('pipeline', 'textures', 'tools/remote-drafts', 'game/public/ba
   if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc':
    h.update(p.relative_to(root).as_posix().encode()); h.update(b'\\0'); h.update(p.read_bytes())
 print(h.hexdigest())
-""".replace('DESTINATION', repr(destination))
+""".replace("DESTINATION", repr(destination))
     return "python3 -c " + shlex.quote(script)
 
 
 def deploy_multiplayer(destination):
     return remote(
-        f"{HOME}/run.sh bash {destination}/tools/remote-drafts/update-multiplayer.sh "
-        f"{destination}"
+        f"{HOME}/run.sh bash {destination}/tools/remote-drafts/update-multiplayer.sh {destination}"
     )
 
 
@@ -58,8 +58,12 @@ def deploy(repo, commit):
     previous = remote(f"readlink -f {HOME}/repo")
     if previous == destination:
         multiplayer = deploy_multiplayer(destination)
-        return dict(commit=commit, seconds=round(time.monotonic() - started, 3),
-                    reused=True, multiplayer=multiplayer)
+        return dict(
+            commit=commit,
+            seconds=round(time.monotonic() - started, 3),
+            reused=True,
+            multiplayer=multiplayer,
+        )
     result = subprocess.run(
         [
             "rsync",
@@ -81,9 +85,13 @@ def deploy(repo, commit):
         old_hash = pool.submit(remote, generator_hash_command(previous))
         generator_changed = new_hash.result() != old_hash.result()
     if not generator_changed:
-        return dict(commit=commit, seconds=round(time.monotonic() - started, 3),
-                    generator_unchanged=True,
-                    multiplayer=deploy_multiplayer(destination))
+        return dict(
+            commit=commit,
+            seconds=round(time.monotonic() - started, 3),
+            generator_unchanged=True,
+            multiplayer=deploy_multiplayer(destination),
+        )
+    remote(guard_command())
     # Keep the old producer serving while a standby binds the alternate port. Its
     # workers stay paused until the proxy switches. Tile locks serialize any
     # overlap with retiring workers, which finish their existing builds.
@@ -128,6 +136,8 @@ else: raise SystemExit('standby draft producer did not become ready within5s')
     instance = remote("python3 -c " + shlex.quote(health))
     upstream = (source / "tools/remote-drafts/draft-upstream.caddy").read_text().replace(":7765", f":{port}")
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
+    # Recheck immediately before switching: upload/standby startup can cross the cutoff.
+    remote(guard_command())
     remote(
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
         f"mv {HOME}/repo {HOME}/repo-initial-{uuid.uuid4().hex}; fi && "
@@ -149,10 +159,12 @@ while time.monotonic()<end:
 else: raise SystemExit('proxy did not switch to standby within5s')
 """
     remote("python3 -c " + shlex.quote(switched))
-    remote("if test -f ~/.config/systemd/user/turku-drafts-prebuild.service; then "
-           "systemctl --user stop turku-drafts-prebuild; fi && "
-           f"systemctl --user stop --no-block {old_unit} && "
-           f"systemctl --user disable {old_unit}")
+    remote(
+        "if test -f ~/.config/systemd/user/turku-drafts-prebuild.service; then "
+        "systemctl --user stop turku-drafts-prebuild; fi && "
+        f"systemctl --user stop --no-block {old_unit} && "
+        f"systemctl --user disable {old_unit}"
+    )
     # Cache relocation/compression is a completed one-time maintenance operation,
     # not deployment work. Running it here would race retiring cache writers.
     restarted = remote(

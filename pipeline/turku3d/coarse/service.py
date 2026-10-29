@@ -24,17 +24,17 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
-from .packaging import current_code
-from .collision_key import current_code as current_collision_code
-from .serving import retained_fragment as collision_fragment
 from .collision import current as collision_current
+from .collision import fragment as collision_fragment
+from .collision_key import current_code as current_collision_code
 from .demand import Demand, write_snapshot
+from .packaging import current_code
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
+from .serving import retained_fragment as collision_fragment
 from .sources import NoCoverage, Sources, Unit
 from .upgrade_queue import next_job, next_upgrade
 from .worker_pool import Workers
-from .build_health import BuildHealth
 
 REPO = Path(__file__).resolve().parents[3]
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
@@ -180,7 +180,9 @@ class Builder:
             for k in range(workers)
         ]
         if workers:
-            self.threads.append(threading.Thread(target=self._maintain, name="coarse-demand", daemon=True))
+            self.threads.append(
+                threading.Thread(target=self._maintain, name="coarse-demand", daemon=True)
+            )
         for thread in self.threads:
             thread.start()
 
@@ -238,7 +240,11 @@ class Builder:
         if "building_keys" in m and m.get("facade_params") != parameter_hash(m["building_keys"]):
             return False
         try:
-            key = (self.structural_input_key or self.input_key) if m.get("pass_kind") == "first" else self.input_key
+            key = (
+                (self.structural_input_key or self.input_key)
+                if m.get("pass_kind") == "first"
+                else self.input_key
+            )
             now = key(tile)
         except NoCoverage:
             return True
@@ -274,9 +280,11 @@ class Builder:
                 self.priority[tile] = distance
                 order = self._prune()
                 self.lock.notify_all()
-                return ({"state": "queued", "position": order.index(tile),
-                         "eta": self.eta()[tile]} if tile in self.priority
-                        else {"state": "deferred"})
+                return (
+                    {"state": "queued", "position": order.index(tile), "eta": self.eta()[tile]}
+                    if tile in self.priority
+                    else {"state": "deferred"}
+                )
             if self.built(tile):
                 self.requested[tile] = time.time()
                 if self.two_pass and tile not in self.upgrading and self.manifest(tile).exists():
@@ -318,7 +326,7 @@ class Builder:
             missing = self.inputs(tile)
         except NoCoverage as e:
             with self.lock:
-                self.failed[tile] = (str(e), time.time())
+                self.failed[tile] = (f"NoCoverage: {e}", time.time())
                 self.failure_codes[tile] = self.failure_key(tile)
             return {"state": "failed", "error": str(e)}
         with self.lock:
@@ -388,7 +396,9 @@ class Builder:
         }
         full_mean = sum(self.full_recent) / len(self.full_recent) if self.full_recent else 30.0
         occupied = [max(0.5, full_mean - (now - self.building[t])) for t in self.upgrading]
-        free = sorted([*out.values(), *occupied, *[0.0] * max(0, self.workers - len(self.building))])
+        free = sorted(
+            [*out.values(), *occupied, *[0.0] * max(0, self.workers - len(self.building))]
+        )
         for tile in self.order():
             start = heapq.heappop(free) if free else 0.0
             out[tile] = start + mean
@@ -433,7 +443,12 @@ class Builder:
             started = time.perf_counter()
             out = self.root / tile
             proc = (
-                self.run(tile, out, first_pass=not upgrade, on_started=lambda: self._worker_started(tile))
+                self.run(
+                    tile,
+                    out,
+                    first_pass=not upgrade,
+                    on_started=lambda tile=tile: self._worker_started(tile),
+                )
                 if self.two_pass
                 else self.run(tile, out)
             )
@@ -451,14 +466,19 @@ class Builder:
                     units = json.loads(proc.stdout.strip().splitlines()[-1])["pending"]
                     self.pending[tile] = (units, distance)
                     outcome = "pending"
-                elif proc.returncode == 0 and (self.built(tile) or
-                        (self.two_pass and collision_current(self, tile) is not None)):
+                elif proc.returncode == 0 and (
+                    self.built(tile)
+                    or (self.two_pass and collision_current(self, tile) is not None)
+                ):
                     self.pending.pop(tile, None)
                     self.failed.pop(tile, None)
                     self.failure_codes.pop(tile, None)
                     visual_ready = self.built(tile)
-                    m = (json.loads(self.manifest(tile).read_text()) if visual_ready
-                         else collision_current(self, tile))
+                    m = (
+                        json.loads(self.manifest(tile).read_text())
+                        if visual_ready
+                        else collision_current(self, tile)
+                    )
                     previous = self.timings.pop(tile, {})
                     self.timings[tile] = {"service": round(seconds, 3), **m.get("seconds", {})}
                     first = (
@@ -501,10 +521,14 @@ class Builder:
                     tail = (proc.stderr or proc.stdout).strip().splitlines()[-1:] or [
                         "build failed"
                     ]
-                    self.failure_count += 1
+                    unavailable = error_kind(tail[0]) == "NoCoverage"
+                    if unavailable:
+                        outcome = "unavailable"
+                    else:
+                        self.failure_count += 1
                     self.failed[tile] = (tail[0][:500], time.time())
                     self.failure_codes[tile] = self.failure_key(tile)
-                    if upgrade:
+                    if upgrade and not unavailable:
                         self.upgrade_queue.add(tile)
                 if (
                     tile not in self.pending
@@ -514,17 +538,33 @@ class Builder:
                     self.requested.pop(tile, None)
                 from turku3d.stage_cache import finish_report
 
-                finish_report(out / "stage-times.json", outcome, proc.stderr if outcome == "FAILED" else None)
+                finish_report(
+                    out / "stage-times.json", outcome, proc.stderr if outcome == "FAILED" else None
+                )
                 self.lock.notify_all()
-                self.build_health.record("full" if upgrade or not self.two_pass else "first",
-                                         outcome, seconds, proc.stderr or proc.stdout)
-                print(json.dumps({"job": tile, "at": time.time(), "seconds": round(seconds, 3),
-                                  "pass": "full" if upgrade else "first", "outcome": outcome}), flush=True)
+                self.build_health.record(
+                    "full" if upgrade or not self.two_pass else "first",
+                    outcome,
+                    seconds,
+                    proc.stderr or proc.stdout,
+                )
+                print(
+                    json.dumps(
+                        {
+                            "job": tile,
+                            "at": time.time(),
+                            "seconds": round(seconds, 3),
+                            "pass": "full" if upgrade else "first",
+                            "outcome": outcome,
+                        }
+                    ),
+                    flush=True,
+                )
                 print(
                     f"coarse {tile}: {outcome} ({'upgrade' if upgrade else 'first' if self.two_pass else 'full'}) in {seconds:.1f} s",
                     flush=True,
                 )
-            if outcome == "FAILED":
+            if outcome in ("FAILED", "unavailable"):
                 detail = (proc.stderr or proc.stdout).strip()
                 print(
                     f"coarse {tile} failure detail: {detail[-4000:]}", file=sys.stderr, flush=True
@@ -564,8 +604,10 @@ class Builder:
                 "state": "building" if self.building else "idle",
                 "building": sorted(self.building),
                 "upgrading": sorted(self.upgrading),
-                "foreground": sum(self.demand.rank(t) is not None
-                                  for t in set(order) | set(self.building) | set(self.pending)),
+                "foreground": sum(
+                    self.demand.rank(t) is not None
+                    for t in set(order) | set(self.building) | set(self.pending)
+                ),
                 "queued": len(order),
                 "queue": order[:STATUS_ITEMS],
                 "eta": {tile: eta[tile] for tile in shown},
@@ -661,6 +703,7 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
             parts = url.path.removeprefix("/coarse/").split("/", 1)
             if url.path == "/coarse/navigation.json":
                 from .navigation import navigation
+
                 try:
                     return self._send(200, navigation(builder.root), cache="public, max-age=300")
                 except Exception as error:
@@ -738,15 +781,22 @@ def serve(
         prefetcher = Prefetcher(sources, root=root)
 
         def inputs(tile: str) -> list[str]:
-            return [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile), first_pass=True)]
+            return [
+                u.key
+                for u in sources.missing_for_service(C.VisualTile.parse(tile), first_pass=True)
+            ]
 
         builder = Builder(
             root,
             inputs=inputs,
             on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
             input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile)),
-            structural_input_key=lambda tile: sources.input_key(C.VisualTile.parse(tile), first_pass=True),
-            enrichment_inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))],
+            structural_input_key=lambda tile: sources.input_key(
+                C.VisualTile.parse(tile), first_pass=True
+            ),
+            enrichment_inputs=lambda tile: [
+                u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))
+            ],
         )
         prefetcher.on_landed = lambda unit: builder.landed()
     server = Server((host, port), handler(builder, prefetcher))
