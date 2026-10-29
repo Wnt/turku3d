@@ -41,6 +41,7 @@ from .retention import managed_build
 from .sources import Sources
 from .stages import (
     building_visual,
+    cached_terrain,
     kerb_inputs,
     props_visual,
     roof_crop,
@@ -239,30 +240,7 @@ def build(
     base = Path(__file__).parents[1]
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
-    grid_pos, grid_idx, materials, wet, level = cache.run(
-        "terrain",
-        source_key(
-            terrain_stage,
-            grid_mesh,
-            water_mask,
-            water_level,
-            surfaces.classify,
-            Path(gardens.__file__),
-            *common,
-        ),
-        [
-            tile,
-            inputs.heights,
-            inputs.gardens,
-            inputs.points,
-            inputs.ortho,
-            inputs.streets,
-            inputs.surfaces,
-            inputs.water,
-            bool(inputs.roads and inputs.roads.get("bridge_ways")),
-        ],
-        lambda: terrain_stage(tile, inputs),
-    )
+    grid_pos, grid_idx, materials, wet, level = cached_terrain(cache, tile, inputs, common)
     from .bridge_access import cached_stage
 
     grid_pos, osm_decks, decks, bridge_roads = cached_stage(
@@ -680,6 +658,7 @@ def build(
         "building_visual",
         source_key(
             building_visual,
+            cached_terrain,
             roof_crop,
             roof_fallback,
             valid_roof_pixels,

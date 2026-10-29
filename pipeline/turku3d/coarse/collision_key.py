@@ -47,10 +47,15 @@ def structural_source(path):
     source = path.read_bytes()
     if path.name == "stored_facades.py" and path.parent.name == "coarse":
         # Both passes use wall ownership; only the full pass binds facade paint.
-        functions = [node for node in ast.parse(source).body
-                     if isinstance(node, ast.FunctionDef)
-                     and node.name in {"exposed_wall_quads", "assemble_walls"}]
-        return ast.dump(ast.Module(body=functions, type_ignores=[]), include_attributes=False).encode()
+        functions = [
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"exposed_wall_quads", "assemble_walls"}
+        ]
+        return ast.dump(
+            ast.Module(body=functions, type_ignores=[]), include_attributes=False
+        ).encode()
     if path.name not in {"build.py", "stages.py"} or path.parent.name != "coarse":
         return source
     nodes = ast.parse(source).body
@@ -61,7 +66,7 @@ def structural_source(path):
                 selected.append(node)
             continue
         if path.name == "stages.py":
-            if node.name in {"deck_stage", "kerb_inputs"}:
+            if node.name in {"deck_stage", "kerb_inputs", "cached_terrain"}:
                 selected.append(node)
             continue
         if node.name in {"jpeg", "ortho_uv", "default_library"}:

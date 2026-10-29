@@ -99,8 +99,8 @@ def roof_crop(tile, roof, photo, fallback):
     if photo is not None:
         start, end = np.maximum(low, 0), np.minimum(high, size)
         if np.all(end > start):
-            source = photo[start[1]:end[1], start[0]:end[0]]
-            target = crop[start[1]-low[1]:end[1]-low[1], start[0]-low[0]:end[0]-low[0]]
+            source = photo[start[1] : end[1], start[0] : end[0]]
+            target = crop[start[1] - low[1] : end[1] - low[1], start[0] - low[0] : end[0] - low[0]]
             good = valid_roof_pixels(source)
             target[good] = source[good]
     out = io.BytesIO()
@@ -146,3 +146,38 @@ def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
     for deck in osm_decks:
         deck.height_at = None
     return grid_pos, osm_decks, decks, roads
+
+
+def cached_terrain(cache, tile, inputs, common):
+    """Keep the structural terrain cache orchestration outside the tile build body."""
+    from pathlib import Path
+
+    from turku3d.stage_cache import source_key
+
+    from . import gardens, surfaces
+    from .build import grid_mesh, terrain_stage, water_level, water_mask
+
+    return cache.run(
+        "terrain",
+        source_key(
+            terrain_stage,
+            grid_mesh,
+            water_mask,
+            water_level,
+            surfaces.classify,
+            Path(gardens.__file__),
+            *common,
+        ),
+        [
+            tile,
+            inputs.heights,
+            inputs.gardens,
+            inputs.points,
+            inputs.ortho,
+            inputs.streets,
+            inputs.surfaces,
+            inputs.water,
+            bool(inputs.roads and inputs.roads.get("bridge_ways")),
+        ],
+        lambda: terrain_stage(tile, inputs),
+    )
