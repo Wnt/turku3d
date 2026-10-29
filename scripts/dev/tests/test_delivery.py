@@ -222,6 +222,16 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "one forward fix"):
                 post_deploy.validate_fix("failed")
 
+    def test_async_browser_probe_uses_one_admission_and_retains_budget_wrapper(self):
+        command = (
+            "python3 scripts/dev/host_slots.py browser node probe.mjs "
+            '"https://example.test/?dev=1&backend=webgpu"'
+        )
+        self.assertEqual(post_deploy.admitted_command(command), command)
+        for raw in ("node probe.mjs", command + "; node extra.mjs", command + "\nnode extra.mjs"):
+            admitted = post_deploy.admitted_command(raw)
+            self.assertIn("host_slots.py build -- /bin/sh -c", admitted)
+
     def test_merge_does_not_advance_main_when_selected_checks_fail(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)

@@ -4,6 +4,7 @@ import argparse
 import contextlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -15,6 +16,25 @@ import coordination as coord
 import sandbox as s
 
 SECONDS = 600
+
+
+def admitted_command(command):
+    # Explicit reservations already enforce admission and the browser budget.
+    # A second bulk reservation can starve light GPU probes under build load.
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    parts = list(lexer)
+    operators = any(p and all(c in ";&|()<>" for c in p) for p in parts)
+    if (
+        len(parts) >= 4
+        and Path(parts[0]).name.startswith("python")
+        and parts[1] == "scripts/dev/host_slots.py"
+        and parts[2] in ("browser", "build", "check")
+        and "\n" not in command
+        and not operators
+    ):
+        return command
+    return f"{sys.executable} scripts/dev/host_slots.py build -- /bin/sh -c " + shlex.quote(command)
 
 
 def history():
@@ -116,13 +136,9 @@ def work(file):
     request = json.loads(file.read_text())
     root, repo = file.parent, file.parent / "repo"
     env = dict(os.environ)
-    # Queue time is included in the ten-minute wall budget. Async work uses bulk
-    # capacity and cannot reserve the publishing or short-check lanes.
-    commands = [
-        f"{sys.executable} scripts/dev/host_slots.py build -- /bin/sh -c "
-        + __import__("shlex").quote(command)
-        for command in request["commands"]
-    ]
+    # Queue time is included in the ten-minute wall budget. Respect an explicit
+    # host_slots reservation; unclassified commands use bulk capacity.
+    commands = [admitted_command(command) for command in request["commands"]]
     remaining = max(0.001, SECONDS - (time.time() - request["created"]))
     result = bounded_checks.commands(
         commands, cwd=repo, env=env, directory=root / "logs", seconds=remaining
