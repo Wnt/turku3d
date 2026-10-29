@@ -65,3 +65,12 @@ python3 scripts/dev/probe_warm_arrival.py --commit "$(git rev-parse HEAD)"
 ```
 
 Raw reports stay in `$TURKU3D_WORK/reports/`: stage-invalidations.json, warm-before-merge.log and tile-arrival/. The owned OCI evidence root is `/srv/turku3d/work/arrival-warm-cache-15f5f5f1ffa4/coarse`.
+
+
+## Deployment and forward correction
+
+Initial slice `3c06dd35`: selected35 cases and mandatory policies passed in14.615s; OCI activated in16.884s at19:45:55UTC. Curl smoke completed0.505s: integration endpoints up, health red (38full built,4failed,0cancelled;90.5% success,p5038.639s).
+
+The first137.928s async run completed both real OCI warm pairs with correct46/24 buildings and16 cells per tile, zero failures/cancellations: spawn first/full7.518/24.170s; bridge7.699/71.746s. It failed before browser traversal because the public menu no longer exposes the old multiplayer selector. Concurrent deployments later changed the active source again; frozen OCI results remain tied to3c06dd35.
+
+The one forward correction uses the measured public-menu text selector and fixes raw-wait admission: pending data uses no worker slot, its lease stays current until landing, and background raw waits remain bounded to the worker count. Prepared warm tiles continue building while those raw downloads wait. NoCoverage/unavailable accounting from LAN readiness is preserved. The linked deployed probe includes a deliberately held raw-input tile ahead of both real warm tiles.
