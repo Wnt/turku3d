@@ -7,6 +7,8 @@ import { UploadBudget } from './uploadBudget';
 export function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
   const textures = new Set<THREE.Texture>();
   const visited = new Set<THREE.Material>();
+  const nodes = new Set<Node>();
+  const pending: Node[] = [];
   scene.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -15,13 +17,20 @@ export function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
       visited.add(material);
       for (const value of Object.values(material)) {
         if (value?.isTexture) textures.add(value);
-        else if (value?.isNode) (value as Node).traverse(node => {
-          const map = (node as Node & { value?: THREE.Texture }).value;
-          if (map?.isTexture) textures.add(map);
-        });
+        else if (value?.isNode) pending.push(value as Node);
       }
     }
   });
+  // TSL is a shared graph, not a tree. Node.traverse revisits every path through
+  // common expressions (exponential for ground shaders), even across material slots.
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (nodes.has(node)) continue;
+    nodes.add(node);
+    const map = (node as Node & { value?: THREE.Texture }).value;
+    if (map?.isTexture) textures.add(map);
+    for (const child of node.getChildren()) if (!nodes.has(child)) pending.push(child);
+  }
   return textures;
 }
 
