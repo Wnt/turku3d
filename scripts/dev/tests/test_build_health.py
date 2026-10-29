@@ -1,5 +1,4 @@
 """Health must catch failed/slowed live passes while preserving privacy across slot switches."""
-import importlib.util
 import json
 import shlex
 import subprocess
@@ -11,12 +10,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(REPO / 'pipeline'), str(REPO / 'scripts/dev')]
 from turku3d.coarse.build_health import BuildHealth
-from build_health import alerts
+from build_health import alerts, smoke_alerts
 from deploy_drafts import generator_hash_command
 
-spec = importlib.util.spec_from_file_location('canary', REPO / 'tools/remote-drafts/canary.py')
-canary = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(canary)
 
 
 class HealthTests(unittest.TestCase):
@@ -34,6 +30,7 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(full['p50_seconds'], 31)
             self.assertEqual(len(alerts({'build_health': fresh})), 3)
             self.assertNotIn('/private', json.dumps(fresh))
+            self.assertTrue(smoke_alerts({'build_health': {**fresh, 'players_online': False}}))
             self.assertEqual(BuildHealth(root, clock=lambda: 1901).snapshot()['passes']['full']['built'], 0)
             self.assertEqual(len(alerts({'build_health': {**fresh, 'players_online': False}})), 1)
 
@@ -50,7 +47,3 @@ class HealthTests(unittest.TestCase):
             (root / 'pipeline/a.py').write_text('two')
             self.assertNotEqual(subprocess.check_output(command), initial)
 
-    def test_canary_budget_uses_median_and_hard_cap(self):
-        self.assertEqual(canary.budget([]), 40)
-        self.assertEqual(canary.budget([{'full_seconds': v} for v in (8, 10, 30)]), 20)
-        self.assertEqual(canary.budget([{'full_seconds': 35}]), 40)

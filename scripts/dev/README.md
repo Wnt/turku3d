@@ -165,9 +165,17 @@ source publication follows Pages rather than delaying it. A git push race is rep
 without an automatic publication retry. Pages already has its hosting configuration.
 
 After deployment, curl smoke probes have a five-second total wall budget, no browser.
+Read the health response: recent full-pass failures/cancellations or excessive latency
+make smoke red even when HTTP is 200. `/coarse/health` and `checks` expose rolling
+15-minute per-pass outcomes, p50/p90 and error kinds; the sentinel watches this signal.
 One agent-owned selective async run starts from frozen deployed source; it has ten
 minutes including bulk-slot waits. `checks` shows recent commands and outcomes so the
-agent can avoid repeating other agents' evidence. A failing run permits one forward
+agent can avoid repeating other agents' evidence. Choose evidence for the actual deployed
+change: generator work builds representative real tiles on OCI, first and full, checks
+outcomes/timing and compares counts with source inputs; client work exercises its feature.
+The agent selects commands, tiles, timing budgets and count expectations. Generic suites
+are no substitute. `scripts/dev/probe_drafts.py --commit SHA --tile TILE --first-budget N
+--full-budget N` is an optional real-build probe, never a deployment gate. A failing run permits one forward
 fix through `finish --fix-for JOB`; later failures go to the orchestrator. Results
 live under the task's `checks/` directory and survive sandbox removal.
 
