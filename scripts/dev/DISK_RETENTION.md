@@ -15,7 +15,12 @@ stores from eviction, and abandoned temporary directories are removed under that
 `scripts/dev/codex-task status <name>` reports the sandbox cache's allocated size and warns
 at 5 GiB, including tasks continuing with `--keep-sandbox`. `scripts/dev/wt rm <name>` reports
 cache bytes before removing the whole sandbox. `codex-task finish` without `--keep-sandbox`
-uses the same removal path, so `work/cache` is removed too. Stop owned processes first if
+uses the same removal path, so `work/cache` is removed too. Before either path deletes
+anything, `work/reports` moves to `~/turku3d/tasks/<task>/reports/` (or the configured
+`TURKU3D_TASKS_ROOT`). Markdown report links and task result links are rewritten to
+that durable location. Repeated task runs merge report directories; replaced files
+survive under the task's `reports-history/<timestamp>/` directory. An archive failure
+retains the sandbox rather than deleting evidence. Stop owned processes first if
 cleanup reports that the sandbox is retained.
 
 Synthetic retention checks:

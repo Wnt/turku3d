@@ -2,7 +2,8 @@
 
 Research only. Nothing here is imported by the OCI generator or publishes images.
 All paths containing photographs, model predictions, covariates, descriptors or
-contact sheets belong under `$TURKU3D_WORK`. The only committed evidence is aggregate
+contact sheets belong under `$TURKU3D_WORK` during exploration; retained pilot
+evidence belongs under `$TURKU3D_DATA/reports/facade-pilot/`. The only committed evidence is aggregate
 metrics and the research report. See `docs/research/facade-characterization.md`.
 
 Use a sandbox-owned venv. The shared conda environment encountered duplicate OpenMP
@@ -98,3 +99,8 @@ for scope, measured times, local contact sheets, colour failure and reproduction
 Public reviewed programs are `textures/library/facade-programs.json`; source photos
 and crop/patch evidence remain local. The commands below document the earlier
 automated experiment and must not be confused with reviewed output.
+
+To regenerate only the retained pilot sheets, use the durable root and the commands
+in the pilot report. `pilot.py` rectifies/masks its selected OCI panoramas;
+`sheets.py --root ROOT --programs textures/library/facade-programs.json` pairs those
+crops with stored programs without compiling or re-authoring any readings.
