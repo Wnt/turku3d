@@ -176,4 +176,7 @@ try {
     stale_versions:result.stale_versions,
     unsupported_seconds:result.unsupported_seconds,errors:[...errors,...result.errors]}));
   if(errors.length || result.errors.length) throw new Error('Client errors during arrival traversal');
+  if(process.env.ARRIVAL_REQUIRE_CACHE==='1' && (!result.worker.some(worker=>worker?.cache==='turku3d-immutable-v1')
+    || !result.cache.files || result.cache.bytes>192*1024*1024 || result.cache.files>4096))
+    throw new Error('Deployed immutable cache is missing or exceeds its storage budget');
 } finally {clearTimeout(hardStop);await context.close();await room.close();}
