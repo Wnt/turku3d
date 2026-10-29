@@ -197,9 +197,13 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
     owners = sorted({b.key for b, _ in shells})
     directory = Path(root) / ".wall-surfaces"
     directory.mkdir(parents=True, exist_ok=True)
-    records = directory / pass_kind
+    # Retiring producers still write first/*.json under the legacy global lock.
+    # Isolate first-pass records as well as admission so their temporary files
+    # cannot race during a rolling deployment. Full passes retain the old lock.
+    records = directory / ("first-v2" if pass_kind == "first" else pass_kind)
     records.mkdir(exist_ok=True)
-    with (directory / "admission.lock").open("a+b") as lock:
+    admission = (records if pass_kind == "first" else directory) / "admission.lock"
+    with admission.open("a+b") as lock:
         with report_cache.measure("wall_admission_wait") if report_cache else nullcontext():
             fcntl.flock(lock, fcntl.LOCK_EX)
         with report_cache.measure("wall_neighbour_processing") if report_cache else nullcontext():
