@@ -46,7 +46,6 @@
       #mp-scoreboard .mp-self { background: #31594f; color: #fff3ac; font-weight: 700; }
       #mp-scoreboard .mp-offline { opacity: .5; }
       #mp-scoreboard .mp-separated td { border-top: 1px solid #789199; }
-      #mp-scoreboard caption { caption-side: bottom; color: #bbced4; font-size: 10px; padding-top: 3px; }
       #mp-scoreboard .mp-countdown { color: #ffdb6d; font-weight: 700; }
       #mp-crash-flash { position: fixed; inset: 0; z-index: 3; background: #d12b20; opacity: 0; pointer-events: none; }
       #city-clock { position: fixed; left: 8px; top: 54px; padding: 4px 8px; background: #0008; border-radius: 4px; color: #e8eee9; font: 600 13px/1.4 system-ui, sans-serif; text-shadow: 0 1px 3px #000; pointer-events: none; }
@@ -133,9 +132,16 @@
       /* Touch play (input/touch.ts): thumb buttons over the scene; the canvas is the stick and look area. */
       #touch-controls { position: fixed; inset: 0; z-index: 9; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
       #touch-controls[hidden], #touch-controls [hidden] { display: none; }
-      .touch-stick { position: absolute; left: 0; top: 0; width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 50%; background: #ffffff1f; border: 2px solid #ffffff55; box-sizing: border-box; }
+      .touch-stick { position: absolute; left: 0; top: 0; width: 128px; height: 128px; margin: -64px 0 0 -64px; border-radius: 8px; background: #ffffff1f; border: 2px solid #ffffff55; box-sizing: border-box; }
       .touch-knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: #ffffff66; }
       .touch-buttons { position: absolute; right: calc(16px + env(safe-area-inset-right)); bottom: calc(16px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(2, 64px); gap: 10px; direction: rtl; }
+      /* A reserved top row keeps Map/Pause above every scoreboard row, including countdowns. */
+      body:has(#touch-controls:not([hidden])) #mp-scoreboard { top: calc(88px + env(safe-area-inset-top)); right: calc(12px + env(safe-area-inset-right)); max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); box-sizing: border-box; }
+      @media (max-width: 600px) {
+        #mp-scoreboard { font-size: 11px; }
+        #mp-scoreboard th, #mp-scoreboard td { padding: 2px 3px; }
+        #mp-scoreboard td:nth-child(2) { max-width: 115px; overflow: hidden; text-overflow: ellipsis; }
+      }
       .touch-corner { position: absolute; right: calc(12px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); display: flex; flex-direction: row-reverse; gap: 10px; }
       .touch-button { pointer-events: auto; touch-action: none; width: 64px; height: 64px; padding: 0; border-radius: 50%; border: 2px solid #ffffff80; background: #0b102080; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; font: 600 20px/1 system-ui, sans-serif; text-shadow: 0 1px 2px #000; direction: ltr; }
       .touch-button small { font-size: 9px; font-weight: 600; margin-top: 3px; letter-spacing: .02em; }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { Input, MOVE_CURVE, radial } from '../../src/input';
+import { Input, MOVE_CURVE } from '../../src/input';
 import { STICK_RADIUS, TOUCH_BUTTONS, TouchPad } from '../../src/input/touch';
 import { FullscreenPolicy, fullscreenHint, guardPause, mustBlock, type FullscreenFacts } from '../../src/ui/fullscreen';
 
@@ -7,13 +7,13 @@ afterEach(() => vi.unstubAllGlobals());
 const W = 844;
 
 describe('touch pad', () => {
-  test('the floating stick maps through the gamepad radial curve to move, steer, throttle and brake', () => {
+  test('the square stick has independent axes, saturates and never moves its initial origin', () => {
     const pad = new TouchPad();
     pad.down(1, 150, 250, W);
     expect(pad.sample().actions.moveY).toBe(0);
     pad.move(1, 150, 250 - STICK_RADIUS * 0.5);
     const half = pad.sample().actions;
-    expect(half.moveY).toBeCloseTo(radial(0, 0.5, MOVE_CURVE)[1]);
+    expect(half.moveY).toBeCloseTo(((0.5 - MOVE_CURVE.deadZone) / (1 - MOVE_CURVE.deadZone)) ** MOVE_CURVE.exponent);
     expect(half.moveX).toBe(0);
     expect(half.throttle).toBe(half.moveY); expect(half.brake).toBe(0);
     pad.move(1, 150, 250 + STICK_RADIUS);
@@ -21,12 +21,17 @@ describe('touch pad', () => {
     expect(back.moveY).toBeCloseTo(-1); expect(back.brake).toBeCloseTo(1); expect(back.throttle).toBe(0);
     pad.move(1, 150 + STICK_RADIUS * 0.1, 250);
     expect(pad.sample().actions.moveX, 'inside the dead zone').toBe(0);
-    // Beyond the radius the base follows the thumb, so pulling back right away reverses at once.
+    // Overshooting never moves the origin; input stays saturated until the thumb returns.
     pad.move(1, 150 + STICK_RADIUS * 3, 250);
     const right = pad.sample().actions;
     expect(right.moveX).toBeCloseTo(1); expect(right.steer).toBe(right.moveX);
-    expect(pad.stick).toEqual({ ox: 150 + STICK_RADIUS * 2, oy: 250, x: 150 + STICK_RADIUS * 3, y: 250 });
+    expect(pad.stick).toEqual({ ox: 150, oy: 250, x: 150 + STICK_RADIUS * 3, y: 250 });
     pad.move(1, 150 + STICK_RADIUS * 2, 250);
+    expect(pad.sample().actions.moveX).toBe(1);
+    pad.move(1, 150 + STICK_RADIUS, 250 - STICK_RADIUS);
+    expect(pad.sample().actions).toMatchObject({ steer: 1, throttle: 1, moveX: 1, moveY: 1 });
+    expect(pad.stick).toMatchObject({ ox: 150, oy: 250 });
+    pad.move(1, 150, 250);
     expect(pad.sample().actions.moveX).toBe(0);
     pad.up(1);
     expect(pad.stick).toBeNull();
@@ -107,14 +112,21 @@ test('Input merges touch into the same actions, edges, look and source', () => {
   expect(input.touchDevice).toBe(false);
   const pointer = (type: string, pointerId: number, clientX: number, clientY: number) =>
     el.dispatchEvent(Object.assign(new Event(type), { pointerType: 'touch', pointerId, clientX, clientY }));
+  input.setTouchContext('foot');
   pointer('pointerdown', 1, 150, 250);
   pointer('pointermove', 1, 150, 250 - STICK_RADIUS);
   pointer('pointerdown', 2, 600, 200);
-  pointer('pointermove', 2, 640, 200);
+  pointer('pointermove', 2, 640, 220);
   input.update(1 / 60);
   expect(input.source).toBe('touch');
   expect(input.actions.moveY).toBeCloseTo(1); expect(input.actions.throttle).toBeCloseTo(1);
+  expect(input.lookX).toBeCloseTo(40 * 0.0025 * 2, 6);
+  expect(input.lookY).toBeCloseTo(20 * 0.0025, 6);
+  input.setTouchContext('car');
+  pointer('pointermove', 2, 680, 240);
+  input.update(1 / 60);
   expect(input.lookX).toBeCloseTo(40 * 0.0025, 6);
+  expect(input.lookY).toBeCloseTo(20 * 0.0025, 6);
   expect(input.prompt('mission')).toBe('Ⓐ');
   pointer('pointerup', 1, 150, 250 - STICK_RADIUS);
   input.update(1 / 60);

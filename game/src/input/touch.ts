@@ -1,9 +1,9 @@
 // Touch input source: a floating stick on the left half of the game element, drag-to-look and pinch-to-zoom on the
 // right half, and thumb buttons for the action buttons. It produces the same actions as the keyboard and the gamepad;
 // `Input` (index.ts) owns the browser listeners and merges this source into its frame.
-import { DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, glyph, radial, type Action, type Actions, type Bindings } from './bindings';
+import { DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, glyph, clamp, type Action, type Actions, type Bindings } from './bindings';
 
-/** Thumb travel in CSS px for a full stick deflection; the base follows the thumb beyond it. */
+/** Thumb travel per axis in CSS px; the origin stays where the thumb first lands. */
 export const STICK_RADIUS = 64;
 /** Zoom steps per e-fold of pinch distance: about one mouse-wheel notch per 10 % pinch. */
 const PINCH_ZOOM = 10;
@@ -36,10 +36,7 @@ export class TouchPad {
   move(id: number, x: number, y: number) {
     const r = this.regions.get(id);
     if (!r) return;
-    if (r.kind === 'stick') {
-      const dx = x - r.ox, dy = y - r.oy, d = Math.hypot(dx, dy);
-      if (d > STICK_RADIUS) { r.ox = x - dx / d * STICK_RADIUS; r.oy = y - dy / d * STICK_RADIUS; }
-    } else {
+    if (r.kind === 'look') {
       const other = [...this.regions.entries()].find(([k, o]) => k !== id && o.kind === 'look')?.[1];
       if (other) {
         const before = Math.hypot(r.x - other.x, r.y - other.y), after = Math.hypot(x - other.x, y - other.y);
@@ -69,8 +66,10 @@ export class TouchPad {
     const actions = emptyActions();
     const s = this.stick;
     if (s) {
-      // Screen y grows downwards; a thumb pushed up is forward. Same circular dead zone and curve as the gamepad.
-      const [x, y] = radial((s.x - s.ox) / STICK_RADIUS, (s.oy - s.y) / STICK_RADIUS, MOVE_CURVE);
+      // Independent axes reach full throttle and steering together at a square corner.
+      const axis = (value: number) => Math.sign(value) * (Math.max(0, Math.abs(clamp(value)) - MOVE_CURVE.deadZone)
+        / (1 - MOVE_CURVE.deadZone)) ** MOVE_CURVE.exponent;
+      const x = axis((s.x - s.ox) / STICK_RADIUS), y = axis((s.oy - s.y) / STICK_RADIUS);
       actions.moveX = actions.steer = x;
       actions.moveY = y;
       actions.throttle = Math.max(0, y);
@@ -153,7 +152,7 @@ export class TouchOverlay {
     this.base.hidden = !stick;
     if (!stick) return;
     this.base.style.transform = `translate(${stick.ox}px, ${stick.oy}px)`;
-    this.knob.style.transform = `translate(${stick.x - stick.ox}px, ${stick.y - stick.oy}px)`;
+    this.knob.style.transform = `translate(${clamp(stick.x - stick.ox, -STICK_RADIUS, STICK_RADIUS)}px, ${clamp(stick.y - stick.oy, -STICK_RADIUS, STICK_RADIUS)}px)`;
   }
 
   dispose() { this.element.remove(); }

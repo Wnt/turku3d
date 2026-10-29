@@ -1,9 +1,10 @@
+import { devToolsEnabled } from '../core/localOnly';
 import type { Action, Input } from '../input';
 import { helpHidden, recordHelp, type HelpProgress } from '../core/helpLearning';
 
 /** Device-specific prompts for the current control mode. */
 export function controlsHelp(input: Input, mode: 'foot' | 'car', flying: boolean, paused: boolean, lost: boolean) {
-  const photo = ` · ${input.prompt('positionHud')} position · ${input.prompt('photoCharacter')} hide/show character · L copy position`;
+  const photo = devToolsEnabled(location) ? ` · ${input.prompt('positionHud')} position · ${input.prompt('photoCharacter')} hide/show character · L copy position` : '';
   return (paused ? `${input.prompt('pause')} Resume`
       : lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : mode === 'foot' && flying

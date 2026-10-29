@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { engineToEN, VISUAL_L0, TRUE_NORTH_GRID_BEARING_DEG } from '../core/origin';
 import { enToLatLon } from '../core/geographic';
+import { devToolsEnabled } from '../core/localOnly';
 import type { Input } from '../input';
 import type { VisualTiles } from '../world/tiles';
 
@@ -36,7 +37,7 @@ export function positionReadout(position: THREE.Vector3, direction: THREE.Vector
   ];
 }
 
-/** Separate from the developer HUD so screenshots always carry a compact camera pose. */
+/** Developer-only camera pose and photo controls, independent of the debug HUD. */
 export class PositionHud {
   readonly element = Object.assign(document.createElement('div'), { id: 'position-hud' });
   visible = true;
@@ -48,19 +49,21 @@ export class PositionHud {
   private noticeUntil = 0;
   private notice = '';
 
-  constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles) {
+  constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles, readonly enabled = devToolsEnabled(location)) {
     try { this.visible = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { /* Session default. */ }
+    this.visible &&= this.enabled;
     document.body.append(this.element);
     this.element.hidden = !this.visible;
   }
 
   handle(input: Input, playing: boolean) {
-    if (!playing) return;
+    if (!this.enabled || !playing) return;
     if (input.consume('positionHud')) this.toggle();
     if (input.consume('photoCharacter')) this.characterHidden = !this.characterHidden;
   }
 
   toggle() {
+    if (!this.enabled) return;
     this.visible = !this.visible;
     this.element.hidden = !this.visible;
     this.lastUpdate = -Infinity;
@@ -82,7 +85,7 @@ export class PositionHud {
   }
 
   update(now: number, playing: boolean) {
-    this.element.hidden = !playing || !this.visible;
+    this.element.hidden = !this.enabled || !playing || !this.visible;
     if (this.element.hidden || now - this.lastUpdate < 500) return;
     this.lastUpdate = now;
     this.element.textContent = [...this.lines(), ...(now < this.noticeUntil ? [this.notice] : [])].join('\n');
@@ -90,6 +93,7 @@ export class PositionHud {
 
   /** Called directly from the keyboard gesture so Clipboard API activation is retained. */
   async copy() {
+    if (!this.enabled) return;
     const text = this.lines().join(' · ');
     try {
       await navigator.clipboard.writeText(text);

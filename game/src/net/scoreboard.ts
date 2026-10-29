@@ -1,6 +1,6 @@
 import type { MenuHost, MenuPage } from '../ui/menu';
 import { multiplayerUrl, scoresUrl } from './config';
-import type { Hour, MultiplayerClient, Score } from './client';
+import { earnedAmount, type Hour, type MultiplayerClient, type Score } from './client';
 
 /** Top three plus self, with duplicate entries removed when self is already on the podium. */
 export function compactScores(scores: readonly Score[], nick: string | null): Score[] {
@@ -10,11 +10,11 @@ export function compactScores(scores: readonly Score[], nick: string | null): Sc
 }
 
 const row = (score: Pick<Score, 'rank' | 'nick' | 'earned' | 'deliveries'>) =>
-  `#${score.rank} ${score.nick} · Earned €${score.earned} · ${score.deliveries} ${score.deliveries === 1 ? 'delivery' : 'deliveries'}`;
+  `#${score.rank} ${score.nick} · Earned €${earnedAmount(score.earned)} · ${score.deliveries} ${score.deliveries === 1 ? 'delivery' : 'deliveries'}`;
 
 /** Historical money totals cannot be reconstructed into gross earnings. Keep their original rank. */
 export function normalizeArchivedScore(score: Score | (Omit<Score, 'earned'> & { money: number })): Score {
-  return { ...score, earned: 'earned' in score ? score.earned : score.money };
+  return { ...score, earned: earnedAmount('earned' in score ? score.earned : score.money) };
 }
 
 /** HUD summary and full menu page. Finished hours are fetched only when the menu opens or browses. */
@@ -76,13 +76,9 @@ export class Scoreboard {
       tr.classList.toggle('mp-offline', !score.online);
       if (score.nick === state.you?.nick) tr.setAttribute('aria-current', 'true');
       if (state.scores.indexOf(score) > 2) tr.classList.add('mp-separated');
-      for (const value of [score.rank, score.nick, `€${score.earned}`, score.deliveries]) {
+      for (const value of [score.rank, score.nick, `€${earnedAmount(score.earned)}`, score.deliveries]) {
         tr.insertCell().textContent = String(value);
       }
-    }
-    if (state.scores.length > visible.length) {
-      const caption = this.table.createCaption();
-      caption.textContent = `${state.scores.length} players · top 3 + you`;
     }
     if (this.host && this.index === -1) {
       this.displayedHour = state.hour;
