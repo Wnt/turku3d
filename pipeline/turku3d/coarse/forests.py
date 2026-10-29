@@ -335,3 +335,23 @@ def trunks(trees, ct):
         centre = (t.x - ct.origin[0], t.y + height / 2, t.z - ct.origin[2])
         result.append(Primitive.cylinder(mat_id("tree_trunk"), centre, height / 2, t.trunk_radius))
     return result
+
+
+def draft_trees(tile, grid_pos, trees, water, shells):
+    """OSM trees on dry ground outside buildings, as vegetation layer trees (unmeasured)."""
+    from .inputs import CELLS
+    from .surfaces import grid_height
+
+    heights = grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1)
+
+    blocked = shapely.union_all([*water, *(b.footprint for b, _ in shells)])
+    result = []
+    for object_id, x, z, height, conifer in trees:
+        if not blocked.is_empty and blocked.covers(shapely.Point(x, z)):
+            continue
+        tree = Tree(object_id, x, z, "osm", y=grid_height(tile, heights, x, z), height=height)
+        tree.crown_radius = float(np.clip(height * 0.3, 1.5, 7.0))
+        tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
+        tree.variant = VARIANTS[3] if conifer else variant("", height)
+        result.append(tree)
+    return result

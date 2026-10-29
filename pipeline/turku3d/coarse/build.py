@@ -30,6 +30,7 @@ from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 
 from . import banks, bridges, fences, kerbs, parked, surfaces
+from .forests import draft_trees
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
@@ -162,23 +163,6 @@ def grid_height(tile: C.VisualTile, grid_pos: np.ndarray, x: float, z: float) ->
     n = CELLS + 1
     heights = grid_pos[:, 1].reshape(n, n)
     return surfaces.grid_height(tile, heights, x, z)
-
-
-def draft_trees(tile, grid_pos, trees, water, shells):
-    """OSM trees on dry ground outside buildings, as vegetation layer trees (unmeasured)."""
-    from turku3d.vegetation.trees import VARIANTS, Tree, variant
-
-    blocked = shapely.union_all([*water, *(b.footprint for b, _ in shells)])
-    result = []
-    for object_id, x, z, height, conifer in trees:
-        if not blocked.is_empty and blocked.covers(shapely.Point(x, z)):
-            continue
-        tree = Tree(object_id, x, z, "osm", y=grid_height(tile, grid_pos, x, z), height=height)
-        tree.crown_radius = float(np.clip(height * 0.3, 1.5, 7.0))
-        tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
-        tree.variant = VARIANTS[3] if conifer else variant("", height)
-        result.append(tree)
-    return result
 
 
 def default_library() -> Path:
