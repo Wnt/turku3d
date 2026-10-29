@@ -17,6 +17,7 @@ def main():
     parser.add_argument("--demand-churn", action='store_true')
     parser.add_argument('--reuse-caches')
     parser.add_argument('--visual-baseline')
+    parser.add_argument('--audit', action='store_true')
     args = parser.parse_args()
     source = remote(f'readlink -f {HOME}/repo')
     if source != f'{HOME}/sources/{args.commit}':
@@ -33,6 +34,8 @@ def main():
         arguments += ['--reuse-caches', args.reuse_caches]
     if args.visual_baseline:
         arguments += ['--visual-baseline', args.visual_baseline]
+    if args.audit:
+        arguments += ['--audit']
     command = shlex.join(arguments)
     started = time.monotonic()
     try:

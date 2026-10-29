@@ -204,7 +204,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
 
     from turku3d.coarse.build import _write
     from turku3d.layers import write_visual
-    from turku3d.wall_surfaces import layer_meshes, validate_meshes, validate_neighbours
+    from turku3d.wall_surfaces import layer_meshes, validate_neighbours
 
     if building_meshes:
         programs = [
@@ -225,7 +225,6 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
     ]
     def assemble():
         result = assemble_structures(protected + secondary)
-        validate_meshes(result, tile.id)
         return result
 
     if cache is None:

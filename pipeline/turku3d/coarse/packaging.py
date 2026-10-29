@@ -176,6 +176,7 @@ def _package_visual(
         sharedTextureCache=str(work / ".compiled-textures"),
         coarseTerrain=False,
         draftTextures=True,
+        auditRoot=str(work / ".visual-audits"),
         facadeKit=None if first_pass else ensure_kit(work / "shared"),
         firstPass=first_pass,
     )
