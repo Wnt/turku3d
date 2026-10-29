@@ -689,3 +689,19 @@ def test_forest_open_outline_preserves_holes_and_buffers_open_tracks():
     assert not open_surface({"leisure": "park"})
     assert not open_surface({"leisure": "sports_centre", "indoor": "yes"})
     assert not open_surface({"leisure": "sports_centre", "building": "yes"})
+
+
+def test_multipart_building_has_one_tile_owner_and_shared_wall_context(tmp_path):
+    rows = [
+        dict(feature_key="multipart", surface_type=surface, measuredHeight="10",
+             geometry=_box_en(left, 10, right, 20, height))
+        for left, right in ((240, 249), (251, 255))
+        for surface, height in (("GroundSurface", 2), ("RoofSurface", 12))
+    ]
+    path = _frame(rows, tmp_path / "multipart.parquet")
+    left = prepare_wfs(C.VisualTile(0, 0, 0), path, None, None)
+    right = prepare_wfs(C.VisualTile(0, 1, 0), path, None, None)
+    assert len(left["buildings"]) == 2 and not left["wall_context"]
+    assert not right["buildings"] and len(right["wall_context"]) == 2
+    assert {b.visual_owner for b in left["buildings"] + right["wall_context"]} == {"t0_0_0"}
+    assert left["buildings"][1]._collision_owner == C.CollisionTile(3, 0)

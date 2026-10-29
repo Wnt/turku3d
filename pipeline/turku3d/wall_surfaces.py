@@ -14,7 +14,7 @@ def trapezoids(geometry):
         if polygon.geom_type != "Polygon" or polygon.area < 1e-9:
             continue
         cuts = sorted(set(shapely.get_coordinates(polygon)[:, 0]))
-        for left, right in zip(cuts, cuts[1:]):
+        for left, right in zip(cuts, cuts[1:], strict=False):
             if right - left < 1e-8:
                 continue
             slab = polygon.intersection(shapely.box(left, -10000, right, 10000))
@@ -25,8 +25,9 @@ def trapezoids(geometry):
                 lo = xy[np.isclose(xy[:, 0], left, atol=1e-8, rtol=0), 1]
                 hi = xy[np.isclose(xy[:, 0], right, atol=1e-8, rtol=0), 1]
                 if len(lo) and len(hi):
-                    yield np.array([[left, lo.min()], [right, hi.min()],
-                                    [right, hi.max()], [left, lo.max()]])
+                    yield np.array(
+                        [[left, lo.min()], [right, hi.min()], [right, hi.max()], [left, lo.max()]]
+                    )
 
 
 def paint_partition(layers, origin, direction):
@@ -34,7 +35,7 @@ def paint_partition(layers, origin, direction):
     covered = shapely.Polygon()
     result = []
     # Explicit paint priority replaces the old millimetre depth hierarchy.
-    for _, (points, uv, style, priority) in sorted(
+    for _, (points, uv, style, _priority) in sorted(
         enumerate(layers), key=lambda item: (item[1][3], item[0]), reverse=True
     ):
         polygon = shapely.make_valid(shapely.Polygon(uv))
@@ -52,7 +53,7 @@ def paint_partition(layers, origin, direction):
     return reversed(result)
 
 
-def overlaps(faces, ids):
+def overlaps(faces, ids, *, split=None):
     """Find positive-area overlap of simultaneously visible near-coplanar faces.
 
     Back-to-back solid boundaries cannot compete under backface culling. They
@@ -67,18 +68,25 @@ def overlaps(faces, ids):
     normals /= np.maximum(lengths[:, None], 1e-20)
     low = np.array([p.min(axis=0) for p in points])
     high = np.array([p.max(axis=0) for p in points])
-    bounds = shapely.box(low[:, 0] - DISTANCE, low[:, 2] - DISTANCE,
-                         high[:, 0] + DISTANCE, high[:, 2] + DISTANCE)
+    bounds = shapely.box(
+        low[:, 0] - DISTANCE, low[:, 2] - DISTANCE, high[:, 0] + DISTANCE, high[:, 2] + DISTANCE
+    )
     tree = shapely.STRtree(bounds)
     result = []
     for i, p in enumerate(points):
+        if split is not None and i < split:
+            continue
         # Only pairs with at least one vertical wall matter here (roof seams included).
         if lengths[i] < 1e-12:
             continue
         js = tree.query(bounds[i])
+        if split is not None:
+            js = js[js < split]
         js = js[(js < i) & (high[js, 1] > low[i, 1]) & (low[js, 1] < high[i, 1])]
-        js = js[(normals[js] @ normals[i] > PARALLEL)
-                & ((abs(normals[js, 1]) < .01) | (abs(normals[i, 1]) < .01))]
+        js = js[
+            (normals[js] @ normals[i] > PARALLEL)
+            & ((abs(normals[js, 1]) < 0.01) | (abs(normals[i, 1]) < 0.01))
+        ]
         if not len(js):
             continue
         direction = np.array([-normals[i, 2], 0, normals[i, 0]])
@@ -89,7 +97,7 @@ def overlaps(faces, ids):
             b = shapely.Polygon(np.c_[(q - p[0]) @ direction, q[:, 1]])
             # 50 micrometres is below float32 precision at long tile overhangs.
             # Touching tessellation edges are not overlapping surface interiors.
-            common = a.buffer(-.00005).intersection(b.buffer(-.00005))
+            common = a.buffer(-0.00005).intersection(b.buffer(-0.00005))
             if common.area <= MIN_AREA:
                 continue
             # Plane separation at shared frontage, not at distant edge endpoints.
@@ -109,7 +117,7 @@ def wall_faces(meshes):
         triangles = points[np.asarray(mesh.indices)]
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
         lengths = np.linalg.norm(normals, axis=1)
-        selected = np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < .02 * lengths))
+        selected = np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths))
         faces.extend(triangles[selected])
         owner = mesh.extras.get("building_id", mesh.name)
         ids.extend(f"{owner}/{mesh.name}/face:{i}" for i in selected)
@@ -157,8 +165,12 @@ def validate_neighbours(meshes, shells, tile, root):
     for local, identity in zip(local_faces, local_ids, strict=True):
         face = local + tile.origin
         lo, hi = face.min(axis=0), face.max(axis=0)
-        if (lo[0] > box.xmin + DISTANCE and hi[0] < box.xmax - DISTANCE
-                and lo[2] > box.zmin + DISTANCE and hi[2] < box.zmax - DISTANCE):
+        if (
+            lo[0] > box.xmin + DISTANCE
+            and hi[0] < box.xmax - DISTANCE
+            and lo[2] > box.zmin + DISTANCE
+            and hi[2] < box.zmax - DISTANCE
+        ):
             continue
         faces.append(face.tolist())
         ids.append(f"{tile.id}/{identity}")
@@ -178,10 +190,13 @@ def validate_neighbours(meshes, shells, tile, root):
                 duplicate = set(owners).intersection(record["owners"])
                 if duplicate:
                     raise ValueError(f"wall ownership {tile.id}/{neighbour}: {sorted(duplicate)}")
-                violations = overlaps(faces + record["faces"], ids + record["ids"])
+                violations = overlaps(
+                    faces + record["faces"], ids + record["ids"], split=len(faces)
+                )
                 # Both records have already passed their own tile check.
-                violations = [v for v in violations
-                              if v["first"].split('/')[0] != v["second"].split('/')[0]]
+                violations = [
+                    v for v in violations if v["first"].split("/")[0] != v["second"].split("/")[0]
+                ]
                 if violations:
                     raise ValueError(f"wall neighbour invariant {tile.id}: {violations[:20]}")
         path = directory / f"{tile.id}.json"
@@ -210,17 +225,28 @@ def layer_meshes(paths):
                 image, repeat = None, False
                 if "baseColorTexture" in pbr:
                     texture = document["textures"][pbr["baseColorTexture"]["index"]]
-                    view = document["bufferViews"][document["images"][texture["source"]]["bufferView"]]
-                    image = binary[view["byteOffset"]:view["byteOffset"] + view["byteLength"]]
+                    view = document["bufferViews"][
+                        document["images"][texture["source"]]["bufferView"]
+                    ]
+                    image = binary[view["byteOffset"] : view["byteOffset"] + view["byteLength"]]
                     repeat = document["samplers"][texture["sampler"]]["wrapS"] == 10497
-                meshes.append(GlbMesh(
-                    node.get("name", path.name),
-                    accessor_array(document, binary, attrs["POSITION"]),
-                    accessor_array(document, binary, primitive["indices"]).reshape(-1, 3),
-                    normals=accessor_array(document, binary, attrs["NORMAL"]) if "NORMAL" in attrs else None,
-                    uvs=accessor_array(document, binary, attrs["TEXCOORD_0"]) if "TEXCOORD_0" in attrs else None,
-                    image=image, repeat=repeat, color=tuple(pbr["baseColorFactor"]),
-                    roughness=pbr["roughnessFactor"], emissive=tuple(material.get("emissiveFactor", [0, 0, 0])),
-                    extras=node.get("extras", {}),
-                ))
+                meshes.append(
+                    GlbMesh(
+                        node.get("name", path.name),
+                        accessor_array(document, binary, attrs["POSITION"]),
+                        accessor_array(document, binary, primitive["indices"]).reshape(-1, 3),
+                        normals=accessor_array(document, binary, attrs["NORMAL"])
+                        if "NORMAL" in attrs
+                        else None,
+                        uvs=accessor_array(document, binary, attrs["TEXCOORD_0"])
+                        if "TEXCOORD_0" in attrs
+                        else None,
+                        image=image,
+                        repeat=repeat,
+                        color=tuple(pbr["baseColorFactor"]),
+                        roughness=pbr["roughnessFactor"],
+                        emissive=tuple(material.get("emissiveFactor", [0, 0, 0])),
+                        extras=node.get("extras", {}),
+                    )
+                )
     return meshes

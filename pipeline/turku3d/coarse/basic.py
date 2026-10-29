@@ -1,9 +1,10 @@
 """Cheap visible geometry paired with structural collision, without texture work."""
 
-import numpy as np
 import hashlib
 import json
 import time
+
+import numpy as np
 
 from turku3d.col.materials import mat_id, table
 from turku3d.package.gltf import GlbMesh, build_glb
@@ -57,8 +58,9 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None):
                 extras={"layer": "basic", "surface": name},
             )
         )
-    from .stored_facades import assemble_walls
     from turku3d.wall_surfaces import validate_meshes
+
+    from .stored_facades import assemble_walls
 
     building_meshes = []
     for (b, shell), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):

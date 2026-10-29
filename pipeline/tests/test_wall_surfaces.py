@@ -5,7 +5,6 @@ import copy
 import numpy as np
 import pytest
 import shapely
-
 from turku3d import config as C
 from turku3d.coarse.inputs import Building
 from turku3d.coarse.stored_facades import assemble_walls, exposed_wall_quads
@@ -20,23 +19,24 @@ def quad(x0=0, x1=10, bottom=0, top=10, z=0):
 
 
 def mesh(points, identity="test"):
-    return GlbMesh(identity, points, np.array([[0, 3, 2], [0, 2, 1]]),
-                   extras=dict(building_id=identity))
+    return GlbMesh(
+        identity, points, np.array([[0, 3, 2], [0, 2, 1]]), extras=dict(building_id=identity)
+    )
 
 
 def test_build_guard_reports_wall_ids_and_near_parallel_triangle_overlap():
     first = mesh(quad(), "first-building")
-    second = mesh(quad(z=.004), "second-building")
+    second = mesh(quad(z=0.004), "second-building")
     with pytest.raises(ValueError, match="first-building.*second-building"):
         validate_meshes([first, second], "t0_0_0")
-    second.positions[:, 2] = .02
+    second.positions[:, 2] = 0.02
     assert validate_meshes([first, second], "t0_0_0")["violations"] == 0
 
 
 def test_diverging_planes_are_partitioned_only_where_they_can_compete():
     first = quad()
-    second = quad(top=12, z=.004)
-    second[1:3, 2] = .010
+    second = quad(top=12, z=0.004)
+    second[1:3, 2] = 0.010
     result = exposed_wall_quads(np.concatenate([first, second])).reshape(-1, 4, 3)
     assert not overlaps(list(result), [str(i) for i in range(len(result))])
     assert any(p[:, 0].min() > 0 and p[:, 1].max() == 10 for p in result)
@@ -44,8 +44,10 @@ def test_diverging_planes_are_partitioned_only_where_they_can_compete():
 
 def test_passage_splits_and_adjacent_buildings_share_wall_assembly():
     b = Building("part", shapely.box(0, 0, 10, 10), 0, 10, "facade_plaster")
-    shells = [(b, (None, None, None, None, quad())),
-              (copy.copy(b), (None, None, None, None, quad(bottom=3, top=12)))]
+    shells = [
+        (b, (None, None, None, None, quad())),
+        (copy.copy(b), (None, None, None, None, quad(bottom=3, top=12))),
+    ]
     pieces = assemble_walls(shells)
     faces = np.concatenate(pieces).reshape(-1, 4, 3)
     assert not overlaps(list(faces), ["passage"] * len(faces))
@@ -90,10 +92,14 @@ def test_real_reviewed_blanko_linnankatu_13_and_11_walls(identity):
         wall["measured_size"] = [wall["width_m"], wall["height_m"]]
         parts = list(wall_parts(vertices, wall, compile_wall(wall, program["storeys"]["value"])))
         faces = [p for p, _, _ in parts]
-        assert not overlaps(faces, [f"{identity}/{source['wall_id']}/{i}" for i in range(len(parts))])
+        assert not overlaps(
+            faces, [f"{identity}/{source['wall_id']}/{i}" for i in range(len(parts))]
+        )
         # Paint must cover the entire wall exactly once, including all openings/rails.
         expected = np.linalg.norm(endpoints[1] - endpoints[0]) * wall["height_m"]
-        assert sum(shapely.Polygon(uv).area for _, uv, _ in parts) == pytest.approx(expected, abs=1e-6)
+        assert sum(shapely.Polygon(uv).area for _, uv, _ in parts) == pytest.approx(
+            expected, abs=1e-6
+        )
         tested += 1
     assert tested
 
@@ -102,12 +108,14 @@ def test_structural_wall_assembly_preserves_exposed_area_uvs_and_facade_owner():
     from turku3d.wall_assembly import assemble_structures
 
     facade = mesh(quad(x1=6), "reviewed-facade")
-    portal = mesh(quad(x0=4, z=.001), "portal")
+    portal = mesh(quad(x0=4, z=0.001), "portal")
     portal.uvs = portal.positions[:, :2].copy()
     exposed = assemble_structures([portal], [facade])
     assert validate_meshes([facade, *exposed], "fixture")["violations"] == 0
     triangles = exposed[0].positions[exposed[0].indices]
-    assert sum(np.linalg.norm(np.cross(p[1] - p[0], p[2] - p[0])) / 2 for p in triangles) == pytest.approx(40)
+    assert sum(
+        np.linalg.norm(np.cross(p[1] - p[0], p[2] - p[0])) / 2 for p in triangles
+    ) == pytest.approx(40)
     np.testing.assert_allclose(exposed[0].uvs, exposed[0].positions[:, :2])
     assert exposed[0].extras["building_id"] == "portal"
     np.testing.assert_array_equal(facade.positions, quad(x1=6))
@@ -117,7 +125,7 @@ def test_shared_frontage_has_same_owner_from_either_neighbour():
     a = Building("a", shapely.box(240, 0, 250, 10), 0, 10, "facade_plaster")
     b = Building("b", shapely.box(250, 0, 260, 10), 0, 10, "facade_plaster")
     first = (a, (None, None, None, None, quad(240, 260)))
-    second = (b, (None, None, None, None, quad(240, 260, z=.001)))
+    second = (b, (None, None, None, None, quad(240, 260, z=0.001)))
     left = assemble_walls([first], [second])[0]
     right = assemble_walls([second], [first])[0]
     assert len(left) == 4 and not len(right)

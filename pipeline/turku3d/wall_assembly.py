@@ -8,7 +8,7 @@ import shapely
 from .wall_surfaces import trapezoids
 
 
-def band_polygon(polygon, coefficients, offset, tolerance=.006):
+def band_polygon(polygon, coefficients, offset, tolerance=0.006):
     """Clip to the part of a plane within tolerance, even when the planes diverge."""
     lo_x, lo_y, hi_x, hi_y = polygon.bounds
     points = np.array([[lo_x, lo_y], [hi_x, lo_y], [hi_x, hi_y], [lo_x, hi_y]])
@@ -39,7 +39,7 @@ def assemble_structures(meshes, protected=()):
         triangles = np.asarray(mesh.positions, float)[mesh.indices]
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
         lengths = np.linalg.norm(normals, axis=1)
-        for ti in np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < .02 * lengths)):
+        for ti in np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths)):
             records.append((triangles[ti], normals[ti] / lengths[ti]))
             refs.append((mi - len(protected), ti))
     if not records:
@@ -47,16 +47,21 @@ def assemble_structures(meshes, protected=()):
     points = np.array([p for p, _ in records])
     normals = np.array([n for _, n in records])
     low, high = points.min(axis=1), points.max(axis=1)
-    boxes = shapely.box(low[:, 0] - .006, low[:, 2] - .006,
-                        high[:, 0] + .006, high[:, 2] + .006)
+    boxes = shapely.box(
+        low[:, 0] - 0.006, low[:, 2] - 0.006, high[:, 0] + 0.006, high[:, 2] + 0.006
+    )
     tree = shapely.STRtree(boxes)
     changed = {}
     for i, (mi, ti) in enumerate(refs):
         if mi < 0:
             continue
         js = tree.query(boxes[i])
-        js = js[(js < i) & (normals[js] @ normals[i] > .99998)
-                & (high[js, 1] > low[i, 1]) & (low[js, 1] < high[i, 1])]
+        js = js[
+            (js < i)
+            & (normals[js] @ normals[i] > 0.99998)
+            & (high[js, 1] > low[i, 1])
+            & (low[js, 1] < high[i, 1])
+        ]
         if not len(js):
             continue
         p, n = records[i]
@@ -116,3 +121,38 @@ def assemble_structures(meshes, protected=()):
         mesh.normals = np.concatenate(normals_out) if normals_out else None
         result.append(mesh)
     return result
+
+
+def assemble_layers(tile, layer_files, building_meshes, shells, out, stage):
+    """Single architectural assembly before any packaged visual can be published."""
+    import json
+
+    from turku3d.coarse.build import _write
+    from turku3d.layers import write_visual
+    from turku3d.wall_surfaces import layer_meshes, validate_meshes, validate_neighbours
+
+    if building_meshes:
+        programs = [
+            m.extras.pop("facade_program") for m in building_meshes if "facade_program" in m.extras
+        ]
+        _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
+        write_visual(stage / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
+        layer_files.append(stage / "buildings.vis.glb")
+
+    wall_layers = layer_meshes(layer_files)
+    protected = [
+        m for m in wall_layers if m.extras.get("material_key") in {"facade_kit", "facade_stored"}
+    ]
+    secondary = [
+        m
+        for m in wall_layers
+        if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
+    ]
+    wall_layers = protected + assemble_structures(secondary, protected)
+    validate_meshes(wall_layers, tile.id)
+    validate_neighbours(wall_layers, shells, tile, out.parent)
+    write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
+    layer_files = [p for p in layer_files if p.name in {"vegetation.vis.glb", "props.vis.glb"}]
+    layer_files.append(stage / "architecture.vis.glb")
+
+    return layer_files

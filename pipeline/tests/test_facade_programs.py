@@ -5,14 +5,12 @@ import json
 
 import numpy as np
 import pytest
-
-from turkutex.facade_archetypes import ARCHETYPES, archetype, sample
-
 from turku3d import config as C
 from turku3d.facade_assets import opaque
 from turku3d.facade_kit import parameter_hash
 from turku3d.facade_program_geometry import wall_parts
 from turku3d.facade_programs import compile_wall, matching_wall
+from turkutex.facade_archetypes import ARCHETYPES, archetype, sample
 
 
 def program(levels=4, key="registry-123"):
@@ -168,12 +166,11 @@ def test_period_evidence_uses_neighbours_across_tile_edge_without_mutating_dates
 
 
 def test_cached_dated_footprints_and_osm_tags_feed_fallback(tmp_path):
-    import shapely
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from turku3d.coarse.inputs import _prepare_one
+    import shapely
+    from turku3d.coarse.inputs import Building, _prepare_one
     from turku3d.coarse.register import enrich, period_evidence
-    from turku3d.coarse.inputs import Building
 
     lod2 = tmp_path / "bldg.parquet"
     pq.write_table(pa.Table.from_pylist([

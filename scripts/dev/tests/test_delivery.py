@@ -83,6 +83,8 @@ class DeliveryTests(unittest.TestCase):
         for path in (
             "pipeline/turku3d/facade_programs.py",
             "pipeline/turku3d/facade_program_geometry.py",
+            "pipeline/turku3d/wall_surfaces.py",
+            "pipeline/turku3d/wall_assembly.py",
             "textures/turkutex/facade_program.py",
             "textures/turkutex/facade_archetypes.py",
             "textures/library/facade-programs.json",
