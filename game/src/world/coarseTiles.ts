@@ -39,7 +39,7 @@ const gatewayDown = (status: number) => status === 502 || status === 503 || stat
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean }
 
-interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+interface CoarseFragment { pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
@@ -50,6 +50,7 @@ interface Entry {
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
   vehicles?: ParkedVehicle[];
+  pass?: 'first' | 'full'; comparison?: THREE.Object3D; comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
@@ -108,6 +109,57 @@ export class CoarseTiles {
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
   private materials = new SharedMaterials();
+  /** Developer display override; collision and normal streaming always keep their current owner. */
+  visualPass: 'auto' | 'first' | 'full' = 'auto';
+  comparisonStatus = '';
+
+  setVisualPass(pass: 'auto' | 'first' | 'full') {
+    this.visualPass = pass;
+    for (const e of this.entries.values()) {
+      this.clearComparison(e); e.comparisonNext = 0;
+      if (e.model) e.model.visible = pass === 'auto' || e.pass === pass;
+    }
+    this.comparisonStatus = '';
+  }
+
+  private clearComparison(e: Entry) {
+    if (e.model) e.model.visible = true;
+    if (e.comparison) {
+      this.host.untrackModel?.(e.comparison, 'comparison');
+      this.host.unstyle?.(e.comparison); e.comparison.removeFromParent(); this.dispose(e.comparison);
+      e.comparison = undefined;
+    }
+    e.comparisonMode = undefined;
+  }
+
+  private async compare(id: string, e: Entry) {
+    const pass = this.visualPass;
+    if (pass === 'auto' || !e.model || e.comparing) return;
+    e.model.visible = e.pass === pass;
+    if (e.pass === pass) { this.clearComparison(e); return; }
+    if (e.comparisonMode === pass || this.clock < (e.comparisonNext ?? 0)) return;
+    e.comparing = true; e.comparisonNext = this.clock + 5000;
+    let model: THREE.Object3D | null = null;
+    try {
+      const res = await this.request(`${this.root}${id}/${pass === 'first' ? 'first' : 'manifest'}.json`);
+      if (!res.ok || res.status === 202) throw new Error(`${id}: ${pass} pass pending`);
+      const fragment = await res.json() as CoarseFragment;
+      if (fragment.pass_kind !== pass || !fragment.visual?.[id]) throw new Error(`${id}: ${pass} pass pending`);
+      model = await this.load(new URL(fragment.visual[id].url, new URL(`${this.root}${id}/`, this.page)).href);
+      await this.host.style?.(model);
+      tintDraft(model, this.host.renderer, this.materials);
+      await this.host.styled?.(model);
+      if (this.entries.get(id) !== e || this.visualPass !== pass || !e.model) return;
+      this.clearComparison(e);
+      e.comparison = model; e.comparisonMode = pass; e.model.visible = false;
+      this.host.scene.add(model); this.host.trackModel?.(model, 'comparison'); model = null;
+      this.comparisonStatus = '';
+    } catch (error) { this.comparisonStatus = (error as Error).message; }
+    finally {
+      if (model) { this.host.unstyle?.(model); this.dispose(model); }
+      e.comparing = false;
+    }
+  }
 
   /** Optional remaining mission route, engine metres, ordered forward. Clear with null. Stays client-side. */
   setRouteHint(points: readonly { x: number; z: number }[] | null) {
@@ -215,6 +267,7 @@ export class CoarseTiles {
       this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
       return;
     }
+    for (const [id, e] of this.entries) void this.compare(id, e);
     void this.want(x, z);
     if (this.remote) void this.sendDemand(draftDemand(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
@@ -429,7 +482,8 @@ export class CoarseTiles {
     const old = e.model;
     old?.removeFromParent();
     this.host.scene.add(model);
-    e.model = model; e.visualHash = fragment.visual[id].sha256;
+    this.clearComparison(e); e.pass = fragment.pass_kind;
+    e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     e.state = 'draft';
     this.takeVehicles(e, fragment, base);
@@ -521,6 +575,7 @@ export class CoarseTiles {
   }
 
   private drop(e: Entry) {
+    this.clearComparison(e);
     const oldVehicles = new Set(e.vehicles ?? []);
     this.host.manifest.vehicles = this.host.manifest.vehicles?.filter(v => !oldVehicles.has(v));
     e.vehicles = undefined;

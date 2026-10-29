@@ -160,6 +160,7 @@ def test_basic_visual_and_collision_publish_before_texture_work(tmp_path, inputs
     monkeypatch.setattr(module, "package_visual", fail_visual)
     first = build(TILE.id, out, inputs=inputs, first_pass=True)
     record = (out / "collision.json").read_bytes()
+    assert (out / "first.json").read_bytes() == record
     assert len(first["collision"]) == 16 and first["visual"][TILE.id]
     visual = first["visual"][TILE.id]
     js, _ = read_glb((out / visual["url"]).read_bytes())

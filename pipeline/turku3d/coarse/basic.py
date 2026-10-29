@@ -161,6 +161,7 @@ def publish(
         seconds={**seconds, "total": seconds["drivable_ready"]},
     )
     # The only public pointer moves after every immutable payload exists.
+    _write(out / "first.json", json.dumps(record).encode())
     _write(out / "collision.json", json.dumps(record).encode())
     from .audit import submit
 

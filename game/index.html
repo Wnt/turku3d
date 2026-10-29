@@ -25,7 +25,7 @@
       .menu-ready p { margin: 4px 0; }
       #loading-screen[hidden] { display: none; }
       @media (max-width: 1100px) { #loading-screen.menu-ready { visibility: hidden; } }
-      .pole-notice { position: fixed; z-index: 90; top: 20px; right: 20px; display: flex; align-items: center; gap: 12px; width: min(370px, calc(100vw - 40px)); padding: 10px; border: 2px solid #d2b979; border-radius: 12px; background: #213d50ed; color: #fff4da; font: 600 15px/1.35 system-ui, sans-serif; box-shadow: 0 8px 30px #0008; pointer-events: none; transform: translateX(calc(100% + 30px)); opacity: 0; transition: transform .3s ease, opacity .3s ease; }
+      .pole-notice { position: fixed; z-index: 90; top: calc(58px + env(safe-area-inset-top)); right: 20px; display: flex; align-items: center; gap: 12px; width: min(370px, calc(100vw - 40px)); padding: 10px; border: 2px solid #d2b979; border-radius: 12px; background: #213d50ed; color: #fff4da; font: 600 15px/1.35 system-ui, sans-serif; box-shadow: 0 8px 30px #0008; pointer-events: none; transform: translateX(calc(100% + 30px)); opacity: 0; transition: transform .3s ease, opacity .3s ease; }
       .pole-notice.visible { transform: translateX(0); opacity: 1; }
       .pole-notice-portrait { position: relative; flex: 0 0 70px; width: 70px; height: 70px; overflow: hidden; border-radius: 8px; }
       .pole-notice-portrait img { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -37,7 +37,7 @@
       #hud { position: fixed; left: 8px; top: 8px; color: #e8e8e8; font: 12px/1.45 ui-monospace, Menlo, monospace; background: #000a; padding: 6px 10px; white-space: pre; pointer-events: none; border-radius: 4px; }
       #hud.player-name { font: 600 16px/1.3 system-ui, sans-serif; padding: 8px 12px; text-shadow: 0 1px 2px #000c; }
       body:not(.debug-hud) .draft-tile-badge { display: none !important; }
-      #mp-scoreboard { position: fixed; right: 10px; top: 10px; z-index: 4; max-width: min(340px, 48vw); padding: 8px 10px; color: #fff; background: #10252de8; border: 1px solid #47636c; border-radius: 8px; font: 12px/1.4 system-ui, sans-serif; pointer-events: none; }
+      #mp-scoreboard { position: fixed; right: 10px; top: calc(58px + env(safe-area-inset-top)); z-index: 4; max-width: min(340px, 48vw); padding: 8px 10px; color: #fff; background: #10252de8; border: 1px solid #47636c; border-radius: 8px; font: 12px/1.4 system-ui, sans-serif; pointer-events: none; }
       #mp-scoreboard[hidden], #mp-scoreboard div[hidden] { display: none; }
       #mp-scoreboard table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; white-space: nowrap; }
       #mp-scoreboard th, #mp-scoreboard td { padding: 2px 5px; text-align: right; }
@@ -148,7 +148,16 @@
       .touch-corner .touch-button { width: 56px; height: 56px; font-size: 13px; }
       .touch-button:active { background: #f2a541a0; }
       body:has(#touch-controls:not([hidden])) :is(#help, #audio-panel) { display: none; }
-      #fullscreen-toggle { position: fixed; right: 12px; top: 12px; z-index: 9; width: 34px; height: 34px; border: 1px solid #ffffff60; border-radius: 5px; background: #0b102099; color: #f4f1ea; font: 24px/1 system-ui, sans-serif; cursor: pointer; }
+      #fullscreen-toggle { position: fixed; right: calc(12px + env(safe-area-inset-right)); top: calc(12px + env(safe-area-inset-top)); z-index: 9; width: 34px; height: 34px; border: 1px solid #ffffff60; border-radius: 5px; background: #0b102099; color: #f4f1ea; font: 24px/1 system-ui, sans-serif; cursor: pointer; }
+      #dev-layers { position: fixed; left: 8px; top: 160px; z-index: 8; color: #edf4f3; font: 12px/1.5 system-ui, sans-serif; max-width: calc(100vw - 16px); }
+      #dev-layers button, #dev-layers select { color: inherit; background: #10252d; border: 1px solid #789199; border-radius: 4px; padding: 5px; }
+      #dev-layers > div { width: min(310px, calc(100vw - 32px)); max-height: min(48vh, 440px); overflow: auto; background: #10252df2; padding: 8px; border-radius: 5px; }
+      #dev-layers label { cursor: pointer; }
+      #dev-layers details > label { display: block; margin-left: 22px; }
+      #dev-layers input { vertical-align: middle; }
+      #dev-layers [hidden], #dev-layers[hidden] { display: none; }
+      #status-badges { top: calc(58px + env(safe-area-inset-top)) !important; }
+      #hud { max-width: calc(100vw - 80px); overflow: hidden; }
       #fullscreen-toggle[hidden] { display: none; }
       #fullscreen-toggle:hover, #fullscreen-toggle:focus-visible { background: #26344c; }
       #fullscreen-overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #06151ce6; }

@@ -39,7 +39,7 @@ from .build_health import BuildHealth
 REPO = Path(__file__).resolve().parents[3]
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
 FILE = re.compile(
-    r"^(vis(?:\.[0-9a-f]{64})?\.glb|(?:manifest|collision)\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
+    r"^(vis(?:\.[0-9a-f]{64})?\.glb|(?:manifest|collision|first)\.json|roads(?:\.[0-9a-f]{64})?\.json|col/c_-?\d+_-?\d+(?:\.[0-9a-f]{64})?\.col)$"
 )
 SHARED = re.compile(r"^[0-9a-f]{64}\.(?:ktx2|glb|bin)$")
 STALE_SECONDS = 10.0  # the game re-polls wanted tiles every 2 s; others leave the queue
