@@ -71,13 +71,13 @@ export class MaterialStyler {
   }
 
   apply(model: THREE.Object3D) {
+    model.updateWorldMatrix(true, true);
     const sources = new Map<THREE.Mesh, THREE.Mesh['material']>(), rivers: THREE.Mesh[] = [];
     const cache = new Map<string, THREE.Material>();
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh) return;
       interleaveProgram(mesh.geometry);
-      if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
       const style = (source: THREE.Material): THREE.Material => {
         const key = materialKey(mesh, source);
         if (!key) return source;
@@ -135,6 +135,8 @@ export class MaterialStyler {
       };
       sources.set(mesh, mesh.material);
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
+      if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
+      else mesh.layers.disable(REFLECTION_LAYER);
     });
     this.owned.set(model, { sources, rivers });
     return this.ground?.apply(model);

@@ -1,11 +1,11 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { REFLECTION_LAYER, reflectionSurface, ReflectionShadows } from '../../src/render/reflections';
+import { REFLECTION_LAYER, reflectionSurface, ReflectionShadows, ReflectionCadence } from '../../src/render/reflections';
 import { RiverMaterial } from '../../src/render/water';
 import { Environment } from '../../src/render/environment';
 
 test('river pass includes large static surfaces and excludes water, props and vegetation', () => {
-  const owner = new THREE.Group(), mesh = new THREE.Mesh(); owner.add(mesh);
+  const owner = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10)); owner.add(mesh);
   for (const layer of ['ground', 'buildings', 'structures', 'massing', 'roads']) {
     owner.userData.layer = layer; expect(reflectionSurface(mesh)).toBe(true);
   }
@@ -66,4 +66,33 @@ test('reflection restore leaves newly initialized cascades at their own defaults
   const light = new THREE.DirectionalLight(); lights.push(light);
   reuse.restore(lights);
   expect(light.shadow.autoUpdate).toBe(true); expect(light.shadow.needsUpdate).toBe(false);
+});
+
+test('reflection excludes blended/transmissive and small structural pieces, keeping scaled surfaces', () => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshPhysicalMaterial());
+  mesh.userData.layer = 'buildings';
+  expect(reflectionSurface(mesh)).toBe(false);
+  mesh.scale.setScalar(10); mesh.updateMatrixWorld();
+  expect(reflectionSurface(mesh)).toBe(true);
+  mesh.material.transparent = true; expect(reflectionSurface(mesh)).toBe(false);
+  mesh.material.transparent = false; mesh.material.transmission = 1; expect(reflectionSurface(mesh)).toBe(false);
+  mesh.material.transmission = 0; mesh.userData.objects = [{ prop_type: 'pole' }];
+  expect(reflectionSurface(mesh)).toBe(false);
+});
+
+test('reflection cadence accumulates slow motion and caps fast motion; missing/forced output refreshes', () => {
+  const cadence = new ReflectionCadence(30, 12), camera = new THREE.PerspectiveCamera();
+  camera.updateMatrixWorld();
+  expect(cadence.shouldUpdate(camera, 0, false)).toBe(true);
+  camera.position.x = 0.1; camera.updateMatrixWorld();
+  expect(cadence.shouldUpdate(camera, 40, true)).toBe(false);
+  camera.position.x = 0.2; camera.updateMatrixWorld();
+  expect(cadence.shouldUpdate(camera, 84, true)).toBe(true);
+  camera.position.x = 10; camera.updateMatrixWorld();
+  expect(cadence.shouldUpdate(camera, 100, true)).toBe(false);
+  expect(cadence.shouldUpdate(camera, 118, true)).toBe(true);
+  camera.rotation.y = 0.1; camera.updateMatrixWorld();
+  expect(cadence.shouldUpdate(camera, 152, true)).toBe(true);
+  expect(cadence.shouldUpdate(camera, 153, true, true)).toBe(true);
+  expect(cadence.shouldUpdate(camera, 154, false)).toBe(true);
 });

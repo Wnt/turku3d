@@ -2,7 +2,7 @@ import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { cameraPosition, dot, float, max, mix, normalize, positionWorld, pow, reflect, reflector,
   texture, time, uniform, vec2, vec3 } from 'three/tsl';
-import { REFLECTION_LAYER, ReflectionShadows } from './reflections';
+import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 
@@ -50,21 +50,15 @@ export class RiverMaterial {
     };
     const update = reflector.updateBefore.bind(reflector);
     const shadows = new ReflectionShadows();
-    let last = -Infinity;
-    const seen = new THREE.Matrix4();
+    const cadence = new ReflectionCadence(QUALITY[tier].reflectionFps, QUALITY[tier].reflectionSlowFps);
     reflector.updateBefore = frame => {
       if (isPrecompiling(renderer)) return;
       this.reflectionDepth = nextRenderDepth(renderer);
-      const now = performance.now();
-      // Low quality trades a small reflection lag for a bounded 20 Hz secondary scene render.
-      // Higher tiers retain full-rate camera motion and throttle only a still view.
-      const moved = !!frame.camera && !frame.camera.matrixWorld.equals(seen);
-      if (frame.camera) seen.copy(frame.camera.matrixWorld);
-      if (!deterministic && (tier === 'low' || !moved) && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
+      if (!deterministic && frame.camera && !cadence.shouldUpdate(frame.camera, performance.now(), reflector.hasOutput, reflector.forceUpdate)) return;
       const previous = renderer.contextNode;
       renderer.contextNode = context;
       shadows.pause(env.csm.lights);
-      try { update(frame); last = now; }
+      try { update(frame); }
       finally { shadows.restore(env.csm.lights); renderer.contextNode = previous; }
     };
     this.attach(mesh);

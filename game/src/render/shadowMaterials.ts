@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { NormalPrepass } from './normalPrepass';
+import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms } from './instancePrograms';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
@@ -41,6 +42,12 @@ export class GameRenderer extends THREE.WebGPURenderer {
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
     super(parameters);
     this.debug.onNodeBuilderCreated = (builder, draw) => instancePrograms(builder, (draw as { object: THREE.Object3D }).object);
+  }
+  private attributesOwned = false;
+  override async init(): Promise<this> {
+    await super.init();
+    if (!this.attributesOwned) { ownNodeAttributes(this); this.attributesOwned = true; }
+    return this;
   }
   override dispose() { this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],

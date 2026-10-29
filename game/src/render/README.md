@@ -39,7 +39,8 @@ These are permanent user quality settings (`?quality=low|medium|high`, default *
 | GTAO resolution / samples / blend | ½ / 4 / 0.22 | ½ / 8 / 0.28 | ¾ / 16 / 0.30 |
 | TRAA subpixel correction | off | on | on |
 | Bloom resolution / strength | ¼ / 0.035 | ¼ / 0.045 | ½ / 0.050 |
-| River reflection resolution / updates per second | ¼ / 20 | ½ / 30 | ¾ / 60 |
+| River reflection resolution / maximum updates per second | ¼ / 20 | ½ / 30 | ¾ / 60 |
+| River updates per second during slow motion | 8 | 12 | 20 |
 | Surface detail strength | 0.035 | 0.055 | 0.070 |
 | Grading saturation | 0.98 | 0.97 | 0.97 |
 
@@ -214,7 +215,12 @@ the normal play path. PNG sequences and motion JSON are saved under `$TURKU3D_WO
 
 Coplanar river meshes share one reflection material and target across visual tiles. The
 material styler counts tile references and transfers the target when its original tile
-unloads, then disposes it after the last user. This prevents each tile from rendering the
+unloads, then disposes it after the last user. Reflections exclude blended/transmissive surfaces,
+small structural parts, props and vegetation. Slow motion is measured against the last captured
+pose (0.5 m / 1°); larger motion uses the tier's capped rate. Deterministic QA still refreshes
+every frame. Water stays in the transparent queue to avoid the normal/velocity prepass; its
+inclusive transparent draw time includes the nested reflection, not just alpha blending.
+This prevents each tile from rendering the
 same river reflection and shadow cascades again. Assembler material batches retain source
 object index ranges; the ID pass restores those ranges for per-facade QA colors.
 
@@ -246,3 +252,7 @@ Add `TURKU3D_PROFILE_DRIVE=1` for the two-minute street-driving scenario. Add
 zero boundary-band node builds during play. Reports include fps, >50 ms frames,
 node-build identities and CPU/trace captures under the sandbox's `reports/initial-load`.
 The throttled Mac results compare this client implementation; they are not phone fps.
+
+Generated node attributes from every render pass have explicit object/geometry retirement ownership.
+This complements r186 geometry cleanup, which otherwise sees only the first draw context
+and can retain later instance-matrix attribute views. Interleaved views share buffer ownership.
