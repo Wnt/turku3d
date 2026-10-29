@@ -73,6 +73,7 @@ DEPENDENCIES = {
     "stairs": ("stairs.py", "stair_survey.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
+    "boats": ("boat_inputs.py", "garden_inputs.py", "roofs.py", "../spatial.py"),
     "ortho_canopy": ("ortho_cleanup.py", "../vegetation/trees.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
@@ -130,6 +131,7 @@ class Inputs:
     parking: tuple = ((), ())
     poles: list = ()  # sign and bus-stop props with full-tile source identities
     gardens: dict = field(default_factory=dict)
+    boats: list = ()
     wall_context: list = ()  # neighbouring complete buildings for deterministic wall ownership
 
 
@@ -443,6 +445,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     return {
         "ground": None if missing else laz,
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
+        "boats": [osm, wfs[0][1], wfs[2][1]] if osm and all(f for f, _ in wfs[:3]) else [],
         "ortho_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
@@ -489,6 +492,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
     pyarrow.set_cpu_count(1)
     pyarrow.set_io_thread_count(1)
+    if dataset == "boats":
+        from .boat_inputs import prepare as prepare_boats
+
+        return prepare_boats(tile, *paths) if paths else []
     if dataset == "gardens":
         from .garden_inputs import prepare as prepare_gardens
 
@@ -696,11 +703,13 @@ def gather(
                 if a.get("construction_year")
             ],
         )
+    from .boat_inputs import separate
+
     return Inputs(
         ground["points"],
         ground["heights"],
         values["ortho"],
-        wfs["buildings"],
+        separate(wfs["buildings"], values["boats"]),
         wfs["streets"],
         water,
         values["roads"],
@@ -708,6 +717,7 @@ def gather(
         seconds,
         sources.input_key(tile, first_pass=first_pass) or "",
         gardens=values["gardens"] or {},
+        boats=values["boats"],
         kerbs=values["kerbs"],
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),

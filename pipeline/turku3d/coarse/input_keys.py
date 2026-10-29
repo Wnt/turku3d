@@ -12,6 +12,7 @@ HELPERS = {
     "ortho": ("read_ortho",),
     "wfs": ("Building", "_frame", "buildings", "prepare_wfs"),
     "roads": ("prepare_roads",),
+    "boats": ("Building", "_frame", "buildings"),
     "trees": ("prepare_trees",),
 }
 

@@ -41,3 +41,19 @@ building and collision counts with source, then verifies source pool count,
 level, exact area, rim collision and seam vertices. It lists other source
 candidate tiles without rebuilding them. Post-deployment measurements are
 recorded in the task receipt and final report.
+
+Deployed `59f98b7d` evidence: all31 selected tests passed; finish wall5.695s.
+Pages and OCI publication succeeded. Curl smoke completed in0.316s, with healthy
+HTTP integration points but red rolling generator health:6 recent full
+cancellations and full p50 of29.901s. No rollback was performed.
+
+The selective OCI audit passed. `t0_1_0`: first4.115s/full18.822s,
+18 source buildings and16 collision cells. `t0_2_0`: first14.299s/full67.308s,
+36 source buildings and16 collision cells. Both manifest passes match source
+pool counts/levels. Pool areas are37.966914m² and18.522149m² (56.489063m² total),
+with18 rim triangles per tile and identical seam vertices at
+x500, y8.878, z127.92483410691177 /133.29982813644799. Terrace levels are also
+identical at the tile seam. The source inventory identifies61 additional
+candidate tiles with mapped gardens, pools, hedges or wall edges; they were not
+rebuilt. Full list and timings are retained in
+`~/turku3d/tasks/terraced-gardens/checks/59f98b7daa65699d09a606138901ccf47a5eee89/`.
