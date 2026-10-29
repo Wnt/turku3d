@@ -710,3 +710,30 @@ def test_multipart_building_has_one_tile_owner_and_shared_wall_context(tmp_path)
     assert not right["buildings"] and len(right["wall_context"]) == 2
     assert {b.visual_owner for b in left["buildings"] + right["wall_context"]} == {"t0_0_0"}
     assert left["buildings"][1]._collision_owner == C.CollisionTile(3, 0)
+
+
+def test_recreation_park_keeps_mapped_forest_and_canopy_outside_pitches(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import producer_world as world
+    from turku3d.coarse.forests import produce, read_areas
+    from turku3d.coarse.inputs import Inputs
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
+    tile = C.VisualTile(0, 0, 0)
+    path = world.write_osm([
+        ({"leisure": "park", "landuse": "recreation_ground"}, shapely.box(0, 0, 250, 250)),
+        ({"landuse": "forest"}, shapely.box(30, 30, 200, 200)),
+        ({"leisure": "pitch"}, shapely.box(100, 100, 150, 150)),
+    ])
+    areas = read_areas(tile, path)
+    assert {kind for _, _, kind, _ in areas} == {"park", "forest", "open"}
+    empty = Inputs(np.empty((0, 3)), np.empty((0, 0)), np.empty((0, 0, 3)),
+                   [], [], [], None, {}, {})
+    for canopy in ((), np.array([[50, 20, 50], [125, 20, 125]])):
+        trees, _ = produce(tile, replace(empty, forests=areas, canopy=canopy), lambda x, z: 0, [])
+        assert trees
+        assert any(30 < t.x < 100 and 30 < t.z < 100 for t in trees)
+        assert all(not shapely.box(100, 100, 150, 150).buffer(3).covers(shapely.Point(t.x, t.z)) for t in trees)
+        if len(canopy):
+            assert any(t.measured and t.x == 50 and t.z == 50 for t in trees)
