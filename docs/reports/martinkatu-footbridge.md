@@ -64,3 +64,9 @@ Teatterisilta control tile `t0_0_1`, compares building/collision counts with sou
 and audits Martinkatu's deployed-source deck survey, clearance, columns, measured
 stair landings, walkable grades and retaining output. The agent-owned async job
 has the repository's hard ten-minute limit, including any slot wait.
+
+The first deployed first pass succeeded. Its full pass exposed a terrain-library
+selection assumption: every `draft_*` mesh was treated as a terrain palette
+entry, including the new independently textured stair/rock meshes. The forward
+correction selects recognized terrain channels, preserves the existing curb
+library binding, and still rejects unknown materials on actual ground meshes.

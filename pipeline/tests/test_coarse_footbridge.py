@@ -4,9 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import shapely
 from turku3d import config as C
-from turku3d.coarse import bridges, retaining, stairs
+from turku3d.coarse import bridges, retaining, stairs, surfaces
 from turku3d.coarse.bridge_details import roadside_supports, style
 from turku3d.coarse.stair_survey import measure
 
@@ -131,6 +132,27 @@ def test_stair_at_interior_landing_node_receives_survey(monkeypatch):
         [shapely.LineString([(5, 0), (7, 0), (10, 0)])],
     )
     assert row[2]["_profile"] == {"surveyed": True}
+
+
+def test_full_pass_palette_keeps_structural_textures_outside_terrain_channels():
+    meshes = [
+        SimpleNamespace(extras=dict(layer=layer, material_key=key))
+        for layer, key in (
+            ("ground", "draft_grass"),
+            ("structures", "draft_granite_curb"),
+            ("structures", "draft_bridge_concrete"),
+            ("structures", "draft_bridge_rock"),
+            ("structures", "draft_bridge_paint"),
+        )
+    ]
+    assert surfaces.channels(meshes) == {
+        surfaces.KEYS.index("grass"),
+        surfaces.KEYS.index("granite_curb"),
+    }
+    with pytest.raises(ValueError, match="Unknown draft ground surface"):
+        surfaces.channels(
+            [SimpleNamespace(extras=dict(layer="ground", material_key="draft_unknown"))]
+        )
 
 
 def test_retaining_edge_is_below_grade_and_its_cut_has_complete_walkable_bands():
