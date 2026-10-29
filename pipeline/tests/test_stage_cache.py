@@ -302,7 +302,14 @@ def test_existing_stage_entries_compress_once(tmp_path):
     cache = StageCache(tmp_path)
     cache.run('large', 'v1', [], lambda: b'brick' * 200000)
     target = next((tmp_path / 'large').glob('*.pkl'))
+    import hashlib
+    import pickle
+
+    legacy = pickle.dumps(b'brick' * 200000, protocol=5)
+    target.write_bytes(hashlib.sha256(legacy).digest() + legacy)
     first = module.compress_existing(tmp_path)
+    assert first['files'] == 1
+    assert first['after'] < first['before'] // 4
+    assert cache.run('large', 'v1', [], lambda: b'wrong') == b'brick' * 200000
     second = module.compress_existing(tmp_path)
-    assert first['files'] == 0  # Newly written entries already use the compressed format.
     assert second['before'] == second['after'] == target.stat().st_size
