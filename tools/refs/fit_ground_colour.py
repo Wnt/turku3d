@@ -22,7 +22,7 @@ CLASSES = {
 }
 
 
-def split(rows, quarter_tiles=None):
+def split(rows, quarter_tiles=None, pinned=(), holdout_pool=None):
     """Reserve whole tiles to prevent neighboring quarters leaking into the fit."""
     quarter_tiles = quarter_tiles or {r['quarter']: r['tile'] for r in rows}
     quarters = set(quarter_tiles)
@@ -30,12 +30,23 @@ def split(rows, quarter_tiles=None):
     by_tile = {}
     for quarter, tile in quarter_tiles.items():
         by_tile.setdefault(tile, set()).add(quarter)
+    pinned = set(pinned)
+    if not pinned <= quarters:
+        raise ValueError('Pinned holdout includes unknown quarters')
+    if holdout_pool is not None and not pinned <= set(holdout_pool):
+        raise ValueError('Pinned holdout is outside the leakage-free pool')
+    permitted = set(quarters if holdout_pool is None else holdout_pool)
     ordered = sorted(by_tile, key=lambda key: hashlib.sha256(('ground-holdout-v1:' + key).encode()).digest())
-    held = set()
+    held = set().union(*(by_tile[quarter_tiles[q]] for q in pinned)) if pinned else set()
+    if not held <= permitted:
+        raise ValueError('A pinned holdout tile contains a previously trained quarter')
     for tile in ordered:
         if len(held) >= target:
             break
-        held.update(by_tile[tile])
+        if by_tile[tile] <= permitted:
+            held.update(by_tile[tile])
+    if len(held) < target:
+        raise ValueError('Leakage-free holdout pool has insufficient quarters')
     return [r for r in rows if r['quarter'] not in held], [r for r in rows if r['quarter'] in held], sorted(held)
 
 
@@ -68,6 +79,25 @@ def prediction(row, model):
     delta = model['groups'].get(row['surface'], {}).get('delta_lab', [0, 0, 0])
     residual = model['mosaics'].get(row.get('mosaic'), {}).get(row['surface'], {}).get('delta_lab', [0, 0, 0])
     return rgb(lab(row['own_rgb']) + delta + np.asarray(residual))
+
+
+def compose(base, residual):
+    """Apply a fitted residual after an already deployed Lab correction."""
+    result = dict(version=1, method=residual['method'], groups={}, mosaics={})
+    for surface in sorted(set(base['groups']) | set(residual['groups'])):
+        old = base['groups'].get(surface, {}).get('delta_lab', [0, 0, 0])
+        new = residual['groups'].get(surface, {}).get('delta_lab', [0, 0, 0])
+        result['groups'][surface] = dict(delta_lab=(np.asarray(old) + new).tolist(),
+                                         training_quarters=residual['groups'].get(surface, {}).get('training_quarters', 0))
+    for mosaic in sorted(set(base.get('mosaics', {})) | set(residual.get('mosaics', {}))):
+        result['mosaics'][mosaic] = {}
+        for surface in sorted(set(base.get('mosaics', {}).get(mosaic, {})) |
+                              set(residual.get('mosaics', {}).get(mosaic, {}))):
+            old = base.get('mosaics', {}).get(mosaic, {}).get(surface, {}).get('delta_lab', [0, 0, 0])
+            new = residual.get('mosaics', {}).get(mosaic, {}).get(surface, {}).get('delta_lab', [0, 0, 0])
+            result['mosaics'][mosaic][surface] = dict(delta_lab=(np.asarray(old) + new).tolist(),
+                training_tiles=residual.get('mosaics', {}).get(mosaic, {}).get(surface, {}).get('training_tiles', 0))
+    return result
 
 
 def errors(rows, model):
@@ -120,13 +150,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--coverage', required=True, type=Path)
     parser.add_argument('--out', required=True, type=Path)
+    parser.add_argument('--base-model', type=Path,
+                        help='Existing deployed correction to which the new residual is added')
+    parser.add_argument('--holdout-policy', type=Path,
+                        help='JSON {pinned,pool} preserving a holdout blind to the deployed base model')
     args = parser.parse_args()
     rows = load(args.coverage)
     states = json.loads(args.coverage.read_text())['quarters']
-    train, held, held_quarters = split(rows, {key: s['tile'] for key, s in states.items() if s['status'] == 'scored'})
+    if args.base_model and not args.holdout_policy:
+        parser.error('--base-model requires --holdout-policy to prevent pilot training leakage')
+    policy = json.loads(args.holdout_policy.read_text()) if args.holdout_policy else {}
+    train, held, held_quarters = split(rows,
+        {key: s['tile'] for key, s in states.items() if s['status'] == 'scored'},
+        pinned=policy.get('pinned', ()), holdout_pool=policy.get('pool'))
     (alpha, per_mosaic), cv = choose_alpha(train)
-    model = fit(train, alpha, per_mosaic)
-    evaluations = {label: errors(group, model) for label, group in [('training', train), ('holdout', held)]}
+    residual = fit(train, alpha, per_mosaic)
+    evaluations = {label: errors(group, residual) for label, group in [('training', train), ('holdout', held)]}
+    model = compose(json.loads(args.base_model.read_text()), residual) if args.base_model else residual
     result = dict(alpha=alpha, per_mosaic=per_mosaic, training_cv={str(k): v for k, v in cv.items()}, held_quarters=held_quarters, splits={})
     for label, observed in evaluations.items():
         result['splits'][label] = {
@@ -137,7 +177,7 @@ def main():
             if (selected := [r for r in observed if surface == 'all' or r['surface'] == surface])
         }
     args.out.mkdir(parents=True, exist_ok=True)
-    for name, value in [('measurements', rows), ('model', model), ('summary', result), ('evaluation', evaluations)]:
+    for name, value in [('measurements', rows), ('residual', residual), ('model', model), ('summary', result), ('evaluation', evaluations)]:
         (args.out / f'{name}.json').write_text(json.dumps(value, indent=2) + '\n')
     print(json.dumps(result, indent=2))
 
