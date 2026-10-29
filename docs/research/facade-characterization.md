@@ -4,8 +4,10 @@
 realistic facade production.** Opening detections make the building-specific layouts
 recognisable, but windows, retail glazing, balconies, shadows and wrong wall crops still
 produce visible mistakes. A larger GPU run would scale these errors, not solve them.
-No production generator, stored AI description, facade-kit result or texture library was
-changed. No reference pixels, per-building predictions or contact sheets are published.
+This first automated slice changed no production generator, stored AI description,
+facade-kit result or texture library, and published no per-building predictions.
+The subsequent [directly reviewed Linnankatu pilot](facade-linnankatu-pilot.md) publishes
+sanitized programs after Jonni's scope change; reference pixels and contact sheets stay local.
 
 Measured on the M1 Max, 64 GB, PyTorch 2.14.1 MPS. Code:
 `textures/turkutex/facade_program.py` and `tools/research/facade_characterization/`.
