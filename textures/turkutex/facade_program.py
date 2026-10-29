@@ -267,7 +267,8 @@ def fit_rules(buildings):
         wall = next(w for w in b["walls"] if w["wall_id"] == b["representative_wall"])
         if (
             wall["observation"]["visible_share"] < 0.55
-            or wall["bays"]["count"] < 2
+            or (wall["bays"]["count"] or 0) < 2
+            or wall["observation"].get("scope", "full-wall") != "full-wall"
             or wall["observation"].get("register_height_conflict", False)
         ):
             continue

@@ -1,0 +1,75 @@
+{
+  "coverage": {
+    "buildings_selected": 13,
+    "buildings_with_photos": 12,
+    "candidate_walls": 13,
+    "accepted_buildings": 11,
+    "accepted_walls": 12,
+    "rejected_scaffold": 1,
+    "ground_only": 2,
+    "panoramas": 21,
+    "views": 24
+  },
+  "seconds": {
+    "selection": 1.793198792001931,
+    "load": 0.18455883400019957,
+    "decode": 4.491904791007983,
+    "rectify": 1.2908299979899311,
+    "mask": 1.571097166997788,
+    "write": 0.5738478319835849,
+    "total": 8.255846041996847,
+    "direct_reading_authoring_preview": 638.0145041942596,
+    "program_compile_contact": 0.244372041997849,
+    "painter": 0.007296415999007877
+  },
+  "seconds_per_candidate_wall": {
+    "preprocess": 0.6350650801536036,
+    "read_author_preview": 49.07803878417382,
+    "paint": 0.000561262769154452
+  },
+  "quota": {
+    "before": 21,
+    "after": 23,
+    "delta_percentage_points": 2,
+    "attributable": false,
+    "reason": "Account-wide integer weekly counter; other agents active. Not a task token measurement. Local preprocessing consumes zero Codex model quota."
+  },
+  "round3_pilot_overlap": 0,
+  "colour_controls": {
+    "buildings": 3,
+    "groups": 5,
+    "median_reviewed_delta": 42.08412551879883,
+    "median_automatic_delta": 19.146469116210938,
+    "median_draft_delta": 16.152748107910156
+  },
+  "scale_3000_panorama_scenarios": [
+    {
+      "unique_walls_per_panorama": 0.6190476190476191,
+      "walls": 1857.142857142857,
+      "mac_preprocess_hours": 0.32761293817447806,
+      "reading_hours": 25.31803588072459,
+      "rented_gpu_4x_mask_only_preprocess_hours": 0.28085409391859145
+    },
+    {
+      "unique_walls_per_panorama": 2,
+      "walls": 6000,
+      "mac_preprocess_hours": 1.0584418002560059,
+      "reading_hours": 81.79673130695637,
+      "rented_gpu_4x_mask_only_preprocess_hours": 0.9073747649677573
+    },
+    {
+      "unique_walls_per_panorama": 4,
+      "walls": 12000,
+      "mac_preprocess_hours": 2.1168836005120117,
+      "reading_hours": 163.59346261391275,
+      "rented_gpu_4x_mask_only_preprocess_hours": 1.8147495299355145
+    },
+    {
+      "unique_walls_per_panorama": 8,
+      "walls": 24000,
+      "mac_preprocess_hours": 4.2337672010240235,
+      "reading_hours": 327.1869252278255,
+      "rented_gpu_4x_mask_only_preprocess_hours": 3.629499059871029
+    }
+  ]
+}

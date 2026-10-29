@@ -89,3 +89,12 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$PY" -m pytest -q textures/tests/test_facade_p
 GPU-rental estimates are scenario arithmetic (1x/2x/4x neural inference speed,
 unchanged CPU stages), not a CUDA benchmark or a purchased service. The unique
 wall count per panorama remains unknown; the report gives a 2/4/8-wall range.
+# Directly reviewed Linnankatu pilot
+
+The later `pilot.py` / `review.py` path skips CMP and DINO. It rectifies existing
+cached panoramas, runs the ADE foreground mask on MPS, then compiles explicit
+assistant-authored readings. See [pilot report](../../../docs/research/facade-linnankatu-pilot.md)
+for scope, measured times, local contact sheets, colour failure and reproduction.
+Public reviewed programs are `textures/library/facade-programs.json`; source photos
+and crop/patch evidence remain local. The commands below document the earlier
+automated experiment and must not be confused with reviewed output.
