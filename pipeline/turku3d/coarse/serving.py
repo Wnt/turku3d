@@ -56,9 +56,15 @@ def retained_fragment(builder, tile):
             continue
     candidates.sort(key=lambda row: row[:2], reverse=True)
     collision = current_collision(builder, tile)
+    if collision is not None and not complete(builder.root, tile, collision):
+        collision = None
     if collision is None:
         collision = next((value for _, _, value in candidates if _current_retained_collision(builder, tile, value)), None)
     if collision is None or not complete(builder.root, tile, collision):
+        return None
+    key_for = ((builder.structural_input_key or builder.input_key)
+               if collision.get("pass_kind") == "first" else builder.input_key)
+    if key_for(tile) is None:
         return None
     value = candidates[0][2] if candidates else collision
     # A full replacement publishes atomically, so never prefer the retained generation

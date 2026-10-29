@@ -134,3 +134,11 @@ def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path
         assert not {"code", "inputs", "seconds"} & body.keys()
         assert TILE.id in b.upgrade_queue and TILE.id in b.journal.rows
     b.stop()
+
+
+def test_unknown_input_identity_never_authorizes_stale_collision(tmp_path):
+    publish(tmp_path, "manifest.json")
+    b = builder(tmp_path)
+    b.input_key = lambda _: None
+    assert retained_fragment(b, TILE.id) is None
+    b.stop()
