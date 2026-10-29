@@ -441,7 +441,10 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
-        "appearance": [osm] if osm else None,
+        "appearance": [osm, wfs[0][1], *[
+            p for name in ("kanta:Rakennus", "GIS:Rakennukset")
+            if (p := sources.wfs_source(name, tile)[1])
+        ]],
         "register": [
             p
             for name in ("kanta:Rakennus", "GIS:Rakennukset")
@@ -460,9 +463,11 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
         return prepare_parking(tile, *paths)
     if dataset == "appearance":
-        from .register import read_osm
+        from .register import read_osm, read_register, dated_footprints
 
-        return read_osm(tile, paths[0])
+        appearance = read_osm(tile, paths[0]) if paths[0] else {}
+        appearance["dated_footprints"] = dated_footprints(tile, paths[1], read_register(paths[2:]))
+        return appearance
     if dataset == "register":
         from .register import read_register
 
@@ -635,10 +640,15 @@ def gather(
         provenance[dataset] = [str(p) if p else None for p in paths]
         seconds[dataset] = time.perf_counter() - t
     ground, wfs = values["ground"], values["wfs"]
-    from .register import enrich
+    from .register import enrich, period_evidence
 
     for building in wfs["buildings"]:
         enrich(building, values["register"], values["appearance"] or {})
+        period_evidence(building, (values["appearance"] or {}).get("dated_footprints", []) + [
+            ("osm:" + a.get("osm_id", "unknown"), a["construction_year"], polygon)
+            for polygon, a in (values["appearance"] or {}).get("buildings", [])
+            if a.get("construction_year")
+        ])
     return Inputs(
         ground["points"],
         ground["heights"],
