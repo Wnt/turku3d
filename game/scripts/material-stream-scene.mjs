@@ -66,3 +66,28 @@ window.runMaterialStream = async (urls, seconds) => {
   await new Promise(resolve => requestAnimationFrame(resolve)); sample('released'); running = false;
   return { seconds: (performance.now() - started) / 1000, rows, errors };
 };
+
+// Exercise the exact async override path with rendering continuing across shader yields.
+window.runMaterialPreparation = async () => {
+  const renderer = new GameRenderer(); document.body.append(renderer.domElement); renderer.setSize(64, 64); await renderer.init();
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(65, 1, .1, 100);
+  camera.position.z = 5;
+  const post = new PostProcessing(renderer, scene, camera, 'low', 'taa');
+  const errors = [], builders = [];
+  renderer.backend.device.addEventListener('uncapturederror', e => errors.push(e.error.message));
+  post.render();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ side: THREE.DoubleSide }));
+  const original = renderer.debug.onNodeBuilderCreated;
+  renderer.debug.onNodeBuilderCreated = (builder, draw) => { original?.(builder, draw); if (draw.object === mesh) builders.push({ builder, draw }); };
+  let running = true;
+  const render = () => { if (running) { post.render(); requestAnimationFrame(render); } }; render();
+  await post.prepare(mesh);
+  const pre = builders.filter(({ draw }) => draw.material.name === 'normal-velocity-prepass');
+  const snapshots = pre.map(({ builder }) => builder.renderer.getRenderTarget() === post.pre.renderTarget && builder.renderer.getMRT() === post.pre.getMRT());
+  const before = builders.length;
+  scene.add(mesh);
+  for (let i = 0; i < 10; i++) await new Promise(resolve => requestAnimationFrame(resolve));
+  running = false;
+  await renderer.backend.device.queue.onSubmittedWorkDone();
+  return { preBuilders: pre.length, snapshots, lateBuilders: builders.length - before, errors };
+};

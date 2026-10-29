@@ -43,6 +43,13 @@ try {
   page.on('console', message => { if (message.type() === 'error') console.log(message.text()); });
   await page.goto(`http://127.0.0.1:${port(3)}/probe`);
   await page.waitForFunction(() => window.runMaterialStream);
+  if (label === 'prepare') {
+    const result = await page.evaluate(() => window.runMaterialPreparation());
+    fs.writeFileSync(path.join(out, 'prepare.json'), JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(result));
+    assert.ok(result.preBuilders > 0); assert.ok(result.snapshots.every(Boolean));
+    assert.equal(result.lateBuilders, 0); assert.deepEqual(result.errors, []); assert.deepEqual(errors, []);
+  } else {
   console.log(JSON.stringify({ stage: 'loaded', label, urls }));
   const result = await page.evaluate(([urls, seconds]) => window.runMaterialStream(urls, seconds), [urls, seconds]);
   result.pageErrors = errors;
@@ -57,4 +64,5 @@ try {
   assert.equal(rounds[2].materials, rounds[1].materials, 'same resident tiles have stable materials');
   assert.equal(rounds[2].renderObjects, rounds[1].renderObjects, 'same resident tiles have stable render objects');
   assert.ok(rounds[2].pipelines <= rounds[1].pipelines + 2, 'pipeline cache plateaus');
+  }
 } finally { await browser?.close(); await server.close(); }
