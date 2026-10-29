@@ -73,6 +73,9 @@ def test_only_explicit_idle_upgrades_can_fill_the_reserved_crossing_slot(tmp_pat
     tiles = [f"t0_{i}_0" for i in range(4)]
     b, idle, now = idle_builder(tmp_path, [(0, tile) for tile in tiles])
     b.two_pass = True
+    now[0] = IDLE_SECONDS
+    idle.presence_known = True
+    idle.online = False
     idle.tiles.update(tiles)
     b.upgrade_queue.update(tiles)
     for tile in tiles:
@@ -227,6 +230,8 @@ def test_pending_warm_tiles_keep_leases_without_blocking_prepared_work(tmp_path)
     missing = [f"t0_{i}_9" for i in range(8)]
     b, idle, now = idle_builder(tmp_path, [(0, t) for t in [*missing, "t0_0_0"]])
     b.inputs = lambda tile: ["raw"] if tile in missing else []
+    now[0] = IDLE_SECONDS
+    idle.tick()
     idle.presence = lambda: True
     idle.tick()
     assert len(idle.tiles & b.pending.keys()) == b.workers
@@ -238,3 +243,41 @@ def test_pending_warm_tiles_keep_leases_without_blocking_prepared_work(tmp_path)
     assert all(time.time() - b.requested[t] < 2 for t in b.pending)
     assert len(idle.tiles & b.pending.keys()) == b.workers
     assert b.priority == {"t0_0_0": 1e9}
+
+
+def test_any_player_ahead_queue_immediately_preempts_running_warm_pass(tmp_path):
+    b, idle, now = idle_builder(tmp_path, [(0, "t0_0_0")])
+    idle.presence = lambda: True
+    idle.tick()
+    b.priority.clear()
+    b.building["t0_0_0"] = 0
+    b.upgrading.add("t0_0_0")
+    b.demand.update("driver", ["t0_2_0"], [], [])  # Ahead, not urgent/visible.
+    assert b.request("t0_2_0", 100)["state"] == "queued"
+    assert "t0_0_0" in b.cancelled
+    b.run.cancel.assert_called_once_with("t0_0_0")
+    assert not idle.tiles
+    assert idle.capacity() == 0
+
+
+def test_online_warming_does_not_start_basic_or_enrichment_downloads(tmp_path):
+    walk = [(0, t) for t in ("t0_0_0", "t0_1_0", "t0_2_0")]
+    b, idle, now = idle_builder(tmp_path, walk)
+    idle.presence = lambda: True
+    b.inputs = lambda t: ["raw-ground"] if t == "t0_0_0" else []
+    b.enrichment_inputs = lambda t: ["raw-photo"] if t == "t0_1_0" else []
+    b.on_missing = Mock()
+    idle.tick()
+    assert idle.tiles == {"t0_2_0"}
+    assert not b.pending
+    b.on_missing.assert_not_called()
+
+
+def test_warm_leases_rank_after_requested_player_work(tmp_path):
+    from turku3d.coarse.upgrade_queue import upgrade_order
+
+    b, idle, now = idle_builder(tmp_path, [(0, "t0_0_0")])
+    idle.tick()
+    b.demand.update("driver", ["t0_0_0", "t0_2_0"], [], [])
+    assert b.job_rank("t0_2_0", 100) < b.job_rank("t0_0_0", 0)
+    assert upgrade_order(b, "t0_2_0") < upgrade_order(b, "t0_0_0")

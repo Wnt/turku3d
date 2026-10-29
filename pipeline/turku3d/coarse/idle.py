@@ -101,14 +101,15 @@ class IdlePrebuild:
 
     def capacity(self):
         b = self.builder
+        waiting = (set(b.priority) | b.upgrade_queue) - self.tiles
+        if waiting:
+            return 0
         if self.fully_idle():
             return b.workers
         # One low-priority worker at most while online or just activated. Leave
         # a crossing worker free even when the other workers are committed full passes.
         foreground = len(set(b.building) - self.tiles)
-        # Raw downloads occupy no build worker; keep warming prepared tiles meanwhile.
-        waiting = (set(b.priority) | b.upgrade_queue) - self.tiles
-        return 0 if waiting else min(1, max(0, b.workers - foreground - 1))
+        return min(1, max(0, b.workers - foreground - 1))
 
     def activity(self):
         """A heartbeat ends idle expansion; useful spare work survives repeated polls."""
@@ -134,19 +135,19 @@ class IdlePrebuild:
     def preempt(self):
         """Called under the scheduler lock after demand updates, before job selection."""
         b = self.builder
+        if b.draining:
+            return
         # Imminent/visible work becomes foreground and keeps its completion commitment.
         self.tiles.difference_update(
             t for t in list(self.tiles) if (r := b.demand.rank(t)) is not None and r[0] <= 1
         )
         running = self.tiles & b.building.keys()
         waiting = (set(b.priority) | b.upgrade_queue) - self.tiles
-        urgent = [t for t in waiting if (r := b.demand.rank(t)) is not None and r[0] == 0]
-        free = max(0, b.workers - len(b.building))
         limit = b.workers if self.fully_idle() else max(len(running), self.capacity())
         if not self.fully_idle():
             limit = min(1, limit)
-        if urgent and len(urgent) > free:
-            limit = min(limit, max(0, len(running) - (len(urgent) - free)))
+        if waiting:
+            limit = 0  # Any queued player pass owns every CPU before warming resumes.
         # Keep running warm work before queued work; release only excess capacity.
         ordered = sorted(self.tiles - set(b.pending), key=lambda t: (t not in b.building, t))
         self.release(ordered[limit:])
@@ -359,6 +360,15 @@ class IdlePrebuild:
                     break
                 if len(self.tiles - set(b.pending)) >= self.capacity():
                     break
+                if not self.fully_idle():
+                    from .sources import NoCoverage
+
+                    try:
+                        if b.inputs(tile) or b.enrichment_inputs(tile):
+                            continue  # Online warming never competes for raw downloads.
+                    except NoCoverage:
+                        self.unavailable.add(tile)
+                        continue
                 if len(self.tiles & b.pending.keys()) >= b.workers:
                     from .sources import NoCoverage
 

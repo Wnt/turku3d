@@ -74,3 +74,12 @@ Initial slice `3c06dd35`: selected35 cases and mandatory policies passed in14.61
 The first137.928s async run completed both real OCI warm pairs with correct46/24 buildings and16 cells per tile, zero failures/cancellations: spawn first/full7.518/24.170s; bridge7.699/71.746s. It failed before browser traversal because the public menu no longer exposes the old multiplayer selector. Concurrent deployments later changed the active source again; frozen OCI results remain tied to3c06dd35.
 
 The one forward correction uses the measured public-menu text selector and fixes raw-wait admission: pending data uses no worker slot, its lease stays current until landing, and background raw waits remain bounded to the worker count. Prepared warm tiles continue building while those raw downloads wait. NoCoverage/unavailable accounting from LAN readiness is preserved. The linked deployed probe includes a deliberately held raw-input tile ahead of both real warm tiles.
+
+
+## Renewed strict-priority correction
+
+On renewed coordination request3263241e50204d1598ca93d02dc40b3e after Jonni reported slower terrain, online warming now yields to **any** queued actual first/full player request. Requested tiles promote existing useful warm work; remaining warm jobs are cancelled before dispatch, regardless of spare worker count. Warm first/full ordering always follows requested work. Online/just-activated warming only uses tiles whose complete raw inputs already exist; background downloads retain the original fully-idle grace. The online worker cap remains one.
+
+Owned OCI build probes now inherit nice19, bind to one CPU, honor the remaining owner deadline and handle transport/deadline termination by cancelling their own worker tree. The previous queued forward run exhausted its ten-minute budget before any traversal completed; escaped owned remote processes were explicitly stopped. No late measurements are counted. The renewed verification uses one explicit browser reservation and no isolated production tile-build probe.
+
+Overload observations are retained: serving agent reported0/7 basic/full at50km/h,115.75s unsupported, and ten-driver startup failed with1411 transport/parse errors at380.7% CPU across changing generator identities. These are concurrent-load observations, not a controlled result of this correction. The112a readiness census recorded spawn6/6 and mission routes25/885. Global ten-driver readiness remains unproven.

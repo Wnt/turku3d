@@ -216,6 +216,8 @@ class Builder:
             time.sleep(1)
 
     def job_rank(self, tile, distance=0):
+        if self.idle is not None and tile in self.idle.tiles:
+            return 3, distance
         lease = self.demand.rank(tile)
         if lease is not None:
             return lease
@@ -236,7 +238,12 @@ class Builder:
         return complete_tile(self.root, tile, FILE)
 
     def request(self, tile: str, distance: float) -> dict:
-        return request_tile(self, tile, distance)
+        state = request_tile(self, tile, distance)
+        with self.lock:
+            if self.idle is not None:
+                self.idle.tiles.discard(tile)  # An actual request promotes existing useful work.
+                self.idle.preempt()
+        return state
 
     def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
@@ -567,7 +574,10 @@ class Builder:
                 )
             ]
         for tile, distance in waiting:
-            self.request(tile, distance)
+            if self.idle is not None and tile in self.idle.tiles:
+                self._request(tile, distance)
+            else:
+                self.request(tile, distance)
 
     def status(self) -> dict:
         return state_snapshot(self, STATUS_ITEMS)
