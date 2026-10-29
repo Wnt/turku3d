@@ -1,6 +1,7 @@
 // Gameplay entry for main.ts: the street router and the delivery address pool handed to the mission system, and
 // the minimap.
 import { isLocalHost } from '../core/localOnly';
+import type { CoarseTiles } from '../world/coarseTiles';
 import type { Manifest } from '../world/manifest';
 import { draftsUrl } from '../net/config';
 import { parseAddressPool, type AddressJson, loadAddressPool } from './content/addresses';
@@ -25,6 +26,13 @@ class StreetMap {
     private readonly router: StreetRouter, private readonly minimap: Minimap, private readonly cityWide = false) {
     this.published = published;
     this.sha = manifest.roads?.sha256;
+  }
+
+  /** Keep resident tile fragments connected across streamed replacements. */
+  connectDrafts(coarse: CoarseTiles | null) {
+    if (!coarse) return;
+    coarse.onMapChange = () => void this.update(coarse.roadGraphs());
+    if (coarse.roadGraphs().length) coarse.onMapChange();
   }
 
   /** Re-merges with these draft graphs (CoarseTiles.roadGraphs). */

@@ -121,13 +121,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
   const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
-  // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
-  // Draft tiles' streets join the map and the router as the drafts arrive and leave, and with the 60 s manifest poll.
-  if (coarse) {
-    coarse.onMapChange = () => void streets.update(coarse.roadGraphs());
-    if (coarse.roadGraphs().length) coarse.onMapChange();
-  }
+  streets.connectDrafts(coarse);
   let multiplayerRunId = crypto.randomUUID();
   const missions = new MissionSystem({ router, addresses, onPaid: drop => {
     if (!multiplayerPlaying || devToolsEnabled(location)) return; // developer sessions stay off the scoreboard
