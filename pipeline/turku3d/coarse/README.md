@@ -624,9 +624,13 @@ and stored facade parameters/assets; mesh encoding also caches individual buffer
 Service scheduling edits do not change the producer identity. Geometry/material edits
 change the manifest producer hash and request a fresh build.
 
-A requested outdated tile returns 202 until its new structural first pass is ready,
-then receives the full upgrade. Only a failed replacement permits a complete last-good
-manifest with `stale: true` and a failure marker. Service logs report the error and
+A requested outdated tile immediately serves retained full visuals with `stale: true`
+while rebuilding, if current collision is available. Unchanged structural producer and
+input identities permit retained collision; otherwise the new structural first pass
+must publish first. Both fragment endpoints prefer the newest complete full visuals,
+including `last-full.json`, paired with current collision. Failure never relaxes this
+collision requirement. Resident clients poll every two seconds and swap prepared models;
+identical collision hashes retain resident colliders. Service logs report errors and
 health exposes cumulative build failures and currently failed tile counts. Raw input
 identities hash bytes, including rasters referenced by VRTs; timestamps only memoize
 hash reads. Git commits and scheduling edits do not invalidate generator output.

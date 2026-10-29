@@ -60,12 +60,17 @@ try {
     const started=performance.now();
     // Yesterday's retained seven-crossing drive is on this same corridor. The
     // full path includes the cold navigation to its start; request clocks retain it.
-    const state=window.__arrival={started,speed,tiles:{},frames:[],samples:[],pending:new Map()};
+    const state=window.__arrival={started,speed,tiles:{},frames:[],samples:[],pending:new Map(),stale:{}};
     const request=(id)=>state.tiles[id] ??= {request:window.__arrivalRequests[id] ?? performance.now(),basic:null,full:null,arrival:null};
     const apply=coarse.applyFragment.bind(coarse);
     coarse.applyFragment=async (id,entry,fragment)=>{
       request(id);
       await apply(id,entry,fragment);
+      if(entry.model && entry.visualHash===fragment.visual[id].sha256) {
+        const now=performance.now();
+        if(fragment.stale) state.stale[id] ??= {shown:now,current:null};
+        else if(state.stale[id] && state.stale[id].current===null) state.stale[id].current=now;
+      }
       if(entry.model && entry.visualHash===fragment.visual[id].sha256)
         state.pending.set(id,fragment.pass_kind ?? (fragment.format ? 'full' : 'first'));
     };
@@ -112,6 +117,9 @@ try {
       first_before_arrival:crossings.filter(r=>r.edge_wait_seconds===0).length,
       full_by_arrival_plus_5:crossings.filter(r=>r.full_delay_seconds!==null && r.full_delay_seconds<=5).length,
       unsupported_seconds:p.samples.filter(r=>!r.supported).length*.25,
+      stale_versions:Object.entries(p.stale).map(([tile,r])=>({tile,
+        shown_seconds:(r.shown-p.started)/1000,stale_seconds:((r.current ?? now)-r.shown)/1000,
+        current:r.current!==null})),
       samples:p.samples,frames:p.frames,errors:window.__game.state().errors};
   });
   result.page_errors=errors;
@@ -119,6 +127,7 @@ try {
   await page.screenshot({path:path.join(out,'end.png')});
   console.log(JSON.stringify({report:out,speed_kmh:speed,crossings:result.crossings,
     first_before_arrival:result.first_before_arrival,full_by_arrival_plus_5:result.full_by_arrival_plus_5,
+    stale_versions:result.stale_versions,
     unsupported_seconds:result.unsupported_seconds,errors:[...errors,...result.errors]}));
   if(errors.length || result.errors.length) throw new Error('Client errors during arrival traversal');
 } finally {clearTimeout(hardStop);await context.close();await room.close();}

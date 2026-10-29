@@ -103,3 +103,34 @@ def test_last_full_can_supply_unchanged_collision_without_primary_pointer(tmp_pa
     assert value["visual"] == old["visual"] and value["collision"] == old["collision"]
     assert value["stale"]
     b.stop()
+
+
+def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path):
+    import importlib.util
+    import io
+
+    spec = importlib.util.spec_from_file_location("draft_public", C.REPO_ROOT / "tools/remote-drafts/public.py")
+    public = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(public)
+    old = publish(tmp_path, "manifest.json", structural="obsolete")
+    first = publish(tmp_path, "collision.json", code="new", kind="first")
+    b = builder(tmp_path)
+    cls = public.public_handler(b, None, {"queue_max": 1, "tile_bounds": [-2, -2, 2, 2]})
+    b.priority["t0_1_1"] = 0  # Usable retained output bypasses occupied build admission.
+    for endpoint in ("collision", "manifest"):
+        handler = object.__new__(cls)
+        handler.path = f"/coarse/{TILE.id}/{endpoint}.json"
+        handler.command, handler.headers = "GET", {}
+        handler.wfile = io.BytesIO()
+        handler.send_response = lambda status: setattr(handler, "status", status)
+        handler.send_header = lambda *_: None
+        handler.end_headers = lambda: None
+        handler.do_GET()
+        body = json.loads(handler.wfile.getvalue())
+        assert handler.status == 200
+        assert body["stale"] and body["pass_kind"] == "full"
+        assert body["visual"] == old["visual"] and body["collision"] == first["collision"]
+        assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in first["collision"].values())
+        assert not {"code", "inputs", "seconds"} & body.keys()
+        assert TILE.id in b.upgrade_queue and TILE.id in b.journal.rows
+    b.stop()

@@ -247,16 +247,11 @@ def public_handler(builder, prefetcher, settings):
                     client = q.get("client", [None])[0]
                     if client is not None and not builder.demand.wants(client, tile):
                         return self._json(202, {"state": "deferred"})
-                    if route == "collision":
-                        fragment = collision_fragment(builder, tile)
-                        if fragment is not None:
-                            return self._json(200, public_fragment(fragment))
                     active = set(builder.priority) | set(builder.building) | set(builder.pending)
                     if (
                         tile not in active
                         and not builder.built(tile)
-                        and not ((builder.root / tile / "collision.json").exists()
-                                 and collision_fragment(builder, tile) is not None)
+                        and collision_fragment(builder, tile) is None
                         and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
                         and not builder.demand.admit(builder, tile)
                     ):
