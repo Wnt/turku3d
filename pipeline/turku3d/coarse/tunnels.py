@@ -92,17 +92,27 @@ def prepare(tile, path):
     window = shapely.box(*tile.bbox.as_tuple()).buffer(100)
 
     def area_tunnels():
-        out = []
+        from .road_top import carried_roads
+
+        out, roads = [], []
         quay = passages(path)
         passage_ids = {key for key, _, _ in quay}
         for k, row in rows(path, columns=("osm_id", "tags", "geometry_local")):
             tags = json.loads(row["tags"]) if row["tags"] else {}
+            line = shapely.force_2d(row["geometry_local"])
+            if (
+                tags.get("highway")
+                and not selected(tags)
+                and tags.get("bridge", "no") == "no"
+                and tags.get("layer", "0") in ("0", "")
+                and line.geom_type == "LineString"
+            ):
+                roads.append((line, tags))
             if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
                 continue
-            line = shapely.force_2d(row["geometry_local"])
             if line.geom_type == "LineString" and line.length > 0.5:
                 out.append((str(row.get("osm_id", k)), line, tags))
-        return merge_parallel([*out, *quay])
+        return carried_roads(merge_parallel([*out, *quay]), roads)
 
     ways = cached(
         path,
@@ -110,6 +120,7 @@ def prepare(tile, path):
         [
             Path(__file__),
             Path(__file__).with_name("underpasses.py"),
+            Path(__file__).with_name("road_top.py"),
             Path(__file__).with_name("bridge_details.py"),
         ],
         area_tunnels,
@@ -317,6 +328,8 @@ class Tunnels:
         positions, indices, materials = [pos], [idx], [mat]
         count = len(pos)
         for mesh in self.meshes:
+            if mesh.metadata.get("lamp"):
+                continue
             # Duplicate boundary triangles into both cells, so either streamed cell seals the tube.
             triangles = mesh.positions[mesh.indices][:, :, [0, 2]]
             b = ct.bbox
@@ -362,7 +375,9 @@ class Tunnels:
         return {**roads, "json": (json.dumps(graph, separators=(",", ":")) + "\n").encode()}
 
 
-def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None):
+def produce(
+    tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None, deck_sample=None
+):
     """Produce sealed tubes, exact ground remainders and passage openings in draft buildings."""
     from .inputs import CELLS
     from .kerbs import terrain_patches
@@ -389,6 +404,7 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             # The area cache includes a 100 m margin. An unrelated neighbouring
             # passage must not prepare its surrounding ground tiles or lidar.
             continue
+        road_top = "road_top" in tags and deck_sample is not None
         vaulted = tags.get("vault") == "barrel"
         spring = clearance - width / 2 if vaulted else clearance
         distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
@@ -411,6 +427,10 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             ]
         )
         left, right = xz + offset * width / 2, xz - offset * width / 2
+        if road_top:
+            # Keep the measured floor unless a bank is too low for the stated clearance.
+            cover = np.min([[deck_sample(*q) for q in side] for side in (left, xz, right)], axis=0)
+            floor = np.minimum(floor, cover - clearance - 0.3)
         if passage:
             side_floors = (
                 np.array([[surface_sample(x, z) for x, z in side] for side in (left, right)])
@@ -439,11 +459,17 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
         )
 
         def floor_height(
-            query, line=line, distances=distances, floor=floor, portal_offsets=portal_offsets
+            query,
+            line=line,
+            distances=distances,
+            floor=floor,
+            portal_offsets=portal_offsets,
+            road_top=road_top,
+            clearance=clearance,
         ):
             ds = shapely.line_locate_point(line, shapely.points(query))
             h = np.interp(ds, distances, floor)
-            if surface_sample is not None:
+            if surface_sample is not None and not road_top:
                 blend = np.clip(
                     1 - np.minimum(ds, line.length - ds) / min(2, line.length / 2), 0, 1
                 )
@@ -459,6 +485,8 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     ground - road_height, -crossfall, crossfall
                 )
                 h[near] += correction * blend[near]
+            if road_top:
+                h = np.minimum(h, [deck_sample(*q) - clearance - 0.3 for q in query])
             return h
 
         left_floor, right_floor = (floor_height(side) for side in (left, right))
@@ -480,7 +508,14 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                 patch = np.clip(patch, clip_low, clip_high)
                 p = np.c_[patch[:, 0], floor_height(patch), patch[:, 1]]
                 road.face(p[::-1], patch[::-1])
-            if vaulted:
+            if road_top:
+                for patch in terrain_patches(
+                    np.array([left[i], left[j], right[j], right[i]]), tile.size / CELLS, bounds
+                ):
+                    patch = np.clip(patch, clip_low, clip_high)
+                    top = np.array([deck_sample(*q) - 0.3 for q in patch])
+                    tube.face(np.c_[patch[:, 0], top, patch[:, 1]], patch)
+            elif vaulted:
                 # Semicircular intrados, parallel outer shell and annular portal faces.
                 def arch(
                     k,
@@ -547,14 +582,15 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
         aprons = []
         for end, outward in ((0, -direction[0]), (-1, direction[-1])):
             inner = np.array([left[end], right[end]])
-            outer = inner + outward * 2
+            apron_length = 4 if road_top else 2
+            outer = inner + outward * apron_length
             apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
             aprons.append(apron)
             for patch in terrain_patches(
                 np.array(apron.exterior.coords)[:-1], tile.size / CELLS, bounds
             ):
                 patch = np.clip(patch, clip_low, clip_high)
-                along = np.clip((patch - xz[end]) @ outward / 2, 0, 1)
+                along = np.clip((patch - xz[end]) @ outward / apron_length, 0, 1)
                 base = floor_height(patch)
                 ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
                 height = base + (ground - base) * along
@@ -599,7 +635,9 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
                     f"tunnel:{key}:{name}",
                     centres[i : i + 2],
                     side_floor[i : i + 2] - 0.2,
-                    side_floor[i : i + 2] + spring + 0.3,
+                    np.array([deck_sample(*q) for q in centres[i : i + 2]])
+                    if road_top
+                    else side_floor[i : i + 2] + spring + 0.3,
                     surface_sample or sample,
                     tile.size / CELLS,
                     thickness=0.4,
@@ -612,7 +650,11 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             # stay outside the clear carriageway, including at skewed portals.
             frame = Faces()
             header_line = np.array([left[end] + offset[end] * 1.7, right[end] - offset[end] * 1.7])
-            header_bottom = np.array([left_floor[end], right_floor[end]]) + clearance
+            header_bottom = (
+                np.array([deck_sample(*q) for q in header_line]) - 0.3
+                if road_top
+                else np.array([left_floor[end], right_floor[end]]) + clearance
+            )
             header_vector = header_line[1] - header_line[0]
             for sign, side, side_floor in ((1, left, left_floor), (-1, right, right_floor)):
                 a = side[end] + sign * offset[end] * 0.2
@@ -639,6 +681,19 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             )
             frame.triangles(header.positions, header.indices, header.uvs)
             meshes.append(frame.mesh(f"tunnel:{key}:portal:{end}", "wall"))
+        if road_top:
+            for mesh in meshes:
+                if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.object_id.endswith(
+                    ":floor"
+                ):
+                    if mesh.metadata.get("lamp"):
+                        mesh.positions[:, 1] = [
+                            deck_sample(x, z) - 0.301 for x, _, z in mesh.positions
+                        ]
+                    mesh.positions[:, 1] = np.minimum(
+                        mesh.positions[:, 1],
+                        [deck_sample(x, z) - 0.03 for x, _, z in mesh.positions],
+                    )
         if vaulted:
             for mesh in meshes:
                 if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.metadata.get("lamp"):
@@ -646,7 +701,13 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
         if tree is None:
             tree = shapely.STRtree(shapely.polygons(grid_pos[grid_idx][:, :, [0, 2]]))
         for tid, cut in ground_cuts(
-            tree, grid_pos, grid_idx, cut_corridor, mouths, floor_height, clearance
+            tree,
+            grid_pos,
+            grid_idx,
+            cut_corridor.difference(corridor) if road_top else cut_corridor,
+            shapely.union_all(aprons) if road_top else mouths,
+            floor_height,
+            clearance,
         ):
             keep[tid] = False
             cuts[tid] = cuts[tid].union(cut) if tid in cuts else cut

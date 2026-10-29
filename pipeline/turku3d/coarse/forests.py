@@ -182,6 +182,7 @@ def path_surfaces(inputs):
 def path_ground(tile, ortho, regions):
     """Replace aerial forest-floor foliage over mapped paths with their ground material."""
     from turku3d.col.materials import mat_id
+
     from .surfaces import BINDINGS, fallback
 
     if not regions:
@@ -201,7 +202,7 @@ def path_ground(tile, ortho, regions):
     return output
 
 
-def produce(tile, inputs, height_at, mapped):
+def produce(tile, inputs, height_at, mapped, carried=None):
     """Reuse vegetation Tree/prototypes; only trees (never edge bushes) receive trunk collision."""
     blocked = shapely.union_all(
         [
@@ -318,6 +319,10 @@ def produce(tile, inputs, height_at, mapped):
                 )
                 if clears_path(bush, paths):
                     bushes.append(bush)
+    if carried is not None and not carried.is_empty:
+        # A trunk outside the road is insufficient: its complete crown must clear the deck.
+        trees = [t for t in trees if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]
+        bushes = [t for t in bushes if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]
     return deduplicate(trees, SPACING), bushes
 
 
