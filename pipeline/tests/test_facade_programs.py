@@ -277,3 +277,18 @@ def test_arch_opening_split_across_fragments_keeps_whole_opening_origin():
     assert patch[2]["size"] == [4, 3]
     assert patch[0][:, 0].min() == 5
     assert patch[0][:, 0].max() == 7
+
+
+def test_reviewed_paint_stays_inside_sloping_overlap_remainder():
+    wall = program()["walls"][0]
+    wall.update(
+        measured_geometry=dict(
+            p0=[C.ORIGIN_E, C.ORIGIN_N], p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2
+        ),
+        measured_size=[23.3, 12],
+    )
+    vertices = np.array([[0, 4, 0], [23.3, 7, 0], [23.3, 13.5, 0], [0, 13.5, 0]])
+    style = compile_wall(wall, 4)
+    for points, uv, _ in wall_parts(vertices, wall, style):
+        assert np.all(points[:, 1] >= 4 + points[:, 0] / 23.3 * 3 - 1e-9)
+        np.testing.assert_allclose(uv[:, 0], points[:, 0])

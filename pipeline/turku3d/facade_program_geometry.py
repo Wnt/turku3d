@@ -17,20 +17,22 @@ def wall_parts(vertices, wall, style):
     are measured from the source wall, never from a neighbouring facade or a tile edge.
     """
     a, b = vertices[0], vertices[1]
-    width = float(np.linalg.norm(b - a))
-    direction = (b - a) / max(width, 1e-6)
+    horizontal = b - a
+    horizontal[1] = 0
+    width = float(np.linalg.norm(horizontal))
+    direction = horizontal / max(width, 1e-6)
     normal = np.array([direction[2], 0, -direction[0]])
 
     def quad(x0, x1, y0, y1):
         left, right = a + x0 * direction, a + x1 * direction
         tops = [vertices[3, 1] + x / width * (vertices[2, 1] - vertices[3, 1]) for x in (x0, x1)]
-        lo, hi = max(a[1], y0), min(max(tops), y1)
-        if x1 - x0 < 0.01 or hi - lo < 0.01:
+        bottoms = [a[1] + x / width * (b[1] - a[1]) for x in (x0, x1)]
+        low = np.maximum(bottoms, y0)
+        high = np.minimum(tops, y1)
+        if x1 - x0 < 0.01 or min(high - low) < 0 or max(high - low) < 0.01:
             return None
         points = np.array([left, right, right, left])
-        points[:, 1] = [lo, lo, min(tops[1], hi), min(tops[0], hi)]
-        if min(points[2:, 1]) < lo + 0.01:
-            return None
+        points[:, 1] = [low[0], low[1], high[1], high[0]]
         uv = np.c_[[x0, x1, x1, x0], points[:, 1]]
         return points, uv
 

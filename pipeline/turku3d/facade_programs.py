@@ -168,7 +168,7 @@ def resolve(building, vertices, eaves):
     normal = np.column_stack((tangents[:, 1], -tangents[:, 0]))
     for index in range(0, len(vertices), 4):
         p = vertices[index : index + 4]
-        width = float(np.linalg.norm(p[1] - p[0]))
+        width = float(np.linalg.norm(p[1, [0, 2]] - p[0, [0, 2]]))
         direction = (p[1, [0, 2]] - p[0, [0, 2]]) / max(width, 1e-9)
         along = np.sum((p[0, [0, 2]] - edge_a) * tangents, axis=1)
         distance = np.abs(np.sum((p[0, [0, 2]] - edge_a) * normal, axis=1))
