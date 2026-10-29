@@ -171,9 +171,9 @@ def assemble_walls(shells, context=()):
 def wall_meshes(b, walls, origin):
     if not len(walls):
         return []
+    from turku3d.facade_component_geometry import geometry, plan, slots, surface_parts
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
-    from turku3d.facade_component_geometry import plan, geometry, surface_parts, slots
 
     stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []

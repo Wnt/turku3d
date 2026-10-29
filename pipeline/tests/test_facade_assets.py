@@ -241,3 +241,27 @@ def test_mixed_reviewed_section_overrides_map_but_keeps_hidden_ground(monkeypatc
     niches = [s for s in styles if s['module'] >= 42 and s['wall'] == '#aa8074']
     assert niches and all(s['detail'][3] == 0 for s in niches)
     assert validate_meshes(meshes, 'fixture')['violations'] == 0
+
+
+def test_bundled_description_is_normal_fallback_with_alias_and_tile_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'work'))
+    monkeypatch.setenv('TURKU3D_DATA', str(tmp_path / 'data'))
+    monkeypatch.setenv('TURKU3D_FACADE_ASSETS', str(tmp_path / 'assets'))
+    monkeypatch.setattr(C, 'REPO_ROOT', tmp_path)
+    directory = tmp_path / 'textures/library/facade-params'
+    directory.mkdir(parents=True)
+    before = parameter_hash(['other'])
+    d = renderer().register_description('b_0', 'b', {}, 10, 12)
+    record = dict(building_key='b', description=d, width_m=10)
+    (directory / opaque('b')).write_text(json.dumps(record))
+    assert read_description('gis-b') == d
+    assert parameter_hash(['other']) == before
+    own = parameter_hash(['b'])
+    d['wall_colour'] = '#B98B7E'
+    (directory / opaque('b')).write_text(json.dumps(record))
+    assert parameter_hash(['b']) != own
+    shared = tmp_path / 'data/facade-params'
+    shared.mkdir(parents=True)
+    d['wall_colour'] = '#123456'
+    (shared / opaque('b')).write_text(json.dumps(record))
+    assert read_description('b')['wall_colour'] == '#123456'

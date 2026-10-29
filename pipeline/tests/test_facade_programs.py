@@ -249,7 +249,6 @@ def test_reviewed_partial_wall_overrides_stored_map_and_description_only_on_its_
     assert wall["wall_id"] == "stable:0"
     assert wall["wall"]["colour"]["source"] == "existing description"
     assert wall["wall"]["colour"]["value"] == "#123456"
-    assert wall["wall"]["colour"]["value"] != "#123456"
     assert compile_wall(wall, 4)["ground"] == 2
     instructions = meshes[-1].extras["facade_kit_walls"]
     assert [p["detail"][3] for p in instructions if p["detail"][3] > 0] == [9, 6]
