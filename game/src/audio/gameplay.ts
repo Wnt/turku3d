@@ -1,7 +1,7 @@
 import type { V3 } from '../core/origin';
 import type { CharacterState, VehicleInput, VehicleState } from '../physics/protocol';
 import { VEHICLES, type VehicleKind } from '../physics/constants';
-import { tyreStrength } from '../vehicle/tyreSlip';
+import { TyreSlipFilter } from '../vehicle/tyreSlip';
 import { clamp, type AudioEvent } from './mix';
 
 /** Converts game snapshots into audio events once per physics tick, independent of render FPS. */
@@ -20,6 +20,9 @@ export function engineRpm(kind: VehicleKind, speed: number, throttle: number) {
 
 export class GameplayAudio {
   private tick = -1;
+  private readonly tyreSlip = new TyreSlipFilter(4);
+  private slipTick = -1;
+  private slipStrength = 0;
   private distance = 0;
   private previousFeet: V3 | null = null;
   private mode: 'foot' | 'car' = 'foot';
@@ -49,14 +52,25 @@ export class GameplayAudio {
       this.emit({ type: 'door', position: v?.pos ?? this.doorPosition, open: false }); this.doorPosition = null;
     }
     if (v) {
-      let slip = 0;
-      for (const wheel of v.wheels) slip = Math.max(slip, tyreStrength(wheel));
+      if (!frame.paused && frame.tick !== this.slipTick) {
+        const dt = this.slipTick < 0 ? 1 / 60 : (frame.tick - this.slipTick) / 60;
+        this.slipTick = frame.tick; this.slipStrength = 0;
+        for (let i = 0; i < 4; i++) {
+          if (v.wheels[i]) this.slipStrength = Math.max(this.slipStrength, this.tyreSlip.update(i, v.wheels[i], v.speed, dt));
+          else this.tyreSlip.reset(i);
+        }
+      }
+      const slip = this.slipStrength;
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
       const kind = v.kind ?? 'car', rpm = engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
       this.emit({ type: 'car', kind, position: v.pos, rpm,
         throttle, speed: contact ? v.speed : 0, slip,
         running: mode === 'car' });
+    }
+    if (!v || mode !== 'car') {
+      for (let i = 0; i < 4; i++) this.tyreSlip.reset(i);
+      this.slipTick = -1; this.slipStrength = 0;
     }
     if (frame.paused || frame.tick === this.tick) return;
     this.tick = frame.tick;

@@ -479,7 +479,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (carState) car.update(carState);
     if (effectsDt > 0 && mode === 'car') {
       const vehicle = latestOf(drivenId ?? 'player');
-      if (vehicle) tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt);
+      if (vehicle) tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt, vehicle.speed);
     }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
     const renderCharacter = physics.characterRender.sample(now / 1000);
