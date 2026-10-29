@@ -63,3 +63,28 @@ building tiles. `python3 tools/research/flicker/probe.py` builds `t0_2_1` and
 `t0_2_0` on the exact deployed OCI source, first and full, verifies source counts,
 checks all shipped triangles and surface diagnostics, and compares rolling health.
 Deployed results are recorded after the bounded asynchronous run.
+
+## First deployed evidence and forward correction
+
+Release `4bfba7a5` passed selected checks in 4.649 s and deployed to Pages/OCI.
+Its 0.381 s curl smoke reached all endpoints, but reported pre-existing failures
+and cancellations. The selective run took 255.223 s:
+
+| Tile | First / full seconds | Buildings / collision cells | Triangles / instances | Overlaps |
+| --- | --- | --- | --- | --- |
+| t0_2_1 | 2.572 / 66.073 | 60 / 16 | 206,213 / 698 | 0 |
+| t0_2_0 | 5.495 / 169.488 | 36 / 16 | 327,147 / 752 | 0 |
+
+All counts matched source; every facade program triangle passed. The actual
+shipped wall and roof ranges carry `103440141R` and `Vartiovuorenkatu 2a`.
+The run nevertheless failed its health comparison: first/full failures stayed
+at 2/2, but cancellations increased 20→34 / 10→18, and full p50 rose
+24.456→32.530 s. These rolling figures include live player activity.
+
+The added shipping audit took 17.563 / 45.583 s in the two builds. The permitted
+forward correction batches polygon operations and indexes wall height along
+with the dominant horizontal axis, avoiding the x/z index's repeated candidates
+across all window rows. It retains every geometric threshold, all layers,
+instance expansion and the health assertions. The same downloaded 65,427-face
+baseline produces the same four sign-overlap findings, with local overlap
+analysis reduced from 5.675 to 2.421 s.
