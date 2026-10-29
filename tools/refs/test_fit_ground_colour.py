@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from fit_ground_colour import errors, fit, split
+from fit_ground_colour import compose, errors, fit, split
 
 
 def rows():
@@ -29,3 +29,24 @@ def test_sparse_classes_and_mosaics_do_not_invent_corrections():
     assert set(supported['groups']) == {'asphalt'}
     assert 'grass' not in supported['groups']
     assert np.allclose(supported['mosaics']['ortho.vrt']['asphalt']['delta_lab'], 0, atol=1e-8)
+
+
+def test_residual_composes_with_deployed_correction():
+    base = fit(rows(), .5)
+    residual = fit(rows(), .25, per_mosaic=True)
+    total = compose(base, residual)
+    expected = np.asarray(base['groups']['asphalt']['delta_lab']) + residual['groups']['asphalt']['delta_lab']
+    assert np.allclose(total['groups']['asphalt']['delta_lab'], expected)
+    assert 'ortho.vrt' in total['mosaics']
+
+
+def test_prior_pilot_holdout_stays_blind_to_deployed_model():
+    values = rows()
+    old_train, old_held, pinned = split(values[:24])
+    old_train_keys = {r['quarter'] for r in old_train}
+    eligible = set(pinned) | {r['quarter'] for r in values[24:]}
+    _, final_held, keys = split(values, pinned=pinned, holdout_pool=eligible)
+    assert set(pinned) <= set(keys)
+    assert old_train_keys.isdisjoint(keys)
+    assert len(keys) >= 6
+    assert {r['tile'] for r in final_held}.isdisjoint({r['tile'] for r in values if r['quarter'] not in keys})
