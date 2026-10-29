@@ -59,7 +59,14 @@ DEPENDENCIES = {
     "trees": ("../spatial.py",),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
-    "tunnels": ("tunnels.py", "bridge_details.py", "underpasses.py", "area.py", "../spatial.py"),
+    "tunnels": (
+        "road_top.py",
+        "tunnels.py",
+        "bridge_details.py",
+        "underpasses.py",
+        "area.py",
+        "../spatial.py",
+    ),
     "stairs": ("stairs.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "ortho_canopy": ("ortho_cleanup.py", "../vegetation/trees.py"),
@@ -454,10 +461,15 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
-        "appearance": [osm, wfs[0][1], *[
-            p for name in ("kanta:Rakennus", "GIS:Rakennukset")
-            if (p := sources.wfs_source(name, tile)[1])
-        ]],
+        "appearance": [
+            osm,
+            wfs[0][1],
+            *[
+                p
+                for name in ("kanta:Rakennus", "GIS:Rakennukset")
+                if (p := sources.wfs_source(name, tile)[1])
+            ],
+        ],
         "register": [
             p
             for name in ("kanta:Rakennus", "GIS:Rakennukset")
@@ -662,11 +674,15 @@ def gather(
 
     for building in wfs["buildings"]:
         enrich(building, values["register"], values["appearance"] or {})
-        period_evidence(building, (values["appearance"] or {}).get("dated_footprints", []) + [
-            ("osm:" + a.get("osm_id", "unknown"), a["construction_year"], polygon)
-            for polygon, a in (values["appearance"] or {}).get("buildings", [])
-            if a.get("construction_year")
-        ])
+        period_evidence(
+            building,
+            (values["appearance"] or {}).get("dated_footprints", [])
+            + [
+                ("osm:" + a.get("osm_id", "unknown"), a["construction_year"], polygon)
+                for polygon, a in (values["appearance"] or {}).get("buildings", [])
+                if a.get("construction_year")
+            ],
+        )
     return Inputs(
         ground["points"],
         ground["heights"],

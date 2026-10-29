@@ -42,6 +42,7 @@ PRODUCERS = (
     "kerbs",
     "stairs",
     "tunnels",
+    "road_top",
     "forests",
     "fences",
     "geometry",

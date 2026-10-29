@@ -29,11 +29,11 @@ from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 
-from . import banks, bridges, fences, kerbs, parked, surfaces
-from .forests import draft_trees
+from . import banks, bridges, fences, kerbs, parked, road_top, surfaces
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
+from .forests import draft_trees
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .retention import managed_build
@@ -218,8 +218,9 @@ def build(
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
     producer_code = code_hash()
-    cache = StageCache(out.parent / ".stages" / tile.id, retain=True,
-                       report_path=out / "stage-times.json")
+    cache = StageCache(
+        out.parent / ".stages" / tile.id, retain=True, report_path=out / "stage-times.json"
+    )
     with cache.measure("inputs"):
         inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
@@ -283,51 +284,16 @@ def build(
             *common, Path(__file__).with_name("extrusion.py"), Path(__file__).with_name("roofs.py")
         ),
         blds + list(inputs.wall_context),
-        lambda: [(b, shell) for b in [*blds, *inputs.wall_context] if len((shell := extrude(b))[1])],
+        lambda: [
+            (b, shell) for b in [*blds, *inputs.wall_context] if len((shell := extrude(b))[1])
+        ],
     )
     seconds["buildings"] = time.perf_counter() - t
 
-    from .tunnels import ground_sampler
-    from .tunnels import produce as produce_tunnels
-
     t = time.perf_counter()
     ground_sources = sources or Sources()
-    surface_sample = kerbs.height_sampler(
-        tile, grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1), out.parent, ground_sources
-    )
-    tunnels = cache.run(
-        "tunnels",
-        source_key(
-            grid_height,
-            *common,
-            Path(__file__).with_name("tunnels.py"),
-            Path(__file__).with_name("bridge_details.py"),
-            Path(kerbs.__file__),
-            Path(surfaces.__file__),
-            Path(__file__).with_name("inputs.py"),
-            Path(__file__).with_name("geometry.py"),
-            base / "structures/geometry.py",
-            Path(__file__).with_name("extrusion.py"),
-            Path(__file__).with_name("roofs.py"),
-        ),
-        [
-            tile,
-            inputs.tunnels,
-            grid_pos,
-            grid_idx,
-            shells,
-            kerb_inputs(tile, ground_sources) if inputs.tunnels else None,
-        ],
-        lambda: produce_tunnels(
-            tile,
-            inputs.tunnels,
-            grid_pos,
-            grid_idx,
-            shells,
-            extrude,
-            ground_sampler(lambda x, z: grid_height(tile, grid_pos, x, z)),
-            surface_sample,
-        ),
+    tunnels, grid_pos, surface_sample, carried_mask = road_top.stage(
+        cache, tile, inputs, grid_pos, grid_idx, shells, ground_sources, out.parent
     )
     own_keys = {b.key for b in blds}
     wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
@@ -355,8 +321,10 @@ def build(
         solid,
         kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
     )
-    seconds.update(stairs_geometry=cache.metrics["stairs"]["seconds"],
-                   stair_ground=cache.metrics["stair_ground"]["seconds"])
+    seconds.update(
+        stairs_geometry=cache.metrics["stairs"]["seconds"],
+        stair_ground=cache.metrics["stair_ground"]["seconds"],
+    )
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
@@ -416,12 +384,14 @@ def build(
                 inputs.forests,
                 inputs.trees,
                 shells,
+                carried_mask,
             ],
             lambda: produce(
                 tile,
                 inputs,
                 lambda x, z: grid_height(tile, grid_pos, x, z),
                 draft_trees(tile, grid_pos, inputs.trees, water, shells),
+                carried_mask,
             ),
         )
     )
@@ -455,7 +425,15 @@ def build(
     cols = {}
     basic_cells = []
     for ct, (pos, idx, mat) in collision_tiles(
-        tile, grid_pos, grid_idx, materials, level, shells, tunnels.keep, shore=solid, facade_components=not first_pass
+        tile,
+        grid_pos,
+        grid_idx,
+        materials,
+        level,
+        shells,
+        tunnels.keep,
+        shore=solid,
+        facade_components=not first_pass,
     ).items():
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
@@ -511,7 +489,8 @@ def build(
             seconds,
             started,
             shells,
-            wall_context, cache=cache,
+            wall_context,
+            cache=cache,
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -555,8 +534,7 @@ def build(
                   [b.footprint for b in blds], inputs.water, inputs.parking)
     ground_ortho, cleanup_stats = cache.run(
         "ground_ortho",
-        source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback,
-                   *common),
+        source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback, *common),
         clean_args,
         lambda: ortho_cleanup.clean(*clean_args),
     )
@@ -637,7 +615,11 @@ def build(
 
         write_instances(stage / "vegetation.vis.glb", tile, trees + bushes)
         layer_files.append(stage / "vegetation.vis.glb")
-    poles = list(inputs.poles)
+    poles = [
+        p
+        for p in inputs.poles
+        if carried_mask.distance(shapely.Point(p.x, p.z)) > 0.5 or carried_mask.is_empty
+    ]
     if poles:
         data = cache.run(
             "props",
@@ -691,8 +673,9 @@ def build(
     seconds["surface_library"] = time.perf_counter() - t_library
     t_package = time.perf_counter()
     with cache.measure("package"):
-        vis, stats = package_visual(tile, layer_files, stage, out.parent, surface_library,
-                                    first_pass=False)
+        vis, stats = package_visual(
+            tile, layer_files, stage, out.parent, surface_library, first_pass=False
+        )
     seconds["package"] = time.perf_counter() - t_package
     seconds.update({"package_" + k: v for k, v in stats.get("seconds", {}).items()})
     seconds["visual"] = time.perf_counter() - t
@@ -702,7 +685,7 @@ def build(
         )
 
     t = time.perf_counter()
-    cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks)
+    cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks, carried_mask)
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
     roads = tunnels.roads(bridge_roads)
@@ -733,7 +716,8 @@ def build(
                 vis,
                 level=0,
                 tris=stats["tris"],
-                h=stats["h"], wall_surfaces=stats["wall_surfaces"],
+                h=stats["h"],
+                wall_surfaces=stats["wall_surfaces"],
                 brotli_bytes=stats["brotli_bytes"],
                 coarse=True,
             )
@@ -778,6 +762,10 @@ def build(
         ),
         bridges=decks + len(osm_decks),
         tunnels=tunnels.count,
+        underpass_road_decks=sum(
+            "road_top" in tags and line.intersects(shapely.box(*tile.bbox.as_tuple()))
+            for _, line, tags in inputs.tunnels
+        ),
         water_level=level,
         sources=inputs.sources,
         inputs=inputs.key,

@@ -58,13 +58,26 @@ def truck_slot(tile, key, seed=SEED):
     )
 
 
-def place(tile, prepared, heights, water=(), barriers=(), trees=(), poles=(), decks=(), seed=SEED):
+def place(
+    tile,
+    prepared,
+    heights,
+    water=(),
+    barriers=(),
+    trees=(),
+    poles=(),
+    decks=(),
+    seed=SEED,
+    carried=None,
+):
     from .surfaces import grid_height
 
     features, city = prepared
     sx, _, sz = C.en_to_local(C.OFFICE_E, C.OFFICE_N)
     excluded, _ = exclusions(features, (sx, sz), city)
     masks = [excluded, *[g.buffer(1) for g in water]]
+    if carried is not None:
+        masks.append(carried)
     for f in features:
         t, g = f.tags, f.geometry
         if (
@@ -214,7 +227,7 @@ def publish_models(cars, root):
     return entries
 
 
-def stage(cache, tile, inputs, grid_pos, trees, poles, decks):
+def stage(cache, tile, inputs, grid_pos, trees, poles, decks, carried=None):
     from pathlib import Path
 
     from turku3d.stage_cache import source_key
@@ -232,7 +245,17 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks):
             Path(surfaces.__file__),
             Path(C.__file__),
         ),
-        [tile, inputs.parking, grid_pos[:, 1], inputs.water, inputs.barriers, trees, poles, decks],
+        [
+            tile,
+            inputs.parking,
+            grid_pos[:, 1],
+            inputs.water,
+            inputs.barriers,
+            trees,
+            poles,
+            decks,
+            carried,
+        ],
         lambda: place(
             tile,
             inputs.parking,
@@ -242,5 +265,6 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks):
             trees,
             poles,
             decks,
+            carried=carried,
         ),
     )
