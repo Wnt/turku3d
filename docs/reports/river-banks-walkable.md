@@ -52,8 +52,11 @@ The supplied recording and nearby 2019-06 Street View panorama
 embankment and lower quay. Reference crops stay in the sandbox. The retained
 Google 3D round-3 capture `t0_-3_3_q10` provides a second downstream riverside
 check; it has an accepted independent height calibration with 89.8 mm held-out
-p90. Reference imagery and provider meshes are never generator inputs or git
-assets.
+p90. On 371 mapped paving cells in that control, median/p90 absolute error is
+21/53 mm for the original TIN and 38/101 mm after smoothing. This already-smooth
+control therefore records the smoothing tradeoff as well as the large improvement
+on the recorded damaged reach. Reference imagery and provider meshes are never
+generator inputs or git assets.
 
 Focused checks:
 
