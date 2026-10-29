@@ -29,8 +29,9 @@ export function layerPath(data: Data, name = ''): string | null {
   const group = /buildings|facade/.test(layer) ? 'Buildings'
     : /vegetation|forest|tree|bush/.test(layer) ? 'Vegetation'
     : /props|poles/.test(layer) ? 'Props'
+    : /structure|bridge/.test(layer) || /tunnel|stair|fence/.test(type) ? 'Structures'
     : /ground|basic|water|river|bank|kerb|curb|terrain/.test(hint) ? 'Ground'
-    : /structure|bridge|tunnel|stair|fence|wall/.test(hint) ? 'Structures' : label(layer);
+    : /wall/.test(hint) ? 'Structures' : label(layer);
   return `${group}/${label(type || layer)}`;
 }
 
