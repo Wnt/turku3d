@@ -150,22 +150,19 @@ def terrain_patches(corners, step, bounds=None):
     strip = shapely.make_valid(shapely.Polygon(corners))
     if bounds is not None:
         strip = strip.intersection(shapely.box(*bounds))
-    lo = np.floor(np.min(corners, axis=0) / step).astype(int)
-    hi = np.floor(np.max(corners, axis=0) / step).astype(int)
-    for i in range(lo[0], hi[0] + 1):
-        for j in range(lo[1], hi[1] + 1):
-            a = np.array([i, j]) * step
-            b, c, d = a + [step, 0], a + [0, step], a + step
-            for triangle in ((a, b, c), (b, d, c)):
-                clipped = strip.intersection(shapely.Polygon(triangle))
-                pieces = (
-                    [clipped] if clipped.geom_type == "Polygon" else getattr(clipped, "geoms", [])
-                )
-                for piece in pieces:
-                    if piece.geom_type == "Polygon" and piece.area > 1e-9:
-                        yield np.asarray(shapely.geometry.polygon.orient(piece, 1).exterior.coords)[
-                            :-1
-                        ]
+    if strip.is_empty:
+        return
+    extent = np.asarray(strip.bounds).reshape(2, 2)
+    lo, hi = np.floor(extent / step).astype(int)
+    i, j = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1), indexing="ij")
+    a = np.c_[i.ravel(), j.ravel()] * step
+    b, c, d = a + [step, 0], a + [0, step], a + step
+    triangles = np.stack([np.stack([a, b, c], axis=1), np.stack([b, d, c], axis=1)], axis=1)
+    clipped = shapely.intersection(strip, shapely.polygons(triangles.reshape(-1, 3, 2)))
+    pieces = shapely.get_parts(clipped)
+    pieces = pieces[(shapely.get_type_id(pieces) == 3) & (shapely.area(pieces) > 1e-9)]
+    for piece in pieces:
+        yield np.asarray(shapely.geometry.polygon.orient(piece, 1).exterior.coords)[:-1]
 
 
 def terrain_edge(a, b, step):
