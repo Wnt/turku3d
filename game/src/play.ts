@@ -183,8 +183,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     physics.setCharacterEnabled(true, at ?? undefined);
     orbit.distance = 4.5;
   };
-  /** In the vehicle `id`: a rider stays visible on the scooter and in the truck's open cab; a driver disappears into
-   *  a car. */
+  /** Enter `id`; riders remain visible on the scooter and in the truck's open cab. */
   const enterVehicle = (id: string) => {
     fly?.set(false);
     drivenId = id;
@@ -431,8 +430,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
-      sharedVehicles?.update(now);
-      const seatExit = sharedVehicles?.seatExit(now);
+      sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
       if (drivenId && seatExit) leaveCar(seatExit);
       remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
