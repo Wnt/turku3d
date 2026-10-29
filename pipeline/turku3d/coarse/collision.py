@@ -12,7 +12,7 @@ from turku3d.ground.water import add_river_bed
 
 
 def current(builder, tile):
-    """Only current, atomically published structural payloads can bypass visuals."""
+    """Only current, atomically published visual/collision pairs are usable."""
     codes = {}
     for name in ("collision.json", "manifest.json"):
         try:
