@@ -1,7 +1,7 @@
 // Isolated server child: CPU excludes fake clients. No production traffic/data.
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,9 @@ import { WebSocket } from 'ws';
 
 const seconds = Number(process.argv[2] ?? 10);
 if (!Number.isFinite(seconds) || seconds < 1 || seconds > 300) throw Error('Usage: node server/tools/load.mjs [1..300 seconds]');
-const directory = mkdtempSync(join(tmpdir(), 'turku-mp-load-'));
+const work = process.env.TURKU3D_WORK ?? tmpdir();
+mkdirSync(work, { recursive: true });
+const directory = mkdtempSync(join(work, 'turku-mp-load-'));
 const child = fork(fileURLToPath(new URL('../index.js', import.meta.url)), [], {
   env: { ...process.env, TURKU_MP_PORT: String(Number(process.env.TURKU3D_PORT_BASE ?? 5400) + 4), TURKU_MP_SCORES: directory },
   stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
