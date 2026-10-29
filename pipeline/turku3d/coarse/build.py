@@ -663,6 +663,8 @@ def build(
         )
         _write(stage / "props.vis.glb", data)
         layer_files.append(stage / "props.vis.glb")
+    from turku3d.facade_programs import source_paths as facade_program_sources
+
     building_meshes = cache.run(
         "building_visual",
         source_key(
@@ -672,11 +674,8 @@ def build(
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
-            base / "facade_programs.py",
-            base / "facade_program_geometry.py",
+            *facade_program_sources(),
             base / "wall_surfaces.py",
-            C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
-            C.REPO_ROOT / "textures/turkutex/facade_program.py",
             jpeg,
             ortho_uv,
             *common,

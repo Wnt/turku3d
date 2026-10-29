@@ -23,6 +23,12 @@ def source_paths():
     return [
         Path(__file__),
         Path(__file__).with_name("facade_program_geometry.py"),
+        Path(__file__).with_name("facade_sections.py"),
+        Path(__file__).with_name("facade_learning.py"),
+        C.REPO_ROOT / "textures/turkutex/facade_learning.py",
+        C.REPO_ROOT / "textures/turkutex/facade_learned_layout.py",
+        C.REPO_ROOT / "textures/turkutex/facade_sections.py",
+        C.REPO_ROOT / "textures/turkutex/facade_structure.py",
         C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
         C.REPO_ROOT / "textures/turkutex/facade_program.py",
     ]
@@ -32,8 +38,11 @@ def source_paths():
 def _bundled(path, stamp):
     rows = json.loads(Path(path).read_text())
     if isinstance(rows, dict):
-        rows = rows.get("programs", [])
-    return {str(r["building_id"]): r for r in rows}
+        rows = [rows] if "building_id" in rows else rows.get("programs", [])
+    renderer()
+    from turku3d.facade_sections import prepare
+
+    return {str(r["building_id"]): prepare(r) for r in rows}
 
 
 def measured(key):
@@ -42,7 +51,8 @@ def measured(key):
         for identity in aliases(key):
             path = directory / opaque(identity)
             if path.is_file():
-                row = json.loads(path.read_text())
+                row = _bundled(str(path), (path.stat().st_mtime_ns, path.stat().st_size))
+                row = next(iter(row.values()))
                 if str(row.get("building_id")) in aliases(key):
                     return row
     path = C.REPO_ROOT / "textures/library/facade-programs.json"
@@ -54,7 +64,9 @@ def measured(key):
 
 def program_hash(key):
     # A pilot JSON edit invalidates just the tiles containing its changed building.
-    return json.dumps(measured(key), sort_keys=True, separators=(",", ":")).encode()
+    from turku3d.facade_learning import digest
+
+    return json.dumps(measured(key), sort_keys=True, separators=(",", ":")).encode() + digest(key)
 
 
 def field(section, key, default=None):
@@ -190,11 +202,19 @@ def resolve(building, vertices, eaves):
     attrs = dict(building.attributes)
     area = building.footprint.area
     attrs.update(
+        E=float(building.footprint.centroid.x + C.ORIGIN_E),
+        N=float(C.ORIGIN_N - building.footprint.centroid.y),
+        log_area=float(np.log(max(area, 1))),
         footprint_m2=float(area),
         compactness=float(4 * np.pi * area / building.footprint.length**2),
         frontage_m=max(g["width_m"] for g in geometry),
     )
+    from turku3d.facade_learning import apply as apply_learned
+
+    d = read_description(building.facade_key)
     program = sample(building.facade_key, attrs, geometry)
+    if not d:
+        program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
     fallback = renderer().register_description(
@@ -209,7 +229,6 @@ def resolve(building, vertices, eaves):
         wall["base"]["colour"] = dict(wall["wall"]["colour"])
     from turku3d.facade_assets import description_row
 
-    d = read_description(building.facade_key)
     if d:
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"])
@@ -238,6 +257,24 @@ def resolve(building, vertices, eaves):
             if "calibrated albedo" != own.get("observation", {}).get("colour_space"):
                 wall["wall"]["colour"] = colour
                 wall["base"]["colour"] = base_colour
+        elif wall.get("learned_layout") and not d:
+            from turkutex.facade_learned_layout import expand
+
+            points = vertices[index * 4 : index * 4 + 4]
+            tangent = (points[1] - points[0]) / max(
+                float(np.linalg.norm(points[1] - points[0])), 1e-6
+            )
+            start = points[0] - tangent * wall.get("uv_offset", 0)
+            end = start + tangent * wall["width_m"]
+            expand(
+                wall,
+                program["storeys"]["value"],
+                dict(
+                    p0=[float(start[0] + C.ORIGIN_E), float(C.ORIGIN_N - start[2])],
+                    p1=[float(end[0] + C.ORIGIN_E), float(C.ORIGIN_N - end[2])],
+                    base_h=building.base,
+                ),
+            )
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
     if reviewed:
         program["source"] = "reviewed-overlay"

@@ -8,8 +8,19 @@ from pathlib import Path
 from .packaging import producer_paths
 
 VISUAL_ONLY = {
-    "ortho_cleanup.py", "ground_colour.py", "ground_colour.json", "packaging.py", "facade_assets.py", "facade_programs.py",
-    "facade_program_geometry.py", "facade_program.py", "facade_archetypes.py",
+    "ortho_cleanup.py",
+    "ground_colour.py",
+    "ground_colour.json",
+    "packaging.py",
+    "facade_assets.py",
+    "facade_programs.py",
+    "facade_program_geometry.py",
+    "facade_sections.py",
+    "facade_learning.py",
+    "facade_learned_layout.py",
+    "facade_structure.py",
+    "facade_program.py",
+    "facade_archetypes.py",
 }
 
 

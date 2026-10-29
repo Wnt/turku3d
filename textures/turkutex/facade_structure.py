@@ -10,7 +10,7 @@ import math
 
 from .facade_program import unknown, value
 
-KINDS = {"window", "door", "shop", "blank", "arched portal", "unknown"}
+KINDS = {"window", "door", "shop", "blank", "arched portal", "opaque door", "unknown"}
 HEADS = {
     "flat": "flat",
     "segmental": "segmental-arch",
@@ -206,7 +206,7 @@ def compile_structure(row, form, register_floors):
                 continue
             if kind == "blank":
                 continue
-            is_door = kind in ("door", "arched portal")
+            is_door = kind in ("door", "arched portal", "opaque door")
             multiplicity = reading.get("opening_counts", [1] * len(reading["bays"]))[bay]
             if is_door and multiplicity != 1:
                 raise ValueError("door groups require one opening")
@@ -257,6 +257,7 @@ def compile_structure(row, form, register_floors):
                     doors.append(
                         dict(
                             rect_m=box,
+                            opaque=kind == "opaque door",
                             head_shape=head,
                             surround=surround,
                             source="counted bay; dimensions are layout priors",
@@ -343,7 +344,7 @@ def compile_structure(row, form, register_floors):
             ornament_level=observed(form["ornament"], "ornament"),
         ),
         corners={k: unknown() for k in ("quoins", "shape", "tower")},
-        balconies=observed(balconies, "balconies") if balconies else unknown(),
+        balconies=observed(balconies, "balconies") if confidence["balconies"] > 0 else unknown(),
         bay_windows=unknown(),
         style_era=unknown(),
     )

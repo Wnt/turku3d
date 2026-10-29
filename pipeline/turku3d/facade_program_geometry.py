@@ -40,7 +40,8 @@ def _paint_layers(vertices, wall, style):
         yield (
             vertices,
             np.array([[0, a[1]], [width, a[1]], [width, vertices[2, 1]], [0, vertices[3, 1]]]),
-            style, 0,
+            style,
+            0,
         )
         return
     coordinates = geometry.get("coordinates") or [geometry["p0"], geometry["p1"]]
@@ -54,6 +55,11 @@ def _paint_layers(vertices, wall, style):
     ends = sorted([offset, offset + mw * sign])
     x0, x1 = max(0, ends[0]), min(width, ends[1])
     y0 = float(geometry.get("base_h", a[1]))
+    if wall.get("render_sections"):
+        from turku3d.facade_sections import paint
+
+        yield from paint(vertices, wall, style, quad, offset, sign, y0)
+        return
     y1 = y0 + mh
     blank = {
         **style,
@@ -91,7 +97,8 @@ def _paint_layers(vertices, wall, style):
             yield (
                 part[0],
                 part[1],
-                {**blank, "module": 42 + MATERIALS.index(material)}, 1,
+                {**blank, "module": 42 + MATERIALS.index(material)},
+                1,
             )
     # Occluded regions have no measured negative: retain their existing/rule treatment.
     for x, y, w, h in wall.get("observation", {}).get("excluded_rectangles_m", []):
@@ -140,7 +147,7 @@ def _paint_layers(vertices, wall, style):
     boxes += [
         (
             d["rect_m"],
-            2,
+            3 if d.get("opaque") else 2,
             d.get("head_shape", field(wall["doors"], "head_shape", "flat")),
             d.get("surround"),
         )
@@ -156,6 +163,12 @@ def _paint_layers(vertices, wall, style):
             continue
         points, uv = part
         patch = copy.deepcopy(style)
+        if kind == 3:
+            patch.update(
+                module=48, wall="#55534e", base="#55534e", bands=[0, 0, 0, 0], detail=[0, 0, 0, 0]
+            )
+            yield points, uv, patch, 4
+            continue
         material = style["module"] // 6 if style["module"] < 42 else style["module"] - 42
         patch.update(
             module=material * 6 + (1 if kind == 2 else 0),
@@ -199,6 +212,30 @@ def _paint_layers(vertices, wall, style):
                 "detail": [0, 0, 0, 0],
             }
             for left, bottom, rw, rh in strips:
+                left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
+                part = quad(
+                    max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
+                )
+                if part:
+                    yield *part, decoration, 3
+    # Ornament levels are bounded layout priors, not invented sculptures or lettering.
+    ornament = field(wall["trim"], "ornament_level", "none")
+    if ornament in ("low", "medium", "high"):
+        thickness = {"low": 0.035, "medium": 0.07, "high": 0.11}[ornament]
+        decoration = {
+            **blank,
+            "wall": style["trim"],
+            "base": style["trim"],
+            "bands": [0, 0, 0, 0],
+            "detail": [0, 0, 0, 0],
+        }
+        for (x, y, w, h), _, _, _ in boxes:
+            ornaments = [(x, y + h + 0.18, w, thickness)]
+            if ornament in ("medium", "high"):
+                ornaments.append((x + w * 0.2, y - 0.16, w * 0.6, thickness))
+            if ornament == "high":
+                ornaments.append((x + w * 0.4, y + h + 0.18, w * 0.2, 0.22))
+            for left, bottom, rw, rh in ornaments:
                 left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
                 part = quad(
                     max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
