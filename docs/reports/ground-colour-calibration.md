@@ -58,9 +58,17 @@ tile-disjoint quarters (22%). Its model-predicted holdout median fell from 11.21
 to 6.45 ΔE. The full-set residual fit pins those 11 quarters and adds one newly
 captured quarter, so all 12 final holdouts (21.1%) remain blind to the pilot.
 Training-only validation selected 0.25 residual strength and no mosaic-specific
-correction. The 12-quarter holdout material-sample median is predicted to fall
-from 6.80 to 6.66 ΔE. The actual paired rendered re-score of the final model is
-still outstanding; that prediction is not a rendered-world result.
+correction. The 12-quarter holdout material-sample median was predicted to fall
+from 6.80 to 6.66 ΔE. The paired rendered re-score, with identical references,
+scorer and ground sample counts, measured a 57-quarter ground median of 11.5243
+before and 11.1573 ΔE after the full-set residual fit; 34 quarters improved.
+The 12 held-out quarters fell from 11.1125 to 10.3426 ΔE; seven improved.
+Per-surface median before/after ΔE was asphalt 5.60/5.28 (57 quarters), paving
+7.78/6.91 (46), gravel 8.12/8.61 (32), and grass 9.98/10.15 (52).
+The gravel and grass marginal medians increased despite negative median paired
+changes; their sample distributions differ across quarters. The full paired
+measurements are retained privately in
+`calibration/final-ground-20261029/paired-rendered.json`.
 
 The installed private facade sampler supports facade-kit v1-v3. Current v4 batches
 abstain from wall colour measurement; unavailable wall support must be reported
@@ -78,6 +86,16 @@ python3 tools/refs/gmaps_inventory.py --root "$GMAPS_ROOT"
 scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- \
   bash pipeline/env/run.sh python tools/refs/gmaps_ground_score.py \
   --label pilot-full-20261029
+
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- \
+  bash pipeline/env/run.sh python tools/refs/gmaps_ground_score.py \
+  --label final-full-20261029
+
+bash pipeline/env/run.sh python tools/refs/gmaps_paired_ground.py \
+  --before "$GMAPS_ROOT/calibration/pilot-full-20261029/coverage.json" \
+  --after "$GMAPS_ROOT/calibration/final-full-20261029/coverage.json" \
+  --holdout-policy "$GMAPS_ROOT/calibration/final-ground-20261029/holdout-policy.json" \
+  --out "$GMAPS_ROOT/calibration/final-ground-20261029/paired-rendered.json"
 
 bash pipeline/env/run.sh python tools/refs/fit_ground_colour.py \
   --coverage "$GMAPS_ROOT/calibration/pilot-full-20261029/coverage.json" \
