@@ -1,7 +1,7 @@
 # Route-ordered facade survey
 
-Latest coverage: complete candidate classification through 1,800 m route distance;
-see the twelfth publication below. Original publication counts remain historical.
+Latest coverage: complete candidate classification through 1,950 m route distance;
+see the thirteenth publication below. Original publication counts remain historical.
 
 The first published ring covers 0–150 m of walking route distance from the
 pizzeria at engine (77.1, 187.6). Its 62 candidate walls have 12 accepted readings
@@ -449,4 +449,38 @@ to OCI. Elapsed: 30,727.9 seconds, 8.6 seconds per candidate.
 Latest publication interval: 2,732.3 seconds / 361 candidates = 7.6 seconds per
 candidate, including preparation, unavailable-view rejections, waits and publication.
 Per-view batch timing remains separate. Weekly account quota is 61% (28 points
+above the measured start); reading continues with the 82% stop threshold.
+
+## Thirteenth publication: through 1,950 m
+
+The 1,800–1,950 m ring adds 44 characterized walls (12 painter eligible,
+32 descriptive/deferred) and 337 rejections among 381 candidates. New programs
+include historic timber window rhythms, paired rendered windows and continuous
+window ribbons. Alternate views recover a low courtyard passage frontage and
+resolve a narrow industrial window stack. Boarded service openings, projecting
+glass balconies and irregular entrances remain descriptive; existing artwork is
+preserved.
+
+| Route ring (m) | Candidates | Characterized | Rejected | Painter eligible | Deferred |
+|---|---:|---:|---:|---:|---:|
+| 0–150 | 88 | 26 | 62 | 17 | 9 |
+| 150–300 | 140 | 46 | 94 | 18 | 28 |
+| 300–450 | 187 | 69 | 118 | 33 | 36 |
+| 450–600 | 343 | 88 | 255 | 22 | 66 |
+| 600–750 | 291 | 108 | 183 | 30 | 78 |
+| 750–900 | 380 | 115 | 265 | 51 | 64 |
+| 900–1050 | 345 | 133 | 212 | 35 | 98 |
+| 1050–1200 | 444 | 113 | 331 | 21 | 92 |
+| 1200–1350 | 369 | 70 | 299 | 5 | 65 |
+| 1350–1500 | 279 | 14 | 265 | 6 | 8 |
+| 1500–1650 | 354 | 22 | 332 | 1 | 21 |
+| 1650–1800 | 361 | 19 | 342 | 3 | 16 |
+| 1800–1950 | 381 | 44 | 337 | 12 | 32 |
+| Total | 3962 | 867 | 3095 | 254 | 613 |
+
+Immutable `publications/ring12/` and append-only metadata/programs are mirrored
+to OCI. Elapsed: 31,734.9 seconds, 8.0 seconds per candidate.
+Latest publication interval: 1,007.0 seconds / 381 candidates = 2.6 seconds
+per candidate, including preparation, unavailable-view rejections, waits and publication.
+Per-view batch timing remains separate. Weekly account quota is 62% (29 points
 above the measured start); reading continues with the 82% stop threshold.
