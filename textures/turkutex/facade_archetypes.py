@@ -372,7 +372,8 @@ def recipe(building_id, attrs):
 
 def sample(building_id, attrs, geometry):
     """Make a program on real wall dimensions. Missing register storeys stay null."""
-    r = recipe(building_id, attrs)
+    seed_id = attrs.get("register_id") or attrs.get("osm_id") or building_id
+    r = recipe(seed_id, attrs)
     floors = attrs.get("levels")
     if attrs.get("levels_source") == "osm":
         floors = None
@@ -449,7 +450,7 @@ def sample(building_id, attrs, geometry):
     return dict(
         schema=VERSION,
         building_id=str(building_id),
-        seed=str(stable_seed(building_id)),
+        seed=str(stable_seed(seed_id)),
         source="rule-sampled",
         needs_review=False,
         archetype=r["archetype"],

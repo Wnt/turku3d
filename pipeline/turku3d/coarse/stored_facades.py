@@ -11,6 +11,8 @@ from turku3d.package.gltf import GlbMesh
 
 def match_wall(points, facades):
     """Only near-collinear, overlapping walls of the same stable building may share a map."""
+    if not facades:
+        return None
     xz = np.asarray(points)[:, [0, 2]]
     a, b = xz[0], xz[1]
     length = float(np.linalg.norm(b - a))

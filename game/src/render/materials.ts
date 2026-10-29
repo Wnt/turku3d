@@ -5,6 +5,7 @@ import { modelTextures, textureUploads } from './textureUploads';
 import * as THREE from 'three/webgpu';
 import { materialColor, materialRoughness, texture, positionWorld, mix, vec3, bumpMap, float } from 'three/tsl';
 import { facadeKitMaterial } from './facadeKit';
+import { interleaveProgram } from './facadeProgramAttributes';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
 import { GroundBindings } from './ground/binding';
@@ -64,6 +65,7 @@ export class MaterialStyler {
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh) return;
+      interleaveProgram(mesh.geometry);
       if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
       const style = (source: THREE.Material): THREE.Material => {
         const key = materialKey(mesh, source);

@@ -105,9 +105,8 @@ test('program walls retain their own metric grids and patch origins within one p
   bindFacadeKit(doc, { facadeKit:{version:3,maps:{albedo:'a',normal:'n',orm:'o'}} }, material, prim, e,
     name => doc.createTexture(name));
   assert.equal(material.getExtras().facade_kit.version, 4);
-  assert.deepEqual(prim.getAttribute('_KIT_ORIGIN').getElement(0, []), [0,3]);
-  assert.deepEqual(prim.getAttribute('_KIT_ORIGIN').getElement(4, []), [5,7]);
+  assert.deepEqual(prim.getAttribute('_KIT_EXTENT').getElement(0, []), [0,3,Math.fround(18.6),8]);
+  assert.deepEqual(prim.getAttribute('_KIT_EXTENT').getElement(4, []), [5,7,2,Math.fround(1.8)]);
   assert.deepEqual(prim.getAttribute('_KIT_DETAIL').getElement(4, []), [0,0,0,1]);
-  assert.deepEqual(prim.getAttribute('_KIT_SIZE').getElement(0, []), [Math.fround(18.6),8]);
   assert.equal(prim.getAttribute('TEXCOORD_0'), uv);
 });

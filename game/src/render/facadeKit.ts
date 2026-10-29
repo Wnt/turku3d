@@ -2,6 +2,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, color, float, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
+import { interleaveProgram } from './facadeProgramAttributes';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -12,7 +13,8 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   // GLTFLoader exposes custom semantics in lowercase on both renderer backends.
   // Retain v1 support for published tiles until their next rebuild.
   const layout = (p.version ?? 1) >= 2 ? attribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
-  const origin = (p.version ?? 1) >= 2 ? attribute('_kit_origin', 'vec2') : vec2(0);
+  const origin = p.version === 4 ? attribute('_kit_extent', 'vec4').xy
+    : (p.version ?? 1) >= 2 ? attribute('_kit_origin', 'vec2') : vec2(0);
   const metres = uv().sub(origin);
   const floors = (p.version ?? 1) >= 3 ? attribute('_kit_floors', 'vec3') : vec3(layout.z, layout.z, 0);
   const upper = step(floors.x, metres.y);
@@ -56,6 +58,7 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer)
   model.traverse(o => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
+    interleaveProgram(mesh.geometry);
     mesh.castShadow = true; mesh.receiveShadow = true;
     let vegetation = false;
     for (let owner: THREE.Object3D | null = mesh; owner; owner = owner.parent) {

@@ -274,6 +274,7 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
             year = int(year) if year.isdigit() else None
             building.attributes = dict(
                 construction_year=year,
+                register_id=value("pysyvarakennustunnus") or None,
                 use=value("käyttötarkoitus", "usage", "function") or "unknown",
                 footprint_m2=float(footprint.area),
                 district=register_district(value("kiinteistotunnus")),

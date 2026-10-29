@@ -8,7 +8,6 @@ No measured count changes register storeys. Null fields never erase a supported 
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -272,5 +271,4 @@ def compile_wall(wall, floors):
             int(ground_kind == "plain"),
             0,
         ],
-        program_hash=hashlib.sha256(json.dumps(wall, sort_keys=True).encode()).hexdigest()[:16],
     )

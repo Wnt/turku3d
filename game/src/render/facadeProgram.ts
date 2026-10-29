@@ -11,7 +11,7 @@ function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'f
 export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: Node<'vec3'>, upper: Node<'float'>, selected: Node<'float'>) {
   const opening = attribute('_kit_opening', 'vec4');
   const detail = attribute('_kit_detail', 'vec4');
-  const size = attribute('_kit_size', 'vec2');
+  const size = attribute('_kit_extent', 'vec4').zw;
   const blank = layout.x.div(6).floor().add(42);
   const above = metres.y.greaterThanEqual(size.y);
   const plain = detail.z.greaterThan(.5).and(upper.lessThan(1));

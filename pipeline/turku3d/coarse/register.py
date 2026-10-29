@@ -130,6 +130,8 @@ def read_osm(tile, path):
         )
         d["material_class"] = classes.get(tags.get("building:material"))
         d["levels_source"] = "osm" if d.get("levels") else None
+        if row.get("osm_id") is not None:
+            d["osm_id"] = f"{row.get('osm_type', 'way')}/{row['osm_id']}"
         d["osm_use"] = (
             tags.get("amenity")
             or ("office" if tags.get("office") else None)
