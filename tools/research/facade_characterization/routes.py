@@ -244,6 +244,16 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None, source=None)
             break
         if selected:
             selection.append(dict(row, view=selected))
+        elif states.get(row["wall_id"], {}).get("status") == "done":
+            # A missing alternate cannot invalidate an already readable view.
+            event(
+                root,
+                **dict(
+                    {k: v for k, v in states[row["wall_id"]].items() if k != "time"},
+                    alternate_batch=batch,
+                    alternate_unavailable=True,
+                ),
+            )
         else:
             event(
                 root,

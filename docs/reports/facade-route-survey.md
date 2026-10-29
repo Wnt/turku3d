@@ -148,3 +148,40 @@ Independent curl smoke passed in 0.276 s and frozen-source package/render tests
 passed in 560.4 s including host-slot wait. The third publication runs the affected
 height, form and deployment checks, followed by selective streetview geometry and
 program compatibility checks.
+
+## Fourth publication: complete classification through 600 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Painter eligible | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0–150 m | 88 | 26 | 62 | 17 | 9 |
+| 150–300 m | 140 | 46 | 94 | 18 | 28 |
+| 300–450 m | 187 | 69 | 118 | 33 | 36 |
+| 450–600 m | 343 | 88 | 255 | 22 | 66 |
+
+All 758 candidates through 600 m are classified: 229 characterized (90 painter
+eligible, 139 deferred) and 529 explicitly rejected. Balcony stacks, Juliet rails,
+blind timber arches, courtyard stairs, conservatories, clipped stored returns and
+asymmetric storefronts retain detailed section descriptions and confidence.
+Original maps and descriptions remain available while unsupported compositions
+continue using their original artwork.
+
+The form adds categorical small, regular, wide and tall openings, including
+per-bay lists. These preserve small service windows between larger living-room
+windows using layout priors, without hand-entered image coordinates. Pose fitting
+now accepts consistent corrections up to six degrees per axis, with residual and
+combined-rotation limits; one timber frontage improved from 5.15° to 0.78° median
+line error. Confirmed indoor panoramas are excluded from subsequent exterior
+selection using an append-only source list. A low Google camera elevation proved
+to be an underground garage, so the experimental Google height change was
+reverted; only the previously published Look Around fallback remains changed.
+
+An unavailable alternate view now retains an accepted primary observation. The
+state audit restored two such records; all previous evidence remains intact.
+`publications/ring03/summary-v2.json` corrects the first snapshot's eligible tally
+for older events that predate the explicit rendering-status field. Programs,
+queue state and source exclusions are mirrored to OCI; photographs remain local.
+
+Elapsed time from the first batch is 9,797.6 seconds, 12.9 s/candidate including
+preparation, schema changes, retries, deployments and waits. Weekly account quota
+is 43%, ten points above the measured start. The local evidence footprint is
+176 MB. Reading continues outward with the same 82% stopping threshold.
