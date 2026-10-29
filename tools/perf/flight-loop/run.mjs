@@ -7,6 +7,7 @@ import { chromium } from '../../../game/node_modules/playwright-core/index.mjs';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../dev/chrome-args.mjs';
 import { isolateBrowser, reportsRoot, port } from '../../dev/environment.mjs';
 import { installFlight } from './runtime.mjs';
+import { installPreparation } from './preparation.mjs';
 import { PLACES } from '../../../game/src/gameplay/content/places.ts';
 import { enToEngine, VISUAL_L0 } from '../../../game/src/core/origin.ts';
 
@@ -46,11 +47,12 @@ const context = await chromium.launchPersistentContext(profile, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: false,
   viewport: null, args: chromeArgs(['--window-size=1280,900', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
 });
-let monitor, healthTimer, trace = false, session;
+let monitor, healthTimer, trace = false, session, traceSession;
 const page = context.pages()[0];
 const saveResult = async interrupted => {
   const result = await page.evaluate(() => window.__flight && ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
-    resources: window.__resources, resizes: window.__resizes, captures: window.__captures }));
+    resources: window.__resources, resizes: window.__resizes, captures: window.__captures,
+    preparation: window.__preparation?.snapshot() }));
   if (!result) return;
   Object.assign(result, { direction, route, ...(interrupted ? { interrupted } : {}) });
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
@@ -88,7 +90,8 @@ try {
     new PerformanceObserver(list => window.__resources.push(...list.getEntries().map(e => ({ ...e.toJSON(), at: performance.timeOrigin + e.startTime })))).observe({ type: 'resource', buffered: true });
     new PerformanceObserver(list => window.__longTasks.push(...list.getEntries().map(e => ({ at: performance.timeOrigin + e.startTime, ms: e.duration })))).observe({ type: 'longtask', buffered: true });
   });
-  await session.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing,disabled-by-default-devtools.timeline', transferMode: 'ReturnAsStream' }); trace = true;
+  traceSession = await context.browser().newBrowserCDPSession();
+  await traceSession.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing', transferMode: 'ReturnAsStream', streamCompression: 'gzip' }); trace = true;
   const cold = execFileSync('ssh', [...ssh, `python3 - cold ${label} ${route.cold.join(',')}`], { input: host, encoding: 'utf8', timeout: 135000 });
   fs.writeFileSync(path.join(output, 'cold.jsonl'), cold);
   const hostLog = fs.openSync(path.join(output, 'host.jsonl'), 'w');
@@ -131,6 +134,7 @@ try {
     log('setup.jsonl', { kind: 'relocated', place: place.id, ms: Date.now() - relocationAt,
       state: await page.evaluate(() => window.__game.state()) });
   }
+  log('setup.jsonl', { kind: 'preparation-hooks', capabilities: await page.evaluate(installPreparation) });
   console.log(JSON.stringify({ stage: 'flight', installed: await page.evaluate(installFlight, route) }));
   let shot = 0;
   const dimensions = () => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, resizes: window.__resizes.length,
@@ -165,11 +169,15 @@ try {
     await page.waitForTimeout(4000);
   }
   const result = await saveResult();
+  await page.evaluate(() => window.__preparation?.dispose());
   // After flight timings end, separate transient allocations from retained main-thread heap.
   const beforeGc = await page.evaluate(() => performance.memory?.usedJSHeapSize);
+  const beforeUsage = await session.send('Runtime.getHeapUsage');
   await session.send('HeapProfiler.collectGarbage');
   const afterGc = await page.evaluate(() => performance.memory?.usedJSHeapSize);
+  const afterUsage = await session.send('Runtime.getHeapUsage');
   result.heapAfterFlight = { beforeGc, afterGc };
+  result.heapUsageAfterFlight = { beforeGc: beforeUsage, afterGc: afterUsage };
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
   if (!result.done) throw new Error('Flight did not complete before deadline');
@@ -179,13 +187,16 @@ try {
 } finally {
   clearTimeout(deadline); clearInterval(healthTimer);
   if (trace) {
-    const completed = new Promise(resolve => session.once('Tracing.tracingComplete', resolve));
-    await session.send('Tracing.end').catch(() => {});
-    const result = await Promise.race([completed, new Promise(resolve => setTimeout(() => resolve(null), 10000))]);
+    const completed = new Promise(resolve => traceSession.once('Tracing.tracingComplete', resolve));
+    await traceSession.send('Tracing.end').catch(error => log('trace-status.jsonl', { error: error.message }));
+    let traceTimeout;
+    const result = await Promise.race([completed, new Promise(resolve => { traceTimeout = setTimeout(() => resolve(null), 30000); })]);
+    clearTimeout(traceTimeout);
+    log('trace-status.jsonl', { complete: !!result?.stream, dataLossOccurred: result?.dataLossOccurred });
     if (result?.stream) {
-      const fd = fs.openSync(path.join(output, 'trace.json'), 'w');
-      try { for (;;) { const r = await session.send('IO.read', { handle: result.stream }); fs.writeSync(fd, r.base64Encoded ? Buffer.from(r.data, 'base64') : r.data); if (r.eof) break; } }
-      finally { fs.closeSync(fd); await session.send('IO.close', { handle: result.stream }); }
+      const fd = fs.openSync(path.join(output, 'trace.json.gz'), 'w');
+      try { for (;;) { const r = await traceSession.send('IO.read', { handle: result.stream }); fs.writeSync(fd, r.base64Encoded ? Buffer.from(r.data, 'base64') : r.data); if (r.eof) break; } }
+      finally { fs.closeSync(fd); await traceSession.send('IO.close', { handle: result.stream }); }
     }
   }
   monitor?.kill('SIGTERM');
