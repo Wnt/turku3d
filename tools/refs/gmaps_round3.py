@@ -34,6 +34,8 @@ def config(row, lane):
 
 def score_one(row, product_root=None, frozen_own=None):
     product_root = Path(product_root) if product_root else ROOT
+    from gmaps_inputs import install
+    install()
     from detail import metadata, audit
     import mesh
     import loop
@@ -101,5 +103,4 @@ def findings(states):
     (ROOT/'findings.md').write_text('\n'.join(lines)+'\n')
     atomic_json(ROOT/'findings.json', dict(scored=scored, abstained=abstained, themes=counts, candidates=candidates))
     return scored
-
 
