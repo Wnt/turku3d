@@ -17,6 +17,7 @@ from turku3d.package.gltf import GlbMesh
 from turku3d.structures.geometry import Faces, Mesh, profile_wall
 
 from .geometry import clip_mesh
+from .openings import Openings
 
 
 @lru_cache(maxsize=8)
@@ -294,6 +295,7 @@ class Tunnels:
     shells: list
     count: int
     ceilings: list = field(default_factory=list)  # collision already belongs to the building shell
+    openings: Openings = field(default_factory=Openings)
 
     def visuals(self, tile):
         from .bridge_details import texture
@@ -385,6 +387,7 @@ def produce(
     keep = np.ones(len(grid_idx), bool)
     original_bases = {b.key: b.base for b, _ in shells}
     meshes, profiles, passages = [], [], []
+    openings = Openings()
     cuts = {}
     if not ways:
         return Tunnels(keep, meshes, profiles, shells, 0)
@@ -442,6 +445,13 @@ def produce(
             # it with a one-dimensional slab opens gaps across sloping entrances.
             if corridor.intersects(window):
                 profiles.append((line, distances, floor, width))
+                for i in range(len(xz) - 1):
+                    for side in ([left[i], left[i + 1], right[i + 1]],
+                                 [left[i], right[i + 1], right[i]]):
+                        q = np.asarray(side)
+                        heights = np.array([height_at(x, z) for x, z in q])
+                        openings.floors.append(np.c_[q[:, 0], heights, q[:, 1]])
+                        openings.heights.append(clearance)
             continue
 
         # OSM also maps roads below buildings as tunnel=yes or covered/layer ways.
@@ -622,6 +632,7 @@ def produce(
                 else "road",
             )
         )
+        openings.add(meshes[-1], clearance)
         meshes.append(tube.mesh(f"tunnel:{key}:roof", "wall"))
         if lamps.indices:
             lamp = lamps.mesh(f"tunnel:{key}:lights", "wall")
@@ -770,4 +781,4 @@ def produce(
         for i, (b, shell) in enumerate(shells)
         if b.base > original_bases[b.key] + 1e-6 and getattr(b, "visual_owner", tile.id) == tile.id
     ]
-    return Tunnels(keep, meshes, profiles, shells, len(profiles), ceilings)
+    return Tunnels(keep, meshes, profiles, shells, len(profiles), ceilings, openings)
