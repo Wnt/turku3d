@@ -101,12 +101,11 @@ presence as a recovery check and pauses if that health check fails. Status is in
 `work/prebuild.json`; service logs record progress transitions. Both the data
 volume and boot volume must have 15 GiB free before a new idle job starts.
 
-Rebuildable `.stages`, `.inputs`, `cache/lidar`, `cache/coarse-roofs`, `cache/coarse-area` and `cache/inputs` move to
-`/home/ubuntu/turku3d-cache` on the boot volume during the next producer switch.
-The deployment verifies every copied file before replacing a source directory
-with a symlink. Existing stage entries are compressed losslessly; new entries use
-fast compression when it saves at least 5 %. The producer can discard outermost
-stage entries if boot space falls below 15 GiB, preserving served tiles.
+Rebuildable `.stages`, `.inputs`, `cache/lidar`, `cache/coarse-roofs`, `cache/coarse-area` and `cache/inputs` live in
+`/srv/turku3d/fast-cache` on the data volume (symlinked from `work/`). OCI block volume speed scales with size: the
+150 GB data volume reads ~80 MB/s, the 47 GB boot volume ~17 MB/s (2026-10-29), so generator I/O must not use the
+boot volume. Existing stage entries are compressed losslessly; new entries use fast compression when it saves at
+least 5 %. The producer can discard outermost stage entries if space runs low, preserving served tiles.
 
 Public clients send `GET /coarse/demand?client=<random-tab-id>&tiles=<ordered-ids>&urgent=<crossings>&visible=<ids>`
 every second. Up to 128 ids accommodate multiple saved starts. The random id lives
