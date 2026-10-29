@@ -1,3 +1,4 @@
+import { TyreEffects } from './vehicle/tyreEffects';
 import type { PlayWorld } from './playWorld';
 export type { PlayWorld } from './playWorld';
 import { ParkedVehicles } from './world/parkedVehicles';
@@ -69,6 +70,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const root = new THREE.Group();
   root.name = 'play-session';
   scene.add(root);
+  const tyreEffects = new TyreEffects(root, params.quality);
   const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
   root.add(edgeMarker.group);
   const listeners = new AbortController();
@@ -110,7 +112,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     seated.load(import.meta.env.BASE_URL),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
-  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals });
+  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
   // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
@@ -412,7 +414,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + SPAWN_HEIGHT.car, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
       }
     }
-    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet);
+    const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
+    tyreEffects.begin(effectsDt);
+    if (multiplayerPlaying && multiplayer) remotePlayers.update(multiplayer, now, feet, effectsDt);
     physics.updateInput(charIn, carIn, !paused);
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
@@ -454,6 +458,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const latestOf = (id: string) => (drivenId ?? 'player') === id ? renderVehicle : st?.vehicles.find(v => v.id === id) ?? null;
     const carState = latestOf('player');
     if (carState) car.update(carState);
+    if (effectsDt > 0 && mode === 'car') {
+      const vehicle = latestOf(drivenId ?? 'player');
+      if (vehicle) tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt);
+    }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
     const renderCharacter = physics.characterRender.sample(now / 1000);
     if (mode === 'foot' && renderCharacter && !paused) {
@@ -476,6 +484,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         orbit.clampDist = h ? Math.max(0.8, h.toi - 0.3) : Infinity; camRayBusy = false;
       });
     }
+    tyreEffects.end(camera);
     audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
       position: camera.position, forward: camera.getWorldDirection(audioForward),
@@ -538,6 +547,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
       remotePlayers.dispose();
+      tyreEffects.dispose();
       poles.dispose();
       scoreboard.dispose();
       listeners.abort();

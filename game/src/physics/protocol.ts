@@ -20,7 +20,9 @@ export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water';
 export interface RayHit { toi: number; point: V3; normal: V3; material: number; tile: string | null }
 
 export interface CharacterState { pos: V3; vel: V3; grounded: boolean; enabled: boolean; groundMaterial: number }
-export interface WheelState { pos: V3; steer: number; rotation: number; contact: boolean; suspension: number }
+/** Contact point and normal are chassis-local, so replicated effects follow the interpolated pose. */
+export interface TyreContact { point: V3; normal: V3; material: number; lateral: number; longitudinal: number }
+export interface WheelState { tyre?: TyreContact; pos: V3; steer: number; rotation: number; contact: boolean; suspension: number }
 export interface CurbStrikeState { id: number; wheel: number; height: number; speed: number; loss: number; blocked: boolean; rumble: number }
 /** The latest wheel bump (vehicle/bumps.ts), with a monotonically increasing id: `height` is the step in the wheel's
  *  ground path (m, + up, - down; 0 when only the suspension jolted), `jolt` the peak suspension compression speed

@@ -10,6 +10,7 @@ import { BumpDetector } from './bumps.ts';
 import { curbResponse, isCurbMaterial } from './curbStrike.ts';
 import { handling } from './handling.ts';
 import { rotate } from './math.ts';
+import { longitudinalSlip } from './tyreSlip.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
@@ -32,13 +33,16 @@ export class Vehicle {
   /** Velocity once every wheel, drag and curb impulse of the tick is applied: what the world step then changes. */
   private beforeSolve: V3 | null = null;
   private bumps = new BumpDetector();
+  private readonly longitudinal = new Float32Array(4);
+  private readonly lateral = new Float32Array(4);
 
   private R: RapierApi;
   private world: Rapier.World;
   private surfaces: WheelQueries;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
-    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean } = {}) {
+    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean } = {},
+    private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
     const t = this.tuning = VEHICLES[this.kind];
@@ -83,6 +87,7 @@ export class Vehicle {
     this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.impact = null; this.impactCooldown = 0;
     this.beforeSolve = null;
     this.bumps.reset();
+    this.longitudinal.fill(0); this.lateral.fill(0);
   }
 
   step(dt: number, input: VehicleInput | null) {
@@ -101,7 +106,25 @@ export class Vehicle {
       v.setWheelBrake(i, h.brake + (driven && !steered && h.handbrake ? t.brakeForce : 0));
       v.setWheelFrictionSlip(i, steered ? h.frontGrip : h.rearGrip);
     }
+    // Contact velocity includes yaw: rear wheels slide differently from the chassis centre.
+    const q = b.rotation(), angular = b.angvel();
+    for (let i = 0; i < t.wheels.length; i++) {
+      const offset = rotate(t.wheels[i], q), steer = v.wheelSteering(i) ?? 0;
+      const forward = rotate({ x: Math.cos(steer), y: 0, z: -Math.sin(steer) }, q);
+      const side = rotate({ x: Math.sin(steer), y: 0, z: Math.cos(steer) }, q);
+      const vx = lv.x + angular.y * offset.z - angular.z * offset.y;
+      const vy = lv.y + angular.z * offset.x - angular.x * offset.z;
+      const vz = lv.z + angular.x * offset.y - angular.y * offset.x;
+      this.lateral[i] = vx * side.x + vy * side.y + vz * side.z;
+      this.longitudinal[i] = vx * forward.x + vy * forward.y + vz * forward.z;
+    }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
+    for (let i = 0; i < t.wheels.length; i++) {
+      this.longitudinal[i] = longitudinalSlip(this.longitudinal[i],
+        Math.abs(h.engine * this.drive[i]) * dt + (v.wheelBrake(i) ?? 0),
+        (v.wheelSuspensionForce(i) ?? 0) * dt * (v.wheelFrictionSlip(i) ?? 0));
+      if (!v.wheelIsInContact(i)) this.lateral[i] = this.longitudinal[i] = 0;
+    }
     // Quadratic aerodynamic drag gives a soft 25 m/s terminal speed, including downhill coasting.
     const vel = b.linvel(), horizontal = Math.hypot(vel.x, vel.z);
     const drag = Math.min(0.15, (0.015 + horizontal * 0.004) * dt);
@@ -187,8 +210,16 @@ export class Vehicle {
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.tuning.wheels.map((cp, i) => {
         const suspension = v.wheelSuspensionLength(i) ?? this.tuning.rest;
+        const point = v.wheelIsInContact(i) && !b.isSleeping() ? v.wheelContactPoint(i) : null;
+        const normal = point ? v.wheelContactNormal(i) : null, collider = point ? v.wheelGroundObject(i) : null;
+        const q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w }, p = b.translation();
+        const tyre = point && normal && collider ? {
+          point: rotate({ x: point.x - p.x, y: point.y - p.y, z: point.z - p.z }, inverse),
+          normal: rotate(normal, inverse), material: this.contactMaterial(collider, point),
+          lateral: this.lateral[i], longitudinal: this.longitudinal[i],
+        } : undefined;
         return { pos: { x: cp.x, y: cp.y - suspension, z: cp.z }, steer: v.wheelSteering(i) ?? 0,
-          rotation: v.wheelRotation(i) ?? 0, contact: v.wheelIsInContact(i), suspension };
+          tyre, rotation: v.wheelRotation(i) ?? 0, contact: v.wheelIsInContact(i), suspension };
       }) };
   }
 }

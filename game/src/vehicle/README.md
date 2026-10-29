@@ -165,3 +165,26 @@ chassis and a trimesh wall (every building in the tiles), so the manifolds canno
 is null until a speed change of 0.5 m/s (`IMPACT_MIN_DELTA_V`, 600 N·s for the car, 95 N·s for the scooter), then
 retains the latest `{id, impulse}` for consumers to deduplicate. Reports are limited to one per 150 ms and reset
 clears the retained event. The audio adapter uses it for positional impact loudness, haptics for the crash rumble.
+
+## Tyre marks and smoke
+
+`Vehicle.step` measures wheel contact velocity (including chassis angular velocity) in each steered wheel's
+frame. Lateral slip is sideways m/s. Rapier's ray vehicle has no wheel angular inertia, so longitudinal sliding
+is estimated from engine/brake impulse demanded beyond suspension-load × friction × timestep. `WheelState.tyre`
+contains both speeds, the actual wheel collider's triangle/primitive material and chassis-local contact point/normal.
+Sleeping vehicles omit it. This adds no ground rays. `tyreStrength` supplies the same hard-surface/contact-gated
+signal to visual effects and the existing tyre screech loop.
+
+`TyreEffects` owns 4,096 ground quad segments and 384 instanced analytic soft smoke sprites, two shared materials
+and two draws. Both draws exist before startup warmup, with zero initial opacity, so first use creates no pipeline.
+Emission/update paths reuse typed arrays and scratch transforms. Strips follow contact planes with an 18 mm offset,
+fade over 40–65 seconds and fade before their ring slots recycle. Lost slip/contact, soft ground, teleports and slot
+reuse break strips. Smoke grows, rises and fades over three seconds; low/medium/high quality emits 7/13/20 particles
+per second per fully sliding wheel. Local emission requires a driven car/truck. Multiplayer emission consumes the
+replicated per-wheel data against the interpolated physical chassis; stale poses stop emitting after 300 ms.
+Parked cars and scooter stabiliser wheels never emit. Session disposal releases the GPU buffers/materials.
+
+Affected quick checks: `npm --prefix game test -- tests/unit/tyre-effects.test.ts tests/unit/audio.test.ts` and
+`npm --prefix game run typecheck`. The focused tests cover actual Rapier contact/material and handbrake signals,
+surface filtering, sloped/connected/broken strips, bounded recycling, smoke lifetime/density and shared audio slip.
+In-game appearance and driving are checked by Jonni.

@@ -282,7 +282,7 @@ export class PhysicsWorld {
     const id = spec.id ?? 'player';
     const existing = this.vehicles.get(id);
     if (existing) { existing.reset(pos, yaw); return; }
-    this.vehicles.set(id, new Vehicle(this.R, this.world, pos, yaw, this.curbQueries, spec));
+    this.vehicles.set(id, new Vehicle(this.R, this.world, pos, yaw, this.curbQueries, spec, (collider, point) => this.materialAt(collider, point)));
     const h = spec.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt;
     this.vehicleRadii.set(id, Math.hypot(h.x, h.y, h.z) + 0.5);
   }
@@ -520,15 +520,19 @@ export class PhysicsWorld {
     const flags = filter === 'water' ? R.QueryFilterFlags.EXCLUDE_SOLIDS : R.QueryFilterFlags.EXCLUDE_SENSORS;
     const hit = this.world.castRayAndGetNormal(ray, maxToi, true, flags, groups(0xff00, mask), this.charCollider ?? undefined);
     if (!hit) return null;
-    const info = this.colliderInfo.get(hit.collider.handle);
-    let material = info?.mat ?? 0;
     const toi = hit.timeOfImpact;
-    const px = origin.x + d.x * toi, py = origin.y + d.y * toi, pz = origin.z + d.z * toi;
+    const point = { x: origin.x + d.x * toi, y: origin.y + d.y * toi, z: origin.z + d.z * toi };
+    return { toi, point, normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z },
+      material: this.materialAt(hit.collider, point), tile: this.colliderInfo.get(hit.collider.handle)?.tile ?? null };
+  }
+
+  private materialAt(collider: RAPIER_NS.Collider, point: V3): number {
+    const info = this.colliderInfo.get(collider.handle);
     if (info?.triMat && info.locator) {
-      const t = info.locator.locate(px, py, pz);
-      if (t >= 0) material = info.triMat[t];
+      const t = info.locator.locate(point.x, point.y, point.z);
+      if (t >= 0) return info.triMat[t];
     }
-    return { toi, point: { x: px, y: py, z: pz }, normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z }, material, tile: info?.tile ?? null };
+    return info?.mat ?? 0;
   }
 
   totals() {

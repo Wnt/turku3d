@@ -63,6 +63,13 @@ arc and interpolate wheel transforms in the same 100 ms buffer. Model correction
 are applied after chassis rotation: parked meshes need +π/2 about local Y;
 starter car, scooter and truck roots already use the chassis frame.
 
+Each wheel may also carry `tyre:{point:{x,y,z},normal:{x,y,z},material,lateral,longitudinal}`.
+Point and normal use the physical chassis frame; slip components are m/s. This optional
+wheel metadata is relayed unchanged by existing servers. Consumers validate finite,
+bounded contact data and gate marks/smoke on contact, known hard materials and sliding
+speed. Missing metadata produces no tyre effects. Interpolated chassis transforms also
+transform the contact data; visual model orientation corrections do not apply to it.
+
 ### pose
 
 ```json
