@@ -49,10 +49,10 @@ export function programPigment(metres: Node<'vec2'>, bays: Node<'vec2'>, upper: 
   const dy = max(sill.sub(data.y), data.y.sub(head)).mul(layout.z);
   const surround = step(dx, data.opening.x.mul(layout.y).div(2).add(data.opening.w))
     .mul(step(dy, data.opening.w)).mul(upper)
-    .mul(max(step(data.opening.x.mul(layout.y).div(2), dx), step(0, dy))).mul(layout.x.lessThan(42));
+    .mul(max(step(data.opening.x.mul(layout.y).div(2), dx), step(0, dy))).mul(float(layout.x.lessThan(42)));
   const balcony = step(dx, layout.y.mul(.36)).mul(step(data.y.mul(layout.z), 1.05))
     .mul(step(.15, data.y.mul(layout.z))).mul(upper).mul(data.detail.y)
-    .mul(float(1).sub(bays.x.floor().mod(2))).mul(layout.x.lessThan(42));
+    .mul(float(1).sub(bays.x.floor().mod(2))).mul(float(layout.x.lessThan(42)));
   const railing = balcony.mul(max(step(fract(metres.x.mul(5)), .12), step(.93, data.y.mul(layout.z))));
   const band = max(max(cornice, corner), max(course, surround)).mul(step(metres.y, data.size.y));
   const pigment = mix(base, wall, upper).mul(mix(1, .67, plinth));
