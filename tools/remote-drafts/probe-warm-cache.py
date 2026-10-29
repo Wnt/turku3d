@@ -35,7 +35,9 @@ def main():
     b = Builder(root, workers=4,
                 input_key=lambda t: sources.input_key(C.VisualTile.parse(t)),
                 structural_input_key=lambda t: sources.input_key(C.VisualTile.parse(t), first_pass=True))
-    plan = lambda: ([(0, t) for t in tiles], {'route_last_ring': 0})
+    blocked = 't0_24_24'
+    b.inputs = lambda tile: ['held-probe-raw'] if tile == blocked else []
+    plan = lambda: ([(0, t) for t in [blocked, *tiles]], {'route_last_ring': 0})
     idle = IdlePrebuild(b, plan, lambda: True, free=lambda: MIN_FREE + 1)
     before = None
     if args.overlay:
@@ -52,10 +54,10 @@ def main():
     try:
         while len(completed) < len(tiles) and time.monotonic() - started < 240:
             with b.lock:
-                b.demand.update('warm-probe-online', tiles, [], [])
+                b.demand.update('warm-probe-online', [blocked, *tiles], [], [])
                 idle.activity()
             idle.tick()
-            maximum_warm = max(maximum_warm, len(idle.tiles))
+            maximum_warm = max(maximum_warm, len(idle.tiles - set(b.pending)))
             for tile in tiles:
                 if tile in completed or tile in b.building or not b.manifest(tile).exists():
                     continue
@@ -76,6 +78,7 @@ def main():
             time.sleep(.1)
         assert len(completed) == len(tiles), (completed.keys(), b.status())
         assert maximum_warm == 1, maximum_warm
+        assert blocked in b.pending and time.time() - b.requested[blocked] < 2, b.status()
         health = b.build_health.snapshot(True)
         assert health['passes']['first']['built'] == 2, health
         assert health['passes']['full']['built'] == 2, health

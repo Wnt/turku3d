@@ -53,7 +53,7 @@ try {
   await page.waitForFunction(()=>window.__game?.ready, null, {timeout:150000});
   await page.screenshot({path:path.join(out,'ready.png')});
   console.log(JSON.stringify({label,stage:'ready'}));
-  await page.locator('[data-option="multiplayer"]').click();
+  await page.getByText('Multiplayer', { exact: true }).click();
   await page.evaluate(({speed})=>{
     const game=window.__game, coarse=game.coarse, camera=window.__render.camera;
     const scene=game.tiles.models.values().next().value.parent;

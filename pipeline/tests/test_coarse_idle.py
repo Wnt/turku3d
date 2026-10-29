@@ -219,3 +219,22 @@ def test_uncovered_tiles_are_skipped_and_real_build_failures_remain_red(tmp_path
     assert idle.state == "failed"
     assert not b.priority
     assert idle.status()["unavailable"] == ["t0_21_-2"]
+
+
+def test_pending_warm_tiles_keep_leases_without_blocking_prepared_work(tmp_path):
+    import time
+
+    missing = [f"t0_{i}_9" for i in range(8)]
+    b, idle, now = idle_builder(tmp_path, [(0, t) for t in [*missing, "t0_0_0"]])
+    b.inputs = lambda tile: ["raw"] if tile in missing else []
+    idle.presence = lambda: True
+    idle.tick()
+    assert len(idle.tiles & b.pending.keys()) == b.workers
+    assert b.priority == {"t0_0_0": 1e9}
+    # Lease refresh continues while downloading, even past normal stale expiry.
+    for tile in b.pending:
+        b.requested[tile] = time.time() - 30
+    idle.tick()
+    assert all(time.time() - b.requested[t] < 2 for t in b.pending)
+    assert len(idle.tiles & b.pending.keys()) == b.workers
+    assert b.priority == {"t0_0_0": 1e9}

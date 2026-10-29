@@ -148,7 +148,7 @@ class IdlePrebuild:
         if urgent and len(urgent) > free:
             limit = min(limit, max(0, len(running) - (len(urgent) - free)))
         # Keep running warm work before queued work; release only excess capacity.
-        ordered = sorted(self.tiles, key=lambda t: (t not in b.building, t))
+        ordered = sorted(self.tiles - set(b.pending), key=lambda t: (t not in b.building, t))
         self.release(ordered[limit:])
 
     def pause(self, state):
@@ -325,6 +325,11 @@ class IdlePrebuild:
                     continue
                 if tile in b.cancelled:
                     continue
+                if tile in self.tiles and tile in b.pending:
+                    # Waiting for raw data consumes no worker. Keep its lease
+                    # alive so landed() can admit it when the prefetch completes.
+                    b.requested[tile] = time.time()
+                    continue
             full = (
                 b.built(tile, code)
                 and json.loads(b.manifest(tile).read_text()).get("pass_kind") == "full"
@@ -352,8 +357,16 @@ class IdlePrebuild:
                 # Finish a ring before advancing in any direction.
                 if self.fully_idle() and self.tiles and ring > self.ring:
                     break
-                if len(self.tiles) >= self.capacity():
+                if len(self.tiles - set(b.pending)) >= self.capacity():
                     break
+                if len(self.tiles & b.pending.keys()) >= b.workers:
+                    from .sources import NoCoverage
+
+                    try:
+                        if b.inputs(tile):
+                            continue  # Bound background raw demand; prepared tiles still run.
+                    except NoCoverage:
+                        pass  # Normal admission records the unsupported tile.
                 self.ring = ring
                 self.tiles.add(tile)
                 b._request(tile, 1e9 + ring)
