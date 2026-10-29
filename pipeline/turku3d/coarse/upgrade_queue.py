@@ -6,6 +6,8 @@ from turku3d import config as C
 
 
 def upgrade_order(builder, tile):
+    if builder.idle is not None and tile in builder.idle.tiles:
+        return (2, tile)
     lease = builder.demand.rank(tile)
     if lease is not None:
         return (-1, *lease, tile)
@@ -37,11 +39,15 @@ def next_upgrade(builder):
 
 
 def next_job(builder, upgrade_only=False):
+    if builder.idle is not None:
+        with builder.lock:
+            builder.idle.preempt()
     if not upgrade_only:
         order = builder.order()
         imminent = bool(order and builder.job_rank(order[0], builder.priority[order[0]])[0] == 0)
-        visible_upgrade = any((r := builder.demand.rank(t)) is not None and r[0] <= 1
-                              for t in builder.upgrade_queue)
+        visible_upgrade = any(
+            (r := builder.demand.rank(t)) is not None and r[0] <= 1 for t in builder.upgrade_queue
+        )
         if not imminent and visible_upgrade:
             upgrade = next_upgrade(builder)
             if upgrade is not None:

@@ -2,6 +2,8 @@
 import argparse
 import importlib.util
 import json
+import os
+import signal
 import shutil
 import time
 from pathlib import Path
@@ -14,12 +16,17 @@ from turku3d.coarse.sources import Sources
 
 
 def main():
+    os.nice(19)
+    if hasattr(os, 'sched_setaffinity'):
+        os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--overlay', type=Path)
+    parser.add_argument('--seconds', type=float, default=240)
     args = parser.parse_args()
     root = args.root
     root.mkdir(parents=True, exist_ok=False)
+    (root / ".probe.pid").write_text(str(os.getpid()))
     assets = Path('/srv/turku3d/work/coarse')
     tiles = ['t0_0_0', 't0_0_-2']
     for tile in tiles:
@@ -35,8 +42,13 @@ def main():
     b = Builder(root, workers=4,
                 input_key=lambda t: sources.input_key(C.VisualTile.parse(t)),
                 structural_input_key=lambda t: sources.input_key(C.VisualTile.parse(t), first_pass=True))
+    def interrupted(signum, _frame):
+        raise TimeoutError(f'probe interrupted by signal {signum}')
+    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(signum, interrupted)
     blocked = 't0_24_24'
-    b.inputs = lambda tile: ['held-probe-raw'] if tile == blocked else []
+    # Model a raw fetch admitted while idle before an online player arrives.
+    b.pending[blocked] = (['held-probe-raw'], 1e9)
     plan = lambda: ([(0, t) for t in [blocked, *tiles]], {'route_last_ring': 0})
     idle = IdlePrebuild(b, plan, lambda: True, free=lambda: MIN_FREE + 1)
     before = None
@@ -48,11 +60,12 @@ def main():
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         idle = module.IdlePrebuild(b, plan, lambda: True, free=lambda: MIN_FREE + 1)
+    idle.tiles.add(blocked)
     started = time.monotonic()
     completed = {}
     maximum_warm = 0
     try:
-        while len(completed) < len(tiles) and time.monotonic() - started < 240:
+        while len(completed) < len(tiles) and time.monotonic() - started < args.seconds:
             with b.lock:
                 b.demand.update('warm-probe-online', [blocked, *tiles], [], [])
                 idle.activity()
