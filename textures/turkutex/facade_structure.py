@@ -144,7 +144,7 @@ def validate(form):
             raise ValueError("balcony location")
 
 
-def compile_structure(row, form, register_floors):
+def compile_structure(row, form, register_floors, *, min_support=0.6):
     validate(form)
     if form.get("reject"):
         raise ValueError("cannot compile rejected evidence")
@@ -169,7 +169,7 @@ def compile_structure(row, form, register_floors):
     form = copy.deepcopy(form)
     for reading in form["floors"]:
         for key in ("opening_counts", "bay_units", "height_class", "opening_class", "rhythm"):
-            if key in reading and reading["confidence"][key] < 0.6:
+            if key in reading and reading["confidence"][key] < min_support:
                 reading.pop(key)
     W, H = row["width_m"], row["height_m"]
     rows = form["floors"]
@@ -212,7 +212,7 @@ def compile_structure(row, form, register_floors):
             x = offset
             offset += pitch
             y = bottoms[floor]
-            if kind == "unknown" or min(reading["confidence"]["bay_count"], reading["confidence"]["bay_kinds"]) < 0.6:
+            if kind == "unknown" or min(reading["confidence"]["bay_count"], reading["confidence"]["bay_kinds"]) < min_support:
                 excluded.append([x, y, pitch, floor_height])
                 continue
             if kind == "blank":

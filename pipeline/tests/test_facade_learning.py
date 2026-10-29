@@ -168,7 +168,9 @@ def test_partial_sections_partition_parent_uv_frame_and_preserve_unseen_area():
     wall = sample("p", dict(levels=4), [row])["walls"][0]
     from turku3d.facade_programs import overlay
 
-    overlay(wall, own)
+    from turku3d.facade_inference import reading_fields
+    overlay(wall, reading_fields(own))
+    wall["render_sections"] = own["render_sections"]
     wall.update(measured_geometry=own["geometry"], measured_size=[12, 8])
     vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 10, 0], [0, 10, 0]], float)
     parts = list(wall_parts(vertices, wall, compile_wall(wall, 4)))

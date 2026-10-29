@@ -96,7 +96,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
             string_courses=[],
             balconies=[],
             occluded_parts="Section extents are qualitative layout priors",
-            confidence={k: 0.6 for k in FIELDS},
+            confidence={k: 0.5 for k in FIELDS},
             floors=[
                 dict(
                     role="base" if i == 0 else "middle",
@@ -104,7 +104,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                     bays=section.get("bays") or [section["kind"]] * count,
                     head=section["head"],
                     surround=section["surround"],
-                    confidence={k: 0.6 for k in ("bay_count", "bay_kinds", "head", "surround")},
+                    confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")},
                 )
                 for i in range(rows)
             ],
@@ -122,7 +122,7 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
             base_h=y0 + y,
             normal=g.get("normal"),
         )
-        compiled = compile_structure(row, form, rows)
+        compiled = compile_structure(row, form, rows, min_support=0)
         compiled.update(measured_geometry=compiled["geometry"], measured_size=[w, h])
         section_style = compile_wall(compiled, rows)
         section_style.update(wall=style["wall"], base=style["base"], trim=style["trim"])
