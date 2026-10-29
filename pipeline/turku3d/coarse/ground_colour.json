@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "method": "bounded additive D65 Lab surface correction",
+  "groups": {
+    "asphalt": {
+      "delta_lab": [
+        -5.563573398972473,
+        2.1067215323542223,
+        -1.7987283798290232
+      ],
+      "training_quarters": 39
+    },
+    "grass": {
+      "delta_lab": [
+        -7.723145593817707,
+        4.5384852746160185,
+        -2.5686608548885705
+      ],
+      "training_quarters": 36
+    },
+    "gravel": {
+      "delta_lab": [
+        -4.73762822582281,
+        4.5108944986543,
+        -1.975123175152893
+      ],
+      "training_quarters": 25
+    },
+    "paving": {
+      "delta_lab": [
+        -3.657923753620752,
+        3.274749141352139,
+        0.43230050412429166
+      ],
+      "training_quarters": 33
+    }
+  },
+  "mosaics": {}
+}

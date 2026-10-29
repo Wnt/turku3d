@@ -14,7 +14,7 @@ TABLE = Path(__file__).with_name('ground_colour.json')
 SURFACES = {
     'asphalt': ('road', 'cycleway', 'crossing'),
     'paving': ('sidewalk', 'paving_slab', 'cobblestone', 'quay'),
-    'gravel': ('gravel', 'soil', 'sand', 'rock'),
+    'gravel': ('gravel',),
     'grass': ('grass',),
 }
 XYZ = np.array([[.4124564, .3575761, .1804375],
