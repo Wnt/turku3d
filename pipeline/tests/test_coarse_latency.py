@@ -9,6 +9,17 @@ from turku3d.coarse import service as S
 from turku3d.coarse.service import FILE, WORKERS, Builder, rank
 
 
+def test_first_admission_does_not_read_optional_full_pass_inputs(tmp_path):
+    def optional_inputs(_tile):
+        raise AssertionError("first admission must not hash full-pass imagery or lidar")
+
+    builder = Builder(tmp_path, code="test", workers=0, input_key=optional_inputs)
+    assert builder.request("t0_2_0", 0)["state"] == "queued"
+    builder.failed["t0_3_0"] = ("old failure", time.time() - 121)
+    assert builder.request("t0_3_0", 1)["state"] == "queued"
+    builder.stop()
+
+
 def test_speed_and_direction_order_actual_crossings_before_ring():
     east = (490, 125, 27, 0)
     assert rank("t0_2_0", 10, east) < rank("t0_1_1", 0, east)

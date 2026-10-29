@@ -1,8 +1,10 @@
 # Draft generation performance on OCI, 29 October 2026
 
 The paired basic visual/collision path is deployed. The ten-player cold capacity target
-is **not yet met**: the latest paired 120 km/h run missed one of 182 crossings by
-1.405 seconds. Office-start driving at 50 km/h passed. These are real HTTP service
+is **not yet met**: the production-cache paired 120 km/h run missed one of 182
+crossings by 1.405 seconds. An isolated run with empty generated caches missed 147
+crossings, including 75 unavailable at measurement end. Office-start driving at
+50 km/h passed. These are real HTTP service
 measurements, not browser GPU or physics-frame measurements.
 
 ## Contract and changes
@@ -149,6 +151,28 @@ Both used stable producer `7a39d2e756ad66d4`. The missed crossing was driver 4 e
 zero lateness on a warm repeat, but that contract permitted invisible obstacles and
 is not acceptance evidence for the paired implementation.
 
+### Isolated cold capacity
+
+The same public handler and four persistent workers ran on an owned OCI probe port,
+with empty generated tile, prepared-input and shared-area caches. Raw data was already
+provisioned, read-only, and fetching disabled. Production remained live, so CPU includes
+other activity. Producer `d984f2dd2f7b3ab3` includes the terrain batching above.
+
+| Probe | Startup s | Crossings | Late or missing | Missing | Worst completed late s | Queue peak | CPU % |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Cold, 10 drivers, 120 km/h, 120 s | 84.085 | 182 | 147 | 75 | 25.139 | 116 | 312.2 |
+
+There were no generator failures, but HTTP request timeouts occurred under cold
+contention. Missing tiles are failures with unknown lateness; the finite worst value
+must not be interpreted as their upper bound.
+
+Profiling then found that first admission computed a full input identity for failure
+backoff even when no failure existed. Ten initial requests spent 17.851 of 18.005
+seconds in that identity path, including hashing 154 raw files under the scheduler
+lock. Limiting that work to a recent recorded failure reduces the identical ten-request
+cold admission probe to 0.184 seconds. Both measurements include cProfile; they are
+request-admission measurements with no build workers, not tile-generation times.
+
 ## Reproduction
 
 Source the sandbox environment first. Run real-input diagnostics through a host slot
@@ -160,12 +184,19 @@ python scripts/dev/host_slots.py build -- python tools/perf/draft-profile.py   -
 
 Add `--profile` for separate cProfile evidence; do not compare its elapsed times with
 the unprofiled stage table. The JSON report records producer codes and cold/warm rows.
-Run the HTTP probe against the real service using its documented CLI; its summary
+For the isolated cold service, use a fresh owned root and an owned probe port:
+
+```sh
+python scripts/dev/host_slots.py build -- python tools/remote-drafts/cold-drive.py \
+  --root "$TURKU3D_WORK/reports/new-cold-service" --port "$((TURKU3D_PORT_BASE + 3))"
+```
+
+Run the HTTP probe against production with `tools/remote-drafts/ten-drivers.py`; its summary
 records producer changes, queue lengths, CPU, late/missing crossings and cache-visible
 startup time. Probe reports are local evidence, not raw city data committed to git.
 
 ## Remaining work
 
-Reduce hot bridge/tunnel cost further and address early route deadlines. Then repeat
-the paired ten-driver probe and a separately isolated cold-cache capacity run. A warm
+Repeat isolated cold capacity after the admission fix. Continue reducing cold
+input/geometry costs and early route deadline misses. A warm
 pass alone does not prove ten players can explore arbitrary uncached directions.
