@@ -11,9 +11,25 @@ import pickle
 import struct
 import tempfile
 import time
+import zlib
 from pathlib import Path
 
 import numpy as np
+
+
+COMPRESSED = b"T3DZ1"
+
+
+def compress_payload(data):
+    """Fast lossless encoding, retaining already compressed payloads verbatim."""
+    if data.startswith(COMPRESSED):
+        return data
+    encoded = COMPRESSED + zlib.compress(data, level=1)
+    return encoded if len(encoded) < len(data) * .95 else data
+
+
+def decompress_payload(data):
+    return zlib.decompress(data[len(COMPRESSED):]) if data.startswith(COMPRESSED) else data
 
 
 def content_key(value) -> str:
@@ -128,12 +144,12 @@ class StageCache:
                 data = target.read_bytes()
                 if len(data) >= 32 and hashlib.sha256(data[32:]).digest() == data[:32]:
                     try:
-                        value, hit = pickle.loads(data[32:]), True
-                    except (EOFError, pickle.UnpicklingError, AttributeError, ImportError):
+                        value, hit = pickle.loads(decompress_payload(data[32:])), True
+                    except (EOFError, pickle.UnpicklingError, AttributeError, ImportError, zlib.error):
                         pass
             if not hit:
                 value = operation()
-                data = pickle.dumps(value, protocol=5)
+                data = compress_payload(pickle.dumps(value, protocol=5))
                 temporary = target.with_suffix(".tmp")
                 temporary.write_bytes(hashlib.sha256(data).digest() + data)
                 temporary.replace(target)

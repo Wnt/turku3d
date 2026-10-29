@@ -171,6 +171,7 @@ class Builder:
         self.run = run or Workers()
         self.demand = Demand()
         self.cancelled = set()
+        self.idle = None
         self.upgrade_queue: set[str] = set()
         self.upgrading: set[str] = set()
         self.upgrade_requested: dict[str, float] = {}
@@ -454,7 +455,7 @@ class Builder:
             started = time.perf_counter()
             out = self.root / tile
             proc = (
-                self.run(tile, out, first_pass=not upgrade)
+                self.run(tile, out, first_pass=not upgrade, on_started=lambda: self._worker_started(tile))
                 if self.two_pass
                 else self.run(tile, out)
             )
@@ -548,6 +549,13 @@ class Builder:
             if tile in self.pending:
                 self.on_missing(self.pending[tile][0])
 
+    def _worker_started(self, tile):
+        with self.lock:
+            if tile in self.cancelled:
+                self.run.cancel(tile)
+            elif self.idle is not None and tile in self.idle.tiles:
+                self.run.deprioritize(tile)
+
     def landed(self) -> None:
         """Data landed: re-request the waiting tiles the game still asks for."""
         with self.lock:
@@ -590,6 +598,7 @@ class Builder:
                 "timings": dict(self.timings),
                 "code": self.code_seen,
                 "draining": self.draining,
+                "prebuild": self.idle.status() if self.idle else None,
             }
 
     def drain(self) -> None:

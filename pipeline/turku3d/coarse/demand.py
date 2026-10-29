@@ -61,6 +61,8 @@ class Demand:
         foreground = any(self.rank(t) is not None for t in active)
         for tile in active:
             rank = self.rank(tile)
+            if getattr(builder, 'idle', None) is not None and tile in builder.idle.tiles and builder.idle.allowed():
+                continue
             stale = (rank is None and (tile in self.managed or
                      now - builder.requested.get(tile, 0) > 12 or foreground))
             if not stale:
