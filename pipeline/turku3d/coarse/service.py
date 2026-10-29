@@ -216,7 +216,7 @@ class Builder:
         lease = self.demand.rank(tile)
         if lease is not None:
             return lease
-        if self.demand.clients:
+        if self.demand.clients or (self.idle is not None and tile in self.idle.tiles):
             return 3, distance
         return rank(tile, distance, self.motion)
 
