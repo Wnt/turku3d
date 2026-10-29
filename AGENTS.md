@@ -16,6 +16,22 @@ tiles or background full-tile integration batches. Preserve existing AI facade
 descriptions, facade-kit results and the texture library on their buildings.
 Pages carries only the game; the world and assets come through the tunnel/OCI host.
 
+## Merge, deploy and test flow
+
+Jonni's flow for every slice; working rules 4–7 give the details and commands.
+
+1. Before merging, run only the tests for the area you changed, chosen by you, at most
+   30 seconds of wall time in parallel.
+2. Deploy immediately after merging. Deploying is only packaging and uploading.
+3. Smoke checks take at most 5 seconds, use curl only, and check that the main integration
+   points are up **and healthy** (for example generator build outcomes, not just HTTP 200).
+4. After deploying, run one bigger test run of your own with a hard 10-minute limit. It is
+   really selective, exercises what your change affects on the deployed system, and takes
+   into account what other agents ran after recent merges (`codex-task checks`). Forward
+   only: at most one fix, then report to coordination.
+5. No rollbacks. Grep for meaningful tests within the tight budget; never run a suite
+   blindly or treat a generic suite as evidence for a change it does not exercise.
+
 ## Working rules
 
 1. Own the outcome. Fix a problem where it belongs; remove replaced and dead code.
