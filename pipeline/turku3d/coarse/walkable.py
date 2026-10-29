@@ -230,6 +230,8 @@ def constrain(positions, indices, materials, keep, scene):
     """Insert paving/slope breaklines before assigning heights; preserve every triangle remainder."""
     from .surfaces import split_boundaries
 
+    if not scene:
+        return positions, indices, materials, keep
     cores = [p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in scene]
     zones = []
     left, right = shapely.STRtree(cores).query(cores, predicate="intersects")
@@ -269,8 +271,6 @@ def constrain(positions, indices, materials, keep, scene):
             )
             ends.append(section)
             zones.append(section.buffer(radius, cap_style="flat"))
-    if not regions:
-        return positions, indices, materials, keep
     if zones:
         # Surface overlays use last-region precedence. Preserve all intersecting
         # edges and centrelines only where distinct fitted levels overlap or
