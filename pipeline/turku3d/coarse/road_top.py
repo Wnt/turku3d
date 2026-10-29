@@ -161,6 +161,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
             base / "col/materials_v1.json",
             Path(__file__).with_name("tunnels.py"),
             Path(__file__).with_name("openings.py"),
+            Path(__file__).with_name("portals.py"),
             Path(__file__),
             Path(__file__).with_name("bridge_details.py"),
             Path(kerbs.__file__),

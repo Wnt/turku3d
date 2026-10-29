@@ -1,0 +1,169 @@
+"""Open-road floor anchors and hillside-flush box tunnel entrances."""
+
+import numpy as np
+import shapely
+
+from turku3d.structures.geometry import Faces, profile_wall
+
+PATHS = {"footway", "path", "cycleway", "pedestrian", "steps"}
+
+
+def approaches(ways, roads):
+    """Keep mapped continuations, including their bends, for stable portal heights."""
+    tree = shapely.STRtree([line.boundary for line, _ in roads])
+    result = []
+    for key, line, tags in ways:
+        foot = tags.get("highway") in PATHS
+        joined = []
+        for point in (shapely.Point(line.coords[0]), shapely.Point(line.coords[-1])):
+            candidates = [
+                roads[i]
+                for i in tree.query(point, predicate="dwithin", distance=0.05)
+                if (roads[i][1].get("highway") in PATHS) == foot and roads[i][0].length >= 4
+            ]
+            joined.append(
+                max(candidates, key=lambda item: item[0].length)[0] if candidates else None
+            )
+        result.append((key, line, dict(tags, _approaches=joined)))
+    return result
+
+
+def anchors(line, tags, sample, ends, rendered=None):
+    """A mapped portal may lie under overburden; fit its floor from the open approach."""
+    ends = np.array(ends, float, copy=True)
+    repaired = np.zeros(2, bool)
+    coords = np.asarray(line.coords)
+    for i, end, neighbour in ((0, coords[0], coords[1]), (1, coords[-1], coords[-2])):
+        outward = (end - neighbour) / np.linalg.norm(end - neighbour)
+        road = tags.get("_approaches", [None, None])[i]
+        distance = np.linspace(3, min(9, road.length - 0.2) if road is not None else 9, 4)
+        if road is None:
+            points = end + distance[:, None] * outward
+        else:
+            station = (
+                distance
+                if np.linalg.norm(np.asarray(road.coords[0]) - end) < 0.05
+                else road.length - distance
+            )
+            points = shapely.get_coordinates(shapely.line_interpolate_point(road, station))
+        height = np.array([sample(*p) for p in points])
+        if not np.isfinite(height).all():
+            continue
+        slope, base = np.polyfit(distance, height, 1)
+        if (
+            abs(slope) <= 0.15
+            and np.max(np.abs(height - (base + slope * distance))) < 0.2
+            and (ends[i] > base + 0.35 or (rendered is not None and rendered(*end) > base + 0.35))
+        ):
+            ends[i], repaired[i] = min(ends[i], base), True
+    return ends, repaired
+
+
+def grounded_wall(object_id, xz, bottom, top, sample, step, *, thickness=0.3):
+    """A straight wall's foundation stays below every terrain plane under its width."""
+    from .kerbs import terrain_patches
+
+    xz = np.asarray(xz, float)
+    direction = xz[1] - xz[0]
+    normal = np.array([-direction[1], direction[0]]) / np.linalg.norm(direction) * thickness / 2
+    footprint = np.array([xz[0] + normal, xz[1] + normal, xz[1] - normal, xz[0] - normal])
+    ground = [sample(x, z) for patch in terrain_patches(footprint, step) for x, z in patch]
+    foundation = min(ground) - 0.2
+    return profile_wall(object_id, xz, np.minimum(bottom, foundation), top, thickness=thickness)
+
+
+def frames(
+    key,
+    left,
+    right,
+    offset,
+    left_floor,
+    right_floor,
+    ground,
+    step,
+    clearance,
+    road_top=False,
+    deck_sample=None,
+    repaired=(False, False),
+):
+    from .kerbs import terrain_edge
+
+    result = []
+    for i, end in enumerate((0, -1)):
+        frame = Faces()
+        # Jambs meet the tube lining; the facade terminates at the real bank,
+        # rather than leaving a wide free-standing rectangular picture frame.
+        jamb_width = 1.5 if road_top else 0.5
+        header_line = np.array(
+            [
+                left[end] + offset[end] * (0.2 + jamb_width),
+                right[end] - offset[end] * (0.2 + jamb_width),
+            ]
+        )
+        bottom = (
+            np.array([deck_sample(*q) for q in header_line]) - 0.3
+            if road_top
+            else np.array([left_floor[end], right_floor[end]]) + clearance
+        )
+        vector = header_line[1] - header_line[0]
+        for sign, side, floor in ((1, left, left_floor), (-1, right, right_floor)):
+            a = side[end] + sign * offset[end] * 0.2
+            b = a + sign * offset[end] * jamb_width
+            top = bottom[0] + ((np.array([a, b]) - header_line[0]) @ vector) / (vector @ vector) * (
+                bottom[1] - bottom[0]
+            )
+            jamb = grounded_wall(
+                "jamb", [a, b], [floor[end] - 0.2] * 2, top, ground, step, thickness=0.4
+            )
+            frame.triangles(jamb.positions, jamb.indices, jamb.uvs)
+        header_edge = header_line
+        if not road_top:
+            header_edge = terrain_edge(header_line[0], header_line[1], step)
+            along = ((header_edge - header_line[0]) @ vector) / (vector @ vector)
+            bottom = np.interp(along, [0, 1], bottom)
+        top = bottom + 0.3
+        if not road_top:
+            top = np.maximum(top, [ground(*q) for q in header_edge])
+        header = profile_wall("header", header_edge, bottom, top, thickness=0.4)
+        frame.triangles(header.positions, header.indices, header.uvs)
+        mesh = frame.mesh(f"tunnel:{key}:portal:{end}", "wall")
+        mesh.metadata.update(portal=True, approach_anchor=bool(repaired[i]))
+        result.append(mesh)
+    return result
+
+
+def wings(key, xz, left, right, offset, direction, left_floor, right_floor, ground, step, lengths):
+    """Retaining walls follow the sides of the cutting and taper into open ground."""
+    from .kerbs import terrain_edge
+
+    result = []
+    for i, end, outward in ((0, 0, -direction[0]), (1, -1, direction[-1])):
+        for sign, side, floor in ((1, left, left_floor), (-1, right, right_floor)):
+            a = side[end] + sign * offset[end] * 0.2
+            b = a + outward * lengths[i] + sign * offset[end] * 0.6
+            edge = terrain_edge(a, b, step)
+            if max(ground(*p) for p in edge) < floor[end] + 0.6:
+                continue
+            faces = Faces()
+            for p, q in zip(edge[:-1], edge[1:], strict=True):
+                h = np.array([ground(*p), ground(*q)])
+                top = np.maximum(h + 0.05, floor[end] + 0.1)
+                wall = grounded_wall(
+                    "wing", [p, q], [floor[end] - 0.2] * 2, top, ground, step, thickness=0.4
+                )
+                faces.triangles(wall.positions, wall.indices, wall.uvs)
+            if faces.indices:
+                mesh = faces.mesh(f"tunnel:{key}:wing:{end}:{sign}", "wall")
+                mesh.metadata["portal"] = True
+                result.append(mesh)
+    return result
+
+
+def mouths(corridor, xz, left, right, direction, aprons, repaired):
+    """Cut the entire portal width, including terrain triangles above the header."""
+    bands = []
+    for i, end, inward in ((0, 0, direction[0]), (1, -1, -direction[-1])):
+        depth = 0.4 if repaired[i] else 2
+        a, b = left[end], right[end]
+        bands.append(shapely.Polygon([a, b, b + inward * depth, a + inward * depth]))
+    return shapely.union_all([*(corridor.intersection(band) for band in bands), *aprons])

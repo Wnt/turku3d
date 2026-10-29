@@ -603,6 +603,9 @@ def build(
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
     ground_meshes.extend(
+        tunnels.terrain_visuals(tile, corrected_ortho, inputs.streets, visual_regions)
+    )
+    ground_meshes.extend(
         surfaces.visuals(
             tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)
         )
