@@ -32,7 +32,10 @@ def main():
                'scripts/dev/probe_tile_arrival.py', '--client-only', '--browser-slot-held',
                '--rounds', '2', '--fast-fly', '--label-prefix', 'after-']
     with ThreadPoolExecutor(max_workers=2) as pool:
-        clients = pool.submit(subprocess.run, command)
+        # One persistent cache/profile makes round two a steady-state replay.
+        # The frozen job owns this browser directory, so no other agent's state is reused.
+        clients = pool.submit(subprocess.run, command,
+                              env={**os.environ, 'ARRIVAL_PROFILE': 'retained-serving'})
         ten = pool.submit(drivers)
         browser_ok = clients.result().returncode == 0
         drivers_ok = ten.result()
