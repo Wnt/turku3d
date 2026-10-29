@@ -313,8 +313,7 @@ def build(
         stairs_geometry=cache.metrics["stairs"]["seconds"],
         stair_ground=cache.metrics["stair_ground"]["seconds"],
     )
-    # Later bank, stair and retaining aprons must respect the same walkable
-    # volume as the tunnel floor. Preserve upper roads and buried foundations.
+    # Keep later terrain enrichment outside the tunnel's walkable volume.
     from .openings import stage as opening_stage
     dry, river, bank, solid, stair_meshes = opening_stage(
         cache, tunnels.openings, dry, river, bank, solid, stair_meshes

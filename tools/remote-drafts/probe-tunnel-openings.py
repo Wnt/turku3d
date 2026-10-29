@@ -117,6 +117,8 @@ def verify(tile, inputs, manifest, out, tunnels, raycaster):
         if line.distance(shapely.Point(MARKET)) < 1:
             points.append(MARKET)
         for xz in points:
+            if not window.contains(shapely.Point(xz)):
+                continue  # The neighbouring tile owns this end of the approach.
             x, z = xz
             expected, _ = floor_ray(x, z)
             assert len(expected), (key, x, z, 'missing generated floor')
@@ -139,6 +141,8 @@ def verify(tile, inputs, manifest, out, tunnels, raycaster):
             walk = []
             for distance in stations:
                 x, z = coords[0] + direction * distance + normal * offset
+                if not window.contains(shapely.Point(x, z)):
+                    continue
                 yy, _ = floor_ray(x, z)
                 walk.append([x, max(yy), z])
             walk = np.asarray(walk)
