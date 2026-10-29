@@ -36,6 +36,14 @@ http://:7764 {
 	}
 	handle /coarse/* {
 		import draft_cors
+		header {
+			?Retry-After 5
+			match {
+				status 408 429 5xx
+			}
+		}
+		@preflight method OPTIONS
+		respond @preflight 204
 		import /home/ubuntu/turku3d-drafts/draft-upstream.caddy
 	}
 	handle_errors {

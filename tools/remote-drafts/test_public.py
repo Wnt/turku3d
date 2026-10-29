@@ -128,6 +128,43 @@ class PublicTest(unittest.TestCase):
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertEqual(call("/coarse/health", "OPTIONS")[0], 204)
 
+    def test_retirement_joins_an_admitted_slow_response(self):
+        import socket
+        from http.server import BaseHTTPRequestHandler
+
+        admitted, release, closed = threading.Event(), threading.Event(), threading.Event()
+
+        class Slow(BaseHTTPRequestHandler):
+            def do_GET(self):
+                admitted.set()
+                release.wait(2)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"complete")
+            def log_message(self, *_):
+                pass
+
+        server = public.PublicServer(("127.0.0.1", 0), Slow)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        with socket.create_connection(server.server_address, timeout=2) as sock:
+            sock.sendall(b"GET / HTTP/1.0\r\n\r\n")
+            self.assertTrue(admitted.wait(1))
+            server.shutdown()
+            closer = threading.Thread(target=lambda: (server.server_close(), closed.set()))
+            closer.start()
+            try:
+                self.assertFalse(closed.wait(.02))
+            finally:
+                release.set()
+                closer.join(2)
+                worker.join(2)
+            response = b""
+            while part := sock.recv(4096):
+                response += part
+            self.assertTrue(response.endswith(b"complete"))
+            self.assertTrue(closed.is_set())
+
     def test_parser_unsupported_method_and_exception_responses_have_cors(self):
         import socket
         from http.server import ThreadingHTTPServer

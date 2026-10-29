@@ -102,6 +102,11 @@ def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
     return ("manifest" if name == "manifest.json" else "collision" if name == "collision.json" else "asset"), tile
 
 
+class PublicServer(Server):
+    # Join admitted HTTP handlers before process exit, including slow payload writes.
+    daemon_threads = False
+
+
 def public_handler(builder, prefetcher, settings):
     base = handler(builder, prefetcher)
     instance = os.urandom(8).hex()
@@ -327,15 +332,20 @@ def main():
                         multiplayer_present)
     idle.start()
     prefetcher.on_landed = lambda unit: builder.landed()
-    class PublicServer(Server):
-        # server_close joins admitted HTTP handlers before process exit.
-        daemon_threads = False
-
     server = PublicServer(("127.0.0.1", int(os.environ.get("TURKU3D_DRAFT_PORT", settings["port"]))), public_handler(builder, prefetcher, settings))
 
+    retirement = None
+
     def stop(*_):
+        nonlocal retirement
         builder.drain()
-        raise KeyboardInterrupt
+        if retirement is None:
+            # Caddy may still dispatch requests belonging to its retired config.
+            # Keep the old listener available through the client's request timeout;
+            # server_close then joins every admitted handler before workers exit.
+            retirement = threading.Timer(35, server.shutdown)
+            retirement.daemon = True
+            retirement.start()
 
     signal.signal(signal.SIGTERM, stop)
     def activate(*_):
@@ -348,6 +358,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if retirement is not None:
+            retirement.cancel()
         server.server_close()
         builder.wait_drained()
         builder.stop()

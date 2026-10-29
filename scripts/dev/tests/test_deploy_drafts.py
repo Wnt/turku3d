@@ -20,6 +20,9 @@ class DeploymentTests(unittest.TestCase):
             commit = 'a' * 40
             (Path(temp) / 'build/draft-deploy' / commit).mkdir(parents=True)
             calls = []
+            upstream = Path(temp) / 'build/draft-deploy' / commit / 'tools/remote-drafts/draft-upstream.caddy'
+            upstream.parent.mkdir(parents=True)
+            upstream.write_text('reverse_proxy 127.0.0.1:7765 {\n transport http {\n response_header_timeout 30s\n }\n}\n')
 
             def remote(command):
                 calls.append(command)
@@ -49,6 +52,8 @@ class DeploymentTests(unittest.TestCase):
             switch = next(i for i, c in enumerate(calls) if '--signal=USR1 turku-drafts-proxy' in c)
             confirm = next(i for i, c in enumerate(calls) if 'proxy did not switch' in c)
             stop = next(i for i, c in enumerate(calls) if 'systemctl --user stop --no-block turku-drafts &&' in c)
+            self.assertIn('response_header_timeout 30s', calls[switch])
+            self.assertIn('127.0.0.1:7766', calls[switch])
             self.assertLess(start, health)
             self.assertLess(health, switch)
             self.assertLess(switch, confirm)

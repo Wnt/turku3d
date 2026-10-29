@@ -126,12 +126,13 @@ while time.monotonic()<end:
 else: raise SystemExit('standby draft producer did not become ready within5s')
 """
     instance = remote("python3 -c " + shlex.quote(health))
+    upstream = (source / "tools/remote-drafts/draft-upstream.caddy").read_text().replace(":7765", f":{port}")
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
     remote(
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
         f"mv {HOME}/repo {HOME}/repo-initial-{uuid.uuid4().hex}; fi && "
         f"ln -s {destination} {pending} && mv -Tf {pending} {HOME}/repo && "
-        f"echo 'reverse_proxy 127.0.0.1:{port}' > {HOME}/draft-upstream.caddy.next && "
+        f"printf %s {shlex.quote(upstream)} > {HOME}/draft-upstream.caddy.next && "
         f"mv {HOME}/draft-upstream.caddy.next {HOME}/draft-upstream.caddy && "
         "systemctl --user kill --kill-whom=main --signal=USR1 turku-drafts-proxy"
     )
