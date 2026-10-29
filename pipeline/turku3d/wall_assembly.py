@@ -36,7 +36,7 @@ def assemble_structures(meshes, protected=()):
     """
     records, refs = [], []
     for mi, mesh in enumerate([*protected, *meshes]):
-        triangles = np.asarray(mesh.positions, float)[mesh.indices]
+        triangles = np.asarray(mesh.positions, np.float32).astype(float)[mesh.indices]
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
         lengths = np.linalg.norm(normals, axis=1)
         for ti in np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths)):
@@ -148,7 +148,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage):
         for m in wall_layers
         if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
     ]
-    wall_layers = protected + assemble_structures(secondary, protected)
+    wall_layers = assemble_structures(protected + secondary)
     validate_meshes(wall_layers, tile.id)
     validate_neighbours(wall_layers, shells, tile, out.parent)
     write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
