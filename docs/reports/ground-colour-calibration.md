@@ -70,9 +70,14 @@ changes; their sample distributions differ across quarters. The full paired
 measurements are retained privately in
 `calibration/final-ground-20261029/paired-rendered.json`.
 
-The installed private facade sampler supports facade-kit v1-v3. Current v4 batches
-abstain from wall colour measurement; unavailable wall support must be reported
-separately from measured ground, roof and height metrics.
+The private scorer now dispatches facade-kit v4 to a public CPU reproduction of
+its material shader, while preserving its v1-v3 sampler. A hash-verified re-score
+of the same final rendered OCI snapshots measured wall colour CIE76 median
+27.4640 ΔE across 52 quarters. Five scored quarters had no supported wall-colour
+measurement, and the three calibration abstentions remained abstentions. The
+ground median in this wall run remained 11.1573 ΔE across all 57 scored quarters.
+The old 23.0715 wall median had only one supported quarter and is not a
+comparable baseline.
 
 ## Commands
 
@@ -96,6 +101,10 @@ bash pipeline/env/run.sh python tools/refs/gmaps_paired_ground.py \
   --after "$GMAPS_ROOT/calibration/final-full-20261029/coverage.json" \
   --holdout-policy "$GMAPS_ROOT/calibration/final-ground-20261029/holdout-policy.json" \
   --out "$GMAPS_ROOT/calibration/final-ground-20261029/paired-rendered.json"
+
+scripts/dev/codex-task wait-cmd -- python3 scripts/dev/host_slots.py build -- \
+  bash pipeline/env/run.sh python tools/refs/gmaps_ground_score.py \
+  --label wall-v4-20261029 --oci-from final-full-20261029
 
 bash pipeline/env/run.sh python tools/refs/fit_ground_colour.py \
   --coverage "$GMAPS_ROOT/calibration/pilot-full-20261029/coverage.json" \
