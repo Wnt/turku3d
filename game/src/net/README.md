@@ -34,6 +34,10 @@ uses the current registry chassis pose, including when the local body is missing
 Connected pose stalls never revoke seats; disconnected holders have a five-minute
 reservation. A restart that loses server sessions re-registers the driven vehicle
 from its current local pose. Late register/reclaim replies never release that seat.
+On a full page reload, the retained seat determines the collision preload position.
+Multiplayer placement then restores owned registry bodies before unpausing and
+re-enters that seat, independently of the local solo save. Borrowed cars whose
+source tile is absent use the shared renderer rather than an absent native visual.
 
 Carried pizzas are now visible on remote walking characters. Welcome's server time
 aligns the day cycle (explicit developer/QA time overrides stay explicit).

@@ -227,7 +227,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayerRunId = crypto.randomUUID();
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
-        if (at) { multiplayerPlaying = true; return saveGame.playAt(at); }
+        if (at) { multiplayerPlaying = true; return saveGame.playAt(at, () => sharedVehicles!.restore()); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);

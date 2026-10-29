@@ -21,6 +21,13 @@ test('multiplayer uses retained local pose before assigned spawn, with no EPSG o
   expect(startPoints(spawn, car, [], at)).toEqual([spawn, car, at]);
 });
 
+test('a retained seat preloads its current position even when the last player pose is stale', () => {
+  const you = { spawn: { E: 175, N: -253, yaw: 1 } };
+  const self = { pose: { E: 180, N: -250, H: 4, yaw: 0 } };
+  expect(multiplayerStart(you, self, { pose: { E: 900, N: -700, H: 6, yaw: 2 } }))
+    .toEqual({ x: 900, y: 6, z: 700, yaw: 2 });
+});
+
 test('coincident starts share one region and the unowned start car retains its saved parking', () => {
   const saved = game({ E: 23459670, N: 6704250, H: 4, yaw: 0 },
     { E: 23461000, N: 6703000, H: 4, yaw: 0, owned: false });

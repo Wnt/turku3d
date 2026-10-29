@@ -124,6 +124,7 @@ export class Room {
       this.sessions.set(p.session, p);
     }
     c.player = p;
+    this.vehicles.reconnectPlayer(p, now);
     p.connection = c;
     p.disconnectedAt = null;
     p.online = true;

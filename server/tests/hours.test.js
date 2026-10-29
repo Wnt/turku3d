@@ -6,13 +6,14 @@ import { join } from 'node:path';
 import { hourAt, HOUR_MS } from '../hours.js';
 import { ScoreStore, RETENTION_MS } from '../store.js';
 import { fixture, delivery } from './helpers.js';
+import { VEHICLE_LIMITS } from '../vehicles.js';
 
 for (const [label, before, first, second] of [
   ['spring', '2026-03-29T00:59:49Z', '2026-03-29T02+02', '2026-03-29T04+03'],
   ['autumn', '2026-10-25T00:59:49Z', '2026-10-25T03+03', '2026-10-25T03+02'],
 ]) test(`${label} DST rollover warns, archives and rerolls; arrival hour receives in-flight pay`, () => {
   const f = fixture(before), a = f.connect(), b = f.connect();
-  const oldNick = a.welcome.you.nick, expiredSession = b.welcome.session;
+  const oldNick = a.welcome.you.nick, retainedSession = b.welcome.session;
   f.room.disconnect(b.c);
   a.send(delivery);
   assert.equal(f.room.hour.id, first);
@@ -29,9 +30,21 @@ for (const [label, before, first, second] of [
   a.send(delivery); // Never pay the same already-completed stop across rollover.
   assert.equal(f.room.scores()[0].earned, 14);
   assert.equal(f.room.stats.rejected, 1);
-  const c = f.connect(expiredSession);
-  assert.notEqual(c.welcome.session, expiredSession);
+  const c = f.connect(retainedSession);
+  assert.equal(c.welcome.session, retainedSession);
+  assert.equal(c.welcome.you.id, b.welcome.you.id);
+  assert.notEqual(c.welcome.you.nick, b.welcome.you.nick);
+  assert.equal(c.welcome.scores.find(s => s.nick === c.welcome.you.nick).earned, 0);
   assert.ok(a.messages.some(m => m.type === 'hour_reset'));
+});
+
+test('a disconnected session outside reconnect grace expires at score-hour rollover', () => {
+  const f = fixture('2026-10-27T12:54:59Z'), a = f.connect();
+  f.room.disconnect(a.c);
+  f.advance(VEHICLE_LIMITS.reconnectMs + 1000);
+  const b = f.connect(a.welcome.session);
+  assert.notEqual(b.welcome.session, a.welcome.session);
+  assert.notEqual(b.welcome.you.id, a.welcome.you.id);
 });
 
 test('Helsinki DST days have 23 and 25 distinct real hour IDs', () => {

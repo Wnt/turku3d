@@ -43,7 +43,8 @@ try {
     return peer;
   }
   const a = await connect(), b = await connect();
-  const pose = { t: 1, E: a.welcome.you.spawn.E, N: a.welcome.you.spawn.N, H: 4,
+  // Live probes keep their temporary registry actors below the playable city.
+  const pose = { t: 1, E: a.welcome.you.spawn.E, N: a.welcome.you.spawn.N, H: app ? 4 : -200,
     yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'foot', vehicle: null, carrying: false };
   a.send({ type: 'pose', ...pose }); b.send({ type: 'pose', ...pose });
   const id = `${a.welcome.you.id}:probe`;
@@ -68,8 +69,12 @@ try {
   const transfer = await b.wait(m => m.type === 'vehicle_result' && m.request === 'take-b');
   assert.equal(transfer.ok, true); assert.equal(transfer.vehicle.owner, b.welcome.you.id);
   assert.equal(transfer.vehicle.epoch, acquired.vehicle.epoch + 1);
+  const drivenPose = { ...transfer.vehicle.pose, E: Math.round((pose.E + 40) * 1000) / 1000, t: 2 };
+  b.send({ type: 'pose', ...pose, mode: 'car', vehicle: 'player', vehicleId: id,
+    vehicles: [{ id, epoch: transfer.vehicle.epoch, pose: drivenPose }] });
   const rejoined = await connect(b.welcome.session);
   assert.ok(rejoined.welcome.vehicles.upsert.some(v => v.id === id && v.occupant === b.welcome.you.id && v.owner === b.welcome.you.id));
+  assert.equal(rejoined.welcome.vehicles.upsert.find(v => v.id === id).pose.E, drivenPose.E);
   rejoined.send({ type: 'vehicle', action: 'acquire', request: 'reclaim', id });
   const reclaimed = await rejoined.wait(m => m.type === 'vehicle_result' && m.request === 'reclaim');
   assert.equal(reclaimed.ok, true); assert.equal(reclaimed.vehicle.epoch, transfer.vehicle.epoch);
@@ -81,8 +86,28 @@ try {
   assert.ok(restored.welcome.vehicles.upsert.some(v => v.id === id && v.occupant === b.welcome.you.id));
   restored.send({ type: 'vehicle', action: 'release', request: 'cleanup', id });
   assert.equal((await restored.wait(m => m.type === 'vehicle_result' && m.request === 'cleanup')).ok, true);
+  const personal = [];
+  for (const [i, mode] of ['car', 'scooter', 'truck'].entries()) {
+    const ownId = `${b.welcome.you.id}:reload-${mode}`;
+    const parkedPose = { ...pose, E: Math.round((pose.E + 40) * 1000) / 1000,
+      N: Math.round((pose.N + (i + 1) * 25) * 1000) / 1000, mode, vehicle: mode === 'car' ? 'player' : mode };
+    restored.send({ type: 'vehicle', action: 'register', request: `park-${mode}`, id: ownId, localId: `reload-${mode}`, pose: parkedPose });
+    assert.equal((await restored.wait(m => m.type === 'vehicle_result' && m.request === `park-${mode}`)).ok, true);
+    personal.push({ id: ownId, pose: parkedPose });
+  }
+  const parkedClosed = once(restored.ws, 'close');
+  restored.ws.close(); await parkedClosed;
+  const parkedReload = await connect(b.welcome.session);
+  for (const expected of personal) {
+    const v = parkedReload.welcome.vehicles.upsert.find(v => v.id === expected.id);
+    assert.ok(v); assert.equal(v.owner, b.welcome.you.id); assert.equal(v.occupant, null);
+    assert.equal(v.pose.E, expected.pose.E); assert.equal(v.pose.N, expected.pose.N);
+    const observed = await c.wait(m => m.type === 'vehicles' && m.upsert.some(v => v.id === expected.id));
+    assert.equal(observed.upsert.find(v => v.id === expected.id).pose.E, expected.pose.E);
+  }
   console.log(JSON.stringify({ ok: true, protocol: 2, sharedVehicles: true, seatRace: true, release: true, lateJoin: true,
-    transfer: true, reconnect: true, socketReplacement: true, disconnectReservation: true, ...(app ? { stallOverLease: true } : {}) }));
+    transfer: true, reconnect: true, socketReplacement: true, disconnectReservation: true,
+    drivingReloadPosition: true, parkedReload: personal.length, observerConsistent: true, ...(app ? { stallOverLease: true } : {}) }));
 } finally {
   clearTimeout(timeout);
   for (const { ws } of sockets) ws.terminate();
