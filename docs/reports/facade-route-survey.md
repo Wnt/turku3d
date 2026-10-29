@@ -1,7 +1,7 @@
 # Route-ordered facade survey
 
-Latest coverage: complete candidate classification through 3,150 m route distance;
-see the seventeenth publication below. Original publication counts remain historical.
+Latest coverage: complete candidate classification through 6,450 m route distance;
+see the eighteenth publication below. Original publication counts remain historical.
 
 The first published ring covers 0–150 m of walking route distance from the
 pizzeria at engine (77.1, 187.6). Its 62 candidate walls have 12 accepted readings
@@ -645,6 +645,75 @@ schemas are recorded explicitly rather than silently treated as complete coverag
 Immutable `publications/ring20/` and append-only metadata/programs are mirrored
 to OCI. Elapsed: 36,031.1 seconds, 5.8 seconds per candidate.
 Latest publication interval: 604.7 seconds / 438 candidates = 1.4 seconds
+per candidate, including preparation, unavailable-view rejections, waits and publication.
+Per-view batch timing remains separate. Weekly account quota is 67% (34 points
+above the measured start); new reading stops at 82%.
+
+## Eighteenth publication: through 6,450 m
+
+The original frozen queue is now fully classified. The final readable outer views
+add partial residential walls, two-window rows and a facade under renovation.
+Beyond 3,450 m, this queue has no usable wall views in the frozen panorama cache;
+those candidates carry explicit unavailable-photo rejection records. This is
+classification coverage, not continuous photographic coverage.
+
+All original maps, descriptions, facade-kit assets and source photos remain
+preserved. Width-restricted source coverage is still an explicit limitation:
+a cached LOD2 supplement is being prepared for omitted narrow and broad walls,
+which will return reading order to the earliest incomplete ring. The supplement
+retains LOD2 base elevations rather than decompressing terrain for every candidate;
+its photos must pass the same per-wall visual review before publication.
+
+| Route ring (m) | Candidates | Characterized | Rejected | Painter eligible | Deferred |
+|---|---:|---:|---:|---:|---:|
+| 0–150 | 88 | 26 | 62 | 17 | 9 |
+| 150–300 | 140 | 46 | 94 | 18 | 28 |
+| 300–450 | 187 | 69 | 118 | 33 | 36 |
+| 450–600 | 343 | 88 | 255 | 22 | 66 |
+| 600–750 | 291 | 108 | 183 | 30 | 78 |
+| 750–900 | 380 | 115 | 265 | 51 | 64 |
+| 900–1050 | 345 | 133 | 212 | 35 | 98 |
+| 1050–1200 | 444 | 113 | 331 | 21 | 92 |
+| 1200–1350 | 369 | 70 | 299 | 5 | 65 |
+| 1350–1500 | 279 | 14 | 265 | 6 | 8 |
+| 1500–1650 | 354 | 22 | 332 | 1 | 21 |
+| 1650–1800 | 361 | 19 | 342 | 3 | 16 |
+| 1800–1950 | 381 | 44 | 337 | 12 | 32 |
+| 1950–2100 | 285 | 22 | 263 | 7 | 15 |
+| 2100–2250 | 320 | 26 | 294 | 7 | 19 |
+| 2250–2400 | 308 | 21 | 287 | 8 | 13 |
+| 2400–2550 | 268 | 26 | 242 | 6 | 20 |
+| 2550–2700 | 305 | 22 | 283 | 10 | 12 |
+| 2700–2850 | 299 | 16 | 283 | 2 | 14 |
+| 2850–3000 | 273 | 17 | 256 | 6 | 11 |
+| 3000–3150 | 165 | 13 | 152 | 4 | 9 |
+| 3150–3300 | 125 | 11 | 114 | 2 | 9 |
+| 3300–3450 | 103 | 1 | 102 | 0 | 1 |
+| 3450–3600 | 105 | 0 | 105 | 0 | 0 |
+| 3600–3750 | 150 | 0 | 150 | 0 | 0 |
+| 3750–3900 | 142 | 0 | 142 | 0 | 0 |
+| 3900–4050 | 184 | 0 | 184 | 0 | 0 |
+| 4050–4200 | 117 | 0 | 117 | 0 | 0 |
+| 4200–4350 | 118 | 0 | 118 | 0 | 0 |
+| 4350–4500 | 162 | 0 | 162 | 0 | 0 |
+| 4500–4650 | 63 | 0 | 63 | 0 | 0 |
+| 4650–4800 | 30 | 0 | 30 | 0 | 0 |
+| 4800–4950 | 41 | 0 | 41 | 0 | 0 |
+| 4950–5100 | 59 | 0 | 59 | 0 | 0 |
+| 5100–5250 | 15 | 0 | 15 | 0 | 0 |
+| 5250–5400 | 16 | 0 | 16 | 0 | 0 |
+| 5400–5550 | 0 | 0 | 0 | 0 | 0 |
+| 5550–5700 | 0 | 0 | 0 | 0 | 0 |
+| 5700–5850 | 0 | 0 | 0 | 0 | 0 |
+| 5850–6000 | 2 | 0 | 2 | 0 | 0 |
+| 6000–6150 | 14 | 0 | 14 | 0 | 0 |
+| 6150–6300 | 13 | 0 | 13 | 0 | 0 |
+| 6300–6450 | 1 | 0 | 1 | 0 | 0 |
+| Total | 7645 | 1042 | 6603 | 306 | 736 |
+
+Immutable `publications/ring42/` and append-only metadata/programs are mirrored
+to OCI. Elapsed: 36,622.3 seconds, 4.8 seconds per candidate.
+Latest publication interval: 591.2 seconds / 1460 candidates = 0.4 seconds
 per candidate, including preparation, unavailable-view rejections, waits and publication.
 Per-view batch timing remains separate. Weekly account quota is 67% (34 points
 above the measured start); new reading stops at 82%.
