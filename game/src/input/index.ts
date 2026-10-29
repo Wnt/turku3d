@@ -34,7 +34,7 @@ export class Input {
   private readonly touch = new TouchPad();
   private overlay: TouchOverlay | null = null;
 
-  constructor(el: HTMLElement, private readonly activate: () => void = () => {}, private readonly toggleFullscreen: () => void = () => {}) {
+  constructor(el: HTMLElement, private readonly activate: () => void = () => {}, private readonly toggleFullscreen: () => void = () => {}, private readonly copyPosition: () => void = () => {}) {
     const options = { signal: this.listeners.signal };
     if ((navigator.maxTouchPoints ?? 0) > 0) this.enableTouch();
     addEventListener('keydown', e => {
@@ -45,6 +45,7 @@ export class Input {
         this.toggleFullscreen(); // Fullscreen requires the original keyboard gesture, before the frame loop.
         return;
       }
+      if (this.bindings.copyPosition.some(b => b.kind === 'key' && b.code === e.code)) this.copyPosition();
       this.tapped.add(e.code); this.activate();
       this.keys.add(e.code); this.source = 'keyboard';
     }, options);

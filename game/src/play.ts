@@ -23,6 +23,7 @@ import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
+import { PositionHud } from './ui/positionHud';
 import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
 import { ShopMenu } from './ui/shopMenu';
@@ -78,7 +79,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const audio = hot?.audio ?? new GameAudio();
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
-  const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle());
+  const positionHud = new PositionHud(camera, tiles);
+  let characterHidden = false;
+  const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
+    if (!startScreen.active) void positionHud.copy();
+  });
   const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
   const audioGameplay = new GameplayAudio(event => {
     audio.emit(event);
@@ -300,6 +305,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     input.update(dt);
     helpLearning.update(input, mode, !!fly?.active, !startScreen.active && !paused && !saveGame.loading && !shopMenu.open && !fullscreen.blocking, now);
     if (input.consume('hud')) hud.toggle();
+    if (!startScreen.active) {
+      if (input.consume('positionHud')) positionHud.toggle();
+      if (input.consume('photoCharacter')) characterHidden = !characterHidden;
+    }
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.
@@ -487,6 +496,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
     }
 
+    player.root.visible = !characterHidden && (mode === 'foot' || !!seated.of(drivenId));
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
     const chaseVehicle = drivenId && drivenId !== 'player' && !seated.of(drivenId)
       ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
@@ -521,6 +531,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
+    positionHud.update(now, !startScreen.active);
     renderFrame();
     window.__render?.afterFrame?.();
     if (!startScreen.active && !paused) {
@@ -541,7 +552,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const tot = physics.totals();
     const ct = collisionTileAt(feet.x, feet.z);
     hud.set({
-      playerName: startScreen.active ? undefined : multiplayer?.state.you?.nick, backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
+      playerName: startScreen.active || characterHidden ? undefined : multiplayer?.state.you?.nick, backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
       visTris: tiles.residentTris, visModels: tiles.residentModels,
       colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
       E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),

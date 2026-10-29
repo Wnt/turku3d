@@ -33,7 +33,7 @@ export class StartScreen implements MenuHost {
       <p>Explore on foot. Your car is parked nearby.</p>
       <p id="gamepad-status" role="status"></p>
       <dl id="start-bindings"></dl>
-      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · R flip car · M map · Esc pause · F10 fullscreen</p>
+      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · R flip car · M map · Esc pause · F10 fullscreen<br>P position readout · V hide/show character · L copy camera position</p>
       <p class="start-touch">Touch: left thumb moves and drives · drag right to look · pinch to zoom · buttons bottom right</p>
       <p class="start-fullscreen" hidden></p>
       <p class="start-hint">Loading the world…</p>
@@ -41,7 +41,7 @@ export class StartScreen implements MenuHost {
     </div>`;
     const actions: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint'],
       ['jump', 'Jump'], ['mission', 'Interact'], ['interact', 'Enter / exit car'], ['throttle', 'Accelerate'], ['brake', 'Brake / reverse'],
-      ['handbrake', 'Handbrake'], ['vehicleReset', 'Flip car (also nearby on foot)'], ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause menu']];
+      ['handbrake', 'Handbrake'], ['vehicleReset', 'Flip car (also nearby on foot)'], ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause menu'], ['positionHud', 'Position readout'], ['photoCharacter', 'Hide / show character']];
     for (const [action, label] of actions) {
       const dt = document.createElement('dt'), dd = document.createElement('dd');
       dt.textContent = glyph(action, input.bindings, true); dd.textContent = label;
