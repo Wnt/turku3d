@@ -25,7 +25,7 @@ const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.j
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
 const { Document, NodeIO } = await dep('@gltf-transform/core');
 const { ALL_EXTENSIONS, EXTMeshGPUInstancing, EXTMeshoptCompression, KHRTextureBasisu, KHRTextureTransform } = await dep('@gltf-transform/extensions');
-const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrimitive, simplifyPrimitive, listTextureSlots } = await dep('@gltf-transform/functions');
+const { mergeDocuments, unpartition, prune, dedup, joinPrimitives, transformPrimitive, compactPrimitive, simplifyPrimitive, listTextureSlots } = await dep('@gltf-transform/functions');
 const { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } = await dep('meshoptimizer');
 const sharp = (await dep('sharp')).default;
 await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready, MeshoptSimplifier.ready]);
@@ -175,7 +175,7 @@ async function assembleVisual(request) {
   stage('facades');
   await doc.transform(dedup({ propertyTypes: ['Material'] }));
   instanceFacadeComponents(doc, scene, request.tile, EXTMeshGPUInstancing);
-  await batchVisual(doc, scene, request.tile, { dedup, joinPrimitives, transformPrimitive });
+  await batchVisual(doc, scene, request.tile, { dedup, joinPrimitives, transformPrimitive, compactPrimitive });
   await doc.transform(prune({ keepLeaves: false, keepSolidTextures: true, keepAttributes: true, keepIndices: true }), unpartition());
 
   stage('batching');

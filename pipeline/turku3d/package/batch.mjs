@@ -1,5 +1,7 @@
 // Batch compatible materials without losing the source-object ranges needed by QA.
-export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, transformPrimitive }) {
+import { MAX_BATCH_INDICES, primitiveChunks } from './primitive_chunks.mjs';
+
+export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, transformPrimitive, compactPrimitive }) {
   await doc.transform(dedup({ propertyTypes: ['Texture', 'Material'] }));
   const groups = new Map();
   const materials = doc.getRoot().listMaterials();
@@ -17,14 +19,31 @@ export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, tra
       for (const semantic of prim.listSemantics()) prim.setAttribute(semantic, prim.getAttribute(semantic).clone());
       if (prim.getIndices()) prim.setIndices(prim.getIndices().clone());
       transformPrimitive(prim, matrix);
-      const e = node.getExtras();
+      const e = { ...node.getExtras() };
+      // bindProgram has compiled these source rows into the _KIT_* attributes.
+      // Keeping them here repeats megabytes of build-only instructions in GLB JSON.
+      if (prim.getAttribute('_KIT_EXTENT')) delete e.facade_kit_walls;
       const key = JSON.stringify([materials.indexOf(prim.getMaterial()), prim.listSemantics().sort(), e.layer]);
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push({ prim, extras: e });
+      for (const part of primitiveChunks(prim, compactPrimitive)) {
+        groups.get(key).push({ prim:part, extras:e });
+      }
     }
     node.setMesh(null);
   }
-  for (const entries of groups.values()) {
+  const batches = [];
+  for (const group of groups.values()) {
+    let entries = [], count = 0;
+    for (const entry of group) {
+      const size = entry.prim.getIndices()?.getCount() ?? entry.prim.getAttribute('POSITION').getCount();
+      if (entries.length && count + size > MAX_BATCH_INDICES) {
+        batches.push(entries); entries = []; count = 0;
+      }
+      entries.push(entry); count += size;
+    }
+    if (entries.length) batches.push(entries);
+  }
+  for (const entries of batches) {
     const prim = joinPrimitives(entries.map(e => e.prim));
     let start = 0;
     const objects = entries.map(e => {
