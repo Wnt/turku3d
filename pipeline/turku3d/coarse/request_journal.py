@@ -66,16 +66,19 @@ def request_tile(builder, tile: str, distance: float) -> dict:
     """Journal regeneration while immediately serving safe retained visuals."""
     with builder.lock:
         builder.journal.record(tile, distance)
-        state = builder._request(tile, distance)
+    # _request releases the condition while checking missing inputs. Do not retain
+    # an outer RLock across that I/O or retained-fragment freshness validation.
+    state = builder._request(tile, distance)
+    from .serving import retained_fragment
+
+    fragment = retained_fragment(builder, tile)
+    with builder.lock:
         if (
             state["state"] == "built"
             and tile not in builder.building
             and tile not in builder.upgrade_queue
         ):
             builder.journal.discard(tile)
-        from .serving import retained_fragment
-
-        fragment = retained_fragment(builder, tile)
         if fragment is not None:
             builder.servable = builder.servable | {tile}
             result = {"state": "built", "fragment": fragment}
