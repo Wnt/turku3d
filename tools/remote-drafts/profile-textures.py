@@ -43,6 +43,8 @@ def main():
     if args.reuse_caches:
         for name in [*(f'.stages/{tile}' for tile in args.tiles), '.compiled-textures']:
             source = args.reuse_caches / name
+            if not source.exists():
+                source = args.assets / name
             if source.exists():
                 shutil.copytree(source, args.root / name)
     # Default measures fresh compilation. A forward audit-only check may retain
@@ -50,6 +52,8 @@ def main():
     assets = args.reuse_caches or args.assets
     for tile in args.tiles:
         source = assets / '.inputs' / tile
+        if not source.exists():
+            source = args.assets / '.inputs' / tile
         if source.exists():
             shutil.copytree(source, args.root / '.inputs' / tile)
     for pattern in ('shared', '.surface-library*'):
