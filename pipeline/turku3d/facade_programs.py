@@ -16,8 +16,8 @@ import numpy as np
 
 from turku3d import config as C
 from turku3d.facade_assets import aliases, opaque, root
-from turku3d.facade_kit import MATERIALS, read_description, renderer
 from turku3d.facade_inference import overlay
+from turku3d.facade_kit import MATERIALS, read_description, renderer
 
 
 def source_paths():
@@ -69,11 +69,12 @@ def measured(key):
 
 def program_hash(key):
     # A pilot JSON edit invalidates just the tiles containing its changed building.
+    from turku3d.facade_inference import evidence
     from turku3d.facade_learning import digest
 
-    from turku3d.facade_inference import evidence
-
-    return json.dumps([measured(key), evidence(key)], sort_keys=True, separators=(",", ":")).encode() + digest(key)
+    return json.dumps(
+        [measured(key), evidence(key)], sort_keys=True, separators=(",", ":")
+    ).encode() + digest(key)
 
 
 def field(section, key, default=None):
@@ -195,13 +196,27 @@ def resolve(building, vertices, eaves):
                 height_m=max(0.1, float(eaves.get(index, min(p[2:, 1])) - building.base)),
             )
         )
-    from turku3d.facade_inference import apply_prior, evidence, reading_fields, supported
+    from turku3d.facade_inference import (
+        apply_prior,
+        building_material,
+        evidence,
+        finish_material,
+        reading_fields,
+        supported,
+    )
 
     record = evidence(building.facade_key)
     attrs = dict(building.attributes)
     for key, item in record.get("building", {}).items():
         if supported(item):
             attrs[key] = item["value"]
+    d = read_description(building.facade_key)
+    observed = measured(building.facade_key)
+    family = building_material(attrs, record, observed, d)
+    from turku3d.facade_inference import material as normalize_material
+
+    if family and normalize_material(attrs.get("material_class")) != family["value"]:
+        attrs["material_class"] = family["value"]
     area = building.footprint.area
     attrs.update(
         E=float(building.footprint.centroid.x + C.ORIGIN_E),
@@ -213,7 +228,6 @@ def resolve(building, vertices, eaves):
     )
     from turku3d.facade_learning import apply as apply_learned
 
-    d = read_description(building.facade_key)
     program = sample(building.facade_key, attrs, geometry)
     if not d:
         program = apply_learned(program)
@@ -235,7 +249,7 @@ def resolve(building, vertices, eaves):
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"])
         program["description_source"] = row.get("source", "existing")
-    observed = measured(building.facade_key)
+    program["facade_material"] = family
     for index, wall in enumerate(program["walls"]):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         apply_prior(wall, program["archetype"], attrs, own, record)
@@ -251,12 +265,22 @@ def resolve(building, vertices, eaves):
                     if k not in ("wall_id", "width_m", "height_m", "geometry", "observation")
                 },
             )
-            for key in ("structure", "render_sections", "geometry_components", "geometry_pending", "unsupported"):
+            for key in (
+                "structure",
+                "render_sections",
+                "geometry_components",
+                "geometry_pending",
+                "unsupported",
+            ):
                 if key in own:
                     wall[key] = copy.deepcopy(own[key])
             if own.get("bays", {}).get("support", 0) >= 0.6:
                 wall["niches"] = copy.deepcopy(own.get("niches", []))
-            wall["material_bands"] = [copy.deepcopy(band) for band in own.get("material_bands", []) if band.get("support", 0) >= 0.6]
+            wall["material_bands"] = [
+                copy.deepcopy(band)
+                for band in own.get("material_bands", [])
+                if band.get("support", 0) >= 0.6
+            ]
             wall["observation"] = copy.deepcopy(own["observation"])
             wall["measured_wall_id"] = own["wall_id"]
             wall["measured_geometry"] = copy.deepcopy(own.get("geometry", {}))
@@ -284,6 +308,7 @@ def resolve(building, vertices, eaves):
                     base_h=building.base,
                 ),
             )
+        finish_material(wall, family, own, record, d, building.facade_key)
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
     if reviewed:
         program["source"] = "reviewed-overlay"
@@ -298,6 +323,7 @@ def compile_wall(wall, floors):
     width, height = wall["width_m"], wall["height_m"]
     material = field(wall["wall"], "material", "plaster")
     from turku3d.facade_inference import material as normalize_material
+
     material = normalize_material(material)
     material = material if material in MATERIALS else "plaster"
     count = max(0, int(wall["bays"]["count"]))
@@ -326,8 +352,10 @@ def compile_wall(wall, floors):
         x = field(section, key, default)
         return float(x) if isinstance(x, (int, float)) else default
 
+    trim_material = normalize_material(field(wall["trim"], "material", material))
     return dict(
         module=module,
+        trim_module=42 + MATERIALS.index(trim_material if trim_material in MATERIALS else material),
         bay=bay,
         storey=height / floors if floors else height,
         ground=ground,

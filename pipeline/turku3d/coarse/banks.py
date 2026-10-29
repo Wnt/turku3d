@@ -151,10 +151,16 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
         cuts.extend([(pond.buffer(2), mat_id("grass")), (pond.buffer(-1), mat_id("water"))])
     cuts.append((body, mat_id("water")))
     materials = materials.copy()
+    fallback = materials.copy()
     centres = positions[indices].mean(axis=1)
     for polygon, material in cuts:
         materials[shapely.contains_xy(polygon, centres[:, 0], centres[:, 2])] = material
-    p, ix, ids, _ = surfaces.split_boundaries(positions, indices, materials, keep, cuts)
+    # A triangle centre can be wet while its cut-off corner is dry paving.
+    # That remainder inherits the original ground material, never the centre's
+    # water classification; otherwise it disappears from the dry walking mesh.
+    p, ix, ids, _ = surfaces.split_boundaries(
+        positions, indices, materials, keep, cuts, fallback_materials=fallback
+    )
     wet = ids == mat_id("water")
     if not wet.any():
         dry = Mesh(p, ix, ids).compact()

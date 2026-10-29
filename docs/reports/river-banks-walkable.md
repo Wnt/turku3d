@@ -78,3 +78,24 @@ larger than 1 cm², excluding mapped stairs, bridges and building interiors from
 the paving audit. It reports stair lidar endpoint corrections, sampled roughness,
 audited area and actual build durations. The owning task imposes a ten-minute
 hard deadline on this entire run, including slot admission.
+
+## Deployed edge correction
+
+The first OCI run built the recorded tile first/full in 14.293/28.699 s with
+23 source buildings and all 16 collision cells. All 12 emitted stair flights
+received lidar profiles; endpoint corrections reached 269 mm. Packed collision
+on the recorded reach reduced maximum 25 cm change from 116.4 to 1.17 mm and
+maximum 2 m dent from 327.1 to 1.19 mm, excluding stair approaches and buildings.
+
+The area audit also found 20 real dry-edge holes totalling 3.378 m² across
+923.86 m² of tested paving. Centreline rays alone missed these edge defects.
+The paving exclusion from natural-bank soil grading exposed a material fallback:
+a wet triangle centre incorrectly gave its dry cut remainder a water material.
+The forward fix keeps the original ground material for every exterior remainder.
+The regression now checks the exact dry and wet projected areas independently;
+a river bed or water sensor cannot count as dry surface coverage.
+
+The opposite-bank first pass reached complete collision in about 26 s, then
+exceeded its 75 s budget inside existing neighbour wall validation. That separate
+latency was reported to coordination; its assertions and budget are unchanged.
+The single forward run repeats both affected first/full builds and area metrics.

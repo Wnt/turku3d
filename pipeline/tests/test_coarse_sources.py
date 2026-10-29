@@ -189,10 +189,10 @@ def test_first_pass_tracks_wall_assembly_but_not_stored_map_binding(monkeypatch)
     before = collision_key.code_hash()
     wall = Path(stored_facades.__file__)
     original = read(wall)
-    changes[wall] = original.replace(b'"stored-facade-map"', b'"changed-map-binding"')
+    changes[wall] = original.replace(b'"rule-sampled"', b'"changed-paint-source"')
     assert changes[wall] != original
     assert collision_key.code_hash() == before
-    changes[wall] = original.replace(b'.006', b'.007')
+    changes[wall] = original.replace(b".006", b".007")
     assert collision_key.code_hash() != before
     changes.clear()
     for name in ("wall_assembly.py", "wall_surfaces.py"):
@@ -209,20 +209,31 @@ def test_sampler_stage_identities_ignore_other_surface_producers(monkeypatch):
 
     from turku3d.coarse import surfaces
 
-    script = Path(__file__).resolve().parents[2] / 'tools/remote-drafts/stage-identities.py'
-    spec = importlib.util.spec_from_file_location('stage_identities', script)
+    script = Path(__file__).resolve().parents[2] / "tools/remote-drafts/stage-identities.py"
+    spec = importlib.util.spec_from_file_location("stage_identities", script)
     audit = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(audit)
     before = audit.identities()
     read = Path.read_bytes
-    monkeypatch.setattr(Path, 'read_bytes', lambda p: read(p) +
-                        (b'\n# unrelated surface paint change' if p.name == 'surfaces.py' else b''))
+    monkeypatch.setattr(
+        Path,
+        "read_bytes",
+        lambda p: (
+            read(p) + (b"\n# unrelated surface paint change" if p.name == "surfaces.py" else b"")
+        ),
+    )
     after = audit.identities()
-    for name in ('kerbs', 'tunnels', 'parked'):
+    for name in ("kerbs", "tunnels", "parked"):
         assert after[name] == before[name], name
     original = inspect.getsource
-    monkeypatch.setattr(inspect, 'getsource', lambda value: original(value) +
-                        ('\n# changed height sampling' if value is surfaces.grid_height else ''))
+    monkeypatch.setattr(
+        inspect,
+        "getsource",
+        lambda value: (
+            original(value)
+            + ("\n# changed height sampling" if value is surfaces.grid_height else "")
+        ),
+    )
     changed = audit.identities()
-    for name in ('kerbs', 'tunnels', 'parked'):
+    for name in ("kerbs", "tunnels", "parked"):
         assert changed[name] != before[name], name
