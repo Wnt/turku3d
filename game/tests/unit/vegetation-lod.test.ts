@@ -133,7 +133,7 @@ describe('vegetation LOD', () => {
     const tinted = (model.children[0] as THREE.InstancedMesh).material as THREE.MeshStandardMaterial;
     expect(tinted.type).toBe('MeshStandardMaterial');
     expect(tinted.color.toArray()).toEqual(original.color.toArray());
-    expect(tinted).not.toBe(original);
+    expect(tinted).toBe(original);
     expect(original.color.getHex()).toBe(0x996633);
     const lod = new VegetationLod('medium'); lod.add(model);
     lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));

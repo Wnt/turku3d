@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { instancePrograms } from './instancePrograms';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -27,6 +28,10 @@ type Draw = Parameters<THREE.WebGPURenderer['renderObject']>;
 export class GameRenderer extends THREE.WebGPURenderer {
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
+  constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
+    super(parameters);
+    this.debug.onNodeBuilderCreated = (builder, draw) => instancePrograms(builder, (draw as { object: THREE.Object3D }).object);
+  }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     const original = scene.overrideMaterial;

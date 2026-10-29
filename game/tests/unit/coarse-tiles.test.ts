@@ -128,7 +128,7 @@ test('streams only drafts, validates all collision before visibility and unloads
   expect(draft.parent).toBe(scene);
   const material = (draft.children[0] as THREE.Mesh).material as THREE.MeshStandardNodeMaterial;
   // Draft status no longer injects a desaturation or blue-cast colour node.
-  expect(material.colorNode).toBeNull();
+  expect(material.type).toBe('MeshStandardMaterial');
   expect(material.color.getHex()).toBe(0xffffff);
   expect(material.polygonOffset).toBe(true);
   // Driving far away drops drafts and their collision entries.

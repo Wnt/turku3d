@@ -7,6 +7,7 @@ import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
+import { SharedMaterials, disposeDraw } from '../render/sharedMaterials';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { LoadingKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -21,8 +22,6 @@ const POLL_MS = 1000;
 const RETRY_MS = 5000;
 /** Speed above which a jump is a teleport (m/s). */
 const MAX_SPEED = 100;
-/** Drafts farther than this (m, to the tile footprint) are unloaded. */
-const KEEP_M = 2 * VISUAL_L0;
 /** While the service restarts, /coarse/status is probed this often (ms). */
 const PROBE_MS = 2000;
 /** A probe the busy service has not answered within this (ms) counts as no answer. */
@@ -52,6 +51,8 @@ interface Entry {
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
   version?: number; visualHash?: string; refreshing?: boolean;
+  /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
+  resident?: boolean;
 }
 
 export interface CoarseHost {
@@ -101,6 +102,7 @@ export class CoarseTiles {
   private demandBusy = false;
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
+  private materials = new SharedMaterials();
 
   /** Optional remaining mission route, engine metres, ordered forward. Clear with null. Stays client-side. */
   setRouteHint(points: readonly { x: number; z: number }[] | null) {
@@ -168,7 +170,7 @@ export class CoarseTiles {
     try {
       await this.host.style?.(model);
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
-      tintDraft(model, this.host.renderer);
+      tintDraft(model, this.host.renderer, this.materials);
       await this.host.styled?.(model);
       ready = this.entries.get(id) === entry && entry.state === state;
       return ready;
@@ -183,17 +185,23 @@ export class CoarseTiles {
     if (now < this.nextCheck) return;
     this.nextCheck = now + POLL_MS;
     this.track(x, z, now);
+    const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
+      - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
+    const wanted = this.wantedStarts(x, z).sort(byArrival);
+    const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
+    const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
+    // The drawn window is independent of travel history and build-ahead demand. Deleting the entry
+    // also invalidates in-flight preparation, so a late response cannot republish a departed tile.
+    for (const [id, e] of this.entries) {
+      if (wanted.includes(id) || (!e.resident && ahead.includes(id))) continue;
+      this.drop(e); this.entries.delete(id);
+    }
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
       this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
       return;
     }
     void this.want(x, z);
-    const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
-      - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
-    const wanted = this.wantedStarts(x, z).sort(byArrival);
-    const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
-    const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     if (this.remote) void this.sendDemand(draftDemand(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (e.state !== 'built' && (e.version ?? this.version) < this.version));
@@ -207,11 +215,6 @@ export class CoarseTiles {
     for (const id of ahead) {
       const e = this.entry(id);
       if (due(e) && e.state !== 'built') void this.poll(id, e, distToL0(id, x, z), false);
-    }
-    for (const [id, e] of this.entries) {
-      if (wanted.includes(id) || ahead.includes(id) || distToL0(id, x, z) <= KEEP_M) continue;
-      this.drop(e);
-      this.entries.delete(id);
     }
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
     const building = this.remote ? [...this.entries.values()].filter(e => e.state === 'pending' || e.state === 'loading').length : this.building;
@@ -397,6 +400,7 @@ export class CoarseTiles {
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
+    e.resident = load;
     e.state = 'loading';
     e.version = this.version;
     try {
@@ -496,15 +500,19 @@ export class CoarseTiles {
   }
 
   private dispose(model: THREE.Object3D) {
+    const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>(), textures = new Set<THREE.Texture>();
     model.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      mesh.geometry.dispose();
+      disposeDraw(mesh); geometries.add(mesh.geometry);
       for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-        for (const v of Object.values(m)) if ((v as THREE.Texture)?.isTexture) (v as THREE.Texture).dispose();
-        m.dispose();
+        materials.add(m);
+        for (const v of Object.values(m)) if ((v as THREE.Texture)?.isTexture) textures.add(v as THREE.Texture);
       }
     });
+    for (const geometry of geometries) geometry.dispose();
+    for (const texture of textures) texture.dispose();
+    this.materials.releaseModel(model, materials);
   }
 
 }
