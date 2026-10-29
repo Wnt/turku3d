@@ -77,6 +77,20 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(result["commit"], "a" * 40)
 
     def test_server_only_changes_deploy_oci(self):
+        self.check_source_deployment("server/economy.js")
+
+    def test_facade_program_only_changes_reach_oci(self):
+        for path in (
+            "pipeline/turku3d/facade_programs.py",
+            "pipeline/turku3d/facade_program_geometry.py",
+            "textures/turkutex/facade_program.py",
+            "textures/turkutex/facade_archetypes.py",
+            "textures/library/facade-programs.json",
+        ):
+            with self.subTest(path=path):
+                self.check_source_deployment(path)
+
+    def check_source_deployment(self, changed):
         with (
             tempfile.TemporaryDirectory() as temp,
             patch.object(delivery, "deploy", return_value={}),
@@ -91,7 +105,7 @@ class DeliveryTests(unittest.TestCase):
                 "test",
                 Path(temp),
                 "a" * 40,
-                {"changed_paths": ["server/economy.js"]},
+                {"changed_paths": [changed]},
                 Path(temp),
             )
         deploy.assert_called_once_with(Path(temp), "a" * 40)

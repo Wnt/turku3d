@@ -1,9 +1,10 @@
 # Facade programs and the Linnankatu pilot
 
 2026-10-29. The draft generator consumes the shared
-`textures/turkutex/facade_program.py` contract. The first delivery enables reviewed
-Linnankatu programs; the next delivery enables the same compiler's rule fallback
-for every generated building. No image model or image generation runs at request time.
+`textures/turkutex/facade_program.py` contract. The pilot was deployed in
+`54161374`; the second delivery enables the same compiler's rule fallback for every
+generated building and removes the old draft wall assembly path. No image model
+or image generation runs at request time.
 
 ## Authority and painting
 
@@ -31,8 +32,9 @@ to fit WebGPU buffer limits, and per-wall variation survives tile batching.
 
 Each building's reviewed JSON contributes to `facade_kit.parameter_hash`; editing
 one program invalidates only tiles containing that building. Compiler source and
-archetype definitions contribute to the building-visual producer identity. Cached
-geometry and collisions are reused. Local builds export `facade-programs.json`
+archetype definitions contribute to the building-visual producer identity. These
+appearance-only modules are excluded from structural freshness. Cached geometry
+and collisions are reused. Local builds export `facade-programs.json`
 beside the tile as diagnostic evidence; the GLB carries compact painter attributes.
 
 ## Rule table and evidence
@@ -112,11 +114,11 @@ and 8.780/3.030/1.039 seconds with programs: 13.489 versus 12.849 seconds total.
 The 0.023-second increase on one tile is below a useful single-run conclusion.
 Subsequent warm-cache texture stages on the same central tile IDs were:
 
-| Tile | Before (s) | Pilot (s) |
-| --- | ---: | ---: |
-| t0_0_0 | 0.286 | 0.023 |
-| t0_0_1 | 0.149 | 0.018 |
-| t0_1_0 | 0.422 | 0.017 |
+| Tile | Before (s) | Pilot (s) | All programs (s) |
+| --- | ---: | ---: | ---: |
+| t0_0_0 | 0.286 | 0.023 | 0.027 |
+| t0_0_1 | 0.149 | 0.018 | 0.022 |
+| t0_1_0 | 0.422 | 0.017 | 0.017 |
 
 These are local M1 Max observations, not OCI throughput claims. The programs add
 no wall-image encode. The baseline source snapshot and both sets of tile outputs
@@ -124,6 +126,19 @@ are retained locally. The baseline received the same required four-pixel KTX2
 dimension alignment fix as main so that arbitrary roof crops render on WebGPU.
 Concurrent upstream changes and host load mean total tile time is not an isolated
 facade speed benchmark. No full area build is a delivery gate.
+
+Seven repeated runs on identical frozen shell inputs measured local wall/roof
+preparation medians of 0.199/0.211/0.375 seconds before and
+0.450/0.232/0.462 seconds with programs. The explicit program construction adds
+CPU work even though texture encoding stays fast. Surveyed-map matching now
+prepares invariant geometry once per building and compares candidates in arrays.
+These preparation timings are separate from the texture table above.
+
+The deployed pilot's OCI warm texture stages were 0.079/0.064/0.061 seconds for
+the same three tile IDs. Raw observations live in
+`$TURKU3D_WORK/reports/archetypes/oci-pilot-timings.json`; the completed run result
+records the corresponding worldwide deployment observation. Local pilot captures
+are also retained separately under `reports/archetypes/pilot/`.
 
 ## Reproduction
 

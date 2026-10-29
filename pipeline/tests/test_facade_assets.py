@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import shapely
 from turku3d import config as C
 from turku3d.coarse.stored_facades import match_wall, wall_meshes
 from turku3d.facade_assets import export, opaque
@@ -40,10 +41,11 @@ def test_binding_keeps_geometry_and_leaves_unmatched_faces_on_kit(monkeypatch):
     monkeypatch.setattr(
         sf, "building", lambda key: dict(facades=[facade()]) if key == "stable" else {}
     )
-    b = SimpleNamespace(key="wfs-part", facade_key="stable", base=3, top=15)
+    b = SimpleNamespace(key="wfs-part", facade_key="stable", base=3, top=15,
+                        footprint=shapely.box(0, 0, 10, 2), attributes={"levels": 4})
     positions = np.concatenate([wall(), wall() + [0, 0, 2]])
     indices = np.array([[0, 3, 2], [0, 2, 1], [4, 7, 6], [4, 6, 5]], np.uint32)
-    meshes = wall_meshes(b, positions, np.zeros((8, 2)), indices, np.zeros(3), dict(module=0, ground=3, upper=3))
+    meshes = wall_meshes(b, positions, np.zeros(3))
     assert [m.extras["material_key"] for m in meshes] == ["facade_stored", "facade_kit"]
     actual = np.concatenate([m.positions[m.indices] for m in meshes])
     np.testing.assert_array_equal(actual, positions[indices])
@@ -124,10 +126,9 @@ def test_gis_fallback_assets_keep_stable_registry_lookup_and_original_binding(
     assert assets.building("b")["facades"] == [f]
     assert read_description("b") == d
     assert assets.stored_request(["b", "gis-b"])["facadeBindings"] == ["gis-b_7"]
-    b = SimpleNamespace(key="part", facade_key="b", base=3, top=15)
-    meshes = sf.wall_meshes(
-        b, wall(), np.zeros((4, 2)), np.array([[0, 3, 2], [0, 2, 1]]), np.zeros(3), {}
-    )
+    b = SimpleNamespace(key="part", facade_key="b", base=3, top=15,
+                        footprint=shapely.box(0, 0, 10, 2), attributes={"levels": 4})
+    meshes = sf.wall_meshes(b, wall(), np.zeros(3))
     assert meshes[0].extras["building_id"] == "gis-b"
     assert meshes[0].extras["facade_index"] == 7
 
@@ -153,39 +154,33 @@ def test_shared_texture_edits_invalidate_drafts_without_full_tile_release(tmp_pa
     assert parameter_hash(["building"]) != before
 
 
-def test_draft_rows_stop_below_slopes_and_keep_complete_floor_grid(monkeypatch):
+def test_draft_register_rows_end_at_eave_without_splitting_wall_geometry(monkeypatch):
     from turku3d.coarse import stored_facades as sf
 
     monkeypatch.setattr(sf, "building", lambda key: {})
-    b = SimpleNamespace(key="gable", facade_key="gable", base=3, top=18)
-    params = dict(module=8, wall="#808080", trim="#ffffff", bay=3, storey=3,
-                  ground=4, upper=3)
-    # Shop floor: 3..7, upper floors: 7..10, 10..13, 13..16.
-    # The slope begins at 14: the row 13..16 must disappear completely.
+    b = SimpleNamespace(key="gable", facade_key="gable", base=3, top=18,
+                        footprint=shapely.box(0, 0, 10, 2), attributes={"levels": 4, "use": "1150"})
+    # Four authoritative floors fit below the eave at 14; the shader blanks the gable.
     positions = wall()
     positions[2:, 1] = [18, 14]
-    uv = positions[:, :2].copy()
-    uv[:, 0] = [0, 10, 10, 0]
-    meshes = wall_meshes(b, positions, uv, np.array([[0, 3, 2], [0, 2, 1]]),
-                         np.zeros(3), params)
-    lower, cap = meshes
-    assert lower.positions[:, 1].max() == 13
-    assert cap.positions[:, 1].min() == 13
-    np.testing.assert_array_equal(cap.positions[2:], positions[2:])
-    np.testing.assert_array_equal(lower.uvs, [[0, 3], [10, 3], [10, 13], [0, 13]])
-    assert lower.extras["facade_kit"] == params
-    assert cap.extras["facade_kit"]["module"] == 43  # same brick, no openings
-    # A wall shorter than the shop floor must contain no partial opening either.
-    positions[2:, 1] = [6.5, 5.5]
-    meshes = wall_meshes(b, positions, uv, np.array([[0, 3, 2], [0, 2, 1]]),
-                         np.zeros(3), params)
+    meshes = wall_meshes(b, positions, np.zeros(3))
     assert len(meshes) == 1
-    assert meshes[0].extras["facade_kit"]["module"] == 43
+    np.testing.assert_array_equal(meshes[0].positions, positions)
+    style = meshes[0].extras["facade_kit"]
+    assert style["origin"][1] == 3 and style["size"][1] == 11
+    assert abs(style["ground"] + 3 * style["upper"] - 11) < 1e-6
+    assert style["ground"] > style["upper"]  # supported business ground floor
+    # Conflicting height does not silently discard any of the four register floors.
+    positions[2:, 1] = [6.5, 5.5]
+    meshes = wall_meshes(b, positions, np.zeros(3))
+    assert len(meshes) == 1
+    style = meshes[0].extras["facade_kit"]
+    assert abs(style["ground"] + 3 * style["upper"] - 2.5) < 1e-6
+    assert meshes[0].extras["facade_program"]["storeys"]["value"] == 4
     np.testing.assert_array_equal(meshes[0].positions, positions)
 
 
 def test_gable_segments_share_eave_even_when_high_segment_fits_more_rows(monkeypatch):
-    import shapely
     from turku3d.coarse import stored_facades as sf
     from turku3d.coarse.extrusion import extrude
     from turku3d.coarse.inputs import Building
@@ -193,14 +188,15 @@ def test_gable_segments_share_eave_even_when_high_segment_fits_more_rows(monkeyp
     monkeypatch.setattr(sf, "building", lambda key: {})
     footprint = shapely.Polygon([(0, 0), (10, 0), (10, 5), (10, 10), (0, 10)])
     b = Building("slope", footprint, 0, 18, "facade_brick")
+    b.attributes = {"levels": 3, "material_class": "brick"}
     b.roof_parts = [(footprint, np.array([0, 0.8, 10]))]
-    _, _, _, _, walls, uv, indices = extrude(b)
-    params = dict(module=6, ground=3, upper=3, storey=3)
-    meshes = wall_meshes(b, walls, uv, indices, np.zeros(3), params)
-    lower, cap = meshes
-    assert lower.positions[:, 1].max() == 9  # eave 10, last complete storey ends at 9
-    assert cap.positions[:, 1].max() == 18
-    # Splitting the texture surfaces preserves the complete wall area.
+    _, _, _, _, walls, _, indices = extrude(b)
+    meshes = wall_meshes(b, walls, np.zeros(3))
+    assert len(meshes) == 1 and meshes[0].positions[:, 1].max() == 18
+    for style in meshes[0].extras["facade_kit_walls"]:
+        assert style["size"][1] == 10  # all segments share this ring's eave
+        assert abs(style["ground"] + 2 * style["upper"] - 10) < 1e-6
+    # Shader floor limits leave the complete wall geometry and area intact.
     def area(points, triangles):
         a, b, c = points[triangles].transpose(1, 0, 2)
         return np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2

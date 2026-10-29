@@ -7,7 +7,10 @@ from pathlib import Path
 
 from .packaging import producer_paths
 
-VISUAL_ONLY = {"packaging.py", "stored_facades.py", "facade_assets.py"}
+VISUAL_ONLY = {
+    "packaging.py", "stored_facades.py", "facade_assets.py", "facade_programs.py",
+    "facade_program_geometry.py", "facade_program.py", "facade_archetypes.py",
+}
 
 
 def paths():
