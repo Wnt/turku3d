@@ -38,7 +38,7 @@ class DraftRejected extends Error {}
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
-interface CoarseFragment { pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+interface CoarseFragment { stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
@@ -56,6 +56,8 @@ interface Entry {
   version?: number; visualHash?: string; refreshing?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
   resident?: boolean; retries?: number;
+  /** Measured visible fallback duration, including identical-content revalidation. */
+  stale?: boolean; staleSince?: number; staleSeconds?: number;
 }
 
 export interface CoarseHost {
@@ -449,6 +451,7 @@ export class CoarseTiles {
     if (this.entries.get(id) !== e || e.state !== state) { if (model) this.dispose(model); return; }
     const roads = streets.status === 'fulfilled' ? streets.value : null;
     if (!visualChanged) {
+      this.recordFreshness(e, fragment);
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
@@ -456,6 +459,7 @@ export class CoarseTiles {
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
     if (!await this.prepareModel(id, e, model)) return;
+    this.recordFreshness(e, fragment);
     // Detach before attaching: scene hooks must never observe both passes.
     const old = e.model;
     old?.removeFromParent();
@@ -468,6 +472,17 @@ export class CoarseTiles {
     if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
+  }
+
+  private recordFreshness(e: Entry, fragment: CoarseFragment) {
+    const now = performance.now();
+    if (fragment.stale) e.staleSince ??= now;
+    else if (e.staleSince !== undefined) {
+      e.staleSeconds = (now - e.staleSince) / 1000;
+      e.staleSince = undefined;
+    }
+    e.stale = fragment.stale === true;
+    e.pass = fragment.pass_kind;
   }
 
   private async poll(id: string, e: Entry, d: number, load: boolean) {
