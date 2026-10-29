@@ -496,6 +496,7 @@ def produce(tile, grid_pos, inputs):
         return np.asarray([full_ground(x, z) for x, z in xz])
 
     decks = []
+    rails = {w["id"]: r for w, r in zip(ways, details.railing_lines(ways), strict=True)}
     for way in sorted(ways, key=lambda w: (w["layer"], w["id"])):
         axis, width = way["line"], way["width"]
         spec = details.style(way)
@@ -645,17 +646,7 @@ def produce(tile, grid_pos, inputs):
             details.appearance(meshes[0], spec["surface"])
             details.appearance(meshes[1], spec["body"])
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
-        outline = way.get("outline", axis.buffer(width / 2, cap_style="flat", join_style="mitre"))
-        member_ways = way.get("member_ways", [way])
-        openings = shapely.union_all(
-            [
-                shapely.Point(p).buffer(w["width"] / 2 + 0.5)
-                for w in member_ways
-                for p in (w["line"].coords[0], w["line"].coords[-1])
-            ]
-        )
-        # Abutments are open to traffic. Rails follow the actual outline, including branches.
-        rail_lines = outline.boundary.difference(openings).difference(obstacles.buffer(0.25))
+        rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
         meshes.extend(
             details.furniture(
                 way,

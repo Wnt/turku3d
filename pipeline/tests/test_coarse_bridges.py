@@ -508,3 +508,54 @@ def test_detailed_bridge_collision_is_clipped_instead_of_repeated_in_every_cell(
         assert len(idx)
         boundary.extend(map(tuple, p[p[:, 0] == 62.5]))
     assert set(left) == set(right)
+
+
+def test_combined_deck_rails_exclude_caps_between_carriageway_openings():
+    from turku3d.coarse.bridge_details import railing_lines
+
+    left = way("left", [(0, -8), (80, -8)], width=7.5)
+    right = way("right", [(80, 8), (0, 8)], width=7.5)
+    path = way("path", [(0, 14), (80, 14)])
+    deck = {**left, "outline": shapely.box(0, -12, 80, 16), "member_ways": [left, right, path]}
+    rails = railing_lines([deck])[0]
+    assert rails.length > 150
+    for part in shapely.get_parts(rails):
+        assert np.ptp(np.asarray(part.coords)[:, 1]) == 0
+    assert not rails.intersects(shapely.LineString([(0, -4), (0, 4)]))
+
+
+def test_adjacent_outlines_hide_inner_rails_but_keep_real_gaps_and_levels():
+    from turku3d.coarse.bridge_details import railing_lines
+
+    road = way("road", [(0, 0), (80, 0)], width=8)
+    road["outline"] = shapely.box(0, -4, 80, 4)
+    walk = way("walk", [(0, 6), (80, 6)], width=3)
+    walk["outline"] = shapely.box(0, 4.5, 80, 7.5)
+    rails = railing_lines([road, walk])
+    assert all(abs(p[1] + 4) < 1e-6 for part in shapely.get_parts(rails[0]) for p in part.coords)
+    assert all(abs(p[1] - 7.5) < 1e-6 for part in shapely.get_parts(rails[1]) for p in part.coords)
+    walk["line"] = shapely.LineString([(0, 10), (80, 10)])
+    walk["outline"] = shapely.box(0, 8.5, 80, 11.5)
+    assert len(shapely.get_parts(railing_lines([road, walk])[0])) == 2
+    walk["line"] = shapely.LineString([(0, 6), (80, 6)])
+    walk["outline"] = shapely.box(0, 4.5, 80, 7.5)
+    walk["layer"] = 2
+    assert len(shapely.get_parts(railing_lines([road, walk])[0])) == 2
+
+
+def test_furniture_omits_detached_stub_shorter_than_post_bay():
+    from turku3d.coarse.bridge_details import furniture
+
+    deck = way("stub", [(0, 0), (20, 0)], width=6)
+    deck["landing"] = True
+    assert (
+        furniture(
+            deck,
+            shapely.LineString([(10, 3), (10.7, 3)]),
+            lambda p: np.full(len(p), 5),
+            lambda p: np.zeros(len(p)),
+            [],
+            shapely.box(0, -3, 20, 3),
+        )
+        == []
+    )

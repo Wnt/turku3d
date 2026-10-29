@@ -111,14 +111,80 @@ def wall(key, line, bottom, top, thickness, surface, material="wall"):
     )
 
 
+# Survey/OSM outlines can split one crossing into adjacent road and path decks.
+# Two metres bridges mapping slivers, while retaining rails across a real gap.
+RAILING_GAP = 2.0
+
+
+def deck_outline(way):
+    return way.get(
+        "outline", way["line"].buffer(way["width"] / 2, cap_style="flat", join_style="mitre")
+    )
+
+
+def railing_lines(ways):
+    """Outer longitudinal edges only; never fence abutments between lane openings."""
+    from .bridges import parallel
+
+    outlines = [deck_outline(w) for w in ways]
+    tree = shapely.STRtree(outlines)
+    result = []
+    for i, (way, outline) in enumerate(zip(ways, outlines, strict=True)):
+        members = way.get("member_ways", [way])
+        openings = shapely.union_all(
+            [
+                shapely.Point(p).buffer(w["width"] / 2 + 0.5)
+                for w in members
+                for p in (w["line"].coords[0], w["line"].coords[-1])
+            ]
+        )
+        edges = outline.boundary.difference(openings)
+        # Separate source outlines may describe the same crossing. Do not change
+        # their surveyed slabs/heights; only suppress furniture on adjoining edges.
+        neighbours = [
+            outlines[j]
+            for j in tree.query(outline, predicate="dwithin", distance=RAILING_GAP)
+            if j != i and parallel(way, ways[j])
+        ]
+        # Also suppress facing edges of disjoint pieces inside one mapped outline.
+        parts = list(shapely.get_parts(outline))
+        neighbour_mask = shapely.union_all(neighbours).buffer(RAILING_GAP + 1e-6)
+        part_masks = [p.buffer(RAILING_GAP + 1e-6) for p in parts]
+        segments = []
+        for part in shapely.get_parts(edges):
+            if part.geom_type not in ("LineString", "LinearRing"):
+                continue
+            coords = np.asarray(part.coords)
+            for a, b in zip(coords[:-1], coords[1:], strict=True):
+                segment = shapely.LineString([a, b])
+                point = segment.interpolate(0.5, normalized=True)
+                axis = min(members, key=lambda w: w["line"].distance(point))["line"]
+                t = axis.project(point)
+                tangent = np.asarray(
+                    axis.interpolate(min(axis.length, t + 0.5)).coords[0]
+                ) - np.asarray(axis.interpolate(max(0, t - 0.5)).coords[0])
+                # End caps can survive circular lane openings as long cross-road
+                # barriers. Side rails run along the nearest road/path, not across it.
+                if abs((b - a) @ tangent) < 0.5 * np.linalg.norm(b - a) * np.linalg.norm(tangent):
+                    continue
+                segment = segment.difference(neighbour_mask)
+                for poly, mask in zip(parts, part_masks, strict=True):
+                    if poly.distance(point) > 1e-6:
+                        segment = segment.difference(mask)
+                segments.extend(p for p in shapely.get_parts(segment) if not p.is_empty)
+        result.append(shapely.line_merge(shapely.union_all(segments)))
+    return result
+
+
 def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
     from .bridges import samples
 
     key = f"draft-bridge:{way['id']}"
     spec = style(way)
     meshes = []
-    for part in shapely.get_parts(rail_lines):
-        if part.geom_type not in ("LineString", "LinearRing") or part.length < 0.5:
+    # Join source vertices before rejecting fragments shorter than one post bay.
+    for part in shapely.get_parts(shapely.line_merge(rail_lines)):
+        if part.geom_type not in ("LineString", "LinearRing") or part.length < 1.8:
             continue
         _, side = samples(part, 1.8)
         base = height_at(side)
