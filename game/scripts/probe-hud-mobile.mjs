@@ -15,7 +15,7 @@ fs.mkdirSync(out, { recursive: true });
 const deadline = Date.now() + 120_000;
 for (;;) {
   const html = await fetch(`${url}?hud-publication=${Date.now()}`, { signal: AbortSignal.timeout(5000) }).then(r => r.text());
-  if (html.includes('A reserved top row')) break;
+  if (html.includes('88px + env(safe-area-inset-top)')) break;
   assert(Date.now() < deadline, 'Pages publication timed out');
   await new Promise(resolve => setTimeout(resolve, 5000));
 }
