@@ -469,3 +469,22 @@ def test_bent_stair_and_landings_cover_the_entire_terrain_cut():
     vertices = meshes[0].positions
     for point in vertices[(vertices[:, 0] < 9.5) | (vertices[:, 0] > 16.5)]:
         assert np.isfinite(point).all()
+
+
+def test_boundary_cut_repairs_invalid_overlay_without_losing_surface_area():
+    from turku3d.coarse.surfaces import split_boundaries
+
+    positions = np.array([[0., 0, 0], [0, 1, 10], [10, 2, 0]])
+    indices = np.array([[0, 1, 2]], np.uint32)
+    # A crossing source ring is repaired only when floating overlay rejects it.
+    region = shapely.Polygon([(1, 1), (5, 5), (1, 5), (5, 1), (1, 1)])
+    pos, ix, material, normals = split_boundaries(
+        positions, indices, np.array([mat_id("grass")], np.uint8), np.ones(1, bool),
+        [(region, mat_id("road"))],
+    )
+    polygons = shapely.polygons(pos[ix][:, :, [0, 2]])
+    assert abs(shapely.area(polygons).sum() - 50) < 1e-6
+    road = shapely.union_all(polygons[material == mat_id("road")])
+    expected = shapely.make_valid(region).intersection(shapely.Polygon(positions[:, [0, 2]]))
+    assert road.symmetric_difference(expected).area < 1e-6
+    assert np.isfinite(pos).all() and np.isfinite(normals).all()

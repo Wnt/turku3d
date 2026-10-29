@@ -1,7 +1,8 @@
 // Pure draft residency and prefetch selection, shared by the service-facing runtime and unit fixtures.
 import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 
-const PREFETCH_SECONDS = 30;
+const PREFETCH_SECONDS = 60;
+const MAX_AHEAD_METRES = 12 * VISUAL_L0;
 const l0 = (i: number, j: number) => `t0_${i}_${j}`;
 /** Distance (m) from (x,z) to the footprint of L0 tile `id`. */
 export function distToL0(id: string, x: number, z: number): number {
@@ -51,7 +52,7 @@ export function cellsOf(id: string): string[] {
 export function aheadTiles(x: number, z: number, vx: number, vz: number): string[] {
   const speed = Math.hypot(vx, vz);
   if (speed < 1) return [];
-  const reach = speed * PREFETCH_SECONDS, steps = Math.ceil(reach / (VISUAL_L0 / 2));
+  const reach = Math.min(speed * PREFETCH_SECONDS, MAX_AHEAD_METRES), steps = Math.ceil(reach / (VISUAL_L0 / 2));
   const want = new Set<string>();
   for (let k = 0; k <= steps; k++) {
     const px = x + vx / speed * reach * k / steps, pz = z + vz / speed * reach * k / steps;
@@ -92,7 +93,7 @@ export function draftDemand(visible: string[], ahead: string[], x: number, z: nu
   return { tiles: ordered, urgent, visible: ordered.filter(id => visible.includes(id)) };
 }
 
-/** Remaining route corridor within 30 s; ignores stale/off-route hints and never sends the polyline. */
+/** Remaining route corridor within 60 s, capped at 3 km; ignores stale/off-route hints and never sends the polyline. */
 export function routeAheadTiles(points: readonly { x: number; z: number }[], x: number, z: number, speed: number) {
   if (speed < 1 || points.length < 2) return null;
   let nearest = Infinity, index = 0, fraction = 0;
@@ -103,7 +104,7 @@ export function routeAheadTiles(points: readonly { x: number; z: number }[], x: 
     if (distance < nearest) { nearest = distance; index = k; fraction = t; }
   }
   if (nearest > 80) return null;
-  let left = speed * PREFETCH_SECONDS;
+  let left = Math.min(speed * PREFETCH_SECONDS, MAX_AHEAD_METRES);
   let a = { x: points[index].x + fraction * (points[index + 1].x - points[index].x),
     z: points[index].z + fraction * (points[index + 1].z - points[index].z) };
   const path = new Set<string>();

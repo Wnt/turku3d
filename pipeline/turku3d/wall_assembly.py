@@ -221,7 +221,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
         else:
             cache.files("building_layer", source_key(Path(__file__).with_name("layers.py"),
                         Path(__file__).parent / "package/gltf.py"),
-                        [tile, building_meshes], stage, buildings)
+                        [tile, cache.metrics.get("building_visual", {}).get("key", building_meshes)], stage, buildings)
         layer_files.append(stage / "buildings.vis.glb")
 
     def assemble():
@@ -239,10 +239,12 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
         wall_layers = assemble()
     else:
         wall_layers = cache.run(
-            "wall_meshes", source_key(Path(__file__), Path(__file__).with_name("wall_surfaces.py")),
+            "wall_meshes", source_key(assemble_structures, band_polygon, layer_meshes, trapezoids,
+                                     Path(__file__).parent / "package/gltf.py"),
             [path.read_bytes() for path in layer_files], assemble,
         )
-    validate_neighbours(wall_layers, shells, tile, out.parent)
+    geometry_key = cache.metrics["wall_meshes"]["key"] if cache else None
+    neighbours = validate_neighbours(wall_layers, shells, tile, out.parent, geometry_key=geometry_key)
     def architecture(directory):
         write_visual(directory / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
 
@@ -251,7 +253,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
     else:
         cache.files("wall_visual", source_key(Path(__file__).with_name("layers.py"),
                     Path(__file__).parent / "package/gltf.py"),
-                    [tile, wall_layers], stage, architecture)
+                    [tile, neighbours["geometry_key"]], stage, architecture)
     layer_files = [p for p in layer_files if p.name == "vegetation.vis.glb"]
     layer_files.append(stage / "architecture.vis.glb")
 

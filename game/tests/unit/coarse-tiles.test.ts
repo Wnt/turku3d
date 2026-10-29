@@ -140,16 +140,16 @@ test('streams only drafts, validates all collision before visibility and unloads
   expect(manifest.collision.c_8_0).toBeUndefined();
 });
 
-test('prefetch: the cells along the next 30 s of travel and a one-tile ring, nearest first; none when standing', () => {
+test('prefetch: the cells along the next 60 s of travel and a one-tile ring, nearest first; none when standing', () => {
   expect(aheadTiles(100, 100, 0.5, 0)).toEqual([]);
-  // 20 m/s east from x 100: 600 m ahead reaches cell i = 2, and the ring i = 3; rows j -1..1 around the path.
+  // 20 m/s east from x 100: 1200 m ahead reaches cell i = 5, and the ring i = 6; rows j -1..1 around the path.
   const ahead = aheadTiles(100, 100, 20, 0);
-  expect(ahead.length).toBe(5 * 3);
+  expect(ahead.length).toBe(8 * 3);
   expect(ahead[0]).toBe('t0_0_0');
-  for (const id of ['t0_-1_0', 't0_2_-1', 't0_3_1']) expect(ahead).toContain(id);
-  expect(ahead).not.toContain('t0_4_0');
+  for (const id of ['t0_-1_0', 't0_5_-1', 't0_6_1']) expect(ahead).toContain(id);
+  expect(ahead).not.toContain('t0_7_0');
   expect(aheadTiles(100, 100, 20, 0)).toContain('t0_1_0');
-  // 40 m/s north-east covers the diagonal out to 1200 m.
+  // 40 m/s north-east covers the diagonal out to 2400 m.
   expect(aheadTiles(100, 100, 28.3, -28.3)).toContain('t0_3_-4');
 });
 

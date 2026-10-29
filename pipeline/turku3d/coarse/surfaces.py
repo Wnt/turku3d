@@ -444,6 +444,23 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
     """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals."""
     import mapbox_earcut
 
+    def overlay(operation, left, right):
+        try:
+            return operation(left, right)
+        except shapely.errors.GEOSException:
+            # Keep successful overlays bit-for-bit. Rare nearly coincident source
+            # edges can defeat GEOS' floating overlay even on valid polygons.
+            # Retry only the failing pair on a 0.1 micrometre grid; this is far
+            # below the exported float32 resolution and leaves collision intact.
+            result = []
+            for geometry in left:
+                try:
+                    result.append(operation(geometry, right))
+                except shapely.errors.GEOSException:
+                    result.append(operation(shapely.make_valid(geometry),
+                                            shapely.make_valid(right), grid_size=1e-7))
+            return np.asarray(result, dtype=object)
+
     normals = vertex_normals(positions, indices)
     if not regions:
         return positions, indices[keep], materials[keep], normals
@@ -469,10 +486,10 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
     pieces, owners, channels = [], [], []
     for region in np.unique(region_ids)[::-1]:
         hits = triangle_ids[region_ids == region]
-        pieces.append(shapely.intersection(remaining[hits], polygons[region]))
+        pieces.append(overlay(shapely.intersection, remaining[hits], polygons[region]))
         owners.append(boundary[hits])
         channels.append(np.full(len(hits), regions[region][1], np.uint8))
-        remaining[hits] = shapely.difference(remaining[hits], polygons[region])
+        remaining[hits] = overlay(shapely.difference, remaining[hits], polygons[region])
     pieces.append(remaining)
     owners.append(boundary)
     fallback = materials if fallback_materials is None else fallback_materials
