@@ -18,7 +18,7 @@ def scene(tmp_path, monkeypatch):
     ship.facade_key = "stored_ship_facade"
     ship.roof_parts = [
         (outline, [0, 0, 1.5]),
-        (shapely.box(235, 21, 244, 25), [0, 0, 5.8]),
+        (shapely.box(244, 21, 254, 25), [0, 0, 5.8]),
         (shapely.box(240, 23, 240.2, 23.2), [0, 0, 12]),
     ]
     land = Building("land_house", shapely.box(200, 60, 220, 70), 1, 6, "facade_plaster")

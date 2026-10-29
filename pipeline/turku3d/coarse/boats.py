@@ -182,9 +182,35 @@ def furniture(key, boat, deck_area):
         top = Faces()
         horizontal(top, shapely.Point(p).buffer(0.55, quad_segs=4), deck + 0.75)
         parts.append(appearance(top.mesh(key, "wall"), "wood", collision=False))
+        normal = np.array([-direction[1], direction[0]])
+        chairs = Faces()
+        for sign in (-1, 1):
+            centre = p + normal * sign * 0.95
+            corners = np.array(
+                [
+                    centre + direction * a + normal * b
+                    for a, b in ((-0.25, -0.25), (0.25, -0.25), (0.25, 0.25), (-0.25, 0.25))
+                ]
+            )
+            horizontal(chairs, shapely.Polygon(corners), deck + 0.45)
+            a, b = (
+                centre + normal * sign * 0.25 - direction * 0.25,
+                centre + normal * sign * 0.25 + direction * 0.25,
+            )
+            chairs.face(
+                [
+                    [a[0], deck + 0.45, a[1]],
+                    [a[0], deck + 1.0, a[1]],
+                    [b[0], deck + 1.0, b[1]],
+                    [b[0], deck + 0.45, b[1]],
+                ]
+            )
+        parts.append(appearance(chairs.mesh(key, "wall"), "white", collision=False))
         parts.append(tube(key, [p[0], deck, p[1]], [p[0], deck + 2.8, p[1]], 0.025, "white"))
         canopy = Faces()
-        ring = np.asarray(shapely.Point(p).buffer(1.5, quad_segs=2).exterior.coords)
+        ring = np.asarray(
+            shapely.orient_polygons(shapely.Point(p).buffer(1.5, quad_segs=2)).exterior.coords
+        )
         for a, b in zip(ring[:-1], ring[1:], strict=True):
             canopy.face(
                 [[a[0], deck + 2.5, a[1]], [p[0], deck + 2.9, p[1]], [b[0], deck + 2.5, b[1]]]
@@ -206,15 +232,27 @@ def produce(tile, records):
         deck_faces = Faces()
         horizontal(deck_faces, outline.buffer(-0.08), deck + 0.015)
         parts.append(appearance(deck_faces.mesh(key, "bridge_deck"), "deck"))
-        # A narrow rubbing strip marks the waterline without a ground-floor wall.
-        strip = outline.buffer(-0.015)
-        parts.append(
-            appearance(
-                extrusion(key, strip, water + 0.05, water + 0.14, "waterline"),
-                "waterline",
-                collision=False,
+        # Paint follows the flared hull skin; no horizontal waterline slab.
+        band = Faces()
+        ring = np.asarray(shapely.orient_polygons(outline).exterior.coords)
+        centre = np.asarray(outline.centroid.coords[0])
+        low, high = water + 0.05, water + 0.14
+
+        def skin(y):
+            scale = 0.88 + 0.12 * (y - (water - 0.7)) / (deck - (water - 0.7))
+            return centre + (ring - centre) * (scale + 0.001)
+
+        lo, hi = skin(low), skin(high)
+        for i in range(len(ring) - 1):
+            band.face(
+                [
+                    [lo[i, 0], low, lo[i, 1]],
+                    [hi[i, 0], high, hi[i, 1]],
+                    [hi[i + 1, 0], high, hi[i + 1, 1]],
+                    [lo[i + 1, 0], low, lo[i + 1, 1]],
+                ]
             )
-        )
+        parts.append(appearance(band.mesh(key, "wall"), "waterline", collision=False))
         cabins = shapely.union_all([g for g, _ in boat["cabins"]])
         for shape, top in boat["cabins"]:
             for polygon in shapely.get_parts(shape):
