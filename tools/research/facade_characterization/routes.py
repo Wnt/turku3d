@@ -173,6 +173,8 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
             for r in json.loads((root / "batches" / alternate_from / "refined.json").read_text())
         }
         pending = [r for r in originals.values() if not wall_ids or r["wall_id"] in wall_ids]
+    elif wall_ids:
+        pending = [r for r in queue_rows(root) if r["wall_id"] in set(wall_ids)]
     else:
         pending = [r for r in queue_rows(root) if r["wall_id"] not in states]
     if not pending:

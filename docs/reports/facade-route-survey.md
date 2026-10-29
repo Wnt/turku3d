@@ -109,3 +109,42 @@ precise pilot rectangles remain preferred. The second durable publication is
 Weekly account quota is 38% (33% at start). Batch elapsed time includes alternate
 view preparation, schema work and deployment interruptions; it must not be read
 as pure visual annotation time. Complete timings are in each `finished.json`.
+
+## Third publication: complete classification through 450 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Painter eligible | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 0–150 m | 88 | 26 | 62 | 17 | 9 |
+| 150–300 m | 140 | 46 | 94 | 18 | 28 |
+| 300–450 m | 187 | 69 | 118 | 33 | 36 |
+
+All 415 candidates are classified: 141 characterized, 274 rejected. New structured
+observations distinguish French windows with Juliet rails, recessed loggias,
+projecting bay windows, curtain walls, opaque blind niches, frieze vents and
+reflections. Counts of panes, floors or bays stay unknown where foliage or mixed
+planes prevents a reliable reading. Several stored waterfront bindings have no
+visible facade in either view; their source assets and bindings remain untouched.
+
+A systematic bad-crop cause was found: when local ground points could not support
+a plane, Look Around's uncalibrated provider elevation placed some cameras around
+20 m too high. The fallback now uses the explicit facade-base plus assumed camera
+height approximation; calibrated N2000 ground remains preferred and original
+provider metadata is preserved. All 171 initial inner-ring rejections were
+revisited. This recovered clear architectural views as well as useful partial
+observations. Earlier answers and corrections remain append-only. One balcony
+row count was corrected after a full-resolution reread, excluding the roof slab.
+
+`publications/ring02/` contains the complete queue state, programs and timing.
+Elapsed time from the first batch is 7,542.6 seconds (18.2 s/candidate), including
+schema work, repeated crops, deployment and waits. Weekly account quota is 40%,
+up seven integer points from the measured 33% start; new readings stop at 82%.
+The durable local footprint is approximately 113 MB; fetched full panoramas are
+removed after cropping, original sources are never touched.
+
+The previous Pages/OCI source activated successfully, but a final attempt to
+disable the already removed legacy prebuild unit caused a diagnostic error.
+Legacy service cleanup now checks its unit file before stopping/disabling it.
+Independent curl smoke passed in 0.276 s and frozen-source package/render tests
+passed in 560.4 s including host-slot wait. The third publication runs the affected
+height, form and deployment checks, followed by selective streetview geometry and
+program compatibility checks.
