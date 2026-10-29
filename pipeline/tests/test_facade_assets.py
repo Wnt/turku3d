@@ -69,6 +69,7 @@ def test_tessellated_program_coalesces_only_equal_consecutive_vertex_ranges(monk
     b = SimpleNamespace(key="part", facade_key="stable", base=3, top=15)
     mesh = wall_meshes(b, wall(), np.zeros(3))[0]
     rows = mesh.extras["facade_kit_walls"]
+    assert mesh.extras["facade_kit"]["count"] == 4
     assert [(r["start"], r["count"], r["module"]) for r in rows] == [(0, 8, 1), (8, 8, 2), (16, 4, 1)]
     expanded = [None] * len(mesh.positions)
     for row in rows:

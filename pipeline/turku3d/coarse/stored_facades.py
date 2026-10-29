@@ -249,7 +249,9 @@ def wall_meshes(b, walls, origin):
                     surface="wall",
                     base_height=b.base,
                     top_height=b.top,
-                    facade_kit=instructions[0],
+                    # The legacy fallback describes the first quad; the full
+                    # program below owns all coalesced ranges.
+                    facade_kit=dict(instructions[0], count=4),
                     facade_kit_walls=instructions,
                 ),
             )
