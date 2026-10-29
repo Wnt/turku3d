@@ -62,10 +62,18 @@ def overlaps(faces, ids, *, split=None):
     """
     if not len(faces):
         return []
-    points = [np.asarray(p, float) for p in faces]
     # Pad only by repeating the last vertex; polygon coverage is unchanged.
-    width = max(map(len, points))
-    points = np.array([np.pad(p, ((0, width-len(p)), (0, 0)), mode="edge") for p in points])
+    sizes = np.fromiter(map(len, faces), dtype=np.intp, count=len(faces))
+    width = int(sizes.max())
+    if sizes.min() == width:
+        # Shipped meshes are triangles. Avoid one NumPy allocation and a generic
+        # padding operation per face when the entire array is already regular.
+        points = np.asarray(faces, dtype=float)
+    else:
+        points = np.empty((len(faces), width, 3), dtype=float)
+        for row, face, size in zip(points, faces, sizes, strict=True):
+            row[:size] = face
+            row[size:] = face[-1]
     first = points[:, 0]
     normals = np.cross(points[:, 1] - first, points[:, -1] - first)
     lengths = np.linalg.norm(normals, axis=1)

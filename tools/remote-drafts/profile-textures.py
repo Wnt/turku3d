@@ -35,15 +35,24 @@ def main():
     parser.add_argument('--tiles', nargs='+', required=True)
     parser.add_argument("--assembly-baseline", type=Path)
     parser.add_argument("--atlas-baseline", type=Path)
+    parser.add_argument('--reuse-caches', type=Path)
+    parser.add_argument('--visual-baseline', type=Path)
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
-    # Copy prepared inputs and authored/shared assets, never generated stage/codec caches.
+    if args.reuse_caches:
+        for name in ('.stages', '.compiled-textures'):
+            source = args.reuse_caches / name
+            if source.exists():
+                shutil.copytree(source, args.root / name)
+    # Default measures fresh compilation. A forward audit-only check may retain
+    # the preceding evidence and rebuild just stages whose content hashes changed.
+    assets = args.reuse_caches or args.assets
     for tile in args.tiles:
-        source = args.assets / '.inputs' / tile
+        source = assets / '.inputs' / tile
         if source.exists():
             shutil.copytree(source, args.root / '.inputs' / tile)
     for pattern in ('shared', '.surface-library*'):
-        for source in args.assets.glob(pattern):
+        for source in assets.glob(pattern):
             if source.is_dir():
                 shutil.copytree(source, args.root / source.name)
     module = importlib.import_module('turku3d.coarse.build')
@@ -92,10 +101,13 @@ def main():
 
         wall_assembly.assemble_structures = compare
     sources = Sources()
-    report = dict(cores=os.cpu_count(), load_start=os.getloadavg(), root=str(args.root), runs=[])
+    report = dict(cores=os.cpu_count(), load_start=os.getloadavg(), root=str(args.root),
+                  cache_seed=str(args.reuse_caches) if args.reuse_caches else None, runs=[])
     for tile in args.tiles:
         out = args.root / tile
         for label, first in [('first', True), ('full-cold', False), ('full-repeat', False), ('repackage', False)]:
+            if args.reuse_caches and label == 'full-cold':
+                label = 'full-changed-stages'
             if label == 'repackage':
                 # Only this diagnostic's package entry is removed: ordinary/atlas
                 # compilation must survive an unrelated geometry-package change.
@@ -122,6 +134,9 @@ def main():
                 after = facade_atlases(out / 'vis.glb')
                 assert before == after, 'Facade atlas encoded bytes changed'
                 row['identical_facade_atlases'] = sorted(after)
+            if args.visual_baseline and not first:
+                assert (args.visual_baseline / tile / 'vis.glb').read_bytes() == (out / 'vis.glb').read_bytes(), 'Shipped GLB changed'
+                row['identical_visual'] = True
             report['runs'].append(row)
             (args.root / 'measurement.json').write_text(json.dumps(report, indent=2) + '\n')
             print(json.dumps(row), flush=True)

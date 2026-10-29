@@ -35,6 +35,17 @@ def test_build_guard_reports_wall_ids_and_near_parallel_triangle_overlap():
     assert validate_meshes([first, second], "t0_0_0")["violations"] == 0
 
 
+def test_regular_and_mixed_faces_keep_exact_overlap_diagnostics():
+    faces = [quad(), quad(z=0.004), quad(z=0.002)[[0, 1, 2]], quad(x0=20)]
+    ids = ["first", "second", "triangle", "separate"]
+    padded = [np.pad(p, ((0, 4-len(p)), (0, 0)), mode="edge") for p in faces]
+    expected = overlaps(padded, ids)
+    assert expected and overlaps(faces, ids) == expected
+    triangles = [p[[0, 1, 2]] for p in padded]
+    padded_triangles = [np.pad(p, ((0, 1), (0, 0)), mode="edge") for p in triangles]
+    assert overlaps(np.array(triangles), ids) == overlaps(padded_triangles, ids)
+
+
 def test_diverging_planes_are_partitioned_only_where_they_can_compete():
     first = quad()
     second = quad(top=12, z=0.004)
