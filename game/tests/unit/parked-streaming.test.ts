@@ -41,3 +41,17 @@ test('rare parked truck uses the built-in truck appearance and physics without a
   stream.update(1000, 1000, null, 1000); await settle();
   expect(seated.retainTrucks).toHaveBeenLastCalledWith(new Set());
 });
+
+test('global claimed slots never respawn locally, and expiry releases the source slot', async () => {
+  const manifest = draftManifest('http://localhost/'); manifest.vehicles = [car];
+  const physics = { loaded: new Set(['c_0_0']), latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn() };
+  const visuals = { load: vi.fn(async () => {}) }, seated = { addTruck: vi.fn(), retainTrucks: vi.fn() };
+  const stream = new ParkedVehicles(manifest, physics as never, visuals, seated);
+  stream.setShared(new Set([car.object_id]), new Set());
+  stream.update(30, 30, null, 0); await settle();
+  expect(physics.spawnVehicle).not.toHaveBeenCalled();
+  expect(physics.removeVehicle).toHaveBeenCalledWith(car.object_id);
+  stream.setShared(new Set(), new Set());
+  stream.update(30, 30, null, 2000); await settle();
+  expect(physics.spawnVehicle).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.anything(), expect.objectContaining({ id: car.object_id }));
+});

@@ -133,3 +133,28 @@ test('contact transfers an online owner\'s empty vehicle to its hitter before se
   assert.equal(a.messages.filter(m => m.type === 'vehicle_impulse').length, 2);
   assert.equal(b.messages.filter(m => m.type === 'vehicle_impulse').length, 0);
 });
+
+test('missing or malformed nested vehicle poses are rejected without crashing the room', () => {
+  const f = fixture(), a = f.connect();
+  for (const invalid of [undefined, null, [], {}, { ...pose, mode: 'car', vehicle: 'player', rot: {} }]) a.send(car(a, { pose: invalid }));
+  assert.equal(f.room.vehicles.entries.size, 0);
+  assert.equal(f.room.stats.rejected, 5);
+  a.send(car(a));
+  const v = result(a).vehicle;
+  a.send({ ...pose, vehicles: [{ id: v.id, epoch: v.epoch, pose: null }] });
+  assert.equal(f.room.stats.rejected, 6);
+  assert.equal(f.room.connections.size, 1);
+});
+
+test('changed replicas use shallow patches; unchanged wheels and metadata do not repeat', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
+  a.send(car(a));
+  const v = result(a).vehicle;
+  a.messages.length = b.messages.length = 0;
+  a.send({ ...pose, vehicles: [{ id: v.id, epoch: v.epoch, pose: { ...v.pose, t: 2, E: v.pose.E + 1 } }] });
+  f.room.flushPoses();
+  const delta = b.messages.find(m => m.type === 'vehicles');
+  assert.deepEqual(delta.upsert, []);
+  assert.deepEqual(delta.patches[0].pose, { t: 2, E: v.pose.E + 1 });
+  assert.equal(a.messages.some(m => m.type === 'vehicles'), false);
+});

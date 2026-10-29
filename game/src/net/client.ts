@@ -115,7 +115,11 @@ export class MultiplayerClient extends EventTarget {
     if (!this.state.connected) return Promise.resolve(null);
     const request = crypto.randomUUID();
     return new Promise(resolve => {
-      const timer = setTimeout(() => { this.vehicleRequests.delete(request); resolve(null); }, 5000);
+      const timer = setTimeout(() => {
+        this.vehicleRequests.delete(request);
+        this.pendingMessages = this.pendingMessages.filter(m => (m as { request?: string }).request !== request);
+        resolve(null);
+      }, 5000);
       this.vehicleRequests.set(request, { resolve, timer });
       this.queue({ type: 'vehicle', request, ...command });
     });
@@ -144,7 +148,7 @@ export class MultiplayerClient extends EventTarget {
     const delay = Math.max(0, RATE_MS - (performance.now() - this.lastSent));
     this.deliveryTimer = setTimeout(() => {
       this.deliveryTimer = null;
-      if (!this.state.connected) return;
+      if (!this.state.connected || !this.pendingMessages.length) return;
       this.send(this.pendingMessages.shift()!);
       this.lastSent = performance.now();
       this.flushDelivery();
@@ -193,6 +197,10 @@ export class MultiplayerClient extends EventTarget {
         if (msg.vehicle) this.applyVehicles({ upsert: [msg.vehicle as SharedVehicle], remove: [] });
         if (pending) { clearTimeout(pending.timer); this.vehicleRequests.delete(String(msg.request));
           pending.resolve(msg.ok ? msg.vehicle as SharedVehicle : null); }
+        else if (msg.ok && (msg.vehicle as SharedVehicle | null)?.occupant === this.state.you?.id) {
+          // A timed-out acquisition must not leave an empty driver's seat locked.
+          this.queue({ type: 'vehicle', action: 'release', request: crypto.randomUUID(), id: (msg.vehicle as SharedVehicle).id });
+        }
         break;
       }
       case 'vehicle_impulse': this.dispatchEvent(new CustomEvent('vehicleImpulse', { detail: msg })); break;
