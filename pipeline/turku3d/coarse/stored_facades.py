@@ -99,9 +99,14 @@ def wall_meshes(b, walls, wuv, widx, origin, params, *, programs=False):
         match = match_wall(vertices, stored)
         if match is None:
             if program is not None:
+                from turku3d.facade_program_geometry import wall_parts
+
                 style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
-                instructions.append(dict(start=len(program_parts) * 4, count=4, **style))
-                program_parts.append((vertices, wuv[start : start + 4]))
+                for points, uv, instruction in wall_parts(
+                    vertices, program["walls"][start // 4], style
+                ):
+                    instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
+                    program_parts.append((points, uv))
                 continue
             if params.get("plinth"):
                 cap = min(b.base + 0.8, min(vertices[2:, 1]))

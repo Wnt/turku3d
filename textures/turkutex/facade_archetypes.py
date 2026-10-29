@@ -25,6 +25,35 @@ PALETTES = {
 }
 LIGHT_TRIM = ("#deded3", "#e1e3dc", "#dce0df", "#d0cdbb")
 DARK_TRIM = ("#454b49", "#747d79", "#657367")
+# CityGML 1.0 Annex C.1 (OGC 08-007r1); unknown/local codes stay unknown.
+USE = {
+    **{str(c): "office" for c in (1120, 1130, 1140, 1970)},
+    **{str(c): "retail" for c in (1160, 1170, 1180, 1190)},
+    **{str(c): "industrial" for c in (1310, 1320, 1330, 1410)},
+    **{str(c): "warehouse" for c in (1360, 1370, 1630, 1640, 1880)},
+    **{
+        str(c): "civic"
+        for c in (
+            1960,
+            1980,
+            1990,
+            2070,
+            2080,
+            2090,
+            2100,
+            2110,
+            2120,
+            2140,
+            2150,
+            2160,
+            2190,
+            2210,
+            2220,
+            2300,
+            2310,
+        )
+    },
+}
 
 
 def family(
@@ -224,6 +253,7 @@ def archetype(attrs):
     district/frontage only refine supported urban forms, never invent shop POIs.
     """
     use = str(attrs.get("osm_use") or attrs.get("use") or "").lower()
+    use = USE.get(use, use)
     material = attrs.get("material_class")
     year = attrs.get("construction_year") or attrs.get("year")
     levels = attrs.get("levels")
@@ -319,6 +349,15 @@ def recipe(building_id, attrs):
     # Use a separate, visible shop/frontage observation rather than guessing commerce by year.
     if attrs.get("ground_floor") == "shops":
         result["ground"] = "shops"
+    # Register business use supports ground commerce, not an entirely glazed historic block.
+    if str(attrs.get("use")) in ("1050", "1080", "1150", "1240"):
+        result["ground"] = "shops"
+    # Shape/frontage adjust the rhythm inside the archetype's bounded distribution.
+    if attrs.get("frontage_m", 0) > 25 and attrs.get("compactness", 1) < 0.55:
+        result["rhythm"] = "paired" if "paired" in spec["rhythm"] else "regular"
+    if str(attrs.get("district", "")) in ("853006", "853007") and (attrs.get("levels") or 0) > 2:
+        if result["ground"] == "windows":
+            result["ground"] = "doors"
     if attrs.get("wall_colour"):
         # Preserve the established named-OSM paint interpretation, including yellow/ochre.
         from .facade_fast_render import register_description
@@ -335,6 +374,8 @@ def sample(building_id, attrs, geometry):
     """Make a program on real wall dimensions. Missing register storeys stay null."""
     r = recipe(building_id, attrs)
     floors = attrs.get("levels")
+    if attrs.get("levels_source") == "osm":
+        floors = None
     floors = int(floors) if isinstance(floors, (int, float)) and floors > 0 else None
     v = lambda x: value(x, "rule sample")  # noqa: E731
     walls = []

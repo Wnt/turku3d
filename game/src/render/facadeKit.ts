@@ -36,7 +36,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const orm = texture(original.roughnessMap, coord).grad(dx, dy);
   const wallColour = (p.version ?? 1) >= 2 ? attribute('_kit_wall', 'vec3') : color(p.wall!);
   const trim = (p.version ?? 1) >= 2 ? attribute('_kit_trim', 'vec3') : color(p.trim!);
-  const paint = program ? programPigment(metres, bays, upper, layout, vec3(wallColour), vec3(trim), program) : null;
+  const paint = program ? programPigment(metres, bays, upper, layout, wallColour.rgb, trim.rgb, program) : null;
   const wall = paint?.pigment ?? wallColour;
   const tint = (p.version ?? 1) >= 3
     ? vec3(1).add(wall.sub(1).mul(float(1).sub(sample.a.mul(2)).clamp(0, 1))).add(trim.sub(1).mul(sample.a.mul(2).sub(1).clamp(0, 1)))

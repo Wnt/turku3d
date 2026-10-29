@@ -23,6 +23,7 @@ from turku3d.facade_kit import MATERIALS, read_description, renderer
 def source_paths():
     return [
         Path(__file__),
+        Path(__file__).with_name("facade_program_geometry.py"),
         C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
         C.REPO_ROOT / "textures/turkutex/facade_program.py",
     ]
@@ -86,10 +87,13 @@ def matching_wall(vertices, program):
         g = wall.get("geometry", {})
         points = g.get("coordinates") or ([g["p0"], g["p1"]] if "p0" in g and "p1" in g else None)
         if points is not None:
+            normal = g.get("normal")
+            if normal is not None and len(normal) == 2:
+                normal = [normal[0], 0, -normal[1]]  # measured EN outward -> engine xyz
             facades.append(
                 dict(
                     coordinates=points,
-                    normal=g.get("normal"),
+                    normal=normal,
                     base_height=g.get("base_h", vertices[0, 1]),
                     metadata={},
                     wall=wall,
@@ -179,6 +183,7 @@ def resolve(building, vertices, eaves):
     )
     for wall in program["walls"]:
         wall["wall"]["colour"].update(value=fallback["wall_colour"], source="register palette")
+        wall["base"]["colour"] = dict(wall["wall"]["colour"])
     from turku3d.facade_assets import description_row
 
     d = read_description(building.facade_key)
@@ -191,6 +196,8 @@ def resolve(building, vertices, eaves):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         if own:
             # Geometry dimensions and register storeys belong to this actual generated shell.
+            colour = copy.deepcopy(wall["wall"]["colour"])
+            base_colour = copy.deepcopy(wall["base"]["colour"])
             overlay(
                 wall,
                 {
@@ -201,6 +208,12 @@ def resolve(building, vertices, eaves):
             )
             wall["observation"] = copy.deepcopy(own["observation"])
             wall["measured_wall_id"] = own["wall_id"]
+            wall["measured_geometry"] = copy.deepcopy(own.get("geometry", {}))
+            wall["measured_size"] = [own["width_m"], own["height_m"]]
+            # Uncalibrated photographed RGB includes light/shadow; do not call it pigment.
+            if "calibrated albedo" != own.get("observation", {}).get("colour_space"):
+                wall["wall"]["colour"] = colour
+                wall["base"]["colour"] = base_colour
     return program
 
 
@@ -257,6 +270,7 @@ def compile_wall(wall, floors):
             0.1 if wall["bays"].get("rhythm") == "paired" else 0,
             int(bool(field(wall, "balconies", []))),
             int(ground_kind == "plain"),
+            0,
         ],
         program_hash=hashlib.sha256(json.dumps(wall, sort_keys=True).encode()).hexdigest()[:16],
     )

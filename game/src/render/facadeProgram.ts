@@ -10,7 +10,7 @@ function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'f
 
 export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: Node<'vec3'>, upper: Node<'float'>, selected: Node<'float'>) {
   const opening = attribute('_kit_opening', 'vec4');
-  const detail = attribute('_kit_detail', 'vec3');
+  const detail = attribute('_kit_detail', 'vec4');
   const size = attribute('_kit_size', 'vec2');
   const blank = layout.x.div(6).floor().add(42);
   const above = metres.y.greaterThanEqual(size.y);
@@ -27,7 +27,11 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const vertical = warp(y, opening.z, opening.z.add(opening.y), sourceSill, sourceSill.add(sourceHeight));
   // Doors and shopfronts keep their own complete atlas module at ground level.
   const special = upper.lessThan(1).and(module.mod(3).notEqual(0)).and(module.lessThan(42));
-  const local = special.or(module.greaterThanEqual(42)).select(vec2(fract(bays.x), y), vec2(horizontal, vertical));
+  const ordinary = special.or(module.greaterThanEqual(42)).select(vec2(fract(bays.x), y), vec2(horizontal, vertical));
+  const patchY = metres.y.div(size.y).clamp(0, 1);
+  const patch = detail.w.equal(2).select(vec2(x.sub(.5).mul(.49).add(.5), patchY.mul(.76)),
+    vec2(x.sub(.5).mul(.45).add(.5), patchY.mul(.5).add(.21)));
+  const local = detail.w.greaterThan(0).select(patch, ordinary);
   return { module, local, opening, detail, size, x, y };
 }
 

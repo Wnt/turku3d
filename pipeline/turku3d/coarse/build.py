@@ -647,6 +647,7 @@ def build(
             base / "facade_kit.py",
             *palette_sources(),
             base / "facade_programs.py",
+            base / "facade_program_geometry.py",
             C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
             C.REPO_ROOT / "textures/turkutex/facade_program.py",
             jpeg,
