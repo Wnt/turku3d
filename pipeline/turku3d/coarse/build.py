@@ -331,7 +331,7 @@ def build(
         "kerbs",
         source_key(
             Path(kerbs.__file__),
-            Path(surfaces.__file__),
+            surfaces.grid_height,
             Path(__file__).with_name("inputs.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",

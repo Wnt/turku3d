@@ -51,8 +51,11 @@ class IdlePrebuild:
         self.presence_known = False  # Fail closed until multiplayer health is known.
         self.recent_path = builder.root / ".warm-recent.json"
         try:
-            self.recent = json.loads(self.recent_path.read_text())
-        except (OSError, ValueError):
+            rows = json.loads(self.recent_path.read_text())
+            self.recent = {t: at for t, at in rows.items()
+                           if isinstance(at, (int, float)) and math.isfinite(at)
+                           and t.startswith("t0_")}
+        except (OSError, ValueError, AttributeError):
             self.recent = {}
         # Bootstrap the first deployment of this scheduler from recent real builds.
         for manifest in builder.root.glob('t0_*_*/manifest.json'):
