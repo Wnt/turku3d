@@ -1,14 +1,25 @@
 // Deployed cold/warm startup evidence. Run under host_slots.py browser; no local server or synthetic tiles.
 import fs from 'node:fs';
+import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
 import { isolateBrowser, reportsRoot } from '../../tools/dev/environment.mjs';
 
 isolateBrowser();
-const [label = 'current', url = 'https://wnt.github.io/turku-game/game/'] = process.argv.slice(2);
+const [label = 'current', url = 'https://wnt.github.io/turku-game/game/', requirement = 'bundled'] = process.argv.slice(2);
 const out = path.join(reportsRoot, 'initial-load', label);
 fs.mkdirSync(out, { recursive: true });
+// Pages upload completion precedes CDN publication. Wait outside Chrome, inside the async wall budget.
+if (requirement === 'bundled') {
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    const html = await fetch(`${url}?startup-publication=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(5000) }).then(r => r.text());
+    if (html.includes('rel="modulepreload"') && html.includes('City loading progress')) break;
+    if (Date.now() >= deadline) throw new Error('Pages still serves the previous startup implementation');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+}
 const context = await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR, `initial-load-${label}`), {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
   viewport: { width: 2560, height: 1440 }, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
@@ -60,11 +71,16 @@ try {
     });
     await cdp.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing,disabled-by-default-devtools.timeline,gpu', transferMode: 'ReturnAsStream' });
     let failure = null;
+    const navigated = Date.now();
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForFunction(() => window.__initialLoad.ready !== null || window.__qaError, null, { timeout: 190000 });
       const qaError = await page.evaluate(() => window.__qaError);
       if (qaError) throw new Error(qaError);
+      if (requirement === 'bundled') {
+        assert.equal(await page.locator('.loading-active').textContent(), 'Ready · choose Multiplayer to enter the city');
+        assert.ok(await page.locator('link[rel="modulepreload"]').count(), 'new Pages startup entry');
+      }
       await page.screenshot({ path: path.join(out, `${cache}-ready.png`) });
       await page.evaluate(() => { window.__initialLoad.click = performance.now(); });
       await page.locator('[data-option="multiplayer"]').click({ timeout: 5000 });
@@ -73,6 +89,7 @@ try {
     } catch (e) { failure = String(e); }
     const result = await page.evaluate(() => ({ ...window.__initialLoad,
       paints: performance.getEntriesByType('paint').map(e => e.toJSON()),
+      perf: window.__perf, timeOrigin: performance.timeOrigin,
       resources: performance.getEntriesByType('resource').map(e => e.toJSON()),
       load: window.__game?.loadProgress?.(), state: window.__game?.state?.(), error: window.__qaError,
     })).catch(() => ({}));
@@ -87,11 +104,20 @@ try {
     const percentile = q => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
     result.summary = { label, cache, readyMs: result.ready, firstFrameMs: result.firstFrame,
       paintMs: result.paints?.find(e => e.name === 'first-contentful-paint')?.startTime,
+      isolationReloadMs: result.timeOrigin - navigated,
+      clickToFrameMs: result.firstFrame - result.click,
       frames: { count: sorted.length, p50: percentile(.5), p95: percentile(.95), p99: percentile(.99), max: sorted.at(-1), over50: sorted.filter(n => n > 50).length },
       requests: requests.size, bytes: [...requests.values()].reduce((n, r) => n + (r.bytes ?? 0), 0), failure, errors };
     fs.writeFileSync(path.join(out, `${cache}.json`), JSON.stringify({ ...result, requests: [...requests.values()] }, null, 2));
     console.log(JSON.stringify(result.summary));
     await page.close();
     if (failure) throw new Error(failure);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(result.state.errors, []);
+    assert.ok(sorted.length > 100, 'ten seconds of real game frames');
+    if (requirement === 'bundled') {
+      assert.ok([...requests.values()].some(r => /bundle\.[0-9a-f]{64}\.col/.test(r.url)), 'deployed OCI collision bundles used');
+      assert.equal(result.bounds.filter(b => b.at < result.ready).length, 1, 'loading panel never shifts before Ready');
+    }
   }
 } finally { clearTimeout(hardStop); await context.close(); }

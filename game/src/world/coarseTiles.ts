@@ -1,6 +1,7 @@
 // Draft service is the only world source. Each visible tile owns all sixteen collision cells.
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
+import { splitCollisionBundle, type CollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
 import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, startupDraftTiles, wantedTiles } from './coarseRegion';
@@ -39,6 +40,7 @@ interface Outage { nextProbe: number; probing: boolean }
 
 interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
+  collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
@@ -65,6 +67,8 @@ export interface CoarseHost {
   refreshCollision: (ids: string[]) => void;
   /** Decodes a draft .col in the physics worker (PhysicsClient.checkTile); rejects when the worker cannot use it. */
   checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
+  /** Retain validated bytes for the distance streamer; no second HTTP fetch to build colliders. */
+  retainCollision?: (id: string, entry: ManifestEntry, buffer: ArrayBuffer) => void;
   /** After material styling and draft tint: register derived runtime geometry here. */
   styled?: (model: THREE.Object3D) => void | Promise<void>;
   trackModel?: (model: THREE.Object3D, id: string) => void;
@@ -296,7 +300,9 @@ export class CoarseTiles {
   /** A /coarse/* request; ServiceDown when the service did not answer. */
   private async request(url: string): Promise<Response> {
     let res: Response;
-    try { res = await this.fetch(new URL(url, this.page).href, { cache: 'no-cache', signal: AbortSignal.timeout(30_000) }); }
+    const href = new URL(url, this.page).href;
+    const immutable = /\.[0-9a-f]{64}\.(?:col|glb|json)(?:$|\?)/.test(href);
+    try { res = await this.fetch(href, { cache: immutable ? 'default' : 'no-cache', signal: AbortSignal.timeout(30_000) }); }
     catch { throw new ServiceDown(); }
     if (gatewayDown(res.status)) throw new ServiceDown();
     return res;
@@ -378,32 +384,52 @@ export class CoarseTiles {
     if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
     const base = new URL(`${this.root}${id}/`, this.page);
     const changed = Object.entries(fragment.collision).filter(([cid, entry]) => !e.collision.has(cid) || entry.sha256 !== e.collision.get(cid)?.sha256);
-    await Promise.all(changed.map(async ([cid, entry]) => {
-      const col = await this.request(new URL(entry.url, base).href);
-      if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
-      const buf = await col.arrayBuffer();
-      if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
-      await this.host.checkCollision(buf).catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
-    }));
-    if (this.entries.get(id) !== e || e.state !== state) return;
-    const roads = fragment.roads ? await this.request(new URL(fragment.roads.url, base).href)
-      .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : null;
-    if (this.entries.get(id) !== e || e.state !== state) return;
+    const buffers = new Map<string, ArrayBuffer>();
+    const validate = async () => {
+      let bundled: Map<string, ArrayBuffer> | undefined;
+      if (changed.length && fragment.collision_bundle) {
+        const response = await this.request(new URL(fragment.collision_bundle.url, base).href);
+        if (!response.ok) throw new DraftRejected(`collision bundle: HTTP ${response.status}`);
+        bundled = await splitCollisionBundle(await response.arrayBuffer(), fragment.collision_bundle, fragment.collision);
+      }
+      await Promise.all(changed.map(async ([cid, entry]) => {
+        let buf = bundled?.get(cid);
+        if (!buf) {
+          const col = await this.request(new URL(entry.url, base).href);
+          if (!col.ok) throw new DraftRejected(`collision ${cid}: HTTP ${col.status}`);
+          buf = await col.arrayBuffer();
+        }
+        if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
+        await this.host.checkCollision(this.host.retainCollision ? buf.slice(0) : buf)
+          .catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
+        if (this.host.retainCollision) buffers.set(cid, buf);
+      }));
+    };
+    // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
+    const [validation, geometry, streets] = await Promise.allSettled([
+      validate(), visualChanged ? this.load(new URL(fragment.visual[id].url, base).href) : Promise.resolve(null),
+      fragment.roads ? this.request(new URL(fragment.roads.url, base).href)
+        .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : Promise.resolve(null),
+    ]);
+    const model = geometry.status === 'fulfilled' ? geometry.value : null;
+    const failure = [validation, geometry, streets].find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') { if (model) this.dispose(model); throw failure.reason; }
+    if (this.entries.get(id) !== e || e.state !== state) { if (model) this.dispose(model); return; }
+    const roads = streets.status === 'fulfilled' ? streets.value : null;
     if (!visualChanged) {
-      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
+      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
       return;
     }
-    const model = await this.load(new URL(fragment.visual[id].url, base).href);
-    if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
+    if (!model) throw new DraftRejected(`${id}: missing visual model`);
     if (!await this.prepareModel(id, e, model)) return;
     // Detach before attaching: scene hooks must never observe both passes.
     const old = e.model;
     old?.removeFromParent();
     this.host.scene.add(model);
     e.model = model; e.visualHash = fragment.visual[id].sha256;
-    this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
+    this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     e.state = 'draft';
     this.takeVehicles(e, fragment, base);
     if (old) { this.host.untrackModel?.(old, id); this.host.unstyle?.(old); old.removeFromParent(); this.dispose(old); }
@@ -469,13 +495,15 @@ export class CoarseTiles {
   }
 
   /** Publish the tile's validated collision and refresh loaded cells in place. */
-  private take(e: Entry, entries: [string, ManifestEntry][]) {
+  private take(e: Entry, entries: [string, ManifestEntry][], buffers = new Map<string, ArrayBuffer>()) {
     const swapped: string[] = [];
     for (const [cid, entry] of entries) {
       const current = this.host.manifest.collision[cid];
       if (current) swapped.push(cid);
       this.host.manifest.collision[cid] = entry;
       e.collision.set(cid, entry);
+      const buffer = buffers.get(cid);
+      if (buffer) this.host.retainCollision?.(cid, entry, buffer);
     }
     if (swapped.length) this.host.refreshCollision(swapped);
   }

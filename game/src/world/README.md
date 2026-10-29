@@ -54,3 +54,19 @@ python3 scripts/dev/host_slots.py browser -- node game/scripts/probe-draft-start
 
 The probe checks Ready, no static tile requests, no runtime errors, player support
 and drivable support under the own car, and retains a local screenshot and JSON.
+
+OCI serving advertises optional `collision_bundle: {format: "sorted-col-v1", url,
+sha256, bytes}` on each fragment. It is a content-addressed concatenation of that
+fragment's sixteen unchanged `.col` files in lexicographic cell-id order. The
+client checks the bundle hash/length, splits using each manifest byte length, and
+validates every cell in the physics worker before exposing the visual. GLB decode
+and road fetch overlap this validation. The streamer transfers retained validated
+bytes to Rapier without a second HTTP request; consumed bytes are dropped and
+unconsumed bytes are bounded by current visual residency. Older/local servers
+without bundle metadata still use the same per-cell validation path.
+
+Public hashed payloads and shared hashed assets are cached immutable for one year;
+mutable manifests still revalidate. Caddy negotiates zstd/gzip for JSON, collision
+and GLB responses. `Timing-Allow-Origin` exposes real OCI resource timings to the
+Pages profiler. HTML preconnects to OCI and modulepreloads the large game entry
+while the small bootstrap installs cross-origin isolation.

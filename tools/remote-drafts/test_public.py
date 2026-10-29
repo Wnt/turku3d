@@ -2,6 +2,7 @@
 
 import importlib.util
 import io
+import hashlib
 import json
 import tempfile
 import threading
@@ -110,6 +111,8 @@ class PublicTest(unittest.TestCase):
             asset_status, asset_headers, asset_body = call("/coarse/shared/" + "a" * 64 + ".glb")
             self.assertEqual((asset_status, asset_body), (200, b"glTF-fixture"))
             self.assertEqual(asset_headers["Content-Type"], "model/gltf-binary")
+            self.assertEqual(asset_headers["Cache-Control"], public.IMMUTABLE_CACHE)
+            self.assertEqual(asset_headers["Timing-Allow-Origin"], "https://wnt.github.io")
             self.assertEqual(requests, ["t0_0_0"])
             status, _, body = call(
                 "/coarse/t0_0_0/manifest.json", headers={"If-None-Match": headers["ETag"]}
@@ -123,6 +126,32 @@ class PublicTest(unittest.TestCase):
             self.assertEqual(status, 403)
             self.assertNotIn("Access-Control-Allow-Origin", headers)
             self.assertEqual(call("/coarse/health", "OPTIONS")[0], 204)
+
+    def test_collision_bundle_is_content_addressed_and_reuses_unchanged_cells(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "t0_0_0/col").mkdir(parents=True)
+            cells = {}
+            for i in range(16):
+                body = bytes([i]) * (i + 1)
+                digest = hashlib.sha256(body).hexdigest()
+                name = f"col/c_{i}_0.{digest}.col"
+                (root / "t0_0_0" / name).write_bytes(body)
+                cells[f"c_{i}_0"] = {"url": name, "bytes": len(body), "sha256": digest}
+            fragment = {"tile": "t0_0_0", "visual": {"t0_0_0": {}}, "collision": cells}
+            bundles = public.CollisionBundles(root)
+            entry = bundles.describe(fragment)
+            path = root / "t0_0_0" / entry["url"]
+            body = path.read_bytes()
+            self.assertEqual(hashlib.sha256(body).hexdigest(), entry["sha256"])
+            self.assertEqual(body, b"".join((root / "t0_0_0" / cells[c]["url"]).read_bytes() for c in sorted(cells)))
+            self.assertEqual(entry["bytes"], sum(e["bytes"] for e in cells.values()))
+            self.assertIs(bundles.describe(fragment), entry)
+            self.assertEqual(public.public_route(f"/coarse/t0_0_0/{entry['url']}", [-2,-2,2,2]), ("asset", "t0_0_0"))
+            # A corrupt source never earns a content-addressed bundle.
+            (root / "t0_0_0" / cells["c_0_0"]["url"]).write_bytes(b"bad")
+            with self.assertRaises(ValueError):
+                public.CollisionBundles(root).describe(fragment)
 
     def test_want_list_is_bounded_and_old_polls_cannot_resurrect_departed_tiles(self):
         from turku3d.coarse.service import Builder

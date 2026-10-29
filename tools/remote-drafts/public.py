@@ -7,6 +7,8 @@ import json
 import os
 import re
 import signal
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -25,6 +27,50 @@ from turku3d.coarse.service import (
     immutable_payload,
 )
 from turku3d.coarse.sources import Sources, Unit
+
+
+# Serving derivative only: no generator invocation or format changes to individual .col cells.
+BUNDLE = re.compile(r"^bundle\.[0-9a-f]{64}\.col$")
+IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
+
+
+class CollisionBundles:
+    """Concatenate immutable cells in sorted-id order once, retaining a bounded descriptor cache."""
+    def __init__(self, root):
+        self.root = root
+        self.lock = threading.Lock()
+        self.entries = OrderedDict()
+
+    def describe(self, fragment):
+        cells = fragment.get("collision", {})
+        if len(cells) != 16 or not fragment.get("visual"):
+            return None
+        rows = sorted(cells.items())
+        if any(not re.fullmatch(r"col/c_-?\d+_-?\d+\.[0-9a-f]{64}\.col", e.get("url", "")) for _, e in rows):
+            return None
+        tile = fragment["tile"]
+        key = (tile, tuple((cid, e["url"], e["sha256"], e["bytes"]) for cid, e in rows))
+        with self.lock:
+            if key in self.entries:
+                self.entries.move_to_end(key)
+                return self.entries[key]
+            bodies = [(self.root / tile / e["url"]).read_bytes() for _, e in rows]
+            for body, (_, entry) in zip(bodies, rows):
+                if len(body) != entry["bytes"] or hashlib.sha256(body).hexdigest() != entry["sha256"]:
+                    raise ValueError("collision bundle source mismatch")
+            body = b"".join(bodies)
+            digest = hashlib.sha256(body).hexdigest()
+            name = f"bundle.{digest}.col"
+            target = self.root / tile / name
+            if not target.exists():
+                temporary = target.with_suffix(f".tmp-{os.getpid()}-{threading.get_ident()}")
+                temporary.write_bytes(body)
+                temporary.replace(target)
+            descriptor = {"url": name, "sha256": digest, "bytes": len(body), "format": "sorted-col-v1"}
+            self.entries[key] = descriptor
+            while len(self.entries) > 128:
+                self.entries.popitem(last=False)
+            return descriptor
 
 
 def allowed_origin(origin: str | None) -> bool:
@@ -48,7 +94,7 @@ def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
     tile, name = parts
     if tile == "shared" and SHARED.fullmatch(name):
         return "asset", None
-    if not TILE.fullmatch(tile) or not FILE.fullmatch(name):
+    if not TILE.fullmatch(tile) or not (FILE.fullmatch(name) or BUNDLE.fullmatch(name)):
         return "invalid", None
     _, i, j = tile.split("_")
     if not (bounds[0] <= int(i) <= bounds[2] and bounds[1] <= int(j) <= bounds[3]):
@@ -59,6 +105,7 @@ def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
 def public_handler(builder, prefetcher, settings):
     base = handler(builder, prefetcher)
     instance = os.urandom(8).hex()
+    bundles = CollisionBundles(builder.root)
 
     class PublicHandler(base):
         server_version = "TurkuDrafts"
@@ -76,6 +123,8 @@ def public_handler(builder, prefetcher, settings):
             self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Vary", "Origin")
+            if origin and allowed_origin(origin):
+                self.send_header("Timing-Allow-Origin", origin)
             if origin and allowed_origin(origin):
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
@@ -98,6 +147,14 @@ def public_handler(builder, prefetcher, settings):
                 value = {"state": "failed", "error": "draft unavailable"}
             elif "error" in value:
                 value = {"error": "not available"}
+            if status == 200 and value.get("coarse") and value.get("collision"):
+                try:
+                    bundle = bundles.describe(value)
+                    if bundle:
+                        value = {**value, "collision_bundle": bundle}
+                except (OSError, ValueError, KeyError):
+                    # Preserve normal per-cell validation if a producer is repairing a missing payload.
+                    pass
             return super()._json(status, value)
 
         def do_POST(self):
@@ -213,13 +270,15 @@ def public_handler(builder, prefetcher, settings):
                         ),
                     },
                 )
-            if tile is not None and tile not in builder.servable and not immutable_payload(name):
+            if tile is not None and tile not in builder.servable and not (immutable_payload(name) or BUNDLE.fullmatch(name)):
                 return self._json(404, {"error": "unbuilt"})
             path = builder.root / (tile or "shared") / name
             if not path.is_file():
                 return self._json(404, {"error": "missing"})
             return self._send(
-                200, path.read_bytes(), MIME[path.suffix], "public, max-age=0, must-revalidate"
+                200, path.read_bytes(), MIME[path.suffix],
+                IMMUTABLE_CACHE if immutable_payload(name) or BUNDLE.fullmatch(name) or (tile is None and SHARED.fullmatch(name))
+                else "public, max-age=0, must-revalidate"
             )
 
     return PublicHandler

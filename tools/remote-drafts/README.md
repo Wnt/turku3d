@@ -277,3 +277,17 @@ To request the same online sweep explicitly after deployment:
 ssh oci-drafts '~/turku3d-drafts/run.sh python -m turku3d.coarse.retention --root /srv/turku3d/work/coarse'
 ssh oci-drafts 'df -h /srv/turku3d'
 ```
+
+## Immutable delivery and collision bundles
+
+The public boundary caches content-addressed GLB, JSON, collision and shared
+assets for one year (`immutable`); mutable fragments and health remain revalidated.
+Each complete fragment advertises a `sorted-col-v1` collision bundle assembled
+from its immutable cells by the serving layer, without invoking the generator.
+Sixteen files are concatenated by lexicographic cell id and addressed by the
+SHA-256 of their bytes. The descriptor cache is bounded to 128 tile versions;
+bundle files follow the same lifetime as other immutable tile payloads. The game
+still checks every cell in the physics worker. Caddy enables negotiated zstd/gzip
+for JSON, collision and GLB, following [its encode directive](https://caddyserver.com/docs/caddyfile/directives/encode).
+The public TLS/tunnel connection already negotiates HTTP/2; the loopback upstream
+is HTTP/1.1 and does not need public HTTP/2 server push or a protocol change.

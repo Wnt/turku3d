@@ -157,6 +157,7 @@ async function draftWorld() {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
+    retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); await prepareGraphics(m); } });

@@ -87,8 +87,11 @@ test('streams only drafts, validates all collision before visibility and unloads
     loadModel: async (url) => {
       loadedUrls.push(url);
       const tile = /coarse\/(t0_-?\d+_-?\d+)\//.exec(url)?.[1];
-      if (tile && cellsOf(tile).some(cid => !checked.has(`/coarse/${tile}/col/${cid}.col`))) shownBeforeCheck.push(tile);
-      const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())); return g; },
+      // Fetch/decode may overlap validation, but attachment to the scene must not.
+      const added = () => { if (tile && cellsOf(tile).some(cid => !checked.has(`/coarse/${tile}/col/${cid}.col`))) shownBeforeCheck.push(tile); };
+      const g = new THREE.Group(); g.addEventListener('added', added);
+      g.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial())); return g;
+      },
   };
   expect(await CoarseTiles.start({ ...host, pageUrl: 'https://example.com/' })).toBeNull();
   const offline = (async () => ({ ok: true, status: 200, json: async () => ({ state: 'offline' }) })) as unknown as typeof globalThis.fetch;
@@ -109,14 +112,14 @@ test('streams only drafts, validates all collision before visibility and unloads
   expect(manifest.vehicles?.map(v => v.object_id)).toContain('draft:slot');
   expect(manifest.vehicle_models?.['sedan/blue'].url).toBe('http://127.0.0.1:5171/coarse/shared/model.glb');
   expect(manifest.collision.c_8_0.url).toBe('http://127.0.0.1:5171/coarse/t0_2_0/col/c_8_0.col');
-  // Collision before visibility: each drawn draft had all 16 .col files accepted before its GLB was even loaded;
+  // Collision before visibility: each drawn draft had all 16 .col files accepted before its GLB was attached;
   // a draft with a missing cell or an undecodable .col is never drawn and its cells stay out of the manifest.
   expect(shownBeforeCheck).toEqual([]);
   expect(coarse.entries.get('t0_1_-1')).toMatchObject({ state: 'failed', error: 'no collision for 1 of 16 cells (c_4_-4)' });
   expect(coarse.entries.get('t0_2_-1')).toMatchObject({ state: 'failed', error: 'collision c_8_-4: CRC mismatch' });
   for (const id of ['t0_1_-1', 't0_2_-1']) {
     expect(coarse.entries.get(id)!.model).toBeUndefined();
-    expect(loadedUrls).not.toContain(`http://127.0.0.1:5171/coarse/${id}/vis.glb`);
+    expect(scene.children.some(model => model === coarse.entries.get(id)!.model)).toBe(false);
     expect(cellsOf(id).filter(cid => manifest.collision[cid])).toEqual([]);
   }
   coarse.update(600, 100, 4100); await settle(); // the badge follows at the next 1 s check
@@ -327,9 +330,10 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
     checkCollision: async () => { checks++; },
     loadModel: async url => {
       expect(url).toMatch(/^https:\/\/turku.lab.madekivi.fi\/coarse\//);
-      expect(checks).toBeGreaterThanOrEqual(16);
       loads++;
-      return new THREE.Group();
+      const model = new THREE.Group();
+      model.addEventListener('added', () => expect(checks).toBeGreaterThanOrEqual(16));
+      return model;
     },
     fetch: (async (url: string) => {
       requests.push(url);
@@ -515,4 +519,41 @@ test('Pages sends replaceable anonymous tile demand with priority and no raw mot
   expect(wants[1].searchParams.get('urgent')?.split(',')[0]).toBe('t0_2_0');
   expect([...wants[1].searchParams.keys()].sort()).toEqual(['client', 'tiles', 'urgent', 'visible']);
   expect(urls.filter(u => u.pathname.endsWith('/manifest.json')).every(u => u.searchParams.has('client'))).toBe(true);
+});
+
+test('one bundle feeds worker validation and collider reuse while model decoding overlaps safely', async () => {
+  const manifest = { collision: {}, baseUrl: 'http://localhost/' } as unknown as Manifest;
+  const scene = new THREE.Scene();
+  const bytes = Uint8Array.from({ length: 64 }, (_, i) => i).buffer;
+  const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const bundleUrl = `bundle.${sha}.col`;
+  const fragment = { coarse: true, tile: 't0_0_0', visual: { t0_0_0: { url: 'vis.glb', sha256: 'visual' } },
+    collision: Object.fromEntries(cellsOf('t0_0_0').map(id => [id, { url: `col/${id}.col`, sha256: id, bytes: 4 }])),
+    collision_bundle: { url: bundleUrl, bytes: 64, sha256: sha, format: 'sorted-col-v1' } };
+  const fetched: string[] = [], retained: ArrayBuffer[] = [];
+  let decoded = false, checks = 0, release!: () => void;
+  const validation = new Promise<void>(resolve => { release = resolve; });
+  const coarse = new CoarseTiles({ scene, manifest, pageUrl: 'http://localhost/',
+    renderer: { library: { fromMaterial: () => new THREE.MeshStandardNodeMaterial() } } as unknown as THREE.WebGPURenderer,
+    unloadCollision: () => {}, refreshCollision: () => {},
+    fetch: (async url => {
+      fetched.push(String(url));
+      return { ok: true, status: 200, json: async () => fragment, arrayBuffer: async () => bytes } as Response;
+    }) as typeof fetch,
+    loadModel: async () => { decoded = true; return new THREE.Group(); },
+    checkCollision: async buffer => { checks++; structuredClone(buffer, { transfer: [buffer] }); await validation; },
+    retainCollision: (_id, _entry, buffer) => retained.push(buffer),
+  });
+  coarse.preload([{ x: 30, z: 30 }], 0);
+  coarse.update(30, 30, 0);
+  await vi.waitFor(() => expect(checks).toBe(16));
+  expect(decoded).toBe(true);
+  expect(scene.children).toHaveLength(0);
+  expect(Object.keys(manifest.collision)).toHaveLength(0);
+  release();
+  await vi.waitFor(() => expect(coarse.entries.get('t0_0_0')?.state).toBe('draft'));
+  expect(scene.children).toHaveLength(1);
+  expect(retained).toHaveLength(16);
+  expect(retained.every(buffer => buffer.byteLength === 4)).toBe(true);
+  expect(fetched.filter(url => url.endsWith('.col'))).toEqual([`http://localhost/coarse/t0_0_0/${bundleUrl}`]);
 });

@@ -169,3 +169,19 @@ test('startup coverage expands into the normal streaming ring without dropping s
   expect(s.progressAt(300, 300).loaded).toBe(s.progressAt(300, 300).total);
   for (const id of startCells) expect(physics.loaded.has(id)).toBe(true);
 });
+
+test('validated bytes transfer to Rapier without refetch, but stale versions cannot be reused', async () => {
+  const { manifest, physics } = fakes(1, 1);
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  const entry = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision.c_0_0;
+  const buffer = new ArrayBuffer(4);
+  s.retain('c_0_0', entry, buffer);
+  s.update(20, 20, true);
+  await new Promise(r => setTimeout(r, 0));
+  expect(fetch).not.toHaveBeenCalled();
+  expect(physics.loadTile).toHaveBeenCalledWith('c_0_0', buffer);
+  s.retain('c_0_0', { ...entry, sha256: 'old' }, new ArrayBuffer(4));
+  s.refresh(['c_0_0']);
+  await new Promise(r => setTimeout(r, 0));
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
