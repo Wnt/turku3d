@@ -18,7 +18,7 @@ export function installFlight(route) {
   for (const method of ['loadTile', 'checkTile']) instrument(g.physics, method, method, args => typeof args[0] === 'string' ? args[0] : args[0]?.byteLength);
   instrument(window.__render.renderer, 'initTexture', 'texture-upload');
   const input = g.input.update.bind(g.input);
-  let tap = 0, lastTap = -Infinity, last = performance.now(), sampleAt = 0, turnAt = 0;
+  let tap = g.state().fly ? 2 : 0, lastTap = -Infinity, last = performance.now(), sampleAt = 0, turnAt = 0;
   const { targets, dx, dz, edge, sign, axis } = route;
   const distance = feet => sign * (feet[axis] - start[axis]);
   const firstEdge = sign * (edge - start[axis]);

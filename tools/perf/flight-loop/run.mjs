@@ -7,6 +7,8 @@ import { chromium } from '../../../game/node_modules/playwright-core/index.mjs';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../dev/chrome-args.mjs';
 import { isolateBrowser, reportsRoot, port } from '../../dev/environment.mjs';
 import { installFlight } from './runtime.mjs';
+import { PLACES } from '../../../game/src/gameplay/content/places.ts';
+import { enToEngine, VISUAL_L0 } from '../../../game/src/core/origin.ts';
 
 isolateBrowser();
 const label = process.argv[2];
@@ -17,8 +19,21 @@ const directions = {
   north: { dx: 0, dz: -1, axis: 2, sign: -1, edge: 0, targets: ['t0_0_-1', 't0_0_-2'], cold: ['t0_-1_-1', 't0_0_-1', 't0_1_-1', 't0_0_-2'] },
   east: { dx: 1, dz: 0, axis: 0, sign: 1, edge: 500, targets: ['t0_2_1', 't0_3_1'], cold: ['t0_2_0', 't0_2_1', 't0_2_2', 't0_3_1'] },
 };
-const direction = process.argv[3] ?? 'south', route = directions[direction];
+const direction = process.argv[3] ?? 'south';
+let route = directions[direction];
 if (!route) throw new Error('Direction must be south, west, north or east');
+const placeId = process.argv[4];
+const place = placeId && PLACES.find(p => p.id === placeId);
+if (placeId && !place) throw new Error(`Unknown starting place: ${placeId}`);
+if (place) {
+  const { x, z } = enToEngine(place.E, place.N);
+  const i = Math.floor(x / VISUAL_L0), j = Math.floor(z / VISUAL_L0);
+  const { dx, dz, axis, sign } = route;
+  const tile = (along, across = 0) => `t0_${i + dx * along + dz * across}_${j + dz * along + dx * across}`;
+  route = { dx, dz, axis, sign, startPlace: place.id, startTile: tile(0),
+    edge: ((axis === 0 ? i : j) + (sign > 0 ? 2 : -1)) * VISUAL_L0,
+    targets: [tile(2), tile(3)], cold: [tile(2, -1), tile(2), tile(2, 1), tile(3)] };
+}
 const output = path.join(reportsRoot, 'flight-loop', label);
 const profile = path.join(process.env.TURKU3D_BROWSER_DIR, label);
 if (fs.existsSync(profile) || fs.existsSync(output)) throw new Error('Use a new label for an empty profile and unambiguous evidence');
@@ -99,6 +114,23 @@ try {
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
   }
   await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 60000 });
+  if (place) {
+    const relocationAt = Date.now();
+    await page.keyboard.press('Escape');
+    await page.locator('[data-option="dev"]').click();
+    await page.locator('[data-option="teleport"]').click();
+    await page.locator(`[data-option="place-${place.id}"]`).click();
+    await page.waitForFunction(({ E, N }) => {
+      const s = window.__game.state();
+      return !s.loading && Math.hypot(s.E - E, s.N - N) < 2;
+    }, place, { timeout: 60000 });
+    await page.waitForFunction(id => {
+      const e = window.__game.coarse.entries.get(id);
+      return !!e?.model && e.collision.size === 16;
+    }, route.startTile, { timeout: 120000 });
+    log('setup.jsonl', { kind: 'relocated', place: place.id, ms: Date.now() - relocationAt,
+      state: await page.evaluate(() => window.__game.state()) });
+  }
   console.log(JSON.stringify({ stage: 'flight', installed: await page.evaluate(installFlight, route) }));
   let shot = 0;
   const dimensions = () => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, resizes: window.__resizes.length,
