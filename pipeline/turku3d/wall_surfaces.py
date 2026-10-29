@@ -63,66 +63,64 @@ def overlaps(faces, ids, *, split=None):
     if not len(faces):
         return []
     points = [np.asarray(p, float) for p in faces]
-    first = np.array([p[0] for p in points])
-    normals = np.cross(np.array([p[1] for p in points]) - first,
-                       np.array([p[-1] for p in points]) - first)
+    # Pad only by repeating the last vertex; polygon coverage is unchanged.
+    width = max(map(len, points))
+    points = np.array([np.pad(p, ((0, width-len(p)), (0, 0)), mode="edge") for p in points])
+    first = points[:, 0]
+    normals = np.cross(points[:, 1] - first, points[:, -1] - first)
     lengths = np.linalg.norm(normals, axis=1)
     normals /= np.maximum(lengths[:, None], 1e-20)
-    low = np.array([p.min(axis=0) for p in points])
-    high = np.array([p.max(axis=0) for p in points])
-    bounds = shapely.box(
-        low[:, 0] - DISTANCE, low[:, 2] - DISTANCE, high[:, 0] + DISTANCE, high[:, 2] + DISTANCE
-    )
-    tree = shapely.STRtree(bounds)
+    low, high = points.min(axis=1), points.max(axis=1)
     result = []
-    for i, p in enumerate(points):
-        if split is not None and i < split:
-            continue
-        # Only pairs with at least one vertical wall matter here (roof seams included).
-        if lengths[i] < 1e-12:
-            continue
-        js = tree.query(bounds[i])
-        if split is not None:
-            js = js[js < split]
-        js = js[(js < i) & (high[js, 1] > low[i, 1]) & (low[js, 1] < high[i, 1])]
-        js = js[
-            (normals[js] @ normals[i] > PARALLEL)
-            & ((abs(normals[js, 1]) < 0.02) | (abs(normals[i, 1]) < 0.02))
-        ]
-        if not len(js):
-            continue
-        direction = np.array([-normals[i, 2], 0, normals[i, 0]])
-        direction /= np.linalg.norm(direction)
-        vertical = np.cross(normals[i], direction)
-        basis = np.array([direction, vertical])
-        projected_p = (p - p[0]) @ basis.T
-        a = shapely.Polygon(projected_p)
-        for j in js:
-            from turku3d.wall_assembly import band_polygon
+    # Include height in the spatial index. An x/z-only tree places every window
+    # row on a frontage in the same bucket, making dense facades quadratic.
+    for axis in (0, 2):
+        selected = np.flatnonzero((np.abs(normals[:, 2]) >= np.abs(normals[:, 0])) == (axis == 0))
+        selected = selected[(lengths[selected] > 1e-12) & (selected >= (split or 0))]
+        boxes = shapely.box(low[:, axis] - DISTANCE, low[:, 1] - DISTANCE,
+                            high[:, axis] + DISTANCE, high[:, 1] + DISTANCE)
+        tree = shapely.STRtree(boxes)
+        for start in range(0, len(selected), 512):
+            rows = selected[start:start+512]
+            local, js = tree.query(boxes[rows])
+            ii = rows[local]
+            keep = (js < ii) & (high[js, 1] > low[ii, 1]) & (low[js, 1] < high[ii, 1])
+            if split is not None:
+                keep &= js < split
+            keep &= np.einsum("ij,ij->i", normals[js], normals[ii]) > PARALLEL
+            keep &= (abs(normals[js, 1]) < 0.02) | (abs(normals[ii, 1]) < 0.02)
+            keep &= ((high[js] + DISTANCE >= low[ii]) & (low[js] - DISTANCE <= high[ii])).all(axis=1)
+            ii, js = ii[keep], js[keep]
+            if not len(ii):
+                continue
+            separation = np.einsum("ijk,ik->ij", points[ii] - first[js, None], normals[js])
+            keep = (separation.min(axis=1) <= DISTANCE) & (separation.max(axis=1) >= -DISTANCE)
+            ii, js = ii[keep], js[keep]
+            if not len(ii):
+                continue
+            direction = np.c_[-normals[ii, 2], np.zeros(len(ii)), normals[ii, 0]]
+            direction /= np.linalg.norm(direction, axis=1)[:, None]
+            basis = np.stack([direction, np.cross(normals[ii], direction)], axis=1)
+            a = np.einsum("ijk,ilk->ijl", points[ii] - first[ii, None], basis)
+            b = np.einsum("ijk,ilk->ijl", points[js] - first[ii, None], basis)
+            keep = ((b.max(axis=1) > a.min(axis=1) + 0.00005)
+                    & (b.min(axis=1) < a.max(axis=1) - 0.00005)).all(axis=1)
+            ii, js, basis, a, b = ii[keep], js[keep], basis[keep], a[keep], b[keep]
+            if not len(ii):
+                continue
+            common = shapely.intersection(shapely.polygons(a), shapely.polygons(b))
+            for k in np.flatnonzero(shapely.area(common) > MIN_AREA):
+                from turku3d.wall_assembly import band_polygon
 
-            q = points[j]
-            separation = (p - q[0]) @ normals[j]
-            if separation.min() > DISTANCE or separation.max() < -DISTANCE:
-                continue
-            projected_q = (q - p[0]) @ basis.T
-            if (np.any(projected_q.max(axis=0) <= projected_p.min(axis=0) + 0.00005)
-                    or np.any(projected_q.min(axis=0) >= projected_p.max(axis=0) - 0.00005)):
-                continue
-            b = shapely.Polygon(projected_q)
-            # Solve the plane-distance band over the actual shared polygon,
-            # including sloping triangles and only partly coincident planes.
-            common = a.intersection(b)
-            if common.area <= MIN_AREA:
-                continue
-            common = common.buffer(-0.00005)
-            common = (
-                band_polygon(common, basis @ normals[j], (p[0] - q[0]) @ normals[j], DISTANCE)
-                if not common.is_empty
-                else common
-            )
-            if common.area > MIN_AREA:
-                result.append(dict(first=ids[j], second=ids[i], area=float(common.area)))
+                i, j = ii[k], js[k]
+                polygon = common[k].buffer(-0.00005)
+                if not polygon.is_empty:
+                    polygon = band_polygon(polygon, basis[k] @ normals[j],
+                                           (first[i] - first[j]) @ normals[j], DISTANCE)
+                if polygon.area > MIN_AREA:
+                    result.append(dict(first=ids[j], second=ids[i], area=float(polygon.area)))
     return result
+
 
 
 def wall_faces(meshes):

@@ -210,3 +210,20 @@ def test_prop_prototypes_are_transformed_before_architectural_assembly(tmp_path)
     assert abs(loaded[0].positions[:, 0].mean() - 130) < 1
     assert abs(loaded[0].positions[:, 2].mean() - 130) < 1
     assert loaded[0].positions[:, 1].min() >= 24
+
+
+@pytest.mark.parametrize("split", [None, 520])
+def test_batched_overlap_index_keeps_both_wall_axes_and_chunk_boundaries(split):
+    faces = []
+    for i in range(520):
+        p = quad(bottom=i * 20, top=i * 20 + 10)
+        if i % 2:
+            p = p[:, [2, 1, 0]]
+        faces.append(p)
+    for i in (0, 519):
+        p = faces[i].copy()
+        p[:, 2 if i == 0 else 0] += .004
+        faces.append(p)
+    result = overlaps(faces, list(range(len(faces))), split=split)
+    assert {(r["first"], r["second"]) for r in result} == {(0, 520), (519, 521)}
+    assert all(99.9 < r["area"] < 100 for r in result)
