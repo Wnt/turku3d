@@ -32,3 +32,20 @@ def test_warp_and_missing_shader_attributes():
                             .25, .75, .1, .9), [0, .1, .5, .9, 1])
     assert sampler(None, {'kit': {'version': 4}, 'kit_maps_complete': True,
                           'attributes': {'_KIT_LAYOUT': 'layout'}}, None) is None
+
+
+def test_synthetic_v4_webgpu_parity():
+    # Synthetic atlas and attributes measured from facadeKitMaterial in WebGPU.
+    y, x = np.indices((2048, 1024))
+    pixels = np.stack(((x * 17 + y * 3) % 256, (x * 7 + y * 11) % 256,
+                       (x * 13 + y * 5) % 256, np.bitwise_xor(x, y) % 256), -1).astype(np.uint8)
+    attrs = {name: np.asarray(value, float) for name, value in {
+        '_KIT_LAYOUT': [[1, 2.3, 3.1]], '_KIT_WALL': [[.2, .4, .6]],
+        '_KIT_TRIM': [[.7, .5, .3]], '_KIT_BASE': [[.32, .28, .21]],
+        '_KIT_EXTENT': [[.13, .07, 4.3, 6.2]], '_KIT_FLOORS': [[3.5, 2.7, 1]],
+        '_KIT_OPENING': [[.52, .46, .24, .13]], '_KIT_BANDS': [[.37, .24, .09, .12]],
+        '_KIT_DETAIL': [[0, 0, 0, 6]],
+    }.items()}
+    cpu = linear(evaluate(np.asarray([[.37, .29]]), attrs, pixels)[0] / 255)
+    gpu = [.24072527885437012, .3674481213092804, .42820513248443604]
+    assert np.allclose(cpu, gpu, atol=3e-4)
