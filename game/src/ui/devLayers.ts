@@ -3,6 +3,7 @@ import { devToolsEnabled } from '../core/localOnly';
 import type { Input } from '../input';
 import type { CoarseTiles } from '../world/coarseTiles';
 import { DevLayerRanges } from './devLayerRanges';
+import { retireAfterFrame } from '../render/retirement';
 
 const KEY = 'turku3d.dev-layers.v1';
 type Data = Record<string, unknown>;
@@ -58,8 +59,7 @@ export class DevLayers {
   private enabled = devToolsEnabled(location);
   private select = document.createElement('select');
 
-  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null,
-    private retire: (release: () => void) => void = release => release()) {
+  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer) {
     if (!this.enabled) return;
     let pass: 'auto' | 'first' | 'full' = 'auto';
     try {
@@ -172,7 +172,9 @@ export class DevLayers {
             mesh.removeEventListener('dispose' as never, disposed);
             const material = this.materials.get(mesh);
             if (material) { mesh.material = material; this.materials.delete(mesh); }
-            ranges.restore(); this.retire(() => ranges.dispose()); this.filtered.delete(mesh);
+            ranges.restore();
+            if (this.renderer) retireAfterFrame(this.renderer, () => ranges.dispose()); else ranges.dispose();
+            this.filtered.delete(mesh);
           };
           mesh.addEventListener('dispose' as never, disposed);
           owned = { ranges, release: disposed }; this.filtered.set(mesh, owned);

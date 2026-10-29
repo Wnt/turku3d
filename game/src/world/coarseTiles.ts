@@ -10,7 +10,8 @@ import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
-import { SharedMaterials, disposeDraw } from '../render/sharedMaterials';
+import { SharedMaterials } from '../render/sharedMaterials';
+import { disposeModelResources } from './disposeModel';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { loadGlb } from './loadGlb';
 import { LoadingKtx } from './loadingKtx';
@@ -584,25 +585,9 @@ export class CoarseTiles {
     if (id) this.host.untrackModel?.(model, id);
     const release = () => {
       this.host.unstyle?.(model);
-      this.disposeResources(model);
+      disposeModelResources(model, this.materials);
     };
     if (this.host.retire) this.host.retire(release); else release();
-  }
-
-  private disposeResources(model: THREE.Object3D) {
-    const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>(), textures = new Set<THREE.Texture>();
-    model.traverse(o => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      disposeDraw(mesh); geometries.add(mesh.geometry);
-      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-        materials.add(m);
-        for (const v of Object.values(m)) if ((v as THREE.Texture)?.isTexture) textures.add(v as THREE.Texture);
-      }
-    });
-    for (const geometry of geometries) geometry.dispose();
-    for (const texture of textures) texture.dispose();
-    this.materials.releaseModel(model, materials);
   }
 
 }
