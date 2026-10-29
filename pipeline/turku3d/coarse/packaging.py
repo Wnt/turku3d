@@ -97,7 +97,12 @@ def current_code():
     """Reuse content hashes between requests; edits still invalidate by file identity."""
     from turku3d import facade_kit
 
-    paths = [*producer_paths(), Path(facade_kit.__file__), Path(facade_kit.renderer().__file__)]
+    paths = [
+        *producer_paths(),
+        Path(facade_kit.__file__),
+        Path(facade_kit.renderer().__file__),
+        *facade_kit.palette_sources(),
+    ]
     return _current_code(tuple((str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths))
 
 

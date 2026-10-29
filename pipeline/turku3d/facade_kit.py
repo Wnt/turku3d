@@ -31,9 +31,16 @@ def renderer():
     return facade_fast_render
 
 
+def palette_sources() -> tuple[Path, Path]:
+    directory = Path(renderer().__file__).parent
+    return directory / "wall_palette.py", directory / "wall_palette.json"
+
+
 def code_hash() -> str:
     h = hashlib.sha256(Path(__file__).read_bytes())
     h.update(Path(renderer().__file__).read_bytes())
+    for path in palette_sources():
+        h.update(path.read_bytes())
     return h.hexdigest()[:16]
 
 

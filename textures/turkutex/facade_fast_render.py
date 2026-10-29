@@ -19,6 +19,7 @@ import numpy as np
 from PIL import Image
 
 from .paths import SCHEMAS_DIR
+from .wall_palette import sample as wall_colour
 
 DESCRIPTION_VERSION = "facade-fast-v1"
 SCHEMA = SCHEMAS_DIR / "facade_fast_description.schema.json"
@@ -119,18 +120,6 @@ def layout(description: dict, width_m: float, height_m: float) -> dict:
     }
 
 
-# Register palettes (sRGB hex): Turku's common cladding colours per material class and era.
-# A wall without a usable photo takes one by a stable hash of its building ID.
-PALETTES = {
-    ("stone", "old"): ["#898278", "#9b9184", "#827d78", "#a59788"],
-    ("wood", "old"): ["#c9a35a", "#8b3a2b", "#d9c48e", "#a9b49a", "#d8cdb4", "#b98a4a"],
-    ("render", "old"): ["#d9c7a3", "#d8bf7a", "#c99a86", "#b9b4aa", "#c2a365", "#cdb9a0"],
-    ("render", "1920-1959"): ["#bdb7ab", "#cbbd9f", "#d3c58e", "#c4b6a2"],
-    ("render", "1960+"): ["#d4d1c9", "#b8b5ae", "#cfc8b8"],
-    ("brick", "any"): ["#8a4f3d", "#7a4a3b", "#9b5a44", "#c4a777"],
-    ("concrete", "any"): ["#c9c6bd", "#b5b2aa", "#a8a49b"],
-    ("metal", "any"): ["#8f969b", "#6d7378"],
-}
 TRIM = {"wood": "#e8e4da", "render": "#e4ddd0", "brick": "#d0ccc4", "concrete": "#8f8d88"}
 MATERIAL_OF_CLASS = {
     "wood": "wood",
@@ -143,12 +132,14 @@ MATERIAL_OF_CLASS = {
 }
 
 
-def stable_index(key: str, n: int) -> int:
-    return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % n
-
-
 def register_description(
-    facade_id: str, building_id: str, attributes: dict, width_m: float, height_m: float
+    facade_id: str,
+    building_id: str,
+    attributes: dict,
+    width_m: float,
+    height_m: float,
+    *,
+    palette_model: dict | None = None,
 ) -> dict:
     """A description from the building register (facade material class, era, storeys): the
     fallback for a wall with no usable reference anywhere in its building. No model call."""
@@ -159,17 +150,13 @@ def register_description(
     cls = attributes.get("material_class") or ("stone" if monumental else "render")
     era = attributes.get("era") or "unknown"
     old = monumental or era in ("pre-1850", "1850-1919")
-    key = (
-        (cls, "any")
-        if cls in ("brick", "concrete", "metal")
-        else (cls, "old")
-        if cls in ("wood", "stone") or old
-        else (cls, era)
-        if (cls, era) in PALETTES
-        else ("render", "1960+")
+    colour = wall_colour(
+        building_id,
+        {**attributes, "material_class": cls}
+        if monumental and not attributes.get("material_class")
+        else attributes,
+        palette_model,
     )
-    palette = PALETTES.get(key, PALETTES[("render", "1960+")])
-    colour = palette[stable_index(building_id, len(palette))]
     # Named paint is a family, not a measured screen primary. Resolve ochre through
     # the same material/era palettes as untagged buildings. Explicit hex has no name.
     if attributes.get("wall_colour_name") == "yellow" and cls in (
@@ -180,13 +167,13 @@ def register_description(
         "brick",
     ):
         colour = (
-            PALETTES[("wood", "old")][2]
+            "#d9c48e"
             if cls == "wood"
-            else PALETTES[("brick", "any")][3]
+            else "#c4a777"
             if cls == "brick"
-            else PALETTES[("render", "old")][1]
+            else "#d8bf7a"
             if old
-            else PALETTES[("render", "1920-1959")][2]
+            else "#d3c58e"
         )
     elif HEX.match(str(attributes.get("wall_colour", ""))):
         colour = attributes["wall_colour"]

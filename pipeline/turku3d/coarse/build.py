@@ -27,7 +27,7 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
-from turku3d.facade_kit import candidates, parameter_hash
+from turku3d.facade_kit import candidates, palette_sources, parameter_hash
 from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
@@ -643,6 +643,7 @@ def build(
             Path(__file__).with_name("stored_facades.py"),
             base / "facade_assets.py",
             base / "facade_kit.py",
+            *palette_sources(),
             jpeg,
             ortho_uv,
             *common,

@@ -443,7 +443,12 @@ from `turku3d.buildings.roof_audit`. No external map imagery is read.
 Cached Kanta/GIS records enrich facade material, construction era and storeys. Spatially matched
 OSM building outlines add cladding, tagged colour and missing layout; shop POIs/building use add
 shopfronts. Register storeys and validated parameter-store descriptions remain authoritative.
-Missing register fields stay unknown. No reference images or sampled reference colours enter inputs.
+Missing register fields stay unknown. No reference images or per-building sampled reference colours enter inputs.
+The wall fallback samples stable register-ID-conditioned Lab distributions from
+`textures/turkutex/wall_palette.json`. Observed era groups use aggregate masked,
+ground-illumination-corrected wall evidence; unsupported material/district groups
+back off to authored material distributions in the same file. Explicit paint and
+stored facade descriptions retain precedence. See `docs/reports/wall-palette-calibration.md`.
 Named OSM yellow remains a paint family and resolves through the existing cladding/era ochre
 palettes; explicit hexadecimal colours keep their values. Non-retail walls retain regular
 register floor spacing; only mapped shops receive the taller ground-floor layout.
