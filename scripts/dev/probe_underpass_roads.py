@@ -13,9 +13,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
     args = parser.parse_args()
-    source = remote(f"readlink -f {HOME}/repo")
-    if source != f"{HOME}/sources/{args.commit}":
-        raise SystemExit(f"Deployed source differs: {source}")
+    source = f"{HOME}/sources/{args.commit}"
+    # Delivery already recorded this source as deployed. A later agent may move
+    # the live symlink while this frozen job waits for its host slot.
+    remote(f"test -f {shlex.quote(source + '/pipeline/turku3d/coarse/road_top.py')}")
+    print(
+        f"Frozen deployed source: {source}; live source: " + remote(f"readlink -f {HOME}/repo"),
+        flush=True,
+    )
     root = f"/srv/turku3d/work/underpass-road-top-{uuid.uuid4().hex[:12]}"
     command = shlex.join(
         [
