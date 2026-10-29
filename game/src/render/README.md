@@ -1,7 +1,7 @@
 # Rendering
 
 The renderer uses three.js **0.186.1**, `three/webgpu`, on both WebGPU and the `forceWebGL` WebGL2 backend.
-Play repeats **2027-10-15 08:45–17:30 Europe/Helsinki** over 30 real minutes with a ten-second skip back to morning.
+Play repeats **2027-07-01 08:45–17:30 Europe/Helsinki** over 30 real minutes with a ten-second skip back to morning.
 `core/dayCycle.ts` derives phase from UTC. During the skip, lighting returns smoothly through daylight; no night is rendered. The HDR solar disc fades out during the middle of the rapid sweep to prevent a bloom flash, while daylight and shadows remain active.
 The clock has no slider. Sun/sky update each frame using existing shadow passes; sky IBL is reused for 30 seconds and throughout the skip.
 QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` pins time and disables the cycle

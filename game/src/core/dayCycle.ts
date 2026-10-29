@@ -1,9 +1,9 @@
-/** UTC wall-clock phase shared by every client. 15 October 2027 is EEST (UTC+3). */
-export const CYCLE_EPOCH = Date.UTC(2027, 9, 15, 5, 45);
+/** UTC wall-clock phase shared by every client. 1 July 2027 is EEST (UTC+3). */
+export const CYCLE_EPOCH = Date.UTC(2027, 6, 1, 5, 45);
 export const DAY_MS = 30 * 60_000;
 export const TRANSITION_MS = 10_000;
 const START = 8 * 60 + 45, END = 17 * 60 + 30;
-const LOCAL_MIDNIGHT = Date.UTC(2027, 9, 14, 21);
+const LOCAL_MIDNIGHT = Date.UTC(2027, 5, 30, 21);
 const dateAt = (minutes: number) => new Date(LOCAL_MIDNIGHT + minutes * 60_000);
 
 /** The clock fast-forwards through night; the sky traverses daylight with a smooth evening-to-morning blend. */
