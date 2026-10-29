@@ -13,8 +13,8 @@ from facade_publish import remote
 
 
 def drivers():
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-    source = f'{HOME}/sources/{commit}'
+    # A client/probe-only correction does not republish generator sources.
+    source = remote(f'readlink -f {HOME}/repo')
     output = f'/srv/turku3d/work/arrival-serve-last-good/ten-{uuid.uuid4().hex[:12]}.json'
     command = ['timeout', '--kill-after=3', '540', f'{source}/tools/remote-drafts/run.sh',
                'python', f'{source}/tools/remote-drafts/ten-drivers.py', '--output', output,
@@ -32,7 +32,10 @@ def main():
                'scripts/dev/probe_tile_arrival.py', '--client-only', '--browser-slot-held',
                '--rounds', '2', '--fast-fly', '--label-prefix', 'after-']
     with ThreadPoolExecutor(max_workers=2) as pool:
-        clients = pool.submit(subprocess.run, command)
+        # One persistent cache/profile makes round two a steady-state replay.
+        # The frozen job owns this browser directory, so no other agent's state is reused.
+        clients = pool.submit(subprocess.run, command,
+                              env={**os.environ, 'ARRIVAL_PROFILE': 'retained-serving'})
         ten = pool.submit(drivers)
         browser_ok = clients.result().returncode == 0
         drivers_ok = ten.result()
