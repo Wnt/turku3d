@@ -237,12 +237,14 @@ def build(
         raise ValueError("coarse tiles are L0 (250 m) tiles")
     started = time.perf_counter()
     producer_code = code_hash()
-    inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
+    cache = StageCache(out.parent / ".stages" / tile.id, retain=True,
+                       report_path=out / "stage-times.json")
+    with cache.measure("inputs"):
+        inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
     seconds.update({"input_" + k: v for k, v in inputs.seconds.items()})
     seconds["inputs_total"] = time.perf_counter() - started
 
-    cache = StageCache(out.parent / ".stages" / tile.id, retain=True)
     base = Path(__file__).parents[1]
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
@@ -290,8 +292,7 @@ def build(
     )
     water = inputs.water
     seconds["ground"] = time.perf_counter() - t
-    seconds["terrain"] = cache.metrics["terrain"]["seconds"]
-    seconds["bridges"] = cache.metrics["bridges"]["seconds"]
+    seconds.update({name: cache.metrics[name]["seconds"] for name in ("terrain", "bridges")})
 
     t = time.perf_counter()
     blds = inputs.buildings
@@ -373,8 +374,8 @@ def build(
         solid,
         kerb_inputs(tile, ground_sources) if inputs.stairs[0] else None,
     )
-    seconds["stairs_geometry"] = cache.metrics["stairs"]["seconds"]
-    seconds["stair_ground"] = cache.metrics["stair_ground"]["seconds"]
+    seconds.update(stairs_geometry=cache.metrics["stairs"]["seconds"],
+                   stair_ground=cache.metrics["stair_ground"]["seconds"])
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
@@ -574,7 +575,6 @@ def build(
         clean_args,
         lambda: ortho_cleanup.clean(*clean_args),
     )
-    seconds["ground_ortho"] = cache.metrics["ground_ortho"]["seconds"]
     from . import ground_colour
 
     ortho_paths = inputs.sources.get("ortho", ())
@@ -588,7 +588,7 @@ def build(
                                     inputs.streets, inputs.surfaces,
                                     [b.footprint for b in blds], inputs.water, mosaic),
     )
-    seconds["ground_colour"] = cache.metrics["ground_colour"]["seconds"]
+    seconds.update({name: cache.metrics[name]["seconds"] for name in ("ground_ortho", "ground_colour")})
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
@@ -685,7 +685,8 @@ def build(
     )
     from turku3d.wall_assembly import assemble_layers
 
-    layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage)
+    with cache.measure("wall_assembly"):
+        layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage)
 
     surface_channels = {
         surfaces.KEYS.index(m.extras["material_key"].removeprefix("draft_"))
@@ -698,9 +699,9 @@ def build(
     surface_library = surfaces.library(out.parent, surface_library, surface_channels)
     seconds["surface_library"] = time.perf_counter() - t_library
     t_package = time.perf_counter()
-    vis, stats = package_visual(
-        tile, layer_files, stage, out.parent, surface_library, first_pass=False
-    )
+    with cache.measure("package"):
+        vis, stats = package_visual(tile, layer_files, stage, out.parent, surface_library,
+                                    first_pass=False)
     seconds["package"] = time.perf_counter() - t_package
     seconds.update({"package_" + k: v for k, v in stats.get("seconds", {}).items()})
     seconds["visual"] = time.perf_counter() - t

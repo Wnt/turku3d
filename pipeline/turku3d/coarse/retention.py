@@ -31,7 +31,7 @@ def references(value):
 
 def current(out):
     refs = set()
-    for name in ("manifest.json", "collision.json"):
+    for name in ("manifest.json", "collision.json", "last-full.json"):
         path = out / name
         if path.exists():
             refs.update(references(json.loads(path.read_text())))
@@ -104,14 +104,34 @@ def prune_tile(out, now=None):
     return deleted
 
 
+def remember_full(out):
+    """Retain the last complete textured generation until its full replacement."""
+    path = out / "manifest.json"
+    if path.exists():
+        manifest = json.loads(path.read_text())
+        if manifest.get("pass_kind") == "full":
+            write_json(out / "last-full.json", manifest)
+
+
 def managed_build(operation):
     @functools.wraps(operation)
     def build(tile_id, out, **kwargs):
         out = Path(out)
         with tile_lock(out):
+            remember_full(out)
             previous = current(out)
             remember(out, time.time(), previous)
-            result = operation(tile_id, out, **kwargs)
+            from turku3d.stage_cache import finish_report
+
+            report = out / "stage-times.json"
+            write_json(report, {})
+            try:
+                result = operation(tile_id, out, **kwargs)
+            except BaseException as error:
+                finish_report(report, "failed", error)
+                raise
+            finish_report(report, "complete")
+            remember_full(out)
             remember(out, time.time(), previous)
             prune_tile(out)
             # These are intermediates, already embedded in the referenced package result.

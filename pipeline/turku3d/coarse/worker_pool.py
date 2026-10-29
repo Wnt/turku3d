@@ -90,9 +90,13 @@ class Workers:
         with self.lock:
             self.jobs.pop(tile, None)
         if not line:
+            returncode = proc.wait()
             self._end(proc)
             self.local.worker = None
-            return subprocess.CompletedProcess([], 1, "", "the build worker exited")
+            reason = (signal.Signals(-returncode).name if returncode < 0
+                      else f"exit status {returncode}")
+            return subprocess.CompletedProcess([], returncode or 1, "",
+                                               f"the build worker exited: {reason} (pid {proc.pid})")
         r = json.loads(line)
         return subprocess.CompletedProcess([], r["code"], r.get("stdout", ""), r.get("stderr", ""))
 
