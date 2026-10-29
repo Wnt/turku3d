@@ -53,6 +53,37 @@ def test_binding_keeps_geometry_and_leaves_unmatched_faces_on_kit(monkeypatch):
     assert meshes[0].extras["facade_index"] == 7
 
 
+def test_tessellated_program_coalesces_only_equal_consecutive_vertex_ranges(monkeypatch):
+    from turku3d import facade_program_geometry as pg
+    from turku3d import facade_programs as fp
+    from turku3d.coarse import stored_facades as sf
+
+    monkeypatch.setattr(sf, "building", lambda key: {})
+    monkeypatch.setattr(fp, "measured", lambda key: {})
+    monkeypatch.setattr(fp, "resolve", lambda *args: dict(walls=[{}], storeys={"value": 4}))
+    monkeypatch.setattr(fp, "compile_wall", lambda *args: {"origin": [0, 0]})
+    styles = [{"module": m, "origin": [0, 3], "size": [10, 12]} for m in (1, 1, 2, 2, 1)]
+    parts = [(wall() + [i * 10, 0, 0], np.ones((4, 2)) * i, style)
+             for i, style in enumerate(styles)]
+    monkeypatch.setattr(pg, "wall_parts", lambda *args: iter(parts))
+    b = SimpleNamespace(key="part", facade_key="stable", base=3, top=15)
+    mesh = wall_meshes(b, wall(), np.zeros(3))[0]
+    rows = mesh.extras["facade_kit_walls"]
+    assert mesh.extras["facade_kit"]["count"] == 4
+    assert [(r["start"], r["count"], r["module"]) for r in rows] == [(0, 8, 1), (8, 8, 2), (16, 4, 1)]
+    expanded = [None] * len(mesh.positions)
+    for row in rows:
+        expanded[row["start"]:row["start"] + row["count"]] = [
+            {k: v for k, v in row.items() if k not in {"start", "count"}}
+        ] * row["count"]
+    assert expanded == [style for style in styles for _ in range(4)]
+    np.testing.assert_array_equal(mesh.positions, np.concatenate([p for p, _, _ in parts]))
+    np.testing.assert_array_equal(mesh.uvs, np.concatenate([uv for _, uv, _ in parts]))
+    np.testing.assert_array_equal(mesh.indices, np.concatenate([
+        np.array([[0, 3, 2], [0, 2, 1]]) + i * 4 for i in range(len(parts))
+    ]))
+
+
 def test_shared_descriptions_override_register_and_invalidate_only_own_tile(tmp_path, monkeypatch):
     monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
     monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))

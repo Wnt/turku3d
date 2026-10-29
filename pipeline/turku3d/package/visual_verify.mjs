@@ -16,7 +16,13 @@ await MeshoptDecoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
   .registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 const [file, expected] = process.argv.slice(2);
+const started = performance.now();
 const doc = await io.read(file);
+const decoded = performance.now();
 const wall = auditVisual(doc);
+const audited = performance.now();
 const error = expected ? compareSnapshots(deserialize(fs.readFileSync(expected)), snapshot(doc)) : null;
-process.stdout.write(JSON.stringify({ wall_surfaces:wall, max_error_m:error }));
+process.stdout.write(JSON.stringify({ wall_surfaces:wall, max_error_m:error, seconds:{
+  decode:(decoded-started)/1000, walls:(audited-decoded)/1000,
+  snapshot:(performance.now()-audited)/1000, total:(performance.now()-started)/1000,
+} }));

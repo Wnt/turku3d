@@ -188,6 +188,7 @@ def wall_meshes(b, walls, origin):
             ring_start = end + 4
     program = resolve(b, walls, eaves)
     instructions, program_parts = [], []
+    previous_instruction = None
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
@@ -219,7 +220,14 @@ def wall_meshes(b, walls, origin):
                         continue
                 instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
                 for p, tex in surface_parts(points, uv, plans):
-                    instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
+                    # Retessellation can emit thousands of adjacent quads with
+                    # the same program. Keep one exact contiguous vertex range
+                    # instead of serializing its full style for every quad.
+                    if instruction == previous_instruction:
+                        instructions[-1]["count"] += 4
+                    else:
+                        instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
+                        previous_instruction = instruction
                     program_parts.append((p, tex))
             continue
         for p, uv in surface_parts(vertices, match[1], plans):
@@ -229,12 +237,8 @@ def wall_meshes(b, walls, origin):
             GlbMesh(
                 f"walls_{b.key}",
                 np.concatenate([p for p, _ in program_parts]) - origin,
-                np.concatenate(
-                    [
-                        np.array([[0, 3, 2], [0, 2, 1]], np.uint32) + 4 * i
-                        for i in range(len(program_parts))
-                    ]
-                ),
+                (np.array([[0, 3, 2], [0, 2, 1]], np.uint32)[None, :, :]
+                 + 4 * np.arange(len(program_parts), dtype=np.uint32)[:, None, None]).reshape(-1, 3),
                 uvs=np.concatenate([uv for _, uv in program_parts]),
                 color=(1, 1, 1, 1),
                 extras=dict(
@@ -245,7 +249,9 @@ def wall_meshes(b, walls, origin):
                     surface="wall",
                     base_height=b.base,
                     top_height=b.top,
-                    facade_kit=instructions[0],
+                    # The legacy fallback describes the first quad; the full
+                    # program below owns all coalesced ranges.
+                    facade_kit=dict(instructions[0], count=4),
                     facade_kit_walls=instructions,
                 ),
             )

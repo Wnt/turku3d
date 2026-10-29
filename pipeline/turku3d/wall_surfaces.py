@@ -113,6 +113,10 @@ def overlaps(faces, ids, *, split=None):
             b = np.einsum("ijk,ilk->ijl", points[js] - first[ii, None], basis)
             keep = ((b.max(axis=1) > a.min(axis=1) + 0.00005)
                     & (b.min(axis=1) < a.max(axis=1) - 0.00005)).all(axis=1)
+            # Intersection cannot exceed the overlap of the two projected boxes.
+            # Retain a conservative rounding margin at the existing area threshold.
+            extent = np.minimum(a.max(axis=1), b.max(axis=1)) - np.maximum(a.min(axis=1), b.min(axis=1))
+            keep &= np.maximum(extent, 0).prod(axis=1) > MIN_AREA - 1e-12
             ii, js, basis, a, b = ii[keep], js[keep], basis[keep], a[keep], b[keep]
             if not len(ii):
                 continue

@@ -36,6 +36,15 @@ test('decoded mixed program triangles cannot ship', () => {
   scene.addChild(doc.createNode().setExtras({object_id:'wall'}).setMesh(doc.createMesh().addPrimitive(primitive)));
   assert.throws(()=>auditVisual(doc),/Mixed shipped facade instruction wall triangle 0/);
 });
+test('every facade component is checked, including non-finite later corners', () => {
+  for (const invalid of [NaN, Infinity, 2]) {
+    const {doc,scene,primitive,acc}=fixture();
+    const values=new Float32Array(12).fill(1);values[11]=invalid;
+    primitive.setAttribute('_KIT_DETAIL',acc('VEC4',values));
+    scene.addChild(doc.createNode().setExtras({object_id:'wall'}).setMesh(doc.createMesh().addPrimitive(primitive)));
+    assert.throws(()=>auditVisual(doc),/Mixed shipped facade instruction wall triangle 0 _KIT_DETAIL/);
+  }
+});
 test('binding rejects stale ranges before creating shader attributes', () => {
   const {doc,primitive}=fixture();
   assert.throws(()=>bindProgram(doc,primitive,{object_id:'wall',facade_kit_walls:[{start:0,count:2}]},{},x=>x),/Unassigned/);
