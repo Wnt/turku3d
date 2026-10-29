@@ -10,8 +10,18 @@ def expand(wall, floors, geometry):
     count = wall["bays"]["count"]
     pitch = wall["bays"]["pitch_m"]
     width, height = wall["width_m"], wall["height_m"]
-    ground = wall["split"]["base_height_m"]["value"] or height / floors
-    upper = max(0.1, (height - ground) / (floors - 1)) if floors > 1 else ground
+    weights = [1.0] * floors
+    weights[0] = p.get("ground_scale", 1.0)
+    if floors > 1:
+        weights[-1] = p.get("top_scale", 1.0)
+    heights = [height * w / sum(weights) for w in weights]
+    wall["split"]["base_height_m"] = value(heights[0], "learned row-height layout prior")
+    wall["split"]["top_height_m"] = value(heights[-1], "learned row-height layout prior")
+    courses = min(floors - 1, round(p.get("course_share", 0) * (floors - 1)))
+    boundaries = sorted({round((i + 1) * floors / (courses + 1)) for i in range(courses)})
+    wall["trim"]["string_courses"] = value(
+        [sum(heights[:i]) for i in boundaries], "learned course frequency"
+    )
     ww, wh = wall["windows"]["size_m"]["value"]
     head = wall["windows"]["head_shape"]["value"]
     kind = wall["base"]["variant"]["value"]
@@ -19,8 +29,8 @@ def expand(wall, floors, geometry):
     multiplicity = min(4, max(1, round(p.get("windows_per_bay", 1))))
     windows, heads, surrounds, doors, balconies = [], [], [], [], []
     for floor in range(floors):
-        fh = ground if floor == 0 else upper
-        y = 0 if floor == 0 else ground + (floor - 1) * upper
+        fh = heights[floor]
+        y = sum(heights[:floor])
         for bay in range(count):
             center = (bay + 0.5) * pitch
             shop = floor == 0 and kind == "shops" and (bay + 0.5) / count <= max(share, 1 / count)

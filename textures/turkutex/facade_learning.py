@@ -20,6 +20,8 @@ NUMERIC = {
     "windows_per_bay",
     "shop_share",
     "course_share",
+    "ground_scale",
+    "top_scale",
 }
 SCALES = {
     "construction_year": 35,
@@ -80,6 +82,12 @@ def targets(wall):
     result = {k: form[k] for k in ("material", "ornament", "cornice") if form.get(k) is not None}
     result["balcony"] = bool(form.get("balconies"))
     if len(rows) > 1:
+        heights = [
+            {"short": 0.55, "regular": 1, "tall": 1.3}[r.get("height_class", "regular")]
+            for r in rows
+        ]
+        result["ground_scale"] = heights[0] * len(rows) / sum(heights)
+        result["top_scale"] = heights[-1] * len(rows) / sum(heights)
         result["course_share"] = len(form["string_courses"]) / (len(rows) - 1)
     if complete:
         count = sum(r["bay_count"] for r in complete) / len(complete)
@@ -268,12 +276,16 @@ def baseline(building_id, attrs):
         if r["cornice"] > 0.04
         else "none",
         course_share=float(r["courses"] > 0.05),
+        ground_scale=1.25 if r["ground"] == "shops" else 1.0,
+        top_scale=1.0,
         balcony=r["balcony"],
     )
 
 
 def apply(program, model):
-    if str(program["building_id"]) in model.get("observed_ids", []):
+    if str(program["building_id"]) in model.get("observed_ids", []) or str(
+        program["attributes"].get("register_id")
+    ) in model.get("observed_ids", []):
         return program
     from .facade_program import value
 
@@ -326,6 +338,15 @@ def apply(program, model):
             ornament_level=v(p.get("ornament")),
         )
         wall["learned_layout"] = {
-            k: p[k] for k in ("windows_per_bay", "surround", "balcony") if k in p
+            k: p[k]
+            for k in (
+                "windows_per_bay",
+                "surround",
+                "balcony",
+                "ground_scale",
+                "top_scale",
+                "course_share",
+            )
+            if k in p
         }
     return program
