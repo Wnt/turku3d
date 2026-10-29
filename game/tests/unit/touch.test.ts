@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { Input, MOVE_CURVE, radial } from '../../src/input';
 import { STICK_RADIUS, TOUCH_BUTTONS, TouchPad } from '../../src/input/touch';
-import { fullscreenHint, guardPause, mustBlock, type FullscreenFacts } from '../../src/ui/fullscreen';
+import { FullscreenPolicy, fullscreenHint, guardPause, mustBlock, type FullscreenFacts } from '../../src/ui/fullscreen';
 
 afterEach(() => vi.unstubAllGlobals());
 const W = 844;
@@ -154,4 +154,47 @@ describe('fullscreen policy', () => {
     expect(fullscreenHint(true, false, true)).toBeNull();
     expect(fullscreenHint(false, false, false)).toBeNull();
   });
+});
+
+
+test('desktop fullscreen button follows browser exits without taking ownership of pause', async () => {
+  class Element extends EventTarget {
+    hidden = false; id = ''; type = ''; textContent = ''; title = '';
+    attrs = new Map<string, string>();
+    append() {} remove() {}
+    setAttribute(k: string, v: string) { this.attrs.set(k, v); }
+  }
+  const doc = Object.assign(new EventTarget(), { body: new Element(), createElement: () => new Element(),
+    fullscreenElement: null as unknown, fullscreenEnabled: true });
+  const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+  const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+  const root = Object.assign(new Element(), { requestFullscreen });
+  Object.assign(doc, { documentElement: root, exitFullscreen });
+  vi.stubGlobal('document', doc);
+  vi.stubGlobal('navigator', {});
+  vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(display-mode: fullscreen)' && !!doc.fullscreenElement }));
+  const policy = new FullscreenPolicy(root as unknown as HTMLElement);
+  policy.enterScene(false);
+  expect(policy.update(false, false)).toBe(false);
+  expect(policy.button.hidden).toBe(false);
+  policy.button.dispatchEvent(new Event('click'));
+  expect(requestFullscreen).toHaveBeenCalledWith({ navigationUI: 'hide' });
+  doc.fullscreenElement = root;
+  doc.dispatchEvent(new Event('fullscreenchange'));
+  expect(policy.button.title).toBe('Exit fullscreen (F10)');
+  expect(policy.update(false, false)).toBe(false);
+  expect(policy.button.hidden).toBe(false);
+  expect(policy.button.getAttribute?.('aria-pressed') ?? (policy.button as unknown as Element).attrs.get('aria-pressed')).toBe('true');
+  policy.toggle();
+  expect(exitFullscreen).toHaveBeenCalledOnce();
+  doc.fullscreenElement = null; // browser Esc, without invoking our toggle
+  doc.dispatchEvent(new Event('fullscreenchange'));
+  expect(policy.button.title).toBe('Enter fullscreen (F10)');
+  expect(policy.update(false, true)).toBe(true); // a chosen pause survives the exit
+  expect(policy.blocking).toBe(false);
+  requestFullscreen.mockRejectedValueOnce(new Error('Denied'));
+  policy.toggle();
+  await Promise.resolve();
+  expect(policy.button.title).toBe('Enter fullscreen (F10)');
+  policy.dispose();
 });

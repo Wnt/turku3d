@@ -34,12 +34,17 @@ export class Input {
   private readonly touch = new TouchPad();
   private overlay: TouchOverlay | null = null;
 
-  constructor(el: HTMLElement, private readonly activate: () => void = () => {}) {
+  constructor(el: HTMLElement, private readonly activate: () => void = () => {}, private readonly toggleFullscreen: () => void = () => {}) {
     const options = { signal: this.listeners.signal };
     if ((navigator.maxTouchPoints ?? 0) > 0) this.enableTouch();
     addEventListener('keydown', e => {
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
+      if (e.code === 'F10') {
+        e.preventDefault();
+        this.toggleFullscreen(); // Fullscreen requires the original keyboard gesture, before the frame loop.
+        return;
+      }
       this.tapped.add(e.code); this.activate();
       this.keys.add(e.code); this.source = 'keyboard';
     }, options);

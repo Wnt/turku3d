@@ -28,6 +28,12 @@ describe('action mapping', () => {
     expect(glyph('mission', bindings(), true)).toBe('Ⓐ'); expect(glyph('mission', bindings(), false)).toBe('E');
     expect(a.throttle).toBe(0.8); expect(a.brake).toBe(0.25); expect(a.steer).toBe(a.moveX);
   });
+  test('B flips the car without activating another driving control', () => {
+    const a = mapActions(pad([0, 0, 0, 0], { 1: 1 }), new Set(), bindings());
+    expect(a.vehicleReset).toBe(1);
+    for (const action of ['interact', 'mission', 'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'map', 'mute'] as const) expect(a[action]).toBe(0);
+    expect(glyph('vehicleReset', bindings(), true)).toBe('Ⓑ');
+  });
   test('keyboard shares actions, normalizes diagonals, cancels opposites and ignores nonstandard pads', () => {
     const a = mapActions({ ...pad(), mapping: '' } as Gamepad, new Set(['KeyW', 'KeyD', 'ShiftLeft', 'Space', 'KeyF']), bindings());
     expect(a.moveX).toBeCloseTo(Math.SQRT1_2); expect(a.moveY).toBeCloseTo(Math.SQRT1_2);
@@ -93,5 +99,19 @@ test('keyboard autorepeat does not activate audio or recreate input edges', () =
   input.update(1 / 60);
   expect(input.consume('interact')).toBe(false);
   expect(activate).toHaveBeenCalledTimes(1);
+  input.dispose();
+});
+
+
+test('F10 requests fullscreen within the gesture and ignores autorepeat', () => {
+  const events = new EventTarget(), toggle = vi.fn();
+  vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
+  vi.stubGlobal('navigator', { getGamepads: () => [] });
+  const input = new Input(new EventTarget() as HTMLElement, () => {}, toggle);
+  const key = (repeat: boolean) => events.dispatchEvent(Object.assign(new Event('keydown', { cancelable: true }), { code: 'F10', repeat }));
+  expect(key(false)).toBe(false);
+  expect(toggle).toHaveBeenCalledTimes(1); // no frame update or host gamepad read
+  key(true);
+  expect(toggle).toHaveBeenCalledTimes(1);
   input.dispose();
 });

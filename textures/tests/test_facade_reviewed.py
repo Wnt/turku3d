@@ -16,8 +16,14 @@ def test_reviewed_geometry_storeys_and_private_evidence_boundary():
     rows = programs()
     assert len({b["building_id"] for b in rows}) == len(rows)
     for building in rows:
-        assert building["storeys"]["value"] == building["attributes"]["levels"]
-        assert building["storeys"]["source"] == "register"
+        levels = building["attributes"]["levels"]
+        assert levels is None or levels >= 0
+        # Missing/zero register counts remain unavailable, never photo estimates.
+        assert building["storeys"] == {
+            "value": levels,
+            "source": "register" if levels else "unavailable",
+            "support": 1.0 if levels else 0.0,
+        }
         for wall in building["walls"]:
             g = wall["geometry"]
             assert abs(np.linalg.norm(np.subtract(g["p1"], g["p0"])) - wall["width_m"]) < 0.01

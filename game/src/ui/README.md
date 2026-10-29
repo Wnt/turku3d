@@ -26,7 +26,7 @@ becomes visible again); every rejection is ignored. While the scene runs, `updat
   fullscreen. `game/public/manifest.webmanifest` asks for `display: fullscreen`, landscape.
 - Where the browser cannot fullscreen an element (iPhone Safari), the start screen shows "For fullscreen on
   iPhone add the page to the Home Screen." and play continues without the overlay.
-- Keyboard and gamepad players are never blocked or sent to fullscreen.
+- Keyboard and gamepad players are never blocked or automatically sent to fullscreen. A small HUD button or F10 toggles fullscreen on the document game container (including its HUD and menus). `fullscreenchange` updates its icon and accessible label after Esc; pointer lock remains owned by canvas clicks.
 - In touch play the help line and the audio panel are hidden (CSS in `index.html`) so the
   thumb buttons own the bottom-right corner; the corner minimap shrinks to 45 % of the viewport height, at
   most 240 px, so the HUD stays readable at 844×390.

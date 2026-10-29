@@ -1,5 +1,8 @@
 # Route-ordered facade survey
 
+Latest coverage: complete candidate classification through 900 m route distance;
+see the sixth publication below. Original publication counts remain historical.
+
 The first published ring covers 0–150 m of walking route distance from the
 pizzeria at engine (77.1, 187.6). Its 62 candidate walls have 12 accepted readings
 and 50 explicit rejections. Rejections include missing cached whole-wall views,
@@ -223,3 +226,37 @@ the painter. Tests retain their assertions and additionally check preserved uppe
 facades and ground opening shapes. `publications/ring04-contract/` supersedes the
 original program snapshot; `migrations/20261029-program-contract/` preserves the
 before/after records and changed-wall list. Original raw forms are unchanged.
+
+## Sixth publication: complete classification through 900 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Painter eligible | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 750–900 m | 380 | 115 | 265 | 51 | 64 |
+| Cumulative 0–900 m | 1,429 | 452 | 977 | 171 | 281 |
+
+The new ring distinguishes offset stair lights, enclosed balcony stacks,
+glass-block stairs, recessed loggias, colonnades, blind niches, decorative
+medallions, opaque timber gates and curved masonry lintels above flat glass.
+Readable partial architecture remains structured even when foliage prevents full
+counts. Unusable views and active renovation wraps have explicit rejections.
+Alternate views recovered several obscured walls and corrected a narrow-window
+size prior; neither raw answers nor original artwork were overwritten.
+
+All 380 candidates in this ring are classified. The append-only snapshot is
+`publications/ring05/`, with programs, queue state, source exclusions and timing
+mirrored to OCI. Original photographs, rectified crops and contact sheets remain
+local. The ring adds 51 painter-eligible records and 64 descriptive records that
+retain prior rendering pending richer geometry or better visibility.
+
+Elapsed time from the first batch is 17,779.8 s, or 12.4 s/candidate. The interval
+since the previous publication is 3,434.2 s for 380 candidates (9.0 s/candidate),
+including preparation, alternate views, corrections and waits. Integer account
+quota is 49%, versus 33% at the measured start and 46% at the preceding snapshot.
+The 82% new-reading cutoff remains in force; work continues with the next ring.
+
+The actual-library gate encountered the first four buildings with missing/zero
+register storey counts. Their five walls are descriptive/deferred. The library
+check now verifies the complete established storey provenance contract: exact
+register value, register source/support 1 for known counts, unavailable source
+and support 0 for missing counts. No count is inferred from photographs, and no
+program data was changed to satisfy the check.

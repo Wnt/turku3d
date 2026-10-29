@@ -9,6 +9,7 @@ const LOST_TEXT: Record<LostReason, string> = {
 export class RecoveryHud {
   readonly element = document.createElement('div');
   private readonly line = document.createElement('div');
+  private readonly flipped = document.createElement('div');
   private readonly edge = document.createElement('div');
   private fadeTimer = 0;
 
@@ -16,10 +17,13 @@ export class RecoveryHud {
     this.element.id = 'recovery';
     this.line.className = 'recovery-line';
     this.line.setAttribute('role', 'status');
+    this.flipped.className = 'recovery-line';
+    this.flipped.setAttribute('role', 'status');
+    this.flipped.hidden = true;
     this.edge.className = 'recovery-edge';
     this.edge.textContent = 'Edge of the built area';
     this.line.hidden = this.edge.hidden = true;
-    this.element.append(this.line, this.edge);
+    this.element.append(this.line, this.flipped, this.edge);
     parent.append(this.element);
   }
 
@@ -49,6 +53,11 @@ export class RecoveryHud {
 
   /** Shows the edge notice while the player is within `RECOVERY.edgeWarning` metres of the area's edge. */
   setEdge(near: boolean) { if (this.edge.hidden === near) this.edge.hidden = !near; }
+
+  setFlipped(show: boolean, button: string) {
+    this.flipped.hidden = !show;
+    if (show) this.flipped.textContent = `Car flipped. Press ${button} to flip it back`;
+  }
 
   snapshot() {
     return { line: this.line.hidden ? null : this.line.textContent, fading: this.line.classList.contains('fading'),
