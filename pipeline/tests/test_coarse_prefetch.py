@@ -555,6 +555,7 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
         for d in (
             "ground",
             "ortho",
+            "ortho_canopy",
             "wfs",
             "roads",
             "trees",
@@ -571,6 +572,7 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
         (
             "ground",
             "ortho",
+            "ortho_canopy",
             "wfs",
             "roads",
             "trees",
