@@ -45,6 +45,15 @@ def statuses(root):
     return state
 
 
+def queue_rows(root):
+    rows = json.loads((root / "queue.json").read_text())
+    for path in sorted(root.glob("queue-additions-*.json")):
+        rows.extend(json.loads(path.read_text()))
+    if len({r["wall_id"] for r in rows}) != len(rows):
+        raise ValueError("duplicate wall in queue additions")
+    return sorted(rows, key=lambda r: (r["route_distance_m"], r["wall_id"]))
+
+
 def make_queue(root):
     nav = json.loads((root / "inputs/navigation.json").read_text())
     tertiary = json.loads((root / "inputs/tertiary.json").read_text())
@@ -165,9 +174,7 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
         }
         pending = [r for r in originals.values() if not wall_ids or r["wall_id"] in wall_ids]
     else:
-        pending = [
-            r for r in json.loads((root / "queue.json").read_text()) if r["wall_id"] not in states
-        ]
+        pending = [r for r in queue_rows(root) if r["wall_id"] not in states]
     if not pending:
         raise RuntimeError("No pending walls")
     ring = pending[0]["ring"]
@@ -193,9 +200,9 @@ def prepare(root, batch, count, alternate_from=None, wall_ids=None):
             p = panos[i]
             if row["wall_id"] in originals:
                 previous = originals[row["wall_id"]]["view"]["pano"]
-                if (
-                    p["id"] == previous["id"]
-                    or np.linalg.norm(xy[i] - [previous["E"], previous["N"]]) < 4
+                if p["id"] == previous["id"] or (
+                    p.get("date") == previous.get("date")
+                    and np.linalg.norm(xy[i] - [previous["E"], previous["N"]]) < 4
                 ):
                     continue
             views = evaluate(
@@ -324,6 +331,18 @@ def compile_batch(root, batch, publish):
     attributes = building_attributes(
         config.raw_dir("wfs/work-3x3"), {r["building_id"] for r in rows.values()}
     )
+    register_path = root / "inputs/register.json"
+    register = json.loads(register_path.read_text()) if register_path.exists() else {}
+    for row in rows.values():
+        attrs = attributes[row["building_id"]]
+        for key, val in register.get(row["building_id"], {}).items():
+            if val is not None:
+                attrs[key] = val
+        # Stored binding attributes are original register covariates, not the AI
+        # description's inferred storey count. Use them only to fill missing data.
+        for key, val in row.get("attributes", {}).items():
+            if attrs.get(key) is None and val is not None:
+                attrs[key] = val
     programs = {p["building_id"]: p for p in json.loads(publish.read_text())}
     accepted = []
     rejected = []
@@ -340,7 +359,11 @@ def compile_batch(root, batch, publish):
         # the new count-only survey sees exactly the same span.
         line = LineString([wall["geometry"]["p0"], wall["geometry"]["p1"]])
         existing = False
-        for old in program["walls"]:
+        for wall_index, old in enumerate(program["walls"]):
+            if form.get("revision_of") and old["wall_id"] == wall["wall_id"] and "structure" in old:
+                program["walls"][wall_index] = wall
+                existing = True
+                break
             g = old.get("geometry", {})
             if "p0" in g and not old["observation"]["needs_review"]:
                 other = LineString([g["p0"], g["p1"]])
@@ -352,7 +375,7 @@ def compile_batch(root, batch, publish):
                     break
         if not existing:
             program["walls"].append(wall)
-        program["needs_review"] = False
+        program["needs_review"] = all(w["observation"]["needs_review"] for w in program["walls"])
         program["review"] = dict(
             method="direct structure-only route survey; prior pilot retained",
             scope="matched walls only",
@@ -371,6 +394,11 @@ def compile_batch(root, batch, publish):
             batch=batch,
             status="rejected" if form.get("reject") else "done",
             reason=form.get("reason"),
+            render_status="deferred"
+            if form.get("render_deferred")
+            else "rejected"
+            if form.get("reject")
+            else "eligible",
         )
     usage = snapshot()
     start = json.loads((directory / "start.json").read_text())

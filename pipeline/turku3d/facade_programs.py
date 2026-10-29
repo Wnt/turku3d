@@ -101,7 +101,9 @@ def matching_wall(vertices, program):
     # Roof fragments may extend beyond the surveyed span. Match any meaningful
     # collinear overlap; wall_parts clips the observation and preserves the rest.
     length = float(np.linalg.norm(vertices[1] - vertices[0]))
-    match = match_prepared(vertices, prepare_walls(facades), min_coverage=max(0.02, 0.1 / max(length, 0.1)))
+    match = match_prepared(
+        vertices, prepare_walls(facades), min_coverage=max(0.02, 0.1 / max(length, 0.1))
+    )
     return match[0]["wall"] if match else None
 
 
@@ -243,7 +245,7 @@ def resolve(building, vertices, eaves):
     return program
 
 
-HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2}
+HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2, "pointed-arch": 3}
 
 
 def compile_wall(wall, floors):
@@ -299,8 +301,14 @@ def compile_wall(wall, floors):
         detail=[
             0.1 if wall["bays"].get("rhythm") == "paired" else 0,
             int(bool(field(wall, "balconies", []))),
-            int(ground_kind == "plain") + 2 * HEAD_SHAPES.get(
-                field(wall["doors"] if ground_kind == "doors" else wall["base"], "head_shape", "flat"), 0),
+            int(ground_kind == "plain")
+            + 2
+            * HEAD_SHAPES.get(
+                field(
+                    wall["doors"] if ground_kind == "doors" else wall["base"], "head_shape", "flat"
+                ),
+                0,
+            ),
             -HEAD_SHAPES.get(field(wall["windows"], "head_shape", "flat"), 0),
         ],
     )

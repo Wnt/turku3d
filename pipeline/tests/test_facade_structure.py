@@ -76,6 +76,44 @@ def test_form_rejects_inconsistent_counts_and_missing_confidence():
         validate(form)
 
 
+def test_one_row_shop_strip_does_not_clear_unobserved_upper_storeys():
+    row, form = fixture()
+    form["floors"] = form["floors"][:1]
+    form["floors_visible"] = 1
+    form["string_courses"] = []
+    row["height_m"] = 3.5
+    wall = compile_structure(row, form, 8)
+    assert wall["observation"]["scope"] == "ground-only"
+    assert wall["height_m"] == 3.5
+
+
+def test_paired_pointed_windows_and_short_rows_preserve_structural_counts():
+    row, form = fixture()
+    top = form["floors"][1]
+    top.update(opening_counts=[2, 2], head="pointed", height_class="short", material="brick")
+    top["confidence"].update(opening_counts=0.9, height_class=0.9, material=0.9)
+    wall = compile_structure(row, form, 2)
+    assert len(wall["windows"]["rectangles_m"]) == 4
+    assert wall["windows"]["head_shapes"] == ["pointed-arch"] * 4
+    assert wall["material_bands"][0]["material"] == "brick"
+    assert wall["material_bands"][0]["height_m"] < 4
+    assert wall["trim"]["string_courses"]["value"][0] > 4
+
+
+def test_characterized_complex_wall_keeps_existing_artwork_until_renderer_support():
+    row, _ = fixture()
+    form = dict(
+        wall_id="south",
+        render_deferred="clock needs dedicated treatment",
+        facade_observations=dict(
+            sections=[dict(kind="clock", count=1)], confidence=dict(clock=0.99)
+        ),
+    )
+    wall = compile_structure(row, form, 4)
+    assert wall["observation"]["needs_review"]
+    assert wall["structure"]["facade_observations"]["sections"][0]["kind"] == "clock"
+
+
 def test_surrounds_stay_on_the_matching_wall_and_keep_opening_heads():
     row, form = fixture()
     measured = compile_structure(row, form, 2)

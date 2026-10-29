@@ -35,10 +35,13 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const windowHeight = isPatch.select(float(1), special.select(float(.76), opening.y));
   const bottom = isPatch.select(float(0), special.select(float(0), opening.z));
   const half = windowWidth.mul(isPatch.select(size.x, layout.y)).div(2);
-  const rise = min(half.mul(shape.equal(2).select(float(1), float(.36))), windowHeight.mul(unitHeight).mul(.5));
+  const rise = min(half.mul(shape.equal(3).select(float(Math.sqrt(3)), shape.equal(2).select(float(1), float(.36)))), windowHeight.mul(unitHeight).mul(.5));
   const radius = half.mul(half).add(rise.mul(rise)).div(max(rise.mul(2), .001));
   const across = x.sub(.5).mul(isPatch.select(size.x, layout.y)).abs();
-  const drop = radius.sub(sqrt(max(radius.mul(radius).sub(min(across, half).pow(2)), 0))).div(max(unitHeight, .001));
+  const roundDrop = radius.sub(sqrt(max(radius.mul(radius).sub(min(across, half).pow(2)), 0)));
+  // Two intersecting circular arcs meet at the apex of a pointed (Gothic) head.
+  const pointedCap = sqrt(max(float(4).sub(across.div(max(half, .001)).clamp(0, 1).add(1).pow(2)), 0)).div(Math.sqrt(3));
+  const drop = shape.equal(3).select(rise.mul(float(1).sub(pointedCap)), roundDrop).div(max(unitHeight, .001));
   const top = bottom.add(windowHeight).sub(shape.greaterThan(0).select(drop, float(0)));
   const py = metres.y.div(size.y).clamp(0, 1);
   const openingY = isPatch.select(py, y);

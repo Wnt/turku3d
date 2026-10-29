@@ -120,9 +120,9 @@ def public_handler(builder, prefetcher, settings):
                 return self._json(403, {"error": "origin"})
             route, tile = public_route(urlparse(self.path).path, settings["tile_bounds"])
             idle = getattr(builder, 'idle', None)
+            # Only game clients carry a client id; probes that merely send a Pages Origin must not hold off prebuilding.
             if (idle is not None and route in ('demand', 'manifest', 'collision')
-                    and (self.headers.get('Origin') is not None
-                         or 'client' in parse_qs(urlparse(self.path).query))):
+                    and 'client' in parse_qs(urlparse(self.path).query)):
                 with builder.lock:
                     idle.activity()
             if route == "demand":

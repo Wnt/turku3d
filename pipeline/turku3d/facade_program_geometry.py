@@ -5,6 +5,7 @@ import copy
 import numpy as np
 
 from turku3d import config as C
+from turku3d.facade_kit import MATERIALS
 from turku3d.facade_programs import HEAD_SHAPES, field
 
 
@@ -73,6 +74,24 @@ def wall_parts(vertices, wall, style):
     part = quad(x0, x1, y0, y1)
     if part:
         yield *part, blank
+    for band in wall.get("material_bands", []):
+        material = {"render": "plaster", "concrete_panel": "concrete"}.get(
+            band["material"], band["material"]
+        )
+        if material not in MATERIALS:
+            continue
+        part = quad(
+            x0,
+            x1,
+            max(y0, y0 + band["bottom_m"]),
+            min(y1, y0 + band["bottom_m"] + band["height_m"]),
+        )
+        if part:
+            yield (
+                part[0] + normal * 0.0005,
+                part[1],
+                {**blank, "module": 42 + MATERIALS.index(material)},
+            )
     # Occluded regions have no measured negative: retain their existing/rule treatment.
     for x, y, w, h in wall.get("observation", {}).get("excluded_rectangles_m", []):
         left, right = sorted([offset + x * sign, offset + (x + w) * sign])
