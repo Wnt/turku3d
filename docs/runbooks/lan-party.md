@@ -29,8 +29,9 @@ continuing wider coverage afterward. Receipts are in
 `coverage.jsonl`. Deadline: 09:00 EET. If warming is incomplete, the watcher starts
 the test at 08:45 and reports incomplete coverage explicitly.
 
-The normal idle scheduler uses all four workers after 120 seconds without player
-activity. Order: spawn rings, **885** mission-corridor tiles (153 destinations,
+The normal scheduler uses at most one spare worker while players are online and
+all four workers after 120 seconds without player activity. Order: spawn rings,
+**885** mission-corridor tiles (153 destinations,
 12 landmarks), then **2,401** tiles in the wider walk. It builds structural
 first + textured full passes and skips current full identities. Player demand
 and multiplayer presence preempt warming. Do not disconnect players or start a
