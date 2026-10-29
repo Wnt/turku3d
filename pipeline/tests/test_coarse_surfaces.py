@@ -183,10 +183,10 @@ def test_city_paving_selects_physical_texture_on_paths_and_carriageways():
 
 
 def test_register_missing_fields_do_not_invent_recent_construction():
-    assert attributes({}) == dict(material_class=None, levels=None, era="unknown")
+    assert attributes({}) == dict(material_class=None, levels=None, levels_source=None, construction_year=None, era="unknown")
     assert attributes(
         dict(julkisivumateriaali="tiili", kerrosluku="4", kottovuosi="1905-01-01")
-    ) == dict(material_class="brick", levels=4, era="1850-1919")
+    ) == dict(material_class="brick", levels=4, levels_source="register", construction_year=1905, era="1850-1919")
 
 
 def test_procedural_floor_is_repeatable_and_material_specific():

@@ -10,6 +10,7 @@ All ranges are metres except window width/height/sill, which are fractions of a 
 from __future__ import annotations
 
 import random
+import re
 
 from .facade_program import VERSION, stable_seed, unknown, value
 
@@ -245,6 +246,53 @@ ARCHETYPES = {
 }
 
 
+# Central cadastral districts I–IX. These are architectural priors, not measured dates.
+CENTRE_DISTRICTS = {f"853{i:03d}" for i in range(1, 10)}
+CENTRE_PERIODS = ((1830, 1), (1885, 2), (1910, 3), (1925, 2), (1938, 2),
+                  (1955, 3), (1965, 3), (1975, 1), (1990, 1))
+
+
+def parsed_year(raw):
+    match = re.search(r"(?<!\d)(1[6-9]\d{2}|20\d{2})(?!\d)", str(raw or ""))
+    return int(match[0]) if match else None
+
+
+def inferred_period(attrs):
+    """Seeded period draw: nearby dated footprints dominate weaker area/shape priors.
+
+    Donors contain only explicit dates; inferred assignments never become donors.
+    Sorting and a per-building stream avoid dependence on tile/build iteration order.
+    """
+    seed = attrs.get("register_id") or attrs.get("osm_id") or attrs.get("seed_id", "unknown")
+    rng = random.Random(stable_seed(seed, "fallback-period"))
+    historic = attrs.get("historic") not in (None, "", "no", "0")
+    heritage = attrs.get("heritage") not in (None, "", "no", "0")
+    if historic or heritage:
+        return rng.choices((1830, 1885, 1910, 1925), weights=(1, 2, 3, 1), k=1)[0], "heritage"
+    donors = sorted(attrs.get("period_neighbours") or [], key=lambda d: (d[0], d[1], d[2]))
+    if donors:
+        years, weights = [], []
+        for key, year, distance in donors:
+            if parsed_year(year) and 0 <= distance <= 80:
+                years.append(year)
+                weights.append(1 / (5 + distance) ** 2)
+        if years:
+            return rng.choices(years, weights=weights, k=1)[0], "neighbours"
+    centre = str(attrs.get("district")) in CENTRE_DISTRICTS
+    if not centre and attrs.get("location_xz"):
+        x, z = attrs["location_xz"]
+        centre = -950 <= x <= 1150 and -650 <= z <= 1450
+    if centre:
+        periods = list(CENTRE_PERIODS)
+        # Low courtyard wings and perimeter forms slightly favour the older stock.
+        old_form = (attrs.get("courtyard") or (attrs.get("levels") or 99) <= 2
+                    or (attrs.get("compactness", 1) < 0.4 and attrs.get("footprint_m2", 0) > 400)
+                    or attrs.get("roof_shape") in ("gambrel", "mansard"))
+        weights = [w * (1.35 if old_form and y < 1930 else 1) for y, w in periods]
+        return rng.choices([y for y, _ in periods], weights=weights, k=1)[0], "centre"
+    return None, "plain"
+
+
 def archetype(attrs):
     """Ordered rule table: explicit use/cladding, then construction period.
 
@@ -255,7 +303,7 @@ def archetype(attrs):
     use = str(attrs.get("osm_use") or attrs.get("use") or "").lower()
     use = USE.get(use, use)
     material = attrs.get("material_class")
-    year = attrs.get("construction_year") or attrs.get("year")
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
     levels = attrs.get("levels")
     area = attrs.get("footprint_m2", 0) or 0
     if use in ("warehouse", "shed", "garage", "garages") or attrs.get("blank"):
@@ -277,6 +325,8 @@ def archetype(attrs):
     if not year:
         era = attrs.get("era")
         year = {"pre-1850": 1830, "1850-1919": 1905, "1920-1959": 1950}.get(era)
+    if not year:
+        year, _ = inferred_period(attrs)
     if year and year < 1870:
         return "empire"
     if year and year < 1900:
@@ -315,6 +365,7 @@ def _colour(base, rng):
 
 def recipe(building_id, attrs):
     """A random stream per field keeps unrelated edits from changing existing choices."""
+    attrs = dict(attrs, seed_id=building_id)
     name = archetype(attrs)
     spec = ARCHETYPES[name]
 
