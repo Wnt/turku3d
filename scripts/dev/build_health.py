@@ -3,6 +3,10 @@
 import json
 import urllib.request
 
+# Jonni's healthy thresholds for the textured (full) pass.
+MIN_SUCCESS = .99
+MAX_P50_SECONDS = 10
+
 URL = 'https://turku.lab.madekivi.fi/coarse/health'
 
 
@@ -13,10 +17,10 @@ def alerts(health):
     reasons = []
     full = signal['passes']['full']
     if signal['players_online']:
-        if full['success_rate'] is not None and full['success_rate'] < .8:
-            reasons.append(f"full-pass success {full['success_rate']:.0%} < 80%")
-        if full['p50_seconds'] is not None and full['p50_seconds'] > 30:
-            reasons.append(f"full-pass p50 {full['p50_seconds']:.1f}s > 30s")
+        if full['success_rate'] is not None and full['success_rate'] < MIN_SUCCESS:
+            reasons.append(f"full-pass success {full['success_rate']:.0%} < {MIN_SUCCESS:.0%}")
+        if full['p50_seconds'] is not None and full['p50_seconds'] > MAX_P50_SECONDS:
+            reasons.append(f"full-pass p50 {full['p50_seconds']:.1f}s > {MAX_P50_SECONDS}s")
     errors = {}
     for row in signal['passes'].values():
         for kind, count in row['error_kinds'].items():
@@ -32,8 +36,8 @@ def smoke_alerts(health):
         full = signal['passes']['full']
         if full['failed'] or full['cancelled']:
             reasons.append(f"recent full passes: {full['failed']} failed, {full['cancelled']} cancelled")
-        if full['p50_seconds'] is not None and full['p50_seconds'] > 30:
-            reason = f"full-pass p50 {full['p50_seconds']:.1f}s > 30s"
+        if full['p50_seconds'] is not None and full['p50_seconds'] > MAX_P50_SECONDS:
+            reason = f"full-pass p50 {full['p50_seconds']:.1f}s > {MAX_P50_SECONDS}s"
             if reason not in reasons:
                 reasons.append(reason)
     return reasons
