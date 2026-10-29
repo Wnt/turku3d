@@ -87,7 +87,7 @@ def overlaps(faces, ids, *, split=None):
         selected = selected[(lengths[selected] > 1e-12) & (selected >= (split or 0))]
         boxes = shapely.box(low[:, axis] - DISTANCE, low[:, 1] - DISTANCE,
                             high[:, axis] + DISTANCE, high[:, 1] + DISTANCE)
-        tree = shapely.STRtree(boxes)
+        tree = shapely.STRtree(boxes if split is None else boxes[:split])
         for start in range(0, len(selected), 512):
             rows = selected[start:start+512]
             local, js = tree.query(boxes[rows])
