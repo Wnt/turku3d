@@ -34,6 +34,7 @@ from turku3d.stage_cache import StageCache, source_key
 
 from . import banks, bridges, fences, kerbs, parked, surfaces
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
+from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
@@ -509,6 +510,7 @@ def build(
         tile=tile.id,
         collision=collision,
         code=producer_code,
+        collision_code=collision_code_hash(),
         inputs=inputs.key,
         pass_kind="first" if first_pass else "full",
         buildings=len(blds),

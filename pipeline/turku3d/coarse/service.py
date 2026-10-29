@@ -53,6 +53,7 @@ from turku3d import config as C
 from turku3d.facade_kit import parameter_hash
 
 from .packaging import current_code
+from .collision_key import current_code as current_collision_code
 from .collision import fragment as collision_fragment
 from .collision import current as collision_current
 from .demand import Demand, write_snapshot
@@ -165,6 +166,7 @@ class Builder:
         self.on_missing = on_missing or (lambda units: None)
         # Re-hashed per check, so a code edit while the service runs rebuilds each tile once.
         self.code = (lambda: code) if code else current_code
+        self.collision_code = current_collision_code
         self.two_pass = run is None
         self.run = run or Workers()
         self.demand = Demand()

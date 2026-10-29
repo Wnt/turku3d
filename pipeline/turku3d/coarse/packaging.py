@@ -23,6 +23,7 @@ PRODUCERS = (
     "build",
     "area",
     "collision",
+    "collision_key",
     "banks",
     "parked",
     "packaging",
