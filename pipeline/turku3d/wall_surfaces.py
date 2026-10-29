@@ -180,6 +180,7 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
     version. Ownership contradictions alone are programming errors.
     """
     import fcntl
+    import hashlib
     import json
     from contextlib import nullcontext
     from pathlib import Path
@@ -208,6 +209,7 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
             fcntl.flock(lock, fcntl.LOCK_EX)
         with report_cache.measure("wall_neighbour_processing") if report_cache else nullcontext():
             neighbours = []
+            neighbour_keys = []
             json_bytes = 0
             for di in (-1, 0, 1):
                 for dj in (-1, 0, 1):
@@ -219,13 +221,17 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
                     payload = path.read_bytes()
                     json_bytes += len(payload)
                     record = json.loads(payload)
-                    del payload
                     if (record.get("pass_kind"), record.get("content_hash")) != (pass_kind, content_hash):
+                        del payload
                         continue
                     duplicate = set(owners).intersection(record["owners"])
                     if duplicate:
                         raise ValueError(f"wall ownership {tile.id}/{path.stem}: {sorted(duplicate)}")
                     neighbours.append(record)
+                    # Exact record bytes cover every field without recursively
+                    # hashing hundreds of thousands of face coordinates in Python.
+                    neighbour_keys.append(hashlib.sha256(payload).hexdigest())
+                    del payload
             if report_cache is not None:
                 report_cache.metrics["wall_neighbour_processing"].update(
                     neighbours=len(neighbours), faces=sum(len(r["faces"]) for r in neighbours),
@@ -253,7 +259,7 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
                     "wall_neighbours_" + pass_kind,
                     source_key(validate_neighbours, overlaps, boundary_faces, wall_faces, trapezoids,
                                wall_assembly.assemble_structures, wall_assembly.band_polygon),
-                    [geometry_key if geometry_key is not None else meshes, neighbours, tile], resolve,
+                    [geometry_key if geometry_key is not None else meshes, neighbour_keys, tile], resolve,
                 )
             finally:
                 if report_cache is not None:
