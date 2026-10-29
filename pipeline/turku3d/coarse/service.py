@@ -700,7 +700,7 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     distance = float("inf")
                 state = builder.request(tile, distance)
                 if name == "collision.json":
-                    fragment = collision_fragment(builder, tile)
+                    fragment = state.get("fragment") or collision_fragment(builder, tile)
                     if fragment is not None:
                         return self._json(200, fragment)
                 if state["state"] == "failed":

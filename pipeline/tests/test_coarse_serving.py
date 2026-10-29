@@ -62,10 +62,11 @@ def test_obsolete_or_missing_collision_never_serves_even_after_failure(tmp_path,
     if change == "missing":
         (tmp_path / TILE.id / next(iter(old["collision"].values()))["url"]).unlink()
     b = builder(tmp_path)
-    assert retained_fragment(b, TILE.id) is None
+    assert retained_fragment(b, TILE.id)["collision"] == {}
+    assert retained_fragment(b, TILE.id)["collision_pending"]
     import time
     b.failed[TILE.id] = ("replacement failed", time.time())
-    assert "fragment" not in b.request(TILE.id, 0)
+    assert b.request(TILE.id, 0)["fragment"]["collision"] == {}
     b.stop()
 
 
@@ -140,5 +141,28 @@ def test_unknown_input_identity_never_authorizes_stale_collision(tmp_path):
     publish(tmp_path, "manifest.json")
     b = builder(tmp_path)
     b.input_key = lambda _: None
-    assert retained_fragment(b, TILE.id) is None
+    assert retained_fragment(b, TILE.id)["collision"] == {}
+    assert retained_fragment(b, TILE.id)["collision_pending"]
+    b.stop()
+
+
+def test_first_pass_visual_survives_structural_deploy_before_new_collision(tmp_path):
+    old = publish(tmp_path, "collision.json", structural="obsolete", kind="first")
+    b = builder(tmp_path)
+    value = b.request(TILE.id, 0)["fragment"]
+    assert value["visual"] == old["visual"]
+    assert value["collision_pending"] and value["collision"] == {}
+    assert TILE.id in b.priority
+    b.stop()
+
+
+def test_full_preview_does_not_need_obsolete_collision_or_roads_payloads(tmp_path):
+    old = publish(tmp_path, "manifest.json", structural="obsolete")
+    for entry in old["collision"].values():
+        (tmp_path / TILE.id / entry["url"]).unlink()
+    b = builder(tmp_path)
+    value = b.request(TILE.id, 0)["fragment"]
+    assert value["visual"] == old["visual"]
+    assert value["pass_kind"] == "full" and value["collision"] == {}
+    assert "vehicles" not in value and "roads" not in value
     b.stop()

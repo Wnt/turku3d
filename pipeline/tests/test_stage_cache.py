@@ -154,7 +154,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
 
 
-def test_outdated_draft_without_current_collision_never_falls_back(tmp_path):
+def test_outdated_draft_previews_visuals_without_serving_obsolete_collision(tmp_path):
     import json
     import time
 
@@ -184,8 +184,10 @@ def test_outdated_draft_without_current_collision_never_falls_back(tmp_path):
     )
     builder = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
     state = builder.request(tile.id, 12)
-    assert state["state"] == "queued"
-    assert tile.id not in builder.servable and tile.id in builder.priority
+    assert state["state"] == "built"
+    assert state["fragment"]["collision_pending"]
+    assert state["fragment"]["collision"] == {}
+    assert tile.id in builder.servable and tile.id in builder.priority
     assert builder.journal.path.is_file()
     builder.stop()
     restored = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
@@ -196,7 +198,7 @@ def test_outdated_draft_without_current_collision_never_falls_back(tmp_path):
     assert next_job(restored) == ((tile.id, 12), False)
     restored.building[tile.id] = 1
     for _ in range(3):  # A fresh client re-enters while the replacement is running.
-        assert restored.request(tile.id, 12)["state"] == "building"
+        assert restored.request(tile.id, 12)["fragment"]["collision"] == {}
         assert json.loads(restored.manifest(tile.id).read_text())["pass_kind"] == "full"
     restored.building.clear()
     assert restored.cached(tile.id)
@@ -213,11 +215,12 @@ def test_outdated_draft_without_current_collision_never_falls_back(tmp_path):
         time.sleep(.01)
     assert restored.status()["failure_count"] == 1
     fallback = restored.request(tile.id, 12)
-    assert fallback == {"state": "failed", "error": "broken generator"}
-    assert tile.id not in restored.servable
+    assert fallback["fragment"]["failure"]["error"] == "broken generator"
+    assert fallback["fragment"]["collision"] == {}
+    assert tile.id in restored.servable
     restored.code = lambda: "fixed"
-    assert restored.request(tile.id, 12)["state"] == "queued"
-    assert tile.id not in restored.servable
+    assert restored.request(tile.id, 12)["fragment"]["collision"] == {}
+    assert tile.id in restored.priority
     restored.stop()
     worker.join(2)
 

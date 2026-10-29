@@ -40,7 +40,7 @@ class DraftRejected extends Error {}
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
-interface CoarseFragment { stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+interface CoarseFragment { collision_pending?: boolean; stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
@@ -416,8 +416,10 @@ export class CoarseTiles {
     const state = e.state;
     if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: invalid draft fragment`);
     const visualChanged = !e.model || fragment.visual[id].sha256 !== e.visualHash;
+    const preview = fragment.stale === true && fragment.collision_pending === true;
+    if (preview && Object.keys(fragment.collision).length) throw new DraftRejected('retained preview contains obsolete collision');
     const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
-    if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
+    if (!preview && missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
     const base = new URL(`${this.root}${id}/`, this.page);
     const changed = Object.entries(fragment.collision).filter(([cid, entry]) => !e.collision.has(cid) || entry.sha256 !== e.collision.get(cid)?.sha256);
     const buffers = new Map<string, ArrayBuffer>();
@@ -455,7 +457,7 @@ export class CoarseTiles {
     if (!visualChanged) {
       recordFreshness(e, fragment);
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
-      this.takeVehicles(e, fragment, base);
+      if (!preview) this.takeVehicles(e, fragment, base);
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
       return;
     }
@@ -470,7 +472,7 @@ export class CoarseTiles {
     e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     e.state = 'draft';
-    this.takeVehicles(e, fragment, base);
+    if (!preview) this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);

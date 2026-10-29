@@ -39,3 +39,41 @@ test('stale full stays visible until current full is prepared, with unchanged co
   expect(latest.parent).toBe(scene); expect(refreshCollision).not.toHaveBeenCalled();
   expect(checkCollision).toHaveBeenCalledTimes(16);
 });
+
+
+test('retained visual preview never loads obsolete physics and gains current collision without blanking', async () => {
+  const id = 't0_2_0', manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  const scene = new THREE.Scene(), model = new THREE.Group();
+  const checkCollision = vi.fn(async () => 2), refreshCollision = vi.fn(), unloadCollision = vi.fn();
+  const loadModel = vi.fn(async () => model);
+  let preview = true;
+  const fetch = (async (url: string) => {
+    const name = new URL(url).pathname;
+    if (name === `/coarse/${id}/manifest.json`) return new Response(JSON.stringify({
+      coarse: true, tile: id, pass_kind: 'full', stale: true, collision_pending: preview,
+      visual: { [id]: { url: 'vis.retained.glb', sha256: 'retained' } },
+      collision: preview ? {} : Object.fromEntries(cellsOf(id).map(cid => [cid, {url: `col/${cid}.col`, sha256: 'current', bytes: 4}])),
+    }));
+    if (name.endsWith('.col')) return new Response(new ArrayBuffer(4));
+    if (name.endsWith('/want')) return new Response('{}');
+    return new Response('{}', {status: 404});
+  }) as typeof globalThis.fetch;
+  const coarse = new CoarseTiles({scene, manifest, renderer: {} as THREE.WebGPURenderer,
+    pageUrl: 'http://127.0.0.1:5171/', fetch, checkCollision, refreshCollision, unloadCollision, loadModel});
+  const settle = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setTimeout(r, 0)); };
+  coarse.update(600, 100, 0); await settle();
+  expect(model.parent).toBe(scene);
+  expect(coarse.entries.get(id)?.collisionPending).toBe(true);
+  expect(manifest.collision).toEqual({}); expect(checkCollision).not.toHaveBeenCalled();
+  preview = false;
+  coarse.update(600, 100, 3000); await settle();
+  expect(model.parent).toBe(scene); expect(loadModel).toHaveBeenCalledTimes(1);
+  expect(coarse.entries.get(id)?.collisionPending).toBe(false);
+  expect(checkCollision).toHaveBeenCalledTimes(16);
+  expect(Object.keys(manifest.collision)).toHaveLength(16);
+  expect(unloadCollision).not.toHaveBeenCalled();
+  preview = true; // Another deploy must preserve the physics already supporting the player.
+  coarse.update(600, 100, 6000); await settle();
+  expect(model.parent).toBe(scene); expect(Object.keys(manifest.collision)).toHaveLength(16);
+  expect(refreshCollision).not.toHaveBeenCalled(); expect(unloadCollision).not.toHaveBeenCalled();
+});
