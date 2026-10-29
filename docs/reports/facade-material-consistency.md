@@ -70,8 +70,8 @@ The owned deployed probe builds `t0_0_1` and `t0_0_0`, first and full passes,
 compares building/collision counts with source, then examines actual emitted
 GLB paint ranges as well as diagnostic wall decisions. It checks Kristiinankatu 1,
 `103295904X` (concrete), and the two other stone buildings above. Stored facade
-materials must be absent. It then captures the reported camera and two changed
-buildings through the deployed game with the sandbox automation browser:
+materials must be absent. Per Jonni's speed-first coordination update, there are
+no scripted browser runs; he checks the visuals in the game:
 
 ```sh
 bash pipeline/env/run.sh python scripts/dev/probe_facade_materials.py \
@@ -79,4 +79,4 @@ bash pipeline/env/run.sh python scripts/dev/probe_facade_materials.py \
 ```
 
 Delivery timings, rolling-health smoke and deployed outcomes are recorded in the
-owning task's result/check logs. Local screenshots stay outside the public tree.
+owning task's result/check logs. No new screenshots are generated.
