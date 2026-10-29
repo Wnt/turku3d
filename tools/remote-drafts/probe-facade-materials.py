@@ -3,22 +3,30 @@
 import argparse
 import importlib.util
 import json
+import pickle
 import struct
 import time
 from pathlib import Path
 
 
 def document(path):
-    data = path.read_bytes()
+    data = path.read_bytes() if isinstance(path, Path) else path
     assert data[:4] == b"glTF", path
     return json.loads(data[20 : 20 + struct.unpack_from("<I", data, 12)[0]])
 
 
-def audit(out, expected):
+def audit(out, expected, tile):
     from turku3d.facade_kit import MATERIALS
 
     programs = json.loads((out / "facade-programs.json").read_text())
-    doc = document(out / ".stage/buildings.vis.glb")
+    from turku3d.stage_cache import decompress_payload
+
+    times = json.loads((out / "stage-times.json").read_text())
+    layer = (
+        out.parent / ".stages" / tile / "building_layer" / (times["building_layer"]["key"] + ".pkl")
+    )
+    _, files = pickle.loads(decompress_payload(layer.read_bytes()[32:]))
+    doc = document(files["buildings.vis.glb"])
     nodes = [n["extras"] for n in doc["nodes"] if n.get("extras", {}).get("surface") == "wall"]
     assert nodes and not any(n.get("material_key") == "facade_stored" for n in nodes)
     result = {}
@@ -81,7 +89,7 @@ def main(root):
             first_budget=min(45, remaining / 3),
             full_budget=min(180, remaining - 15),
         )
-        row["materials"] = audit(Path(row["output"]), expected)
+        row["materials"] = audit(Path(row["output"]), expected, tile)
         results.append(row)
         print(json.dumps(row), flush=True)
     print(
