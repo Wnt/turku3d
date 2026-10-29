@@ -60,7 +60,7 @@ try {
     assert.deepEqual(overlaps, []);
   }
   await page.keyboard.press('F4');
-  assert.equal(await select.isVisible(), false);
+  await select.waitFor({ state: 'hidden' });
   await page.screenshot({ path: path.join(out, 'closed-phone.png') });
   const result = { baseline, first, errors, final: await page.evaluate(() => ({
     ids: [...window.__game.physics.loaded].sort(), layers: [...window.__game.devLayers.paths].sort(),
