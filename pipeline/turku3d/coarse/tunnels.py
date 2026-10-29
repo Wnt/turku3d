@@ -582,7 +582,10 @@ def produce(
         aprons = []
         for end, outward in ((0, -direction[0]), (-1, direction[-1])):
             inner = np.array([left[end], right[end]])
-            apron_length = 4 if road_top else 2
+            # The repaired grid can affect two diagonals beyond the portal.
+            # Meet intact terrain beyond that support, rather than ending inside
+            # its raised triangles. Both visuals and collision use this mesh.
+            apron_length = max(7, 2 * np.sqrt(2) * tile.size / CELLS + 1) if road_top else 2
             outer = inner + outward * apron_length
             apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
             aprons.append(apron)
@@ -591,8 +594,16 @@ def produce(
             ):
                 patch = np.clip(patch, clip_low, clip_high)
                 along = np.clip((patch - xz[end]) @ outward / apron_length, 0, 1)
-                base = floor_height(patch)
-                ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
+                base = floor_height(
+                    patch - along[:, None] * apron_length * outward if road_top else patch
+                )
+                if road_top:
+                    # A straight approach to the outer cross-section avoids
+                    # reproducing the lidar/grid hump midway through the blend.
+                    target = patch + (1 - along)[:, None] * apron_length * outward
+                    ground = np.array([deck_sample(x, z) for x, z in target])
+                else:
+                    ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
                 height = base + (ground - base) * along
                 road.face(np.c_[patch[:, 0], height, patch[:, 1]][::-1], patch[::-1])
         cut_corridor = shapely.union_all([corridor, *aprons])

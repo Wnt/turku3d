@@ -12,6 +12,7 @@ from facade_publish import remote
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--baseline", help="Existing owned OCI build root for before/after rays")
     args = parser.parse_args()
     source = f"{HOME}/sources/{args.commit}"
     # Delivery already recorded this source as deployed. A later agent may move
@@ -36,6 +37,8 @@ def main():
             "/srv/turku3d/work/coarse",
         ]
     )
+    if args.baseline:
+        command += " --baseline " + shlex.quote(args.baseline)
     print(f"Owned OCI evidence: {root}", flush=True)
     try:
         print(remote(f"TURKU3D_DRAFT_SOURCE={shlex.quote(source)} " + command), flush=True)

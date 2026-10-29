@@ -136,3 +136,35 @@ def test_carried_road_excludes_tree_crowns_and_parked_car_footprints():
         not mask.intersects(footprint(c["x"], c["z"], c["yaw"], c["width"], c["length"]))
         for c in cars
     )
+
+
+def test_both_aprons_join_beyond_repaired_grid_without_step():
+    from types import SimpleNamespace
+
+    tile = C.VisualTile(0, 0, 0)
+    _, fixed, idx, sample, result = scene(tile, 100)
+    floor = next(m for m in result.meshes if m.object_id == "tunnel:under:floor")
+    # Ray-test the same triangles consumed by the visual and collision exporters.
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "underpass_probe", Path(__file__).parents[2] / "tools/remote-drafts/probe-underpass-roads.py"
+    )
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    col = SimpleNamespace(
+        positions=floor.positions, indices=floor.indices, origin=np.zeros(3),
+        materials=np.zeros(len(floor.indices)),
+    )
+    for end, sign in ((80, -1), (120, 1)):
+        for x in (99.25, 100, 100.75):
+            heights = []
+            for distance in np.arange(0, 9.01, 0.1):
+                z = end + sign * distance
+                ys, _ = probe.hits(col, x, z)
+                heights.append(max(ys) if len(ys) else sample(x, z))
+            assert max(abs(np.diff(heights))) < 0.05
+            # At the outer edge the apron and the retained terrain coincide.
+            ys, _ = probe.hits(col, x, end + sign * 7)
+            np.testing.assert_allclose(ys, sample(x, end + sign * 7), atol=1e-8)
