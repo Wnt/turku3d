@@ -37,3 +37,8 @@ npm --prefix game test -- tests/unit/net-client.test.ts tests/unit/shared-vehicl
 npm --prefix server test
 node server/tools/probe-vehicles.mjs
 ```
+
+The hourly leaderboard displays **Earned** cash from validated delivery pay, tips and
+bonuses. Wallet fines and purchases do not reduce it. Ties use deliveries, then the
+earliest result. Legacy archives retain their recorded net totals and ranks. Reload
+open multiplayer tabs after this score schema deployment.

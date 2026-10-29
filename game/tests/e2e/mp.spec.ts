@@ -156,7 +156,7 @@ test('two pages collide and share a paid delivery', { tag: ['@gameplay', '@synth
       act(pizzeria, { interact: true }); act(pizzeria, { choose: 'take_order' });
       act(missions.currentStop.point, { interact: true });
     }, { market: MARKET.point, pizzeria: PIZZERIA.point });
-    await pageB.waitForFunction(() => (window.__game!.state as () => any)().multiplayer.scores.some((s: any) => s.money > 0));
+    await pageB.waitForFunction(() => (window.__game!.state as () => any)().multiplayer.scores.some((s: any) => s.earned > 0));
     console.log('[mp] payout observed');
     expect(await pageB.locator('#mp-scoreboard').textContent()).toContain('€14');
     const paidScores = await pageB.evaluate(() => (window.__game!.state as () => any)().multiplayer.scores);

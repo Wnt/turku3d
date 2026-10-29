@@ -11,7 +11,7 @@ test('broken poles are shared, fined once, joined late and reset at the hour', (
   const c = f.connect();
   assert.deepEqual(c.welcome.brokenPoles.map(p => p.poleId), [poleId]);
   a.send({ type: 'fine', reason: 'pole', poleId, amount: 50 });
-  assert.equal(f.room.scores().find(s => s.nick === a.welcome.you.nick).money, -50);
+  assert.equal(f.room.scores().find(s => s.nick === a.welcome.you.nick).earned, 0);
   a.send({ type: 'fine', reason: 'pole', poleId, amount: 50 });
   assert.equal(f.room.stats.rejected, 1);
   f.advance(10_000);

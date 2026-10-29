@@ -11,7 +11,7 @@ export interface NetPose {
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
 export interface NetPlayer { id: string; nick: string; spawn: { E: number; N: number; yaw: number }; pose: NetPose | null }
-export interface Score { nick: string; money: number; deliveries: number; rank: number; online: boolean }
+export interface Score { nick: string; earned: number; deliveries: number; rank: number; online: boolean }
 export interface Hour { id: string; start: string; end: string; tz: string }
 interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number; job?: 'short' | 'long' }
 interface MultiplayerState {

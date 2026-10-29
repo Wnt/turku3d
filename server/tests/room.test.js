@@ -34,7 +34,7 @@ test('session rejoin preserves identity, score and deduplication; concurrent rej
   const b = f.connect(a.welcome.session);
   assert.deepEqual(b.welcome.you, a.welcome.you);
   b.send(delivery);
-  assert.equal(f.room.scores()[0].money, 14);
+  assert.equal(f.room.scores()[0].earned, 14);
   assert.equal(f.room.stats.rejected, 1);
   const c = f.connect(a.welcome.session);
   assert.deepEqual(b.closes, [[4001, 'session replaced']]);
@@ -94,14 +94,14 @@ test('idle removal after 60 seconds preserves scores and a pose restores presenc
   const f = fixture(), a = f.connect(); a.send(delivery);
   f.advance(59_999); assert.equal(f.room.livePlayers().length, 1);
   f.advance(1); assert.equal(f.room.livePlayers().length, 0);
-  assert.equal(f.room.scores()[0].money, 14); assert.equal(f.room.scores()[0].online, false);
+  assert.equal(f.room.scores()[0].earned, 14); assert.equal(f.room.scores()[0].online, false);
   a.send(pose); assert.equal(f.room.livePlayers().length, 1);
 });
 
 test('deliveries accept bounded whole euros, reject duplicates and malformed claims', () => {
   const f = fixture(), a = f.connect(), b = f.connect();
   a.send(delivery); b.send(delivery);
-  assert.deepEqual(f.room.scores().map(s => s.rank), [1, 1]);
+  assert.deepEqual(f.room.scores().map(s => s.rank), [1, 2]);
   a.send(delivery);
   for (const change of [{ payout: 50 }, { tip: -1 }, { tip: 9 }, { routeMeters: -1 },
     { routeMeters: '100' }, { payout: 10, tip: 0 }, { addressId: '' }, { orderId: '../bad' }]) {
@@ -109,11 +109,11 @@ test('deliveries accept bounded whole euros, reject duplicates and malformed cla
   }
   assert.equal(f.room.stats.rejected, 9);
   a.send({ ...delivery, orderId: 'bonus', payout: 10, tip: 1 });
-  assert.equal(f.room.scores()[0].money, 25);
+  assert.equal(f.room.scores()[0].earned, 25);
   assert.deepEqual(f.room.scores().map(s => s.rank), [1, 2]);
   assert.equal(a.messages.at(-1).type, 'scores');
   a.send({ ...delivery, orderId: 'long-job', job: 'long', routeMeters: 3000, payout: 60, tip: 8 });
-  assert.equal(f.room.scores()[0].money, 93);
+  assert.equal(f.room.scores()[0].earned, 93);
 });
 
 test('protocol mismatch requests reload; malformed, binary, oversized and unknown messages count as rejected', () => {
@@ -160,4 +160,36 @@ test('vehicle quaternion and wheel state relay unchanged; malformed transforms a
   for (const invalid of [{ rot: null }, { rot: { ...rot, w: 0 } }, { rot: { ...rot, x: Infinity } },
     { wheels: [null] }, { wheels: Array(5).fill(wheels[0]) }, { wheels: [{ ...wheels[0], steer: Infinity }] }]) a.send({ ...car, ...invalid });
   assert.equal(f.room.stats.poses, accepted);
+});
+
+test('earned ranking breaks ties by deliveries then earliest result and ignores fine deductions', () => {
+  const f = fixture(), a = f.connect(), b = f.connect();
+  a.send({ ...delivery, tip: 6 }); // 12 earned in one delivery
+  f.advance(100);
+  b.send({ ...delivery, tip: 0 });
+  b.send({ ...delivery, orderId: 'second', tip: 0 }); // same earned, more deliveries
+  assert.deepEqual(f.room.scores().map(s => [s.nick, s.earned, s.deliveries, s.rank]),
+    [[b.welcome.you.nick, 12, 2, 1], [a.welcome.you.nick, 12, 1, 2]]);
+  f.advance(100);
+  a.send({ ...delivery, orderId: 'second', tip: 0 }); // 18 / 2 first
+  f.advance(100);
+  b.send({ ...delivery, orderId: 'third', tip: 0 }); // 18 / 3
+  f.advance(100);
+  a.send({ ...delivery, orderId: 'third', payout: 0 }); // invalid: cannot inflate deliveries
+  assert.equal(f.room.scores()[0].nick, b.welcome.you.nick);
+  b.send({ type: 'world', action: 'break', poleId: 'test-pole', by: b.welcome.you.id, t: 1 });
+  const before = f.room.scores();
+  b.send({ type: 'fine', reason: 'pole', poleId: 'test-pole', amount: 50 });
+  assert.deepEqual(f.room.scores(), before);
+  f.set('2026-10-27T13:00:00Z');
+  assert.deepEqual(f.records[0].players[0], { nick: b.welcome.you.nick, earned: 18, deliveries: 3, rank: 1 });
+  assert.ok(f.room.scores().every(s => s.earned === 0 && s.deliveries === 0));
+});
+
+test('equal earnings and deliveries prefer the earliest result rather than nickname or join', () => {
+  const f = fixture(), a = f.connect(), b = f.connect();
+  b.send(delivery);
+  f.advance(100);
+  a.send(delivery);
+  assert.deepEqual(f.room.scores().map(s => s.nick), [b.welcome.you.nick, a.welcome.you.nick]);
 });

@@ -22,12 +22,12 @@ for (const [label, before, first, second] of [
   f.advance(10_000);
   assert.equal(f.room.hour.id, second);
   assert.equal(f.records[0].hour.id, first);
-  assert.equal(f.records[0].players.find(p => p.nick === oldNick).money, 14);
+  assert.equal(f.records[0].players.find(p => p.nick === oldNick).earned, 14);
   assert.notEqual(f.room.scores()[0].nick, oldNick);
-  assert.equal(f.room.scores()[0].money, 0);
+  assert.equal(f.room.scores()[0].earned, 0);
   a.send({ ...delivery, orderId: 'in-flight' });
   a.send(delivery); // Never pay the same already-completed stop across rollover.
-  assert.equal(f.room.scores()[0].money, 14);
+  assert.equal(f.room.scores()[0].earned, 14);
   assert.equal(f.room.stats.rejected, 1);
   const c = f.connect(expiredSession);
   assert.notEqual(c.welcome.session, expiredSession);

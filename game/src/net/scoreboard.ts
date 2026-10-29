@@ -9,8 +9,13 @@ export function compactScores(scores: readonly Score[], nick: string | null): Sc
   return self && !podium.includes(self) ? [...podium, self] : podium;
 }
 
-const row = (score: Pick<Score, 'rank' | 'nick' | 'money' | 'deliveries'>) =>
-  `#${score.rank} ${score.nick} · €${score.money} · ${score.deliveries} ${score.deliveries === 1 ? 'delivery' : 'deliveries'}`;
+const row = (score: Pick<Score, 'rank' | 'nick' | 'earned' | 'deliveries'>) =>
+  `#${score.rank} ${score.nick} · Earned €${score.earned} · ${score.deliveries} ${score.deliveries === 1 ? 'delivery' : 'deliveries'}`;
+
+/** Historical money totals cannot be reconstructed into gross earnings. Keep their original rank. */
+export function normalizeArchivedScore(score: Score | (Omit<Score, 'earned'> & { money: number })): Score {
+  return { ...score, earned: 'earned' in score ? score.earned : score.money };
+}
 
 /** HUD summary and full menu page. Finished hours are fetched only when the menu opens or browses. */
 export class Scoreboard {
@@ -60,7 +65,7 @@ export class Scoreboard {
     this.renderCountdown();
     this.table.replaceChildren();
     const head = this.table.createTHead().insertRow();
-    for (const title of ['#', 'Name', 'Money', 'Deliveries']) {
+    for (const title of ['#', 'Name', 'Earned', 'Deliveries']) {
       const cell = document.createElement('th'); cell.scope = 'col'; cell.textContent = title; head.append(cell);
     }
     const body = this.table.createTBody();
@@ -71,7 +76,7 @@ export class Scoreboard {
       tr.classList.toggle('mp-offline', !score.online);
       if (score.nick === state.you?.nick) tr.setAttribute('aria-current', 'true');
       if (state.scores.indexOf(score) > 2) tr.classList.add('mp-separated');
-      for (const value of [score.rank, score.nick, `€${score.money}`, score.deliveries]) {
+      for (const value of [score.rank, score.nick, `€${score.earned}`, score.deliveries]) {
         tr.insertCell().textContent = String(value);
       }
     }
@@ -125,7 +130,7 @@ export class Scoreboard {
       const response = await fetch(`${base}/scores/${encodeURIComponent(hour.id)}.json`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as { hour: Hour; players: Score[] };
-      this.displayedHour = data.hour; this.scores = data.players; this.status = '';
+      this.displayedHour = data.hour; this.scores = data.players.map(normalizeArchivedScore); this.status = '';
     } catch (error) { this.status = `Scores unavailable: ${String(error)}`; }
     this.show();
   }

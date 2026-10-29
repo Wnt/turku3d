@@ -117,7 +117,7 @@ export class Room {
       }
       this.usedNicks.add(nick);
       p = { id: randomUUID(), session: randomBytes(32).toString('hex'), nick,
-        spawn: SPAWNS[this.spawnIndex++ % SPAWNS.length], money: 0, deliveries: 0,
+        spawn: SPAWNS[this.spawnIndex++ % SPAWNS.length], earned: 0, deliveries: 0, reachedAt: now,
         orders: new Set(), finedPoles: new Set(), pose: null, dirty: false };
       this.players.set(p.id, p);
       this.sessions.set(p.session, p);
@@ -142,12 +142,11 @@ export class Room {
   }
 
   scores() {
-    const sorted = [...this.players.values()].sort((a, b) => b.money - a.money || a.nick.localeCompare(b.nick));
-    let rank = 0;
-    return sorted.map((p, i) => {
-      if (!i || p.money !== sorted[i - 1].money) rank = i + 1;
-      return { nick: p.nick, money: p.money, deliveries: p.deliveries, rank, online: p.online };
-    });
+    // Stable Map order resolves simultaneous timestamps in join order.
+    const sorted = [...this.players.values()].sort((a, b) => b.earned - a.earned
+      || b.deliveries - a.deliveries || a.reachedAt - b.reachedAt);
+    return sorted.map((p, i) => ({ nick: p.nick, earned: p.earned,
+      deliveries: p.deliveries, rank: i + 1, online: p.online }));
   }
 
   presence() {
@@ -175,8 +174,9 @@ export class Room {
     if (!identifier(m.orderId) || !identifier(m.addressId) || !validDelivery(m)
       || p.orders.has(m.orderId) || p.orders.size >= LIMITS.orders) { this.reject(); return; }
     p.orders.add(m.orderId);
-    p.money += m.payout + m.tip;
+    p.earned += m.payout + m.tip;
     p.deliveries++;
+    p.reachedAt = this.now();
     this.stats.deliveries++;
     this.broadcast('scores', { scores: this.scores() });
   }
@@ -193,7 +193,6 @@ export class Room {
     if (m.reason !== 'pole' || !identifier(m.poleId) || m.amount !== 50
       || this.brokenPoles.get(m.poleId)?.by !== p.id || p.finedPoles.has(m.poleId)) { this.reject(); return; }
     p.finedPoles.add(m.poleId);
-    p.money -= 50;
     this.broadcast('scores', { scores: this.scores() });
   }
 
@@ -213,7 +212,7 @@ export class Room {
   tick(now = this.now()) {
     this.vehicles.expire(now);
     while (now >= Date.parse(this.hour.end)) {
-      this.store.write(this.hour, this.scores().map(({ nick, money, deliveries, rank }) => ({ nick, money, deliveries, rank })));
+      this.store.write(this.hour, this.scores().map(({ nick, earned, deliveries, rank }) => ({ nick, earned, deliveries, rank })));
       const continuing = [...this.players.values()].filter(p => p.connection);
       this.hour = hourAt(Date.parse(this.hour.end));
       this.brokenPoles.clear();
@@ -221,7 +220,7 @@ export class Room {
       for (const p of continuing) {
         p.nick = nickname(this.usedNicks, p.nick);
         this.usedNicks.add(p.nick);
-        p.money = 0; p.deliveries = 0;
+        p.earned = 0; p.deliveries = 0; p.reachedAt = now;
         p.finedPoles.clear();
         this.players.set(p.id, p); this.sessions.set(p.session, p);
       }

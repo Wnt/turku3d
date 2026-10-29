@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { compactScores } from '../../src/net/scoreboard';
 import type { Score } from '../../src/net/client';
 
-const score = (nick: string, rank: number, money: number): Score => ({ nick, rank, money, deliveries: money / 10, online: true });
+const score = (nick: string, rank: number, earned: number): Score => ({ nick, rank, earned, deliveries: earned / 10, online: true });
 
 test('HUD keeps competition-rank podium and adds self once', () => {
   const scores = [score('TurboHerring', 1, 30), score('SneakyPizza', 1, 30), score('SunnyScooter', 3, 20), score('HappyFerry', 4, 10)];
@@ -19,4 +19,12 @@ test('crowded HUD stays at four rows and preserves offline self and actual rank'
   scores[31] = { ...scores[31], nick: 'SparklySquirrel', online: false };
   expect(compactScores(scores, 'SparklySquirrel')).toEqual([...scores.slice(0, 3), scores[31]]);
   expect(compactScores(scores, null)).toEqual(scores.slice(0, 3));
+});
+
+test('archives retain recorded totals and ranks for both earned and legacy money schemas', async () => {
+  const { normalizeArchivedScore } = await import('../../src/net/scoreboard');
+  const current = score('TurboHerring', 1, 30);
+  expect(normalizeArchivedScore(current)).toEqual(current);
+  const old = { nick: 'AB', rank: 3, money: -100, deliveries: 2, online: false };
+  expect(normalizeArchivedScore(old)).toEqual({ ...old, earned: -100 });
 });

@@ -111,12 +111,12 @@ test('ephemeral WebSocket server shares pole breaks and fines', async t => {
   const own = await welcomeA;
   const welcomeB = messageOf(b, 'welcome'); b.send(JSON.stringify({ v: 2, type: 'hello' }));
   await welcomeB;
-  const world = messageOf(b, 'world'), scores = messageOf(b, 'scores', m => m.scores.some(s => s.nick === own.you.nick && s.money === -50));
+  const world = messageOf(b, 'world'), scores = messageOf(b, 'scores', m => m.scores.some(s => s.nick === own.you.nick && s.earned === 0));
   const poleId = 't0_0_0:GIS_Liikennemerkit:123';
   a.send(JSON.stringify({ v: 2, type: 'world', action: 'break', poleId, by: own.you.id, t: 1 }));
   a.send(JSON.stringify({ v: 2, type: 'fine', reason: 'pole', poleId, amount: 50 }));
   assert.equal((await world).poleId, poleId);
-  assert.equal((await scores).scores.find(s => s.nick === own.you.nick).money, -50);
+  assert.equal((await scores).scores.find(s => s.nick === own.you.nick).earned, 0);
   const c = await socket(app.ws), welcomeC = messageOf(c, 'welcome');
   c.send(JSON.stringify({ v: 2, type: 'hello' }));
   assert.deepEqual((await welcomeC).brokenPoles.map(p => p.poleId), [poleId]);
