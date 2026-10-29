@@ -313,6 +313,12 @@ def build(
         stairs_geometry=cache.metrics["stairs"]["seconds"],
         stair_ground=cache.metrics["stair_ground"]["seconds"],
     )
+    # Keep later terrain enrichment outside the tunnel's walkable volume.
+    from .openings import stage as opening_stage
+    dry, river, bank, solid, stair_meshes = opening_stage(
+        cache, tunnels.openings, dry, river, bank, solid, stair_meshes
+    )
+    seconds["opening_clearance"] = cache.metrics["opening_clearance"]["seconds"]
     kerb_meshes = cache.run(
         "kerbs",
         source_key(

@@ -725,3 +725,18 @@ between independent rectangular treads. One-metre landing aprons blend the full 
 into ground; visible and collision faces share the same geometry. Terrain triangles whose
 centres lie inside a stair cut retain their original material on the exterior remainder,
 preventing small unsupported wedges beside the stairs and adjoining quay.
+
+### Tunnel clearance after terrain enrichment
+
+`Tunnels.openings` records convex clearance prisms above the generated tunnel
+floors and portal aprons. After bank, stair and retaining geometry, the
+`opening_clearance` stage subtracts those volumes from the visible terrain and
+its collision, and from stair/retaining meshes. The cut interpolates UVs and
+clips vertical faces in 3D, preserving buried ground and upper roads. Building
+passages supply equivalent floor prisms while retaining their original relief.
+This prevents mapped retaining edges crossing inferred quay arches from growing
+solid aprons back through the opening (including the Auransilta market passage).
+`test_tunnel_openings.py` covers the oblique passage in `t0_1_0`, vertical walls,
+UVs, upper support and the shared visual/collision triangles. The selective OCI
+probe also walks collision segments through the actual source passage and audits
+existing cached openings without rebuilding unrelated tiles.
