@@ -39,6 +39,7 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
+    "walkable": ("walkable.py", "../spatial.py", "../ground/inputs.py", "../lidar/cache.py"),
     "wfs": (
         "roofs.py",
         "../buildings/source_surfaces.py",
@@ -133,6 +134,7 @@ class Inputs:
     gardens: dict = field(default_factory=dict)
     boats: list = ()
     wall_context: list = ()  # neighbouring complete buildings for deterministic wall ownership
+    walkable: list = ()  # canonical lidar-fitted river paths and embankment cross sections
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -444,6 +446,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     osm = sources.osm_source(tile)
     return {
         "ground": None if missing else laz,
+        "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
+        if osm and not missing else [],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
         "boats": [osm, wfs[0][1], wfs[2][1]] if osm and all(f for f, _ in wfs[:3]) else [],
         "ortho_canopy": [] if first_pass else roofs.lidar_paths(tile),
@@ -496,6 +500,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .boat_inputs import prepare as prepare_boats
 
         return prepare_boats(tile, *paths) if paths else []
+    if dataset == "walkable":
+        from .walkable import prepare as prepare_walkable
+
+        return prepare_walkable(tile, paths[0], paths[1], paths[2:]) if paths else []
     if dataset == "gardens":
         from .garden_inputs import prepare as prepare_gardens
 
@@ -718,6 +726,7 @@ def gather(
         sources.input_key(tile, first_pass=first_pass) or "",
         gardens=values["gardens"] or {},
         boats=values["boats"],
+        walkable=values["walkable"] or (),
         kerbs=values["kerbs"],
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),

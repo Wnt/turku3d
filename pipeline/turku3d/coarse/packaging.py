@@ -22,6 +22,7 @@ BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 PRODUCERS = (
     "boats",
     "boat_inputs",
+    "walkable",
     "gardens",
     "garden_inputs",
     "build",

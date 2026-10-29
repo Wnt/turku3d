@@ -148,14 +148,38 @@ def deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs):
     return grid_pos, osm_decks, decks, roads
 
 
+def terrain_stage(tile, inputs):
+    """Terrain and deck outputs, including the approaches that mutate the ground grid."""
+    from turku3d.col.materials import mat_id
+
+    from . import gardens, surfaces, walkable
+    from .build import grid_mesh, water_level, water_mask
+
+    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
+    grid_pos = gardens.grade(grid_pos, inputs.gardens)
+    grid_pos = walkable.grade(grid_pos, inputs.walkable)
+    centroids = grid_pos[grid_idx].mean(axis=1)
+    water = inputs.water
+    materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
+    # A bridge deck stays solid where a water polygon runs under it.
+    separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
+    wet = water_mask(centroids, water)
+    if not separate_decks:
+        wet &= materials != mat_id("bridge_deck")
+    level = water_level(inputs.points, water)
+    if wet.any():
+        materials[wet] = mat_id("water")
+    return grid_pos, grid_idx, materials, wet, level
+
+
 def cached_terrain(cache, tile, inputs, common):
     """Keep the structural terrain cache orchestration outside the tile build body."""
     from pathlib import Path
 
     from turku3d.stage_cache import source_key
 
-    from . import gardens, surfaces
-    from .build import grid_mesh, terrain_stage, water_level, water_mask
+    from . import gardens, surfaces, walkable
+    from .build import grid_mesh, water_level, water_mask
 
     return cache.run(
         "terrain",
@@ -166,12 +190,14 @@ def cached_terrain(cache, tile, inputs, common):
             water_level,
             surfaces.classify,
             Path(gardens.__file__),
+            Path(walkable.__file__),
             *common,
         ),
         [
             tile,
             inputs.heights,
             inputs.gardens,
+            inputs.walkable,
             inputs.points,
             inputs.ortho,
             inputs.streets,

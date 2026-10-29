@@ -459,7 +459,9 @@ def paint_visual(tile, positions, indices, materials, keep, polygons):
     )
 
 
-def split_boundaries(positions, indices, materials, keep, regions, fallback_materials=None):
+def split_boundaries(
+    positions, indices, materials, keep, regions, fallback_materials=None, *, preserve_materials=False
+):
     """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals."""
     import mapbox_earcut
 
@@ -510,14 +512,17 @@ def split_boundaries(positions, indices, materials, keep, regions, fallback_mate
         hits = triangle_ids[region_ids == region]
         pieces.append(overlay(shapely.intersection, remaining[hits], polygons[region]))
         owners.append(boundary[hits])
-        channels.append(np.full(len(hits), regions[region][1], np.uint8))
+        channels.append(
+            materials[selected[boundary[hits]]]
+            if preserve_materials else np.full(len(hits), regions[region][1], np.uint8)
+        )
         remaining[hits] = overlay(shapely.difference, remaining[hits], polygons[region])
     pieces.append(remaining)
     owners.append(boundary)
     fallback = materials if fallback_materials is None else fallback_materials
     channels.append(fallback[selected[boundary]])
     parts, parent = shapely.get_parts(np.concatenate(pieces), return_index=True)
-    valid = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) >= 1e-7)
+    valid = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) > 1e-12)
     parts, parent = parts[valid], parent[valid]
     if not len(parts):
         return positions, indices[selected[uncut]], materials[selected[uncut]], normals

@@ -87,7 +87,7 @@ def pond_levels(water, paths):
     return result
 
 
-def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=()):
+def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=(), walks=()):
     """Cut both sides on the same outline, keeping grid and collision-tile constraints.
 
     Mapped quays/walls retain the surveyed rim and descend vertically. Other banks
@@ -96,11 +96,17 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     only; the bank faces are identical in the visual and solid meshes.
     """
     empty = Mesh(np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
+    from . import walkable
+
+    positions, indices, materials, keep = walkable.constrain(
+        positions, indices, materials, keep, walks
+    )
     if not water:
         dry = Mesh(positions, indices[keep], materials[keep]).compact()
         return dry, empty, empty, dry
     body = shapely.union_all(water)
     mapped = [g for g, m in regions if m == mat_id("quay")]
+    mapped.extend(p["line"].buffer(p["width"] / 2) for p in walks)
     mapped.extend(
         g
         for g, tags, *_ in barriers
@@ -113,7 +119,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
         height = points[:, 1].copy()
         distances = [shapely.distance(shapely.points(points[:, [0, 2]]), pond) for pond, _ in ponds]
         nearest = np.argmin(distances, axis=0) if distances else None
-        for number, ((pond, surface), d) in enumerate(zip(ponds, distances)):
+        for number, ((pond, surface), d) in enumerate(zip(ponds, distances, strict=True)):
             # A two-metre grassy lip, then a gradual return to the surveyed hillside.
             lip = surface - 0.15 + 0.25 * np.minimum(d, 2)
             width = np.maximum(2, 1.5 * np.abs(points[:, 1] - lip) / 0.45)
@@ -137,7 +143,10 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     # preserves its planes, avoiding steep slivers at concave shoreline corners.
     positions = positions.copy()
     positions[:, 1] = grade_ponds(positions)
-    cuts = [(body.buffer(3), mat_id("soil"))]
+    # Paved quay corridors retain their surface through the shoreline cut.
+    # Natural grading must not turn their last three metres into bare soil.
+    paving = shapely.union_all([p["line"].buffer(p["width"] / 2) for p in walks])
+    cuts = [(body.buffer(3).difference(paving), mat_id("soil"))]
     for pond, _ in ponds:
         cuts.extend([(pond.buffer(2), mat_id("grass")), (pond.buffer(-1), mat_id("water"))])
     cuts.append((body, mat_id("water")))
@@ -171,6 +180,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
         return height
 
     dry.positions[:, 1] = rim(dry.positions)
+    dry.positions = walkable.grade(dry.positions, walks, inner_only=True)
     # Cancel internal wet edges by coordinates: boundary cutting duplicates vertices.
     edges = np.concatenate([wet_mesh.indices[:, pair] for pair in ([0, 1], [1, 2], [2, 0])])
     xz = np.round(wet_mesh.positions[:, [0, 2]], 9)
@@ -188,6 +198,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     ends = ends[shore]
     top = ends.reshape(-1, 3).copy()
     top[:, 1] = rim(top)
+    top = walkable.grade(top, walks, inner_only=True)
     top = top.reshape(-1, 2, 3)
     bottom = top.copy()
     bottom[:, :, 1] = level - 3
@@ -259,12 +270,13 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
         "river_banks",
         source_key(
             Path(__file__),
+            Path(__file__).with_name("walkable.py"),
             surfaces.split_boundaries,
             Path(C.__file__),
             Path(__file__).parents[1] / "col/materials_v1.json",
         ),
-        [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds],
+        [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable],
         lambda: produce(
-            grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds
+            grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable
         ),
     )

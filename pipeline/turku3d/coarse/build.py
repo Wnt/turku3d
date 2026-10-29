@@ -30,7 +30,7 @@ from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 from turku3d.wall_surfaces import paint_partition, trapezoids
 
-from . import banks, boats, bridges, fences, gardens, kerbs, parked, road_top, surfaces
+from . import banks, boats, bridges, fences, gardens, kerbs, parked, road_top, surfaces, walkable
 from .collision import collision_tiles, solid_triangles  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
@@ -193,24 +193,6 @@ def _write(path: Path, data: bytes) -> None:
     tmp.replace(path)
 
 
-def terrain_stage(tile, inputs):
-    """Terrain and deck outputs, including the approaches that mutate the ground grid."""
-    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
-    grid_pos = gardens.grade(grid_pos, inputs.gardens)
-    centroids = grid_pos[grid_idx].mean(axis=1)
-    water = inputs.water
-    materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
-    # A bridge deck stays solid where a water polygon runs under it.
-    separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
-    wet = water_mask(centroids, water)
-    if not separate_decks:
-        wet &= materials != mat_id("bridge_deck")
-    level = water_level(inputs.points, water)
-    if wet.any():
-        materials[wet] = mat_id("water")
-    return grid_pos, grid_idx, materials, wet, level
-
-
 @managed_build
 def build(
     tile_id: str,
@@ -271,6 +253,7 @@ def build(
         cache, tile, inputs, grid_pos, grid_idx, shells, ground_sources, out.parent
     )
     surface_sample = gardens.sampler(tile, surface_sample, inputs.gardens)
+    surface_sample = walkable.sampler(surface_sample, inputs.walkable)
     own_keys = {b.key for b in blds}
     wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
     shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
@@ -745,7 +728,8 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
-        stairs=stairs.stats(stair_meshes),
+        stairs=stairs.stats(stair_meshes, inputs.stairs),
+        walkable=walkable.stats(tile, inputs.walkable),
         gardens=gardens.stats(tile, inputs.gardens),
         boats=boats.stats(tile, inputs.boats, boat_meshes),
         marking_triangles=len(paint.indices) if paint is not None else 0,
