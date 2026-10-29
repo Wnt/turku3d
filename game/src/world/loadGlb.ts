@@ -3,11 +3,13 @@ import type { GLTFLoader, GLTF, GLTFLoaderPlugin } from 'three/addons/loaders/GL
 import { PreparationBudget } from '../render/preparationBudget';
 import { applyJsonRecords } from './glbRecords';
 import type { decodeGlb } from './decodeGlb';
-import { sharedAssetKey, sharedBuffers } from './sharedAssets';
+import { AssetCache, sharedAssetKey, sharedBuffers } from './sharedAssets';
 
 type Decoded = ReturnType<typeof decodeGlb>;
 let worker: Worker | undefined, sequence = 0;
 const budget = new PreparationBudget();
+// Cache immutable visual bytes, not mutable glTF objects or their render resources.
+const visualBuffers = new AssetCache<ArrayBuffer>(128 * 1024 ** 2, buffer => buffer.byteLength);
 const pending = new Map<number, { objects: Record<string, unknown>[]; resolve: (decoded: Decoded) => void; reject: (error: Error) => void }>();
 function decode(buffer: ArrayBuffer): Promise<Decoded> {
   if (!worker) {
@@ -54,6 +56,9 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
   } finally { loader.unregister(plugin); }
 }
 export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
-  const buffer = await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer;
-  return parseDecodedGlb(loader, await decode(buffer), LoaderUtils.extractUrlBase(url));
+  const load = async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer;
+  const key = /\/coarse\/t0_-?\d+_-?\d+\/vis\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
+  const buffer = key ? await visualBuffers.get(key, load) : await load();
+  // The worker owns and detaches its input; keep cached originals intact across revisits.
+  return parseDecodedGlb(loader, await decode(key ? buffer.slice(0) : buffer), LoaderUtils.extractUrlBase(url));
 }
