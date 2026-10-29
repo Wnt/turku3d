@@ -159,7 +159,7 @@ async function draftWorld() {
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
-    style: m => materials?.apply(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
+    style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   return { physics, rapier, manifest, streamer, coarse };
@@ -274,7 +274,7 @@ async function runPlay() {
   const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
-    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, groundAt,
+    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
     loadingScreen, syncClock: time => dayClock.synchronize(time), clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in

@@ -107,7 +107,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
   const seated = new SeatedVehicles(root, physics, groundAt);
-  const parkedVisuals = new ParkedCarVisuals(root);
+  const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);

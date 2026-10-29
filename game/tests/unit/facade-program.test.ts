@@ -18,3 +18,13 @@ it('keeps program fields exact and below the WebGPU vertex-buffer limit', () => 
   interleaveProgram(geometry);
   expect(geometry.getAttribute('_kit_opening')).toBe(first);
 });
+
+it('worker packing preserves normalized integer fields and independent source arrays', async () => {
+  const { packProgram } = await import('../../src/render/packProgram');
+  const first = new Uint8Array([0, 255, 128, 64]);
+  const second = new Float32Array([9, 10]);
+  const packed = packProgram([{ array: first, itemSize: 2, normalized: true },
+    { array: second, itemSize: 1, normalized: false }]);
+  expect([...packed]).toEqual([0, 1, 9, Math.fround(128 / 255), Math.fround(64 / 255), 10]);
+  expect([...first]).toEqual([0, 255, 128, 64]); expect([...second]).toEqual([9, 10]);
+});

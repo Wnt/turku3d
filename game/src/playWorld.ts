@@ -37,6 +37,7 @@ export interface PlayWorld {
   hudEl: HTMLElement;
   loadingScreen: LoadingScreen;
   renderFrame: () => void;
+  prepareGraphics: (model: THREE.Object3D) => Promise<void>;
   /** The shared clock; restoration only affects an unpinned developer clock. */
   clockTime: () => Date;
   syncClock?: (serverTime: number) => void;
