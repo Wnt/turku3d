@@ -87,6 +87,8 @@ class Building:
         self.attributes = {}
         self.roof_parts = []
         self.height_evidence = []
+        centre = footprint.centroid
+        self.visual_owner = C.VisualTile.at(centre.x, centre.y).id
 
 
 @dataclass
@@ -230,12 +232,15 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
         polys = [g for g in getattr(footprint, "geoms", [footprint]) if g.geom_type == "Polygon"]
         if not polys:
             continue
-        for part_index, footprint in enumerate(sorted(polys, key=lambda p: (-p.area, p.wkb))):
+        polys = sorted(polys, key=lambda p: (-p.area, p.wkb))
+        centre = polys[0].centroid
+        owner = C.VisualTile.at(centre.x, centre.y)
+        if owner != tile:
+            continue
+        for part_index, footprint in enumerate(polys):
             if footprint.area < 0.01:
                 continue
             c = footprint.centroid
-            if not tile.bbox.contains(c.x, c.y):
-                continue
             grounds = group[ground & local.loc[group.index].intersects(footprint)]
             heights = np.concatenate(
                 [np.asarray(g.exterior.coords)[:, 2] for g in grounds.geometry]
@@ -260,6 +265,9 @@ def buildings(path: Path, tile: C.VisualTile) -> list[Building]:
                 "facade_plaster",
             )
 
+            building.visual_owner = owner.id
+            if not tile.bbox.contains(c.x, c.y):
+                building._collision_owner = C.CollisionTile.at(centre.x, centre.y)
             building.roof_parts = roofs.envelope(footprint, roof_surfaces.geometry_local, top)
 
             def value(*columns, group=group):

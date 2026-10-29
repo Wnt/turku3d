@@ -402,6 +402,7 @@ test('visual and collision upgrades commit together after the replacement is rea
   expect(first.parent).toBe(scene);
   expect(manifest.collision.c_8_0.sha256).toBe('first');
   expect(refreshed).toEqual([]);
+  full.addEventListener('added', () => { expect(first.parent).toBeNull(); });
   release(full); await settle();
   expect(first.parent).toBeNull();
   expect(full.parent).toBe(scene);

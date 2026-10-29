@@ -8,7 +8,7 @@ from turku3d import config as C
 from turku3d.package.gltf import GlbMesh
 from turku3d.tile_layer import identities
 
-from .stored_facades import wall_meshes
+from .stored_facades import assemble_walls, wall_meshes
 
 
 def building_visual(tile, shells, ortho, first_pass):
@@ -45,7 +45,7 @@ def building_visual(tile, shells, ortho, first_pass):
                 ),
             )
         )
-    for b, (_, _, _, _, walls, _, _) in shells:
+    for (b, _), walls in zip(shells, assemble_walls(shells), strict=True):
         meshes.extend(wall_meshes(b, walls, origin))
     return meshes
 

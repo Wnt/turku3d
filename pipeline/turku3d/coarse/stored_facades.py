@@ -61,7 +61,7 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
 
 
 
-def exposed_wall_quads(walls):
+def exposed_wall_quads(walls, *, with_owners=False):
     """Paint one surface per outward wall, including near-coincident LOD2 slivers.
 
     Roof-part solids remain closed for collision. Their independently simplified
@@ -74,14 +74,14 @@ def exposed_wall_quads(walls):
 
     quads = np.asarray(walls).reshape(-1, 4, 3)
     if not len(quads):
-        return walls
+        return (walls, []) if with_owners else walls
     starts = quads[:, 0][:, [0, 2]]
     directions = quads[:, 1][:, [0, 2]] - starts
     lengths = np.linalg.norm(directions, axis=1)
     directions = directions / lengths[:, None]
     priority = sorted(range(len(quads)), key=lambda i: (-quads[i, 2:, 1].max(), -lengths[i], i))
     rank = np.argsort(priority)
-    result = []
+    result, owners = [], []
     for i, vertices in enumerate(quads):
         direction = directions[i]
         normal = np.array([-direction[1], direction[0]])
@@ -104,43 +104,47 @@ def exposed_wall_quads(walls):
         )
         if not len(candidates):
             result.append(vertices)
+            owners.append(i)
             continue
         surface = shapely.Polygon(np.c_[along[i], vertices[:, 1]])
         occluders = [shapely.Polygon(np.c_[along[j], quads[j, :, 1]]) for j in candidates]
         remainder = surface.difference(shapely.union_all(occluders))
         if remainder.equals(surface):
             result.append(vertices)
+            owners.append(i)
             continue
-        # Vertical slabs of the planar difference are trapezoids, preserving
-        # sloping eaves and partial-height overlaps without extra paint layers.
-        for polygon in shapely.get_parts(remainder):
-            if polygon.geom_type != "Polygon" or polygon.area < 1e-6:
-                continue
-            cuts = sorted(set(np.asarray(polygon.exterior.coords)[:, 0]))
-            for left, right in zip(cuts, cuts[1:]):
-                if right - left < 1e-6:
-                    continue
-                slab = polygon.intersection(shapely.box(left, -10000, right, 10000))
-                for part in shapely.get_parts(slab):
-                    if part.geom_type != "Polygon" or part.area < 1e-6:
-                        continue
-                    xy = np.asarray(part.exterior.coords)
-                    lo = xy[np.isclose(xy[:, 0], left, atol=1e-7, rtol=0), 1]
-                    hi = xy[np.isclose(xy[:, 0], right, atol=1e-7, rtol=0), 1]
-                    if not len(lo) or not len(hi):
-                        continue
-                    points = np.array([vertices[0]] * 4)
-                    points[:, [0, 2]] = starts[i] + np.array([left, right, right, left])[:, None] * direction
-                    points[:, 1] = [lo.min(), hi.min(), hi.max(), lo.max()]
-                    result.append(points)
-    return np.asarray(result, float).reshape(-1, 3)
+        from turku3d.wall_surfaces import trapezoids
+
+        for xy in trapezoids(remainder):
+            points = np.array([vertices[0]] * 4)
+            points[:, [0, 2]] = starts[i] + xy[:, :1] * direction
+            points[:, 1] = xy[:, 1]
+            result.append(points)
+            owners.append(i)
+    output = np.asarray(result, float).reshape(-1, 3)
+    return (output, owners) if with_owners else output
+
+
+def assemble_walls(shells):
+    """Resolve all roof parts, footprint and passage splits together before paint."""
+    counts = [len(shell[4]) // 4 for _, shell in shells]
+    if not sum(counts):
+        return [np.empty((0, 3)) for _ in shells]
+    walls, owners = exposed_wall_quads(
+        np.concatenate([shell[4] for _, shell in shells]), with_owners=True
+    )
+    source = np.repeat(np.arange(len(shells)), counts)
+    owner = source[owners]
+    quads = walls.reshape(-1, 4, 3)
+    return [quads[owner == i].reshape(-1, 3) for i in range(len(shells))]
 
 
 def wall_meshes(b, walls, origin):
+    if not len(walls):
+        return []
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_programs import compile_wall, resolve
 
-    walls = exposed_wall_quads(walls)
     stored = prepare_walls(building(b.facade_key).get("facades", []))
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
@@ -214,6 +218,7 @@ def wall_meshes(b, walls, origin):
                     object_id=f"walls_{b.key}",
                     building_id=b.facade_key,
                     material_key="facade_kit",
+                    surface="wall",
                     base_height=b.base,
                     top_height=b.top,
                     facade_kit=instructions[0],

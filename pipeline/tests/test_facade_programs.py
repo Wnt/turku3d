@@ -83,7 +83,10 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     assert [row[2]["origin"] for row in patches] == [[1, 3], [8, 3]]
     assert [row[2]["size"] for row in patches] == [[2, 2], [3, 2]]
     blank = [row for row in parts if row[2]["module"] >= 42]
-    assert len(blank) == 1 and blank[0][0][:, 1].max() == 6
+    # The blank background is cut around the two openings, never drawn behind them.
+    import shapely
+    assert max(row[0][:, 1].max() for row in blank) == 6
+    assert sum(shapely.Polygon(row[1]).area for row in blank) == pytest.approx(23.3 * 4 - 10)
     assert any(row[0][:, 1].min() == 6 and row[2]["module"] < 42 for row in parts)
     wall["observation"]["scope"] = "full-wall"
     full = list(wall_parts(vertices, wall, style))

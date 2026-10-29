@@ -526,6 +526,7 @@ def build(
             len(blds),
             seconds,
             started,
+            shells,
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -672,6 +673,7 @@ def build(
             *palette_sources(),
             base / "facade_programs.py",
             base / "facade_program_geometry.py",
+            base / "wall_surfaces.py",
             C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
             C.REPO_ROOT / "textures/turkutex/facade_program.py",
             jpeg,
@@ -681,6 +683,10 @@ def build(
         [tile, shells, inputs.ortho, False, facade_params],
         lambda: building_visual(tile, shells, inputs.ortho, False),
     )
+    from turku3d.wall_surfaces import validate_meshes, validate_neighbours
+
+    validate_meshes(building_meshes, tile.id)
+    validate_neighbours(building_meshes, shells, tile, out.parent)
     if building_meshes:
         programs = [m.extras.pop("facade_program") for m in building_meshes
                     if "facade_program" in m.extras]

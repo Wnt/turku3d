@@ -398,8 +398,11 @@ export class CoarseTiles {
     const model = await this.load(new URL(fragment.visual[id].url, base).href);
     if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
     if (!await this.prepareModel(id, e, model)) return;
+    // Detach before attaching: scene hooks must never observe both passes.
+    const old = e.model;
+    old?.removeFromParent();
     this.host.scene.add(model);
-    const old = e.model; e.model = model; e.visualHash = fragment.visual[id].sha256;
+    e.model = model; e.visualHash = fragment.visual[id].sha256;
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]));
     e.state = 'draft';
     this.takeVehicles(e, fragment, base);
