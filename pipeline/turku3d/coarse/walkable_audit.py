@@ -21,7 +21,9 @@ def heights(triangles, query, target):
     normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
     triangles = triangles[np.abs(normal[:, 1]) > 1e-8]
     tree = shapely.STRtree(shapely.polygons(triangles[:, :, [0, 2]]))
-    q, t = tree.query(shapely.points(query), predicate="intersects")
+    # Cut edges and float32 collision cells can differ by a few micrometres.
+    # Accept that numerical seam without masking centimetre-scale floor gaps.
+    q, t = tree.query(shapely.points(query), predicate="dwithin", distance=1e-5)
     triangle = triangles[t]
     a = triangle[:, 0]
     b, c = triangle[:, 1] - a, triangle[:, 2] - a
@@ -49,6 +51,37 @@ def roughness(y):
         missing=int((~finite).sum()),
         max_step_25cm_m=float(np.max(abs(np.diff(y))[pairs], initial=0)),
         max_dent_2m_m=float(np.max(abs(y[4:-4] - (y[:-8] + y[8:]) / 2)[dents], initial=0)),
+    )
+
+
+def area_metrics(triangles, domain, scene):
+    """Measure geometric gaps and sampled floor disagreement independently."""
+    normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    supported = np.abs(normal[:, 1]) > 1e-8
+    coverage = shapely.union_all(shapely.polygons(triangles[supported][:, :, [0, 2]]))
+    holes = [g for g in shapely.get_parts(domain.difference(coverage)) if g.area > 1e-4]
+    # Projection coverage and surface height are separate measurements. A whole
+    # triangle's centroid height says nothing about its height inside the domain.
+    xmin, zmin, xmax, zmax = domain.bounds
+    x, z = np.meshgrid(
+        np.arange(np.ceil(xmin * 2) / 2, xmax, 0.5), np.arange(np.ceil(zmin * 2) / 2, zmax, 0.5)
+    )
+    query = np.c_[x.ravel(), z.ravel()]
+    query = query[shapely.contains_xy(domain, query[:, 0], query[:, 1])]
+    expected = walkable.grade(np.c_[query[:, 0], np.full(len(query), -999.0), query[:, 1]], scene)[
+        :, 1
+    ]
+    query, expected = query[expected > -900], expected[expected > -900]
+    actual = heights(triangles, query, expected)
+    errors = abs(actual - expected)
+    height_misses = ~np.isfinite(actual) | (errors > 0.35)
+    return dict(
+        collision_holes=len(holes),
+        collision_hole_area_m2=float(sum(g.area for g in holes)),
+        collision_area_height_samples=len(query),
+        collision_area_height_misses=int(height_misses.sum()),
+        collision_area_height_error_max_m=float(np.max(errors[np.isfinite(errors)], initial=0)),
+        audited_area_m2=float(domain.area),
     )
 
 
@@ -151,22 +184,11 @@ def audit(root, output):
     domain = shapely.union_all(domains).intersection(window).difference(excluded)
     water = shapely.union_all(inputs.water)
     domain = domain.difference(water).intersection(water.buffer(25))
-    centres = triangles.mean(axis=1)
-    expected = walkable.grade(
-        np.c_[centres[:, 0], np.full(len(centres), -999.0), centres[:, 2]], inputs.walkable
-    )[:, 1]
-    supported = (expected > -900) & (abs(centres[:, 1] - expected) < 0.35)
-    normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
-    supported &= np.abs(normal[:, 1]) > 1e-8
-    coverage = shapely.union_all(shapely.polygons(triangles[supported][:, :, [0, 2]]))
-    holes = [g for g in shapely.get_parts(domain.difference(coverage)) if g.area > 1e-4]
     result = dict(
         tile=tile.id,
         paths=rows,
         collision_ray_misses=total_missing,
-        collision_holes=len(holes),
-        collision_hole_area_m2=float(sum(g.area for g in holes)),
-        audited_area_m2=float(domain.area),
+        **area_metrics(triangles, domain, inputs.walkable),
         stairs=manifest["stairs"],
         endpoint_corrections=corrections,
         walkable=manifest["walkable"],

@@ -106,3 +106,75 @@ def test_exact_paving_edge_does_not_inherit_missing_slope_samples():
     query = np.array([[100, -2, z] for z in (18.5 - 1e-12, 18.5, 20, 21.5, 21.5 + 1e-12)])
     result = walkable.grade(query, [patch])
     np.testing.assert_allclose(result[:, 1], 2.3, atol=0.02)
+
+
+def test_intersecting_quay_bands_preserve_both_levels_and_their_centrelines():
+    from turku3d.coarse.walkable_audit import heights, roughness
+
+    scene = []
+    for key, z, level, slope in (("lower", 10.4, 1.2, 0), ("ramp", 13.1, 2, 0.1)):
+        knots = np.arange(0, 41, 8)
+        scene.append(
+            dict(
+                key=key,
+                line=shapely.LineString([(0, z), (40, z)]),
+                width=3,
+                knots=knots,
+                cross=np.array([-7.5, -4.5, -1.5, 0, 1.5, 4.5, 7.5]),
+                heights=np.repeat((level + slope * knots)[:, None], 7, axis=1),
+            )
+        )
+    x, z = np.meshgrid(np.arange(0, 41, 2.5), np.arange(5, 21, 2.5))
+    pos = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
+    n = x.shape[1]
+    a = (np.arange(x.shape[0] - 1)[:, None] * n + np.arange(n - 1)).ravel()
+    idx = np.r_[np.c_[a, a + n, a + 1], np.c_[a + 1, a + n, a + n + 1]].astype(np.uint32)
+    p, ix, ids, _ = walkable.constrain(
+        pos, idx, np.full(len(idx), 8, np.uint8), np.ones(len(idx), bool), scene
+    )
+    assert np.all(ids == 8)
+    cover = shapely.union_all(shapely.polygons(p[ix][:, :, [0, 2]]))
+    assert shapely.box(0, 5, 40, 20).difference(cover).area < 1e-9
+    for patch in scene:
+        query = np.c_[np.arange(2, 38, 0.25), np.full(144, patch["line"].coords[0][1])]
+        target = walkable.grade(np.c_[query[:, 0], np.zeros(len(query)), query[:, 1]], scene)[:, 1]
+        actual = heights(p[ix], query, target)
+        np.testing.assert_allclose(actual, target, atol=1e-6)
+        assert roughness(actual)["max_dent_2m_m"] < 1e-6
+
+
+def test_floor_ray_accepts_micrometre_seams_but_detects_real_gaps():
+    from turku3d.coarse.walkable_audit import heights
+
+    triangles = np.array([[[0, 2, 0], [1, 2, 0], [0, 2, 1]]], dtype=float)
+    query = np.array([[-1e-6, 0.2], [-0.01, 0.2], [0.2, 0.2]])
+    actual = heights(triangles, query, np.full(3, 2))
+    np.testing.assert_allclose(actual[[0, 2]], 2)
+    assert np.isnan(actual[1])
+
+
+def test_area_audit_separates_floor_height_from_projected_coverage():
+    from turku3d.coarse.walkable_audit import area_metrics
+
+    patch = dict(
+        line=shapely.LineString([(10, 10), (20, 10)]),
+        width=3,
+        knots=np.array([0, 10]),
+        cross=np.array([-7.5, -4.5, -1.5, 0, 1.5, 4.5, 7.5]),
+        heights=np.full((2, 7), 2.0),
+    )
+    # The triangle covers the paving although its centroid is outside the fit.
+    triangle = np.array([[[0, 2, 0], [100, 2, 0], [0, 2, 100]]], dtype=float)
+    domain = shapely.box(12, 9.5, 14, 10.5)
+    good = area_metrics(triangle, domain, [patch])
+    assert good["collision_holes"] == 0
+    assert good["collision_area_height_samples"] > 0
+    assert good["collision_area_height_misses"] == 0
+    assert good["collision_area_height_error_max_m"] < 1e-10
+    triangle[:, :, 1] = 0
+    wrong_height = area_metrics(triangle, domain, [patch])
+    assert wrong_height["collision_holes"] == 0
+    assert wrong_height["collision_area_height_misses"] == good["collision_area_height_samples"]
+    missing = area_metrics(triangle[:, :, :] + [100, 0, 0], domain, [patch])
+    assert missing["collision_holes"] == 1
+    assert missing["collision_hole_area_m2"] == domain.area

@@ -233,9 +233,17 @@ def constrain(positions, indices, materials, keep, scene):
     regions = []
     for patch in scene:
         for radius in (patch["width"] / 2, patch["width"] / 2 + 3):
-            regions.append((patch["line"].buffer(radius, cap_style="flat", join_style="mitre"), 0))
+            for sign in (-1, 1):
+                regions.append(
+                    (patch["line"].buffer(sign * radius, single_sided=True, join_style="mitre"), 0)
+                )
     if not regions:
         return positions, indices, materials, keep
+    # Surface overlays use last-region precedence. Polygonize their complete
+    # linework first so an outer band or another corridor cannot erase an inner
+    # paving edge or centreline and bridge two independently fitted levels.
+    boundaries = shapely.union_all(shapely.boundary([g for g, _ in regions]))
+    regions = [(g, 0) for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(boundaries)))]
     # The split is geometric only: restore each cut piece's original material.
     p, ix, ids, _ = split_boundaries(
         positions, indices, materials, keep, regions, preserve_materials=True
