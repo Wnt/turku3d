@@ -25,7 +25,7 @@ function decode(buffer: ArrayBuffer): Promise<Decoded> {
 export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
     name: 'TURKU_decoded_glb', beforeRoot: async () => {
-      if (decoded.binary) parser.cache.add('buffer:0', Promise.resolve(decoded.binary));
+      if (decoded.binary) (parser as unknown as { cache: { add(key: string, value: Promise<ArrayBuffer>): void } }).cache.add('buffer:0', Promise.resolve(decoded.binary));
     },
   });
   loader.register(plugin);

@@ -6,7 +6,9 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
-import { isolateBrowser, reportsRoot } from '../../tools/dev/environment.mjs';
+import { createServer } from '../../server/http.js';
+import { ScoreStore } from '../../server/store.js';
+import { isolateBrowser, reportsRoot, port } from '../../tools/dev/environment.mjs';
 
 isolateBrowser();
 const [label = 'current', url = 'https://wnt.github.io/turku-game/game/', requirement = 'bundled'] = process.argv.slice(2);
@@ -36,9 +38,13 @@ const context = await chromium.launchPersistentContext(path.join(process.env.TUR
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
   viewport: { width: 2560, height: 1440 }, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
 });
+let room;
 const hardStop = setTimeout(() => { void context.close(); }, 440_000);
 try {
   for (const cache of ['cold', 'warm']) {
+    room = createServer({ store: new ScoreStore(path.join(out, `${cache}-scores`)) });
+    await new Promise((resolve, reject) => { room.server.once('error', reject); room.server.listen(port(4), '127.0.0.1', resolve); });
+    const runUrl = new URL(url); runUrl.searchParams.set('mp', `ws://127.0.0.1:${port(4)}/`);
     const page = await context.newPage(), cdp = await context.newCDPSession(page);
     await cdp.send('Network.enable');
     if (cache === 'cold') await cdp.send('Network.clearBrowserCache');
@@ -53,7 +59,7 @@ try {
     }));
     cdp.on('Network.loadingFinished', e => Object.assign(requests.get(e.requestId) ?? {}, { end: e.timestamp, bytes: e.encodedDataLength }));
     cdp.on('Network.loadingFailed', e => Object.assign(requests.get(e.requestId) ?? {}, { error: e.errorText }));
-    page.on('pageerror', e => errors.push(e.message));
+    page.on('pageerror', e => { if (!errors.includes(e.message)) errors.push(e.message); });
     if (diagnostic) await page.addInitScript(installStreamingProfile);
     await page.addInitScript(({ seconds }) => {
       localStorage.clear(); sessionStorage.clear();
@@ -91,7 +97,7 @@ try {
     let failure = null;
     const navigated = Date.now();
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(runUrl.href, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForFunction(() => window.__initialLoad.ready !== null || window.__qaError, null, { timeout: 190000 });
       const qaError = await page.evaluate(() => window.__qaError);
       if (qaError) throw new Error(qaError);
@@ -108,6 +114,7 @@ try {
         await page.evaluate(installScenario, { flightSeconds: 0 });
         await page.evaluate(() => window.__air.prepareDrive());
         await page.waitForFunction(() => window.__game.state().mode === 'car', null, { timeout: 45000 });
+        assert.equal(await page.evaluate(() => window.__game.state().drivenId), 'player', 'route controls the occupied starter car');
         await page.evaluate(() => window.__air.beginDrive());
         await page.waitForTimeout(120000);
         await page.evaluate(() => window.__air.stop());
@@ -152,6 +159,7 @@ try {
     console.log(JSON.stringify(result.summary));
     checks.push({ cache, ...result.summary.frames });
     await page.close();
+    await room.close(); room = null;
     if (failure) throw new Error(failure);
     assert.deepEqual(errors, []);
     assert.deepEqual(result.state.errors, []);
@@ -165,4 +173,4 @@ try {
     assert.equal(check.over50, 0, `${check.cache}: zero frames over 50 ms`);
     assert.ok(check.p99 <= 33, `${check.cache}: p99 <= 33 ms (observed ${check.p99})`);
   }
-} finally { clearTimeout(hardStop); await context.close(); }
+} finally { clearTimeout(hardStop); await context.close(); await room?.close(); }
