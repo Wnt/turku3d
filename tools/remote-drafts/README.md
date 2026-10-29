@@ -314,7 +314,7 @@ Serving capacity acceptance uses the existing forwarder load binary on native
 OCI loopback, three mixed and three cached 10-player runs at 32 parallel fetches
 per player. It checks body validation, HTTP/transport failures, cached p95 below
 1.5 seconds, CORS, ten live multiplayer sockets and concurrent producer activity.
-The probe refuses ten-player load before October 29 23:00 UTC:
+The operator's temporary testing hold was lifted; run through the owned slot:
 
 ```sh
 source ../sandbox.env
