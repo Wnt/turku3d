@@ -23,6 +23,8 @@ class DeploymentTests(unittest.TestCase):
 
             def remote(command):
                 calls.append(command)
+                if 'hashlib.sha256()' in command:
+                    return 'old' if "sources/previous" in command else 'new'
                 if 'readlink -f' in command:
                     return '/home/ubuntu/turku3d-drafts/sources/previous'
                 if 'ACTIVE_PORT' in command and command.startswith('cat '):
@@ -36,6 +38,7 @@ class DeploymentTests(unittest.TestCase):
                 return ''
 
             with (patch.dict(os.environ, TURKU3D_WORK=temp),
+                  patch.object(deploy_drafts, 'canary', return_value={'full_seconds': 8.}),
                   patch.object(deploy_drafts, 'remote', side_effect=remote),
                   patch.object(deploy_drafts.subprocess, 'check_output', return_value=commit),
                   patch.object(deploy_drafts.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', ''))):
@@ -58,6 +61,41 @@ class DeploymentTests(unittest.TestCase):
             self.assertFalse(result['proxy_restarted'])
             self.assertEqual(result['active_port'], 7766)
             self.assertIn('update-multiplayer.sh', calls[-1])
+
+    def test_failed_canary_never_switches_and_client_only_skips_slot(self):
+        for changed in (True, False):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temp:
+                commit = 'c' * 40
+                (Path(temp) / 'build/draft-deploy' / commit).mkdir(parents=True)
+                calls = []
+
+                def remote(command):
+                    calls.append(command)
+                    if 'readlink -f' in command:
+                        return '/previous'
+                    if 'hashlib.sha256()' in command:
+                        return 'old' if changed and "'/previous'" in command else 'new'
+                    if command.startswith('cat ') and 'ACTIVE_PORT' in command:
+                        return '7765'
+                    if command.startswith('cat ') and 'ACTIVE_UNIT' in command:
+                        return 'old-unit'
+                    return ''
+
+                with (patch.dict(os.environ, TURKU3D_WORK=temp),
+                      patch.object(deploy_drafts, 'remote', side_effect=remote),
+                      patch.object(deploy_drafts, 'canary', side_effect=ValueError('full timeout')) as build,
+                      patch.object(deploy_drafts.subprocess, 'check_output', return_value=commit),
+                      patch.object(deploy_drafts.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', ''))):
+                    if changed:
+                        with self.assertRaisesRegex(ValueError, 'full timeout'):
+                            deploy_drafts.deploy(Path(temp), commit)
+                        self.assertIn('systemctl --user stop turku-drafts-slot@7766', calls)
+                    else:
+                        self.assertTrue(deploy_drafts.deploy(Path(temp), commit)['generator_unchanged'])
+                        build.assert_not_called()
+                        self.assertFalse(any('systemctl' in c for c in calls))
+                self.assertFalse(any('--signal=USR1 turku-drafts-proxy' in c for c in calls))
+                self.assertFalse(any('stop old-unit' in c for c in calls))
 
     def test_reused_snapshot_still_updates_multiplayer(self):
         with tempfile.TemporaryDirectory() as temp:

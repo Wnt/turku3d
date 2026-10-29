@@ -650,6 +650,8 @@ def main():
             else "\n".join(f"{row['name']}  {row['branch']}  {row['state']}" for row in rows)
         )
     elif a.cmd == "checks":
+        import build_health
+        build_health.print_live()
         import post_deploy
 
         latest = {row["job"]: row for row in post_deploy.history()}

@@ -148,7 +148,9 @@ def public_handler(builder, prefetcher, settings):
             if route == "health":
                 return self._json(200, {"state": "online", "instance": instance,
                                         "failure_count": builder.failure_count, "failed_tiles": len(builder.failed),
-                                        "prebuild": idle.status() if idle else None})
+                                        "prebuild": idle.status() if idle else None,
+                                        "build_health": builder.build_health.snapshot(
+                                            bool(builder.demand.clients) or bool(idle and idle.online))})
             if route == "invalid":
                 return self._json(404, {"error": "route"})
             name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]

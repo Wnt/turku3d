@@ -34,6 +34,7 @@ from .request_journal import RequestJournal, complete_tile, request_tile
 from .sources import NoCoverage, Sources, Unit
 from .upgrade_queue import next_job, next_upgrade
 from .worker_pool import Workers
+from .build_health import BuildHealth
 
 REPO = Path(__file__).resolve().parents[3]
 TILE = re.compile(r"^t0_-?\d+_-?\d+$")
@@ -161,6 +162,7 @@ class Builder:
         self.failed: dict[str, tuple[str, float]] = {}
         self.failure_codes: dict[str, tuple] = {}
         self.failure_count = 0
+        self.build_health = BuildHealth(root)
         self.pending: dict[str, tuple[list[str], float]] = {}  # tile -> (missing units, distance)
         self.timings: dict[str, dict] = {}  # the latest STATUS_ITEMS builds, oldest first
         self.code_seen = self.code()  # producer hash of the latest check, for /coarse/status
@@ -510,6 +512,8 @@ class Builder:
 
                 finish_report(out / "stage-times.json", outcome, proc.stderr if outcome == "FAILED" else None)
                 self.lock.notify_all()
+                self.build_health.record("full" if upgrade or not self.two_pass else "first",
+                                         outcome, seconds, proc.stderr or proc.stdout)
                 print(json.dumps({"job": tile, "at": time.time(), "seconds": round(seconds, 3),
                                   "pass": "full" if upgrade else "first", "outcome": outcome}), flush=True)
                 print(
