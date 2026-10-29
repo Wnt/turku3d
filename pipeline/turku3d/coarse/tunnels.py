@@ -582,12 +582,17 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             # Offset curves can reverse at tight OSM corners. Emit each measured section
             # into one mesh instead of mitering the already-mitered side a second time.
             wall = Faces()
-            for i in range(len(side) - 1):
-                if np.linalg.norm(side[i + 1] - side[i]) < 1e-6:
-                    continue
+            centres = side + (1 if name == "left" else -1) * offset * 0.2
+            # A wall's 0.4 m footprint cannot reach this tile from outside this box.
+            # Keep the complete original section wherever it can intersect, so
+            # foundation heights and seam geometry stay identical.
+            visible = np.all(np.maximum(centres[:-1], centres[1:]) + 0.2 >= clip_low, axis=1)
+            visible &= np.all(np.minimum(centres[:-1], centres[1:]) - 0.2 <= clip_high, axis=1)
+            visible &= np.linalg.norm(np.diff(side, axis=0), axis=1) >= 1e-6
+            for i in np.flatnonzero(visible):
                 section = grounded_wall(
                     f"tunnel:{key}:{name}",
-                    side[i : i + 2] + (1 if name == "left" else -1) * offset[i : i + 2] * 0.2,
+                    centres[i : i + 2],
                     side_floor[i : i + 2] - 0.2,
                     side_floor[i : i + 2] + spring + 0.3,
                     surface_sample or sample,

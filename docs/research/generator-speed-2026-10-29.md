@@ -19,11 +19,12 @@ GeoParquet reads and area inputs, selects building rows before classification, s
 decorative input preparation in first passes, and batches triangle/bridge assembly.
 Per-stage input identities and a separate structural producer identity avoid rebuilding
 structural geometry after unrelated facade changes. Urgent structural demand can
-replace less urgent queued work. Separate first/full workers prevent a first pass
-from waiting for a queued texture pass; four CPUs still share running CPU work.
+replace less urgent queued work. First passes take queue priority and can cancel running full upgrades when
+urgent structural demand needs their slots. Four CPUs still share running CPU work.
 
 The latest tunnel change batches terrain-cut classification and wall triangle appends.
-On t0_6_-1, tunnel time fell from 8.703 to 7.537 seconds. Cold input preparation differed
+On t0_6_-1, tunnel time fell from 8.703 to 7.537 seconds. Batched terrain
+intersections and culling wall sections outside the tile then reduced it to 5.791 seconds. Cold input preparation differed
 between runs, so total wall time is not a controlled comparison. Canonical collision
 triangles, winding and materials match bitwise on t0_6_-1 and t0_1_2: 32 cells,
 112,822 triangles. The 17 tunnel regression tests pass.
