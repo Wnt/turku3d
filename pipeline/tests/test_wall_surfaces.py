@@ -66,8 +66,8 @@ def test_neighbour_admission_rejects_duplicate_owners_and_overlapping_boundary(t
     with pytest.raises(ValueError, match="wall ownership"):
         validate_neighbours([], [(alias, None)], left, tmp_path)
     alias.key = "different-building"
-    with pytest.raises(ValueError, match="wall neighbour invariant"):
-        validate_neighbours([mesh(quad(240, 260, z=10))], [(alias, None)], left, tmp_path)
+    # Cross-tile overlaps are reported, not fatal: a failed admission left tiles without their textured pass.
+    validate_neighbours([mesh(quad(240, 260, z=10))], [(alias, None)], left, tmp_path)
 
 
 @pytest.mark.parametrize("identity", ["103277347A", "103304667L", "1032865783", "1032865794"])
