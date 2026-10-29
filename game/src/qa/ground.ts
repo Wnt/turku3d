@@ -1,6 +1,6 @@
 // Isolated material QA: no game feature switch and no writes to the streamed scene.
 import * as THREE from 'three/webgpu';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { sharedKtx } from '../world/loadingKtx';
 import { createGroundMaterial, GROUND_KEYS, loadGroundLibrary, loadGroundTile } from '../render/ground/material';
 import type { GroundTileSpec } from '../render/ground/material';
 
@@ -51,7 +51,7 @@ let heading: number;
 const assetBase = query.get('assets');
 if (assetBase) {
   const base = new URL(assetBase, location.href).href;
-  const loader = new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
+  const loader = sharedKtx(renderer);
   const library = await loadGroundLibrary(new URL('library/', base).href, loader);
   const poses = [
     { tile: 't0_0_1', x: 147.292, z: 271.906, yaw: 38.637 },

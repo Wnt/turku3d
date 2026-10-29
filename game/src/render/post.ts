@@ -1,3 +1,4 @@
+import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB, unpackRGBToNormal,
@@ -29,6 +30,7 @@ export class PostProcessing {
     const pre = this.pre = pass(scene, camera);
     this.baseContext = renderer.contextNode;
     pre.transparent = false;
+    if (renderer instanceof GameRenderer) pre.overrideMaterial = renderer.normalPrepass.marker;
     const updatePre = pre.updateBefore.bind(pre);
     pre.updateBefore = frame => {
       if (isPrecompiling(renderer)) return;
@@ -91,7 +93,7 @@ export class PostProcessing {
   }
 
   async prepare(model: THREE.Object3D) {
-    await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true, this.preDepth);
+    await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true, this.preDepth, this.pre.overrideMaterial);
     await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext, false, this.beautyDepth);
   }
 

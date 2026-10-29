@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { NormalPrepass } from './normalPrepass';
 import { instancePrograms } from './instancePrograms';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
@@ -34,12 +35,14 @@ export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) 
   return last > first;
 }
 export class GameRenderer extends THREE.WebGPURenderer {
+  readonly normalPrepass = new NormalPrepass();
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
     super(parameters);
     this.debug.onNodeBuilderCreated = (builder, draw) => instancePrograms(builder, (draw as { object: THREE.Object3D }).object);
   }
+  override dispose() { this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
@@ -47,7 +50,8 @@ export class GameRenderer extends THREE.WebGPURenderer {
     const context = this.contextNode;
     // Depth draws do not sample beauty-pass GTAO. Keep their context stable across beauty and reflection passes.
     if ((original as ShadowMaterial | null)?.isShadowPassMaterial) this.contextNode = this.shadowContext;
-    scene.overrideMaterial = this.shadowMaterials.select(material, original);
+    scene.overrideMaterial = original?.userData.normalPrepass
+      ? this.normalPrepass.select(material) : this.shadowMaterials.select(material, original);
     try { super.renderObject(object, scene, camera, geometry, material, group, lights, clipping, pass); }
     finally { scene.overrideMaterial = original; this.contextNode = context; }
   }

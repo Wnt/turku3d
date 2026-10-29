@@ -56,11 +56,11 @@ export class RiverMaterial {
       if (isPrecompiling(renderer)) return;
       this.reflectionDepth = nextRenderDepth(renderer);
       const now = performance.now();
-      // A moving camera refreshes every frame: an older reflection visibly trails the view. The tier's rate only
-      // throttles a still view, where the reflection changes with the scene alone.
+      // Low quality trades a small reflection lag for a bounded 20 Hz secondary scene render.
+      // Higher tiers retain full-rate camera motion and throttle only a still view.
       const moved = !!frame.camera && !frame.camera.matrixWorld.equals(seen);
       if (frame.camera) seen.copy(frame.camera.matrixWorld);
-      if (!deterministic && !moved && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
+      if (!deterministic && (tier === 'low' || !moved) && reflector.hasOutput && now - last < 1000 / QUALITY[tier].reflectionFps) return;
       const previous = renderer.contextNode;
       renderer.contextNode = context;
       shadows.pause(env.csm.lights);

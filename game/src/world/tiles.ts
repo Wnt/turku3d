@@ -1,4 +1,5 @@
 // Resident draft model ownership and telemetry; loading belongs to CoarseTiles.
+import { staticBatchSteps, prepareStaticBatches, releaseStaticBatches } from './staticBatch';
 import * as THREE from 'three/webgpu';
 import { batchTileShadows, prepareTileShadows } from './shadowBatch';
 import { disposeShadowBatch } from './shadowChunks';
@@ -28,6 +29,7 @@ export class VisualTiles {
       if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
     });
     if (!this.idPass) {
+      for (const step of staticBatchSteps(scene)) void step;
       const shadow = batchTileShadows(scene);
       if (shadow) this.shadows.set(scene, shadow);
     }
@@ -42,6 +44,7 @@ export class VisualTiles {
       if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
     });
     if (!this.idPass) {
+      await prepareStaticBatches(scene);
       const shadow = await prepareTileShadows(scene);
       if (shadow) this.shadows.set(scene, shadow);
     }
@@ -59,6 +62,7 @@ export class VisualTiles {
       });
       this.shadows.delete(scene);
     }
+    releaseStaticBatches(scene, this.retire);
     this.prepared.delete(scene);
   }
 

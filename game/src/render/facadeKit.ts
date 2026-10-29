@@ -70,7 +70,13 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer,
         // Plain car/tree/prop colours need no per-tile node graph. LOD can still combine bark/crown.
         node = pbr;
       } else {
-        node = facadeKitMaterial(source, renderer) ?? ((source as THREE.NodeMaterial).isNodeMaterial ? source : renderer.library.fromMaterial(source.clone())) as THREE.MeshStandardNodeMaterial;
+        const create = () => {
+          const material = facadeKitMaterial(source, renderer) ?? renderer.library.fromMaterial(source.clone());
+          material.polygonOffset = true; material.polygonOffsetFactor = -1; material.polygonOffsetUnits = -2;
+          return material;
+        };
+        node = ((source as THREE.NodeMaterial).isNodeMaterial ? source
+          : shared ? shared.styled.acquire(source, 'draft', model, create) : create()) as THREE.MeshStandardNodeMaterial;
       }
       node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
       if (shared) node = shared.acquire(node, model) as typeof node;
