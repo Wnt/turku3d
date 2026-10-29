@@ -21,26 +21,67 @@ from turku3d.col.materials import mat_id
 from turku3d.parked.placement import footprint
 
 
-def hits(col, x, z):
+def raycaster(col):
     triangles = (col.positions + col.origin)[col.indices]
     a, b, c = triangles[:, 0], triangles[:, 1], triangles[:, 2]
     u, v = b[:, [0, 2]] - a[:, [0, 2]], c[:, [0, 2]] - a[:, [0, 2]]
-    q = np.array([x, z]) - a[:, [0, 2]]
     det = u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]
     valid = abs(det) > 1e-9
     safe = np.where(valid, det, 1)
-    s = (q[:, 0] * v[:, 1] - q[:, 1] * v[:, 0]) / safe
-    t = (u[:, 0] * q[:, 1] - u[:, 1] * q[:, 0]) / safe
-    valid &= (s >= -1e-7) & (t >= -1e-7) & (s + t <= 1 + 1e-7)
-    return a[valid, 1] + s[valid] * (b - a)[valid, 1] + t[valid] * (c - a)[valid, 1], col.materials[
-        valid
-    ]
+
+    def cast(x, z):
+        q = np.array([x, z]) - a[:, [0, 2]]
+        s = (q[:, 0] * v[:, 1] - q[:, 1] * v[:, 0]) / safe
+        t = (u[:, 0] * q[:, 1] - u[:, 1] * q[:, 0]) / safe
+        use = valid & (s >= -1e-7) & (t >= -1e-7) & (s + t <= 1 + 1e-7)
+        return a[use, 1] + s[use] * (b - a)[use, 1] + t[use] * (c - a)[use, 1], col.materials[use]
+
+    return cast
 
 
-def verify(tile, inputs, manifest, out, captured, plants):
+def hits(col, x, z):
+    return raycaster(col)(x, z)
+
+
+def apron_checks(line, width, floor, sample, cols, *, match_floor=True):
+    from types import SimpleNamespace
+
+    floor_ray = raycaster(SimpleNamespace(
+        positions=floor.positions, indices=floor.indices, origin=np.zeros(3),
+        materials=np.zeros(len(floor.indices)),
+    ))
+    checks = []
+    for end, near in ((0, 0.1), (line.length, line.length - 0.1)):
+        centre = np.array(line.interpolate(end).coords[0])
+        outward = centre - np.array(line.interpolate(near).coords[0])
+        outward /= np.linalg.norm(outward)
+        normal = np.array([-outward[1], outward[0]])
+        for offset in (-width / 4, 0, width / 4):
+            heights = []
+            for distance in np.linspace(-1, 9, 101):
+                x, z = centre + outward * distance + normal * offset
+                expected, _ = floor_ray(x, z)
+                reference = max(expected) if len(expected) else sample(x, z)
+                key = C.CollisionTile.at(x, z).id
+                assert key in cols, (key, 'apron outside built tile')
+                ys, _ = cols[key](x, z)
+                assert len(ys), (end, offset, distance, 'missing apron collision')
+                if match_floor and len(expected):
+                    assert min(abs(ys - reference)) < 0.002, (end, offset, distance, ys, reference)
+                heights.append(float(ys[np.argmin(abs(ys - reference))]))
+            steps = abs(np.diff(heights))
+            checks.append(dict(
+                end=end, offset=offset, max_step=float(max(steps)),
+                max_grade=float(max(steps) / 0.1),
+                max_step_at=float(np.argmax(steps) / 10 - 1),
+            ))
+    return checks
+
+
+def verify(tile, inputs, manifest, out, captured, plants, baseline=None):
     tunnels, positions, sample, mask = captured
     cols = {
-        key: read_col((out / entry["url"]).read_bytes())
+        key: raycaster(read_col((out / entry["url"]).read_bytes()))
         for key, entry in manifest["collision"].items()
     }
     roads = [
@@ -68,7 +109,7 @@ def verify(tile, inputs, manifest, out, captured, plants):
             for offset in (-width / 4, 0, width / 4):
                 x, z = centre + normal * offset
                 top = sample(x, z)
-                ys, materials = hits(cols[C.CollisionTile.at(x, z).id], x, z)
+                ys, materials = cols[C.CollisionTile.at(x, z).id](x, z)
                 assert len(ys), (key, distance, "missing collision")
                 deck = abs(ys - top) < 0.005
                 assert deck.any(), (key, distance, "missing road top", ys, top)
@@ -95,8 +136,22 @@ def verify(tile, inputs, manifest, out, captured, plants):
                 ":floor"
             ):
                 assert max(y - sample(x, z) for x, y, z in mesh.positions) < 0
+        aprons = apron_checks(line, width, floor, sample, cols)
+        before = None
+        if baseline is not None:
+            old = json.loads((baseline / tile.id / "manifest.json").read_text())
+            old_cols = {
+                k: raycaster(read_col((baseline / tile.id / e["url"]).read_bytes()))
+                for k, e in old["collision"].items()
+            }
+            before = apron_checks(line, width, floor, sample, old_cols, match_floor=False)
+        print(json.dumps(dict(tile=tile.id, id=key, apron_after=aprons, apron_before=before)), flush=True)
+        assert max(p["max_step"] for p in aprons) <= 0.05, (key, aprons)
+        assert max(p["max_grade"] for p in aprons) <= 0.15, (key, aprons)
         checks.append(
             dict(
+                apron_after=aprons,
+                apron_before=before,
                 id=key,
                 name=tags.get("name"),
                 rays=len(gap),
@@ -126,6 +181,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
+    parser.add_argument("--baseline", type=Path)
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     os.environ["TURKU3D_WORK"] = str(args.root)
@@ -170,7 +226,7 @@ def main():
                 assert manifest["buildings"] == len(inputs.buildings)
                 for entry in [*manifest["visual"].values(), *manifest["collision"].values()]:
                     assert (out / entry["url"]).is_file()
-                checks = verify(tile, inputs, manifest, out, captured, plants)
+                checks = verify(tile, inputs, manifest, out, captured, plants, args.baseline)
                 assert elapsed < (90 if kind == "first" else 180), (tile_id, kind, elapsed)
                 row = dict(
                     tile=tile_id,
