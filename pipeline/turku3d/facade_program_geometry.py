@@ -57,7 +57,7 @@ def _paint_layers(vertices, wall, style):
     if wall.get("render_sections"):
         from turku3d.facade_sections import paint
 
-        yield from paint(vertices, wall, style, quad, direction, normal, offset, sign, y0)
+        yield from paint(vertices, wall, style, quad, offset, sign, y0)
         return
     y1 = y0 + mh
     blank = {
@@ -165,7 +165,7 @@ def _paint_layers(vertices, wall, style):
             patch.update(
                 module=48, wall="#55534e", base="#55534e", bands=[0, 0, 0, 0], detail=[0, 0, 0, 0]
             )
-            yield points, uv, patch
+            yield points, uv, patch, 4
             continue
         material = style["module"] // 6 if style["module"] < 42 else style["module"] - 42
         patch.update(
@@ -210,6 +210,30 @@ def _paint_layers(vertices, wall, style):
                 "detail": [0, 0, 0, 0],
             }
             for left, bottom, rw, rh in strips:
+                left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
+                part = quad(
+                    max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)
+                )
+                if part:
+                    yield *part, decoration, 3
+    # Ornament levels are bounded layout priors, not invented sculptures or lettering.
+    ornament = field(wall["trim"], "ornament_level", "none")
+    if ornament in ("low", "medium", "high"):
+        thickness = {"low": 0.035, "medium": 0.07, "high": 0.11}[ornament]
+        decoration = {
+            **blank,
+            "wall": style["trim"],
+            "base": style["trim"],
+            "bands": [0, 0, 0, 0],
+            "detail": [0, 0, 0, 0],
+        }
+        for (x, y, w, h), _, _, _ in boxes:
+            ornaments = [(x, y + h + 0.18, w, thickness)]
+            if ornament in ("medium", "high"):
+                ornaments.append((x + w * 0.2, y - 0.16, w * 0.6, thickness))
+            if ornament == "high":
+                ornaments.append((x + w * 0.4, y + h + 0.18, w * 0.2, 0.22))
+            for left, bottom, rw, rh in ornaments:
                 left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
                 part = quad(
                     max(x0, left), min(x1, right), max(y0, y0 + bottom), min(y1, y0 + bottom + rh)

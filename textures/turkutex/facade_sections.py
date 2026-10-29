@@ -85,6 +85,12 @@ def sections(form, floors):
             [str(section.get("kind", "")), *map(str, section.get("features", []))]
         ).lower()
         mat = material(section.get("material"))
+        if mat is None and "material" not in section:
+            kind_text = str(section.get("kind", "")).lower()
+            if re.search(
+                r"wall|cladding|siding|brickwork|render|timber", kind_text
+            ) and not re.search(r"rail|frame|surround|soffit|balcon", kind_text):
+                mat = material(kind_text)
         kind = None
         if re.search(r"\b(blank|opaque|blind)\b", text):
             kind = "blank"

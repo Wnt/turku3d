@@ -17,6 +17,7 @@ VISUAL_ONLY = {
     "facade_program_geometry.py",
     "facade_sections.py",
     "facade_learning.py",
+    "facade_learned_layout.py",
     "facade_structure.py",
     "facade_program.py",
     "facade_archetypes.py",

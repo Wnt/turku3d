@@ -7,6 +7,7 @@ facades never become donors. The runtime has no training or network dependency.
 
 import math
 import random
+import re
 from collections import defaultdict
 
 from .facade_program import stable_seed
@@ -44,6 +45,32 @@ def targets(wall):
             values = [s[key] for s in sections if isinstance(s.get(key), str) and s[key] in allowed]
             if values:
                 result[key] = max(sorted(set(values)), key=values.count)
+        # Positive section evidence remains useful even when placement/count is unknown.
+        # Absence of a mention is never a negative balcony/shop observation.
+        descriptions = [str(s.get("kind", "")) for s in sections]
+        if any(
+            re.search(r"\b(balcon(?:y|ies)|loggias?)\b", text, re.I)
+            and not re.search(r"no |without |uncertain", text, re.I)
+            for text in descriptions
+        ):
+            result["balcony"] = True
+        for section in sections:
+            text = str(section.get("kind", "")).lower()
+            if "ribbon" in text and ("window" in text or "glazing" in text):
+                result["rhythm"] = "ribbon"
+            if str(section.get("position", "")).lower() in ("base", "ground"):
+                if re.search(r"shop|retail|storefront", text):
+                    result["ground"] = "shops"
+                elif re.search(r"door|entrance", text) and not re.search(
+                    r"uncertain|unknown", text
+                ):
+                    result["ground"] = "doors"
+            for field, allowed in (
+                ("ornament", {"none", "low", "medium", "high"}),
+                ("cornice", {"none", "thin", "projecting", "ornate"}),
+            ):
+                if isinstance(section.get(field), str) and section[field] in allowed:
+                    result[field] = section[field]
         return result
     if not form.get("floors"):
         return {}

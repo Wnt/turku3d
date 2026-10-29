@@ -26,6 +26,7 @@ def source_paths():
         Path(__file__).with_name("facade_sections.py"),
         Path(__file__).with_name("facade_learning.py"),
         C.REPO_ROOT / "textures/turkutex/facade_learning.py",
+        C.REPO_ROOT / "textures/turkutex/facade_learned_layout.py",
         C.REPO_ROOT / "textures/turkutex/facade_sections.py",
         C.REPO_ROOT / "textures/turkutex/facade_structure.py",
         C.REPO_ROOT / "textures/turkutex/facade_archetypes.py",
@@ -210,7 +211,10 @@ def resolve(building, vertices, eaves):
     )
     from turku3d.facade_learning import apply as apply_learned
 
-    program = apply_learned(sample(building.facade_key, attrs, geometry))
+    d = read_description(building.facade_key)
+    program = sample(building.facade_key, attrs, geometry)
+    if not d:
+        program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
     fallback = renderer().register_description(
@@ -225,7 +229,6 @@ def resolve(building, vertices, eaves):
         wall["base"]["colour"] = dict(wall["wall"]["colour"])
     from turku3d.facade_assets import description_row
 
-    d = read_description(building.facade_key)
     if d:
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"])
@@ -254,6 +257,24 @@ def resolve(building, vertices, eaves):
             if "calibrated albedo" != own.get("observation", {}).get("colour_space"):
                 wall["wall"]["colour"] = colour
                 wall["base"]["colour"] = base_colour
+        elif wall.get("learned_layout") and not d:
+            from turkutex.facade_learned_layout import expand
+
+            points = vertices[index * 4 : index * 4 + 4]
+            tangent = (points[1] - points[0]) / max(
+                float(np.linalg.norm(points[1] - points[0])), 1e-6
+            )
+            start = points[0] - tangent * wall.get("uv_offset", 0)
+            end = start + tangent * wall["width_m"]
+            expand(
+                wall,
+                program["storeys"]["value"],
+                dict(
+                    p0=[float(start[0] + C.ORIGIN_E), float(C.ORIGIN_N - start[2])],
+                    p1=[float(end[0] + C.ORIGIN_E), float(C.ORIGIN_N - end[2])],
+                    base_h=building.base,
+                ),
+            )
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
     if reviewed:
         program["source"] = "reviewed-overlay"
