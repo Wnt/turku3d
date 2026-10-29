@@ -129,7 +129,8 @@ def test_surrounds_stay_on_the_matching_wall_and_keep_opening_heads():
     assert all(p[0][:, 1].min() >= 2 and p[0][:, 1].max() <= 10 for p in parts)
 
 
-def test_pose_refinement_recovers_camera_rotation_from_line_rays():
+@pytest.mark.parametrize("angles", [[0.7, -0.8, 1.2], [3.0, 4.0, 1.0]])
+def test_pose_refinement_recovers_camera_rotation_from_line_rays(angles):
     from scipy.spatial.transform import Rotation
 
     sys.path.insert(
@@ -139,7 +140,7 @@ def test_pose_refinement_recovers_camera_rotation_from_line_rays():
 
     camera = np.array([5, -15, 3.0])
     corners = np.array([[0, 0, 0], [20, 0, 0], [20, 0, 12], [0, 0, 12]], float)
-    true = Rotation.from_euler("xyz", [0.7, -0.8, 1.2], degrees=True).as_matrix()
+    true = Rotation.from_euler("xyz", angles, degrees=True).as_matrix()
     lines = [[[x, 0, 1], [x, 0, 10]] for x in np.linspace(1, 19, 8)]
     lines += [[[1, 0, z], [19, 0, z]] for z in np.linspace(1, 11, 8)]
     rays = (np.array(lines) - camera) @ true
