@@ -59,6 +59,8 @@ class Demand:
         if getattr(builder, "draining", False):
             return
         self.expire()
+        if getattr(builder, "idle", None) is not None:
+            builder.idle.preempt()
         now = time.time()
         active = set(builder.priority) | set(builder.pending) | builder.upgrade_queue | set(builder.building)
         foreground = any(self.rank(t) is not None for t in active)

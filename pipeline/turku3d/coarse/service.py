@@ -26,7 +26,7 @@ from turku3d.facade_kit import parameter_hash
 
 from .packaging import current_code
 from .collision_key import current_code as current_collision_code
-from .collision import fragment as collision_fragment
+from .serving import retained_fragment as collision_fragment
 from .collision import current as collision_current
 from .demand import Demand, write_snapshot
 from .prefetch import Prefetcher
@@ -216,7 +216,7 @@ class Builder:
         lease = self.demand.rank(tile)
         if lease is not None:
             return lease
-        if self.demand.clients:
+        if self.demand.clients or (self.idle is not None and tile in self.idle.tiles):
             return 3, distance
         return rank(tile, distance, self.motion)
 
@@ -708,15 +708,8 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     return self._json(404, state)
                 if state["state"] != "built":
                     return self._json(202, state)
-                if state.get("stale"):
-                    return self._json(
-                        200,
-                        {
-                            **json.loads(builder.manifest(tile).read_text()),
-                            "stale": True,
-                            "failure": state["failure"],
-                        },
-                    )
+                if state.get("fragment"):
+                    return self._json(200, state["fragment"])
             elif tile not in builder.servable and not immutable_payload(name):
                 return self._json(404, {"error": f"{tile} is not built"})
             path = builder.root / tile / name

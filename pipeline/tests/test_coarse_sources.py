@@ -192,3 +192,28 @@ def test_first_pass_tracks_wall_assembly_but_not_stored_map_binding(monkeypatch)
         changes[helper] = read(helper) + b"\n# wall assembly dependency changed\n"
         assert collision_key.code_hash() != before
         changes.clear()
+
+
+def test_sampler_stage_identities_ignore_other_surface_producers(monkeypatch):
+    import importlib.util
+    import inspect
+    from pathlib import Path
+    from turku3d.coarse import surfaces
+
+    script = Path(__file__).resolve().parents[2] / 'tools/remote-drafts/stage-identities.py'
+    spec = importlib.util.spec_from_file_location('stage_identities', script)
+    audit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(audit)
+    before = audit.identities()
+    read = Path.read_bytes
+    monkeypatch.setattr(Path, 'read_bytes', lambda p: read(p) +
+                        (b'\n# unrelated surface paint change' if p.name == 'surfaces.py' else b''))
+    after = audit.identities()
+    for name in ('kerbs', 'tunnels', 'parked'):
+        assert after[name] == before[name], name
+    original = inspect.getsource
+    monkeypatch.setattr(inspect, 'getsource', lambda value: original(value) +
+                        ('\n# changed height sampling' if value is surfaces.grid_height else ''))
+    changed = audit.identities()
+    for name in ('kerbs', 'tunnels', 'parked'):
+        assert changed[name] != before[name], name

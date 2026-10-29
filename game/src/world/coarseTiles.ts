@@ -1,6 +1,7 @@
 // Draft service is the only world source. Each visible tile owns all sixteen collision cells.
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
+import { recordFreshness, type DraftFreshness } from './coarseFreshness';
 import { VisualPassComparison } from './visualPass';
 import { splitCollisionBundle, type CollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
@@ -38,13 +39,13 @@ class DraftRejected extends Error {}
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
-interface CoarseFragment { pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+interface CoarseFragment { stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
-interface Entry {
+interface Entry extends DraftFreshness {
   state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
@@ -449,6 +450,7 @@ export class CoarseTiles {
     if (this.entries.get(id) !== e || e.state !== state) { if (model) this.dispose(model); return; }
     const roads = streets.status === 'fulfilled' ? streets.value : null;
     if (!visualChanged) {
+      recordFreshness(e, fragment);
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
@@ -456,6 +458,7 @@ export class CoarseTiles {
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
     if (!await this.prepareModel(id, e, model)) return;
+    recordFreshness(e, fragment);
     // Detach before attaching: scene hooks must never observe both passes.
     const old = e.model;
     old?.removeFromParent();

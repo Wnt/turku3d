@@ -584,3 +584,4 @@ test('developer pass comparison swaps only visuals and cancels stale loads', asy
   expect(refreshCollision).not.toHaveBeenCalled(); expect(checkCollision).not.toHaveBeenCalled();
   coarse.setVisualPass('auto'); expect(scene.children).toEqual([base]);
 });
+

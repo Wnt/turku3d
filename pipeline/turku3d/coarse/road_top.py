@@ -163,7 +163,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
             Path(__file__),
             Path(__file__).with_name("bridge_details.py"),
             Path(kerbs.__file__),
-            Path(surfaces.__file__),
+            surfaces.grid_height,
             Path(__file__).with_name("inputs.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",

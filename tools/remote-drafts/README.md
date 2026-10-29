@@ -169,8 +169,15 @@ environment persist across reboot. Caddy signal reload follows its
 [documented signal contract](https://caddyserver.com/docs/command-line#signals).
 
 The demand journal survives source changes, but abandoned legacy requests no
-longer replay forever. Outdated manifests return 202 until the new first pass is ready, followed by
-a full upgrade. A failed build alone permits stale last-good output. Health reports
+longer replay forever. Both fragment endpoints serve the newest complete retained full
+visuals during regeneration, marked `stale: true`, only with current collision. The
+structural producer and input identity must match; otherwise the current first pass
+must publish before retained visuals become usable. Failed builds never authorize
+obsolete collision. `last-full.json` protects the last complete textured generation
+until another full pass succeeds. Mutable fragment polling continues every two seconds;
+prepared visual replacements swap together and unchanged collision stays resident.
+Client entries and arrival reports measure how long stale visuals remain visible.
+Health reports
 `failure_count` and `failed_tiles`; `prebuild.json` records idle build failures. Existing facade assets and stage caches stay in place.
 Requested tiles and the idle route walk revalidate; content hashes select the
 changed stages. Inspect a tile's `stage-times.json` for hit/miss evidence. Native

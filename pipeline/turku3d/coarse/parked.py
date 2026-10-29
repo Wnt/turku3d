@@ -242,7 +242,7 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks, carried=None):
             Path(__file__),
             base / "parked/placement.py",
             base / "parked/models.py",
-            Path(surfaces.__file__),
+            surfaces.grid_height,
             Path(C.__file__),
         ),
         [

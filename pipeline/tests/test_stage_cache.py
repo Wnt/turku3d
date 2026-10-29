@@ -154,7 +154,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
 
 
-def test_outdated_draft_waits_and_only_failed_rebuild_falls_back(tmp_path):
+def test_outdated_draft_without_current_collision_never_falls_back(tmp_path):
     import json
     import time
 
@@ -213,9 +213,8 @@ def test_outdated_draft_waits_and_only_failed_rebuild_falls_back(tmp_path):
         time.sleep(.01)
     assert restored.status()["failure_count"] == 1
     fallback = restored.request(tile.id, 12)
-    assert fallback == {"state": "built", "stale": True,
-                        "failure": {"state": "failed", "error": "broken generator"}}
-    assert tile.id in restored.servable
+    assert fallback == {"state": "failed", "error": "broken generator"}
+    assert tile.id not in restored.servable
     restored.code = lambda: "fixed"
     assert restored.request(tile.id, 12)["state"] == "queued"
     assert tile.id not in restored.servable

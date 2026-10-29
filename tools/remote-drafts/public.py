@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from turku3d import config as C
 from turku3d.coarse.prefetch import Prefetcher
 from turku3d.coarse.demand import MAX_TILES
-from turku3d.coarse.collision import fragment as collision_fragment
+from turku3d.coarse.serving import retained_fragment as collision_fragment, public_fragment
 from turku3d.coarse.service import (
     FILE,
     MIME,
@@ -247,19 +247,17 @@ def public_handler(builder, prefetcher, settings):
                     client = q.get("client", [None])[0]
                     if client is not None and not builder.demand.wants(client, tile):
                         return self._json(202, {"state": "deferred"})
-                    if route == "collision":
-                        fragment = collision_fragment(builder, tile)
-                        if fragment is not None:
-                            return self._json(200, fragment)
                     active = set(builder.priority) | set(builder.building) | set(builder.pending)
                     if (
                         tile not in active
                         and not builder.built(tile)
-                        and not ((builder.root / tile / "collision.json").exists()
-                                 and collision_fragment(builder, tile) is not None)
+                        and collision_fragment(builder, tile) is None
                         and len(active) >= max(settings["queue_max"], min(256, 12 * len(builder.demand.clients)))
                         and not builder.demand.admit(builder, tile)
                     ):
+                        fragment = collision_fragment(builder, tile)
+                        if fragment is not None:
+                            return self._json(200, public_fragment(fragment))
                         return self._json(429, {"state": "queue-full"})
                     lease = builder.demand.rank(tile) if hasattr(builder, "demand") else None
                     # Legacy clients/prewarming have background priority, without player motion.
@@ -272,31 +270,13 @@ def public_handler(builder, prefetcher, settings):
                 if route == "collision":
                     fragment = collision_fragment(builder, tile)
                     if fragment is not None:
-                        return self._json(200, fragment)
+                        return self._json(200, public_fragment(fragment))
                 if state["state"] == "failed":
                     return self._json(404, {"state": "failed"})
                 if state["state"] != "built":
                     return self._json(202, {k: state[k] for k in ("state", "eta") if k in state})
-                fragment = json.loads(builder.manifest(tile).read_text())
-                return self._json(
-                    200,
-                    {
-                        **{
-                            k: fragment[k]
-                            for k in ("coarse", "tile", "visual", "collision", "roads", "pass_kind",
-                                      "vehicles", "vehicle_models")
-                            if k in fragment
-                        },
-                        **(
-                            {
-                                "stale": True,
-                                "failure": {"state": "failed"},
-                            }
-                            if state.get("stale")
-                            else {}
-                        ),
-                    },
-                )
+                fragment = state.get("fragment") or json.loads(builder.manifest(tile).read_text())
+                return self._json(200, public_fragment(fragment))
             if tile is not None and tile not in builder.servable and not (immutable_payload(name) or BUNDLE.fullmatch(name)):
                 return self._json(404, {"error": "unbuilt"})
             path = builder.root / (tile or "shared") / name
