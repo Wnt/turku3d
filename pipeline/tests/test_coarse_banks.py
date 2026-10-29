@@ -156,3 +156,55 @@ def test_small_pond_keeps_mapped_retaining_edge():
     stone = bank.positions[bank.indices[bank.material == mat_id("quay")]]
     assert len(stone)
     np.testing.assert_allclose(stone[:, :, 1].max(axis=1), 23)
+
+
+def test_spawn_neighbours_do_not_turn_a_compact_river_reach_into_a_pond(tmp_path):
+    from types import SimpleNamespace
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.banks import pond_bodies, small_bodies
+    from turku3d.coarse.inputs import _frame
+
+    # The short reach straddles the eastern spawn tiles. Its long continuation
+    # lies west of them and is absent from their tile-filtered water inputs.
+    reach = shapely.box(230, 215, 310, 255)
+    continuation = shapely.box(-200, 255, 245, 315)
+    pond = shapely.box(350, 350, 365, 365)
+    path = tmp_path / "water.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(geometry_local=g.wkb) for g in (reach, continuation, pond)
+    ]), path)
+    for tile_id in ("t0_0_0", "t0_0_1", "t0_1_0", "t0_1_1"):
+        tile = C.VisualTile.parse(tile_id)
+        water = [g for g, _ in _frame(path, tile.bbox)]
+        inputs = SimpleNamespace(water=water, sources={"wfs": [None, None, str(path)]})
+        bodies = pond_bodies(inputs)
+        assert all(g.equals(pond) for g in bodies), tile_id
+        if tile_id == "t0_1_0":
+            assert small_bodies(water)  # Reproduces the old tile-dependent decision.
+            assert bodies == []
+        if tile_id == "t0_1_1":
+            assert len(bodies) == 1 and bodies[0].equals(pond)
+
+
+def test_small_flowing_water_and_sea_fragments_are_never_ponds(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.banks import pond_bodies
+
+    body = shapely.box(260, 220, 300, 250)
+    water = tmp_path / "water.parquet"
+    osm = tmp_path / "osm.parquet"
+    pq.write_table(pa.Table.from_pylist([dict(geometry_local=body.wkb)]), water)
+    inputs = SimpleNamespace(water=[body], sources={
+        "wfs": [None, None, str(water)], "roads": [str(osm)],
+    })
+    for tags in ({"water": "river"}, {"water": "sea"}, {"waterway": "stream"}):
+        pq.write_table(pa.Table.from_pylist([
+            dict(tags=json.dumps(tags), geometry_local=body.exterior.wkb)
+        ]), osm)
+        assert pond_bodies(inputs) == []
