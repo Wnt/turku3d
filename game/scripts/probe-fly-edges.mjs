@@ -16,21 +16,33 @@ const result = { errors: [], demands: [] };
 const deadline = setTimeout(() => void browser.close(), 240_000);
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
-  page.setDefaultTimeout(30_000);
+  page.setDefaultTimeout(20_000);
+  await page.routeWebSocket('wss://fly.invalid/', socket => socket.close());
+  page.on('console', message => { if (message.type() === 'warning' || message.type() === 'error') console.log(message.type(), message.text()); });
   page.on('pageerror', error => result.errors.push(error.message));
   page.on('request', request => {
     if (/\/coarse\/demand/.test(request.url())) result.demands.push(request.url());
   });
-  await routeCoarse(page, { t0_0_0: { cells: cells(0, 0) } });
+  const roads = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
+    bbox: [0, 0, 250, 250], nodes: [30, 240, 220, 240], edges: [[0, 1, 3, 190]] };
+  await routeCoarse(page, { t0_0_0: { cells: cells(0, 0), roads: { nodes: 2, edges: 1, json: roads } } });
+  await page.route('**/coarse/navigation.json', route => route.fulfill({ status: 200,
+    contentType: 'application/json', body: JSON.stringify({ roads, addresses: {
+      format: 'turku3d-addresses', version: 1, frame: 'engine-xz', origin: [77.1, 187.6], addresses: [],
+    } }) }));
   await page.route(/\/coarse\/(health|demand)(\?|$)/, route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ state: 'idle', version: 1 }) }));
-  await page.goto('https://wnt.github.io/turku-game/game/?dev=1&backend=webgl&quality=low&colRadius=60', { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => window.__game?.ready, null, { timeout: 90_000 });
+  await page.goto('https://wnt.github.io/turku-game/game/?dev=1&backend=webgl&quality=low&colRadius=60&mp=wss%3A%2F%2Ffly.invalid%2F', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => window.__game?.ready, null, { timeout: 30_000 }).catch(async error => {
+    console.log(await page.evaluate(() => ({ errors: window.__game?.errors, progress: window.__game?.loadProgress?.() })));
+    throw error;
+  });
   await page.getByRole('option', { name: 'New game', exact: true }).click();
   await page.getByRole('button', { name: 'Skip', exact: true }).click();
   await page.waitForFunction(() => {
     const s = window.__game.state(); return !s.loading && !s.startScreen && s.grounded && s.recovery.armed;
   });
+  console.log('fly-edges: gameplay started');
   const state = () => page.evaluate(() => window.__game.state());
   result.start = await state();
   const toggleFlight = async label => {
@@ -49,6 +61,7 @@ try {
   });
   await page.keyboard.up('w');
   result.outside = await state();
+  console.log('fly-edges: crossed edge', result.outside.feet);
   assert.equal(result.outside.recovery.lost, null);
   assert.equal(result.outside.fly, true);
   // Descending over missing collision must remain free as well.
