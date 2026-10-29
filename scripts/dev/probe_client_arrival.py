@@ -14,7 +14,7 @@ def main():
     commands += [('game/scripts/tile-arrival-profile.mjs', label, seconds, speed)
                  for label, seconds, speed in [('deployed-50', '120', '50'),
                                                 ('deployed-200', '60', '200'),
-                                                ('deployed-fast-fly', '30', '300')]]
+                                                ('deployed-fast-fly', '30', '500')]]
     env['ARRIVAL_PROFILE'] = 'deployed-immutable'
     env['ARRIVAL_REQUIRE_CACHE'] = '1'
     for command in commands:
