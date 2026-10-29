@@ -106,7 +106,8 @@ def test_last_full_can_supply_unchanged_collision_without_primary_pointer(tmp_pa
     b.stop()
 
 
-def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path):
+@pytest.mark.parametrize("current_physics", [True, False])
+def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path, current_physics):
     import importlib.util
     import io
 
@@ -114,7 +115,7 @@ def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path
     public = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(public)
     old = publish(tmp_path, "manifest.json", structural="obsolete")
-    first = publish(tmp_path, "collision.json", code="new", kind="first")
+    first = publish(tmp_path, "collision.json", code="new", kind="first") if current_physics else None
     b = builder(tmp_path)
     cls = public.public_handler(b, None, {"queue_max": 1, "tile_bounds": [-2, -2, 2, 2]})
     b.priority["t0_1_1"] = 0  # Usable retained output bypasses occupied build admission.
@@ -130,10 +131,17 @@ def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path
         body = json.loads(handler.wfile.getvalue())
         assert handler.status == 200
         assert body["stale"] and body["pass_kind"] == "full"
-        assert body["visual"] == old["visual"] and body["collision"] == first["collision"]
-        assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in first["collision"].values())
+        assert body["visual"] == old["visual"]
+        if current_physics:
+            assert body["collision"] == first["collision"]
+            assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in first["collision"].values())
+            assert TILE.id in b.upgrade_queue
+        else:
+            assert body["collision"] == {} and body["collision_pending"]
+            assert "collision_bundle" not in body
+            assert TILE.id in b.priority
         assert not {"code", "inputs", "seconds"} & body.keys()
-        assert TILE.id in b.upgrade_queue and TILE.id in b.journal.rows
+        assert TILE.id in b.journal.rows
     b.stop()
 
 
