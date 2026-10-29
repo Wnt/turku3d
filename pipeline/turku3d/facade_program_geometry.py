@@ -55,7 +55,7 @@ def _paint_layers(vertices, wall, style):
     ends = sorted([offset, offset + mw * sign])
     x0, x1 = max(0, ends[0]), min(width, ends[1])
     y0 = float(geometry.get("base_h", a[1]))
-    if wall.get("render_sections"):
+    if "render_sections" in wall:
         from turku3d.facade_sections import paint
 
         yield from paint(vertices, wall, style, quad, offset, sign, y0)

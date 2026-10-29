@@ -9,6 +9,7 @@ from turku3d.facade_programs import compile_wall
 
 def prepare(program):
     from turkutex.facade_sections import sections
+    from turku3d.facade_components import components
 
     program = copy.deepcopy(program)
     for wall in program.get("walls", []):
@@ -23,9 +24,12 @@ def prepare(program):
                 )
             continue
         parts, unsupported = sections(form, program.get("storeys", {}).get("value"))
+        features, pending = components(form, program.get("storeys", {}).get("value"))
+        wall["geometry_components"] = features
+        wall["geometry_pending"] = pending
         wall["render_sections"] = parts
         wall["unsupported"] = unsupported
-        wall["observation"].update(needs_review=not bool(parts), scope="partial-sections")
+        wall["observation"].update(needs_review=not bool(parts or features), scope="partial-sections")
     program["needs_review"] = all(
         w.get("observation", {}).get("needs_review", True) for w in program.get("walls", [])
     )

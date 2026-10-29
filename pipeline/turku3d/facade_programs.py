@@ -24,6 +24,8 @@ def source_paths():
         Path(__file__),
         Path(__file__).with_name("facade_program_geometry.py"),
         Path(__file__).with_name("facade_sections.py"),
+        Path(__file__).with_name("facade_components.py"),
+        Path(__file__).with_name("facade_component_geometry.py"),
         Path(__file__).with_name("facade_learning.py"),
         C.REPO_ROOT / "textures/turkutex/facade_learning.py",
         C.REPO_ROOT / "textures/turkutex/facade_learned_layout.py",
