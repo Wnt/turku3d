@@ -64,8 +64,10 @@ def materialize_own(own, tile):
 def score(row, root, own):
     import gmaps_round3 as base
     import scores
+    from gmaps_wall_adapter import install as install_wall_sampler
 
     scores.ground_materials = export_ground
+    install_wall_sampler()
     # The scorer prohibits reference-cache paths as own inputs. Materialize only
     # hash-verified OCI bytes in the sandbox; durable originals stay in the inventory.
     destination = materialize_own(own, row['tile'])
@@ -105,6 +107,8 @@ def compatible_request(previous, current):
         return False
     if previous.get('oci_source') != current.get('oci_source'):
         return False
+    if previous.get('wall_adapter_sha256') != current.get('wall_adapter_sha256'):
+        return False
     repo = Path(__file__).resolve().parents[2]
     before = previous['commit']
     old = subprocess.check_output(['git', 'show', f'{before}:tools/refs/gmaps_ground_score.py'], cwd=repo)
@@ -141,6 +145,9 @@ def main():
     request = dict(commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                    plan_sha256=hashlib.sha256(json.dumps(base.PLAN, sort_keys=True).encode()).hexdigest(),
                    export_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                   wall_adapter_sha256=hashlib.sha256(
+                       Path(__file__).with_name('gmaps_wall_adapter.py').read_bytes() +
+                       Path(__file__).with_name('gmaps_facade_v4.py').read_bytes()).hexdigest(),
                    oci_source=args.oci_from)
     request_path = out / 'request.json'
     if request_path.exists():
