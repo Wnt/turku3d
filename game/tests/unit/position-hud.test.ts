@@ -59,3 +59,23 @@ test('defaults on, persists toggle, copies current pose and picks the nearest vi
   hud.update(1600, false);
   expect(hud.element.hidden).toBe(true);
 });
+
+test('resolves a hit index to its source building and preserves instance addresses', async () => {
+  const { buildingTarget } = await import('../../src/ui/positionHud');
+  const object = new THREE.Mesh();
+  object.userData = { layer: 'buildings', object_id: 't0_2_1/batch/28/4', objects: [
+    { start: 0, count: 6, building_id: 'first' },
+    { start: 6, count: 12, building_id: '103440141R', address: 'Known address' },
+  ] };
+  const hit: THREE.Intersection = { object, faceIndex: 2, distance: 1, point: new THREE.Vector3() };
+  expect(buildingTarget(hit)).toBe('103440141R · Known address');
+  hit.faceIndex = 1;
+  expect(buildingTarget(hit)).toBe('first');
+  hit.faceIndex = 6;
+  expect(buildingTarget(hit)).toBe('');
+  object.userData = { layer: 'buildings', instance_objects: [
+    { building_id: 'first' }, { building_id: 'second', address: 'Instance address' },
+  ] };
+  hit.instanceId = 1;
+  expect(buildingTarget(hit)).toBe('second · Instance address');
+});

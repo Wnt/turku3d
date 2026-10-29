@@ -46,7 +46,8 @@ export function instanceFacadeComponents(doc, scene, tile, EXTMeshGPUInstancing)
       .setAttribute('ROTATION',acc('VEC4',rotations))
       .setAttribute('SCALE',acc('VEC3',scales));
     scene.addChild(doc.createNode('facade-components').setTranslation(origin)
-      .setExtras({layer:'buildings',surface:'facade-component',object_id:`${tile}/facade-components/${groups.size}/${scene.listChildren().length}`})
+      .setExtras({layer:'buildings',surface:'facade-component',object_id:`${tile}/facade-components/${groups.size}/${scene.listChildren().length}`,
+        instance_objects:entries.map(({node}) => node.getExtras())})
       .setMesh(doc.createMesh().addPrimitive(prototype))
       .setExtension('EXT_mesh_gpu_instancing',batch));
   }

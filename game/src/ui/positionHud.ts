@@ -7,6 +7,21 @@ import type { VisualTiles } from '../world/tiles';
 const STORAGE_KEY = 'turku3d.position-hud.v1';
 const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
+export function buildingTarget(hit?: THREE.Intersection): string {
+  for (let o: THREE.Object3D | null = hit?.object ?? null; o; o = o.parent) {
+    const data = o.userData;
+    const offset = (hit?.faceIndex ?? -1) * 3;
+    const range = hit?.instanceId != null ? data.instance_objects?.[hit.instanceId]
+      : data.objects?.find((r: { start: number; count: number }) => offset >= r.start && offset < r.start + r.count);
+    const d = range ?? data;
+    if (d.building_id != null) return [d.building_id, d.address].filter(Boolean).join(' · ');
+    // A batch identity describes a draw call, never a building.
+    if (d.layer === 'buildings' && !data.objects && !data.instance_objects)
+      return [d.object_id ?? o.name, d.address].filter(Boolean).join(' · ');
+  }
+  return '';
+}
+
 export function positionReadout(position: THREE.Vector3, direction: THREE.Vector3, target = '') {
   const { E, N, H } = engineToEN(position.x, position.y, position.z);
   const { lat, lon } = enToLatLon(E, N);
@@ -62,15 +77,7 @@ export class PositionHud {
       if ((o as THREE.Mesh).isMesh && !o.userData.shadowBatch) meshes.push(o);
     });
     const hit = this.ray.intersectObjects(meshes, false)[0];
-    let target = '';
-    for (let o: THREE.Object3D | null = hit?.object ?? null; o; o = o.parent) {
-      const d = o.userData;
-      if (d.building_id != null || d.layer === 'buildings') {
-        const id = d.building_id ?? d.object_id ?? o.name;
-        target = [id, d.address].filter(Boolean).join(' · ');
-        break;
-      }
-    }
+    const target = buildingTarget(hit);
     return positionReadout(this.camera.position, this.direction, target);
   }
 

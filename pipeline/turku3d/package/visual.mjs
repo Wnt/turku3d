@@ -1,3 +1,4 @@
+import { auditVisual } from './visual_audit.mjs';
 import { instanceFacadeComponents } from "./facade_components.mjs";
 import { useTextureCache, retainTextureCache } from './texture_cache.mjs';
 // Explicit GLB assembly: bind/encode textures first, then lossless meshopt. No L0 simplification or position quantization.
@@ -273,6 +274,8 @@ async function assembleVisual(request) {
     path.join(path.dirname(path.dirname(request.output)), 'shared'));
   const decoded = await io.read(request.output);
   const after = snapshot(decoded);
+  const wallSurfaces = auditVisual(decoded);
+  stage('shipped_surface_audit');
   let error = 0;
   if (before.length !== after.length) throw new Error('Mesh count changed during compression');
   for (let i=0;i<before.length;i++) {
@@ -295,7 +298,7 @@ async function assembleVisual(request) {
   if (!Number.isFinite(bounds.min[1])) throw new Error('No visual geometry after assembly');
   stage('packaging');
   retainTextureCache(request);
-  fs.writeFileSync(request.stats, JSON.stringify({ texture_compilation:request.textureCompilation, facade_atlas:request.facadeAtlas, mesh_cache: { hits:meshEncoder.stats.hits-initialHits, misses:meshEncoder.stats.misses-initialMisses }, seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
+  fs.writeFileSync(request.stats, JSON.stringify({ wall_surfaces:wallSurfaces, texture_compilation:request.textureCompilation, facade_atlas:request.facadeAtlas, mesh_cache: { hits:meshEncoder.stats.hits-initialHits, misses:meshEncoder.stats.misses-initialMisses }, seconds, tris:after.reduce((s,m)=>s+m.ix.length/3*m.instances,0), draws:after.length, h:[bounds.min[1],bounds.max[1]],
     bounds:[bounds.min,bounds.max], brotli_bytes:wire, max_error_m:error, shared_images:shared,
     textures:decoded.getRoot().listTextures().map(t=>t.getMimeType()), facade_shares:facadeShares }));
 

@@ -69,3 +69,12 @@ test('wall assembly cuts are preserved instead of restoring the original box',()
   assert.equal(nodes.find(n=>n.getExtension('EXT_mesh_gpu_instancing'))
     .getExtension('EXT_mesh_gpu_instancing').getAttribute('TRANSLATION').getCount(),2);
 });
+
+test('component instances retain source building metadata for raycast hits', () => {
+  const {doc,scene} = fixture();
+  scene.listChildren().forEach((node,i) => node.setExtras({...node.getExtras(),building_id:`house-${i}`,address:`Street ${i}`}));
+  instanceFacadeComponents(doc,scene,'t0_1_0',EXTMeshGPUInstancing);
+  const node = doc.getRoot().listNodes().find(n=>n.getExtension('EXT_mesh_gpu_instancing'));
+  assert.deepEqual(node.getExtras().instance_objects.map(o=>[o.building_id,o.address]),
+    [['house-0','Street 0'],['house-1','Street 1'],['house-2','Street 2']]);
+});

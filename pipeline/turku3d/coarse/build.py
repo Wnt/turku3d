@@ -742,7 +742,7 @@ def build(
                 vis,
                 level=0,
                 tris=stats["tris"],
-                h=stats["h"],
+                h=stats["h"], wall_surfaces=stats["wall_surfaces"],
                 brotli_bytes=stats["brotli_bytes"],
                 coarse=True,
             )
