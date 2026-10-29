@@ -109,6 +109,9 @@ test('a server restart with a new identity recreates the driven seat at its actu
   expect(h.shared.record('truck')?.id).toBe('new-self:truck');
   expect(h.physics.removeVehicle).not.toHaveBeenCalled();
   expect(h.physics.spawnVehicle).not.toHaveBeenCalled();
+  h.shared.release('truck');
+  h.update();
+  expect(h.physics.removeVehicle).not.toHaveBeenCalled();
 });
 
 test('only an explicit seat_taken denial ejects after grace at the current vehicle driver side, even without a local body', async () => {

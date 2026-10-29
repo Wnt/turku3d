@@ -138,7 +138,7 @@ export class SharedVehicles {
     if (!d || !self || !this.client.state.connected) return;
     const v = this.client.state.vehicles.get(d.id);
     if (v) d.vehicle = v;
-    if (v?.occupant === self) d.conflict = null;
+    if (!v?.occupant || v.occupant === self || (d.conflict && d.conflict.holder !== v.occupant)) d.conflict = null;
     if ((!d.reclaim && v?.occupant === self) || d.pending || now < d.retryAt) return;
     const state = this.physics.latest?.vehicles.find(s => s.id === d.local);
     let command: VehicleCommand;
@@ -146,8 +146,8 @@ export class SharedVehicles {
     else {
       if (!state) return;
       const cached = d.vehicle;
-      command = cached ? { action: 'acquire', id: cached.source ? cached.id : `${self}:${cached.localId}`,
-        source: cached.source, localId: cached.localId, half: cached.half,
+      command = cached ? { action: 'acquire', id: cached.source ? cached.id : `${self}:${d.local}`,
+        source: cached.source, localId: d.local, half: cached.half,
         pose: vehiclePose(state, cached.pose.vehicle!, now) } : this.command(state, 'acquire');
       d.id = command.id;
       this.client.holdSeat(d.id);
@@ -156,7 +156,9 @@ export class SharedVehicles {
     void this.client.vehicle(command).then(result => {
       d.pending = false;
       if (this.driving !== d) return;
-      if (result) { d.vehicle = result; d.reclaim = false; d.conflict = null; }
+      if (result && this.client.state.vehicles.get(result.id)?.occupant === self) {
+        d.vehicle = result; d.reclaim = false; d.conflict = null;
+      }
     });
   }
 
@@ -209,6 +211,9 @@ export class SharedVehicles {
           linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN } });
       }
       this.fresh.delete(v.id);
+      for (const [id, item] of this.managed) if (id !== v.id && item.local === local) {
+        this.managed.delete(id); this.sent.delete(id);
+      }
       this.managed.set(v.id, { local, epoch: v.epoch }); this.sent.delete(v.id);
     }
     for (const [id, item] of this.managed) if (this.client.state.vehicles.get(id)?.owner !== self) {
