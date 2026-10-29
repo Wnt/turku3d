@@ -3,11 +3,13 @@
 Run over SSH with Python stdin; never modifies sources, shared stages or raw data.
 """
 
+import fcntl
 import json
 import os
 import re
 import sys
 import time
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -37,6 +39,23 @@ def get(port, route):
 
 
 def cold(label):
+    # Retiring producers are not listed in the active producer's scheduler file.
+    # Their full passes still own the same tile lock and may still publish outputs.
+    with ExitStack() as stack:
+        for tile in sorted(TILES):
+            directory = ROOT / tile
+            directory.mkdir(parents=True, exist_ok=True)
+            lock = stack.enter_context((directory / ".retention.lock").open("a"))
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise RuntimeError(
+                    f"route tile still building, including retiring producers: {tile}"
+                ) from error
+        _cold(label)
+
+
+def _cold(label):
     if not re.fullmatch(r"[a-z0-9-]+", label):
         raise ValueError("invalid iteration label")
     scheduler = read(ROOT / ".scheduler.json") or {}

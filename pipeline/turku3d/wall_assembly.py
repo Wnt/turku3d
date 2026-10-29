@@ -247,7 +247,8 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
             [path.read_bytes() for path in layer_files], assemble,
         )
     geometry_key = cache.metrics["wall_meshes"]["key"] if cache else None
-    neighbours = validate_neighbours(wall_layers, shells, tile, out.parent, geometry_key=geometry_key)
+    neighbours = validate_neighbours(wall_layers, shells, tile, out.parent,
+                                     geometry_key=geometry_key, report_cache=cache)
     def architecture(directory):
         write_visual(directory / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
 

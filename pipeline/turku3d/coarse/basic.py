@@ -118,7 +118,7 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
         from turku3d.wall_surfaces import validate_neighbours
 
         with cache.measure("basic_neighbours") if cache else nullcontext():
-            validate_neighbours(meshes, shells, tile, root, pass_kind="first")
+            validate_neighbours(meshes, shells, tile, root, pass_kind="first", report_cache=cache)
     data = build_glb(
         meshes, root_translation=tile.origin, root_extras={"basic": True, "tile": tile.id}
     )

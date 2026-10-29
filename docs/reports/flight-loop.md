@@ -134,3 +134,55 @@ end-to-end durations. The next recording retains every Resource Timing entry
 instead of the browser's default 250-entry buffer, records monotonic CDP event
 timestamps, and reports model-load wall times separately. The runner now rejects
 reused profile/evidence labels. No tests were added.
+
+## 2026-10-30, iteration 3: north, interrupted for capture correction
+
+Slice `c2ae08b2` deployed after selected checks passed in 1.22 s. Pages took
+8.06 s including packaging; OCI took 9.42 s. The 1.29 s smoke reached all
+endpoints, but full-pass rolling p50 was 23.48 s. Multiplayer remained running.
+Jonni began concurrent live playtesting: this round includes his additional
+load and demand; it is not a controlled single-player comparison.
+
+The north flight (`after-02`) reached `t0_0_-1` first visuals + validated collision
+at **158.21 s**, and `t0_0_-2` at **162.76 s**. North is now the worst observed
+first-arrival direction. A retiring `907a` full build on `t0_0_-1` took **329.04 s**;
+the new first build's wall time was **149.12 s**, including lock wait. Its second
+target first build took 3.09 s. There were no HTTP errors in the partial capture.
+
+Live `/proc/locks` proved the chain: old full worker 1372055 owned the global
+wall-admission lock and `t0_0_-1` retention lock; old full workers 1372056 and
+1372139 and new first worker 1373514 waited on global admission. New first workers
+1373515 and 1373516 waited on same-tile retention. The new `t0_-1_-1` had completed
+inputs in 0.787 s and cached basic walls in 0.111 s before waiting. Memory remained
+healthy (17.7 GB available); CPU pressure avg10 was 0.14. This was cross-build lock
+blocking, not an exhausted host.
+
+All 47 saved screenshots were inspected. Frames 3–36 show an almost completely
+empty frontier and an edge warning while waiting. Side geometry first appears
+at frame 37; target geometry fills in at 39. Frames 40–43 are mostly plain first
+passes; 44–45 and the final capture show textured surrounding buildings. This is
+a visible streaming failure despite smooth animation during the wait.
+
+Jonni reported canvas resizing during screenshots. The recording was deliberately
+stopped at 186.53 s, preserving partial evidence; it has **no completed full/return
+result** and the async job is marked failed. Earlier frame-time figures are retained
+as raw observations but are not clean performance comparisons. The corrected runner
+uses a real headed window (`viewport: null`, `--window-size=1280,900`) and raw CDP
+`Page.captureScreenshot` without clip/scale. It checks window, canvas and resize-event
+counts before/after each capture. Cold reset now acquires every route tile's retention
+lock, so retiring producers cannot silently race the reset.
+
+The next slice reports wall admission wait separately from neighbour processing.
+First-pass records/admission move to an isolated namespace, while full builds keep
+the legacy lock so retiring full workers remain coordinated. Boundary extraction
+filters triangles with NumPy before creating Python face lists. Exact old/new JSON
+matched on two cached real building meshes: 65.32→7.21 ms (23,124 triangles) and
+35.67→3.76 ms (11,949 triangles). These small fixtures establish equivalence, not
+a claim about total full-build speed.
+
+Read-only profiling of the actual OCI full tile found 740,622 triangles, 83,180
+boundary faces and seven matching neighbours with 145,140 faces. Under cProfile,
+reading/parsing neighbour JSON took 0.65 s, recursive neighbour hashing 8.65 s,
+old boundary extraction 8.16 s and overlap detection 11.29 s. Only four violations
+against one neighbour triggered reassembly of the entire tile. Further work targets
+that unnecessary breadth while preserving generated facade surfaces.

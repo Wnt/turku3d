@@ -171,7 +171,8 @@ def validate_ownership(shells, tile):
             raise ValueError(f"wall ownership {b.key}: {owner} emitted in {tile.id}")
 
 
-def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content_hash=None, geometry_key=None):
+def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content_hash=None,
+                        geometry_key=None, report_cache=None):
     """Resolve comparable neighbour evidence under one serialized admission.
 
     Records carry the visual pass and generator content hash. Already admitted
@@ -179,7 +180,9 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
     version. Ownership contradictions alone are programming errors.
     """
     import fcntl
+    import hashlib
     import json
+    from contextlib import nullcontext
     from pathlib import Path
 
     from turku3d import config as C
@@ -195,54 +198,78 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
     owners = sorted({b.key for b, _ in shells})
     directory = Path(root) / ".wall-surfaces"
     directory.mkdir(parents=True, exist_ok=True)
-    records = directory / pass_kind
+    # Retiring producers still write first/*.json under the legacy global lock.
+    # Isolate first-pass records as well as admission so their temporary files
+    # cannot race during a rolling deployment. Full passes retain the old lock.
+    records = directory / ("first-v2" if pass_kind == "first" else pass_kind)
     records.mkdir(exist_ok=True)
-    with (directory / "admission.lock").open("a+b") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        neighbours = []
-        for di in (-1, 0, 1):
-            for dj in (-1, 0, 1):
-                if di == dj == 0:
-                    continue
-                path = records / f"{C.VisualTile(0, tile.i + di, tile.j + dj).id}.json"
-                if not path.exists():
-                    continue
-                record = json.loads(path.read_text())
-                if (record.get("pass_kind"), record.get("content_hash")) != (pass_kind, content_hash):
-                    continue
-                duplicate = set(owners).intersection(record["owners"])
-                if duplicate:
-                    raise ValueError(f"wall ownership {tile.id}/{path.stem}: {sorted(duplicate)}")
-                neighbours.append(record)
+    admission = (records if pass_kind == "first" else directory) / "admission.lock"
+    with admission.open("a+b") as lock:
+        with report_cache.measure("wall_admission_wait") if report_cache else nullcontext():
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        with report_cache.measure("wall_neighbour_processing") if report_cache else nullcontext():
+            neighbours = []
+            neighbour_keys = []
+            json_bytes = 0
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    if di == dj == 0:
+                        continue
+                    path = records / f"{C.VisualTile(0, tile.i + di, tile.j + dj).id}.json"
+                    if not path.exists():
+                        continue
+                    payload = path.read_bytes()
+                    json_bytes += len(payload)
+                    record = json.loads(payload)
+                    if (record.get("pass_kind"), record.get("content_hash")) != (pass_kind, content_hash):
+                        del payload
+                        continue
+                    duplicate = set(owners).intersection(record["owners"])
+                    if duplicate:
+                        raise ValueError(f"wall ownership {tile.id}/{path.stem}: {sorted(duplicate)}")
+                    neighbours.append(record)
+                    # Exact record bytes cover every field without recursively
+                    # hashing hundreds of thousands of face coordinates in Python.
+                    neighbour_keys.append(hashlib.sha256(payload).hexdigest())
+                    del payload
+            if report_cache is not None:
+                report_cache.metrics["wall_neighbour_processing"].update(
+                    neighbours=len(neighbours), faces=sum(len(r["faces"]) for r in neighbours),
+                    json_bytes=json_bytes,
+                )
 
-        def resolve():
-            result = list(meshes)
-            removed = 0
-            faces, ids = boundary_faces(result, tile)
-            for record in neighbours:
-                violations = overlaps(faces + record["faces"], ids + record["ids"], split=len(faces))
-                if violations:
-                    points = np.asarray(record["faces"], float).reshape(-1, 3) - tile.origin
-                    protected = GlbMesh("neighbour", points,
-                                        np.arange(len(points), dtype=np.uint32).reshape(-1, 3))
-                    result = assemble_structures(result, [protected])
-                    removed += len(violations)
-                    faces, ids = boundary_faces(result, tile)
-            return result, faces, ids, removed
+            def resolve():
+                result = list(meshes)
+                removed = 0
+                faces, ids = boundary_faces(result, tile)
+                for record in neighbours:
+                    violations = overlaps(faces + record["faces"], ids + record["ids"], split=len(faces))
+                    if violations:
+                        points = np.asarray(record["faces"], float).reshape(-1, 3) - tile.origin
+                        protected = GlbMesh("neighbour", points,
+                                            np.arange(len(points), dtype=np.uint32).reshape(-1, 3))
+                        result = assemble_structures(result, [protected])
+                        removed += len(violations)
+                        faces, ids = boundary_faces(result, tile)
+                return result, faces, ids, removed
 
-        cache = StageCache(Path(root) / ".stages" / tile.id, retain=True)
-        resolved, faces, ids, removed = cache.run(
-            "wall_neighbours_" + pass_kind,
-            source_key(validate_neighbours, overlaps, boundary_faces, wall_faces, trapezoids,
-                       wall_assembly.assemble_structures, wall_assembly.band_polygon),
-            [geometry_key if geometry_key is not None else meshes, neighbours, tile], resolve,
-        )
-        meshes[:] = resolved
-        path = records / f"{tile.id}.json"
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(dict(owners=owners, faces=faces, ids=ids,
-                                            pass_kind=pass_kind, content_hash=content_hash)))
-        temporary.replace(path)
+            cache = StageCache(Path(root) / ".stages" / tile.id, retain=True)
+            try:
+                resolved, faces, ids, removed = cache.run(
+                    "wall_neighbours_" + pass_kind,
+                    source_key(validate_neighbours, overlaps, boundary_faces, wall_faces, trapezoids,
+                               wall_assembly.assemble_structures, wall_assembly.band_polygon),
+                    [geometry_key if geometry_key is not None else meshes, neighbour_keys, tile], resolve,
+                )
+            finally:
+                if report_cache is not None:
+                    report_cache.metrics.update(cache.metrics)
+            meshes[:] = resolved
+            path = records / f"{tile.id}.json"
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(dict(owners=owners, faces=faces, ids=ids,
+                                                pass_kind=pass_kind, content_hash=content_hash)))
+            temporary.replace(path)
     return dict(resolved=removed, pass_kind=pass_kind, content_hash=content_hash,
                 geometry_key=cache.metrics["wall_neighbours_" + pass_kind]["key"])
 
@@ -251,15 +278,19 @@ def boundary_faces(meshes, tile):
     """Keep boundary evidence bounded even after subtracting a neighbour surface."""
     faces, ids = [], []
     box = tile.bbox
-    local_faces, local_ids = wall_faces(meshes)
-    for local, identity in zip(local_faces, local_ids, strict=True):
-        face = local + tile.origin
-        lo, hi = face.min(axis=0), face.max(axis=0)
-        if (lo[0] > box.xmin + DISTANCE and hi[0] < box.xmax - DISTANCE
-                and lo[2] > box.zmin + DISTANCE and hi[2] < box.zmax - DISTANCE):
-            continue
-        faces.append(face.tolist())
-        ids.append(f"{tile.id}/{identity}")
+    for mesh in meshes:
+        points = np.asarray(mesh.positions, np.float32).astype(float)
+        triangles = points[np.asarray(mesh.indices)]
+        normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+        lengths = np.linalg.norm(normals, axis=1)
+        selected = np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths))
+        boundary = triangles[selected] + tile.origin
+        lo, hi = boundary.min(axis=1), boundary.max(axis=1)
+        keep = ~((lo[:, 0] > box.xmin + DISTANCE) & (hi[:, 0] < box.xmax - DISTANCE)
+                 & (lo[:, 2] > box.zmin + DISTANCE) & (hi[:, 2] < box.zmax - DISTANCE))
+        owner = mesh.extras.get("building_id", mesh.name)
+        faces.extend(boundary[keep].tolist())
+        ids.extend(f"{tile.id}/{owner}/{mesh.name}/face:{i}" for i in selected[keep])
     return faces, ids
 
 
