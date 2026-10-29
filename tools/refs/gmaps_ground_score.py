@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 
 import numpy as np
 
@@ -41,7 +42,17 @@ def score(row, root, own):
     import scores
 
     scores.ground_materials = export_ground
-    return base.score_one(row, root, frozen_own=own)
+    # The scorer prohibits reference-cache paths as own inputs. Materialize only
+    # hash-verified OCI bytes in the sandbox; durable originals stay in the inventory.
+    source = Path(own['path'])
+    destination = Path(os.environ['TURKU3D_WORK']) / 'gmaps-own' / own['sha256'] / row['tile']
+    shutil.copytree(source.parent, destination, dirs_exist_ok=True, copy_function=shutil.copy2)
+    original = own
+    own = dict(own, path=str(destination / source.name))
+    try:
+        return base.score_one(row, root, frozen_own=own)
+    finally:
+        base.atomic_json(Path(root) / 'captures' / row['coverage_id'] / 'oci-snapshot.json', original)
 
 
 def summary(states):
