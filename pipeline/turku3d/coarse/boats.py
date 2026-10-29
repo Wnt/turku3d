@@ -185,17 +185,17 @@ def furniture(key, boat, deck_area):
         normal = np.array([-direction[1], direction[0]])
         chairs = Faces()
         for sign in (-1, 1):
-            centre = p + normal * sign * 0.95
+            chair_centre = p + normal * sign * 0.95
             corners = np.array(
                 [
-                    centre + direction * a + normal * b
+                    chair_centre + direction * a + normal * b
                     for a, b in ((-0.25, -0.25), (0.25, -0.25), (0.25, 0.25), (-0.25, 0.25))
                 ]
             )
             horizontal(chairs, shapely.Polygon(corners), deck + 0.45)
             a, b = (
-                centre + normal * sign * 0.25 - direction * 0.25,
-                centre + normal * sign * 0.25 + direction * 0.25,
+                chair_centre + normal * sign * 0.25 - direction * 0.25,
+                chair_centre + normal * sign * 0.25 + direction * 0.25,
             )
             chairs.face(
                 [
