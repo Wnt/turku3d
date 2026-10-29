@@ -46,6 +46,31 @@ def test_regular_and_mixed_faces_keep_exact_overlap_diagnostics():
     assert overlaps(np.array(triangles), ids) == overlaps(padded_triangles, ids)
 
 
+def test_projected_area_bound_preserves_scalar_overlap_results():
+    from turku3d.wall_surfaces import MIN_AREA
+
+    random = np.random.default_rng(42)
+    faces = []
+    for i in range(32):
+        x, y = random.uniform(0, .1, 2)
+        width, height = 10 ** random.uniform(-3, 0, 2)
+        faces.append(np.array([[x, y, (i % 2) * .004],
+                               [x + width, y, (i % 2) * .004],
+                               [x + width, y + height, (i % 2) * .004]]))
+    ids = list(map(str, range(len(faces))))
+    expected = {}
+    for i, face in enumerate(faces):
+        for j in range(i):
+            common = shapely.Polygon(face[:, :2]).intersection(shapely.Polygon(faces[j][:, :2]))
+            if common.area > MIN_AREA:
+                area = common.buffer(-.00005).area
+                if area > MIN_AREA:
+                    expected[ids[j], ids[i]] = area
+    actual = {(row["first"], row["second"]): row["area"] for row in overlaps(faces, ids)}
+    assert actual.keys() == expected.keys()
+    assert actual == pytest.approx(expected, abs=1e-12)
+
+
 def test_diverging_planes_are_partitioned_only_where_they_can_compete():
     first = quad()
     second = quad(top=12, z=0.004)
