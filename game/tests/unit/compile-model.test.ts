@@ -35,7 +35,7 @@ test('one-draw compilation preserves material arrays, children, visibility and r
   vi.unstubAllGlobals();
 });
 
-test('async shader stages retain their pass state while live rendering restores its own state', async () => {
+test.each([false, true])('async shader stages retain pass state with override=%s while live rendering resumes', async override => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
   const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   Object.assign(renderer, { _renderContexts: { get: () => ({}) } });
@@ -44,15 +44,18 @@ test('async shader stages retain their pass state while live rendering restores 
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()); scene.add(mesh);
   type Builder = Parameters<NonNullable<typeof renderer.debug.onNodeBuilderCreated>>[0];
   const passMrt = mrt({ output: normalView, velocity });
+  const passMaterial = override ? new THREE.MeshBasicNodeMaterial() : null;
   let compilationRenderer: Builder['renderer'] | undefined, finish: (() => void) | undefined;
   const previousBuilder = vi.fn(); renderer.debug.onNodeBuilderCreated = previousBuilder;
   vi.spyOn(renderer, 'compileAsync').mockImplementation(() => {
     const builder = { renderer } as unknown as Builder;
-    renderer.debug.onNodeBuilderCreated!(builder, { object: mesh, material: mesh.material, camera, context: { pass: 'pre' } });
+    expect(scene.overrideMaterial).toBe(passMaterial);
+    renderer.debug.onNodeBuilderCreated!(builder, { object: mesh, material: passMaterial ?? mesh.material, camera, context: { pass: 'pre' } });
     compilationRenderer = builder.renderer;
     return new Promise(resolve => { finish = resolve; });
   });
-  const prepared = compileModel(renderer, mesh, scene, camera, target, passMrt, passContext);
+  const prepared = compileModel(renderer, mesh, scene, camera, target, passMrt, passContext, false, 0, passMaterial);
+  expect(scene.overrideMaterial).toBeNull();
   expect(renderer.getRenderTarget()).toBeNull(); expect(renderer.contextNode).toBe(originalContext);
   // Simulate the next asynchronous generation stage after ordinary rendering has resumed.
   await Promise.resolve();

@@ -38,7 +38,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       const previousBuilder = renderer.debug.onNodeBuilderCreated;
       const onBuilder: typeof previousBuilder = (builder, value) => {
         const draw = value as { object: THREE.Object3D; material: THREE.Material; camera: THREE.Camera; context: unknown };
-        if (draw.object === mesh && draw.material === material && draw.camera === camera) {
+        if (draw.object === mesh && (draw.material === material || override !== null) && draw.camera === camera) {
           // NodeBuilder.buildAsync reads renderer state again after scheduler.yield(). A renderer view
           // keeps those reads in this pass while the live renderer continues the game's animation.
           builder.renderer = new Proxy(renderer, { get(source, key, receiver) {
