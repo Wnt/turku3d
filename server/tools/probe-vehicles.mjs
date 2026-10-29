@@ -43,7 +43,8 @@ try {
     return peer;
   }
   const a = await connect(), b = await connect();
-  const pose = { t: 1, E: a.welcome.you.spawn.E, N: a.welcome.you.spawn.N, H: 4,
+  // Live probes keep their temporary registry actors below the playable city.
+  const pose = { t: 1, E: a.welcome.you.spawn.E, N: a.welcome.you.spawn.N, H: app ? 4 : -200,
     yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'foot', vehicle: null, carrying: false };
   a.send({ type: 'pose', ...pose }); b.send({ type: 'pose', ...pose });
   const id = `${a.welcome.you.id}:probe`;
