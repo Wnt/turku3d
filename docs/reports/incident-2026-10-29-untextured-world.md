@@ -16,14 +16,24 @@ HTTP readiness proved that the process answered, not that changed generator code
 
 `wall-invariant-exact` owns wall validation. `full-pass-starved` owns preemption, retention and full-pass speed. This slice adds a deployment canary and live health visibility without changing either policy.
 
-## Prevention
+## Prevention and workflow correction
 
-OCI source deployment compares content hashes of pipeline, texture and producer-service sources. Client-only publication bypasses OCI validation. When those contents change, the frozen standby source builds spawn `t0_0_0`, first then full, using the same parent stage/input caches and a separate output directory. It runs beside standby HTTP smoke. Neither source nor proxy pointers move until both succeed. Failure stops only the new standby; the old slot continues serving. The full-pass deadline is twice the median of the last 15 successful canaries, capped at 40 seconds; the bootstrap budget is 40 seconds. First pass is capped at 40 seconds. No queue or rollback is added.
+The 2026-10-28 workflow was not followed in spirit: smoke checked liveness instead of health; broad synthetic asynchronous suites did not exercise changed generator behavior on OCI; the 122-second painter audit was a slowdown signal that was ignored; and the orchestrator verified only first passes before claiming recovery.
 
-`/coarse/health` exposes 15-minute first/full built, failed and cancelled counts, successful-build p50/p90 seconds, success rate and last error kind. Records survive slot switches. Public error kinds omit exception messages and filesystem paths. `codex-task checks` prints the signal and alerts; the sentinel hook flags full success below 80% or p50 above 30 seconds while players are online, and repeated failure kinds regardless of presence.
+The initial remediation added a mandatory pre-switch canary. Jonni subsequently clarified that meaningful test selection belongs to the agent, and directed its removal. Deployment remains package/upload only, without a fixed build gate, queue or rollback. Client-only publication skips OCI source work using content hashes.
+
+`/coarse/health` exposes 15-minute first/full built, failed and cancelled counts, successful-build p50/p90 seconds, success rate and last error kind. Records survive slot switches. Error kinds omit exception messages and filesystem paths. The five-second curl smoke parses this response: recent full failures/cancellations and excessive p50 are red even with HTTP 200. `codex-task checks` prints the signal and alerts. The sentinel flags full success below 80% or p50 above 30 seconds while players are online, and repeated failure kinds regardless of presence.
+
+The agent chooses one selective asynchronous investigation within ten minutes, aware of recent runs. It must exercise the affected deployed feature. Generator changes require representative first/full real-tile builds on OCI with outcome, timing and source-count checks; client changes exercise their feature. There is no fixed tile list or generic suite substitute. The optional deployed-host probe takes agent-selected tiles and budgets, reuses stage/input caches, compares manifest building counts with gathered source buildings and collision counts with the configured tile subdivision, and records pass outcomes in rolling telemetry. It does not switch traffic.
 
 ## Measurements
 
-Synthetic affected checks: 20 tests passed in 0.77 seconds, including a real child-worker protocol test for first/full outputs, injected failure and timeout. Deployment boundary tests prove a failed canary cannot switch the proxy, and unchanged generator bytes skip standby startup and canary entirely. The pre-merge budget remains 30 seconds; the canary is part of OCI deployment.
+Synthetic affected checks: 20 tests passed in 0.77 seconds, including a real child-worker protocol test for first/full outputs, injected failure and timeout. Deployment boundary tests prove a failed canary cannot switch the proxy, and unchanged generator bytes skip standby startup and canary entirely. The pre-merge budget remains 30 seconds. The initial build gate was subsequently removed as described above.
 
-Live timings will be appended from `codex-task finish` deployment evidence. Target added validation time is at most 20 seconds; the hard full-pass rejection cap remains 40 seconds.
+First live deployment attempt (`259a68114db4`): pre-merge checks passed in 2.005 seconds; Pages package/upload took 8.344 seconds. The OCI canary rejected the first pass at its 40.000-second deadline, before the proxy/source switch. Active OCI source remained `960b0c7a`. This is an observed rejection, not a successful recovery or full-pass measurement.
+
+Incremental timing evidence in `.deploy-canary/stage-times.json` showed inputs at 0.970 seconds, all geometry stages cached (each under 0.102 seconds), and all 16 collision stages cached (each under 0.002 seconds). The remaining stall was after structural collision, in first-pass visual production. The performance owner received this evidence. Full pass was never reached, and the ≤20-second added-time target was not met. The cap was not relaxed to admit the slow source.
+
+The initial mandatory policy retries exposed missing isolated Node dependencies (root TypeScript, game Playwright and QA Playwright). Installing each sandbox-local lockfile dependency set resolved them; no assertions were changed.
+
+After the rejected attempt, all three integration curl probes passed in 0.405 seconds, and 22 selective scheduler/retention/public-boundary tests passed asynchronously in 0.986 seconds. These synthetic results are explicitly not evidence of successful real full-pass generation.

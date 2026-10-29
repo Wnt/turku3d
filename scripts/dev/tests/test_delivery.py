@@ -76,18 +76,18 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(result["result"], "deploy-failed")
         self.assertEqual(result["commit"], "a" * 40)
 
-    def test_canary_rejection_is_reported_as_failed_deploy_to_finish(self):
+    def test_oci_failure_is_reported_as_failed_deploy_to_finish(self):
         with (
             tempfile.TemporaryDirectory() as temp,
             patch.object(delivery, "deploy", return_value={}),
-            patch("deploy_drafts.deploy", side_effect=ValueError("full canary exceeded budget")),
+            patch("deploy_drafts.deploy", side_effect=ValueError("OCI unavailable")),
             patch.object(delivery.coord, "send"),
             patch.object(delivery, "ledger"),
         ):
             result = delivery.after_merge("test", Path(temp), "a" * 40,
                                           {"changed_paths": ["pipeline/turku3d/coarse/build.py"]}, Path(temp))
         self.assertEqual(result["result"], "generator-deploy-failed")
-        self.assertIn("full canary exceeded", result["error"])
+        self.assertIn("OCI unavailable", result["error"])
 
     def test_server_only_changes_deploy_oci(self):
         self.check_source_deployment("server/economy.js")
@@ -152,6 +152,13 @@ class DeliveryTests(unittest.TestCase):
 
         def run(command, **kwargs):
             calls.append((command, kwargs["deadline"]))
+            if command[-1].endswith('/health'):
+                output = Path(command[command.index('--output') + 1])
+                output.write_text(json.dumps({'build_health': {
+                    'players_online': False,
+                    'passes': {k: {'built': 1, 'failed': 0, 'cancelled': 0,
+                                  'p50_seconds': 10, 'success_rate': 1, 'error_kinds': {}}
+                               for k in ('first', 'full')}}}))
             return {"exit": 0, "seconds": 0.01}
 
         with (
@@ -165,6 +172,22 @@ class DeliveryTests(unittest.TestCase):
         urls = [command[-1] for command, _ in calls]
         self.assertIn("https://turku.lab.madekivi.fi/coarse/health", urls)
         self.assertFalse(any(url.endswith("/status") for url in urls))
+
+    def test_smoke_rejects_http_200_with_recent_full_cancellations(self):
+        health = {'build_health': {'players_online': False, 'passes': {
+            k: {'built': 1, 'failed': 0, 'cancelled': int(k == 'full'),
+                'p50_seconds': 10, 'success_rate': 1, 'error_kinds': {}}
+            for k in ('first', 'full')}}}
+        def run(command, **kwargs):
+            if command[-1].endswith('/health'):
+                Path(command[command.index('--output') + 1]).write_text(json.dumps(health))
+            return {'exit': 0, 'seconds': .01}
+        with (tempfile.TemporaryDirectory() as temp,
+              patch.object(delivery, 'environment', return_value={}),
+              patch.object(bounded_checks, 'run', side_effect=run)):
+            result = delivery.smoke(Path(temp), {'url': 'https://example.test/'}, Path(temp))
+        self.assertFalse(result['ok'])
+        self.assertTrue(any('cancelled' in reason for reason in result['health_alerts']))
 
     def test_snapshot_preserves_dependency_executable_symlinks(self):
         with tempfile.TemporaryDirectory() as temp:

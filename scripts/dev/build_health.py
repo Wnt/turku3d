@@ -25,6 +25,20 @@ def alerts(health):
     return reasons
 
 
+def smoke_alerts(health):
+    reasons = alerts(health)
+    signal = health.get('build_health')
+    if signal is not None:
+        full = signal['passes']['full']
+        if full['failed'] or full['cancelled']:
+            reasons.append(f"recent full passes: {full['failed']} failed, {full['cancelled']} cancelled")
+        if full['p50_seconds'] is not None and full['p50_seconds'] > 30:
+            reason = f"full-pass p50 {full['p50_seconds']:.1f}s > 30s"
+            if reason not in reasons:
+                reasons.append(reason)
+    return reasons
+
+
 def fetch():
     with urllib.request.urlopen(URL, timeout=2) as response:
         return json.load(response)

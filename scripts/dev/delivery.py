@@ -99,6 +99,8 @@ def smoke(repo, deployed, path):
     # No shell quoting of URLs or environment strings.
     import concurrent.futures
 
+    health_file = path / "smoke" / "build-health.json"
+    health_file.parent.mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as pool:
         futures = [
             pool.submit(
@@ -112,7 +114,7 @@ def smoke(repo, deployed, path):
                     "--max-time",
                     "5",
                     "--output",
-                    os.devnull,
+                    str(health_file) if i == 2 else os.devnull,
                     url,
                 ],
                 cwd=repo,
@@ -123,8 +125,16 @@ def smoke(repo, deployed, path):
             for i, url in enumerate(urls)
         ]
         checks = [future.result() for future in futures]
+    import build_health
+    try:
+        health = json.loads(health_file.read_text())
+        health_alerts = build_health.smoke_alerts(health)
+    except (OSError, ValueError, KeyError, TypeError):
+        health, health_alerts = None, ["generator build-health response missing or invalid"]
     return {
-        "ok": all(c["exit"] == 0 for c in checks),
+        "ok": all(c["exit"] == 0 for c in checks) and not health_alerts,
+        "build_health": health.get("build_health") if health else None,
+        "health_alerts": health_alerts,
         "checks": checks,
         "seconds": round(SMOKE_SECONDS - max(0, deadline - time.monotonic()), 3),
     }

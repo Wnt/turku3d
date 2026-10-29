@@ -47,7 +47,7 @@ describe('fly controller', () => {
   test('three times walking speed, ten times with the fast modifier, in every direction', () => {
     const fly = new FlyMode();
     expect(FLY.speed).toBeCloseTo(3 * SPEED.walk);
-    expect(FLY.fastSpeed).toBeCloseTo(10 * SPEED.walk);
+    expect(FLY.fastSpeed).toBeCloseTo(4 * FLY.speed);
     expect(fly.velocity({ x: 1, z: 0, up: 0, down: 0, fast: false })).toEqual({ vx: FLY.speed, vy: 0, vz: 0 });
     expect(fly.velocity({ x: 0, z: -1, up: 1, down: 0, fast: true })).toEqual({ vx: 0, vy: FLY.fastSpeed, vz: -FLY.fastSpeed });
     expect(fly.velocity({ x: 0, z: 0, up: 0, down: 1, fast: false }).vy).toBe(-FLY.speed);

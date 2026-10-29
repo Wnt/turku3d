@@ -32,15 +32,6 @@ print(h.hexdigest())
     return "python3 -c " + shlex.quote(script)
 
 
-def canary(destination):
-    command = (f"TURKU3D_DRAFT_SOURCE={destination} {destination}/tools/remote-drafts/run.sh "
-               f"python {destination}/tools/remote-drafts/canary.py --root /srv/turku3d/work/coarse")
-    try:
-        return json.loads(remote(command))
-    except subprocess.CalledProcessError as error:
-        raise ValueError('OCI canary failed; old slot still serves: ' + error.stderr[-2000:]) from error
-
-
 def deploy_multiplayer(destination):
     return remote(
         f"{HOME}/run.sh bash {destination}/tools/remote-drafts/update-multiplayer.sh "
@@ -91,7 +82,7 @@ def deploy(repo, commit):
         generator_changed = new_hash.result() != old_hash.result()
     if not generator_changed:
         return dict(commit=commit, seconds=round(time.monotonic() - started, 3),
-                    generator_unchanged=True, canary=None,
+                    generator_unchanged=True,
                     multiplayer=deploy_multiplayer(destination))
     # Keep the old producer serving while a standby binds the alternate port. Its
     # workers stay paused until the old process group has stopped writing caches.
@@ -124,18 +115,7 @@ while time.monotonic()<end:
  time.sleep(.1)
 else: raise SystemExit('standby draft producer did not become ready within5s')
 """
-    validation_started = time.monotonic()
-    try:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            smoke = pool.submit(remote, "python3 -c " + shlex.quote(health))
-            build = pool.submit(canary, destination)
-            instance = smoke.result()
-            canary_result = build.result()
-    except Exception:
-        # The proxy/source pointers are untouched. Stop only the standby we started.
-        remote(f"systemctl --user stop {unit}")
-        raise
-    canary_result['validation_wall_seconds'] = round(time.monotonic() - validation_started, 3)
+    instance = remote("python3 -c " + shlex.quote(health))
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
     remote(
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
@@ -194,7 +174,6 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         rsync=result.stdout,
         multiplayer=multiplayer,
         cache_storage=cache_storage,
-        canary=canary_result,
     )
 
 
