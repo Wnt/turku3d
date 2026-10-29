@@ -25,8 +25,19 @@ def next_upgrade(builder):
     # never need to kill a committed full pass to obtain its first-pass worker.
     # Explicitly preemptible idle jobs may still fill the entire pool.
     idle_tiles = builder.idle.tiles if builder.idle is not None else set()
+    firsts = (set(builder.priority) | (set(builder.building) - builder.upgrading)) - builder.cancelled
+    urgent_first = min(
+        (r for first in firsts if (r := builder.demand.rank(first)) is not None and r[0] == 0),
+        default=None,
+    )
     for tile in sorted(builder.upgrade_queue, key=lambda t: upgrade_order(builder, t)):
-        if tile not in idle_tiles and len(builder.upgrading) >= max(1, builder.workers - 1):
+        limit = max(1, builder.workers - 1)
+        lease = builder.demand.rank(tile)
+        # A nearer crossing may still be building its first pass. Leave room
+        # for its upgrade instead of committing every upgrade slot farther ahead.
+        if builder.workers > 1 and urgent_first is not None and (lease is None or urgent_first < lease):
+            limit -= 1
+        if tile not in idle_tiles and len(builder.upgrading) >= limit:
             continue
         if tile in builder.building:
             continue
