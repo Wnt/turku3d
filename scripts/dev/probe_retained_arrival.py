@@ -13,8 +13,8 @@ from facade_publish import remote
 
 
 def drivers():
-    commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-    source = f'{HOME}/sources/{commit}'
+    # A client/probe-only correction does not republish generator sources.
+    source = remote(f'readlink -f {HOME}/repo')
     output = f'/srv/turku3d/work/arrival-serve-last-good/ten-{uuid.uuid4().hex[:12]}.json'
     command = ['timeout', '--kill-after=3', '540', f'{source}/tools/remote-drafts/run.sh',
                'python', f'{source}/tools/remote-drafts/ten-drivers.py', '--output', output,
