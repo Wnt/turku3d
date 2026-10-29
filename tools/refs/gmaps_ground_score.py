@@ -5,6 +5,7 @@ The original coverage and reports are never overwritten by this batch index.
 """
 
 import argparse
+import ast
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import hashlib
 import json
@@ -91,6 +92,34 @@ def summary(states):
                          for k, v in observations.items()})
 
 
+def measurement_source(source):
+    """CLI/reporting edits may resume; measurement algebra and input handling may not."""
+    selected = {'export_ground', 'materialize_own', 'score', 'summary'}
+    return ast.dump(ast.Module(body=[node for node in ast.parse(source).body
+                                    if isinstance(node, ast.FunctionDef) and node.name in selected],
+                               type_ignores=[]), include_attributes=False)
+
+
+def compatible_request(previous, current):
+    if previous['plan_sha256'] != current['plan_sha256']:
+        return False
+    repo = Path(__file__).resolve().parents[2]
+    before = previous['commit']
+    old = subprocess.check_output(['git', 'show', f'{before}:tools/refs/gmaps_ground_score.py'], cwd=repo)
+    if hashlib.sha256(old).hexdigest() != previous['export_sha256']:
+        return False
+    if measurement_source(old) != measurement_source(Path(__file__).read_bytes()):
+        return False
+    from turku3d.coarse.packaging import producer_paths
+    from turku3d.facade_kit import palette_sources
+    for path in {*producer_paths(), *palette_sources()}:
+        relative = path.resolve().relative_to(repo.resolve()).as_posix()
+        original = subprocess.check_output(['git', 'show', f'{before}:{relative}'], cwd=repo)
+        if original != path.read_bytes():
+            return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--label', required=True, help='New immutable generator measurement label')
@@ -109,9 +138,13 @@ def main():
                    plan_sha256=hashlib.sha256(json.dumps(base.PLAN, sort_keys=True).encode()).hexdigest(),
                    export_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
     request_path = out / 'request.json'
-    if request_path.exists() and json.loads(request_path.read_text()) != request:
-        raise ValueError('Measurement label already belongs to different source/plan')
-    atomic_json(request_path, request)
+    if request_path.exists():
+        previous = json.loads(request_path.read_text())
+        if previous != request and not compatible_request(previous, request):
+            raise ValueError('Measurement label already belongs to different generator/measurement source/plan')
+        atomic_json(out / 'latest-invocation.json', request)
+    else:
+        atomic_json(request_path, request)
     coverage = out / 'coverage.json'
     states = json.loads(coverage.read_text())['quarters'] if coverage.exists() else {}
     snapshots = {}

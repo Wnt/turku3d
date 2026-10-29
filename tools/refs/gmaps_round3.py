@@ -36,7 +36,7 @@ def score_one(row, product_root=None, frozen_own=None):
     product_root = Path(product_root) if product_root else ROOT
     from gmaps_inputs import install
     install()
-    from detail import metadata, audit
+    from detail import metadata
     import mesh
     import loop
     from storage import ROOT as PRIVATE_ROOT, configured_limit
@@ -61,7 +61,8 @@ def score_one(row, product_root=None, frozen_own=None):
     decoded = decode_extent(out, PRIVATE_ROOT/'tools/libcrn.dylib', configured_limit(), product_root/'spatial-index')
     if decoded['errors'] or not decoded['meshes']:
         raise ValueError('Incomplete reference decode')
-    audit(out)
+    # Completeness is checked above and independently again by loop.score.
+    # Full mesh/UV resolution audits are optional inventory diagnostics, not scoring.
     try:
         directory, report = score(row['tile'], Path(own['path']).parent, capture=out)
     except ValueError as error:

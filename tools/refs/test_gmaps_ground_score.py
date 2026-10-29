@@ -56,3 +56,12 @@ def test_materializes_oci_sibling_resources_and_checks_source_hash(tmp_path, mon
     glb.write_bytes(b'corrupted')
     with pytest.raises(ValueError, match='source changed'):
         materialize_own(own, 't0_0_0')
+
+
+def test_checkpoint_ignores_cli_edits_but_tracks_measurement_algebra():
+    from gmaps_ground_score import measurement_source
+
+    original = 'def export_ground(x):\n    return x + 1\ndef main():\n    print("old CLI")\n'
+    changed_cli = original.replace('old CLI', 'new CLI')
+    assert measurement_source(original) == measurement_source(changed_cli)
+    assert measurement_source(original) != measurement_source(original.replace('x + 1', 'x + 2'))

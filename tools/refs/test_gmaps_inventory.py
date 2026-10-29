@@ -22,3 +22,22 @@ def test_missing_external_and_traversal_pointers_stay_unresolved(tmp_path):
         "relative/gmaps-round3/report.json",
     ):
         assert relocate(value, tmp_path) == value
+
+
+def test_inventory_requires_complete_audit_and_existing_bodies(tmp_path):
+    import json
+    from gmaps_inventory import inventory
+
+    root = tmp_path / 'synthetic'
+    root.mkdir()
+    (root / 'expanded-plan.json').write_text(json.dumps(dict(quarters=[dict(coverage_id='q', tile='t0_0_0')])))
+    capture = root / 'captures/q'
+    (capture / 'responses').mkdir(parents=True)
+    (capture / 'capture.json').write_text(json.dumps(dict(
+        inventory_state='eligible', responses=[dict(file='responses/body.bin')],
+        detail_progress=dict(complete=True, metadata_complete=True, available=1, loaded=1))))
+    assert inventory(tmp_path)['states'] == dict(incomplete=1)
+    (capture / 'responses/body.bin').write_bytes(b'observed payload')
+    result = inventory(tmp_path)
+    assert result['states'] == dict(eligible=1)
+    assert result['quarters']['q']['capture'] == 'synthetic/captures/q/capture.json'
