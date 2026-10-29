@@ -1,6 +1,7 @@
 """Owned ten-minute-budget evidence for shared texture compilation on deployed OCI."""
 import argparse
 import shlex
+import subprocess
 import uuid
 
 from deploy_drafts import HOME
@@ -22,7 +23,11 @@ def main():
     if args.assembly_baseline:
         arguments += ['--assembly-baseline', f'{HOME}/sources/{args.assembly_baseline}/pipeline/turku3d/wall_assembly.py']
     command = shlex.join(arguments)
-    print(remote(f'TURKU3D_DRAFT_SOURCE={shlex.quote(source)} ' + command), flush=True)
+    try:
+        print(remote(f'TURKU3D_DRAFT_SOURCE={shlex.quote(source)} ' + command), flush=True)
+    except subprocess.CalledProcessError as error:
+        print(error.stdout, flush=True)
+        raise SystemExit(error.stderr[-8000:]) from error
 
 
 if __name__ == '__main__':
