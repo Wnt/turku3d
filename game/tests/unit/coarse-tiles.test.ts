@@ -557,3 +557,30 @@ test('one bundle feeds worker validation and collider reuse while model decoding
   expect(retained.every(buffer => buffer.byteLength === 4)).toBe(true);
   expect(fetched.filter(url => url.endsWith('.col'))).toEqual([`http://localhost/coarse/t0_0_0/${bundleUrl}`]);
 });
+
+test('developer pass comparison swaps only visuals and cancels stale loads', async () => {
+  const scene = new THREE.Scene(), base = new THREE.Group(); scene.add(base);
+  const refreshCollision = vi.fn(), checkCollision = vi.fn();
+  let finish: ((model: THREE.Object3D) => void) | undefined;
+  const coarse = new CoarseTiles({ scene, manifest: { collision: {} } as Manifest,
+    pageUrl: 'http://localhost:5410/', renderer: {} as THREE.WebGPURenderer,
+    unloadCollision: vi.fn(), refreshCollision, checkCollision,
+    fetch: vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ pass_kind: 'first', visual: { t0_0_0: { url: 'first.glb' } } }) })) as never,
+    loadModel: () => new Promise(resolve => { finish = resolve; }),
+  });
+  const entry = { model: base, state: 'draft', pass: 'full', collision: new Map(), nextPoll: 0 };
+  coarse.entries.set('t0_0_0', entry as never);
+  coarse.setVisualPass('first');
+  expect(base.visible).toBe(false);
+  const compare = () => (coarse as unknown as { compare(id: string, e: unknown): Promise<void> }).compare('t0_0_0', entry);
+  const pending = compare();
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  coarse.setVisualPass('auto'); finish!(new THREE.Group()); await pending;
+  expect(scene.children).toEqual([base]); expect(base.visible).toBe(true);
+  finish = undefined; coarse.setVisualPass('first');
+  const second = compare(); await vi.waitFor(() => expect(finish).toBeDefined());
+  const first = new THREE.Group(); finish!(first); await second;
+  expect(scene.children).toContain(first); expect(base.visible).toBe(false);
+  expect(refreshCollision).not.toHaveBeenCalled(); expect(checkCollision).not.toHaveBeenCalled();
+  coarse.setVisualPass('auto'); expect(scene.children).toEqual([base]);
+});

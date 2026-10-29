@@ -161,6 +161,9 @@ def publish(
         seconds={**seconds, "total": seconds["drivable_ready"]},
     )
     # The only public pointer moves after every immutable payload exists.
+    # Comparison retains only the basic visual, never an obsolete physics generation.
+    _write(out / "first.json", json.dumps({k: record[k] for k in
+           ("coarse", "tile", "pass_kind", "code", "inputs", "visual")}).encode())
     _write(out / "collision.json", json.dumps(record).encode())
     from .audit import submit
 

@@ -1,6 +1,7 @@
 // Draft service is the only world source. Each visible tile owns all sixteen collision cells.
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
+import { VisualPassComparison } from './visualPass';
 import { splitCollisionBundle, type CollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
@@ -39,7 +40,7 @@ const gatewayDown = (status: number) => status === 502 || status === 503 || stat
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean }
 
-interface CoarseFragment { coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+interface CoarseFragment { pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
@@ -50,6 +51,7 @@ interface Entry {
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
   vehicles?: ParkedVehicle[];
+  pass?: 'first' | 'full'; comparison?: THREE.Object3D; comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
@@ -108,6 +110,11 @@ export class CoarseTiles {
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
   private materials = new SharedMaterials();
+  private comparison: VisualPassComparison;
+  get visualPass() { return this.comparison.pass; }
+  get comparisonStatus() { return this.comparison.status; }
+  setVisualPass(pass: 'auto' | 'first' | 'full') { this.comparison.setPass(pass); }
+  private compare(id: string, e: Entry) { this.comparison.clock = this.clock; return this.comparison.compare(id, e); }
 
   /** Optional remaining mission route, engine metres, ordered forward. Clear with null. Stays client-side. */
   setRouteHint(points: readonly { x: number; z: number }[] | null) {
@@ -142,6 +149,8 @@ export class CoarseTiles {
     const page = new URL(this.page);
     this.root = draftsUrl(page) ?? '/coarse/';
     this.remote = !isLocalHost(page.hostname);
+    this.comparison = new VisualPassComparison(host, this.entries, url => this.request(url), url => this.load(url),
+      model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model), this.root, this.page);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
@@ -215,6 +224,7 @@ export class CoarseTiles {
       this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
       return;
     }
+    for (const [id, e] of this.entries) void this.compare(id, e);
     void this.want(x, z);
     if (this.remote) void this.sendDemand(draftDemand(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
@@ -429,7 +439,8 @@ export class CoarseTiles {
     const old = e.model;
     old?.removeFromParent();
     this.host.scene.add(model);
-    e.model = model; e.visualHash = fragment.visual[id].sha256;
+    this.comparison.clear(e); e.pass = fragment.pass_kind;
+    e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     e.state = 'draft';
     this.takeVehicles(e, fragment, base);
@@ -521,6 +532,7 @@ export class CoarseTiles {
   }
 
   private drop(e: Entry) {
+    this.comparison.clear(e);
     const oldVehicles = new Set(e.vehicles ?? []);
     this.host.manifest.vehicles = this.host.manifest.vehicles?.filter(v => !oldVehicles.has(v));
     e.vehicles = undefined;

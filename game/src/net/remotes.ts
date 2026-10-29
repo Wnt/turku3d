@@ -61,6 +61,7 @@ function nickname(nick: string): THREE.Sprite {
   ctx.fillText(nick, canvas.width / 2, 33);
   const texture = new THREE.CanvasTexture(canvas);
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  sprite.userData.devLayer = 'People/Name Tags';
   sprite.scale.set(canvas.width / 48 * 0.45, 0.45, 1);
   return sprite;
 }
@@ -112,6 +113,9 @@ export class RemotePlayers {
         const truck = this.sources.truck.root.clone(true);
         const label = nickname(p.nick);
         const pizza = new THREE.Mesh(this.pizzaGeometry, this.pizzaMaterial);
+        for (const visual of [car, scooter, truck]) visual.userData.devLayer = 'Vehicles/Other Players Cars';
+        distant.userData.devLayer = 'People/Players';
+        pizza.userData.devLayer = 'People/Players';
         this.root.add(distant, car, scooter, truck, label, pizza);
         remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player', effectSlot: this.tyreEffects.reserve(), receivedAt: now };
         this.remotes.set(p.id, remote);
@@ -124,6 +128,7 @@ export class RemotePlayers {
         if (!model) this.sources.parked.requestRemoteModel(pose.vehicle);
         if (model) {
           remote.car.removeFromParent();
+          model.userData.devLayer = 'Vehicles/Other Players Cars';
           remote.car = model;
           remote.vehicleKey = pose.vehicle;
           this.root.add(model);

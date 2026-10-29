@@ -209,3 +209,21 @@ Loading instrumentation API: `loading.begin(label)` returns an idempotent comple
 `positionHud.ts` is available only with developer tools (localhost or `?dev=1`, matching fly mode). It shows the camera WGS84 latitude/longitude, EPSG:3877 E/N, N2000 height, true compass heading, pitch and visual tile under the clock. P / D-pad left toggles it (default on, browser-persisted); L copies a single line directly from the keyboard gesture. A 2 Hz, 300 m visual-tile raycast adds the nearest centre building ID/address when metadata exists. V / D-pad right hides the local character, its shadow and the local HUD name; network poses, physics and camera continue unchanged.
 
 Touch movement uses independent square axes with a fixed origin at first contact and 64 CSS px travel per axis. On foot, horizontal touch look is 2× mouse sensitivity (0.005 radians/CSS px); vertical stays at 0.0025. Vehicle look is unchanged. Touch Map/Pause occupy the safe-area top row above the leaderboard.
+
+
+`devLayers.ts` adds a developer-only panel beneath the position readout. F4 / Xbox LB or the
+Layers button opens/closes it. The visual pass selector persists Auto, First pass only or
+Full pass (textured); normal collision streaming continues independently. A retained
+`first.json` pointer keeps the original basic GLB available after enrichment; comparison
+models are released on mode changes and tile departure. A pending requested pass is hidden
+until available, with a status line in the panel.
+
+The checkbox tree discovers authored `layer`, `surface`, `prop_type`, `variant`, `kind` and
+material metadata, including `objects` ranges in packed meshes. Unknown layers/types appear
+automatically. Groups include Ground (authored surfaces plus Surface Textures), Buildings
+(walls/roof/facade components), Structures (bridge parts, tunnels, stairs/fences), Vegetation
+(authored variants), Props (registered types), Vehicles (local, parked, other players), People
+(players/name tags) and Effects (skid marks/smoke/shadows), when those objects are resident.
+Parent choices apply to future children. Camera masks and filtered index buffers leave physics
+unchanged; filtered geometry owns only its index and returns the original on disposal.
+Fullscreen has a reserved safe-area-aware top-right row; scoreboard/status/notices start below it.

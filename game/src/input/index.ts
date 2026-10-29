@@ -39,6 +39,7 @@ export class Input {
     const options = { signal: this.listeners.signal };
     if ((navigator.maxTouchPoints ?? 0) > 0) this.enableTouch();
     addEventListener('keydown', e => {
+      if ((e.target as HTMLElement)?.closest?.('#dev-layers') && e.code !== 'F4') return;
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
       if (e.code === 'F10') {
@@ -77,6 +78,7 @@ export class Input {
       if ((e as PointerEvent).pointerType !== 'touch' && document.pointerLockElement !== el) void el.requestPointerLock?.()?.catch(() => {});
     }, options);
     addEventListener('mousemove', e => {
+      if ((e.target as HTMLElement)?.closest?.('#dev-layers')) return;
       if (document.pointerLockElement === el || e.buttons & 1) {
         this.mouseX += e.movementX; this.mouseY += e.movementY; this.source = 'keyboard';
       }

@@ -31,7 +31,7 @@ def references(value):
 
 def current(out):
     refs = set()
-    for name in ("manifest.json", "collision.json", "last-full.json"):
+    for name in ("manifest.json", "collision.json", "first.json", "last-full.json"):
         path = out / name
         if path.exists():
             refs.update(references(json.loads(path.read_text())))

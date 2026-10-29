@@ -23,6 +23,7 @@ import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
+import { DevLayers } from './ui/devLayers';
 import { PositionHud } from './ui/positionHud';
 import { StartScreen } from './ui/startScreen';
 import { FullscreenPolicy, fullscreenHint } from './ui/fullscreen';
@@ -80,6 +81,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const positionHud = new PositionHud(camera, tiles);
+  const devLayers = new DevLayers(scene, coarse);
   const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
     if (!startScreen.active) void positionHud.copy();
   });
@@ -119,13 +121,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
   const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
-  // Gameplay: the street router (contract Router) drives the missions; the minimap shows their HUD state.
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
-  // Draft tiles' streets join the map and the router as the drafts arrive and leave, and with the 60 s manifest poll.
-  if (coarse) {
-    coarse.onMapChange = () => void streets.update(coarse.roadGraphs());
-    if (coarse.roadGraphs().length) coarse.onMapChange();
-  }
+  streets.connectDrafts(coarse);
   let multiplayerRunId = crypto.randomUUID();
   const missions = new MissionSystem({ router, addresses, onPaid: drop => {
     if (!multiplayerPlaying || devToolsEnabled(location)) return; // developer sessions stay off the scoreboard
@@ -281,7 +278,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const multiplayerAt = await preparedMultiplayer;
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.close();
   else if (resume) saveGame.hooks.play(resume);
@@ -299,10 +296,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     last = now;
     frameEma += (dt * 1000 - frameEma) * 0.05;
 
+    devLayers.restore();
     input.update(dt);
     helpLearning.update(input, mode, !!fly?.active, !startScreen.active && !paused && !saveGame.loading && !shopMenu.open && !fullscreen.blocking, now);
     if (input.consume('hud')) hud.toggle();
     positionHud.handle(input, !startScreen.active);
+    devLayers.handle(input, !startScreen.active);
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.
@@ -526,6 +525,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
     positionHud.update(now, !startScreen.active);
+    devLayers.update();
     renderFrame();
     window.__render?.afterFrame?.();
     if (!startScreen.active && !paused) {
@@ -546,7 +546,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const tot = physics.totals();
     const ct = collisionTileAt(feet.x, feet.z);
     hud.set({
-      playerName: startScreen.active || positionHud.characterHidden ? undefined : multiplayer?.state.you?.nick, backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
+      playerName: startScreen.active || positionHud.characterHidden || !devLayers.nameTagsVisible ? undefined : multiplayer?.state.you?.nick, backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
       visTris: tiles.residentTris, visModels: tiles.residentModels,
       colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
       E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),
@@ -570,6 +570,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
+      devLayers.dispose();
       remotePlayers.dispose();
       tyreEffects.dispose();
       poles.dispose();

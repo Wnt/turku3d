@@ -126,3 +126,12 @@ def test_last_full_survives_first_passes_until_next_full(tmp_path):
     prune_tile(tmp_path, 1000 + 3 * GRACE_SECONDS)
     assert not (tmp_path / old).exists()
     assert (tmp_path / new).exists()
+
+
+def test_first_pass_comparison_survives_full_upgrade_and_pruning(tmp_path):
+    first, full = [payload(tmp_path, d) for d in "ab"]
+    (tmp_path / "first.json").write_text(json.dumps({"visual": {"t0_0_0": {"url": first}}}))
+    publish(tmp_path, full)
+    prune_tile(tmp_path, now=100000)
+    assert (tmp_path / first).exists()
+    assert current(tmp_path) == {first, full}
