@@ -83,6 +83,9 @@ def camera_elevation(meta, base_h: float) -> tuple[float, str]:
                 ground + meta.cam_height,
                 f"N2000 ground key-point plane + assumed {meta.source} camera height",
             )
-    if meta.elevation is not None:
-        return meta.elevation, "provider elevation (uncalibrated for Look Around)"
+    # Look Around provider elevation has no reliable N2000 datum. Using it when
+    # ground support is missing can place a street camera above the facade roof.
+    # The target base is an explicit approximation, preferable to a wrong datum.
+    if meta.elevation is not None and meta.source != "lookaround":
+        return meta.elevation, "provider elevation"
     return base_h + meta.cam_height, "facade base + assumed camera height"
