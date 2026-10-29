@@ -154,7 +154,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
 
 
-def test_outdated_draft_previews_visuals_without_serving_obsolete_collision(tmp_path):
+def test_outdated_draft_serves_its_visual_collision_pair_during_rebuild(tmp_path):
     import json
     import time
 
@@ -185,8 +185,8 @@ def test_outdated_draft_previews_visuals_without_serving_obsolete_collision(tmp_
     builder = Builder(tmp_path, run=lambda *_: None, code="new", workers=0)
     state = builder.request(tile.id, 12)
     assert state["state"] == "built"
-    assert state["fragment"]["collision_pending"]
-    assert state["fragment"]["collision"] == {}
+    assert state["fragment"]["generation"] == "old"
+    assert state["fragment"]["collision"] == collision
     assert tile.id in builder.servable and tile.id in builder.priority
     assert builder.journal.path.is_file()
     builder.stop()
@@ -198,7 +198,7 @@ def test_outdated_draft_previews_visuals_without_serving_obsolete_collision(tmp_
     assert next_job(restored) == ((tile.id, 12), False)
     restored.building[tile.id] = 1
     for _ in range(3):  # A fresh client re-enters while the replacement is running.
-        assert restored.request(tile.id, 12)["fragment"]["collision"] == {}
+        assert restored.request(tile.id, 12)["fragment"]["collision"] == collision
         assert json.loads(restored.manifest(tile.id).read_text())["pass_kind"] == "full"
     restored.building.clear()
     assert restored.cached(tile.id)
@@ -214,15 +214,15 @@ def test_outdated_draft_previews_visuals_without_serving_obsolete_collision(tmp_
     while tile.id not in restored.failed and time.monotonic() < deadline:
         time.sleep(.01)
     assert restored.status()["failure_count"] == 1
-    fallback = restored.request(tile.id, 12)
-    assert fallback["fragment"]["failure"]["error"] == "broken generator"
-    assert fallback["fragment"]["collision"] == {}
-    assert tile.id in restored.servable
-    restored.code = lambda: "fixed"
-    assert restored.request(tile.id, 12)["fragment"]["collision"] == {}
-    assert tile.id in restored.priority
     restored.stop()
     worker.join(2)
+    fallback = restored.request(tile.id, 12)
+    assert fallback["fragment"]["failure"]["error"] == "broken generator"
+    assert fallback["fragment"]["collision"] == collision
+    assert tile.id in restored.servable
+    restored.code = lambda: "fixed"
+    assert restored.request(tile.id, 12)["fragment"]["collision"] == collision
+    assert tile.id in restored.priority
 
 
 def test_generator_identity_ignores_service_edits_but_tracks_geometry(monkeypatch):

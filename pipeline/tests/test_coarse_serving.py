@@ -1,4 +1,4 @@
-"""Last-good serving must improve availability without reviving obsolete collision."""
+"""Last-good visuals remain traversable with collision from the same generation."""
 
 import hashlib
 import json
@@ -26,6 +26,8 @@ def publish(root, name, *, code="old", structural="structure", inputs="raw", kin
     value = dict(coarse=True, tile=TILE.id, code=code, collision_code=structural,
                  inputs=inputs, pass_kind=kind,
                  visual={TILE.id: payload("vis", "glb", code.encode())},
+                 roads=payload("roads", "json", code.encode()),
+                 vehicles=[dict(object_id=code)],
                  collision={c.id: payload("col/" + c.id, "col", structural.encode())
                             for c in TILE.collision_tiles()})
     (out / name).write_text(json.dumps(value))
@@ -55,36 +57,41 @@ def test_retained_full_serves_immediately_while_upgrade_remains_queued(tmp_path)
     b.stop()
 
 
-@pytest.mark.parametrize("change", ["code", "inputs", "missing"])
-def test_obsolete_or_missing_collision_never_serves_even_after_failure(tmp_path, change):
+@pytest.mark.parametrize("change", ["code", "inputs", "unknown"])
+def test_retained_collision_survives_structural_change_and_failed_rebuild(tmp_path, change):
     old = publish(tmp_path, "manifest.json", structural="obsolete" if change == "code" else "structure",
                   inputs="obsolete" if change == "inputs" else "raw")
-    if change == "missing":
-        (tmp_path / TILE.id / next(iter(old["collision"].values()))["url"]).unlink()
     b = builder(tmp_path)
-    assert retained_fragment(b, TILE.id)["collision"] == {}
-    assert retained_fragment(b, TILE.id)["collision_pending"]
+    if change == "unknown":
+        b.input_key = lambda _: None
+    value = retained_fragment(b, TILE.id)
+    assert value["visual"] == old["visual"] and value["collision"] == old["collision"]
+    assert value["stale"] and value["generation"] == "old"
     import time
     b.failed[TILE.id] = ("replacement failed", time.time())
-    assert b.request(TILE.id, 0)["fragment"]["collision"] == {}
+    assert b.request(TILE.id, 0)["fragment"]["collision"] == old["collision"]
     b.stop()
 
 
-def test_new_collision_pairs_with_retained_full_and_latest_full_wins(tmp_path):
+def test_first_pass_cannot_replace_collision_under_retained_full_visuals(tmp_path):
     old = publish(tmp_path, "manifest.json", structural="obsolete")
     remember_full(tmp_path / TILE.id)
     first = publish(tmp_path, "collision.json", code="new", kind="first")
     b = builder(tmp_path)
     fallback = b.request(TILE.id, 0)["fragment"]
     assert fallback["visual"] == old["visual"]
-    assert fallback["collision"] == first["collision"]
+    assert fallback["collision"] == old["collision"] != first["collision"]
+    assert fallback["roads"] == old["roads"] != first["roads"]
+    assert fallback["vehicles"] == old["vehicles"]
     assert fallback["stale"] and fallback["pass_kind"] == "full"
-    # Even after several grace intervals, last-full and its assets remain reachable.
+    assert fallback["generation"] == "old"
+    # The pair stays reachable beyond grace periods and a replaced primary pointer.
     import time
+    (tmp_path / TILE.id / "manifest.json").unlink()
     prune_tile(tmp_path / TILE.id, now=time.time() + 3600)
-    assert retained_fragment(b, TILE.id)["visual"] == old["visual"]
+    assert retained_fragment(b, TILE.id)["collision"] == old["collision"]
     full = publish(tmp_path, "manifest.json", code="new")
-    assert retained_fragment(b, TILE.id) == full
+    assert retained_fragment(b, TILE.id) == {**full, "generation": "new"}
     b.stop()
 
 
@@ -132,45 +139,46 @@ def test_public_both_endpoints_serve_retained_full_and_schedule_upgrade(tmp_path
         assert handler.status == 200
         assert body["stale"] and body["pass_kind"] == "full"
         assert body["visual"] == old["visual"]
-        if current_physics:
-            assert body["collision"] == first["collision"]
-            assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in first["collision"].values())
+        assert body["collision"] == old["collision"]
+        assert body["generation"] == "old"
+        assert body["collision_bundle"]["bytes"] == sum(e["bytes"] for e in old["collision"].values())
+        if first:
+            assert body["collision"] != first["collision"]
             assert TILE.id in b.upgrade_queue
         else:
-            assert body["collision"] == {} and body["collision_pending"]
-            assert "collision_bundle" not in body
             assert TILE.id in b.priority
         assert not {"code", "inputs", "seconds"} & body.keys()
         assert TILE.id in b.journal.rows
     b.stop()
 
 
-def test_unknown_input_identity_never_authorizes_stale_collision(tmp_path):
-    publish(tmp_path, "manifest.json")
-    b = builder(tmp_path)
-    b.input_key = lambda _: None
-    assert retained_fragment(b, TILE.id)["collision"] == {}
-    assert retained_fragment(b, TILE.id)["collision_pending"]
-    b.stop()
-
-
-def test_first_pass_visual_survives_structural_deploy_before_new_collision(tmp_path):
+def test_first_pass_pair_survives_structural_deploy_before_new_collision(tmp_path):
     old = publish(tmp_path, "collision.json", structural="obsolete", kind="first")
     b = builder(tmp_path)
     value = b.request(TILE.id, 0)["fragment"]
     assert value["visual"] == old["visual"]
-    assert value["collision_pending"] and value["collision"] == {}
-    assert TILE.id in b.priority
+    assert value["collision"] == old["collision"] and value["generation"] == "old"
+    assert value["stale"] and TILE.id in b.priority
     b.stop()
 
 
-def test_full_preview_does_not_need_obsolete_collision_or_roads_payloads(tmp_path):
+@pytest.mark.parametrize("missing", ["visual", "collision"])
+def test_incomplete_generation_falls_back_to_older_complete_pair(tmp_path, missing):
+    old = publish(tmp_path, "last-full.json", code="older", structural="oldest")
+    newer = publish(tmp_path, "manifest.json", code="old", structural="obsolete")
+    entry = next(iter(newer[missing].values()))
+    (tmp_path / TILE.id / entry["url"]).unlink()
+    b = builder(tmp_path)
+    value = retained_fragment(b, TILE.id)
+    assert value["visual"] == old["visual"] and value["collision"] == old["collision"]
+    b.stop()
+
+
+def test_no_complete_collision_means_no_visible_fragment(tmp_path):
     old = publish(tmp_path, "manifest.json", structural="obsolete")
     for entry in old["collision"].values():
         (tmp_path / TILE.id / entry["url"]).unlink()
     b = builder(tmp_path)
-    value = b.request(TILE.id, 0)["fragment"]
-    assert value["visual"] == old["visual"]
-    assert value["pass_kind"] == "full" and value["collision"] == {}
-    assert "vehicles" not in value and "roads" not in value
+    assert retained_fragment(b, TILE.id) is None
+    assert "fragment" not in b.request(TILE.id, 0)
     b.stop()

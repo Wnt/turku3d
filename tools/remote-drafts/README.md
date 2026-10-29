@@ -170,13 +170,12 @@ environment persist across reboot. Caddy signal reload follows its
 
 The demand journal survives source changes, but abandoned legacy requests no
 longer replay forever. Both fragment endpoints serve the newest complete retained full
-visuals during regeneration, marked `stale: true`, only with current collision. The
-structural producer and input identity must match before retained collision is usable.
-Otherwise the response carries `collision_pending: true` and an empty collision map:
-retained full (or last first-pass) visuals remain immediately available while current
-physics rebuilds. Existing resident physics is kept; new physics and parked actors
-are attached only from a validated current fragment. Failed builds never authorize
-obsolete collision. `last-full.json` protects the last complete textured generation
+visual/collision pair during regeneration, marked `stale: true`, with its producer
+`generation`. The matching last-good collision remains usable across structural/input
+changes and failed rebuilds. New first-pass collision cannot replace it until matching
+visuals are also ready. Incomplete generations are skipped, keeping visible tiles
+walkable and their collision cells registered for edge-wall decisions.
+`last-full.json` protects the last complete textured generation
 until another full pass succeeds. Mutable fragment polling continues every two seconds;
 prepared visual replacements swap together and unchanged collision stays resident.
 Client entries and arrival reports measure how long stale visuals remain visible.
