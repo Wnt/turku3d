@@ -41,7 +41,7 @@ def main():
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     if args.reuse_caches:
-        for name in ('.stages', '.compiled-textures'):
+        for name in [*(f'.stages/{tile}' for tile in args.tiles), '.compiled-textures']:
             source = args.reuse_caches / name
             if source.exists():
                 shutil.copytree(source, args.root / name)

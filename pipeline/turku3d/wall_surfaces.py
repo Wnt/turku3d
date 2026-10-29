@@ -167,7 +167,7 @@ def validate_ownership(shells, tile):
             raise ValueError(f"wall ownership {b.key}: {owner} emitted in {tile.id}")
 
 
-def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content_hash=None):
+def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content_hash=None, geometry_key=None):
     """Resolve comparable neighbour evidence under one serialized admission.
 
     Records carry the visual pass and generator content hash. Already admitted
@@ -229,8 +229,9 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
         cache = StageCache(Path(root) / ".stages" / tile.id, retain=True)
         resolved, faces, ids, removed = cache.run(
             "wall_neighbours_" + pass_kind,
-            source_key(Path(__file__), Path(wall_assembly.__file__)),
-            [meshes, neighbours, tile], resolve,
+            source_key(validate_neighbours, overlaps, boundary_faces, wall_faces, trapezoids,
+                       wall_assembly.assemble_structures, wall_assembly.band_polygon),
+            [geometry_key if geometry_key is not None else meshes, neighbours, tile], resolve,
         )
         meshes[:] = resolved
         path = records / f"{tile.id}.json"
@@ -238,7 +239,8 @@ def validate_neighbours(meshes, shells, tile, root, *, pass_kind="full", content
         temporary.write_text(json.dumps(dict(owners=owners, faces=faces, ids=ids,
                                             pass_kind=pass_kind, content_hash=content_hash)))
         temporary.replace(path)
-    return dict(resolved=removed, pass_kind=pass_kind, content_hash=content_hash)
+    return dict(resolved=removed, pass_kind=pass_kind, content_hash=content_hash,
+                geometry_key=cache.metrics["wall_neighbours_" + pass_kind]["key"])
 
 
 def boundary_faces(meshes, tile):
