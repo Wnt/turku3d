@@ -1,7 +1,7 @@
 # Route-ordered facade survey
 
-Latest coverage: complete candidate classification through 900 m route distance;
-see the sixth publication below. Original publication counts remain historical.
+Latest coverage: complete candidate classification through 1,050 m route distance;
+see the seventh publication below. Original publication counts remain historical.
 
 The first published ring covers 0–150 m of walking route distance from the
 pizzeria at engine (77.1, 187.6). Its 62 candidate walls have 12 accepted readings
@@ -260,3 +260,29 @@ check now verifies the complete established storey provenance contract: exact
 register value, register source/support 1 for known counts, unavailable source
 and support 0 for missing counts. No count is inferred from photographs, and no
 program data was changed to satisfy the check.
+
+## Seventh publication: complete classification through 1,050 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Painter eligible | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 900–1,050 m | 345 | 133 | 212 | 35 | 98 |
+| Cumulative 0–1,050 m | 1,774 | 585 | 1,189 | 206 | 379 |
+
+This ring records timber lintels and attic vents, garage shutters, drive-through
+openings, offset stair glazing, broad balcony groups, service slots and blank
+end walls. Alternate views recover details from tree-obstructed fronts. Tiny
+vents remain explicitly distinct from ordinary windows; incomplete or mixed
+structures retain descriptive observations and their earlier appearance.
+
+The immutable `publications/ring06/` snapshot contains programs, queue state and
+timing, mirrored to OCI with the raw forms and append-only logs. Original
+photographs, crops and contact sheets remain local; stored artwork is unchanged.
+All 345 candidates are classified, with 35 painter-eligible and 98 deferred
+readings in the new ring. Rejections include unavailable cached viewpoints and
+unreadable foliage, fences or other obstructions.
+
+Elapsed time is 22,202.1 s, or 12.5 s/candidate. This ring interval is 4,422.3 s
+for 345 candidates (12.8 s/candidate), including preparation, alternates,
+validation, publication and interruptions. Weekly account quota is 54%, versus
+33% at the measured start and 49% at the preceding publication. Continue outward
+in route-distance order; new readings stop at 82%.
