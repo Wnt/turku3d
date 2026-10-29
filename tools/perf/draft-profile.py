@@ -31,16 +31,22 @@ def main():
     args = parser.parse_args()
     args.root.mkdir(parents=True, exist_ok=False)
     report = dict(platform=platform.platform(), profiled=args.profile, runs=[])
+    # Texture caches contain previous tile encodes, potentially gigabytes. Copy
+    # shared assets once and let isolated tile cases reuse this owned pool.
+    assets = args.root / ".shared-assets"
+    if args.assets:
+        for pattern in ("shared", ".surface-library*", ".texture-cache"):
+            for asset in args.assets.glob(pattern):
+                if asset.is_dir():
+                    shutil.copytree(asset, assets / asset.name, symlinks=True)
     sources = Sources()
     for tile in args.tiles:
         for phase in args.phases:
             out = args.root / tile / phase / tile
-            if args.assets:
+            if args.assets and phase != "structural":
                 out.parent.mkdir(parents=True, exist_ok=True)
-                for pattern in ("shared", ".surface-library*", ".texture-cache"):
-                    for asset in args.assets.glob(pattern):
-                        if asset.is_dir():
-                            shutil.copytree(asset, out.parent / asset.name, dirs_exist_ok=True)
+                for asset in assets.iterdir():
+                    (out.parent / asset.name).symlink_to(asset.resolve(), target_is_directory=True)
             for warmth in ("cold", "warm"):
                 name = f"{tile}-{phase}-{warmth}"
                 profiler = cProfile.Profile() if args.profile else None
