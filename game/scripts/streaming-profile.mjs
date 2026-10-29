@@ -7,7 +7,7 @@ export function installStreamingProfile() {
     for (let node = mesh; node; node = node.parent) ancestry.push(node.name || node.uuid);
     return { mesh: mesh?.name, ancestry };
   };
-  function wrap(owner, key, kind, identify = () => active) {
+  function wrap(owner, key, kind, identify = () => describe(active)) {
     const original = owner?.[key];
     if (!original) return;
     owner[key] = function (...args) {
@@ -24,9 +24,11 @@ export function installStreamingProfile() {
   Object.defineProperty(window, '__render', { configurable: true, get: () => render, set(value) {
     render = value;
     const renderer = value.renderer, backend = renderer.backend;
+    const originalAccept = value.perf.timer.accept;
+    value.perf.timer.accept = (frame, ms) => { rows.push({ kind: 'gpu-frame', frame, ms, start: performance.now() }); originalAccept(frame, ms); };
     const draw = renderer.renderObject;
     renderer.renderObject = function (...args) {
-      const before = active; active = describe(args[0]);
+      const before = active; active = args[0];
       try { return draw.apply(this, args); } finally { active = before; }
     };
     const builder = renderer.debug.onNodeBuilderCreated;
@@ -36,11 +38,18 @@ export function installStreamingProfile() {
       wrap(node, 'build', 'node-build-sync', () => identity);
       wrap(node, 'buildAsync', 'node-build-async', () => identity);
     };
+    for (const manager of [renderer._geometries, renderer._bindings]) {
+      const update = manager.updateForRender;
+      manager.updateForRender = function (object) {
+        const previous = active; active = object.object;
+        try { return update.call(this, object); } finally { active = previous; }
+      };
+    }
     wrap(renderer, 'compileAsync', 'compile-model', args => describe(args[0]));
     wrap(backend, 'createRenderPipeline', 'pipeline', args => ({ ...describe(args[0].object), async: !!args[1] }));
     for (const key of ['createAttribute', 'createIndexAttribute', 'updateAttribute'])
-      wrap(backend, key, 'geometry-upload', args => ({ ...active, bytes: (args[0].array ?? args[0].data?.array)?.byteLength }));
-    wrap(backend, 'updateTexture', 'texture-upload', args => ({ ...active, texture: args[0].name || args[0].uuid }));
+      wrap(backend, key, 'geometry-upload', args => ({ ...describe(active), bytes: (args[0].array ?? args[0].data?.array)?.byteLength }));
+    wrap(backend, 'updateTexture', 'texture-upload', args => ({ ...describe(active), texture: args[0].name || args[0].uuid }));
     wrap(backend.device, 'createRenderPipeline', 'webgpu-pipeline-sync');
     wrap(backend.device, 'createRenderPipelineAsync', 'webgpu-pipeline-async');
   } });

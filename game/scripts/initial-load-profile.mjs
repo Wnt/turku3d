@@ -12,6 +12,8 @@ isolateBrowser();
 const [label = 'current', url = 'https://wnt.github.io/turku-game/game/', requirement = 'bundled'] = process.argv.slice(2);
 const diagnostic = process.env.TURKU3D_PROFILE_TRACE !== '0';
 const seconds = Number(process.env.TURKU3D_PROFILE_SECONDS ?? 30);
+const strict = process.env.TURKU3D_PROFILE_STRICT === '1';
+const checks = [];
 const drive = process.env.TURKU3D_PROFILE_DRIVE === '1';
 const out = path.join(reportsRoot, 'initial-load', label);
 fs.mkdirSync(out, { recursive: true });
@@ -20,7 +22,12 @@ if (requirement === 'bundled') {
   const deadline = Date.now() + 120_000;
   for (;;) {
     const html = await fetch(`${url}?startup-publication=${Date.now()}`, { cache: 'no-store', signal: AbortSignal.timeout(5000) }).then(r => r.text());
-    if (html.includes('rel="modulepreload"') && html.includes('City loading progress')) break;
+    let current = html.includes('rel="modulepreload"') && html.includes('City loading progress');
+    if (current && process.env.TURKU3D_PROFILE_WORKER === '1') {
+      const entry = html.match(/href="([^"]*assets\/main-[^"]+\.js)"/);
+      current = !!entry && (await fetch(new URL(entry[1], url)).then(r => r.text())).includes('packProgram.worker-');
+    }
+    if (current) break;
     if (Date.now() >= deadline) throw new Error('Pages still serves the previous startup implementation');
     await new Promise(resolve => setTimeout(resolve, 5000));
   }
@@ -108,6 +115,12 @@ try {
           frames: window.__air.frames, poses: window.__air.poses, route: window.__air.route,
           extensions: window.__air.extensions, perf: window.__perf, state: window.__game.state(),
         }))));
+        const driving = await page.evaluate(() => window.__air.frames.filter(row => row[2] === 'drive').map(row => row[1]));
+        driving.sort((a, b) => a - b);
+        const summary = { cache: 'drive', count: driving.length, p50: driving[Math.floor(driving.length * .5)],
+          p95: driving[Math.floor(driving.length * .95)], p99: driving[Math.floor(driving.length * .99)],
+          max: driving.at(-1), over50: driving.filter(ms => ms > 50).length };
+        checks.push(summary); console.log(JSON.stringify(summary));
         await page.screenshot({ path: path.join(out, 'drive-end.png') });
       }
     } catch (e) { failure = String(e); }
@@ -137,6 +150,7 @@ try {
       requests: requests.size, bytes: [...requests.values()].reduce((n, r) => n + (r.bytes ?? 0), 0), failure, errors };
     fs.writeFileSync(path.join(out, `${cache}.json`), JSON.stringify({ ...result, requests: [...requests.values()] }, null, 2));
     console.log(JSON.stringify(result.summary));
+    checks.push({ cache, ...result.summary.frames });
     await page.close();
     if (failure) throw new Error(failure);
     assert.deepEqual(errors, []);
@@ -146,5 +160,9 @@ try {
       assert.ok([...requests.values()].some(r => /bundle\.[0-9a-f]{64}\.col/.test(r.url)), 'deployed OCI collision bundles used');
       assert.equal(result.bounds.filter(b => b.at < result.ready).length, 1, 'loading panel never shifts before Ready');
     }
+  }
+  if (strict) for (const check of checks) {
+    assert.equal(check.over50, 0, `${check.cache}: zero frames over 50 ms`);
+    assert.ok(check.p99 <= 33, `${check.cache}: p99 <= 33 ms (observed ${check.p99})`);
   }
 } finally { clearTimeout(hardStop); await context.close(); }
