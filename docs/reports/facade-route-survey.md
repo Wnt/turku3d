@@ -1,7 +1,7 @@
 # Route-ordered facade survey
 
-Latest coverage: complete candidate classification through 1,050 m route distance;
-see the seventh publication below. Original publication counts remain historical.
+Latest coverage: complete candidate classification through 1,200 m route distance;
+see the eighth publication below. Original publication counts remain historical.
 
 The first published ring covers 0–150 m of walking route distance from the
 pizzeria at engine (77.1, 187.6). Its 62 candidate walls have 12 accepted readings
@@ -286,3 +286,31 @@ for 345 candidates (12.8 s/candidate), including preparation, alternates,
 validation, publication and interruptions. Weekly account quota is 54%, versus
 33% at the measured start and 49% at the preceding publication. Continue outward
 in route-distance order; new readings stop at 82%.
+
+## Eighth publication: complete classification through 1,200 m
+
+| Route-distance ring | Candidates | Characterized | Rejected | Painter eligible | Rendering deferred |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1,050–1,200 m | 444 | 113 | 331 | 21 | 92 |
+| Cumulative 0–1,200 m | 2,218 | 698 | 1,520 | 227 | 471 |
+
+The ring includes the railway station glass-block entrance and clock, historic
+projecting bays and pediments, timber attic vents, industrial glazed garage doors,
+Juliet rails, offset stair windows and narrow service slots. New alternate views
+recover a previously scaffold-covered wall and correct incomplete window counts.
+Mixed planes, tiny features and unreadable bands retain structured descriptions
+without replacing their stored appearance. Fully hidden or unidentifiable walls
+remain explicitly rejected; no openings are inferred through vegetation.
+
+`publications/ring07/` freezes validated programs, full queue state and timing.
+Programs, forms and append-only metadata are mirrored to OCI. Photographs and
+straightened crops remain local, and original maps, AI descriptions and facade-kit
+outputs remain untouched. The new ring adds 21 painter-eligible records and 92
+descriptive records; all 444 candidates have a terminal classification.
+
+Elapsed time from the first batch is 24,501.5 s, or 11.0 s/candidate. This ring
+interval is 2,299.4 s for 444 candidates (5.2 s/candidate), including preparation,
+alternates, validation and publication work. Per-batch timings remain available;
+these are not pure annotation speeds. Weekly account quota is 57%, versus 33%
+at the measured start and 54% at the previous publication. Continue outward;
+new reading stops at 82%.
