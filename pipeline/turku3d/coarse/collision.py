@@ -13,12 +13,14 @@ from turku3d.ground.water import add_river_bed
 
 def current(builder, tile):
     """Only current, atomically published structural payloads can bypass visuals."""
-    code = None
+    codes = {}
     for name in ("collision.json", "manifest.json"):
         try:
             value = json.loads((builder.root / tile / name).read_text())
-            code = code or builder.code()
-            if value.get("code") != code:
+            field = "collision_code" if "collision_code" in value else "code"
+            if field not in codes:
+                codes[field] = getattr(builder, field)()
+            if value.get(field) != codes[field]:
                 continue
             key_for = (
                 (getattr(builder, "structural_input_key", None) or builder.input_key)

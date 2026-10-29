@@ -109,3 +109,48 @@ def test_nested_vrt_dependencies_follow_child_edits(tmp_path):
     assert content_paths([parent]) == [parent, child, tmp_path / "old.tif"]
     child.write_text(vrt("replacement.tif"))
     assert content_paths([parent]) == [parent, child, tmp_path / "replacement.tif"]
+
+
+def test_collision_identity_ignores_visual_changes_but_tracks_structure(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import collision_key, packaging
+
+    read = Path.read_bytes
+    changes = {}
+    monkeypatch.setattr(Path, "read_bytes", lambda p: changes.get(p, read(p)))
+    before = collision_key.code_hash()
+    visual = packaging.BRIDGE
+    changes[visual] = read(visual) + b"\n// texture encoder changed\n"
+    assert collision_key.code_hash() == before
+    build = Path(collision_key.__file__).with_name("build.py")
+    original = read(build)
+    changes[build] = original.replace(b"if not first_pass:\n", b"if first_pass is False:\n")
+    assert changes[build] != original
+    assert collision_key.code_hash() == before
+    changes[build] = original.replace(b"primitives = trunks(trees, ct)", b"primitives = []")
+    assert changes[build] != original
+    assert collision_key.code_hash() != before
+
+
+def test_collision_remains_current_during_visual_only_deployment(tmp_path):
+    import json
+    from turku3d.coarse.collision import fragment
+    from turku3d.coarse.service import Builder
+
+    tile = C.VisualTile(0, 1, 2)
+    builder = Builder(tmp_path, code="visual-new", workers=0)
+    builder.collision_code = lambda: "structure-v1"
+    directory = tmp_path / tile.id
+    directory.mkdir()
+    record = dict(
+        coarse=True,
+        tile=tile.id,
+        code="visual-old",
+        collision_code="structure-v1",
+        collision={cell.id: {} for cell in tile.collision_tiles()},
+        pass_kind="first",
+    )
+    (directory / "collision.json").write_text(json.dumps(record))
+    assert fragment(builder, tile.id) is not None
+    builder.collision_code = lambda: "structure-v2"
+    assert fragment(builder, tile.id) is None
