@@ -27,7 +27,7 @@ def prepare_walls(facades):
     return ([r[0] for r in rows], *[np.asarray([r[i] for r in rows]) for i in range(1, 5)])
 
 
-def match_prepared(points, prepared):
+def match_prepared(points, prepared, *, min_coverage=0.8):
     if prepared is None:
         return None
     facades, starts, tangents, widths, outward = prepared
@@ -43,7 +43,7 @@ def match_prepared(points, prepared):
     along = np.einsum("nvi,ni->nv", delta, tangents)
     coverage = np.maximum(0, np.minimum(along.max(axis=1), widths) - np.maximum(along.min(axis=1), 0)) / length
     side = outward @ [direction[1], -direction[0]]
-    valid = (np.abs(tangents @ direction) >= 0.995) & (distance <= 0.65) & (coverage >= 0.8)
+    valid = (np.abs(tangents @ direction) >= 0.995) & (distance <= 0.65) & (coverage >= min_coverage)
     valid &= (np.linalg.norm(outward, axis=1) == 0) | (side >= 0.95)
     matches = np.flatnonzero(valid)
     if not len(matches):
@@ -81,6 +81,16 @@ def wall_meshes(b, walls, origin):
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
         match = match_prepared(vertices, stored)
+        wall = program["walls"][start // 4]
+        if wall.get("measured_wall_id"):
+            match = None  # Direct review owns this wall, including over older generated maps.
+        wall["paint_source"] = (
+            "reviewed-program" if wall.get("measured_wall_id") else
+            "stored-facade-map" if match else
+            "existing-description" if program.get("description_source") else "rule-sampled"
+        )
+        if match:
+            wall["stored_facade_index"] = match[0]["metadata"]["facade_index"]
         if match is None:
             style = compile_wall(program["walls"][start // 4], program["storeys"]["value"])
             style["origin"][1] = b.base

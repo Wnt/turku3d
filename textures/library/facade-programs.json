@@ -180,6 +180,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -213,6 +218,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -226,6 +236,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -497,6 +512,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -561,6 +581,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -611,6 +636,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -828,6 +858,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -886,6 +921,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -908,6 +948,11 @@
           },
           "canopy": {
             "value": true,
+            "source": "assistant direct crop review",
+            "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
             "source": "assistant direct crop review",
             "support": 0.8
           }
@@ -1241,6 +1286,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -1274,6 +1324,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "round-arch",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -1287,6 +1342,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -1577,7 +1637,26 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
-          }
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
+          },
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "round-arch",
+            "round-arch",
+            "round-arch"
+          ]
         },
         "base": {
           "colour": {
@@ -1629,6 +1708,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -1653,6 +1737,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -1959,7 +2048,28 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
-          }
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
+          },
+          "head_shapes": [
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "flat",
+            "round-arch",
+            "round-arch",
+            "round-arch",
+            "round-arch",
+            "round-arch",
+            "round-arch",
+            "round-arch"
+          ]
         },
         "base": {
           "colour": {
@@ -2029,6 +2139,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "round-arch",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -2053,6 +2168,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "round-arch",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -2309,6 +2429,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -2367,6 +2492,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -2391,6 +2521,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -2655,6 +2790,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -2688,6 +2828,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -2701,6 +2846,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -2918,6 +3068,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -2964,6 +3119,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -2977,6 +3137,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -3616,6 +3781,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -3686,6 +3856,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -3699,6 +3874,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
@@ -3974,6 +4154,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -4020,6 +4205,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -4042,6 +4232,11 @@
           },
           "canopy": {
             "value": true,
+            "source": "assistant direct crop review",
+            "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
             "source": "assistant direct crop review",
             "support": 0.8
           }
@@ -4286,6 +4481,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -4356,6 +4556,11 @@
             "value": "shops",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -4380,6 +4585,11 @@
           },
           "canopy": {
             "value": true,
+            "source": "assistant direct crop review",
+            "support": 0.8
+          },
+          "head_shape": {
+            "value": "flat",
             "source": "assistant direct crop review",
             "support": 0.8
           }
@@ -4458,7 +4668,7 @@
       "year": 1977,
       "era": "1960+",
       "levels": 2,
-      "address": "L\u00e4ntinen Rantakatu 25",
+      "address": "Läntinen Rantakatu 25",
       "height_m": 6.87,
       "frontage_m": 51.83056737677694,
       "E": 23459404.907250002,
@@ -4586,6 +4796,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "base": {
@@ -4619,6 +4834,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "doors": {
@@ -4632,6 +4852,11 @@
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "head_shape": {
+            "value": "flat",
+            "source": "assistant direct crop review",
+            "support": 0.8
           }
         },
         "trim": {
