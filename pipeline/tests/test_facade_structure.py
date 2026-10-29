@@ -114,6 +114,22 @@ def test_characterized_complex_wall_keeps_existing_artwork_until_renderer_suppor
     assert wall["structure"]["facade_observations"]["sections"][0]["kind"] == "clock"
 
 
+def test_opening_classes_keep_small_service_windows_distinct_from_wide_glazing():
+    row, form = fixture()
+    top = form["floors"][1]
+    top.update(opening_class=["small", "wide"])
+    top["confidence"]["opening_class"] = 0.95
+    wall = compile_structure(row, form, 2)
+    small, wide = wall["windows"]["rectangles_m"]
+    assert small[2] < wide[2]
+    assert small[3] < wide[3]
+    assert small[1] > wide[1]
+    assert len(wall["windows"]["rectangles_m"]) == 2
+    top["opening_class"] = ["small"]
+    with pytest.raises(ValueError, match="opening class"):
+        validate(form)
+
+
 def test_surrounds_stay_on_the_matching_wall_and_keep_opening_heads():
     row, form = fixture()
     measured = compile_structure(row, form, 2)
