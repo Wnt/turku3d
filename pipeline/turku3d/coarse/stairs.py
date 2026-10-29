@@ -79,7 +79,15 @@ def produce(tile, prepared, sample, decks=()):
                     deck.way.get("stair_access")
                     and deck.line.distance(shapely.Point(p)) < deck.way["width"] / 2 + 0.1
                 ):
-                    target = float(deck.height_at(np.array([p]))[0])
+                    target = (
+                        float(deck.height_at(np.array([p]))[0])
+                        if deck.height_at is not None
+                        else float(
+                            np.interp(
+                                deck.line.project(shapely.Point(p)), deck.stations, deck.heights
+                            )
+                        )
+                    )
                     # Spread mapping/end-band uncertainty over the final flight,
                     # keeping a walkable grade instead of one abrupt deck step.
                     blend = np.clip(1 - np.abs(knots - knots[end]) / 3, 0, 1)
@@ -317,6 +325,16 @@ def visuals(tile, meshes):
         for m in meshes
         if m.visual
     ]
+
+
+def stats(meshes):
+    return dict(
+        flights=len(
+            {m.object_id.split(":")[1] for m in meshes if m.object_id.startswith("stairs:")}
+        ),
+        retaining_walls=sum(m.object_id.startswith("retaining:") for m in meshes),
+        triangles=sum(len(m.indices) for m in meshes),
+    )
 
 
 def collision(cell, meshes, pos, idx, mat):

@@ -41,7 +41,6 @@ from .retention import managed_build
 from .sources import Sources
 from .stages import (
     building_visual,
-    deck_stage,
     kerb_inputs,
     props_visual,
     roof_crop,
@@ -254,32 +253,10 @@ def build(
         ],
         lambda: terrain_stage(tile, inputs),
     )
-    grid_pos, osm_decks, decks, bridge_roads = cache.run(
-        "bridges",
-        source_key(
-            deck_stage,
-            bridge_decks,
-            *common,
-            Path(bridges.__file__),
-            Path(__file__).with_name("tunnels.py"),
-            Path(__file__).with_name("bridge_details.py"),
-            Path(__file__).with_name("bridge_join.py"),
-            Path(__file__).with_name("geometry.py"),
-            base / "structures/geometry.py",
-            base / "structures/layer.py",
-            base / "bridges/build.py",
-        ),
-        [
-            tile,
-            grid_pos,
-            grid_idx,
-            materials,
-            wet,
-            inputs.points,
-            inputs.roads,
-            [b.footprint for b in inputs.buildings],
-        ],
-        lambda: deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs),
+    from .bridge_access import cached_stage
+
+    grid_pos, osm_decks, decks, bridge_roads = cached_stage(
+        cache, tile, grid_pos, grid_idx, materials, wet, inputs
     )
     water = inputs.water
     seconds["ground"] = time.perf_counter() - t
@@ -770,17 +747,7 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
-        stairs=dict(
-            flights=len(
-                {
-                    m.object_id.split(":")[1]
-                    for m in stair_meshes
-                    if m.object_id.startswith("stairs:")
-                }
-            ),
-            retaining_walls=sum(m.object_id.startswith("retaining:") for m in stair_meshes),
-            triangles=sum(len(m.indices) for m in stair_meshes),
-        ),
+        stairs=stairs.stats(stair_meshes),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         ground_ortho_cleanup=cleanup_stats,
         ground_colour_calibration=colour_stats,

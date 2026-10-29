@@ -70,7 +70,7 @@ def test_road_footbridge_keeps_level_landing_clear_lanes_and_unraised_ground(mon
 def test_measured_stair_preserves_landing_and_meets_deck_with_smooth_collision():
     line = shapely.LineString([(20, 20), (20, 30)])
     way = crossing()
-    deck = SimpleNamespace(way=way, line=way["line"], height_at=lambda p: np.full(len(p), 6.02))
+    deck = bridges.Deck(way, way["line"], np.array([0, 30]), np.full(2, 6.02), [])
     tags = {"handrail": "yes", "_profile": dict(stations=[0, 4, 6, 10], heights=[2, 4, 4, 6])}
     meshes, openings = stairs.produce(
         C.VisualTile(0, 0, 0), ([("flight", line, tags)], []), lambda x, z: 2, [deck]

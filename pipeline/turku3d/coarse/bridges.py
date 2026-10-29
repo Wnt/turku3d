@@ -250,30 +250,9 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
             and (w["tags"].get("highway") in PATHS) == foot
             and w["line"].boundary.distance(endpoints) < 0.05
         ]
-        b["stair_access"] = (
-            foot
-            and any(w["tags"].get("highway") not in PATHS for w in b["under"])
-            and any(
-                step["tags"].get("highway") == "steps"
-                and min(
-                    [
-                        step["line"].boundary.distance(endpoints),
-                        *(step["line"].boundary.distance(w["line"]) for w in b["approaches"]),
-                    ]
-                )
-                < 0.05
-                for step in ways
-            )
-        )
-        if b["stair_access"]:
-            # Some bridge areas include the access flights. Their envelope axis
-            # must not turn the stairs into a deck or invalidate its lidar ends.
-            main = max(members, key=lambda w: w["line"].length)
-            b["line"] = main["line"]
-            if "outline" in b:
-                b["outline"] = b["outline"].intersection(
-                    main["line"].buffer(b["width"] / 2, cap_style="flat", join_style="mitre")
-                )
+        from .bridge_access import configure
+
+        configure(b, ways, members, foot)
         extended_way = {**b, "line": extended(b["line"], 30)}
         under_ids = {w["id"] for w in b["under"]}
         b["approach_under"] = [
@@ -383,20 +362,9 @@ def approach_lengths(way, ends, sample, obstacles):
     ):
         direction = (endpoint - other) / np.linalg.norm(endpoint - other)
         if way.get("stair_access"):
-            # Steps own their climb. A short mapped continuation is a suspended
-            # landing, not a terrain ramp extrapolated through the staircase.
-            joined = [
-                w for w in approaches if w["line"].boundary.distance(shapely.Point(endpoint)) < 0.05
-            ]
-            if any(w["tags"].get("highway") == "steps" for w in joined):
-                result.append(0.0)
-                continue
-            distances = [
-                float(np.max((np.asarray(w["line"].coords) - endpoint) @ direction))
-                for w in joined
-                if w["line"].length <= 10
-            ]
-            result.append(max([0.0, *distances]))
+            from .bridge_access import landing_length
+
+            result.append(landing_length(way, endpoint, direction))
             continue
         length = minimum
         for distance in np.r_[minimum, np.arange(4, 32, 2)]:
