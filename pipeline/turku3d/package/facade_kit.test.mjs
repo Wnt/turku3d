@@ -95,6 +95,8 @@ test('program walls retain their own metric grids and patch origins within one p
   const pos = doc.createAccessor().setBuffer(buffer).setType('VEC3').setArray(new Float32Array(24));
   const uv = doc.createAccessor().setBuffer(buffer).setType('VEC2').setArray(new Float32Array(16));
   const prim = doc.createPrimitive().setAttribute('POSITION', pos).setAttribute('TEXCOORD_0', uv);
+  prim.setIndices(doc.createAccessor().setBuffer(buffer).setType('SCALAR')
+    .setArray(new Uint32Array([0,3,2,0,2,1,4,7,6,4,6,5])));
   const p = { start:0, count:4, module:1, bay:3.1, storey:2, ground:2, upper:2,
     wall:'#808080', trim:'#ffffff', base:'#333333', size:[18.6, 8], opening:[.41,.62,.2,.1],
     bands:[.4,.3,.1,.2], detail:[.1,0,0,0] };

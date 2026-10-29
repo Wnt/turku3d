@@ -108,10 +108,34 @@ def assemble_structures(meshes, protected=()):
             continue
         mesh = copy.copy(original)
         positions, uvs, normals_out = [], [], []
+        # Program ranges address vertices, not wall/triangle numbers. Retessellation
+        # duplicates even untouched triangles, so every output vertex needs its
+        # original instruction (including triangles preceding the first cut).
+        rows = original.extras.get("facade_kit_walls")
+        instructions = []
+        vertex_rows = np.full(len(original.positions), -1, dtype=int)
+        if rows is not None:
+            for ri, row in enumerate(rows):
+                vertex_rows[row["start"]:row["start"] + row["count"]] = ri
+        last_row = None
+        def instruction(indices):
+            nonlocal last_row
+            if rows is None:
+                return
+            owners = vertex_rows[indices]
+            if owners[0] < 0 or np.any(owners != owners[0]):
+                raise ValueError(f"Mixed facade instruction in {original.name}")
+            if last_row == owners[0]:
+                instructions[-1]["count"] += 3
+            else:
+                instructions.append({**rows[owners[0]], "start": (len(positions) - 1) * 3, "count": 3})
+            last_row = owners[0]
+
         for ti, indices in enumerate(original.indices):
             replacement = changed.get((mi, ti))
             if replacement is None:
                 positions.append(original.positions[indices])
+                instruction(indices)
                 if original.uvs is not None:
                     uvs.append(original.uvs[indices])
                 if original.normals is not None:
@@ -121,6 +145,7 @@ def assemble_structures(meshes, protected=()):
             for coords in pieces:
                 weights = np.linalg.solve(np.c_[xy, np.ones(3)].T, np.c_[coords, np.ones(3)].T).T
                 positions.append(origin + coords @ basis)
+                instruction(indices)
                 if original.uvs is not None:
                     uvs.append(weights @ original.uvs[indices])
                 if original.normals is not None:
@@ -131,6 +156,9 @@ def assemble_structures(meshes, protected=()):
         mesh.indices = np.arange(len(mesh.positions), dtype=np.uint32).reshape(-1, 3)
         mesh.uvs = np.concatenate(uvs) if uvs else None
         mesh.normals = np.concatenate(normals_out) if normals_out else None
+        mesh.extras = {k: v for k, v in original.extras.items() if k != "component_box"}
+        if rows is not None:
+            mesh.extras["facade_kit_walls"] = instructions
         result.append(mesh)
     return result
 
@@ -177,7 +205,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
         )
     validate_neighbours(wall_layers, shells, tile, out.parent)
     write_visual(stage / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
-    layer_files = [p for p in layer_files if p.name in {"vegetation.vis.glb", "props.vis.glb"}]
+    layer_files = [p for p in layer_files if p.name == "vegetation.vis.glb"]
     layer_files.append(stage / "architecture.vis.glb")
 
     return layer_files

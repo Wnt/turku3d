@@ -173,3 +173,40 @@ def test_sloping_wall_plane_uses_actual_surface_not_vertical_proxy():
     second = first.copy()
     second[:, 2] += 0.02
     assert not overlaps([first, second], ["a", "b"])
+
+
+def test_retriangulation_remaps_every_facade_program_vertex():
+    from turku3d.wall_assembly import assemble_structures
+
+    # Only the first wall is cut; the following untouched wall is also expanded
+    # from indexed quads to triangle vertices and must keep its own instruction.
+    original = mesh(np.concatenate([quad(x1=6), quad(x0=10, x1=16)]))
+    original.indices = np.concatenate([original.indices, original.indices + 4])
+    original.extras["facade_kit_walls"] = [
+        dict(start=0, count=4, module=6), dict(start=4, count=4, module=43)
+    ]
+    original.uvs = original.positions[:, :2].copy()
+    result = assemble_structures([original], [mesh(quad(x1=2))])[0]
+    rows = result.extras["facade_kit_walls"]
+    assigned = np.full(len(result.positions), -1)
+    for row in rows:
+        assigned[row["start"]:row["start"] + row["count"]] = row["module"]
+    assert np.all(assigned == np.where(result.positions[:, 0] < 8, 6, 43))
+    assert np.all(np.ptp(assigned[result.indices], axis=1) == 0)
+    np.testing.assert_allclose(result.uvs, result.positions[:, :2])
+    assert original.extras["facade_kit_walls"][1]["start"] == 4
+
+
+def test_prop_prototypes_are_transformed_before_architectural_assembly(tmp_path):
+    from turku3d.props import Prop, visual_bytes
+    from turku3d.wall_surfaces import layer_meshes
+
+    tile = C.VisualTile(0, 2, 1)
+    path = tmp_path / "props.vis.glb"
+    path.write_bytes(visual_bytes([Prop("sign", "sign", 630, 24, 380, yaw=0.7, code="E2")], tile))
+    loaded = layer_meshes([path])
+    assert len(loaded) == 1
+    assert loaded[0].extras["object_id"] == "sign"
+    assert abs(loaded[0].positions[:, 0].mean() - 130) < 1
+    assert abs(loaded[0].positions[:, 2].mean() - 130) < 1
+    assert loaded[0].positions[:, 1].min() >= 24

@@ -257,13 +257,20 @@ def layer_meshes(paths):
 
     meshes = []
     for path in paths:
-        if path.name in {"vegetation.vis.glb", "props.vis.glb"}:
-            continue  # Instanced foliage/props do not own architectural wall surfaces.
+        if path.name == "vegetation.vis.glb":
+            continue  # Retain GPU instancing; the decoded shipping audit expands it.
         document, binary = read_glb(path.read_bytes())
         for node in document["nodes"]:
             if "mesh" not in node:
                 continue
-            # Layer writers share the tile root translation; positions are tile-local.
+            # Props reuse prototypes under transformed nodes. Bake their local
+            # transforms into the shared tile frame before surface assembly.
+            translation = np.asarray(node.get("translation", [0, 0, 0]))
+            scale = np.asarray(node.get("scale", [1, 1, 1]))
+            rotation = np.asarray(node.get("rotation", [0, 0, 0, 1]))
+            def rotate(points):
+                cross = np.cross(rotation[:3], points)
+                return points + 2 * (rotation[3] * cross + np.cross(rotation[:3], cross))
             for primitive in document["meshes"][node["mesh"]]["primitives"]:
                 attrs = primitive["attributes"]
                 material = document["materials"][primitive["material"]]
@@ -279,9 +286,9 @@ def layer_meshes(paths):
                 meshes.append(
                     GlbMesh(
                         node.get("name", path.name),
-                        accessor_array(document, binary, attrs["POSITION"]),
+                        rotate(accessor_array(document, binary, attrs["POSITION"]) * scale) + translation,
                         accessor_array(document, binary, primitive["indices"]).reshape(-1, 3),
-                        normals=accessor_array(document, binary, attrs["NORMAL"])
+                        normals=rotate(accessor_array(document, binary, attrs["NORMAL"]) / scale)
                         if "NORMAL" in attrs
                         else None,
                         uvs=accessor_array(document, binary, attrs["TEXCOORD_0"])
@@ -296,3 +303,12 @@ def layer_meshes(paths):
                     )
                 )
     return meshes
+
+
+if __name__ == "__main__":
+    import json
+    import sys
+
+    payload = json.load(sys.stdin)
+    violations = overlaps(payload["faces"], payload["ids"])
+    json.dump(dict(faces=len(payload["faces"]), violations=len(violations), overlaps=violations), sys.stdout)

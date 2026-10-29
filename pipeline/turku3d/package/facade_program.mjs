@@ -2,6 +2,20 @@
 export function bindProgram(doc, prim, extras, fallback, linear) {
   const pos = prim.getAttribute('POSITION'), buffer = pos.getBuffer();
   const rows = extras.facade_kit_walls ?? [{ start:0, count:pos.getCount(), ...fallback }];
+  const owners = new Int32Array(pos.getCount()).fill(-1);
+  for (const [row, p] of rows.entries()) {
+    if (!Number.isInteger(p.start) || !Number.isInteger(p.count) || p.start < 0 || p.start + p.count > owners.length)
+      throw new Error(`Invalid facade program range: ${extras.object_id}`);
+    for (let i = p.start; i < p.start + p.count; i++) {
+      if (owners[i] !== -1) throw new Error(`Overlapping facade program ranges: ${extras.object_id}`);
+      owners[i] = row;
+    }
+  }
+  if (owners.includes(-1)) throw new Error(`Unassigned facade program vertices: ${extras.object_id}`);
+  const indices = prim.getIndices()?.getArray() ?? Uint32Array.from(owners, (_, i) => i);
+  for (let i = 0; i < indices.length; i += 3)
+    if (owners[indices[i]] !== owners[indices[i+1]] || owners[indices[i]] !== owners[indices[i+2]])
+      throw new Error(`Mixed facade program triangle: ${extras.object_id}`);
   const definitions = {
     _KIT_LAYOUT: ['VEC3', p => [p.module, p.module >= 42 ? 3 : p.bay, p.storey]],
     _KIT_WALL: ['VEC3', p => linear(p.wall)],

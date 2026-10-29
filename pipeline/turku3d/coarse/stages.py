@@ -39,6 +39,8 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
                 extras=dict(
                     layer="buildings",
                     object_id=f"roof_{b.key}",
+                    building_id=b.facade_key,
+                    address=b.attributes.get("address"),
                     material_key="roof_ortho",
                     surface="roof",
                     texture_uv="normalized",
@@ -46,7 +48,11 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
             )
         )
     for (b, _), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
-        meshes.extend(wall_meshes(b, walls, origin))
+        walls = wall_meshes(b, walls, origin)
+        for mesh in walls:
+            if b.attributes.get("address"):
+                mesh.extras["address"] = b.attributes["address"]
+        meshes.extend(walls)
     return meshes
 
 

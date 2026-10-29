@@ -84,7 +84,8 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
                     vertices - tile.origin,
                     triangles,
                     color=(*map(float, linear), 1.0),
-                    extras=dict(layer="buildings", surface=surface, building_id=b.facade_key),
+                    extras=dict(layer="buildings", surface=surface, building_id=b.facade_key,
+                                address=b.attributes.get("address")),
                 )
             )
     from turku3d.wall_assembly import assemble_structures

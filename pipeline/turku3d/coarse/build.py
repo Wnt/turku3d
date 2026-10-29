@@ -744,6 +744,7 @@ def build(
                 tris=stats["tris"],
                 h=stats["h"],
                 brotli_bytes=stats["brotli_bytes"],
+                wall_surfaces=stats["wall_surfaces"],
                 coarse=True,
             )
         },
