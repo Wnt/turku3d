@@ -347,21 +347,28 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
     window = shapely.box(*tile.bbox.as_tuple())
     bounds = tile.bbox.as_tuple()
     clip_low, clip_high = np.array(bounds[:2]), np.array(bounds[2:])
-    tree = shapely.STRtree(shapely.polygons(grid_pos[grid_idx][:, :, [0, 2]]))
+    tree = None
     for key, line, tags in merge_parallel(ways):
         passage = tags.get("tunnel") == "building_passage"
         width, clearance = dimensions(tags)
+        corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
+        if (
+            passage
+            and not corridor.intersects(window)
+            and not any(b.footprint.intersects(corridor) for b, _ in shells)
+        ):
+            # The area cache includes a 100 m margin. An unrelated neighbouring
+            # passage must not prepare its surrounding ground tiles or lidar.
+            continue
         vaulted = tags.get("vault") == "barrel"
         spring = clearance - width / 2 if vaulted else clearance
         distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
-        terrain = np.array([sample(x, z) for x, z in xz])
-        if passage and surface_sample is not None:
-            terrain = np.array([surface_sample(x, z) for x, z in xz])
+        height_at = surface_sample if passage and surface_sample is not None else sample
+        terrain = np.array([height_at(x, z) for x, z in xz])
         floor = terrain if passage else floor_profile(terrain, distances)
         if vaulted:
             floor = np.interp(distances, [0, line.length], [terrain[0], terrain[-1]])
-        corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
         # Mitered offset sections meet at bends without cracks.
         direction = np.diff(xz, axis=0)
         direction /= np.linalg.norm(direction, axis=1)[:, None]
@@ -594,6 +601,8 @@ def produce(tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sam
             for mesh in meshes:
                 if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.metadata.get("lamp"):
                     mesh.metadata["vault"] = True
+        if tree is None:
+            tree = shapely.STRtree(shapely.polygons(grid_pos[grid_idx][:, :, [0, 2]]))
         candidates = tree.query(cut_corridor, predicate="intersects")
         for tid in candidates:
             p = grid_pos[grid_idx[tid]]
