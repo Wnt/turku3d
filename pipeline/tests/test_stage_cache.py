@@ -269,3 +269,23 @@ def test_unfinished_demand_survives_a_long_restart(tmp_path):
     assert RequestJournal(tmp_path).rows["t0_0_0"] == rows["t0_0_0"]
     journal.discard("t0_0_0")
     assert "t0_0_0" not in RequestJournal(tmp_path).rows
+
+
+def test_large_stage_entry_is_compressed_and_legacy_entry_is_read(tmp_path):
+    import hashlib
+    import pickle
+
+    from turku3d.stage_cache import COMPRESSED, decompress_payload
+
+    cache = StageCache(tmp_path)
+    value = b'wall-atlas-' * 100000
+    assert cache.run('wall', 'v1', [], lambda: value) == value
+    path = next((tmp_path / 'wall').glob('*.pkl'))
+    encoded = path.read_bytes()
+    assert encoded[32:].startswith(COMPRESSED)
+    assert len(encoded) < len(value) // 4
+    assert decompress_payload(encoded[32:]) == pickle.dumps(value, protocol=5)
+    path.write_bytes(hashlib.sha256(pickle.dumps(value, protocol=5)).digest()
+                     + pickle.dumps(value, protocol=5))
+    assert cache.run('wall', 'v1', [], lambda: b'changed') == value
+    assert cache.metrics['wall']['cached']

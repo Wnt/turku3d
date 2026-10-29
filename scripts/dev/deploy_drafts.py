@@ -1,4 +1,4 @@
-"""Incremental OCI source deployment with uninterrupted cached serving and startup-only warming."""
+"""Incremental OCI source deployment with uninterrupted cached serving and idle route-ring warming."""
 
 from __future__ import annotations
 
@@ -115,9 +115,13 @@ while time.monotonic()<end:
 else: raise SystemExit('proxy did not switch to standby within5s')
 """
     remote("python3 -c " + shlex.quote(switched))
+    remote(f"systemctl --user stop turku-drafts-prebuild {old_unit} && "
+           f"systemctl --user disable {old_unit}")
+    cache_storage = remote(
+        f"{HOME}/run.sh python {destination}/tools/remote-drafts/cache-storage.py "
+        f"--work /srv/turku3d/work --destination /home/ubuntu/turku3d-cache"
+    )
     restarted = remote(
-        f"systemctl --user stop turku-drafts-prebuild {old_unit} && "
-        f"systemctl --user disable {old_unit} && "
         f"echo {commit} > {HOME}/SOURCE_COMMIT && "
         f"echo {port} > {HOME}/ACTIVE_PORT && echo {unit} > {HOME}/ACTIVE_UNIT && "
         f"sed -i s/TURKU3D_DRAFT_STANDBY=1/TURKU3D_DRAFT_STANDBY=0/ {HOME}/slot-{port}.env && "
@@ -125,12 +129,13 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         f"systemctl --user kill --kill-whom=main --signal=USR1 {unit} && "
         f"install -m 644 {destination}/tools/remote-drafts/turku-facade-assets.service "
         f"{destination}/tools/remote-drafts/turku-facade-assets.path "
-        f"{destination}/tools/remote-drafts/turku-drafts-prebuild.service ~/.config/systemd/user/ && "
+        "~/.config/systemd/user/ && "
         "systemctl --user daemon-reload && "
         "systemctl --user enable --now turku-facade-assets.path && "
         "systemctl --user start --no-block turku-facade-assets.service && "
-        "systemctl --user enable turku-drafts-prebuild && "
-        "systemctl --user restart --no-block turku-drafts-prebuild && "
+        "systemctl --user disable turku-drafts-prebuild && "
+        "rm -f ~/.config/systemd/user/turku-drafts-prebuild.service && "
+        "systemctl --user daemon-reload && "
         "date -u +%Y-%m-%dT%H:%M:%SZ"
     )
     multiplayer = deploy_multiplayer(destination)
@@ -142,27 +147,17 @@ else: raise SystemExit('proxy did not switch to standby within5s')
         active_port=port,
         rsync=result.stdout,
         multiplayer=multiplayer,
+        cache_storage=cache_storage,
     )
-
-
-def prewarm():
-    """Warm startup tiles only; return without waiting for builds."""
-    remote("systemctl --user restart --no-block turku-drafts-prebuild")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument(
-        "--prewarm", action="store_true", help="warm only startup-area tiles"
-    )
     args = parser.parse_args()
-    if args.prewarm:
-        prewarm()
-        print(json.dumps(dict(prewarm="queued")))
-    elif args.commit:
+    if args.commit:
         print(json.dumps(deploy(args.repo, args.commit)))
     else:
-        parser.error("--commit SHA or --prewarm required")
+        parser.error("--commit SHA required")
     return 0

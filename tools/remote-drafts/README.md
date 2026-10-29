@@ -67,7 +67,6 @@ systemctl --user enable --now turku-mp-server turku-drafts turku-drafts-proxy
 curl -f -H 'Origin: https://wnt.github.io' http://127.0.0.1:7764/coarse/health
 # Only after the old host's forwarder has stopped:
 systemctl --user enable --now turku-forwarder-agent
-systemctl --user enable --now turku-drafts-prebuild
 systemctl --user status turku-mp-server turku-drafts turku-drafts-proxy turku-forwarder-agent
 loginctl show-user ubuntu -p Linger
 ```
@@ -76,7 +75,7 @@ Stop the tunnel first when taking the whole stack offline:
 
 ```sh
 systemctl --user stop turku-forwarder-agent
-systemctl --user stop turku-drafts-prebuild turku-drafts-proxy turku-drafts turku-mp-server
+systemctl --user stop turku-drafts-proxy turku-drafts turku-mp-server
 journalctl --user -u turku-mp-server -u turku-forwarder-agent -n 50 --no-pager
 tail -n 50 ~/turku3d-drafts/reports/{service,proxy,prebuild}.log
 ```
@@ -87,13 +86,27 @@ Completed hourly scores persist; current-hour scores, sessions and broken poles
 are in memory and reset on multiplayer restart. Schedule routine multiplayer
 updates at an hour boundary when possible. Draft-only updates do not restart it.
 
-## Startup warming and player demand
+## Idle route warming and player demand
 
-Generator updates warm only the startup coverage around the office/car search and
-multiplayer spawn points in `server/spawns.json`, using the same 200 m footprint
-test as `startupDraftTiles`. Saved player/car starts are private to the browser;
-`preloadStarts` includes all selectable starts in its startup want-list. There is
-no 92-tile ring, parent expansion or background area rebuild.
+After 120 seconds without game draft requests or multiplayer connections, the
+active producer fills all four build slots from a 150 m route-distance walk starting
+at the pizzeria. Each route tile and its eight neighbours is completed in full
+(two passes) before the next ring. Once the route corridor is done, square rings
+expand over the bounded register/service area. Existing full content hashes are
+skipped. Navigation metadata is read first; it is cached independently of tiles.
+Browser requests and multiplayer connection notifications cancel active idle jobs
+through the existing worker-pool preemption path. The producer polls multiplayer
+presence as a recovery check and pauses if that health check fails. Status is in
+`/coarse/health` under `prebuild`, in the private scheduler status and in
+`work/prebuild.json`; service logs record progress transitions. Both the data
+volume and boot volume must have 15 GiB free before a new idle job starts.
+
+Rebuildable `.stages`, `.inputs`, `cache/lidar`, `cache/coarse-roofs`, `cache/coarse-area` and `cache/inputs` move to
+`/home/ubuntu/turku3d-cache` on the boot volume during the next producer switch.
+The deployment verifies every copied file before replacing a source directory
+with a symlink. Existing stage entries are compressed losslessly; new entries use
+fast compression when it saves at least 5 %. The producer can discard outermost
+stage entries if boot space falls below 15 GiB, preserving served tiles.
 
 Public clients send `GET /coarse/demand?client=<random-tab-id>&tiles=<ordered-ids>&urgent=<crossings>&visible=<ids>`
 every second. Up to 128 ids accommodate multiple saved starts. The random id lives
@@ -107,9 +120,7 @@ upgrades on the path/in view, then remaining wanted neighbours. One slot stays
 available for fresh crossings while upgrades run. Obsolete queued, input-pending
 and upgrade jobs are discarded. Obsolete running workers and their packaging
 children are cancelled, except around their estimated final two seconds, when
-they finish at reduced priority. Overdue stale builds are cancelled too. The
-spawn warmer pauses and yields running background jobs whenever player work is
-pending. Legacy clients still work through expiring per-tile requests.
+they finish at reduced priority. Overdue stale builds are cancelled too. Idle warming pauses and cancels running jobs whenever player work is pending. Legacy clients still work through expiring per-tile requests.
 
 `GET /coarse/<tile>/collision.json?client=<id>` publishes sixteen collision cells
 together with a cheap flat-colour basic GLB and road graph. Ground, roads, building
@@ -134,7 +145,7 @@ manifests expose `pass_kind` so first/full availability can be measured.
 
 ```sh
 scripts/dev/deploy-drafts --commit HEAD
-scripts/dev/deploy-drafts --prewarm  # startup coverage only
+curl -fsS http://127.0.0.1:7764/coarse/health  # includes prebuild progress
 ```
 
 Source archives are incrementally uploaded to immutable `sources/<commit>`.
@@ -156,8 +167,8 @@ environment persist across reboot. Caddy signal reload follows its
 The demand journal survives source changes, but abandoned legacy requests no
 longer replay forever. Outdated manifests return 202 until the new first pass is ready, followed by
 a full upgrade. A failed build alone permits stale last-good output. Health reports
-`failure_count` and `failed_tiles`; `prebuild.json` records startup build failures. Existing facade assets and stage caches stay in place.
-Only requested tiles and startup cells revalidate; content hashes select the
+`failure_count` and `failed_tiles`; `prebuild.json` records idle build failures. Existing facade assets and stage caches stay in place.
+Requested tiles and the idle route walk revalidate; content hashes select the
 changed stages. Inspect a tile's `stage-times.json` for hit/miss evidence. Native
 dependency changes still require the ARM64 bootstrap before source deployment.
 
@@ -198,7 +209,7 @@ rsync -a oci-drafts:turku3d-mp/repo/server/data/ ~/turku3d-mp/repo/server/data/
 systemctl --user enable --now turku-mp-server turku-drafts turku-drafts-proxy turku-forwarder-agent
 node ~/turku3d-mp/repo/server/tools/probe.mjs
 curl -f -H 'Origin: https://wnt.github.io' https://turku.lab.madekivi.fi/coarse/health
-ssh oci-drafts 'systemctl --user stop turku-drafts-prebuild turku-drafts-proxy turku-drafts'
+ssh oci-drafts 'systemctl --user stop turku-drafts-proxy turku-drafts'
 ```
 
 For a pipeline-only rollback, stop producer/prebuild, swap back the retained
@@ -228,8 +239,8 @@ walls retain the draft facade kit.
 scripts/dev/publish-facades
 # Incremental generator source upload, restart and metrics (no warming wait):
 scripts/dev/deploy-drafts --commit HEAD
-# Warm startup coverage asynchronously:
-scripts/dev/deploy-drafts --prewarm
+# Check the automatic idle prebuild:
+curl -fsS http://127.0.0.1:7764/coarse/health
 curl --max-time 1 -fsSI -H 'Origin: https://wnt.github.io' \
   https://turku.lab.madekivi.fi/facades/index.json
 # On OCI:

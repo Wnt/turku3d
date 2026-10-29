@@ -1,36 +1,8 @@
-"""Localhost companion service: builds coarse tiles on first request and serves them afterwards.
+"""Coarse tile HTTP service and bounded worker scheduler.
 
-    GET /coarse/status                      from memory, in milliseconds: the builds running, the
-                                            queue length and its first STATUS_ITEMS tiles with their
-                                            ETA (s), how many tiles this process built and the timings
-                                            of the latest, recent failures and tiles waiting for data,
-                                            the build counter `version`, the prefetcher's state;
-                                            the service's start time and the repository files it loaded
-                                            (`started`, `modules`: the localhost game restarts it when
-                                            one of them lands, tools/dev/localhost/coarse.mjs)
-    POST /coarse/drain                      start no further builds (running ones finish); the
-                                            supervisor restarts the service once `building` is empty
-    GET /coarse/want?x=&z=&vx=&vz=          the player's engine position and velocity (m, m/s), once
-                                            a second: re-ranks the queue (``rank``), drops the tiles
-                                            the player no longer needs, drives the raw-data prefetcher
-                                            (prefetch.py), answers {queued, fetching, version}
-    GET /coarse/<tile>/manifest.json?d=<m>  200 when built; otherwise 202 {"state": "queued",
-                                            "position", "eta"} or "building" with "eta", or 202
-                                            {"state": "deferred"} while the tile is outside the ring
-                                            and the cone (``rank``), or 202 {"state": "pending-data",
-                                            "missing": [units]} while its inputs are being fetched
-    GET /coarse/<tile>/vis.glb | roads.json | col/<c>.col and /coarse/shared/<sha>.ktx2   built files
-
-Tiles not re-requested for STALE_SECONDS leave the queue, and so do the tiles ``rank`` drops at each
-position report (the player turned or moved on); a running build always finishes. The game asks for
-the cells ahead of a moving player as well (prefetch), so up to WORKERS builds run at once, each on
-its own persistent worker process (``Workers``: the interpreter, imports and the node packager are
-started once, not per tile), so a slow or failing build never blocks requests or the other builds.
-A build never downloads: a tile whose inputs are not on disk waits as pending-data, its units jump
-the raw-data prefetch queue, and it is queued again as soon as they land.
-A failed tile (outside every keyless source, or a network error) answers 404 with the reason and is
-retried after RETRY_SECONDS.
-Built tiles live under $TURKU3D_WORK/coarse/<tile>/ and are rebuilt when the producer code changes.
+Status answers from memory. Tile requests queue a structural first pass followed by
+full visual enrichment; missing raw inputs are prefetched separately. Results and
+intermediate stages remain content-addressed in the sandbox work directory.
 """
 
 from __future__ import annotations
@@ -171,6 +143,7 @@ class Builder:
         self.run = run or Workers()
         self.demand = Demand()
         self.cancelled = set()
+        self.idle = None
         self.upgrade_queue: set[str] = set()
         self.upgrading: set[str] = set()
         self.upgrade_requested: dict[str, float] = {}
@@ -454,7 +427,7 @@ class Builder:
             started = time.perf_counter()
             out = self.root / tile
             proc = (
-                self.run(tile, out, first_pass=not upgrade)
+                self.run(tile, out, first_pass=not upgrade, on_started=lambda: self._worker_started(tile))
                 if self.two_pass
                 else self.run(tile, out)
             )
@@ -548,6 +521,13 @@ class Builder:
             if tile in self.pending:
                 self.on_missing(self.pending[tile][0])
 
+    def _worker_started(self, tile):
+        with self.lock:
+            if tile in self.cancelled:
+                self.run.cancel(tile)
+            elif self.idle is not None and tile in self.idle.tiles:
+                self.run.deprioritize(tile)
+
     def landed(self) -> None:
         """Data landed: re-request the waiting tiles the game still asks for."""
         with self.lock:
@@ -590,6 +570,7 @@ class Builder:
                 "timings": dict(self.timings),
                 "code": self.code_seen,
                 "draining": self.draining,
+                "prebuild": self.idle.status() if self.idle else None,
             }
 
     def drain(self) -> None:

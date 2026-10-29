@@ -101,6 +101,13 @@ def public_handler(builder, prefetcher, settings):
             return super()._json(status, value)
 
         def do_POST(self):
+            # This path is outside /coarse and therefore never proxied to a producer.
+            if (self.path == '/internal/player-connected'
+                    and self.client_address[0] == '127.0.0.1' and builder.idle is not None):
+                with builder.lock:
+                    builder.idle.online = True
+                    builder.idle.activity()
+                return self._json(200, {'ok': True})
             self._json(405, {"error": "method"})
 
         def do_OPTIONS(self):
@@ -112,6 +119,12 @@ def public_handler(builder, prefetcher, settings):
             if not allowed_origin(self.headers.get("Origin")):
                 return self._json(403, {"error": "origin"})
             route, tile = public_route(urlparse(self.path).path, settings["tile_bounds"])
+            idle = getattr(builder, 'idle', None)
+            if (idle is not None and route in ('demand', 'manifest', 'collision')
+                    and (self.headers.get('Origin') is not None
+                         or 'client' in parse_qs(urlparse(self.path).query))):
+                with builder.lock:
+                    idle.activity()
             if route == "demand":
                 q = parse_qs(urlparse(self.path).query, keep_blank_values=True)
                 client = q.get("client", [""])[0]
@@ -134,7 +147,8 @@ def public_handler(builder, prefetcher, settings):
                 return super().do_GET()
             if route == "health":
                 return self._json(200, {"state": "online", "instance": instance,
-                                        "failure_count": builder.failure_count, "failed_tiles": len(builder.failed)})
+                                        "failure_count": builder.failure_count, "failed_tiles": len(builder.failed),
+                                        "prebuild": idle.status() if idle else None})
             if route == "invalid":
                 return self._json(404, {"error": "route"})
             name = urlparse(self.path).path.removeprefix("/coarse/").split("/", 1)[1]
@@ -223,6 +237,11 @@ def main():
         enrichment_inputs=lambda tile: [u.key for u in sources.missing_for_service(C.VisualTile.parse(tile))],
         on_missing=lambda units: prefetcher.need([Unit.parse(u) for u in units]),
     )
+    from turku3d.coarse.idle import IdlePrebuild, multiplayer_present, route_walk
+    from turku3d.coarse.navigation import navigation
+    idle = IdlePrebuild(builder, lambda: route_walk(json.loads(navigation(root)), settings['tile_bounds']),
+                        multiplayer_present)
+    idle.start()
     prefetcher.on_landed = lambda unit: builder.landed()
     server = Server(("127.0.0.1", int(os.environ.get("TURKU3D_DRAFT_PORT", settings["port"]))), public_handler(builder, prefetcher, settings))
 

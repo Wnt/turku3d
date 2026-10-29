@@ -38,6 +38,7 @@ from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
+from .retention import managed_build
 from .sources import Sources
 from .stages import building_visual, deck_stage, kerb_inputs, props_visual
 
@@ -216,9 +217,6 @@ def terrain_stage(tile, inputs):
     if wet.any():
         materials[wet] = mat_id("water")
     return grid_pos, grid_idx, materials, wet, level
-
-
-from .retention import managed_build
 
 
 @managed_build
@@ -562,11 +560,24 @@ def build(
         np.ones(len(surface_idx), bool),
         surface_normals,
     )
+    from . import ortho_cleanup
+
+    clean_args = (tile, inputs.ortho, inputs.streets, inputs.surfaces,
+                  inputs.ortho_canopy, inputs.heights, inputs.markings,
+                  [b.footprint for b in blds], inputs.water, inputs.parking)
+    ground_ortho, cleanup_stats = cache.run(
+        "ground_ortho",
+        source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback,
+                   *common),
+        clean_args,
+        lambda: ortho_cleanup.clean(*clean_args),
+    )
+    seconds["ground_ortho"] = cache.metrics["ground_ortho"]["seconds"]
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
-        [visual_args, inputs.ortho, surfaces.KEYS, surfaces.BINDINGS],
-        lambda: surfaces.visuals(*visual_args, ortho=inputs.ortho),
+        [visual_args, ground_ortho, surfaces.KEYS, surfaces.BINDINGS],
+        lambda: surfaces.visuals(*visual_args, ortho=ground_ortho),
     )
     paint_args = (
         tile,
@@ -733,6 +744,7 @@ def build(
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
         stairs=dict(flights=len(stair_meshes), triangles=sum(len(m.indices) for m in stair_meshes)),
         marking_triangles=len(paint.indices) if paint is not None else 0,
+        ground_ortho_cleanup=cleanup_stats,
         ground_surfaces={
             surfaces.KEYS[c]: int(
                 sum(

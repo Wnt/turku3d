@@ -8,7 +8,7 @@ export function allowedOrigin(origin) {
   try { return new URL(origin).port !== '0'; } catch { return false; }
 }
 
-export function createServer({ store, now = Date.now }) {
+export function createServer({ store, now = Date.now, onConnection = () => {} }) {
   const room = new Room({ store, now });
   const sockets = new WebSocketServer({ noServer: true, maxPayload: LIMITS.messageBytes, perMessageDeflate: false });
   const server = http.createServer((req, res) => {
@@ -60,6 +60,7 @@ export function createServer({ store, now = Date.now }) {
     sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws));
   });
   sockets.on('connection', ws => {
+    onConnection();
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
     const c = room.connect(data => {

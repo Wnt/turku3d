@@ -72,11 +72,13 @@ class Workers:
             self.procs.append(proc)
         return proc
 
-    def __call__(self, tile: str, out: Path, *, first_pass=False) -> subprocess.CompletedProcess:
+    def __call__(self, tile: str, out: Path, *, first_pass=False, on_started=None) -> subprocess.CompletedProcess:
         proc = self._worker(background=not first_pass)
         with self.lock:
             self.jobs[tile] = proc
         self.local.worker["builds"] += 1
+        if on_started is not None:
+            on_started()
         try:
             proc.stdin.write(
                 json.dumps({"tile": tile, "out": str(out), "first_pass": first_pass}) + "\n"

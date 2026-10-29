@@ -134,7 +134,7 @@ def _prune(root):
                 continue
             deleted += prune_tile(out)
             stages = root / ".stages" / out.name
-            directories = [] if stages.is_symlink() or stages.parent.is_symlink() else stages.glob("*")
+            directories = stages.glob("*") if stages.is_dir() else []
             for directory in directories:
                 if directory.is_dir() and not directory.is_symlink():
                     deleted += prune_entries(directory)

@@ -30,7 +30,6 @@ printf '[Service]\nExecStart=\nExecStart="%s" server/index.js\n' "$node_bin" \
 if "$with_drafts"; then
   test -x "$draft_home/tools/bin/caddy"
   test -d "$draft_home/data/raw"
-  test -f "$draft_home/work/prebuild-tiles.json"
   mkdir -p "$draft_home/reports" "$unit_dir/turku-forwarder-agent.service.d" \
     "$unit_dir/turku-drafts.service.d"
   install -m 644 "$draft_home/repo/tools/remote-drafts/"*.service "$unit_dir/"
