@@ -92,8 +92,10 @@ class IdlePrebuild:
         from .retention import tile_lock
         root = self.builder.root / '.stages'
         candidates = []
+        with self.builder.lock:
+            active = set(self.builder.building)
         for stage in root.glob('t0_*_*'):
-            if not stage.is_dir() or stage.name in self.builder.building:
+            if not stage.is_dir() or stage.name in active:
                 continue
             try:
                 tile = C.VisualTile.parse(stage.name)
@@ -116,14 +118,16 @@ class IdlePrebuild:
             self.reclaim_outer_stages()
             available = self.free_bytes()
         if min(available.values()) < MIN_FREE:
-            self.disk_stopped = True
-            self.summary['stopped_free_bytes'] = available
-            self.pause('low-disk')
+            with self.builder.lock:
+                self.disk_stopped = True
+                self.summary['stopped_free_bytes'] = available
+                self.pause('low-disk')
             return False
         return True
 
     def status(self):
-        return dict(state=self.state, cached=len(self.done), total=len(self.walk),
+        with self.builder.lock:
+            return dict(state=self.state, cached=len(self.done), total=len(self.walk),
                     ring=self.ring, building=sorted(self.tiles & self.builder.building.keys()),
                     failed=sorted(self.failed), workers=self.builder.workers,
                     completed=self.completed, active_seconds=round(self.active_seconds, 2),
@@ -147,8 +151,8 @@ class IdlePrebuild:
             if not self.allowed():
                 self.pause('low-disk' if self.disk_stopped else 'players' if online else 'waiting')
                 return
-            if not self.disk_ok():
-                return
+        if not self.disk_ok():
+            return
         if not self.walk:
             self.walk, self.summary = self.plan()
         # Check identities outside the scheduler lock; cached tiles never consume a worker.
@@ -164,6 +168,8 @@ class IdlePrebuild:
                 if tile in b.cancelled:
                     continue
             full = b.built(tile, code) and json.loads(b.manifest(tile).read_text()).get('pass_kind') == 'full'
+            if not self.disk_ok():
+                return
             with b.lock:
                 if not self.allowed():
                     return
@@ -182,8 +188,6 @@ class IdlePrebuild:
                     break
                 if len(self.tiles) >= b.workers:
                     break
-                if not self.disk_ok():
-                    return
                 self.ring = ring
                 self.tiles.add(tile)
                 b.request(tile, 1e9 + ring)
