@@ -22,6 +22,22 @@ def expand(wall, floors, geometry):
     wall["trim"]["string_courses"] = value(
         [sum(heights[:i]) for i in boundaries], "learned course frequency"
     )
+    # The shader already handles regular frames, row heights and balcony rails.
+    # Only spatial exceptions need partitioned opening geometry on inferred walls.
+    complex_layout = (
+        p.get("surround") in ("pediment", "rustication")
+        or p.get("windows_per_bay", 1) >= 1.5
+        or wall["bays"].get("rhythm") == "ribbon"
+        or abs(p.get("top_scale", 1) - 1) > 0.12
+        or 0 < courses < floors - 1
+        or wall["trim"].get("ornament_level", {}).get("value") in ("medium", "high")
+    )
+    if not complex_layout:
+        wall["trim"]["string_courses"] = value(0.12 if courses else 0, "learned course frequency")
+        wall["balconies"] = value(
+            [[0, 0, 1, 1]] if p.get("balcony") else [], "learned repeated rail presence"
+        )
+        return
     ww, wh = wall["windows"]["size_m"]["value"]
     head = wall["windows"]["head_shape"]["value"]
     kind = wall["base"]["variant"]["value"]

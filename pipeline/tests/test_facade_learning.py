@@ -145,3 +145,38 @@ def test_ornament_levels_add_distinct_bounded_trim():
         wall.update(measured_geometry=wall["geometry"], measured_size=[12, 8])
         sizes.append(len(list(wall_parts(vertices, wall, compile_wall(wall, 2)))))
     assert all(a < b for a, b in zip(sizes, sizes[1:], strict=False))
+
+
+def test_partial_sections_partition_parent_uv_frame_and_preserve_unseen_area():
+    from turku3d.facade_program_geometry import wall_parts
+    from turku3d.wall_surfaces import overlaps
+
+    row, _ = fixture()
+    form = dict(
+        wall_id=row["wall_id"],
+        render_deferred="mixed right bay",
+        facade_observations=dict(
+            sections=[
+                dict(position="right upper", kind="windows", count=2, rows=2, material="brick")
+            ],
+            confidence=dict(material=0.9),
+        ),
+    )
+    own = prepare(
+        dict(building_id="p", storeys=dict(value=4), walls=[compile_structure(row, form, 4)])
+    )["walls"][0]
+    wall = sample("p", dict(levels=4), [row])["walls"][0]
+    from turku3d.facade_programs import overlay
+
+    overlay(wall, own)
+    wall.update(measured_geometry=own["geometry"], measured_size=[12, 8])
+    vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 10, 0], [0, 10, 0]], float)
+    parts = list(wall_parts(vertices, wall, compile_wall(wall, 4)))
+    assert not overlaps([p for p, _, _ in parts], list(range(len(parts))))
+    assert any(s.get("unreviewed") for _, _, s in parts)
+    openings = [(p, uv, s) for p, uv, s in parts if s["detail"][3] > 0]
+    assert openings
+    for points, uv, style in openings:
+        assert np.allclose(points[:, 0], uv[:, 0])
+        assert style["origin"][0] > 8
+        assert points[:, 1].min() >= 4

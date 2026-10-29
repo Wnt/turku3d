@@ -27,19 +27,21 @@ Categorical entries are accuracy (higher is better); numeric entries are mean ab
 | cornice | accuracy | 39 | 0.3718 | 0.5342 | 0.5085 | 0.5085 |
 | course_share | MAE | 39 | 0.3722 | 0.2095 | 0.2068 | 0.2118 |
 | ground | accuracy | 51 | 0.3105 | 0.6863 | 0.6569 | 0.4118 |
+| ground_scale | MAE | 39 | 0.1191 | 0.0898 | 0.0841 | 0.0941 |
 | head | accuracy | 54 | 0.6852 | 1.0000 | 1.0000 | 0.9630 |
 | material | accuracy | 74 | 0.2973 | 0.5518 | 0.5518 | 0.4054 |
 | ornament | accuracy | 52 | 0.4135 | 0.5769 | 0.5962 | 0.5481 |
 | rhythm | accuracy | 51 | 0.7647 | 0.9510 | 0.9510 | 0.9118 |
 | shop_share | MAE | 34 | 0.3799 | 0.1500 | 0.1502 | 0.1697 |
 | surround | accuracy | 49 | 0.4694 | 0.6735 | 0.7143 | 0.6122 |
+| top_scale | MAE | 39 | 0.0907 | 0.0985 | 0.0926 | 0.0885 |
 | window_height | MAE | 50 | 0.0707 | 0.0247 | 0.0235 | 0.0244 |
 | window_width | MAE | 50 | 0.0891 | 0.0639 | 0.0611 | 0.0649 |
 | windows_per_bay | MAE | 50 | 0.0240 | 0.0351 | 0.0404 | 0.0240 |
 
-Bay width is in metres, from complete counted bays and the known wall frontage. Window width/height are **qualitative opening-class layout fractions**, not measured photographic dimensions. Shop/course shares and multiplicity use only explicit counted forms. Partial descriptions contribute explicit material/head/surround labels and positive balcony/shop/ribbon evidence; absence of a mention is not an observed negative. The evidence does not justify pixel-size or photographic-fidelity claims.
+Bay width is in metres, from complete counted bays and the known wall frontage. Ground/top scales are qualitative row heights relative to a uniform storey. Window width/height are **qualitative opening-class layout fractions**, not measured photographic dimensions. Shop/course shares and multiplicity use only explicit counted forms. Partial descriptions contribute explicit material/head/surround labels and positive balcony/shop/ribbon evidence; absence of a mention is not an observed negative. The evidence does not justify pixel-size or photographic-fidelity claims.
 
-The seeded estimator improves 13 fields and ties opening multiplicity in this holdout. Neighbour propagation improves several numerical/detail fields, but reduces balcony, cornice and ground-type point accuracy versus conditional-only prediction. Rare heads and balconies are strongly imbalanced; a high accuracy does not establish reliable rare-class performance. No parameters were tuned against this holdout.
+The seeded estimator improves 15 fields and ties 1 in this holdout. Neighbour propagation improves several numerical/detail fields, but reduces balcony, cornice and ground-type point accuracy versus conditional-only prediction. Rare heads and balconies are strongly imbalanced; a high accuracy does not establish reliable rare-class performance. No parameters were tuned against this holdout.
 
 ## Painter coverage
 
@@ -61,7 +63,7 @@ Still unsupported or deliberately unresolved: exact clock/sign/mural artwork; am
 
 ## Verification and deployment
 
-Before the shared wall-compositor rebase, the production painter audit compiled 699 published walls and 648 synthetic unseen-building layouts in 5.618 s; all coordinates/instructions were finite and vertically bounded. The final post-deploy audit is recorded in the task receipt, and checks the frozen deployed compositor too.
+After the wall-compositor rebase, the production painter audit compiled 699 published walls and 648 synthetic unseen-building layouts in 122.572 s; all coordinates/instructions were finite and vertically bounded. The final post-deploy audit is recorded in the task receipt, and checks the frozen deployed compositor too. Regular learned layouts reuse the existing shader attributes; only spatial exceptions expand to partitioned patches.
 
 ```sh
 source ../sandbox.env

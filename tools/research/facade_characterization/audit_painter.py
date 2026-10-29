@@ -31,7 +31,8 @@ def check(wall, floors):
     )
     vertices[2:] = vertices[[1, 0]] + [0, height, 0]
     wall = copy.deepcopy(wall)
-    wall.update(measured_geometry=g, measured_size=[width, height])
+    if not wall.get("learned_layout") or wall.get("measured_geometry"):
+        wall.update(measured_geometry=g, measured_size=[width, height])
     style = compile_wall(wall, floors)
     style["origin"][1] = g.get("base_h", 0)
     parts = list(wall_parts(vertices, wall, style))
