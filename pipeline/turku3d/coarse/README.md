@@ -55,6 +55,18 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
 - **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
   (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
   game renders as a river) instead of the ortho.
+  Isolated compact standing-water polygons (5–5,000 m², span at most 120 m,
+  circularity at least 0.15) use their own median ground height in a 3 m outer
+  shoreline ring, minus 0.35 m. Complete canonical lidar blocks cover the whole
+  shoreline, including across tile boundaries; incomplete evidence retains the
+  existing profile. Their bed is at most 0.65 m deep, with a roughly 2 m grassy
+  lip and a gradual return to the hillside. Heights are graded on the original
+  TIN before vector cuts to avoid steep slivers. The bed is visible where it
+  emerges, and natural pond edges have no vertical bank faces. Mapped stone
+  edges retain their rim and faces. Large/connected water keeps the river/sea
+  profile. `python3 scripts/dev/probe_ponds.py --commit SHA` measures the reported
+  three duck ponds and builds their tile plus an Aura control on deployed OCI.
+
 - **Bridges** (`bridges.py`): transport ways belonging to one `man_made=bridge` outline share one deck;
   absent an outline, overlapping parallel ways at the same layer share an envelope. The main carriageway
   determines the axis even for branched outlines. Full raw ground blocks give neighbouring tiles the same
