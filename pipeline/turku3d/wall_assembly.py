@@ -120,10 +120,26 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         rows = np.flatnonzero((abs(normals[:, 2]) >= abs(normals[:, 0])) == (axis == 0))
         rows = rows[np.array([refs[i][0] >= 0 for i in rows], dtype=bool)]
         boxes = shapely.box(low[:, axis] - 0.006, low[:, 1], high[:, axis] + 0.006, high[:, 1])
-        tree = shapely.STRtree(boxes[:indexed_count])
+        # A selected wall's dominant horizontal normal has magnitude > 0.7069.
+        # Accepted unit normals differ by < sqrt(2 - 2*0.99998) < 0.0064,
+        # so a zero/opposite component cannot pass the unchanged dot filter.
+        component = 2 - axis
+        trees = []
+        for sign in (-1, 1):
+            indexed = np.flatnonzero(sign * normals[:indexed_count, component] > 0)
+            trees.append((sign, indexed, shapely.STRtree(boxes[indexed])))
         for start in range(0, len(rows), 512):
-            local, js = tree.query(boxes[rows[start : start + 512]])
-            ii = rows[start : start + 512][local]
+            batch = rows[start : start + 512]
+            local_parts, index_parts = [], []
+            for sign, indexed, tree in trees:
+                selected = np.flatnonzero(sign * normals[batch, component] > 0)
+                local, js = tree.query(boxes[batch[selected]])
+                local_parts.append(selected[local])
+                index_parts.append(indexed[js])
+            # Keep the original row batches and sorted scalar-row admission.
+            # Scalar cuts still query original_tree in its original order.
+            ii = batch[np.concatenate(local_parts)]
+            js = np.concatenate(index_parts)
             keep = (js < ii) & (high[js, 1] > low[ii, 1]) & (low[js, 1] < high[ii, 1])
             ii, js = ii[keep], js[keep]
             # Both old x/z boxes expanded by 6 mm, so retain the full 12 mm
