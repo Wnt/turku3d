@@ -41,24 +41,18 @@ export class ReflectionShadows {
   }
 }
 
-/** Compare with the last captured pose, so slow movement accumulates instead of resetting the clock.
- * Small movement can reuse the water image; fast travel/turns still have a hard secondary-pass budget. */
+/** A moving camera re-renders the reflection every frame: an image from an older pose visibly trails
+ * the view. Only a still camera reuses it, refreshing at `slowFps` for moving water and actors. */
 export class ReflectionCadence {
   private last = -Infinity;
-  private position = new THREE.Vector3();
-  private rotation = new THREE.Quaternion();
-  private nextPosition = new THREE.Vector3();
-  private nextRotation = new THREE.Quaternion();
-  constructor(private fps: number, private slowFps: number) {}
+  private pose = new THREE.Matrix4();
+  constructor(private slowFps: number) {}
 
   shouldUpdate(camera: THREE.Camera, now: number, hasOutput: boolean, force = false): boolean {
-    this.nextPosition.setFromMatrixPosition(camera.matrixWorld);
-    this.nextRotation.setFromRotationMatrix(camera.matrixWorld);
-    const moved = this.nextPosition.distanceToSquared(this.position) > 0.5 ** 2
-      || this.nextRotation.angleTo(this.rotation) > Math.PI / 180;
-    if (hasOutput && !force && now - this.last < 1000 / (moved ? this.fps : this.slowFps)) return false;
+    const moved = !camera.matrixWorld.equals(this.pose);
+    if (hasOutput && !force && !moved && now - this.last < 1000 / this.slowFps) return false;
     this.last = now;
-    this.position.copy(this.nextPosition); this.rotation.copy(this.nextRotation);
+    this.pose.copy(camera.matrixWorld);
     return true;
   }
 }
