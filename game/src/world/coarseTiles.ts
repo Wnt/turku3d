@@ -1,13 +1,12 @@
 // Draft service is the only world source. Each visible tile owns all sixteen collision cells.
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
-import { recordFreshness, type DraftFreshness } from './coarseFreshness';
+import { recordFreshness } from './coarseFreshness';
 import { VisualPassComparison } from './visualPass';
-import { splitCollisionBundle, type CollisionBundle } from './collisionBundle';
+import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, lookaheadTile, retainDraftTile, startupDraftTiles, wantedTiles } from './coarseRegion';
-import { CoarseLookahead } from './coarseLookahead';
+import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, preparationTiles, retainDraftTile, startupDraftTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -22,7 +21,9 @@ import { FLY } from '../gameplay/flyMode';
 import { isLocalHost } from '../core/localOnly';
 import { draftsUrl } from '../net/config';
 import { ServiceDown, gatewayDown, backoff, retryAfter } from '../net/draftRetry';
-import type { Manifest, ManifestEntry, ParkedVehicle } from './manifest';
+import type { ManifestEntry } from './manifest';
+import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
+export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const POLL_MS = 1000;
@@ -42,53 +43,6 @@ class DraftRejected extends Error {}
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
-interface CoarseFragment { generation?: string; stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
-  /** The tile's OSM street graph (absent without an OSM extract). */
-  collision_bundle?: CollisionBundle;
-  roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
-/** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
-type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
-interface Entry extends DraftFreshness {
-  state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
-  /** The collision entries this tile put into the manifest (dropped only while they are still there). */
-  collision: Map<string, ManifestEntry>;
-  vehicles?: ParkedVehicle[];
-  pass?: 'first' | 'full'; comparison?: THREE.Object3D; comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
-  /** The service's estimate (clock ms) of when a queued or building tile is built. */
-  readyAt?: number;
-  /** The service's build counter at this entry's last poll. */
-  version?: number; visualHash?: string; refreshing?: boolean;
-  /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
-  resident?: boolean; retries?: number;
-}
-
-export interface CoarseHost {
-  scene: THREE.Scene;
-  renderer: THREE.WebGPURenderer;
-  /** Runtime residency inventory populated by draft fragments. */
-  manifest: Manifest;
-  unloadCollision: (id: string) => void;
-  /** Loaded collision tiles whose manifest entry changed are fetched again and swapped (CollisionStreamer.refresh). */
-  refreshCollision: (ids: string[]) => void;
-  /** Decodes a draft .col in the physics worker (PhysicsClient.checkTile); rejects when the worker cannot use it. */
-  checkCollision: (buffer: ArrayBuffer) => Promise<unknown>;
-  /** Retain validated bytes for the distance streamer; no second HTTP fetch to build colliders. */
-  retainCollision?: (id: string, entry: ManifestEntry, buffer: ArrayBuffer) => void;
-  /** After material styling and draft tint: register derived runtime geometry here. */
-  styled?: (model: THREE.Object3D) => void | Promise<void>;
-  trackModel?: (model: THREE.Object3D, id: string) => void;
-  untrackModel?: (model: THREE.Object3D, id: string) => void;
-  style?: (model: THREE.Object3D) => void | Promise<void>;
-  unstyle?: (model: THREE.Object3D) => void;
-  /** Scene detachment is immediate; release render resources only after a submitted frame completes. */
-  retire?: (release: () => void) => void;
-  fetch?: typeof fetch;
-  loadModel?: (url: string) => Promise<THREE.Object3D>;
-  /** Parent of the always-visible "draft tile" badge (default document.body; none without a DOM). */
-  badgeParent?: HTMLElement;
-  /** Page URL that /coarse/ and the manifest resolve against (default location.href). */
-  pageUrl?: string;
-}
 
 export class CoarseTiles {
   readonly entries = new Map<string, Entry>();
@@ -115,7 +69,8 @@ export class CoarseTiles {
   private demandRetries = 0;
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
-  private lookahead = new CoarseLookahead();
+  private preparing = new Set<string>();
+  private details = 0;
   private materials = new SharedMaterials();
   private comparison: VisualPassComparison;
   get visualPass() { return this.comparison.pass; }
@@ -200,23 +155,26 @@ export class CoarseTiles {
     }
   }
 
-  /** Call every frame with the player position; work is throttled to once per second (`now` in ms). */
-  update(x: number, z: number, now = performance.now()) {
+  /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
+  update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }) {
     this.clock = now;
+    if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
+      if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
+      this.velocity = { x: motion.x, z: motion.z };
+    }
     if (now < this.nextCheck) return;
-    this.nextCheck = now + POLL_MS;
-    this.track(x, z, now);
+    this.nextCheck = now + Math.min(POLL_MS, VISUAL_L0 / Math.max(1, Math.hypot(this.velocity.x, this.velocity.z)) * 250);
+    if (!motion) this.track(x, z, now);
     const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
       - arrivalToL0(b, x, z, this.velocity.x, this.velocity.z) || distToL0(a, x, z) - distToL0(b, x, z);
     const wanted = this.wantedStarts(x, z).sort(byArrival);
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
-    const candidate = this.startup ? undefined : lookaheadTile(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent, this.lookahead.current);
-    const lookahead = this.lookahead.select(candidate);
+    const lookahead = this.startup ? [] : preparationTiles(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
     const retain = (id: string) => retainDraftTile(id, [{ x, z }, ...this.retainedStarts]);
     // Deleting an entry also invalidates in-flight preparation.
     for (const [id, e] of this.entries) {
-      if (wanted.includes(id) || id === lookahead || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
+      if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
       this.drop(e); this.entries.delete(id);
     }
     if (this.outage) {
@@ -226,25 +184,37 @@ export class CoarseTiles {
     }
     for (const [id, e] of this.entries) void this.compare(id, e);
     void this.want(x, z);
-    if (this.remote) void this.sendDemand(draftDemand(lookahead ? [...wanted, lookahead] : wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
+    if (this.remote) void this.sendDemand(draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (!e.retries && e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {
       const e = this.entry(id);
       if (due(e)) void this.poll(id, e, distToL0(id, x, z), true);
-      else if (e.state === 'draft' && !e.refreshing && (now >= e.nextPoll || (!e.retries && (e.version ?? -1) < this.version)))
+      else if (e.state === 'draft' && !e.preview && !e.refreshing && (now >= e.nextPoll || (!e.retries && (e.version ?? -1) < this.version)))
         void this.refreshDraft(id, e, distToL0(id, x, z));
     }
     // Core requests always start first. This separate slot limits speculative preparation only.
-    if (lookahead) {
-      const e = this.entry(lookahead), distance = distToL0(lookahead, x, z);
-      this.lookahead.run(lookahead, () => due(e) ? this.poll(lookahead, e, distance, true)
-        : e.state === 'draft' && !e.refreshing && (now >= e.nextPoll || (!e.retries && (e.version ?? -1) < this.version))
-          ? this.refreshDraft(lookahead, e, distance) : null);
+    for (const id of lookahead) {
+      if (this.preparing.size >= 4 || this.preparing.has(id)) continue;
+      const e = this.entry(id), distance = distToL0(id, x, z);
+      const task = due(e) ? this.poll(id, e, distance, true) : null;
+      if (task) {
+        this.preparing.add(id);
+        void task.finally(() => this.preparing.delete(id));
+      }
+    }
+    // Detailed facades/textures cannot monopolize the network while ground is still arriving.
+    for (const id of wanted) {
+      const e = this.entries.get(id);
+      if (e?.preview && !e.refreshing && this.details < 2 && now >= e.nextPoll) {
+        e.refreshing = true; this.details++;
+        void this.applyFragment(id, e, e.preview).catch(error => this.warn(`[coarse] ${id} detail: ${error}`))
+          .finally(() => { e.refreshing = false; e.nextPoll = this.clock + 2000; this.details--; });
+      }
     }
     // All other ahead tiles request builds without loading model or collision resources.
     for (const id of ahead) {
-      if (id === lookahead) continue;
+      if (lookahead.includes(id)) continue;
       const e = this.entry(id);
       if (due(e) && e.state !== 'built') void this.poll(id, e, distToL0(id, x, z), false);
     }
@@ -331,7 +301,7 @@ export class CoarseTiles {
     let res: Response;
     const href = new URL(url, this.page).href;
     const immutable = /\.[0-9a-f]{64}\.(?:col|glb|json)(?:$|\?)/.test(href);
-    try { res = await this.fetch(href, { cache: immutable ? 'default' : 'no-cache', signal: AbortSignal.timeout(30_000) }); }
+    try { res = await this.fetch(href, { priority: 'high', cache: immutable ? 'default' : 'no-cache', signal: AbortSignal.timeout(30_000) }); }
     catch { throw new ServiceDown(); }
     if (gatewayDown(res.status)) throw new ServiceDown(retryAfter(res));
     return res;
@@ -375,6 +345,7 @@ export class CoarseTiles {
   private async sendDemand(demand: ReturnType<typeof draftDemand>) {
     if (this.demandBusy || this.clock < this.demandNext) return;
     this.demandBusy = true;
+    this.demandNext = this.clock + POLL_MS;
     const sequence = ++this.demandSequence;
     const q = new URLSearchParams({ client: this.client, tiles: demand.tiles.join(','),
       urgent: demand.urgent.join(','), visible: demand.visible.join(',') });
@@ -440,11 +411,21 @@ export class CoarseTiles {
           buf = await col.arrayBuffer();
         }
         if (buf.byteLength !== entry.bytes) throw new DraftRejected(`collision ${cid}: size changed`);
-        await this.host.checkCollision(this.host.retainCollision ? buf.slice(0) : buf)
+        await this.host.checkCollision(this.host.retainCollision || this.host.previewCollision ? buf.slice(0) : buf)
           .catch((err: Error) => { throw new DraftRejected(`collision ${cid}: ${err.message}`); });
-        if (this.host.retainCollision) buffers.set(cid, buf);
+        if (this.host.retainCollision || this.host.previewCollision) buffers.set(cid, buf);
       }));
     };
+    if (!e.model && !this.startup && this.host.previewCollision) {
+      await validate();
+      if (this.entries.get(id) !== e || e.state !== state) return;
+      const model = await this.host.previewCollision(buffers);
+      if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
+      this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
+      e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
+      recordFreshness(e, fragment); this.host.scene.add(model);
+      return;
+    }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
     const [validation, geometry, streets] = await Promise.allSettled([
       validate(), visualChanged ? this.load(new URL(fragment.visual[id].url, base).href) : Promise.resolve(null),
@@ -473,7 +454,7 @@ export class CoarseTiles {
     this.host.scene.add(model);
     this.comparison.clear(e); e.pass = fragment.pass_kind;
     e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
-    e.state = 'draft';
+    e.state = 'draft'; e.preview = undefined;
     this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }

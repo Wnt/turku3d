@@ -102,17 +102,17 @@ export function draftDemand(visible: string[], ahead: string[], x: number, z: nu
   return { tiles: ordered, urgent, visible: ordered.filter(id => visible.includes(id)) };
 }
 
-/** Prepare one imminent path tile beyond the normal window; enter at 30 s and retain through 45 s. */
-export function lookaheadTile(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[], selected?: string) {
+/** Prepare a bounded corridor before crossing; fast flight needs multiple tiles in flight at once. */
+export function preparationTiles(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[]) {
   const speed = Math.hypot(vx, vz);
-  if (speed < 1) return undefined;
-  return draftDemand(visible, ahead, x, z, vx, vz, path).urgent.find(id => {
+  if (speed < 1) return [];
+  const count = Math.min(8, Math.max(1, Math.ceil(speed * 6 / VISUAL_L0)));
+  return draftDemand(visible, ahead, x, z, vx, vz, path).urgent.filter(id => {
     if (visible.includes(id)) return false;
     const distance = distToL0(id, x, z);
     const arrival = path ? distance / speed : arrivalToL0(id, x, z, vx, vz);
-    // A stable selection tolerates brief speed dips without becoming metadata-only.
-    return distance <= 2 * VISUAL_L0 && arrival <= (id === selected ? 45 : 30);
-  });
+    return distance <= Math.max(2 * VISUAL_L0, speed * 8) && arrival <= 30;
+  }).slice(0, count);
 }
 
 /** Remaining route corridor within 60 s, capped at 3 km; ignores stale/off-route hints and never sends the polyline. */

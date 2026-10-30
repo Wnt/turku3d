@@ -1,3 +1,4 @@
+import { collisionPreview } from './world/collisionPreview';
 // Turku3D game skeleton entry. Modes:
 //   play (default): third-person player + car, physics worker, collision streaming, debug HUD
 //   QA (?cam=E,N,H,yaw,pitch,fov[&roll=R]&time=ISO[&pass=id]): the qa/README.md §2 render contract; exact camera
@@ -159,6 +160,7 @@ async function draftWorld() {
   const manifest = draftManifest(location.href);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
+    previewCollision: collisionPreview,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
