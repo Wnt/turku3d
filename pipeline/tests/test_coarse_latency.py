@@ -208,6 +208,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     source.touch()
     datasets = (
         "ground",
+        "water",
         "walkable",
         "gardens",
         "boats",
@@ -247,7 +248,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return ["fitted-river-walk"]
         if dataset == "gardens":
             return {}
-        if dataset in ("boats", "barriers"):
+        if dataset in ("water", "boats", "barriers"):
             return []
         if dataset == "wfs":
             assert len(sources) == 3
@@ -266,6 +267,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
     assert called == [
         "ground",
+        "water",
         "walkable",
         "gardens",
         "boats",

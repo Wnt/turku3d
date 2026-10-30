@@ -81,12 +81,10 @@ def water_mask(centroids: np.ndarray, water) -> np.ndarray:
 
 
 def water_level(points: np.ndarray, water) -> float:
-    """Low shoreline key points approximate the surface; no class-9 lidar in maanpinta."""
-    if not water:
-        return 0.0
-    shore = shapely.union_all(water).buffer(10.0)
-    near = shapely.contains_xy(shore, points[:, 0], points[:, 2])
-    return float(max(-1.0, np.percentile(points[near, 1], 2))) if near.any() else 0.0
+    """Open water shares one datum; small ponds receive their own measured levels."""
+    from .water import LEVEL
+
+    return LEVEL
 
 
 # Dry ground this far beyond a deck end (m, along the deck) sets its height.
