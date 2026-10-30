@@ -39,7 +39,7 @@ These are permanent user quality settings (`?quality=low|medium|high`, default *
 | GTAO resolution / samples / blend | ½ / 4 / 0.22 | ½ / 8 / 0.28 | ¾ / 16 / 0.30 |
 | TRAA subpixel correction | off | on | on |
 | Bloom resolution / strength | ¼ / 0.035 | ¼ / 0.045 | ½ / 0.050 |
-| River reflection resolution / maximum updates per second | ¼ / 20 | ½ / 30 | ¾ / 60 |
+| River reflection resolution / still-camera updates per second | ¼ / 8 | ½ / 12 | ¾ / 20 |
 | River updates per second during slow motion | 8 | 12 | 20 |
 | Surface detail strength | 0.035 | 0.055 | 0.070 |
 | Grading saturation | 0.98 | 0.97 | 0.97 |
@@ -67,6 +67,8 @@ world transform. A non-recursive planar reflection, Fresnel response, sun highli
 provide the surface. The small periodic normal map is generated locally; there is no asset fetch. QA freezes waves.
 Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
 vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.
+A moving camera re-renders the reflection every frame (an older image visibly trails the view); only a still
+camera reuses it at the tier's slow rate.
 `MaterialStyler.prepare` serializes `compileAsync` work in each river's actual target and virtual-camera context;
 new published/draft models remain uncommitted to the scene until their final ground bindings, uploads and programs
 are ready. Published parse promises retain the existing REPLACE parent during preparation. Prepass, beauty and

@@ -50,7 +50,7 @@ export class RiverMaterial {
     };
     const update = reflector.updateBefore.bind(reflector);
     const shadows = new ReflectionShadows();
-    const cadence = new ReflectionCadence(QUALITY[tier].reflectionFps, QUALITY[tier].reflectionSlowFps);
+    const cadence = new ReflectionCadence(QUALITY[tier].reflectionSlowFps);
     reflector.updateBefore = frame => {
       if (isPrecompiling(renderer)) return;
       this.reflectionDepth = nextRenderDepth(renderer);

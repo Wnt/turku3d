@@ -80,19 +80,20 @@ test('reflection excludes blended/transmissive and small structural pieces, keep
   expect(reflectionSurface(mesh)).toBe(false);
 });
 
-test('reflection cadence accumulates slow motion and caps fast motion; missing/forced output refreshes', () => {
-  const cadence = new ReflectionCadence(30, 12), camera = new THREE.PerspectiveCamera();
+test('reflection cadence refreshes on every camera change and throttles only a still view (regression of 3a287573)', () => {
+  const cadence = new ReflectionCadence(12), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld();
   expect(cadence.shouldUpdate(camera, 0, false)).toBe(true);
-  camera.position.x = 0.1; camera.updateMatrixWorld();
+  // Any movement, however small or soon after the last refresh, re-renders: a stale image trails the view.
+  for (const [t, x] of [[5, 0.01], [10, 0.02], [15, 5]] as const) {
+    camera.position.x = x; camera.updateMatrixWorld();
+    expect(cadence.shouldUpdate(camera, t, true)).toBe(true);
+  }
+  camera.rotation.y = 0.001; camera.updateMatrixWorld();
+  expect(cadence.shouldUpdate(camera, 20, true)).toBe(true);
+  // A still camera reuses the image until the slow rate is due; forced or missing output refreshes.
   expect(cadence.shouldUpdate(camera, 40, true)).toBe(false);
-  camera.position.x = 0.2; camera.updateMatrixWorld();
-  expect(cadence.shouldUpdate(camera, 84, true)).toBe(true);
-  camera.position.x = 10; camera.updateMatrixWorld();
-  expect(cadence.shouldUpdate(camera, 100, true)).toBe(false);
-  expect(cadence.shouldUpdate(camera, 118, true)).toBe(true);
-  camera.rotation.y = 0.1; camera.updateMatrixWorld();
-  expect(cadence.shouldUpdate(camera, 152, true)).toBe(true);
-  expect(cadence.shouldUpdate(camera, 153, true, true)).toBe(true);
-  expect(cadence.shouldUpdate(camera, 154, false)).toBe(true);
+  expect(cadence.shouldUpdate(camera, 20 + 1000 / 12, true)).toBe(true);
+  expect(cadence.shouldUpdate(camera, 110, true, true)).toBe(true);
+  expect(cadence.shouldUpdate(camera, 111, false)).toBe(true);
 });

@@ -1,0 +1,143 @@
+[
+  {
+    "id": "hook",
+    "label": "TURKU3D / IN DEVELOPMENT",
+    "title": "A city that builds as you move",
+    "shots": [
+      "river_open"
+    ],
+    "text": "This is Turku, running in a browser. Drive beyond the familiar streets, and the world builds around you.",
+    "sources": [
+      "game/src/world/coarseTiles.ts"
+    ],
+    "minimum_seconds": 8
+  },
+  {
+    "id": "game",
+    "label": "PLAY THE CITY",
+    "title": "One permit. A city of deliveries.",
+    "shots": [
+      "game_market",
+      "game_walk",
+      "game_drive",
+      "game_delivery"
+    ],
+    "text": "Start with a courier permit from the black market under Aura Bridge. Pick up pizzas, follow the route, and turn deliveries into money. Walk the riverbank, get behind the wheel, or work toward your next vehicle.",
+    "sources": [
+      "game/src/gameplay/missions/missions.ts",
+      "game/src/gameplay/content/shops.ts"
+    ],
+    "minimum_seconds": 18,
+    "shot_seconds": [
+      3,
+      4,
+      7,
+      4
+    ]
+  },
+  {
+    "id": "rounds",
+    "label": "PLAY TOGETHER",
+    "title": "Vote. Count down. Compete.",
+    "shots": [
+      "convoy",
+      "rounds_demo",
+      "sunset"
+    ],
+    "text": "Bring your friends. Drive together, vote for a timed round, and race to earn the most. The LAN party target is ten players. The sun follows the first of July, twenty twenty seven.",
+    "sources": [
+      "game/src/net/roundMenu.ts",
+      "game/src/net/rounds.ts",
+      "user brief",
+      "game/src/core/dayCycle.ts"
+    ],
+    "minimum_seconds": 18,
+    "shot_seconds": [
+      6,
+      7,
+      5
+    ]
+  },
+  {
+    "id": "generation",
+    "label": "ON-DEMAND WORLD",
+    "title": "Basic first. Textured next.",
+    "shots": [
+      "generation"
+    ],
+    "text": "As players move, the generator builds new tiles. This isolated build uses the same server and cached stages. First, geometry and collision. Then, textures. The clock shows real elapsed time.",
+    "sources": [
+      "video/evidence/isolated-oci-cityhall.json",
+      "video/evidence/generation-isolated-cityhall-events.jsonl",
+      "game/src/world/coarseTiles.ts"
+    ],
+    "minimum_seconds": 16,
+    "shot_trims": [
+      8.5
+    ]
+  },
+  {
+    "id": "sources",
+    "label": "OPEN DATA \u2192 PLAYABLE STREETS",
+    "title": "Measured city. Generated detail.",
+    "shots": [
+      "roof_orbit",
+      "facade_track",
+      "quay_track"
+    ],
+    "text": "City lidar, aerial imagery, building and street data, and OpenStreetMap feed the generator. It builds ground, water, roads, bridges, tunnels, stairs, fences and trees. A facade kit gives buildings their detail. Content hashes let each stage reuse work that has not changed.",
+    "sources": [
+      "pipeline/turku3d/coarse",
+      "docs/ARCHITECTURE.md"
+    ],
+    "minimum_seconds": 18
+  },
+  {
+    "id": "stream",
+    "label": "GENERATOR \u2192 BROWSER",
+    "title": "A small host. A streamed world.",
+    "shots": [
+      "trees_river",
+      "city_grid"
+    ],
+    "text": "Visual models and collision cells stream from a tile producer on a four core Arm host, through a forwarder, to the browser. Three dot J S renders with Web G P U. Rapier runs the physics in a worker.",
+    "sources": [
+      "game/src/main.ts",
+      "game/src/physics/client.ts",
+      "tools/bulk-warmup/README.md",
+      "tools/remote-drafts/README.md"
+    ],
+    "minimum_seconds": 14
+  },
+  {
+    "id": "numbers",
+    "label": "MEASURED / 30 OCTOBER 2026",
+    "title": "1,555 / 2,401 tiles warm",
+    "shots": [
+      "draft_rise",
+      "draft_roofs"
+    ],
+    "text": "At capture time, fifteen hundred and fifty five of twenty four hundred and one area tiles were warm. A separate sixty four core bulk run built eleven hundred and twenty eight tiles in thirty six minutes. That is preparation, not a promise of instant generation everywhere.",
+    "sources": [
+      "video/evidence/coarse-health-accuracy.json",
+      "tools/bulk-warmup/README.md",
+      "docs/reports/bulk-warmup-20261030-progress.jsonl",
+      "docs/reports/flight-loop.md#2026-10-30-iteration-10-west-from-kauppatori-and-wrap-up"
+    ],
+    "minimum_seconds": 18
+  },
+  {
+    "id": "credits",
+    "label": "TURKU3D",
+    "title": "The next street is waiting.",
+    "shots": [
+      "closing_pullback"
+    ],
+    "text": "A real city, a working game, and a world that keeps growing. Turku three D.",
+    "sources": [
+      "City of Turku CC BY 4.0",
+      "OpenStreetMap ODbL"
+    ],
+    "minimum_seconds": 8
+  }
+]
