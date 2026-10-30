@@ -73,8 +73,9 @@ try {
     await page.goto(navigation.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 120000 });
     const error = await page.evaluate(() => window.__qaError); if (error) throw new Error(error);
-    if (await page.evaluate(() => typeof window.__game?.coarse?.host.previewCollision === 'function')) break;
-    if (Date.now() >= publishedDeadline) throw new Error('Pages still serves a client without cached surface streaming');
+    if (await page.evaluate(() => typeof window.__game?.coarse?.host.previewCollision === 'function'
+      && window.__game.streamer.retain.toString().includes('lastCheck'))) break;
+    if (Date.now() >= publishedDeadline) throw new Error('Pages still serves a client without cached surfaces and collision admission wakeups');
     console.log(JSON.stringify({ stage: 'waiting-for-pages-publication', attempt }));
     await page.waitForTimeout(2000);
   }
