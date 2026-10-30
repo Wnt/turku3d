@@ -28,6 +28,8 @@ export interface Entry extends DraftFreshness {
 export interface CoarseHost {
   scene: THREE.Scene;
   renderer: THREE.WebGPURenderer;
+  /** Optional detailed-mesh radius in metres; collision surfaces still prepare beyond it. */
+  detailRadius?: number;
   /** Runtime residency inventory populated by draft fragments. */
   manifest: Manifest;
   unloadCollision: (id: string) => void;

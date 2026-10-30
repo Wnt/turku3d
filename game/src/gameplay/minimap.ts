@@ -2,7 +2,8 @@
 // to the active target. A larger north-up view toggles with the map action (M / View).
 import type { MissionHudSource, MissionHudState, Router, TargetKind, WorldPoint } from './contract';
 import { EMPTY_HUD_STATE } from './contract';
-import { edgeClass, type RoadGraph, type TravelMode } from './roadGraph';
+import type { RoadGraph, TravelMode } from './roadGraph';
+import { StreetLayer } from './streetLayer';
 import type { PlayableArea } from './recovery';
 import { RouteTracker, routeView } from './routeTracker';
 export { RouteTracker, REROUTE_M } from './routeTracker';
@@ -12,13 +13,6 @@ import { COLLISION_TILE } from '../core/origin';
 export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
 const SIZE = 240;
 const SPAN_M = { foot: 200, car: 320, expanded: 650 };
-const STATIC_PX_PER_M = 3;
-/** The static street layer stays within this many pixels a side; a city-wide graph gets fewer pixels per metre. */
-const STATIC_MAX_PX = 6000;
-const STATIC_PAD_M = 60;
-// Road widths in metres on the static layer, by class path, service, street, major.
-const ROAD_WIDTH = [1.8, 4, 6, 8];
-const ROAD_COLOUR = ['#7c8a91', '#a9b3b8', '#c9d0d4', '#e3e7e9'];
 
 interface MinimapView {
   position: WorldPoint;
@@ -58,8 +52,7 @@ export class Minimap {
   private readonly message = document.createElement('div');
   private readonly timer = document.createElement('span');
   private readonly money = document.createElement('span');
-  private streets: HTMLCanvasElement | null;
-  private pxPerM = STATIC_PX_PER_M;
+  private streets: StreetLayer;
   private state: MissionHudState = EMPTY_HUD_STATE;
   private unsubscribe = () => {};
   private dirty = true;
@@ -83,7 +76,7 @@ export class Minimap {
     this.element.append(status, this.canvas);
     parent.append(this.element);
     this.ctx = this.canvas.getContext('2d')!;
-    this.streets = this.renderStreets();
+    this.streets = new StreetLayer(graph);
     this.setState(EMPTY_HUD_STATE);
   }
 
@@ -96,7 +89,7 @@ export class Minimap {
   setGraph(graph: RoadGraph) {
     this.graph = graph;
     this.routes.invalidate();
-    this.streets = this.renderStreets();
+    this.streets.setGraph(graph);
     this.dirty = true;
   }
 
@@ -142,7 +135,7 @@ export class Minimap {
       streets: this.graph.edges.length, view: this.last };
   }
 
-  dispose() { this.unsubscribe(); this.element.remove(); }
+  dispose() { this.unsubscribe(); this.streets.dispose(); this.canvas.width = this.canvas.height = 0; this.element.remove(); }
 
   private setState(state: MissionHudState) {
     this.state = state;
@@ -153,32 +146,6 @@ export class Minimap {
     this.timer.classList.toggle('urgent', state.timerSeconds !== null && state.timerSeconds <= 10);
     this.money.textContent = formatMoney(state.money);
     this.dirty = true;
-  }
-
-  /** All streets once, into an offscreen layer that each frame only rotates and scales. */
-  private renderStreets(): HTMLCanvasElement | null {
-    const [x0, z0, x1, z1] = this.graph.bbox;
-    if (!this.graph.edges.length) return null;
-    const layer = document.createElement('canvas');
-    this.pxPerM = Math.min(STATIC_PX_PER_M, STATIC_MAX_PX / (Math.max(x1 - x0, z1 - z0) + 2 * STATIC_PAD_M));
-    layer.width = Math.ceil((x1 - x0 + 2 * STATIC_PAD_M) * this.pxPerM);
-    layer.height = Math.ceil((z1 - z0 + 2 * STATIC_PAD_M) * this.pxPerM);
-    const ctx = layer.getContext('2d')!;
-    ctx.scale(this.pxPerM, this.pxPerM);
-    ctx.translate(STATIC_PAD_M - x0, STATIC_PAD_M - z0);
-    ctx.lineCap = ctx.lineJoin = 'round';
-    for (let cls = 0; cls < 4; cls++) {
-      ctx.beginPath();
-      for (const edge of this.graph.edges) {
-        if (edgeClass(edge) !== cls) continue;
-        ctx.moveTo(edge.points[0], edge.points[1]);
-        for (let i = 2; i < edge.points.length; i += 2) ctx.lineTo(edge.points[i], edge.points[i + 1]);
-      }
-      ctx.lineWidth = ROAD_WIDTH[cls];
-      ctx.strokeStyle = ROAD_COLOUR[cls];
-      ctx.stroke();
-    }
-    return layer;
   }
 
   /** Outside cells darkened, the boundary between inside and outside cells stroked (world units). */
@@ -222,11 +189,7 @@ export class Minimap {
     ctx.rotate(rotation);
     ctx.scale(k, k);
     ctx.translate(-centre.x, -centre.z);
-    if (this.streets) {
-      const [x0, z0] = this.graph.bbox;
-      ctx.drawImage(this.streets, x0 - STATIC_PAD_M, z0 - STATIC_PAD_M,
-        this.streets.width / this.pxPerM, this.streets.height / this.pxPerM);
-    }
+    this.streets.draw(ctx, centre, span, size * devicePixelRatio);
     if (this.area) this.drawArea(this.area, view, centre, span / Math.SQRT1_2 / 2, k);
     const route = this.routes.route;
     if (route && route.length > 1) {

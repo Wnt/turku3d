@@ -160,6 +160,7 @@ async function draftWorld() {
   const manifest = draftManifest(location.href);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
+    detailRadius: params.mobile ? 80 : undefined,
     previewCollision: collisionPreview,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),

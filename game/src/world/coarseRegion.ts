@@ -33,9 +33,10 @@ function parse(id: string): { level: number; i: number; j: number } | null {
 }
 
 /** Nearest-first 3x3 window around the player, including the former starting area. */
-export function wantedTiles(x: number, z: number): string[] {
+export function wantedTiles(x: number, z: number, radius = Infinity): string[] {
   const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0);
   return Array.from({ length: 9 }, (_, k) => l0(ci - 1 + k % 3, cj - 1 + Math.floor(k / 3)))
+    .filter(id => distToL0(id, x, z) <= radius)
     .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b));
 }
 
