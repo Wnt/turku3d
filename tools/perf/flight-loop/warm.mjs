@@ -6,10 +6,13 @@ import { isolateBrowser, reportsRoot, port } from '../../dev/environment.mjs';
 import { installWarmFlight } from './warm-runtime.mjs';
 
 isolateBrowser();
-const [label, direction = 'north', url = 'https://wnt.github.io/turku-game/game/?dev=1'] = process.argv.slice(2);
+const [label, direction = 'north', requestedUrl = 'https://wnt.github.io/turku-game/game/?dev=1'] = process.argv.slice(2);
 if (!/^[a-z0-9-]+$/.test(label ?? '')) throw new Error('Usage: warm.mjs LABEL [north|east|south|west] [URL]');
 const directions = { north: [0, -1], east: [1, 0], south: [0, 1], west: [-1, 0], northeast: [Math.SQRT1_2, -Math.SQRT1_2] };
 if (!directions[direction]) throw new Error('Unknown direction');
+const navigation = new URL(requestedUrl);
+navigation.searchParams.set('flight_probe', label);
+const url = navigation.href;
 const output = path.join(reportsRoot, 'warm-flight', label);
 const profile = path.join(process.env.TURKU3D_BROWSER_DIR, label);
 if (fs.existsSync(output)) throw new Error('Use a new evidence label');
@@ -64,9 +67,17 @@ try {
   page.on('console', message => log('console.jsonl', { kind: message.type(), text: message.text() }));
   page.on('pageerror', error => log('console.jsonl', { kind: 'exception', text: error.message }));
   console.log(JSON.stringify({ stage: 'navigation', output, url }));
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 120000 });
-  const error = await page.evaluate(() => window.__qaError); if (error) throw new Error(error);
+  const publishedDeadline = Date.now() + 120000;
+  for (let attempt = 0; ; attempt++) {
+    navigation.searchParams.set('publication_attempt', String(attempt));
+    await page.goto(navigation.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 120000 });
+    const error = await page.evaluate(() => window.__qaError); if (error) throw new Error(error);
+    if (await page.evaluate(() => typeof window.__game?.coarse?.host.previewCollision === 'function')) break;
+    if (Date.now() >= publishedDeadline) throw new Error('Pages still serves a client without cached surface streaming');
+    console.log(JSON.stringify({ stage: 'waiting-for-pages-publication', attempt }));
+    await page.waitForTimeout(2000);
+  }
   fs.writeFileSync(path.join(output, 'menu.txt'), await page.locator('body').innerText());
   console.log(JSON.stringify({ stage: 'menu', text: (await page.locator('body').innerText()).slice(0, 1800) }));
   const multiplayer = page.locator('[data-option="multiplayer"]');
