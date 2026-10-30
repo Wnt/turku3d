@@ -2,13 +2,16 @@
 export class CoarseLookahead {
   private candidate?: string;
   private task?: { id: string };
+  private selected?: string;
+
+  get current() { return this.selected; }
 
   select(candidate?: string) {
     // Consecutive motion checks reject placement velocity and brief heading changes.
-    const selected = candidate && candidate === this.candidate
+    this.selected = candidate && candidate === this.candidate
       && (!this.task || this.task.id === candidate) ? candidate : undefined;
     this.candidate = candidate;
-    return selected;
+    return this.selected;
   }
 
   run(id: string, operation: () => Promise<void> | null) {

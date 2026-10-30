@@ -210,7 +210,7 @@ export class CoarseTiles {
     const wanted = this.wantedStarts(x, z).sort(byArrival);
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
-    const candidate = this.startup ? undefined : lookaheadTile(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
+    const candidate = this.startup ? undefined : lookaheadTile(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent, this.lookahead.current);
     const lookahead = this.lookahead.select(candidate);
     const retain = (id: string) => retainDraftTile(id, [{ x, z }, ...this.retainedStarts]);
     // Deleting an entry also invalidates in-flight preparation.
