@@ -198,7 +198,7 @@ export class CoarseTiles {
     void this.want(x, z);
     if (this.remote) {
       const demand = draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
-      if (this.screenshotScenery.radius) demand.tiles = [...new Set([...demand.tiles.slice(0, 64), ...this.screenshotScenery.demand()])];
+      if (this.screenshotScenery.radius) demand.tiles = [...new Set([...demand.tiles, ...this.screenshotScenery.demand()])].slice(0, 128);
       void this.sendDemand(demand);
     }
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')

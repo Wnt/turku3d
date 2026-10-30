@@ -44,11 +44,13 @@ test('normal residency takes over scenery; reset invalidates an in-flight model'
   nearby.set('t0_0_0', { model: new THREE.Group() } as Entry);
   scenery.update(125, 125, 1000); await settle();
   expect(first.parent).toBeNull();
-  let release!: (model: THREE.Group) => void;
-  load.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+  const releases: ((model: THREE.Group) => void)[] = [];
+  load.mockImplementation(() => new Promise(resolve => { releases.push(resolve); }));
   scenery.setRadius(0); scenery.setRadius(1000); scenery.update(125, 125, 2000); await settle();
   scenery.setRadius(0);
-  const late = new THREE.Group(); release(late); await settle();
+  const late = new THREE.Group();
+  for (const release of releases) release(late);
+  await settle();
   expect(late.parent).toBeNull(); expect(dispose).toHaveBeenCalledWith(late, expect.any(String));
 });
 
