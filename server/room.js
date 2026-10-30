@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { TimedRounds } from './rounds.js';
 import { hourAt } from './hours.js';
 import { nickname } from './nicks.js';
 import { validDelivery } from './economy.js';
@@ -24,6 +25,7 @@ export class Room {
     this.usedNicks = new Set();
     this.brokenPoles = new Map();
     this.vehicles = new VehicleRegistry(this);
+    this.rounds = new TimedRounds(this);
     this.spawnIndex = 0;
     this.warned = false;
     this.lastPruneDay = null;
@@ -57,6 +59,7 @@ export class Room {
       c.player.online = false;
       c.player.dirty = false;
       this.presence();
+      this.rounds.membership();
     }
   }
 
@@ -95,6 +98,8 @@ export class Room {
     }
     if (m.type === 'hello' && !c.player) { this.hello(c, m, now); return; }
     if (!c.player) { this.reject(); return; }
+    if (m.type === 'round') { this.rounds.command(c.player, m, now); return; }
+    if ((this.rounds.epoch && m.epoch !== this.rounds.epoch) || this.rounds.active?.phase === 'countdown') { this.reject(); return; }
     if (m.type === 'vehicle') { this.vehicles.command(c.player, m, now); return; }
     if (m.type === 'pose') { this.pose(c.player, m, now); return; }
     if (m.type === 'delivery') { this.delivery(c.player, m); return; }
@@ -131,12 +136,13 @@ export class Room {
     p.lastPoseAt = now;
     this.welcome(c);
     this.presence();
+    this.rounds.membership();
   }
 
   welcome(c) {
     const p = c.player;
     this.send(c, 'welcome', { session: p.session, you: { id: p.id, nick: p.nick, spawn: p.spawn },
-      hour: this.hour, players: this.livePlayers(), scores: this.scores(), brokenPoles: [...this.brokenPoles.values()], vehicles: this.vehicles.snapshot(c), serverTime: this.now() });
+      rounds: this.rounds.snapshot(), hour: this.hour, players: this.livePlayers(), scores: this.scores(), brokenPoles: [...this.brokenPoles.values()], vehicles: this.vehicles.snapshot(c), serverTime: this.now() });
   }
 
   livePlayers() {
@@ -213,8 +219,9 @@ export class Room {
   }
 
   tick(now = this.now()) {
+    this.rounds.tick(now);
     this.vehicles.expire(now);
-    while (now >= Date.parse(this.hour.end)) {
+    while (!this.rounds.active && now >= Date.parse(this.hour.end)) {
       this.store.write(this.hour, this.scores().map(({ nick, earned, deliveries, rank }) => ({ nick, earned, deliveries, rank })));
       const continuing = [...this.players.values()].filter(p => p.connection
         || now - p.disconnectedAt < VEHICLE_LIMITS.reconnectMs);
@@ -234,7 +241,7 @@ export class Room {
       this.presence();
     }
     const remaining = Date.parse(this.hour.end) - now;
-    if (!this.warned && remaining <= 10_000) {
+    if (!this.rounds.active && !this.warned && remaining <= 10_000) {
       this.warned = true;
       this.broadcast('hour_end_in', { seconds: Math.ceil(remaining / 1000) });
     }

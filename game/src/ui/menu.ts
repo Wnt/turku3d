@@ -194,7 +194,8 @@ export class SaveMenuFlow {
     private readonly multiplayer?: () => void, private readonly scoreboard?: () => void,
     /** Opens the Developer page (ui/devMenu.ts); only where the developer tools run. */
     private readonly developer?: () => void,
-    private readonly audio?: () => void) {}
+    private readonly audio?: () => void,
+    private readonly timedRounds?: () => void, private readonly multiplayerActive: () => boolean = () => false) {}
 
   /** Start screen: Continue (latest save, with its details), New game, Load game. */
   start(): MenuPage {
@@ -225,11 +226,12 @@ export class SaveMenuFlow {
       { id: 'resume', label: 'Resume', detail: null, enabled: true, run: () => this.game.resume() },
       { id: 'respawn', label: 'Respawn at the start', detail: null, enabled: true,
         run: () => this.host.show(this.confirmRespawn()) },
+      ...(this.multiplayerActive() && this.timedRounds ? [{ id: 'timed-rounds', label: 'Timed round / Past rounds', detail: 'Start, agree or view results', enabled: true, run: this.timedRounds }] : []),
       ...(this.scoreboard ? [{ id: 'scores', label: 'Scoreboard', detail: null, enabled: true, run: this.scoreboard }] : []),
-      { id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
-      { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) },
+      ...(!this.multiplayerActive() ? [{ id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
+      { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) }] : []),
       ...(this.audio ? [{ id: 'audio', label: 'Audio', detail: 'Music volume and mute', enabled: true, run: this.audio }] : []),
-      { id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) },
+      ...(!this.multiplayerActive() ? [{ id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) }] : []),
       ...(this.developer ? [{ id: 'dev', label: 'Developer', detail: 'Money, fly mode, truck, teleport, time', enabled: true,
         run: this.developer }] : []),
       { id: 'quit', label: 'Quit to start screen', detail: null, enabled: true, run: () => this.game.quit() },

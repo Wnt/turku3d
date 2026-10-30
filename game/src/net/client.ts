@@ -1,3 +1,4 @@
+import { emptyRounds, type RoundState } from './roundTypes';
 import type { SharedVehicle, VehicleCommand, VehicleDelta, VehicleUpdate } from './vehicleTypes';
 import type { Quat, WheelState } from '../physics/protocol';
 import { loading } from '../core/loading';
@@ -18,6 +19,7 @@ export const normalizeScores = (scores: Score[]): Score[] => scores.map(score =>
 export interface Hour { id: string; start: string; end: string; tz: string }
 interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number; job?: 'short' | 'long' }
 interface MultiplayerState {
+  rounds: RoundState;
   vehicles: Map<string, SharedVehicle>; vehicleSources: Set<string>; serverTime: number;
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
@@ -42,7 +44,13 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
 export class MultiplayerClient extends EventTarget {
   readonly url: string;
   readonly httpUrl: string;
-  readonly state: MultiplayerState = { vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
+  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
+  private serverOffset = 0;
+  serverNow() { return performance.now() + this.serverOffset; }
+  round(action: 'propose' | 'agree' | 'start', minutes?: number) {
+    if (this.state.connected) this.queue({ type: 'round', action, proposal: this.state.rounds.proposal?.id, minutes });
+  }
+
   private ws: WebSocket | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private attempts = 0;
@@ -109,7 +117,7 @@ export class MultiplayerClient extends EventTarget {
 
   sendPose(pose: NetPose, vehicles: VehicleUpdate[] = []): boolean {
     const now = performance.now();
-    if (!this.state.connected || this.pendingMessages.length || now - this.lastSent < RATE_MS
+    if (this.state.rounds.active?.phase === 'countdown' || !this.state.connected || this.pendingMessages.length || now - this.lastSent < RATE_MS
       || (!vehicles.length && !shouldSendPose(now, this.lastPose, this.lastSent, pose))) return false;
     this.send({ type: 'pose', ...pose, ...(vehicles.length ? { vehicles } : {}) });
     this.lastPose = pose;
@@ -168,7 +176,7 @@ export class MultiplayerClient extends EventTarget {
   }
 
   private send(data: object) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ v: 2, ...data }));
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ v: 2, epoch: this.state.rounds.epoch, ...data }));
   }
 
   private receive(raw: unknown) {
@@ -188,6 +196,15 @@ export class MultiplayerClient extends EventTarget {
         try { this.storage?.setItem(SESSION_KEY, msg.session); } catch { /* storage may be disabled */ }
         this.state.connected = true;
         this.state.serverTime = Number(msg.serverTime);
+        this.serverOffset = this.state.serverTime - performance.now();
+        const previousEpoch = this.state.rounds.epoch;
+        this.state.rounds = msg.rounds as RoundState ?? emptyRounds();
+        const reset = !!this.state.rounds.epoch && previousEpoch !== this.state.rounds.epoch;
+        if (reset) {
+          this.pendingMessages = []; this.claimed.clear(); this.heldSeat = null;
+          for (const request of this.vehicleRequests.values()) { clearTimeout(request.timer); request.resolve(null); }
+          this.vehicleRequests.clear(); this.expiredAcquires.clear();
+        }
         this.state.vehicles.clear();
         this.applyVehicles(msg.vehicles as VehicleDelta);
         this.state.you = msg.you as MultiplayerState['you'];
@@ -200,9 +217,15 @@ export class MultiplayerClient extends EventTarget {
         this.lastPose = null; // timestamp epoch may have changed after rejoin
         this.flushDelivery();
         this.changed();
+        if (reset) this.dispatchEvent(new Event('roundReset'));
         this.dispatchEvent(new Event('welcome'));
         break;
       }
+      case 'rounds':
+        this.state.rounds = msg.rounds as RoundState;
+        this.serverOffset = Number(msg.serverTime) - performance.now();
+        this.state.countdown = null; this.changed(); break;
+      case 'round_result': this.dispatchEvent(new CustomEvent('roundResult', { detail: msg.result })); break;
       case 'vehicles': this.applyVehicles(msg as unknown as VehicleDelta); break;
       case 'vehicle_result': {
         const pending = this.vehicleRequests.get(String(msg.request));

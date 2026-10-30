@@ -1,3 +1,6 @@
+import { RoundUI } from './net/rounds';
+import { multiplayerStart } from './gameplay/startPoints';
+import { bindRoundReset } from './net/roundReset';
 import { TyreEffects } from './vehicle/tyreEffects';
 import type { PlayWorld } from './playWorld';
 export type { PlayWorld } from './playWorld';
@@ -130,7 +133,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   } });
   minimap.setSource(missions);
   voice.attach(missions);
-  // Activation zones use a street-level check for drop-offs (gameplay/missions/dropoffs.ts).
   const zoneRay = (x: number, z: number, top: number) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60);
   const dropoffs = new DropoffGuard(
     (x, z) => zoneRay(x, z, DEFAULT_ZONE_RAY_TOP).then(hit => hit && { y: hit.point.y, material: hit.material }),
@@ -166,7 +168,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const tmp = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
-  // Safe reset (gameplay/safeReset.ts): it arms on the player's first safe frame.
   let snapChase = false;
   const recovery = new SafeReset(area, manifest, physics, streamer, new RecoveryHud(document.body), (resetMode, heading) => {
     if (resetMode === 'car') snapChase = true;
@@ -208,7 +209,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
-  // Save slots (core/save.ts), the start and pause menus (ui/menu.ts) and loading a game (gameplay/saveGame.ts).
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     clock: world.clockTime, router,
     enterVehicle: id => { enterVehicle(id); snapChase = true; },
@@ -221,21 +221,26 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
+    timedRounds: () => rounds.open(), multiplayerActive: () => multiplayerPlaying,
     audio: () => showAudioPage(pauseMenu, audio, () => saveGame.pausePage()),
     multiplayer: () => {
       startScreen.close();
       multiplayerRunId = crypto.randomUUID();
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
-        if (at) { multiplayerPlaying = true; return saveGame.playAt(at, () => sharedVehicles!.restore()); }
+        if (at) { multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore()); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);
     } });
-  // Joining before Ready resolves both the server-assigned spawn and a retained session's actual pose.
   const { client, ready: preparedMultiplayer } = prepareMultiplayer();
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
+  const rounds = new RoundUI(client, pauseMenu, () => pauseMenu.show(saveGame.pausePage()),
+    () => saveGame.hooks.resume(), () => { paused = true; }, () => multiplayerPlaying);
+  bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
+    multiplayerRunId = crypto.randomUUID(); leaveCar(null); fly?.set(false); remotePlayers.dispose();
+  }, fail);
   const syncClock = () => world.syncClock?.(client.state.serverTime);
   client.addEventListener('welcome', syncClock);
   if (client.state.connected) syncClock();
@@ -251,7 +256,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       poles.setClient(client);
     }
   }
-  // A landing that cannot swap reloads the page (Vite full reload or a restarted dev server): autosave and resume.
   const autosaveForReload = () => { if (saveGame.autosave.save('reload')) markResume(sessionStore()); };
   import.meta.hot?.on('vite:beforeFullReload', autosaveForReload);
   import.meta.hot?.on('vite:ws:disconnect', autosaveForReload);
@@ -270,7 +274,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       pauseMenu: { open: pauseMenu.open, page: pauseMenu.panel.page?.id ?? null, selected: pauseMenu.panel.selected },
       startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors,
       multiplayer: multiplayer ? { connected: multiplayer.state.connected, nick: multiplayer.state.you?.nick,
-        players: multiplayer.state.players.length, scores: multiplayer.state.scores,
+        rounds: multiplayer.state.rounds, players: multiplayer.state.players.length, scores: multiplayer.state.scores,
         remotes: remotePlayers.markers(), remoteVisuals: remotePlayers.visualBounds(), remoteFrameMs: remotePlayers.frameMs } : null };
   };
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
@@ -309,7 +313,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       }
       input.lookX = input.lookY = input.zoom = 0;
     }
-    // An open shop menu owns the controller: world movement, camera and the other buttons wait until it closes.
     const introOpen = introDialog.open;
     if (introOpen) {
       introDialog.handle(input);
@@ -322,12 +325,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       for (const action of LOCKED_IN_MENU) input.consume(action);
       input.lookX = input.lookY = input.zoom = 0;
     }
-    // The pause menu owns the controller like a shop menu.
-    if (!introOpen && saveGame.frame(input)) {
+    if (!introOpen && !rounds.blocking && saveGame.frame(input)) {
       for (const action of LOCKED_IN_MENU) input.consume(action);
       input.lookX = input.lookY = input.zoom = 0;
     }
-    // Touch play runs only in fullscreen: leaving it pauses behind the overlay until the player taps back in.
+    paused = rounds.pauseState(paused, pauseMenu.open || saveGame.loading);
+    if (rounds.blocking) for (const action of LOCKED_IN_MENU) input.consume(action);
     paused = fullscreen.update(input.source === 'touch' && !startScreen.active, paused);
     if (input.consume('map')) minimap.toggleExpanded();
     if (input.consume('mute')) audio.emit({ type: 'mute' });
@@ -427,7 +430,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
-      sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
+      if (!rounds.blocking) sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
       if (drivenId && seatExit) leaveCar(seatExit);
       remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
@@ -571,7 +574,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       remotePlayers.dispose();
       tyreEffects.dispose();
       poles.dispose();
-      scoreboard.dispose();
+      scoreboard.dispose(); rounds.dispose();
       listeners.abort();
       saveGame.dispose();
       input.dispose();

@@ -75,6 +75,14 @@ export class SharedVehicles {
     });
   }
 
+  resetRound() {
+    this.driving = null; this.client.holdSeat(null); this.active = false; this.entering = false;
+    for (const item of this.managed.values()) this.physics.removeVehicle(item.local);
+    this.managed.clear(); this.fresh.clear(); this.replicas.clear(); this.pending.clear(); this.retryAt.clear();
+    this.sent.clear(); this.impulses.clear(); this.blockedUntil.clear(); this.releaseOnReconnect.clear(); this.starterAt = null;
+    this.parked.resetRound();
+  }
+
   localId(v: SharedVehicle): string {
     if (v.id === this.driving?.id) return this.driving.local;
     const managed = this.managed.get(v.id);
