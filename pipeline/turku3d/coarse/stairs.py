@@ -459,7 +459,10 @@ def stage(
 
     def geometry():
         flights, flight_cuts = produce(tile, prepared, sample, decks)
-        walls, wall_cuts = retaining.produce(tile, barriers, sample, flight_cuts, water)
+        paving = [
+            p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in walks
+        ]
+        walls, wall_cuts = retaining.produce(tile, barriers, sample, [*flight_cuts, *paving], water)
         return [*walls, *flights], [*wall_cuts, *flight_cuts]
 
     meshes, openings = cache.run(

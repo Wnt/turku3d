@@ -88,7 +88,9 @@ def approaches(ways, roads):
             candidates = [
                 roads[i]
                 for i in tree.query(point, predicate="dwithin", distance=0.05)
-                if (roads[i][1].get("highway") in PATHS) == foot and roads[i][0].length >= 4
+                if (roads[i][1].get("highway") in PATHS) == foot
+                and roads[i][0].length >= 4
+                and roads[i][0].intersection(axis).length < 0.5
             ]
             joined.append(
                 max(candidates, key=lambda item: item[0].length)[0] if candidates else None

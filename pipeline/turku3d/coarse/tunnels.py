@@ -392,7 +392,16 @@ class Tunnels:
 
 
 def produce(
-    tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None, deck_sample=None
+    tile,
+    ways,
+    grid_pos,
+    grid_idx,
+    shells,
+    extrude,
+    sample,
+    surface_sample=None,
+    deck_sample=None,
+    walks=(),
 ):
     """Produce sealed tubes, exact ground remainders and passage openings in draft buildings."""
     from .inputs import CELLS
@@ -430,11 +439,17 @@ def produce(
         terrain = np.array([height_at(x, z) for x, z in xz])
         repaired = np.zeros(2, bool)
         original_ends = terrain[[0, -1]].copy()
-        if not passage and not road_top and not vaulted:
+        if vaulted and walks:
+            from .underpasses import floor_anchors
+
+            terrain[[0, -1]], repaired = floor_anchors(line, walks, original_ends)
+        elif not passage and not road_top and not vaulted:
             ends, repaired = portals.anchors(line, tags, sample, original_ends, surface_sample)
             terrain[[0, -1]] = ends
         mouth_lengths = np.where(
-            repaired, np.clip(np.maximum(width, original_ends - terrain[[0, -1]]), 4, 12), 2
+            repaired & ~np.full(2, vaulted),
+            np.clip(np.maximum(width, original_ends - terrain[[0, -1]]), 4, 12),
+            2,
         )
         floor = terrain if passage else floor_profile(terrain, distances)
         if vaulted:
@@ -573,7 +588,6 @@ def produce(
                 angles = np.linspace(0, np.pi, 17)
                 for a, b in zip(angles[:-1], angles[1:], strict=True):
                     tube.face([arch(i, a), arch(i, b), arch(j, b), arch(j, a)])
-                    tube.face([arch(i, a, 0.3), arch(j, a, 0.3), arch(j, b, 0.3), arch(i, b, 0.3)])
                     if i == 0:
                         tube.face([arch(i, a), arch(i, a, 0.3), arch(i, b, 0.3), arch(i, b)])
                     if j == len(xz) - 1:
@@ -643,6 +657,10 @@ def produce(
                     # reproducing the lidar/grid hump midway through the blend.
                     target = patch + (1 - along)[:, None] * apron_length * outward
                     outer_sample = deck_sample if road_top else (surface_sample or sample)
+                    if vaulted:
+                        from .walkable import sampler
+
+                        outer_sample = sampler(sample, walks)
                     ground = np.array([outer_sample(x, z) for x, z in target])
                 else:
                     ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
@@ -744,6 +762,25 @@ def produce(
                         [deck_sample(x, z) - 0.03 for x, _, z in mesh.positions],
                     )
         if vaulted:
+            from .underpasses import enclosure
+
+            meshes.append(
+                enclosure(
+                    key,
+                    xz,
+                    offset,
+                    (left_floor + right_floor) / 2,
+                    width,
+                    clearance,
+                    surface_sample or sample,
+                )
+            )
+            cut_corridor = cut_corridor.union(
+                corridor.buffer(0.3, cap_style="flat", join_style="mitre").intersection(
+                    line.buffer(width / 2 + 0.3, cap_style="flat", join_style="mitre")
+                )
+            )
+            mouths = cut_corridor
             for mesh in meshes:
                 if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.metadata.get("lamp"):
                     mesh.metadata["vault"] = True

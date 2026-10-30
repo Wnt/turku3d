@@ -111,8 +111,12 @@ def prepare(tile, osm, water_path, paths):
     water = water.difference(shapely.union_all(small_bodies([water], context)))
     if water.is_empty:
         return []
+    from .underpasses import quay_passages
+
+    records = list(rows(osm, tile.bbox.buffered(40)))
+    passages = quay_passages([row for _, row in records])
     ways, blocked = [], []
-    for key, row in rows(osm, tile.bbox.buffered(40)):
+    for key, row in records:
         tags = json.loads(row["tags"] or "{}")
         geom = shapely.force_2d(row["geometry_local"])
         if tags.get("building") not in (None, "no"):
@@ -143,6 +147,13 @@ def prepare(tile, osm, water_path, paths):
             width = 3.0
         identity = str(row.get("osm_id", key))
         if geom.geom_type == "LineString":
+            # Airborne returns on the bridge deck cannot survey its lower quay
+            # passage. The tunnel owns that complete lower walk and its floor.
+            if any(
+                geom.intersection(line.buffer(0.1)).length > 0.8 * geom.length
+                for _, line, _ in passages
+            ):
+                continue
             ways.append((identity, geom, width))
         else:
             # Complete paved areas use their principal axis; keep holes and exact
@@ -216,10 +227,11 @@ def grade(positions, scene, *, inner_only=False):
     result = positions.copy()
     # Closest paving owns a point; outer embankment blends cannot dent another path.
     best = np.full(len(result), np.inf)
+    weighted, weights = np.zeros(len(result)), np.zeros(len(result))
     for patch in scene:
         line, half = patch["line"], patch["width"] / 2
         distance = shapely.distance(shapely.points(result[:, [0, 2]]), line)
-        selection = np.flatnonzero((distance < half + (3 if inner_only else 6)) & (distance < best))
+        selection = np.flatnonzero((distance < half + 6))
         if not len(selection):
             continue
         station, lateral = coordinates(line, result[selection][:, [0, 2]])
@@ -246,8 +258,23 @@ def grade(positions, scene, *, inner_only=False):
         # supported paving always receives its fitted plane all the way to its edge.
         blend = np.clip((half + 6 - distance[selection]) / 3, 0, 1)
         ids = selection[valid]
-        result[ids, 1] = positions[ids, 1] * (1 - blend[valid]) + target[valid] * blend[valid]
-        best[ids] = distance[ids]
+        core = distance[ids] <= half + 1e-7
+        own = core & (distance[ids] < best[ids])
+        result[ids[own], 1] = target[valid][own]
+        best[ids[own]] = distance[ids[own]]
+        # Several nearby walks must share one continuous bank. Picking the
+        # nearest centreline outside paving switches abruptly between upper
+        # and lower levels, creating the vertical grass shards at stairs.
+        gap = np.maximum(distance[ids] - half, 0.001)
+        weight = blend[valid] ** 2 / gap**2
+        weighted[ids] += target[valid] * weight
+        weights[ids] += weight
+    outside = np.isinf(best) & (weights > 0)
+    # Fade to the original survey where no fitted bank has strong support.
+    strength = np.minimum(weights[outside] * 9, 1)
+    result[outside, 1] = weighted[outside] / weights[outside] * strength + positions[outside, 1] * (
+        1 - strength
+    )
     return result
 
 

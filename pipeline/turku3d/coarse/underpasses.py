@@ -124,3 +124,83 @@ def quay_passages(rows):
                 )
             )
     return out
+
+
+def floor_anchors(line, walks, fallback):
+    """Lower quay paving anchors a vault; bridge-top lidar cannot set its floor."""
+    from .walkable import grade
+
+    ends = np.array(fallback, float, copy=True)
+    supported = np.zeros(2, bool)
+    for i, endpoint in enumerate((line.coords[0], line.coords[-1])):
+        point = shapely.Point(endpoint)
+        candidates = []
+        for walk in walks:
+            if walk["line"].distance(point) > walk["width"] / 2 + 2.5:
+                continue
+            centre = walk["line"].interpolate(walk["line"].project(point))
+            query = np.array([[centre.x, -999.0, centre.y]])
+            height = float(grade(query, [walk])[0, 1])
+            if height > -900:
+                candidates.append(height)
+        if candidates:
+            ends[i], supported[i] = min(candidates), True
+    return ends, supported
+
+
+def enclosure(key, centres, offsets, floors, width, clearance, sample):
+    """Close masonry above a vault up to the surrounding bridge approach.
+
+    The inner arch remains the passage ceiling. Its extrados is enclosed by
+    stone, rather than exposed as a freestanding pipe through a grass bank.
+    """
+    from turku3d.structures.geometry import Faces
+
+    radius = width / 2 + 0.3
+    spring = floors + clearance - width / 2
+    sides = [centres + sign * radius * offsets for sign in (-1, 1)]
+    surveyed = np.array([[sample(*q) for q in side] for side in sides])
+    top = np.maximum(surveyed.max(axis=0), floors + clearance + 0.3)
+    # One straight bearing surface between the two abutment ends avoids
+    # reproducing a lidar trough above the covered passage.
+    top = np.maximum(top, np.linspace(top[0], top[-1], len(top)))
+    faces = Faces()
+    for side in sides:
+        for i in range(len(centres) - 1):
+            j = i + 1
+            faces.face(
+                [
+                    [side[i, 0], spring[i], side[i, 1]],
+                    [side[j, 0], spring[j], side[j, 1]],
+                    [side[j, 0], top[j], side[j, 1]],
+                    [side[i, 0], top[i], side[i, 1]],
+                ]
+            )
+    for i in range(len(centres) - 1):
+        j = i + 1
+        faces.face(
+            [
+                [sides[0][i, 0], top[i], sides[0][i, 1]],
+                [sides[0][j, 0], top[j], sides[0][j, 1]],
+                [sides[1][j, 0], top[j], sides[1][j, 1]],
+                [sides[1][i, 0], top[i], sides[1][i, 1]],
+            ]
+        )
+    for k in (0, len(centres) - 1):
+        angles = np.linspace(0, np.pi, 17)
+        across = np.cos(angles) * radius
+        xz = centres[k] + across[:, None] * offsets[k]
+        height = spring[k] + np.sin(angles) * radius
+        for i in range(len(angles) - 1):
+            j = i + 1
+            faces.face(
+                [
+                    [xz[i, 0], height[i], xz[i, 1]],
+                    [xz[j, 0], height[j], xz[j, 1]],
+                    [xz[j, 0], top[k], xz[j, 1]],
+                    [xz[i, 0], top[k], xz[i, 1]],
+                ]
+            )
+    mesh = faces.mesh(f"tunnel:{key}:masonry", "wall")
+    mesh.metadata["vault"] = True
+    return mesh

@@ -162,6 +162,8 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
             Path(__file__).with_name("tunnels.py"),
             Path(__file__).with_name("openings.py"),
             Path(__file__).with_name("portals.py"),
+            Path(__file__).with_name("underpasses.py"),
+            Path(__file__).with_name("walkable.py"),
             Path(__file__),
             Path(__file__).with_name("bridge_details.py"),
             Path(kerbs.__file__),
@@ -175,6 +177,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
         [
             tile,
             inputs.tunnels,
+            inputs.walkable,
             grid_pos,
             grid_idx,
             shells,
@@ -190,6 +193,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
             ground_sampler(original_surface),
             original_surface,
             surface_sample,
+            walks=inputs.walkable,
         ),
     )
     return tunnels, grid_pos, surface_sample, carried_mask
