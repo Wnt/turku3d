@@ -18,6 +18,7 @@ import { loadGlb } from './loadGlb';
 import { sharedKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { VISUAL_L0 } from '../core/origin';
+import { FLY } from '../gameplay/flyMode';
 import { isLocalHost } from '../core/localOnly';
 import { draftsUrl } from '../net/config';
 import { ServiceDown, gatewayDown, backoff, retryAfter } from '../net/draftRetry';
@@ -27,8 +28,8 @@ import type { RoadGraphJson } from '../gameplay/roadGraph';
 const POLL_MS = 1000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
-/** Speed above which a jump is a teleport (m/s). */
-const MAX_SPEED = 100;
+/** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
+const MAX_SPEED = FLY.fastSpeed * 1.25;
 /** While the service restarts, /coarse/status is probed this often (ms). */
 const PROBE_MS = 2000;
 /** A probe the busy service has not answered within this (ms) counts as no answer. */
