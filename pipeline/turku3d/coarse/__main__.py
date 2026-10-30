@@ -17,7 +17,10 @@ from pathlib import Path
 from turku3d import config as C
 
 from .build import build
-from .sources import MissingInputs, Sources, Unit, fetch, size, unit_paths
+from .imagery import ImagerySources
+from .imagery import fetch as fetch_imagery
+from .imagery import paths as imagery_paths
+from .sources import MissingInputs, Unit, fetch, size, unit_paths
 
 PENDING = 3
 
@@ -28,10 +31,16 @@ def coarse_root() -> Path:
 
 def fetch_unit(key: str) -> dict:
     unit = Unit.parse(key)
-    paths = unit_paths(unit)
+    paths = imagery_paths(unit.block) if unit.dataset == "ortho" else unit_paths(unit)
     before = size(paths)
     started = time.perf_counter()
-    fetch(unit, log=lambda *a: print(*a, file=sys.stderr))
+    def log(*args):
+        print(*args, file=sys.stderr)
+
+    if unit.dataset == "ortho":
+        fetch_imagery(unit.block, log=log)
+    else:
+        fetch(unit, log=log)
     return {
         "unit": unit.key,
         "bytes": size(paths) - before,
@@ -49,7 +58,7 @@ def worker() -> int:
     results = os.fdopen(os.dup(1), "w")
     os.dup2(2, 1)
     sys.stdout = sys.stderr
-    sources = Sources()
+    sources = ImagerySources()
     for line in sys.stdin:
         job = json.loads(line)
         sources.invalidate()
@@ -112,10 +121,11 @@ def main(argv=None) -> int:
         return 0
     tile = C.VisualTile.parse(a.tile)
     if a.fetch:
-        for unit in Sources().missing(tile):
+        for unit in ImagerySources().missing(tile):
             print(json.dumps(fetch_unit(unit.key)), file=sys.stderr)
     try:
-        manifest = build(a.tile, a.out or coarse_root() / a.tile, first_pass=a.first_pass)
+        manifest = build(a.tile, a.out or coarse_root() / a.tile, first_pass=a.first_pass,
+                         sources=ImagerySources())
     except MissingInputs as missing:
         print(json.dumps({"pending": missing.units}))
         return PENDING
