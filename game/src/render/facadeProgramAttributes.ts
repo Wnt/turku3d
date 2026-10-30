@@ -5,8 +5,10 @@ import { packProgram, type ProgramField } from './packProgram';
 function programFields(geometry: BufferGeometry) {
   if (!geometry.hasAttribute('_kit_opening')) return null;
   const names = Object.keys(geometry.attributes).filter(name => name.startsWith('_kit_'));
+  if (geometry.getAttribute(names[0]) instanceof InterleavedBufferAttribute) return null;
+  // Meshopt workers resolve accessors independently; their completion order is not a field layout.
+  names.sort();
   const attributes = names.map(name => geometry.getAttribute(name));
-  if (attributes[0] instanceof InterleavedBufferAttribute) return null;
   const fields: ProgramField[] = attributes.map(attribute => ({ array: attribute.array,
     itemSize: attribute.itemSize, normalized: attribute.normalized }));
   return { names, fields };
