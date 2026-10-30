@@ -20,11 +20,20 @@ export class PerformanceMonitor {
   private timer: GpuFrameTimer;
   private minimumFrame = 0;
   private skippedAtReset = 0;
+  private lastCpu = 0;
+  private lastGpu = 0;
+  private lastGpuFrame = -1;
+
+  /** CPU and GPU overlap; use the limiting stage, not their sum or the capped RAF interval. */
+  get frameCostMs() { return Math.max(this.lastCpu, this.lastGpu); }
 
   constructor(private renderer: WebGPURenderer, private backend: string) {
     this.timer = new GpuFrameTimer(renderer, (frame, gpu) => {
       const sample = this.samples.get(frame);
       if (sample && frame >= this.minimumFrame) sample.gpu = gpu;
+      if (sample && frame >= this.minimumFrame && frame > this.lastGpuFrame) {
+        this.lastGpu = gpu; this.lastGpuFrame = frame;
+      }
     });
   }
 
@@ -37,6 +46,7 @@ export class PerformanceMonitor {
 
   end() {
     const cpu = performance.now() - this.start;
+    this.lastCpu = cpu;
     this.calls = this.renderer.info.render.drawCalls;
     this.triangles = this.renderer.info.render.triangles;
     this.samples.set(this.frame, { frame: this.frame, cpu,
@@ -57,6 +67,7 @@ export class PerformanceMonitor {
     this.samples.clear();
     this.totalFrames = 0;
     this.previousStart = null;
+    this.lastCpu = this.lastGpu = 0; this.lastGpuFrame = -1;
     this.minimumFrame = this.renderer.info.frame;
     this.skippedAtReset = this.timer.skipped;
   }

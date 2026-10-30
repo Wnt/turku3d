@@ -26,11 +26,16 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
 - QA `pass=id` bypasses IBL generation, material styling and all post-processing; there is no AA, grading, exposure,
   fog or shadow modulation. Colour QA waits for 32 settled frames to let temporal history converge.
 
-`?aa=off|taa|fxaa` is a diagnostic selector (default `taa`) on both backends. `off` bypasses colour AA; `fxaa`
+`?aa=off|taa|fxaa` is a diagnostic selector (default `taa`, or `fxaa` for mobile quality) on both backends. `off` bypasses colour AA; `fxaa`
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,
 bloom and grading. `pass=id` continues to bypass post-processing entirely.
 
-These are permanent user quality settings (`?quality=low|medium|high`, default **medium**), not feature flags:
+These are permanent user quality settings (`?quality=mobile|low|medium|high`). Phones and tablets default to
+**mobile**, including when using a controller; desktops and fixed-camera QA default to **medium**.
+Explicit quality/AA choices override the defaults. Mobile quality uses one 1024² shadow cascade covering 90 m,
+FXAA, smaller vegetation budgets, and sky-PMREM river reflections. It omits GTAO, the normal/velocity scene
+prepass (unless TAA is explicitly selected), bloom, and the planar city reflection pass. Existing facade
+materials, textures, physics and world residency are preserved.
 
 | Setting | Low | Medium | High |
 |---|---|---|---|
@@ -102,12 +107,20 @@ Released models get their source materials back. Rationale and the edge marker: 
 **SSE is measured in drawing-buffer pixels**, never CSS pixels. `VisualTiles` passes
 `renderer.getDrawingBufferSize()` to the tile renderer after every resize/update. The threshold remains 8 output pixels
 on both backends. Play starts at `min(devicePixelRatio, 2, sqrt(2560*1440/(CSS width*CSS height)))`.
+Mobile play instead caps the initial ratio at 1.5 and the drawing buffer at 1280×720 pixels. Its whole play/render
+update runs at 30 FPS through `FramePacer`, independently of display refresh rate. Skipped refreshes do no game
+or render work; the physics worker keeps its fixed 60 Hz tick. Hidden pages suspend the play update and clear
+physics input. This does not depend on whether the active input is touch, keyboard or controller.
 `AdaptiveResolution` targets 60 Hz from measured frame intervals: a 30-frame window lowers scale by 0.1 when
 median delivery exceeds 19 ms or over 20% of frames miss 20 ms. Changes are at least one second apart.
 Scale bottoms out at 0.5 of the initial pixel ratio (one quarter of its pixels). Eight seconds of healthy
 16.7 ms delivery permits a cautious 0.05 upward probe, up to the initial ceiling. Isolated intervals over
 80 ms and hidden-tab gaps reset the sample window. The selected scale is available at `__game.resolution.scale`.
 Material detail, texture resolution, shadows and the 360° residency ring retain their quality settings.
+On mobile, delivery thresholds follow the 30 FPS target, and measured CPU/GPU frame cost also lowers resolution
+above 70% of the 33.3 ms budget. Recovery requires cost below 45% for 30 seconds; intentional pacing idle time is
+not mistaken for slow rendering. The cost is the larger CPU/GPU stage, since the stages overlap. This leaves
+headroom for sustained play and streaming instead of continuously spending the device's peak performance.
 QA always has DPR 1 and exactly the requested viewport dimensions, even above 1440p; adaptive resolution is
 play-only. Camera projection and `__qaProject` remain in CSS pixels.
 

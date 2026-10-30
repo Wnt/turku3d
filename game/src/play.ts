@@ -63,6 +63,7 @@ import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
 import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
+import { FramePacer } from './render/framePacer';
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
@@ -291,10 +292,16 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let lastDeadlineUpdate = -Infinity;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
+  const framePacer = new FramePacer(params.mobile ? 30 : 0);
+  Object.assign(window.__game!, { framePacer });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
+  }, { signal: listeners.signal });
   renderer.setAnimationLoop(() => {
+    const now = performance.now();
+    if (document.hidden || !framePacer.ready(now)) return;
     clock.frames++;
     perf.begin();
-    const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     frameEma += (dt * 1000 - frameEma) * 0.05;

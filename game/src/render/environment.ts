@@ -20,6 +20,9 @@ export class Environment {
   private iblDirty = true;
   private timeStamp: number | null = null;
 
+  /** Reused sky PMREM; mobile water samples it without rendering the city a second time. */
+  get environmentMap() { return this.environmentTarget?.texture ?? null; }
+
   constructor(private scene: THREE.Scene, renderer: THREE.WebGPURenderer, tier: QualityTier) {
     const q = QUALITY[tier];
     this.pmrem = new THREE.PMREMGenerator(renderer);
