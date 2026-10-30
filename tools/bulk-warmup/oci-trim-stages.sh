@@ -3,13 +3,22 @@
 # Stop with: rm ~/trim-stages.on
 touch ~/trim-stages.on
 while [ -f ~/trim-stages.on ]; do
-  code=$(curl -s http://127.0.0.1:7764/coarse/health | python3 -c "import sys,json;print(json.load(sys.stdin)['prebuild']['generator'])")
-  python3 - "$code" > ~/bulk-warmup-20261030/trim-now.txt <<'PY'
-import glob, json, os, sys, time
+  curl -s http://127.0.0.1:7764/coarse/health > ~/bulk-warmup-20261030/trim-health.json
+  python3 - > ~/bulk-warmup-20261030/trim-now.txt <<'PY'
+import glob, json, os, time
+h = json.load(open(os.path.expanduser("~/bulk-warmup-20261030/trim-health.json")))
+code = h["prebuild"]["generator"]
+# Tiles that may still be rebuilt keep their stage caches: building now, or bulk-built with a stale input key.
+busy = set(h["prebuild"]["building"])
+stale_list = os.path.expanduser("~/bulk-warmup-20261030/stale-inputs.json")
+stale = set(json.load(open(stale_list))) if os.path.exists(stale_list) else set()
 for m in glob.glob("/srv/turku3d/work/coarse/t0_*/manifest.json"):
+    tile = m.split("/")[-2]
+    if tile in busy or tile in stale:
+        continue
     try:
         d = json.load(open(m))
-        if d.get("code") == sys.argv[1] and d.get("pass_kind") == "full" and time.time() - os.path.getmtime(m) > 600:
+        if d.get("code") == code and d.get("pass_kind") == "full" and time.time() - os.path.getmtime(m) > 600:
             print(m.split("/")[-2])
     except (OSError, ValueError):
         pass
