@@ -7,7 +7,7 @@ test('mobile surface reserve does not pin a distant detailed model after leaving
   const manifest = { visual: {}, collision: {} } as unknown as Manifest;
   const scene = new THREE.Scene(), far = new THREE.Group(), near = new THREE.Group();
   scene.add(far, near);
-  const fetch = (async () => ({ ok: true, status: 202, json: async () => ({ state: 'queued' }) })) as typeof globalThis.fetch;
+  const fetch: typeof globalThis.fetch = async () => Response.json({ state: 'queued' }, { status: 202 });
   const coarse = new CoarseTiles({ scene, manifest, detailRadius: 80, pageUrl: 'http://127.0.0.1:5171/',
     renderer: {} as THREE.WebGPURenderer, fetch, loadModel: async () => new THREE.Group(),
     unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => {},
