@@ -85,6 +85,8 @@ try {
     });
     contexts.push(context);
     await context.addInitScript(() => {
+      // Emulate touch-capable standalone windows so taps keep the four-window layout.
+      Object.defineProperty(navigator, 'standalone', { value: true });
       window.__roundPad = { buttons: Array(17).fill(0) };
       Object.defineProperty(navigator, 'getGamepads', { value: () => [{ id: 'Xbox Wireless Controller', index: 0, mapping: 'standard', connected: true,
         timestamp: performance.now(), axes: [0, 0, 0, 0], buttons: window.__roundPad.buttons.map(value => ({ value, pressed: value > .5, touched: value > 0 })) }] });
@@ -106,6 +108,7 @@ try {
     await page.waitForFunction(() => !window.__game.state().loading && !window.__game.state().startScreen, null, { timeout: 45000 });
   }));
   await shot('01-connected');
+  await pages[0].evaluate(() => window.__game.missions.grantDevMoney(100));
   const first = await voteAndStart('02-first');
   await pages[0].keyboard.down('KeyW'); await wait(1500); await pages[0].keyboard.up('KeyW');
   await shot('03-playing');
