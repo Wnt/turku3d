@@ -124,18 +124,53 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         # Accepted unit normals differ by < sqrt(2 - 2*0.99998) < 0.0064,
         # so a zero/opposite component cannot pass the unchanged dot filter.
         component = 2 - axis
+        # The omitted depth must pass the existing 12 mm bbox comparisons.
+        # Expand indexed intervals with those exact operations; leave query
+        # intervals unchanged. Overlapping computed intervals share an inclusive
+        # floor bin, including negative coordinates and exact boundary touches.
+        query_low = np.floor(low[:, component] / 62.5)
+        query_high = np.floor(high[:, component] / 62.5)
+        index_low = np.floor((low[:, component] - 0.012) / 62.5)
+        index_high = np.floor((high[:, component] + 0.012) / 62.5)
         trees = []
         for sign in (-1, 1):
             indexed = np.flatnonzero(sign * normals[:indexed_count, component] > 0)
-            trees.append((sign, indexed, shapely.STRtree(boxes[indexed])))
+            queried = rows[sign * normals[rows, component] > 0]
+            bounds = np.r_[
+                index_low[indexed], index_high[indexed], query_low[queried], query_high[queried]
+            ]
+            # Bound replication to eight slabs and tree count to 64 per sign.
+            # Large, distant or ambiguous coordinates use the original sign tree.
+            bounded = (
+                len(indexed) > 0
+                and len(queried) > 0
+                and np.isfinite(bounds).all()
+                and (abs(bounds) < 2**52).all()
+                and (index_high[indexed] - index_low[indexed] < 8).all()
+                and (query_high[queried] - query_low[queried] < 8).all()
+                and index_high[indexed].max() - index_low[indexed].min() < 64
+            )
+            if not bounded:
+                trees.append((sign, None, indexed, shapely.STRtree(boxes[indexed])))
+                continue
+            for slab in range(
+                int(index_low[indexed].min()), int(index_high[indexed].max()) + 1
+            ):
+                members = indexed[(index_low[indexed] <= slab) & (index_high[indexed] >= slab)]
+                if len(members):
+                    trees.append((sign, slab, members, shapely.STRtree(boxes[members])))
         for start in range(0, len(rows), 512):
             batch = rows[start : start + 512]
             local_parts, index_parts = [], []
-            for sign, indexed, tree in trees:
-                selected = np.flatnonzero(sign * normals[batch, component] > 0)
+            for sign, slab, indexed, tree in trees:
+                selected = sign * normals[batch, component] > 0
+                if slab is not None:
+                    selected &= (query_low[batch] <= slab) & (query_high[batch] >= slab)
+                selected = np.flatnonzero(selected)
                 local, js = tree.query(boxes[batch[selected]])
                 local_parts.append(selected[local])
                 index_parts.append(indexed[js])
+            # Slab duplicates are harmless: scalar-row admission is sorted/unique.
             # Keep the original row batches and sorted scalar-row admission.
             # Scalar cuts still query original_tree in its original order.
             ii = batch[np.concatenate(local_parts)]
