@@ -577,3 +577,20 @@ The maintenance thread runs retention synchronously; blocking stage locks or the
 full sweep can delay both snapshots and demand expiry. That work is being moved
 to its own single retention loop. The next server optimization splits impossible
 opposite-facing wall candidates before allocating large spatial-query results.
+
+### Server slice after iteration 9
+
+Sign-partitioned wall queries preserve the original scalar cut ordering. A full
+local comparison on 142 retained meshes/641,940 input triangles produced identical
+arrays and metadata (642,325 output triangles). Query pairs fell 195.42M to 99.06M;
+assembly time fell 16.462 to 13.228 s, a 19.6% reduction. This is an isolated local
+assembly result, not a measured whole-tile or OCI improvement. Nineteen existing
+wall tests passed. Protected facade cutting remains unchanged.
+
+Retention now runs in one dedicated daemon, preserving its existing global lock,
+60-second interval after completion, and drain/stop rules. Structured logs record
+sweep completion timestamp, elapsed time and existing result counters. A blocked
+two-second sweep no longer blocks three maintenance snapshots or demand expiry
+in a deterministic probe; overlapping sweeps, early repeat, drain and stop cases
+passed. Twenty-eight existing affected tests passed. Live cadence will be measured
+on the next flight, west from Kauppatori (`t0_-2_-1`, `t0_-3_-1`).
