@@ -586,7 +586,9 @@ def test_wms_expired_and_legacy_blanks_are_retried(data_root, monkeypatch):
     def get(*args, **kwargs):
         calls.append(1)
         buf = io.BytesIO()
-        Image.fromarray(np.full((8, 8, 4), 255, np.uint8)).save(buf, "PNG")
+        pixels = np.full((8, 8, 4), 80, np.uint8)
+        pixels[..., 3] = 255
+        Image.fromarray(pixels).save(buf, "PNG")
         return buf.getvalue(), {"content-type": "image/png"}
 
     s = wms.fetch_layer(layer, area, get=get)
