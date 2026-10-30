@@ -55,6 +55,8 @@ Order matters; each step names where it runs. `BULK_HOST=root@<ip>` throughout.
 | `trim-stages.sh` | host | Delete stage caches of finished tiles to save disk |
 | `pull.sh` | OCI | Pull finished tiles (shared textures first) and swap them in atomically |
 | `check-pulled.sh` | OCI | Request random pulled tiles and report any rebuild |
+| `setup-host-from-oci.sh` | host | Set up a non-root host that can SSH to OCI itself (e.g. osgallery-dev) |
+| `push-to-oci.sh` | host | Push finished tiles from such a host into OCI (counterpart of `pull.sh`) |
 | `oci-trim-stages.sh` | OCI | Every 10 min, drop stage caches of finished current tiles (keeps the warm-up above its 15 GB disk stop) |
 
 ## What we learned on 2026-10-30
@@ -98,3 +100,11 @@ Order matters; each step names where it runs. `BULK_HOST=root@<ip>` throughout.
 
 Small plan about 1.5 h (€0.03), 64-core plan about 45 min (€1.22/h), disk about 2 h (€0.05/h):
 about €1.5 in total.
+
+## Extra capacity: osgallery-dev
+
+osgallery-dev (a Proxmox container 950 on `lab`, x86) can SSH to OCI with `~/.ssh/oci_cuttlefish`, so it
+runs `setup-host-from-oci.sh` itself (about 15 min, 33 GB in `~/turku3d-bulk-warmup`, never touching the
+legacy `~/turku3d-drafts`), then `bulk.py` with nice'd workers on the walk reversed (outer tiles first,
+while OCI works outward) and `push-to-oci.sh`. Its cores can be raised live on lab:
+`pct set 950 -cores 16` (done 2026-10-30, from 10).
