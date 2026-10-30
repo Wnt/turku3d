@@ -10,7 +10,7 @@ const budget = new PreparationBudget();
 
 /** Only the canonical, tightly packed facade layout can bypass the general attribute merger. */
 function packedPrograms(sources: THREE.Mesh[]) {
-  const names = Object.keys(sources[0].geometry.attributes).filter(name => name.startsWith('_kit_'));
+  const names = Object.keys(sources[0].geometry.attributes).filter(name => name.startsWith('_kit_')).sort();
   if (!names.includes('_kit_opening')) return null;
   const fields: { name: string; itemSize: number; offset: number }[] = [];
   let stride = 0;

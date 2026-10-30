@@ -88,7 +88,9 @@ def approaches(ways, roads):
             candidates = [
                 roads[i]
                 for i in tree.query(point, predicate="dwithin", distance=0.05)
-                if (roads[i][1].get("highway") in PATHS) == foot and roads[i][0].length >= 4
+                if (roads[i][1].get("highway") in PATHS) == foot
+                and roads[i][0].length >= 4
+                and roads[i][0].intersection(axis).length < 0.5
             ]
             joined.append(
                 max(candidates, key=lambda item: item[0].length)[0] if candidates else None
@@ -261,22 +263,3 @@ def mouths(corridor, xz, left, right, direction, aprons, repaired):
         a, b = left[end], right[end]
         bands.append(shapely.Polygon([a, b, b + inward * depth, a + inward * depth]))
     return shapely.union_all([*(corridor.intersection(band) for band in bands), *aprons])
-
-
-def terrain_visuals(meshes, tile, rgb, streets=(), regions=()):
-    """Cut terrain keeps its ground imagery/materials, rather than tunnel concrete."""
-    from . import surfaces
-
-    result = []
-    for mesh in meshes:
-        if mesh.object_id != "tunnel:ground-edge":
-            continue
-        ids = surfaces.classify(
-            mesh.positions[mesh.indices].mean(axis=1), rgb, tile, streets, regions
-        )
-        result.extend(
-            surfaces.visuals(
-                tile, mesh.positions, mesh.indices, ids, np.ones(len(ids), bool), ortho=rgb
-            )
-        )
-    return result

@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import dataclass, field
-from functools import lru_cache
 
 import mapbox_earcut
 import numpy as np
@@ -20,35 +19,7 @@ from . import portals
 from .geometry import clip_mesh
 from .openings import Openings
 from .portals import grounded_wall
-
-
-@lru_cache(maxsize=8)
-def _keypoints(path, size, mtime):
-    """A bounded cache of complete raw blocks makes cross-tile tunnel profiles identical."""
-    import laspy
-    from scipy.spatial import cKDTree
-
-    las = laspy.read(path)
-    x, h, z = C.en_to_local(np.asarray(las.x), np.asarray(las.y), np.asarray(las.z))
-    return cKDTree(np.c_[x, z]), np.asarray(h)
-
-
-def ground_sampler(fallback):
-    """Sample full raw blocks at portals too, rather than clamping to this tile's edge."""
-
-    def sample(x, z):
-        e, n = C.ORIGIN_E + x, C.ORIGIN_N - z
-        block = C.LazTile.at_en(e, n)
-        path = C.raw_dir("laz") / "maanpinta" / f"{block.name}.laz"
-        if not path.exists():
-            return fallback(x, z)
-        st = path.stat()
-        tree, h = _keypoints(path, st.st_size, st.st_mtime_ns)
-        distances, ids = tree.query([x, z], k=min(4, len(h)))
-        weights = 1 / np.maximum(distances, 0.05) ** 2
-        return float(np.sum(h[ids] * weights) / np.sum(weights))
-
-    return sample
+from .tunnel_ground import ground_cuts, ground_sampler
 
 
 def dimensions(tags):
@@ -249,35 +220,6 @@ def _polygon_faces(faces, polygon, height):
             faces.face(p)
 
 
-def ground_cuts(tree, positions, indices, corridor, mouths, floor_height, clearance):
-    """Intersect and classify candidate terrain triangles in native batches."""
-    candidates = tree.query(corridor, predicate="intersects")
-    triangles = positions[indices[candidates]]
-    polygons = shapely.polygons(triangles[:, :, [0, 2]])
-    overlap = shapely.intersection(polygons, corridor)
-    valid = shapely.area(overlap) >= 1e-10
-    candidates, triangles, polygons, overlap = (
-        a[valid] for a in (candidates, triangles, polygons, overlap)
-    )
-    if not len(candidates):
-        return []
-    query, owner = shapely.get_coordinates(overlap, return_index=True)
-    matrix = np.concatenate([triangles[:, :, [0, 2]], np.ones((*triangles.shape[:2], 1))], axis=2)
-    coeff = np.linalg.solve(matrix, triangles[:, :, 1, None])[:, :, 0]
-    delta = np.sum(query * coeff[owner, :2], axis=1) + coeff[owner, 2] - floor_height(query)
-    low, high = np.full(len(candidates), np.inf), np.full(len(candidates), -np.inf)
-    np.minimum.at(low, owner, delta)
-    np.maximum.at(high, owner, delta)
-    mouth_only = (high <= -0.25) | (low >= clearance + 0.35)
-    accepted = np.ones(len(candidates), bool)
-    accepted[mouth_only] = shapely.area(shapely.intersection(polygons[mouth_only], mouths)) >= 1e-10
-    return [
-        (int(tid), mouths if only else corridor)
-        for tid, only, keep in zip(candidates, mouth_only, accepted, strict=True)
-        if keep
-    ]
-
-
 @dataclass
 class Tunnels:
     keep: np.ndarray
@@ -321,14 +263,30 @@ class Tunnels:
             if m.visual and m.object_id != "tunnel:ground-edge"
         ]
 
-    def terrain_visuals(self, tile, rgb, streets=(), regions=()):
-        return portals.terrain_visuals(self.meshes, tile, rgb, streets, regions)
+    def terrain(self, positions, indices):
+        """Return cut remainders to the terrain producer before bank/stair grading.
+
+        These pieces retain the original grid plane only until the terrain stage
+        gives them their final height, material and ownership. Publishing them as
+        tunnel geometry would restore terrain removed by later stair/wall cuts.
+        """
+        parts = [m for m in self.meshes if m.object_id == "tunnel:ground-edge"]
+        if not parts:
+            return positions, indices, self.keep
+        points, faces, keep = [positions], [indices], [self.keep]
+        offset = len(positions)
+        for part in parts:
+            points.append(part.positions)
+            faces.append(part.indices + offset)
+            keep.append(np.ones(len(part.indices), bool))
+            offset += len(part.positions)
+        return np.concatenate(points), np.concatenate(faces), np.concatenate(keep)
 
     def collision(self, ct, pos, idx, mat):
         positions, indices, materials = [pos], [idx], [mat]
         count = len(pos)
         for mesh in self.meshes:
-            if mesh.metadata.get("lamp"):
+            if mesh.metadata.get("lamp") or mesh.object_id == "tunnel:ground-edge":
                 continue
             # Duplicate boundary triangles into both cells, so either streamed cell seals the tube.
             triangles = mesh.positions[mesh.indices][:, :, [0, 2]]
@@ -376,7 +334,16 @@ class Tunnels:
 
 
 def produce(
-    tile, ways, grid_pos, grid_idx, shells, extrude, sample, surface_sample=None, deck_sample=None
+    tile,
+    ways,
+    grid_pos,
+    grid_idx,
+    shells,
+    extrude,
+    sample,
+    surface_sample=None,
+    deck_sample=None,
+    walks=(),
 ):
     """Produce sealed tubes, exact ground remainders and passage openings in draft buildings."""
     from .inputs import CELLS
@@ -414,11 +381,17 @@ def produce(
         terrain = np.array([height_at(x, z) for x, z in xz])
         repaired = np.zeros(2, bool)
         original_ends = terrain[[0, -1]].copy()
-        if not passage and not road_top and not vaulted:
+        if vaulted and walks:
+            from .underpasses import floor_anchors
+
+            terrain[[0, -1]], repaired = floor_anchors(line, walks, original_ends)
+        elif not passage and not road_top and not vaulted:
             ends, repaired = portals.anchors(line, tags, sample, original_ends, surface_sample)
             terrain[[0, -1]] = ends
         mouth_lengths = np.where(
-            repaired, np.clip(np.maximum(width, original_ends - terrain[[0, -1]]), 4, 12), 2
+            repaired & ~np.full(2, vaulted),
+            np.clip(np.maximum(width, original_ends - terrain[[0, -1]]), 4, 12),
+            2,
         )
         floor = terrain if passage else floor_profile(terrain, distances)
         if vaulted:
@@ -557,7 +530,6 @@ def produce(
                 angles = np.linspace(0, np.pi, 17)
                 for a, b in zip(angles[:-1], angles[1:], strict=True):
                     tube.face([arch(i, a), arch(i, b), arch(j, b), arch(j, a)])
-                    tube.face([arch(i, a, 0.3), arch(j, a, 0.3), arch(j, b, 0.3), arch(i, b, 0.3)])
                     if i == 0:
                         tube.face([arch(i, a), arch(i, a, 0.3), arch(i, b, 0.3), arch(i, b)])
                     if j == len(xz) - 1:
@@ -627,6 +599,10 @@ def produce(
                     # reproducing the lidar/grid hump midway through the blend.
                     target = patch + (1 - along)[:, None] * apron_length * outward
                     outer_sample = deck_sample if road_top else (surface_sample or sample)
+                    if vaulted:
+                        from .walkable import sampler
+
+                        outer_sample = sampler(sample, walks)
                     ground = np.array([outer_sample(x, z) for x, z in target])
                 else:
                     ground = np.array([(surface_sample or sample)(x, z) for x, z in patch])
@@ -728,6 +704,25 @@ def produce(
                         [deck_sample(x, z) - 0.03 for x, _, z in mesh.positions],
                     )
         if vaulted:
+            from .underpasses import enclosure
+
+            meshes.append(
+                enclosure(
+                    key,
+                    xz,
+                    offset,
+                    (left_floor + right_floor) / 2,
+                    width,
+                    clearance,
+                    surface_sample or sample,
+                )
+            )
+            cut_corridor = cut_corridor.union(
+                corridor.buffer(0.3, cap_style="flat", join_style="mitre").intersection(
+                    line.buffer(width / 2 + 0.3, cap_style="flat", join_style="mitre")
+                )
+            )
+            mouths = cut_corridor
             for mesh in meshes:
                 if mesh.object_id.startswith(f"tunnel:{key}:") and not mesh.metadata.get("lamp"):
                     mesh.metadata["vault"] = True

@@ -448,6 +448,7 @@ def stage(
         Path(__file__).with_name("bridge_details.py"),
         Path(__file__).with_name("stair_survey.py"),
         Path(__file__).with_name("walkable.py"),
+        Path(__file__).with_name("tunnels.py"),
         Path(retaining.__file__),
         Path(__file__).with_name("gardens.py"),
         base / "bridges/build.py",
@@ -458,7 +459,10 @@ def stage(
 
     def geometry():
         flights, flight_cuts = produce(tile, prepared, sample, decks)
-        walls, wall_cuts = retaining.produce(tile, barriers, sample, flight_cuts, water)
+        paving = [
+            p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in walks
+        ]
+        walls, wall_cuts = retaining.produce(tile, barriers, sample, [*flight_cuts, *paving], water)
         return [*walls, *flights], [*wall_cuts, *flight_cuts]
 
     meshes, openings = cache.run(
@@ -476,10 +480,20 @@ def stage(
         ],
         geometry,
     )
+
+    def ground():
+        from .banks import join
+
+        apron = retaining.terrain(meshes, dry)
+        cut_dry, cut_solid = cut_ground(dry, openings), cut_ground(solid, openings)
+        if apron is not None:
+            cut_dry, cut_solid = join(cut_dry, apron), join(cut_solid, apron)
+        return cut_dry, cut_solid
+
     dry, solid = cache.run(
         "stair_ground",
         source_key(cut_ground, split_boundaries, *dependencies),
-        [dry, solid, openings],
-        lambda: (cut_ground(dry, openings), cut_ground(solid, openings)),
+        [dry, solid, openings, meshes],
+        ground,
     )
-    return meshes, dry, solid
+    return [m for m in meshes if not m.metadata.get("terrain")], dry, solid
