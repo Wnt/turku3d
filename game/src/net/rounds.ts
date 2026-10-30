@@ -8,6 +8,7 @@ export class RoundUI {
   readonly banner = document.createElement('aside');
   readonly countdown = document.createElement('section');
   private minutes = 5;
+  private wasBlocking = false;
   private signature = '';
   private timer: ReturnType<typeof setInterval>;
   constructor(private client: MultiplayerClient, private menu: PauseMenu,
@@ -23,6 +24,12 @@ export class RoundUI {
     this.update();
   }
   get blocking() { return this.playing() && this.client.state.rounds.active?.phase === 'countdown'; }
+  pauseState(paused: boolean, otherPause: boolean) {
+    const blocked = this.blocking;
+    const next = blocked ? true : this.wasBlocking ? otherPause : paused;
+    this.wasBlocking = blocked;
+    return next;
+  }
   open = () => {
     this.menu.show(roundPage(this.client.state.rounds, this.client.state.you?.id, this.minutes,
       (action, minutes) => this.client.round(action, minutes), minutes => { this.minutes = minutes; this.open(); }, this.history, this.back));

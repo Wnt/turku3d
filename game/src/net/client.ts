@@ -117,7 +117,7 @@ export class MultiplayerClient extends EventTarget {
 
   sendPose(pose: NetPose, vehicles: VehicleUpdate[] = []): boolean {
     const now = performance.now();
-    if (!this.state.connected || this.pendingMessages.length || now - this.lastSent < RATE_MS
+    if (this.state.rounds.active?.phase === 'countdown' || !this.state.connected || this.pendingMessages.length || now - this.lastSent < RATE_MS
       || (!vehicles.length && !shouldSendPose(now, this.lastPose, this.lastSent, pose))) return false;
     this.send({ type: 'pose', ...pose, ...(vehicles.length ? { vehicles } : {}) });
     this.lastPose = pose;

@@ -294,3 +294,32 @@ sessions and deduplication. No empty hours are backfilled for server downtime.
 
 Legacy hourly files with `money` instead of `earned` remain readable. Their recorded
 net totals and ranks are preserved; gross earnings cannot be recovered from those files.
+
+## Timed rounds
+
+`welcome.rounds` and `rounds {rounds, serverTime}` carry `{epoch, proposal, active, history}`.
+The proposal has a UUID `id`, `initiator` player ID, `nick`, connected voter IDs in `votes`,
+`needed = ceil(connected/2)` and `connected`. Hello-complete sockets count even in a menu.
+Disconnecting the initiator cancels the proposal; other departures recalculate its threshold.
+
+Clients send `round {action: "propose"}` then `round {action: "agree", proposal: ID}`.
+Only the initiator may send `round {action: "start", proposal: ID, minutes: N}` after
+half agree. N is 5–180 in five-minute steps. The server assigns a new `epoch`, wipes
+scores, order/fine deduplication, broken poles, all vehicle records and retained player
+poses, and sends fresh welcomes with existing identities and assigned spawn positions.
+The client clears gameplay (including purchased vehicles and missions) to the new-game
+baseline, including the €120 starting wallet needed to rent a delivery permit. World
+geometry, streamed tiles and asset caches stay resident.
+
+`active` has `{id, initiator, minutes, phase, start, end}`; deadlines use server Unix ms.
+`phase` is `countdown` for five seconds, then `running`. Gameplay messages carry the
+welcome `epoch`; stale epochs and all gameplay during countdown are rejected. Normal
+clock-hour resets and warnings are suppressed throughout countdown/running. Late joins
+receive current deadlines and the same state. A replacement round uses the same vote.
+
+`round_result {result}` broadcasts the frozen ranked scores on timeout; restarting archives
+the interrupted result with `reason: "restarted"`. A result also has `finished`, `scores`
+and `phase: "finished"`. Clients show timeout results with a dismiss action and keep the
+last 20 results in the pause menu. These results persist atomically in `rounds.json` across
+server restarts; in-progress rounds remain in memory. On finish normal play continues,
+with the next hourly reset at the next Helsinki hour boundary; missed resets are skipped.

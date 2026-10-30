@@ -19,6 +19,11 @@ export class ParkedVehicles {
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
     private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>) {}
 
+  resetRound() {
+    for (const id of new Set([...this.spawned.keys(), ...this.borrowed.keys()])) this.physics.removeVehicle(id);
+    this.spawned.clear(); this.borrowed.clear(); this.shared.clear(); this.owned.clear(); this.sharedKey = ''; this.next = 0;
+  }
+
   setShared(sources: ReadonlySet<string>, owned: ReadonlySet<string>) {
     const key = JSON.stringify([[...sources].sort(), [...owned].sort()]);
     if (key === this.sharedKey) return;
