@@ -11,7 +11,7 @@ isolateBrowser();
 const out = path.join(reportsRoot, 'timed-rounds'); fs.mkdirSync(out, { recursive: true });
 const contexts = [], pages = [], evidence = [], errors = [];
 const url = 'https://wnt.github.io/turku-game/game/';
-const expected = fs.readFileSync(path.join(workRoot, 'build/game/index.html'), 'utf8').match(/assets\/main-[\w-]+\.js/)[0];
+const expected = process.argv[2] ?? fs.readFileSync(path.join(workRoot, 'build/game/index.html'), 'utf8').match(/assets\/main-[\w-]+\.js/)[0];
 const started = Date.now();
 const deadline = setTimeout(() => { console.error('Ten-minute round probe deadline'); process.exit(1); }, 590000);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -80,7 +80,7 @@ try {
     const profile = path.join(process.env.TURKU3D_BROWSER_DIR, `round-player-${i}-${Date.now()}`);
     const context = await chromium.launchPersistentContext(profile, {
       executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: false, viewport: null,
-      hasTouch: true, deviceScaleFactor: 1,
+      hasTouch: true,
       args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--autoplay-policy=no-user-gesture-required']),
     });
     contexts.push(context);
