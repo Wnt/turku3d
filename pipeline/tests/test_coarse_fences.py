@@ -7,6 +7,80 @@ from turku3d.coarse.fences import collision, place, segments, style
 from turku3d.col.materials import mat_id
 
 
+def test_barrier_collision_keeps_matching_visuals_through_both_passes(tmp_path):
+    from turku3d.coarse.basic import visual
+    from turku3d.coarse.fences import write_instances
+    from turku3d.col.format import ColTile, write_col
+    from turku3d.collision_audit import visual_vertices
+    from turku3d.stage_cache import StageCache
+    from turku3d.wall_assembly import assemble_layers
+    from turku3d.wall_surfaces import layer_meshes
+
+    tile = C.VisualTile(0, -1, 1)
+    batch = place(
+        tile,
+        [
+            (
+                shapely.LineString([(-175, 356), (-150, 340)]),
+                {"barrier": "fence", "height": "2"},
+                False,
+            )
+        ],
+        [],
+        lambda x, z: 4.7,
+    )
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    path = stage / "fences.vis.glb"
+    write_instances(path, tile, batch)
+    original = path.read_bytes()
+    cells = [
+        (ct, ColTile.for_tile(ct.i, ct.j, [], [], [], primitives=collision(batch, ct)))
+        for ct in tile.collision_tiles()
+    ]
+    cache = StageCache(tmp_path / "cache")
+    # Exercise the warm cache as well: typed collision and visual files must stay paired.
+    for _ in range(2):
+        layers = assemble_layers(tile, [path], [], [], tmp_path, stage, cache)
+        assert path in layers
+        assert path.read_bytes() == original
+        assert not layer_meshes([path])  # A prototype is not a wall at the tile origin.
+    basic = tmp_path / "basic.glb"
+    basic.write_bytes(visual(tile, cells)[0])
+    from turku3d.coarse.visual_parity import audit
+
+    manifest = dict(tile=tile.id, visual={tile.id: dict(url=str(path))}, collision={})
+    for ct, col in cells:
+        filename = ct.id + ".col"
+        (tmp_path / filename).write_bytes(write_col(col, encoding="raw", optimize=False))
+        manifest["collision"][ct.id] = dict(url=filename)
+    for product in (basic, path):
+        manifest["visual"][tile.id]["url"] = str(product)
+        assert not audit(tmp_path, manifest)["unmatched"]
+    # Removing the placed layer reproduces the published failure and must be red.
+    from turku3d.package.gltf import build_glb
+
+    missing = tmp_path / "missing.glb"
+    missing.write_bytes(build_glb([]))
+    manifest["visual"][tile.id]["url"] = str(missing)
+    assert len(audit(tmp_path, manifest)["unmatched"]) == len(batch)
+    from scipy.spatial import cKDTree
+
+    for product in (basic, path):
+        vertices, _ = visual_vertices(product)
+        tree = cKDTree(vertices)
+        for ct, col in cells:
+            for primitive in col.primitives:
+                # Both sides of both end posts must appear at the actual collider pose.
+                corners = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)])
+                points = corners * primitive.params[:3]
+                q = np.array(primitive.rotation)
+                cross = np.cross(q[:3], points)
+                points += 2 * (q[3] * cross + np.cross(q[:3], cross))
+                points += np.array(primitive.center) + ct.origin
+                assert tree.query(points)[0].max() < 0.002
+
+
 def test_segments_split_corners_cells_and_ground_height():
     tile = C.VisualTile(0, 0, 0)
     line = shapely.LineString([(60, 20), (66, 20), (66, 25)])

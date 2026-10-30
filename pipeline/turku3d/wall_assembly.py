@@ -67,7 +67,8 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         with np.errstate(over="ignore", invalid="ignore", divide="ignore", under="ignore"):
             diameter = np.nextafter(
                 np.nextafter(np.ptp(a[:, :, 0], axis=1), np.inf)
-                + np.nextafter(np.ptp(a[:, :, 1], axis=1), np.inf), np.inf,
+                + np.nextafter(np.ptp(a[:, :, 1], axis=1), np.inf),
+                np.inf,
             )
             for edge in range(3):
                 active = np.flatnonzero(keep & finite)
@@ -78,12 +79,17 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                 nx, ny = -direction[:, 1], direction[:, 0]
                 lo_a, hi_a = interval(aa, nx, ny)
                 lo_b, hi_b = interval(bb, nx, ny)
-                width = np.maximum(0, np.nextafter(
-                    np.minimum(hi_a, hi_b) - np.maximum(lo_a, lo_b), np.inf,
-                ))
+                width = np.maximum(
+                    0,
+                    np.nextafter(
+                        np.minimum(hi_a, hi_b) - np.maximum(lo_a, lo_b),
+                        np.inf,
+                    ),
+                )
                 denominator = np.maximum(np.abs(nx), np.abs(ny))
                 upper = np.nextafter(
-                    np.nextafter(width * diameter[active], np.inf) / denominator, np.inf,
+                    np.nextafter(width * diameter[active], np.inf) / denominator,
+                    np.inf,
                 )
                 valid = np.isfinite(upper) & np.isfinite(direction).all(axis=1) & (denominator > 0)
                 # Ambiguous arithmetic stays with GEOS; retain the scalar cut gate.
@@ -91,8 +97,11 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         return keep
 
     # A neighbour pass must not repeat local cuts after another float32 conversion.
-    indexed_count = (next((i for i, (mi, _) in enumerate(refs) if mi >= 0), len(refs))
-                     if protected_only else len(refs))
+    indexed_count = (
+        next((i for i, (mi, _) in enumerate(refs) if mi >= 0), len(refs))
+        if protected_only
+        else len(refs)
+    )
     points = np.array([p for p, _ in records])
     normals = np.array([n for _, n in records])
     low, high = points.min(axis=1), points.max(axis=1)
@@ -101,29 +110,31 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
     bases = np.stack([direction, np.cross(normals, direction)], axis=1)
     projected_sources = np.einsum("ijk,ilk->ijl", points - points[:, :1], bases)
     changed = {}
-    original_boxes = shapely.box(low[:, 0] - 0.006, low[:, 2] - 0.006,
-                                high[:, 0] + 0.006, high[:, 2] + 0.006)
+    original_boxes = shapely.box(
+        low[:, 0] - 0.006, low[:, 2] - 0.006, high[:, 0] + 0.006, high[:, 2] + 0.006
+    )
     original_tree = shapely.STRtree(original_boxes[:indexed_count])
     # A vertical wall's x/z box contains all its floors. Index height and its
     # dominant horizontal span, then apply the original full 3D/plane filters.
     for axis in (0, 2):
         rows = np.flatnonzero((abs(normals[:, 2]) >= abs(normals[:, 0])) == (axis == 0))
         rows = rows[np.array([refs[i][0] >= 0 for i in rows], dtype=bool)]
-        boxes = shapely.box(low[:, axis] - 0.006, low[:, 1],
-                            high[:, axis] + 0.006, high[:, 1])
+        boxes = shapely.box(low[:, axis] - 0.006, low[:, 1], high[:, axis] + 0.006, high[:, 1])
         tree = shapely.STRtree(boxes[:indexed_count])
         for start in range(0, len(rows), 512):
-            local, js = tree.query(boxes[rows[start:start+512]])
-            ii = rows[start:start+512][local]
+            local, js = tree.query(boxes[rows[start : start + 512]])
+            ii = rows[start : start + 512][local]
             keep = (js < ii) & (high[js, 1] > low[ii, 1]) & (low[js, 1] < high[ii, 1])
             ii, js = ii[keep], js[keep]
             # Both old x/z boxes expanded by 6 mm, so retain the full 12 mm
             # broadphase band before gathering normals. Exact plane distance
             # below still uses 6 mm.
-            keep = ((high[js, 0] + 0.012 >= low[ii, 0])
-                    & (low[js, 0] - 0.012 <= high[ii, 0])
-                    & (high[js, 2] + 0.012 >= low[ii, 2])
-                    & (low[js, 2] - 0.012 <= high[ii, 2]))
+            keep = (
+                (high[js, 0] + 0.012 >= low[ii, 0])
+                & (low[js, 0] - 0.012 <= high[ii, 0])
+                & (high[js, 2] + 0.012 >= low[ii, 2])
+                & (low[js, 2] - 0.012 <= high[ii, 2])
+            )
             ii, js = ii[keep], js[keep]
             keep = np.einsum("ij,ij->i", normals[js], normals[ii]) > 0.99998
             ii, js = ii[keep], js[keep]
@@ -133,8 +144,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             keep = (separation.min(axis=1) <= 0.006) & (separation.max(axis=1) >= -0.006)
             ii, js = ii[keep], js[keep]
             projected = np.einsum("ijk,ilk->ijl", points[js] - points[ii, :1], bases[ii])
-            keep = ((projected.max(axis=1) > projected_sources[ii].min(axis=1) - 1e-9)
-                    & (projected.min(axis=1) < projected_sources[ii].max(axis=1) + 1e-9)).all(axis=1)
+            keep = (
+                (projected.max(axis=1) > projected_sources[ii].min(axis=1) - 1e-9)
+                & (projected.min(axis=1) < projected_sources[ii].max(axis=1) + 1e-9)
+            ).all(axis=1)
             ii, js, projected = ii[keep], js[keep], projected[keep]
             if not len(ii):
                 continue
@@ -142,7 +155,9 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             ii, js, projected = ii[keep], js[keep], projected[keep]
             if not len(ii):
                 continue
-            intersections = shapely.intersection(shapely.polygons(projected_sources[ii]), shapely.polygons(projected))
+            intersections = shapely.intersection(
+                shapely.polygons(projected_sources[ii]), shapely.polygons(projected)
+            )
             # Native projection is only a conservative rejection stage. Near
             # parallel distance bands amplify tiny rounding differences, so actual
             # cuts retain the predecessor's scalar basis and STRtree order.
@@ -176,8 +191,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                 surface = shapely.Polygon(xy)
                 projected = (points[js] - p[0]) @ basis.T
                 # Reject touching tessellation edges before constructing GEOS polygons.
-                keep = ((projected.max(axis=1) > xy.min(axis=0) + 1e-9)
-                        & (projected.min(axis=1) < xy.max(axis=0) - 1e-9)).all(axis=1)
+                keep = (
+                    (projected.max(axis=1) > xy.min(axis=0) + 1e-9)
+                    & (projected.min(axis=1) < xy.max(axis=0) - 1e-9)
+                ).all(axis=1)
                 js = js[keep]
                 occluders = []
                 for j in js:
@@ -215,9 +232,17 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         vertex_rows = np.full(len(original.positions), -1, dtype=int)
         if rows is not None:
             for ri, row in enumerate(rows):
-                vertex_rows[row["start"]:row["start"] + row["count"]] = ri
+                vertex_rows[row["start"] : row["start"] + row["count"]] = ri
         last_row = None
-        def instruction(indices):
+
+        def instruction(
+            indices,
+            rows=rows,
+            vertex_rows=vertex_rows,
+            original=original,
+            instructions=instructions,
+            positions=positions,
+        ):
             nonlocal last_row
             if rows is None:
                 return
@@ -227,7 +252,9 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             if last_row == owners[0]:
                 instructions[-1]["count"] += 3
             else:
-                instructions.append({**rows[owners[0]], "start": (len(positions) - 1) * 3, "count": 3})
+                instructions.append(
+                    {**rows[owners[0]], "start": (len(positions) - 1) * 3, "count": 3}
+                )
             last_row = owners[0]
 
         for ti, indices in enumerate(original.indices):
@@ -267,34 +294,46 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
     import json
     from pathlib import Path
 
-    from turku3d.stage_cache import source_key
     from turku3d.coarse.build import _write
     from turku3d.layers import write_visual
-    from turku3d.wall_surfaces import layer_meshes, validate_neighbours
+    from turku3d.stage_cache import source_key
+    from turku3d.wall_surfaces import instanced_layer, layer_meshes, validate_neighbours
 
     if building_meshes:
         programs = [
             m.extras.pop("facade_program") for m in building_meshes if "facade_program" in m.extras
         ]
         _write(out / "facade-programs.json", json.dumps(programs, sort_keys=True).encode())
+
         def buildings(directory):
-            write_visual(directory / "buildings.vis.glb", building_meshes, root_translation=tile.origin)
+            write_visual(
+                directory / "buildings.vis.glb", building_meshes, root_translation=tile.origin
+            )
 
         if cache is None:
             buildings(stage)
         else:
-            cache.files("building_layer", source_key(Path(__file__).with_name("layers.py"),
-                        Path(__file__).parent / "package/gltf.py"),
-                        [tile, cache.metrics.get("building_visual", {}).get("key", building_meshes)], stage, buildings)
+            cache.files(
+                "building_layer",
+                source_key(
+                    Path(__file__).with_name("layers.py"), Path(__file__).parent / "package/gltf.py"
+                ),
+                [tile, cache.metrics.get("building_visual", {}).get("key", building_meshes)],
+                stage,
+                buildings,
+            )
         layer_files.append(stage / "buildings.vis.glb")
 
     def assemble():
         wall_layers = layer_meshes(layer_files)
         protected = [
-            m for m in wall_layers if m.extras.get("material_key") in {"facade_kit", "facade_stored"}
+            m
+            for m in wall_layers
+            if m.extras.get("material_key") in {"facade_kit", "facade_stored"}
         ]
         secondary = [
-            m for m in wall_layers
+            m
+            for m in wall_layers
             if m.extras.get("material_key") not in {"facade_kit", "facade_stored"}
         ]
         return assemble_structures(protected + secondary)
@@ -303,23 +342,39 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
         wall_layers = assemble()
     else:
         wall_layers = cache.run(
-            "wall_meshes", source_key(assemble_structures, band_polygon, layer_meshes, trapezoids,
-                                     Path(__file__).parent / "package/gltf.py"),
-            [path.read_bytes() for path in layer_files], assemble,
+            "wall_meshes",
+            source_key(
+                assemble_structures,
+                band_polygon,
+                instanced_layer,
+                layer_meshes,
+                trapezoids,
+                Path(__file__).parent / "package/gltf.py",
+            ),
+            [path.read_bytes() for path in layer_files],
+            assemble,
         )
     geometry_key = cache.metrics["wall_meshes"]["key"] if cache else None
-    neighbours = validate_neighbours(wall_layers, shells, tile, out.parent,
-                                     geometry_key=geometry_key, report_cache=cache)
+    neighbours = validate_neighbours(
+        wall_layers, shells, tile, out.parent, geometry_key=geometry_key, report_cache=cache
+    )
+
     def architecture(directory):
         write_visual(directory / "architecture.vis.glb", wall_layers, root_translation=tile.origin)
 
     if cache is None:
         architecture(stage)
     else:
-        cache.files("wall_visual", source_key(Path(__file__).with_name("layers.py"),
-                    Path(__file__).parent / "package/gltf.py"),
-                    [tile, neighbours["geometry_key"]], stage, architecture)
-    layer_files = [p for p in layer_files if p.name == "vegetation.vis.glb"]
+        cache.files(
+            "wall_visual",
+            source_key(
+                Path(__file__).with_name("layers.py"), Path(__file__).parent / "package/gltf.py"
+            ),
+            [tile, neighbours["geometry_key"]],
+            stage,
+            architecture,
+        )
+    layer_files = [p for p in layer_files if instanced_layer(p)]
     layer_files.append(stage / "architecture.vis.glb")
 
     return layer_files

@@ -198,6 +198,6 @@ def accessor_array(js: dict, binc: bytes, i: int) -> np.ndarray:
     acc = js["accessors"][i]
     bv = js["bufferViews"][acc["bufferView"]]
     dt = {FLOAT: np.float32, UINT32: np.uint32}[acc["componentType"]]
-    ncomp = {"SCALAR": 1, "VEC2": 2, "VEC3": 3}[acc["type"]]
+    ncomp = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[acc["type"]]
     a = np.frombuffer(binc, dt, acc["count"] * ncomp, bv["byteOffset"])
     return a.reshape(-1, ncomp) if ncomp > 1 else a
