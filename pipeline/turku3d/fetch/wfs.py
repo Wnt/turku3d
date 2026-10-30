@@ -391,7 +391,7 @@ def fetch_layer(layer: WfsLayer, area: config.Area, log=print, force_parquet: bo
     all_pages = sorted((adir / "gml" / layer.slug).glob("*.gml"))
     s = {
         "layer": layer.name,
-        "status": "ok",
+        "status": "ok" if len(gdf) else "empty",
         "area": area.name,
         "bbox_en": list(bbox),
         "features": nfeat,

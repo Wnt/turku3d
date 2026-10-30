@@ -52,7 +52,7 @@ def main():
                         raise RuntimeError(f"{tile}/{kind}: HTTP {status}: {body!r}")
                     manifest = json.loads(body)
                     if manifest.get("stale"):
-                        raise RuntimeError(f"{tile}: stale generation")
+                        continue  # Retained first pass can remain available during full enrichment.
                     assert len(manifest["collision"]) == 16, tile
                     pass_kind = manifest.get("pass_kind")
                     observed.setdefault(tile, {}).setdefault(pass_kind, round(time.monotonic() - started, 3))
