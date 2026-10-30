@@ -10,13 +10,28 @@ MARKER = "/home/ubuntu/turku3d-drafts/LAN_FREEZE.json"
 DEFAULT_CUTOFF = "2026-10-30T04:00:00+02:00"
 
 
-def guard_command():
+def guard_command(candidate=None):
     return "python3 -c " + shlex.quote(f"""
 import datetime,json,pathlib
 p=pathlib.Path({MARKER!r})
 if p.exists():
  r=json.loads(p.read_text())
  if datetime.datetime.now(datetime.timezone.utc) >= datetime.datetime.fromisoformat(r['freeze_at']):
+  candidate={candidate!r}
+  if candidate and r.get('source'):
+   def contents(root):
+    root=pathlib.Path(root)
+    result={{}}
+    for name in ('pipeline','textures','game/public/basis'):
+     directory=root/name
+     if not directory.is_dir():raise SystemExit('Missing frozen source directory: '+name)
+     for f in directory.rglob('*'):
+      if f.is_file() and '__pycache__' not in f.parts and f.suffix!='.pyc':
+       result[str(f.relative_to(root))]=f.read_bytes()
+    return result
+   if contents(candidate)==contents(r['source']):
+    print('Frozen generator sources unchanged; serving-only deployment allowed')
+    raise SystemExit(0)
   raise SystemExit('LAN generator freeze active since '+r['freeze_at']+'; publish client-only Pages fixes. Coordinate a forward generator exception with orchestrator.')
 """)
 
