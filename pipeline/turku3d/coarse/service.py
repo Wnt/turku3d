@@ -30,6 +30,7 @@ from .demand import Demand, write_snapshot
 from .packaging import current_code
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
+from .service_retention import maintain_retention
 from .service_state import failed_identity, tile_current, unavailable_reply
 from .service_state import snapshot as state_snapshot
 from .serving import retained_fragment as collision_fragment
@@ -181,16 +182,14 @@ class Builder:
             for k in range(workers)
         ]
         if workers:
-            self.threads.append(
-                threading.Thread(target=self._maintain, name="coarse-demand", daemon=True)
-            )
+            self.threads.extend([
+                threading.Thread(target=self._maintain, name="coarse-demand", daemon=True),
+                threading.Thread(target=maintain_retention, args=(self,), name="coarse-retention", daemon=True),
+            ])
         for thread in self.threads:
             thread.start()
 
     def _maintain(self):
-        from .retention import prune
-
-        next_prune = 0
         while True:
             with self.lock:
                 if self.stopped:
@@ -207,12 +206,6 @@ class Builder:
                     # Telemetry must not stop demand expiry/cancellation when storage is unavailable.
                     print(f"coarse scheduler snapshot: {error}", file=sys.stderr, flush=True)
                 self.lock.notify_all()
-            if not self.draining and time.monotonic() >= next_prune:
-                try:
-                    prune(self.root)
-                except (OSError, ValueError) as error:
-                    print(f"coarse retention: {error}", file=sys.stderr, flush=True)
-                next_prune = time.monotonic() + 60
             time.sleep(1)
 
     def job_rank(self, tile, distance=0):
