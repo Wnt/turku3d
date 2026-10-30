@@ -304,6 +304,22 @@ def test_wfs_quadtree_paging_and_dedupe(tmp_path, monkeypatch):
     assert gdf.geometry_local.iloc[0] is not None
 
 
+def test_empty_wfs_layer_is_available_without_a_schema(data_root, monkeypatch):
+    from turku3d.coarse.sources import Sources
+    from turku3d.fetch import wfs
+
+    get, calls = _fake_wfs_server(10, [])
+    fetch_pages = wfs.fetch_pages
+    monkeypatch.setattr(wfs, "fetch_pages", lambda *a, **kw: fetch_pages(*a, **kw, get=get))
+    layer = next(layer for layer in sources.WFS_LAYERS if layer.name == "GIS:Keskilinjat")
+    summary = wfs.fetch_layer(layer, AREA, log=lambda *_: None)
+    assert summary["status"] == "empty" and summary["rows"] == 0
+    tile = config.VisualTile(0, 0, 0)
+    assert Sources().wfs_source(layer.name, tile) == (True, None)
+    assert wfs.fetch_layer(layer, AREA, log=lambda *_: None) == summary
+    assert len(calls) == 1
+
+
 def test_wfs_check_body():
     from turku3d.fetch import wfs
 
