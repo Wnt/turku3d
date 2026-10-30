@@ -99,7 +99,9 @@ time-lapsed; aerial shots use smooth capture camera curves. Never render the sam
 scene concurrently: overlay images have deterministic names. The four reviewers
 check accuracy, visuals, audience pacing and audio. `showcase-review.py --quick`
 checks final codecs, dimensions, preview size, timeline and subtitles without the
-long frame/audio analysis. Full review saves 2-second contact sheets, freeze/black/
+long frame/audio analysis. Frozen post-merge sandboxes read the delivered evidence
+bundle when capture-local inputs are absent, so verification survives intermediate
+cleanup and uses an owned output directory. Full review saves 2-second contact sheets, freeze/black/
 silence analysis, capture provenance and the exact final SHA-256. Preserve these
 small reports when discarding intermediate videos and audio after approval.
 
