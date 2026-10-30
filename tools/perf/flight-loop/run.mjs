@@ -140,6 +140,11 @@ try {
   const dimensions = () => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, resizes: window.__resizes.length,
     canvases: [...document.querySelectorAll('canvas')].map(c => ({ width: c.width, height: c.height, clientWidth: c.clientWidth, clientHeight: c.clientHeight })) });
   while (Date.now() - started < 540000) {
+    const stop = path.join(output, 'stop-request.json');
+    if (fs.existsSync(stop)) {
+      const { reason = 'Flight stopped by its owner' } = JSON.parse(fs.readFileSync(stop, 'utf8'));
+      throw new Error(reason);
+    }
     const state = await page.evaluate(() => ({ phase: window.__flight.phase, done: window.__flight.done, last: window.__flight.samples.at(-1) }));
     log('progress.jsonl', state);
     await page.evaluate(() => {
@@ -178,6 +183,10 @@ try {
   const afterUsage = await session.send('Runtime.getHeapUsage');
   result.heapAfterFlight = { beforeGc, afterGc };
   result.heapUsageAfterFlight = { beforeGc: beforeUsage, afterGc: afterUsage };
+  result.preparation = await page.evaluate(() => {
+    window.__preparation?.sampleMemory('post-gc');
+    return window.__preparation?.snapshot({ memory: false });
+  });
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
   if (!result.done) throw new Error('Flight did not complete before deadline');

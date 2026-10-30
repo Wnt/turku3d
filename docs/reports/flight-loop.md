@@ -442,3 +442,91 @@ span. Earlier recordings after the initial baseline did not retain CDP traces:
 the page-scoped trace completion silently timed out. The runner now records trace
 completion explicitly, uses the browser CDP session and compressed trace stream,
 and captures CDP heap/backing-storage counters after the measured flight.
+
+## 2026-10-30, iteration 8: matched north route and return preparation
+
+`after-07` ran on `395928ec` with a fresh headed profile and only the four route
+outputs moved aside. Upstream stages stayed warm; both wall mesh stages were
+cold. The producer remained stable, with two players online, approximately 95%
+CPU busy and CPU pressure avg10 averaging 39.5. The complete round took 173.81 s,
+including trace cleanup. The 15.8 MB compressed CDP trace was recovered successfully.
+
+| Measurement | Earlier north (`after-04`) | North (`after-07`) |
+| --- | ---: | ---: |
+| First target first / full pair arrival | 10.15 / 171.97 s | 17.74 / 101.41 s |
+| Second target first / full pair arrival | 20.77 / 86.59 s | 20.27 / 64.27 s |
+| First target full service / cold wall stage | 153.957 / 117.331 s | 74.618 / 52.815 s |
+| Second target full service / cold wall stage | 55.419 / 43.781 s | 27.576 / 16.962 s |
+| Return GLB requests | 9 | 0 |
+| Return model load median / maximum | 2447 / 4418 ms | 1248 / 2059 ms |
+| Return preparation median / maximum | 2543 / 4067 ms | 2528 / 3019 ms |
+
+Both final target GLB hashes match the earlier north run. These are loaded runs,
+not an isolated algorithm comparison: the earlier run had higher CPU pressure,
+two source switches, and a retained old full at 171.97 s (current full arrived
+after that flight). Its first target first had completed before this client's
+demand. The latest first arrival is slower, but does not establish a controlled
+first-pass regression. Latest first services took 5.602/2.338 s; full wall admission
+waits were 1.041/0.00046 s. Target 2 still waited about 13 s for full admission.
+Full model application added 8.177/5.254 s, including 5.760/2.479 s preparation.
+
+Lookahead promoted target 2 at 7.19 s, versus 18.80 s previously, but dropped it
+just before ready metadata arrived: a smoothed speed dip to 8.344 m/s made the
+254 m distance exceed the 30 s threshold. That response stayed metadata-only;
+core loading started at 18.98 s. Later neighbours did load outside the normal
+window: `0_-3` was ready about 1.7 s early, and `0_-4` was ready at 40.92 s and
+dropped on return. Peak modeled tiles remained 12. The next change uses a 45 s
+release threshold only for an already stabilized selection; admission remains
+30 s, with the same single slot, urgency/path checks and 500 m distance bound.
+The captured 30.442 s ETA now retains target 2 in replay.
+
+All nine returning visual URLs were exact earlier URLs and made no GLB requests.
+The 165.615 MiB working set exceeds the old 128 MiB cap and fits 256 MiB. Return
+responses comprised 241 service-worker storage hits, 132 HTTP-cache hits and
+five network responses; Resource Timing median/p90 was 3.34/25.11 ms. All eight
+HTTP failures were ahead-collision 429s. Raw caching is effective; preparation
+remains the bottleneck after a hit.
+
+Across 26 preparations, overlapping summed wall spans were 3.681 s styling,
+19.159 s static/shadow construction, 19.911 s vegetation plus outer graphics
+queue, and 28.469 s actual graphics preparation. There were 10,002 compile calls,
+780 new asynchronous node builders and only 62 native pipeline creations.
+Estimated active node building was 7.160 s; native pipeline wall time was 2.069 s.
+During the 36.775 s return, frame-budget waits occupied an 11.504 s union, while
+live animation used 30.495 s of thread CPU. Raising the preparation budget would
+compete with already busy frames. The 4,000-event cap filled at 24.48 s; aggregates
+remain complete, and the trace supplies return waits. The helper will retain
+phase events separately from high-frequency compile samples.
+
+Capture-excluded frames were 9.7 ms median, 18.2 ms p90 and 366.68 ms maximum.
+Peak reported heap/backing usage was 3493.92 MiB. Forced GC reduced 3511.64 to
+2893.35 MiB; CDP separates this into 99.40 MiB JS heap and 2793.59 MiB backing
+storage. Memory improvement is not demonstrated. Retained geometry buffers,
+including detached sources and derived batches, are the next inventory target.
+
+All 35 screenshots were inspected. Frames 3–4 show the empty frontier before
+the first model arrives; 5–9 show plain first-pass city, 10–16 the detail upgrade,
+17–24 the intentional far-end wait, and 25–34 populated return/start views.
+There was no blank home view or capture resize. Cathedral east remains the worst
+completed full arrival at 196.17 s; the historical interrupted north first
+arrival was 158.21 s. The next round will use another starting area and direction.
+
+### Client slice after iteration 8
+
+Static batching now rebinds eligible detached facade sources to subarray views of
+the merged immutable program storage. Each source keeps its own Three.js buffer
+owner; base geometry, transforms and release restoration are unchanged. Shared
+geometries, dynamic buffers, pending update ranges and custom upload callbacks
+retain their original storage. On the recorded dense north model, all 46 output
+meshes and restored source bytes matched exactly. Retained geometry backing fell
+from 550.49 to 355.38 MiB (195.10 MiB saved); program storage fell from 420.39 to
+225.29 MiB. Batching CPU stayed approximately 223.5 ms and allocation peak did not
+improve. Seven ownership/lifecycle fixture cases passed. This is a retained-memory
+reduction, not a claim of faster preparation or lower GPU memory.
+
+The helper now keeps compile/builder samples separately, preserving phase events
+through return. Numeric-only inventories at installation, completion and post-GC
+deduplicate actual backing buffers across source, static, shadow and scene
+geometry and texture data. They exclude GPU/native image memory and private idle
+caches. The next route is north from Turku Castle, targeting `t0_-8_4` and
+`t0_-8_3`; its new starting area makes timing comparisons exploratory.

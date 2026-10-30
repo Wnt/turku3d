@@ -58,8 +58,10 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
   if (owners.has(model)) return;
   model.updateWorldMatrix(true, true);
   const buckets = new Map<string, THREE.Mesh[]>(), center = new THREE.Vector3();
+  const geometryUsers = new Map<THREE.BufferGeometry, number>();
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
+    if (mesh.isMesh) geometryUsers.set(mesh.geometry, (geometryUsers.get(mesh.geometry) ?? 0) + 1);
     if (!mesh.isMesh || !mesh.visible || mesh.children.length || !mesh.parent || Array.isArray(mesh.material)
       || (mesh as THREE.InstancedMesh).isInstancedMesh || (mesh as THREE.SkinnedMesh).isSkinnedMesh
       || mesh.material.transparent || mesh.geometry.groups.length || Object.keys(mesh.geometry.morphAttributes).length
@@ -110,6 +112,24 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
     mesh.name = 'static-tile-batch'; mesh.userData = { layer: sources[0].userData.layer, objects: rows };
     mesh.layers.mask = sources[0].layers.mask; mesh.renderOrder = sources[0].renderOrder;
     mesh.castShadow = mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
+    if (program && packed) {
+      // Detached sources return on release. Their immutable program values can share the
+      // merged storage, but distinct attribute owners preserve draw/disposal lifetimes.
+      let start = 0;
+      for (const [index, source] of sources.entries()) {
+        const original = program.buffers[index], end = start + original.array.length;
+        if (geometryUsers.get(source.geometry) === 1 && original.usage === THREE.StaticDrawUsage
+          && !original.updateRanges.length && original.onUploadCallback === THREE.InterleavedBuffer.prototype.onUploadCallback) {
+          const buffer = new THREE.InterleavedBuffer(packed.subarray(start, end), program.stride);
+          for (const { name, itemSize, offset } of program.fields) {
+            const attribute = new THREE.InterleavedBufferAttribute(buffer, itemSize, offset);
+            attribute.name = source.geometry.getAttribute(name).name;
+            source.geometry.setAttribute(name, attribute);
+          }
+        }
+        start = end;
+      }
+    }
     for (const source of sources) source.removeFromParent();
     parent.add(mesh); batches.push({ mesh, sources, parent });
   }

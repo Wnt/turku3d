@@ -102,15 +102,16 @@ export function draftDemand(visible: string[], ahead: string[], x: number, z: nu
   return { tiles: ordered, urgent, visible: ordered.filter(id => visible.includes(id)) };
 }
 
-/** Prepare one imminent path tile beyond the normal window, never the whole build-ahead cone. */
-export function lookaheadTile(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[]) {
+/** Prepare one imminent path tile beyond the normal window; enter at 30 s and retain through 45 s. */
+export function lookaheadTile(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[], selected?: string) {
   const speed = Math.hypot(vx, vz);
   if (speed < 1) return undefined;
   return draftDemand(visible, ahead, x, z, vx, vz, path).urgent.find(id => {
     if (visible.includes(id)) return false;
     const distance = distToL0(id, x, z);
     const arrival = path ? distance / speed : arrivalToL0(id, x, z, vx, vz);
-    return distance <= 2 * VISUAL_L0 && arrival <= 30;
+    // A stable selection tolerates brief speed dips without becoming metadata-only.
+    return distance <= 2 * VISUAL_L0 && arrival <= (id === selected ? 45 : 30);
   });
 }
 
