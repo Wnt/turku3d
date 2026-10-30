@@ -64,3 +64,15 @@ export interface PlaySession {
   /** Autosaves and reloads the page, which continues from the autosave (dev server only). */
   reload(): void;
 }
+
+/** Release only the old session's actors and UI; the persistent world belongs to main.ts. */
+export function disposePlayScene(root: import('three').Object3D, body: Set<Element>) {
+  root.removeFromParent();
+  root.traverse(object => {
+    const mesh = object as import('three').Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) material.dispose();
+  });
+  for (const element of [...document.body.children]) if (!body.has(element)) element.remove();
+}

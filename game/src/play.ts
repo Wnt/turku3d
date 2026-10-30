@@ -47,7 +47,7 @@ import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
 import { DropoffGuard } from './gameplay/missions/dropoffs';
 import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
-import { applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
+import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
@@ -589,14 +589,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       minimap.dispose();
       if (coarse) coarse.onMapChange = null;
       fullscreen.dispose();
-      root.removeFromParent();
-      root.traverse(o => {
-        const mesh = o as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.geometry.dispose();
-        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) m.dispose();
-      });
-      for (const el of [...document.body.children]) if (!body.has(el)) el.remove();
+      disposePlayScene(root, body);
       return snapshot;
     },
     reload() {
