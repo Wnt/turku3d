@@ -406,7 +406,7 @@ def main():
     )
     from turku3d.coarse.idle import IdlePrebuild, multiplayer_present, route_walk
     from turku3d.coarse.navigation import navigation
-    idle = IdlePrebuild(builder, lambda: route_walk(json.loads(navigation(root)), settings['tile_bounds']),
+    idle = IdlePrebuild(builder, lambda: route_walk(json.loads(navigation(root)), settings['idle_tile_bounds']),
                         multiplayer_present)
     idle.start()
     prefetcher.on_landed = lambda unit: builder.landed()

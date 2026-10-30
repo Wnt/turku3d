@@ -4,6 +4,7 @@ import importlib.util
 import io
 import hashlib
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -17,6 +18,22 @@ from turku3d.coarse.demand import Demand
 
 
 class PublicTest(unittest.TestCase):
+    def test_outer_destinations_share_public_and_asset_bounds(self):
+        root = Path(__file__).parent
+        settings = json.loads((root / "config.json").read_text())
+        asset_pattern = next(line.split("path_regexp asset ", 1)[1].strip()
+                             for line in (root / "Caddyfile").read_text().splitlines()
+                             if "path_regexp asset " in line)
+        for tile in ("t0_-1_-29", "t0_-13_37", "t0_-42_33", "t0_-64_64", "t0_64_-64"):
+            self.assertEqual(public.public_route(f"/coarse/{tile}/manifest.json", settings["tile_bounds"]),
+                             ("manifest", tile))
+            self.assertIsNotNone(re.fullmatch(asset_pattern, f"/coarse/{tile}/vis." + "a" * 64 + ".glb"))
+        for tile in ("t0_65_0", "t0_0_-65"):
+            self.assertEqual(public.public_route(f"/coarse/{tile}/manifest.json", settings["tile_bounds"]),
+                             ("invalid", None))
+            self.assertIsNone(re.fullmatch(asset_pattern, f"/coarse/{tile}/vis." + "a" * 64 + ".glb"))
+        self.assertEqual(settings["idle_tile_bounds"], [-24, -24, 24, 24])
+
     def test_concurrent_polls_share_validation_and_publication_invalidates_it(self):
         from concurrent.futures import ThreadPoolExecutor
         calls = []
