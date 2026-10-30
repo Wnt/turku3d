@@ -1,5 +1,6 @@
 {
-  "tile_bounds": [-24, -24, 24, 24],
+  "tile_bounds": [-64, -64, 64, 64],
+  "idle_tile_bounds": [-24, -24, 24, 24],
   "queue_max": 24,
   "workers": 4,
   "port": 7765

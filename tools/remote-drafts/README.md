@@ -89,6 +89,15 @@ updates at an hour boundary when possible. Draft-only updates do not restart it.
 
 ## Idle route warming and player demand
 
+Public tile indices range from -64 through 64 in each direction (250 m tiles),
+including the airport, Kakskerta and Vepsä. `config.json` controls admission;
+the immutable-asset matcher in `Caddyfile` must agree with it. Source coverage
+still applies: admitting a tile does not create missing terrain data.
+`idle_tile_bounds` retains the existing -24 through 24 warming footprint, so
+the expanded region is generated on player demand rather than a new area batch.
+These serving settings are outside both generator content hashes and do not
+invalidate existing tile products, facade assets or stage caches.
+
 After 120 seconds without game draft requests or multiplayer connections, the
 active producer fills all four build slots from a 150 m route-distance walk starting
 at the pizzeria. Each route tile and its eight neighbours is completed in full
