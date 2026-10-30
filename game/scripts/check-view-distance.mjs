@@ -18,20 +18,21 @@ try {
   page.on('request', request => { if (/\/coarse\/t0_.*\/manifest.json/.test(request.url())) report.requests.push(request.url()); });
   await page.goto('https://wnt.github.io/turku-game/game/?dev=1', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 150_000 });
-  await page.getByRole('option', { name: 'New game', exact: true }).click();
-  const skip = page.getByRole('button', { name: 'Skip', exact: true });
-  await skip.waitFor({ timeout: 15_000 }); await skip.click();
+  console.log('Published game ready; entering Multiplayer.');
+  await page.getByText('Multiplayer', { exact: true }).click();
   await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 60_000 });
   await page.locator('#dev-layers > button').click();
   const select = page.locator('#dev-view-distance');
   assert.equal(await select.inputValue(), '0');
   await select.selectOption('3000');
   await page.waitForFunction(() => window.__game.coarse.screenshotScenery.radius === 3000);
+  console.log('Developer 3 km preset applied.');
   report.extended = await page.evaluate(() => ({ far: window.__render.camera.far,
     progress: window.__game.coarse.screenshotScenery.progress, collisionRadius: window.__game.streamer.radius }));
   assert.ok(report.extended.far >= 12000);
   await select.selectOption('1000');
   await page.waitForFunction(() => window.__game.coarse.screenshotScenery.progress.loaded >= 4, null, { timeout: 180_000 });
+  console.log('Real scenery beyond nearby physics loaded.');
   report.loaded = await page.evaluate(() => ({ progress: window.__game.coarse.screenshotScenery.progress,
     collisionRadius: window.__game.streamer.radius,
     scenery: [...window.__game.coarse.screenshotScenery.entries].filter(([, e]) => e.model).map(([id]) => id),
@@ -48,5 +49,5 @@ try {
   report.ok = true;
 } finally {
   clearTimeout(deadline); fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(report, null, 2));
-  await browser.close(); console.log(JSON.stringify(report));
+  await browser.close(); console.log(JSON.stringify({ ...report, requests: report.requests.length }));
 }
