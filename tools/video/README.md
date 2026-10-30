@@ -34,6 +34,8 @@ Start from the assigned `showcase-video-v3` sandbox. Initialise only owned direc
 ```sh
 source ../sandbox.env
 mkdir -p "$TURKU3D_WORK/video/"{shots,audio,edit,review,evidence}
+npm ci --no-audit --no-fund
+npm ci --prefix qa/render --no-audit --no-fund
 npm ci --prefix game --no-audit --no-fund
 npm ci --prefix server --no-audit --no-fund
 python3 scripts/dev/host_slots.py build -- node tools/video/build.mjs
