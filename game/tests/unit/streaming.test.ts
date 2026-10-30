@@ -190,7 +190,7 @@ test('new retained collision wakes admission before the 250 ms polling interval'
   const s = new CollisionStreamer(manifest, physics as never, 100);
   try {
     expect(s.update(20, 20)).toEqual([]);
-    const entry = { url: 'c_0_0.col', bytes: 4, sha256: 'ready' };
+    const entry = { url: 'c_0_0.col', bytes: 4, sha256: 'ready', tris: 1, h: [0, 1] as [number, number] };
     (manifest as { collision: Record<string, typeof entry> }).collision.c_0_0 = entry;
     s.retain('c_0_0', entry, new ArrayBuffer(4));
     clock.mockReturnValue(16);
