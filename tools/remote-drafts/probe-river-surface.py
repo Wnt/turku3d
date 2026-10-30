@@ -134,9 +134,14 @@ def verify(out, manifest):
                 bank_triangles=len(bank.indices), internal_bank_triangles=0, bare_prototypes=0)
 
 
-def curl(path):
+def curl(path, *, internal=False):
+    if internal:
+        port = int(Path('/home/ubuntu/turku3d-drafts/ACTIVE_PORT').read_text())
+        origin = f'http://127.0.0.1:{port}'
+    else:
+        origin = 'https://turku.lab.madekivi.fi'
     return json.loads(subprocess.check_output([
-        'curl', '-fsS', '--max-time', '4', 'https://turku.lab.madekivi.fi/coarse/' + path,
+        'curl', '-fsS', '--max-time', '4', origin + '/coarse/' + path,
     ], text=True))
 
 
@@ -144,7 +149,7 @@ def served():
     deadline = time.monotonic() + 180
     pending, rows = set(SPAWN), {}
     while pending and time.monotonic() < deadline:
-        status = curl('status')
+        status = curl('status', internal=True)
         generation = status['code']
         active = Path('/home/ubuntu/turku3d-drafts/repo').resolve()
         assert (active / 'pipeline/turku3d/coarse/water.py').read_bytes() == Path(water.__file__).read_bytes()
