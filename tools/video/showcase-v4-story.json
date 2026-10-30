@@ -1,0 +1,271 @@
+[
+  {
+    "id": "hook",
+    "title": "A city that builds as you move",
+    "label": "TURKU3D / IN DEVELOPMENT",
+    "text": "This is Turku, running in a browser. Drive beyond the familiar streets, and the world builds around you.",
+    "minimum_seconds": 8,
+    "shots": [
+      "archive_hook"
+    ],
+    "sources": [
+      "game/src/world/coarseTiles.ts"
+    ],
+    "archive": [
+      [
+        0,
+        8
+      ]
+    ]
+  },
+  {
+    "id": "game",
+    "title": "One permit. A city of deliveries.",
+    "label": "PLAY THE CITY",
+    "text": "Get a courier permit under Aura Bridge. Walk the riverbank, drive the route, and turn pizza deliveries into money.",
+    "minimum_seconds": 10,
+    "shots": [
+      "archive_game"
+    ],
+    "sources": [
+      "game/src/gameplay/missions/missions.ts",
+      "game/src/gameplay/content/shops.ts"
+    ],
+    "archive": [
+      [
+        8,
+        10
+      ],
+      [
+        11,
+        13
+      ],
+      [
+        16,
+        19
+      ],
+      [
+        23,
+        26
+      ]
+    ]
+  },
+  {
+    "id": "rounds",
+    "title": "Play together",
+    "label": "PLAY TOGETHER",
+    "text": "Bring your friends. Drive together, vote for a timed round, and race to earn the most.",
+    "minimum_seconds": 6,
+    "shots": [
+      "archive_rounds"
+    ],
+    "sources": [
+      "game/src/net/roundMenu.ts",
+      "game/src/net/rounds.ts",
+      "review-v3.md#capture-and-editorial-provenance"
+    ],
+    "archive": [
+      [
+        26,
+        32
+      ]
+    ]
+  },
+  {
+    "id": "generation",
+    "title": "Basic first. Textured next.",
+    "label": "ON-DEMAND WORLD",
+    "text": "As players move, the generator builds new tiles. This isolated build uses the same server and cached stages. First, geometry and collision. Then, textures. The clock shows real elapsed time.",
+    "minimum_seconds": 16,
+    "shots": [
+      "archive_generation"
+    ],
+    "sources": [
+      "review-v4-evidence/archive-v3/isolated-oci-cityhall.json",
+      "review-v4-evidence/archive-v3/generation-isolated-cityhall-events.jsonl",
+      "game/src/world/coarseTiles.ts"
+    ],
+    "archive": [
+      [
+        44,
+        60
+      ]
+    ],
+    "retime": [
+      [
+        0,
+        3,
+        3
+      ],
+      [
+        3,
+        14,
+        9.3
+      ],
+      [
+        14,
+        16,
+        3.7
+      ]
+    ]
+  },
+  {
+    "id": "lidar",
+    "title": "Start with the laser returns",
+    "label": "01 / MEASURE THE CITY",
+    "text": "Lidar records measured positions. Classification separates ground from roofs, trees and other objects.",
+    "minimum_seconds": 7,
+    "shots": [
+      "lidar_orbit"
+    ],
+    "sources": [
+      "pipeline/turku3d/lidar/README.md"
+    ],
+    "asset": "lidar"
+  },
+  {
+    "id": "relief",
+    "title": "Height becomes terrain and collision",
+    "label": "GROUND / STRUCTURES",
+    "text": "Ground samples become terrain and collision. Mapped curbs and stairs add structure; their heights still need checks.",
+    "minimum_seconds": 7,
+    "shots": [
+      "street_track"
+    ],
+    "sources": [
+      "tools/video/sources.py",
+      "pipeline/turku3d/coarse/inputs.py",
+      "pipeline/turku3d/coarse/kerbs.py",
+      "pipeline/turku3d/coarse/stairs.py"
+    ],
+    "asset": "relief"
+  },
+  {
+    "id": "ortho",
+    "title": "The same camera over the office block",
+    "label": "2022 TRUE ORTHOPHOTO → GAME",
+    "text": "The twenty twenty two aerial image and game show the same office block, from the same camera.",
+    "minimum_seconds": 6,
+    "shots": [
+      "ortho_top"
+    ],
+    "sources": [
+      "tools/video/showcase-v4-sources.py",
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "lod2",
+    "title": "Roof shapes checked against lidar",
+    "label": "CITY LOD2 + BUILDING REGISTER",
+    "text": "City models supply roof shapes. Available lidar checks and refines the roof envelope.",
+    "minimum_seconds": 6,
+    "shots": [
+      "roof_orbit"
+    ],
+    "sources": [
+      "pipeline/turku3d/coarse/README.md",
+      "pipeline/turku3d/coarse/roofs.py",
+      "pipeline/turku3d/coarse/inputs.py"
+    ],
+    "asset": "lod2"
+  },
+  {
+    "id": "osm",
+    "title": "Map tags become a connected world",
+    "label": "OPENSTREETMAP / LOCAL EXTRACT",
+    "text": "OpenStreetMap supplies streets, trees, barriers and bridge tags. Roads connect; fences follow terrain; bridge decks carry the crossing.",
+    "minimum_seconds": 8,
+    "shots": [
+      "bridge_cross"
+    ],
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ],
+    "asset": "osm"
+  },
+  {
+    "id": "parameters",
+    "title": "Parameters become a facade",
+    "label": "FACADE PARAMETERS → PROCEDURAL MAP",
+    "text": "Local facade references become colour, storeys and window rhythm: parameters rendered procedurally, without photograph pixels.",
+    "minimum_seconds": 8,
+    "shots": [
+      "facade_close"
+    ],
+    "sources": [
+      "docs/reports/textures-fast-facade-pass.md"
+    ],
+    "asset": "parameters"
+  },
+  {
+    "id": "passes",
+    "title": "Two passes. Reuse unchanged work.",
+    "label": "TURKU CATHEDRAL / CURRENT GAME",
+    "text": "Content hashes reuse stages. Basic tiles first; textured detail next.",
+    "minimum_seconds": 5,
+    "shots": [
+      "cathedral"
+    ],
+    "sources": [
+      "pipeline/turku3d/coarse/README.md"
+    ]
+  },
+  {
+    "id": "stream",
+    "title": "A small host. A streamed world.",
+    "label": "GENERATOR → BROWSER",
+    "text": "Models and collision stream through a forwarder to the browser. Web G P U draws; Rapier handles physics.",
+    "minimum_seconds": 8,
+    "shots": [
+      "archive_stream"
+    ],
+    "sources": [
+      "game/src/main.ts",
+      "game/src/physics/client.ts",
+      "tools/bulk-warmup/README.md",
+      "tools/remote-drafts/README.md"
+    ],
+    "archive": [
+      [
+        78,
+        86
+      ]
+    ]
+  },
+  {
+    "id": "numbers",
+    "title": "1,555 / 2,401 tiles warm",
+    "label": "MEASURED / 30 OCTOBER 2026",
+    "text": "The earlier capture counted fifteen hundred and fifty five warm tiles. A separate sixty four core run built eleven hundred and twenty eight in thirty six minutes. Coverage remains incomplete.",
+    "minimum_seconds": 13,
+    "shots": [
+      "pool"
+    ],
+    "sources": [
+      "review-v3-evidence/coarse-health-accuracy.json",
+      "tools/bulk-warmup/README.md",
+      "docs/reports/flight-loop.md"
+    ]
+  },
+  {
+    "id": "credits",
+    "title": "The next street is waiting.",
+    "label": "TURKU3D",
+    "text": "A real city, a working game, and a world that keeps growing. Turku three D.",
+    "minimum_seconds": 9,
+    "shots": [
+      "archive_credits"
+    ],
+    "sources": [
+      "City of Turku CC BY 4.0",
+      "OpenStreetMap ODbL"
+    ],
+    "archive": [
+      [
+        110,
+        118.8
+      ]
+    ]
+  }
+]

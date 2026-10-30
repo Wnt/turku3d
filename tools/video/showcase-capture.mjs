@@ -11,13 +11,13 @@ isolateBrowser();
 const root=path.join(workRoot,'video');
 const mode=process.argv[2]??'probe';
 const selection=process.argv[3]?.split(',');
-const shots=JSON.parse(fs.readFileSync('tools/video/showcase-shots.json'));
+const shots=JSON.parse(fs.readFileSync(process.env.TURKU3D_VIDEO_SHOTS ?? 'tools/video/showcase-shots.json'));
 const timelinePath=path.join(root,'timeline.json');
 if(fs.existsSync(timelinePath))for(const scene of JSON.parse(fs.readFileSync(timelinePath))) {
   for(const id of scene.shots){const shot=shots.find(s=>s.id===id);if(shot)shot.seconds=scene.duration/scene.shots.length;}
 }
 fs.mkdirSync(path.join(root,'shots'),{recursive:true});
-const context=await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR,'showcase-v3'),{
+const context=await chromium.launchPersistentContext(path.join(process.env.TURKU3D_BROWSER_DIR,'showcase'),{
  ignoreDefaultArgs: chromeIgnoreDefaultArgs, executablePath: chromeExecutable(),headless:true,viewport:{width:1920,height:1080},deviceScaleFactor:1,
  args:chromeArgs(['--enable-unsafe-webgpu','--use-angle=metal','--ignore-gpu-blocklist','--disable-background-timer-throttling']),
 });
@@ -92,7 +92,10 @@ try {
     el.textContent='';const label=document.createElement('span');label.textContent=marker.label;
     label.style.cssText='position:absolute;left:58px;top:3px;padding:7px 12px;background:#061019e8;color:#75e7cf;font:bold 23px Arial;white-space:nowrap';el.append(label);
    },shot.marker);
-   if(f%30===0||mode==='probe')motion.push({frame:f,...state});
+   if(f%30===0||mode==='probe'||shot.id==='ortho_top') {
+    const camera=await page.evaluate(()=>({projection:window.__render.camera.projectionMatrix.elements,view:window.__render.camera.matrixWorldInverse.elements}));
+    motion.push({frame:f,...state,camera});
+   }
    if(mode==='probe')await page.screenshot({path:path.join(root,'shots',`${shot.id}-probe-${f}.png`)});
    else {
     const bytes=await page.screenshot({type:'jpeg',quality:95});

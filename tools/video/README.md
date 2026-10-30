@@ -11,6 +11,58 @@ images and all game frames carry City of Turku / CC BY 4.0 and OpenStreetMap / O
 attributions. The thumbnail comes from a captured game frame. There are no uploads,
 external multiplayer connections, host gamepads, or paid services.
 
+## Showcase v4 (30 October 2026)
+
+The 117-second v4 cut retains v3's real generation event and gameplay, and expands
+source-to-game explanation to 47 seconds. New current-assets WebGPU shots include
+the office, Auransilta, Cathedral and Samppalinna outdoor pool. The classified lidar
+orbit and relief use **class 2 only**: class 12 overlap returns are not automatically
+ground. The orthophoto is projected using every captured game camera's view and
+projection matrices, onto H=0; the comparison explicitly discloses terrain/roof height
+differences. The old ground-colour claim is removed: current streets use classified
+material maps. No generator source or deployment is changed for this cut.
+
+V3's generation demo remains an explicitly dated isolated cached build/time-lapse;
+the 11:30 UTC warm-tile snapshot and bulk-run numbers are historical observations,
+not current performance promises. Archived clips have non-overlapping source ranges.
+Media and provenance stay in `~/turku3d/media/pipeline-video/`; nothing is uploaded.
+
+From the assigned `showcase-video-v4` checkout, source `../sandbox.env`, initialise
+`$TURKU3D_WORK/video/{shots,audio,assets,edit,review,evidence}`, install/build the game
+and start the three local servers exactly as in v3 below. Then:
+
+```sh
+source ../sandbox.env
+export TURKU3D_VIDEO_SHOTS=tools/video/showcase-v4-shots.json
+python3 tools/video/browser.py node tools/video/showcase-capture.mjs music lidar_orbit
+python3 tools/video/browser.py node tools/video/showcase-capture.mjs capture
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/video/sources.py
+PYTHONPATH=textures bash pipeline/env/run.sh python tools/video/facade.py
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/video/showcase-v4-sources.py lidar ortho
+HF_HOME="$HOME/turku3d/tools/voice/hf" HF_HUB_OFFLINE=1 \
+  python3 scripts/dev/host_slots.py build -- \
+  "$HOME/turku3d/tools/voice/bench/kokoro/bin/python" tools/video/voice.py narrate \
+  --voice bf_emma --story tools/video/showcase-v4-story.json
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/video/showcase-v4-compose.py extract
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/video/showcase-v4-compose.py render
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/video/showcase-v4-compose.py finish
+python3 scripts/dev/host_slots.py build -- bash pipeline/env/run.sh python tools/video/showcase-v4-review.py
+```
+
+Capture the orthophoto shot before producing its projected source video; its metadata
+contains one camera matrix pair per frame. `render --scene ID,ID` revises individual
+scenes; `timeline` rewrites the script, chapters and token-aligned subtitles. Source
+shots retain current WebGPU backend/error/motion evidence, and the review verifies
+that none of the archived source ranges overlap. `--quick` checks the delivered
+files and evidence without decoding the entire video. Full review produces labelled
+two-second contact sheets, loudness, freeze, silence and black-frame analysis. The
+retained `review-v4-evidence/` supports fresh-sandbox post-merge verification.
+
+Outputs: `turku3d-showcase-v4.mp4`, `turku3d-showcase-v4-preview-720p.mp4`, matching
+`.srt`, `chapters-v4.txt`, `thumbnail-v4.png`, `script-v4.md`, and `review-v4.md`.
+V3 files are never overwritten. The four independent review lenses remain accuracy,
+visual quality, audience/pacing and audio/narration, with at most two rounds.
+
 ## Showcase v3 (30 October 2026)
 
 The 118.8-second showcase adds real courier interactions, a paid delivery, driving,
@@ -107,7 +159,7 @@ small reports when discarding intermediate videos and audio after approval.
 
 Outputs: `turku3d-showcase-v3.mp4`, `turku3d-showcase-v3-preview-720p.mp4`, matching
 `.srt`, `chapters-v3.txt`, `script-v3.md`, `thumbnail-v3.png`, and `review-v3.md` in
-`~/turku3d/media/pipeline-video/`. A 720p preview uses 1.1 Mb/s video and 64 kb/s AAC,
+`~/turku3d/media/pipeline-video/`. A 720p preview uses 1.1 Mb/s video and copies the mastered AAC,
 with an enforced 25 MB maximum. No source imagery or captured frames are committed.
 
 ## Rebuild v2

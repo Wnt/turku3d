@@ -197,7 +197,7 @@ def normalize(source, target, level=-14, peak=-1.5):
     return m
 
 
-def finish(story):
+def finish(story, edition="v3", thumbnail_callback=None):
     duration=sum(s['duration'] for s in story)
     listing=ROOT/'edit/concat.txt'
     listing.write_text(''.join(f"file '{ROOT/'edit'/s['id']}.mp4'\n" for s in story))
@@ -208,14 +208,14 @@ def finish(story):
          '-filter_complex',graph,'-map','[mix]','-ar','48000',str(ROOT/'audio/mix.wav')])
     metrics=normalize(ROOT/'audio/mix.wav',ROOT/'audio/final.wav')
     (ROOT/'review/mix-normalization.json').write_text(json.dumps(metrics,indent=2)+'\n')
-    final=OUT/'turku3d-showcase-v3.mp4'
+    final=OUT/f'turku3d-showcase-{edition}.mp4'
     run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(listing),'-i',str(ROOT/'audio/final.wav'),
          '-map','0:v','-map','1:a','-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-movflags','+faststart','-shortest',str(final)])
     run(['ffmpeg','-v','error','-y','-i',str(final),'-vf','scale=1280:720','-c:v','libx264','-preset','fast',
-         '-b:v','1100k','-maxrate','1200k','-bufsize','2200k','-threads','3','-c:a','aac','-b:a','64k',
-         '-movflags','+faststart',str(OUT/'turku3d-showcase-v3-preview-720p.mp4')])
-    assert (OUT/'turku3d-showcase-v3-preview-720p.mp4').stat().st_size < 25_000_000
-    thumbnail()
+         '-b:v','1100k','-maxrate','1200k','-bufsize','2200k','-threads','3','-c:a','copy',
+         '-movflags','+faststart',str(OUT/f'turku3d-showcase-{edition}-preview-720p.mp4')])
+    assert (OUT/f'turku3d-showcase-{edition}-preview-720p.mp4').stat().st_size < 25_000_000
+    (thumbnail_callback or thumbnail)()
     print(final,flush=True)
 
 
