@@ -88,7 +88,10 @@ class BuildHealth:
                 p90_seconds=round(durations[math.ceil(len(durations) * 0.9) - 1], 3)
                 if durations
                 else None,
-                success_rate=counts["built"] / len(selected) if selected else None,
+                # Cancellations follow player demand (preemption), not build health: only failures count against success.
+                success_rate=counts["built"] / (counts["built"] + counts["failed"])
+                if counts["built"] + counts["failed"]
+                else None,
                 last_error_kind=next(
                     (r["error_kind"] for r in reversed(selected) if r.get("error_kind")), None
                 ),
