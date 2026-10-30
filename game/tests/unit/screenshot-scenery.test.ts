@@ -41,7 +41,7 @@ test('normal residency takes over scenery; reset invalidates an in-flight model'
   const { scene, nearby, scenery, load, dispose } = setup();
   scenery.setRadius(1000); scenery.update(125, 125, 0); await settle();
   const first = scene.children[0];
-  nearby.set('t0_0_0', { model: new THREE.Group() } as Entry);
+  nearby.set('t0_0_0', { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() });
   scenery.update(125, 125, 1000); await settle();
   expect(first.parent).toBeNull();
   const releases: ((model: THREE.Group) => void)[] = [];
