@@ -18,7 +18,7 @@ def upgrade_order(builder, tile):
     return (0 if requested else 1, -requested, distance, tile)
 
 
-def next_upgrade(builder):
+def next_upgrade(builder, *, before=None):
     if builder.draining:
         return None
     # Reserve crossing capacity even between leases: a returning client must
@@ -33,6 +33,8 @@ def next_upgrade(builder):
     for tile in sorted(builder.upgrade_queue, key=lambda t: upgrade_order(builder, t)):
         limit = max(1, builder.workers - 1)
         lease = builder.demand.rank(tile)
+        if before is not None and (lease is None or lease >= before):
+            continue
         # A nearer crossing may still be building its first pass. Leave room
         # for its upgrade instead of committing every upgrade slot farther ahead.
         if builder.workers > 1 and urgent_first is not None and (lease is None or urgent_first < lease):
@@ -56,6 +58,15 @@ def next_job(builder, upgrade_only=False):
     if not upgrade_only:
         order = builder.order()
         imminent = bool(order and builder.job_rank(order[0], builder.priority[order[0]])[0] == 0)
+        # The urgent lease includes a long swept corridor. Finishing a nearer
+        # crossing must not wait for every distant first pass in that corridor.
+        # Equal-ranked crossings from another player still get their first pass,
+        # and next_upgrade retains the worker reserved for new crossings.
+        first_lease = builder.demand.rank(order[0]) if imminent else None
+        if first_lease is not None:
+            upgrade = next_upgrade(builder, before=first_lease)
+            if upgrade is not None:
+                return upgrade, True
         visible_upgrade = any(
             (r := builder.demand.rank(t)) is not None and r[0] <= 1 for t in builder.upgrade_queue
         )

@@ -39,6 +39,15 @@ export function wantedTiles(x: number, z: number): string[] {
     .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b));
 }
 
+/** Retain the normal window plus 75 m of boundary hysteresis, at most 4x4 per start. */
+export function retainDraftTile(id: string, points: readonly { x: number; z: number }[]) {
+  const tile = parse(id);
+  if (!tile || tile.level !== 0) return false;
+  const x0 = tile.i * VISUAL_L0, z0 = tile.j * VISUAL_L0;
+  return points.some(point => Math.max(x0 - point.x, point.x - x0 - VISUAL_L0,
+    z0 - point.z, point.z - z0 - VISUAL_L0) <= VISUAL_L0 + 75);
+}
+
 /** The 16 collision cells (62.5 m) of L0 tile `id`. */
 export function cellsOf(id: string): string[] {
   const t = parse(id);
@@ -91,6 +100,18 @@ export function draftDemand(visible: string[], ahead: string[], x: number, z: nu
   }).slice(0, 128);
   const urgent = ordered.filter(id => id === here || (path ? path.includes(id) : Number.isFinite(arrivalToL0(id, x, z, vx, vz))));
   return { tiles: ordered, urgent, visible: ordered.filter(id => visible.includes(id)) };
+}
+
+/** Prepare one imminent path tile beyond the normal window, never the whole build-ahead cone. */
+export function lookaheadTile(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[]) {
+  const speed = Math.hypot(vx, vz);
+  if (speed < 1) return undefined;
+  return draftDemand(visible, ahead, x, z, vx, vz, path).urgent.find(id => {
+    if (visible.includes(id)) return false;
+    const distance = distToL0(id, x, z);
+    const arrival = path ? distance / speed : arrivalToL0(id, x, z, vx, vz);
+    return distance <= 2 * VISUAL_L0 && arrival <= 30;
+  });
 }
 
 /** Remaining route corridor within 60 s, capped at 3 km; ignores stale/off-route hints and never sends the polyline. */

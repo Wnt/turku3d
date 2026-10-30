@@ -93,6 +93,7 @@ def summarize(root):
                 kind=e["kind"],
                 tile=e.get("id", e.get("tile")),
                 pass_kind=e.get("pass"),
+                stale=e.get("stale"),
                 seconds=round((e["at"] - start) / 1000, 2),
             )
             for e in events

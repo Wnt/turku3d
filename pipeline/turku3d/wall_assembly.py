@@ -47,6 +47,49 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             refs.append((mi - len(protected), ti))
     if not records:
         return list(meshes)
+
+    def projected_candidates(a, b):
+        # For any axis n, intersection area <= projected overlap width / |n|
+        # times diameter(a). Its L1 bounding-box diameter is an upper bound;
+        # max(abs(n)) is a lower bound for |n|. This also bounds touching pairs.
+        # Round every bound operation outwards, including the dot products.
+        # Rounded edge subtraction only chooses an axis, so needs no correction.
+        keep = np.ones(len(a), dtype=bool)
+        finite = np.isfinite(a).all(axis=(1, 2)) & np.isfinite(b).all(axis=(1, 2))
+
+        def interval(points, nx, ny):
+            x = points[:, :, 0] * nx[:, None]
+            y = points[:, :, 1] * ny[:, None]
+            low = np.nextafter(np.nextafter(x, -np.inf) + np.nextafter(y, -np.inf), -np.inf)
+            high = np.nextafter(np.nextafter(x, np.inf) + np.nextafter(y, np.inf), np.inf)
+            return low.min(axis=1), high.max(axis=1)
+
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore", under="ignore"):
+            diameter = np.nextafter(
+                np.nextafter(np.ptp(a[:, :, 0], axis=1), np.inf)
+                + np.nextafter(np.ptp(a[:, :, 1], axis=1), np.inf), np.inf,
+            )
+            for edge in range(3):
+                active = np.flatnonzero(keep & finite)
+                if not len(active):
+                    break
+                aa, bb = a[active], b[active]
+                direction = aa[:, (edge + 1) % 3] - aa[:, edge]
+                nx, ny = -direction[:, 1], direction[:, 0]
+                lo_a, hi_a = interval(aa, nx, ny)
+                lo_b, hi_b = interval(bb, nx, ny)
+                width = np.maximum(0, np.nextafter(
+                    np.minimum(hi_a, hi_b) - np.maximum(lo_a, lo_b), np.inf,
+                ))
+                denominator = np.maximum(np.abs(nx), np.abs(ny))
+                upper = np.nextafter(
+                    np.nextafter(width * diameter[active], np.inf) / denominator, np.inf,
+                )
+                valid = np.isfinite(upper) & np.isfinite(direction).all(axis=1) & (denominator > 0)
+                # Ambiguous arithmetic stays with GEOS; retain the scalar cut gate.
+                keep[active[valid & (upper < 1e-8)]] = False
+        return keep
+
     # A neighbour pass must not repeat local cuts after another float32 conversion.
     indexed_count = (next((i for i, (mi, _) in enumerate(refs) if mi >= 0), len(refs))
                      if protected_only else len(refs))
@@ -92,6 +135,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             projected = np.einsum("ijk,ilk->ijl", points[js] - points[ii, :1], bases[ii])
             keep = ((projected.max(axis=1) > projected_sources[ii].min(axis=1) - 1e-9)
                     & (projected.min(axis=1) < projected_sources[ii].max(axis=1) + 1e-9)).all(axis=1)
+            ii, js, projected = ii[keep], js[keep], projected[keep]
+            if not len(ii):
+                continue
+            keep = projected_candidates(projected_sources[ii], projected)
             ii, js, projected = ii[keep], js[keep], projected[keep]
             if not len(ii):
                 continue

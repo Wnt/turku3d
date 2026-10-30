@@ -312,3 +312,133 @@ cache cap and post-flight GC measurements described above are part of this slice
 
 Other agents' collision compaction and reflection/resource-retirement changes are
 rebased before the next run and must be included when interpreting client timings.
+
+## 2026-10-30, iteration 6: south replay after wall and client batching fixes
+
+Slice `a61e9245` deployed after the selected checks passed in 1.41 s; Pages took
+7.96 s and OCI publication 11.72 s. Smoke completed in 0.56 s: endpoints were up,
+but the rolling full-pass p50 of 31.66 s and five cancellations kept health red.
+The `after-05` flight passed in 111.72 s, including startup and evidence collection.
+Evidence is in `checks/a61e9245799743a8508f3c0f02fbe06d4a493df5/work/reports/flight-loop/after-05/`.
+
+| Measurement, after flight installation | Original south | South replay |
+| --- | ---: | ---: |
+| First target first / full visual + collision | first missed / 14.27 s | 10.18 / 34.51 s |
+| Second target first / full visual + collision | 37.54 / 62.87 s | 18.79 / 50.68 s |
+| Return to start | 86.91 s | 74.33 s |
+| Same-hash return GLB load median, five matching assets | 2571 ms | 1247 ms |
+| Main-thread long tasks, including startup | 8 | 7 |
+
+The target first builds took 2.958/2.817 s and full builds 5.915/22.030 s.
+This is shipped-output-cold but input/stage-warm: the first passes reused the
+terrain, building, stair and collision stages. The wall stage source changed,
+so the full passes rebuilt wall meshes in 1.180/11.783 s; neighbour processing
+was 0.619/1.365 s, with admission waits below 0.5 ms. These mixed cache conditions
+and concurrent source changes prevent attributing the entire route improvement
+to one fix. In particular, this replay does not repeat the original uncached
+walkable preparation. The direct uncached and exact-output probes above provide
+that evidence separately. First-pass `stale:true` here means the full manifest
+is not ready; it does not mean these first outputs survived the reset.
+
+Five previously loaded GLB hashes were rebuilt into models without another
+network or Resource Timing GLB request, consistent with raw-byte cache hits.
+Their summed load wall time fell from 11.60 to 5.46 s. The only return GLB request
+was a genuinely new home-tile hash, taking 1053 ms. Return responses comprised
+262 service-worker storage hits, six HTTP-cache hits and nine network responses;
+Resource Timing median/p90 were 2.75/5.91 ms across 277 assets. Preparation still
+costs a median 1656 ms and maximum 3915 ms; the largest apply takes 5189 ms.
+Raw-byte caching avoids delivery, but reconstruction and graphics preparation remain.
+The 101.17 MiB visual working set fits even the old 128 MiB cap, so this round
+validates cache hits, not the isolated benefit of increasing the cap to 256 MiB.
+
+Peak main-thread heap was 1284.50 MiB; after flight, forced GC reduced
+1018.50 to 965.58 MiB. This different route cannot establish the batching fix's
+memory saving against north's 3179 MiB peak; the matched real-model CPU probe
+above does isolate it. Capture-excluded frame intervals were 8.34 ms median,
+16.68 ms p90 and 75.79 ms maximum. Reflection and attribute-retirement changes
+from `675b703e` are included. All 26 HTTP failures were ahead-demand collision
+429s; no asset 404/5xx or transport failure occurred. Host CPU was effectively
+saturated, CPU pressure avg10 averaged 58.99, and available memory stayed above
+10.36 GiB. Two multiplayer players were online throughout the measured flight.
+The producer instance remained stable; extra geometry-oracle CPU work began
+only after this flight ended.
+
+All 22 screenshots were inspected. Frames 3–5 already show solid first-pass
+terrain and buildings ahead, rather than the original empty frontier. Frames
+6–12 show the gradual facade/detail arrival; the plain-to-detailed transition
+remains visible. Frames 13–17 show the populated return route, and 18–21 the
+intentional stationary observation at the start. No blank home view or capture
+resize was observed. The next route starts at Tuomiokirkko and travels east,
+covering a different initial area as well as direction. North remains the worst
+observed full-arrival route (171.97 s with a retained old full; refreshed full
+finished after that round), so it still needs a matched replay after cold wall work.
+
+## 2026-10-30, iteration 7: east from Tuomiokirkko
+
+`before-06` uses a fresh headed profile, joins multiplayer, then uses the existing
+Developer teleport to Tuomiokirkko. Relocation and start-tile readiness took 9.43 s,
+recorded separately from the flight. The server remained on `a61e9245` and a stable
+producer instance; the client included the later reflection/edge-freeze releases.
+Only the eastern route's shipped outputs were moved aside. Both firsts took
+2.627/3.710 s and reused structural stages; full `t0_5_-1` also had a cold building
+visual stage. This run completed in 258.71 s before trace collection.
+
+| Measurement after flight installation | Cathedral east |
+| --- | ---: |
+| `t0_4_-1` first / full visual + collision | 11.12 / 196.17 s |
+| `t0_5_-1` first / full visual + collision | 17.17 / 81.40 s |
+| Full server build, first / second target | 11.269 / 47.246 s |
+| Turn / returned | 195.82 / 221.50 s |
+| Frame median / p90, excluding captures | 8.33 / 10.32 ms |
+| Peak / post-GC main-thread heap | 1886.74 / 1600.33 MiB |
+
+The first target spent about 171 s between its first completion and full admission.
+At 81–102 s, all three upgrade slots belonged to distant full passes, including
+other-player tiles; the fourth worker retained first-pass capacity. This is the
+new worst completed full-arrival route, despite a short final build. Two players
+were online in 77 of 78 measured host samples. CPU pressure avg10 averaged 45.99
+and peaked at 64.38. A read-only wall profile accidentally overlapped approximately
+23:43:18–23:44:08 UTC, then its own processes were stopped. Treat this extra load
+as a comparison caveat; no other process was interrupted.
+
+Return Resource Timing median/p90 was 2.47/4.11 ms across 450 assets; one GLB
+request took 1376 ms. Responses comprised 417 service-worker storage hits, nine
+HTTP-cache hits and 25 network responses. Three ahead-collision requests returned
+429; no asset failure or resize occurred. All 58 screenshots were inspected:
+frames 3–10 show plain first-pass city; 11–19 intentionally wait at the far end;
+20 adds full foreground detail, while much of the horizon stays plain through 44.
+Frames 45–47 show the next visible detail upgrade, 48–53 the populated return,
+and 54–57 the stationary cathedral observation. The repeated frames are deliberate
+waiting, not a rendering stall. The delayed detail is visibly significant.
+
+### Next incremental slice
+
+A conservative projected-area upper bound now rejects touching/disjoint wall
+triangle pairs before GEOS. Arithmetic rounds outwards and ambiguous inputs stay
+with GEOS. On 408,641 actual projected pairs it retained all 37 positive pairs,
+reducing GEOS plus filtering from 4.707 to 0.431 s. Complete assembly of three
+actual buildings fell from 2.099 to 1.090 s with identical output hash and 30,242
+triangles. A 142-mesh/641,940-triangle candidate completed in 39.188 s, producing
+642,327 triangles; the baseline exceeded 55 s. Full-layer equality is therefore
+not established by that capped comparison; the complete smaller oracle is exact.
+
+Admission now allows an earlier-ranked urgent full upgrade before a later-ranked
+urgent first pass. Equal/earlier crossings and the reserved first-pass worker
+remain protected. Replaying the captured south demand/queue selected `t0_0_8`
+first before the fix, versus the ready `t0_0_2` upgrade afterwards. This is an
+ordering probe, not a counterfactual wall-time claim for all concurrent clients.
+
+The client prepares at most one stable urgent tile beyond its normal window,
+within 500 m and 30 seconds. It uses the existing atomic visual/collision path,
+keeps core requests independent, and drops departed models normally. Replaying
+south positions selected the second target at 7.64 s versus its old asset request
+at 17.92 s; first output was actually available at 9.81 s. Live gain remains to
+be measured. All other distant tiles remain metadata-only.
+
+Preparation instrumentation now separates styling, combined static/shadow work,
+graphics execution, shader building, scheduler waits, pipeline creation and
+upload CPU calls. Vegetation plus the outer graphics queue remain a combined
+span. Earlier recordings after the initial baseline did not retain CDP traces:
+the page-scoped trace completion silently timed out. The runner now records trace
+completion explicitly, uses the browser CDP session and compressed trace stream,
+and captures CDP heap/backing-storage counters after the measured flight.

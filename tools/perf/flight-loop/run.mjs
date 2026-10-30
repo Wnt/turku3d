@@ -7,6 +7,9 @@ import { chromium } from '../../../game/node_modules/playwright-core/index.mjs';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../dev/chrome-args.mjs';
 import { isolateBrowser, reportsRoot, port } from '../../dev/environment.mjs';
 import { installFlight } from './runtime.mjs';
+import { installPreparation } from './preparation.mjs';
+import { PLACES } from '../../../game/src/gameplay/content/places.ts';
+import { enToEngine, VISUAL_L0 } from '../../../game/src/core/origin.ts';
 
 isolateBrowser();
 const label = process.argv[2];
@@ -17,8 +20,21 @@ const directions = {
   north: { dx: 0, dz: -1, axis: 2, sign: -1, edge: 0, targets: ['t0_0_-1', 't0_0_-2'], cold: ['t0_-1_-1', 't0_0_-1', 't0_1_-1', 't0_0_-2'] },
   east: { dx: 1, dz: 0, axis: 0, sign: 1, edge: 500, targets: ['t0_2_1', 't0_3_1'], cold: ['t0_2_0', 't0_2_1', 't0_2_2', 't0_3_1'] },
 };
-const direction = process.argv[3] ?? 'south', route = directions[direction];
+const direction = process.argv[3] ?? 'south';
+let route = directions[direction];
 if (!route) throw new Error('Direction must be south, west, north or east');
+const placeId = process.argv[4];
+const place = placeId && PLACES.find(p => p.id === placeId);
+if (placeId && !place) throw new Error(`Unknown starting place: ${placeId}`);
+if (place) {
+  const { x, z } = enToEngine(place.E, place.N);
+  const i = Math.floor(x / VISUAL_L0), j = Math.floor(z / VISUAL_L0);
+  const { dx, dz, axis, sign } = route;
+  const tile = (along, across = 0) => `t0_${i + dx * along + dz * across}_${j + dz * along + dx * across}`;
+  route = { dx, dz, axis, sign, startPlace: place.id, startTile: tile(0),
+    edge: ((axis === 0 ? i : j) + (sign > 0 ? 2 : -1)) * VISUAL_L0,
+    targets: [tile(2), tile(3)], cold: [tile(2, -1), tile(2), tile(2, 1), tile(3)] };
+}
 const output = path.join(reportsRoot, 'flight-loop', label);
 const profile = path.join(process.env.TURKU3D_BROWSER_DIR, label);
 if (fs.existsSync(profile) || fs.existsSync(output)) throw new Error('Use a new label for an empty profile and unambiguous evidence');
@@ -31,11 +47,12 @@ const context = await chromium.launchPersistentContext(profile, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: false,
   viewport: null, args: chromeArgs(['--window-size=1280,900', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
 });
-let monitor, healthTimer, trace = false, session;
+let monitor, healthTimer, trace = false, session, traceSession;
 const page = context.pages()[0];
 const saveResult = async interrupted => {
   const result = await page.evaluate(() => window.__flight && ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
-    resources: window.__resources, resizes: window.__resizes, captures: window.__captures }));
+    resources: window.__resources, resizes: window.__resizes, captures: window.__captures,
+    preparation: window.__preparation?.snapshot() }));
   if (!result) return;
   Object.assign(result, { direction, route, ...(interrupted ? { interrupted } : {}) });
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
@@ -73,7 +90,8 @@ try {
     new PerformanceObserver(list => window.__resources.push(...list.getEntries().map(e => ({ ...e.toJSON(), at: performance.timeOrigin + e.startTime })))).observe({ type: 'resource', buffered: true });
     new PerformanceObserver(list => window.__longTasks.push(...list.getEntries().map(e => ({ at: performance.timeOrigin + e.startTime, ms: e.duration })))).observe({ type: 'longtask', buffered: true });
   });
-  await session.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing,disabled-by-default-devtools.timeline', transferMode: 'ReturnAsStream' }); trace = true;
+  traceSession = await context.browser().newBrowserCDPSession();
+  await traceSession.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing', transferMode: 'ReturnAsStream', streamCompression: 'gzip' }); trace = true;
   const cold = execFileSync('ssh', [...ssh, `python3 - cold ${label} ${route.cold.join(',')}`], { input: host, encoding: 'utf8', timeout: 135000 });
   fs.writeFileSync(path.join(output, 'cold.jsonl'), cold);
   const hostLog = fs.openSync(path.join(output, 'host.jsonl'), 'w');
@@ -99,6 +117,24 @@ try {
     await page.getByRole('button', { name: 'Skip', exact: true }).click();
   }
   await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 60000 });
+  if (place) {
+    const relocationAt = Date.now();
+    await page.keyboard.press('Escape');
+    await page.locator('[data-option="dev"]').click();
+    await page.locator('[data-option="teleport"]').click();
+    await page.locator(`[data-option="place-${place.id}"]`).click();
+    await page.waitForFunction(({ E, N }) => {
+      const s = window.__game.state();
+      return !s.loading && Math.hypot(s.E - E, s.N - N) < 2;
+    }, place, { timeout: 60000 });
+    await page.waitForFunction(id => {
+      const e = window.__game.coarse.entries.get(id);
+      return !!e?.model && e.collision.size === 16;
+    }, route.startTile, { timeout: 120000 });
+    log('setup.jsonl', { kind: 'relocated', place: place.id, ms: Date.now() - relocationAt,
+      state: await page.evaluate(() => window.__game.state()) });
+  }
+  log('setup.jsonl', { kind: 'preparation-hooks', capabilities: await page.evaluate(installPreparation) });
   console.log(JSON.stringify({ stage: 'flight', installed: await page.evaluate(installFlight, route) }));
   let shot = 0;
   const dimensions = () => ({ width: innerWidth, height: innerHeight, dpr: devicePixelRatio, resizes: window.__resizes.length,
@@ -133,11 +169,15 @@ try {
     await page.waitForTimeout(4000);
   }
   const result = await saveResult();
+  await page.evaluate(() => window.__preparation?.dispose());
   // After flight timings end, separate transient allocations from retained main-thread heap.
   const beforeGc = await page.evaluate(() => performance.memory?.usedJSHeapSize);
+  const beforeUsage = await session.send('Runtime.getHeapUsage');
   await session.send('HeapProfiler.collectGarbage');
   const afterGc = await page.evaluate(() => performance.memory?.usedJSHeapSize);
+  const afterUsage = await session.send('Runtime.getHeapUsage');
   result.heapAfterFlight = { beforeGc, afterGc };
+  result.heapUsageAfterFlight = { beforeGc: beforeUsage, afterGc: afterUsage };
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
   if (!result.done) throw new Error('Flight did not complete before deadline');
@@ -147,13 +187,16 @@ try {
 } finally {
   clearTimeout(deadline); clearInterval(healthTimer);
   if (trace) {
-    const completed = new Promise(resolve => session.once('Tracing.tracingComplete', resolve));
-    await session.send('Tracing.end').catch(() => {});
-    const result = await Promise.race([completed, new Promise(resolve => setTimeout(() => resolve(null), 10000))]);
+    const completed = new Promise(resolve => traceSession.once('Tracing.tracingComplete', resolve));
+    await traceSession.send('Tracing.end').catch(error => log('trace-status.jsonl', { error: error.message }));
+    let traceTimeout;
+    const result = await Promise.race([completed, new Promise(resolve => { traceTimeout = setTimeout(() => resolve(null), 30000); })]);
+    clearTimeout(traceTimeout);
+    log('trace-status.jsonl', { complete: !!result?.stream, dataLossOccurred: result?.dataLossOccurred });
     if (result?.stream) {
-      const fd = fs.openSync(path.join(output, 'trace.json'), 'w');
-      try { for (;;) { const r = await session.send('IO.read', { handle: result.stream }); fs.writeSync(fd, r.base64Encoded ? Buffer.from(r.data, 'base64') : r.data); if (r.eof) break; } }
-      finally { fs.closeSync(fd); await session.send('IO.close', { handle: result.stream }); }
+      const fd = fs.openSync(path.join(output, 'trace.json.gz'), 'w');
+      try { for (;;) { const r = await traceSession.send('IO.read', { handle: result.stream }); fs.writeSync(fd, r.base64Encoded ? Buffer.from(r.data, 'base64') : r.data); if (r.eof) break; } }
+      finally { fs.closeSync(fd); await traceSession.send('IO.close', { handle: result.stream }); }
     }
   }
   monitor?.kill('SIGTERM');
