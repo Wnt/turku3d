@@ -510,3 +510,23 @@ the first model arrives; 5–9 show plain first-pass city, 10–16 the detail up
 There was no blank home view or capture resize. Cathedral east remains the worst
 completed full arrival at 196.17 s; the historical interrupted north first
 arrival was 158.21 s. The next round will use another starting area and direction.
+
+### Client slice after iteration 8
+
+Static batching now rebinds eligible detached facade sources to subarray views of
+the merged immutable program storage. Each source keeps its own Three.js buffer
+owner; base geometry, transforms and release restoration are unchanged. Shared
+geometries, dynamic buffers, pending update ranges and custom upload callbacks
+retain their original storage. On the recorded dense north model, all 46 output
+meshes and restored source bytes matched exactly. Retained geometry backing fell
+from 550.49 to 355.38 MiB (195.10 MiB saved); program storage fell from 420.39 to
+225.29 MiB. Batching CPU stayed approximately 223.5 ms and allocation peak did not
+improve. Seven ownership/lifecycle fixture cases passed. This is a retained-memory
+reduction, not a claim of faster preparation or lower GPU memory.
+
+The helper now keeps compile/builder samples separately, preserving phase events
+through return. Numeric-only inventories at installation, completion and post-GC
+deduplicate actual backing buffers across source, static, shadow and scene
+geometry and texture data. They exclude GPU/native image memory and private idle
+caches. The next route is north from Turku Castle, targeting `t0_-8_4` and
+`t0_-8_3`; its new starting area makes timing comparisons exploratory.

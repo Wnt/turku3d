@@ -183,6 +183,10 @@ try {
   const afterUsage = await session.send('Runtime.getHeapUsage');
   result.heapAfterFlight = { beforeGc, afterGc };
   result.heapUsageAfterFlight = { beforeGc: beforeUsage, afterGc: afterUsage };
+  result.preparation = await page.evaluate(() => {
+    window.__preparation?.sampleMemory('post-gc');
+    return window.__preparation?.snapshot({ memory: false });
+  });
   fs.writeFileSync(path.join(output, 'result.json'), JSON.stringify(result));
   console.log(JSON.stringify({ stage: 'complete', done: result.done, phase: result.phase, seconds: (Date.now() - started) / 1000, output }));
   if (!result.done) throw new Error('Flight did not complete before deadline');
