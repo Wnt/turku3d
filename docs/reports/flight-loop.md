@@ -594,3 +594,60 @@ two-second sweep no longer blocks three maintenance snapshots or demand expiry
 in a deterministic probe; overlapping sweeps, early repeat, drain and stop cases
 passed. Twenty-eight existing affected tests passed. Live cadence will be measured
 on the next flight, west from Kauppatori (`t0_-2_-1`, `t0_-3_-1`).
+
+## 2026-10-30, iteration 10: west from Kauppatori and wrap-up
+
+`after-09` on `16304de3` completed in 262.99 s including the failed 30 s trace
+export. First pairs arrived at 13.29/15.32 s, full pairs at 71.81/158.04 s.
+Services took 6.248/4.907 s first and 56.018/85.467 s full. Target 2 waited
+53.32 s for an upgrade slot while earlier startup/full commitments occupied the
+three available slots. Its first pair still arrived 5.02 s before normal-window
+entry. Cold building visuals cost 27.78/50.33 s, walls 11.76/21.13 s; wall admission
+waits were below 0.5 ms. The producer stayed stable; CPU averaged 98.3% busy.
+
+Retention sweeps of 6.35, 5.88 and 6.82 s no longer blocked maintenance: observed
+snapshot ages during sweeps were 0.41–0.77 s, maximum age overall 1.91 s. This
+confirms the live benefit of separating retention from demand expiry/telemetry.
+
+All nine repeated return hashes avoided GLB requests. Repeated load median/max
+was 1657/3147 ms; the slowest preparation took 8.82 s. Static/shadow construction
+accounted for 23.29 s of overlapping return spans (48%), versus 14.78 s graphics.
+Peak memory reached 5728.43 MiB; post-GC backing storage was 3266.02 MiB plus
+99.40 MiB JS heap. Inventory found 2387.29 MiB, including 1494.71 MiB facade
+program buffers and substantial source/batch duplication. Seven HTTP failures
+were distant collision 429s. Frames were 8.34 ms median, 16.74 ms p90 and
+366.67 ms maximum, excluding captures.
+
+All 50 screenshots were inspected: frame 3 shows the initial empty frontier,
+4–9 plain first-pass city, 10–14 partial detail arrival, and 15–38 the intentional
+far-end wait. Return frames 41 and 43 show transient missing city ahead before
+later frames fill it; 45–49 show the populated start. Raw cache hits alone do
+not solve these reconstruction delays. No capture resize occurred.
+
+The exact current market asset exposed the remaining batching issue: asynchronous
+meshopt workers created seven facade attribute insertion orders. All three large
+buckets rejected the packed fast path solely because field offsets differed;
+every source passed the sharing safety guards. Canonical sorting in both program
+packing and batch validation reduces these to one layout. A replay preserved
+59,058,131 Float32 component bits/counts by field name and enabled all three
+buckets, containing 195.10 MiB of programs. Thirteen existing tests and typecheck
+passed. Live memory/render gains remain unmeasured.
+
+The final exact wall change adds bounded depth slabs. Complete retained-layer
+output again matched (642,325 triangles): raw pairs fell 99.06M to 59.70M and
+local assembly 13.782 to 11.794 s (14.4%). Nineteen existing tests passed; no
+protected facade cutting was removed.
+
+Trace capacity was not exhausted (66.86% maximum), and the early listener did not
+resolve export. An already-started short diagnostic reproduced a gzip timeout;
+uncompressed export returned 17.0 MB in 0.73 s. The flight runner still needs that
+transport change and a full-flight verification. Separately, a bounded local
+building-visual profile attributed 23.27 of 26.35 s to paint partitioning, mainly
+repeated unions and trapezoid operations. Its mesh/triangle counts match OCI but
+its complete hash differs, so this is explicitly inexact evidence, with no
+behavior change made from it.
+
+Jonni requested wrap-up by 03:00: no new experiments, cache wipes or flight rounds.
+All owned browsers and probes are stopped. Only the already-green canonical
+layout and exact depth-slab changes are being landed. Further deployed flight
+validation is intentionally deferred to preserve final testing and warm-up.
