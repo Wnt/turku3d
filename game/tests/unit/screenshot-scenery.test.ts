@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { ScreenshotScenery } from '../../src/world/screenshotScenery';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
+import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
@@ -54,11 +55,12 @@ test('normal residency takes over scenery; reset invalidates an in-flight model'
   expect(late.parent).toBeNull(); expect(dispose).toHaveBeenCalledWith(late, expect.any(String));
 });
 
-test('3 km from the supplied east-city viewpoint includes the cathedral and farther scenery', () => {
+test('5 km from the supplied east-city viewpoint includes the cathedral and farther scenery', () => {
   const { scenery } = setup();
-  scenery.setRadius(3000); scenery.update(3749.71, 436.7, 0, true);
-  // The cathedral lies in t0_3_0, well beyond the ordinary 3x3 around t0_14_1.
-  expect((scenery as unknown as { wanted: string[] }).wanted).toContain('t0_3_0');
+  scenery.setRadius(5000); scenery.update(3749.71, 436.7, 0, true);
+  const cathedral = PLACES.find(p => p.id === 'tuomiokirkko')!;
+  const id = `t0_${Math.floor((cathedral.E - 23459500) / 250)}_${Math.floor((6704500 - cathedral.N) / 250)}`;
+  expect((scenery as unknown as { wanted: string[] }).wanted).toContain(id);
   expect(scenery.progress.total).toBeGreaterThan(400);
 });
 

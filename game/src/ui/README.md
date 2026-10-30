@@ -238,8 +238,8 @@ Fullscreen has a reserved safe-area-aware top-right row; scoreboard/status/notic
 In developer mode (localhost or `?dev=1`), open **Layers · F4 / LB** and choose
 **View distance → 1, 2, 3 or 5 km · screenshot**. The radius follows the player,
 loads full authored scenery beyond the normal nearby window, moves fog beyond the
-selected range and extends the camera, sky and far vegetation. Use 3 or 5 km for
-views towards Tuomiokirkko from the eastern city. The panel reports loaded scenery,
+selected range and extends the camera, sky and far vegetation. Use 5 km for
+views past Tuomiokirkko from the eastern city. The panel reports loaded scenery,
 full-detail work and retries; uncached tiles take time to generate. FPS and memory
 use can be substantial. **Normal** releases extra scenery and restores rendering
 limits. This session-only setting starts at Normal after a reload. Nearby collision
