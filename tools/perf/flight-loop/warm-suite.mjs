@@ -11,7 +11,10 @@ function run(suffix, direction, offset = 3) {
     child.on('exit', code => code === 0 ? resolve() : reject(new Error(`${suffix}: exit ${code}`)));
   });
 }
-await run('north', 'north');
-await run('diagonal', 'northeast');
-const players = await Promise.allSettled([run('player-one', 'north', 3), run('player-two', 'east', 4)]);
-for (const player of players) if (player.status === 'rejected') throw player.reason;
+const outcomes = [];
+for (const [suffix, direction] of [['north', 'north'], ['diagonal', 'northeast']]) {
+  outcomes.push(...await Promise.allSettled([run(suffix, direction)]));
+}
+outcomes.push(...await Promise.allSettled([run('player-one', 'north', 3), run('player-two', 'east', 4)]));
+const failures = outcomes.filter(result => result.status === 'rejected').map(result => result.reason);
+if (failures.length) throw new AggregateError(failures, 'Deployed flight acceptance failed');
