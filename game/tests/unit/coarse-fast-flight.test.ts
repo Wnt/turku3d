@@ -41,7 +41,15 @@ test.each([[1, 0], [-1, 0], [0, 1], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]])(
 test('fast flight prepares several upcoming tiles while ordinary movement stays bounded', () => {
   const x = 125, z = 125;
   const forward = (speed: number) => preparationTiles(wantedTiles(x, z), aheadTiles(x, z, speed, 0), x, z, speed, 0);
-  expect(forward(FLY.fastSpeed)).toEqual(['t0_2_0', 't0_3_0', 't0_4_0', 't0_5_0', 't0_6_0', 't0_7_0', 't0_8_0']);
-  expect(forward(14)).toEqual(['t0_2_0']);
-  expect(forward(0)).toEqual([]);
+  expect(forward(FLY.fastSpeed).slice(0, 7)).toEqual(['t0_2_0', 't0_3_0', 't0_4_0', 't0_5_0', 't0_6_0', 't0_7_0', 't0_8_0']);
+  expect(forward(FLY.fastSpeed)).toHaveLength(8);
+  expect(forward(14)[0]).toBe('t0_2_0');
+  expect(forward(0)).toHaveLength(8);
+  for (const id of ['t0_0_-2', 't0_0_2', 't0_-2_0', 't0_2_0']) expect(forward(0)).toContain(id);
+});
+
+
+test('stationary surface reserve covers the first north crossing from the office boundary', () => {
+  const x = 175, z = 257;
+  expect(preparationTiles(wantedTiles(x, z), [], x, z, 0, 0)[0]).toBe('t0_0_-1');
 });

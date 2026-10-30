@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { chromium } from '../../../game/node_modules/playwright-core/index.mjs';
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../dev/chrome-args.mjs';
 import { isolateBrowser, reportsRoot, port } from '../../dev/environment.mjs';
@@ -13,6 +14,7 @@ if (!directions[direction]) throw new Error('Unknown direction');
 const navigation = new URL(requestedUrl);
 navigation.searchParams.set('flight_probe', label);
 const url = navigation.href;
+const expectedRelease = process.env.FLIGHT_BUILD ? null : execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const output = path.join(reportsRoot, 'warm-flight', label);
 const profile = path.join(process.env.TURKU3D_BROWSER_DIR, label);
 if (fs.existsSync(output)) throw new Error('Use a new evidence label');
@@ -71,13 +73,15 @@ try {
   for (let attempt = 0; ; attempt++) {
     navigation.searchParams.set('publication_attempt', String(attempt));
     await page.goto(navigation.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 120000 });
-    const error = await page.evaluate(() => window.__qaError); if (error) throw new Error(error);
-    if (await page.evaluate(() => typeof window.__game?.coarse?.host.previewCollision === 'function')) break;
-    if (Date.now() >= publishedDeadline) throw new Error('Pages still serves a client without cached surface streaming');
+    const published = await page.locator('meta[name="turku3d-release"]').getAttribute('content', { timeout: 1000 }).catch(() => null);
+    if (!expectedRelease || published === expectedRelease) break;
+    if (Date.now() >= publishedDeadline) throw new Error(`Pages serves ${published}, expected ${expectedRelease}`);
     console.log(JSON.stringify({ stage: 'waiting-for-pages-publication', attempt }));
     await page.waitForTimeout(2000);
   }
+  await page.waitForFunction(() => window.__game?.ready || window.__qaError, null, { timeout: 120000 });
+  const error = await page.evaluate(() => window.__qaError); if (error) throw new Error(error);
+  fs.writeFileSync(path.join(output, 'release.json'), JSON.stringify({ expectedRelease, url: page.url() }));
   fs.writeFileSync(path.join(output, 'menu.txt'), await page.locator('body').innerText());
   console.log(JSON.stringify({ stage: 'menu', text: (await page.locator('body').innerText()).slice(0, 1800) }));
   const multiplayer = page.locator('[data-option="multiplayer"]');
@@ -89,6 +93,13 @@ try {
   }
   await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 60000 });
   await page.waitForTimeout(5000);
+  if (process.send) {
+    await new Promise(resolve => {
+      process.once('message', () => resolve());
+      process.send({ stage: 'flight-ready' });
+    });
+    process.disconnect();
+  }
   const [dx, dz] = directions[direction];
   // Full move + sprint uses FlyMode's real maximum; this value only scales the initial climb.
   console.log(JSON.stringify({ stage: 'flight', ...await page.evaluate(installWarmFlight, { dx, dz, metres: 2000, speed: 288 }) }));

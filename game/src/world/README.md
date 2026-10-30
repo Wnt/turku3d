@@ -16,7 +16,8 @@ GPU preparation. Existing facade results and textures remain on the detailed mod
 
 Motion from physics drives prediction, including 288 m/s dev flight. The scan runs
 at least four times per tile crossing. A bounded corridor prepares up to eight
-future tiles with four concurrent surface preparations; normal walking uses one.
+future tiles with four concurrent surface preparations. Remaining slots maintain a
+nearby surface reserve, covering sudden acceleration before a heading exists.
 The obsolete single-candidate confirmation delay is removed.
 `VisualTiles` owns resident models, shadow batches and model lifecycle events; it
 performs no HTTP requests. `CollisionStreamer` loads the draft collision inventory
