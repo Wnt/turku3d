@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 
 ROOT = Path('/srv/turku3d/work/coarse')
 OUT = Path(tempfile.mkdtemp(prefix='.build-probe-showcase-', dir=ROOT))
-TILE = 't0_0_1'
-state = {'setup':'isolated deployed generator; shared input/stage caches', 'tile':TILE, 'output':str(OUT), 'started':None, 'passes':{}}
+TILE = 't0_1_0'
+state = {'setup':'isolated deployed generator; shared input/stage caches', 'tile':TILE, 'output':str(OUT), 'pid':os.getpid(), 'started':None, 'passes':{}}
 lock = threading.Lock()
 
 def build():
@@ -48,6 +48,8 @@ def start():
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         route=urlparse(self.path).path
+        if route=='/capture/stop':
+            self.send(200,b'{}','application/json');threading.Thread(target=self.server.shutdown,daemon=True).start();return
         if route=='/capture/status':return self.send(200,json.dumps(state).encode(),'application/json')
         if route.startswith('/coarse/shared/'):
             file=ROOT/'shared'/Path(route).name

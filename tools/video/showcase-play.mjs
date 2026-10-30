@@ -51,6 +51,39 @@ try {
    encoder.stdin.end();const [code]=await once(encoder,'exit');if(code)throw Error(`Encoder ${code}`);
    fs.writeFileSync(path.join(root,'shots',`${id}.json`),JSON.stringify({shot:{id,seconds,gameplay:true},info:{info:{backend:'WebGPU'}},motion,errors},null,2));console.log('Captured',id);
   }
+  if(mode==='delivery') {
+   async function place(x,z,knownY=null){await page.evaluate(async({x,z,knownY})=>{const g=window.__game,h=knownY===null?await g.physics.raycast({x,y:50,z},{x:0,y:-1,z:0},70):null;if(knownY===null&&!h)throw Error('No delivery ground');g.physics.setCharacterEnabled(true,{x,y:knownY??h.point.y+0.1,z});g.orbit.yaw=0;g.orbit.pitch=-.18;},{x,z,knownY});for(let i=0;i<40;i++)await frame();}
+   async function interact(){await page.evaluate(()=>window.__game.input.tapped.add('KeyE'));for(let i=0;i<10;i++)await frame();}
+   async function choose(id){await page.evaluate(id=>window.__game.shopMenu.chosen=id,id);for(let i=0;i<10;i++)await frame();}
+   await place(290,210.84,1.2);await interact();await choose('rent_permit');await choose('leave');
+   await place(77.1,187.6);await interact();await choose('take_order');
+   const target=await page.evaluate(()=>window.__game.missions.snapshot().hud.targets.find(t=>t.kind==='dropoff').point);
+   console.log('Delivery target',target);
+   await place(target.x,target.z+2.5);
+   const before=await page.evaluate(()=>window.__game.missions.snapshot().money);
+   await capture('game_delivery',4,async f=>{if(f===50)await page.evaluate(()=>window.__game.input.tapped.add('KeyE'));return {keys:f<30?['KeyW']:[],yaw:f<50?0:(f-50)*.006};});
+   const after=await page.evaluate(()=>window.__game.missions.snapshot().money);
+   if(after<=before)throw Error('No completed delivery payout');
+   await snap('delivery-result');console.log('Paid delivery',before,after);
+  } else if(mode==='rounds') {
+   await page.evaluate(()=>{const g=window.__game;g.multiplayerClient().round('propose');g.orbit.yaw=-1.07;g.orbit.pitch=-0.18;});
+   for(let i=0;i<15;i++)await frame();
+   await capture('rounds_vote',2,async f=>({yaw:-1.07+f*.003}));
+   await page.evaluate(()=>window.__game.multiplayerClient().round('start',5));
+   for(let i=0;i<5;i++)await frame();
+   await capture('rounds_countdown',3,async f=>({yaw:-.9+f*.003}));
+   await fetch(`http://127.0.0.1:${port(4)}/capture/advance?ms=310000`);
+   for(let i=0;i<15;i++)await frame();
+   await capture('rounds_scoreboard',2,{});
+   await snap('rounds-result');
+   const ids=['rounds_vote','rounds_countdown','rounds_scoreboard'];
+   const listing=path.join(root,'shots/rounds-concat.txt');
+   fs.writeFileSync(listing,ids.map(id=>`file '${path.join(root,'shots',id+'.mp4')}'`).join('\n'));
+   const concat=spawn('ffmpeg',['-v','error','-y','-f','concat','-safe','0','-i',listing,'-c','copy',path.join(root,'shots/rounds_demo.mp4')],{stdio:'inherit'});
+   const [code]=await once(concat,'exit');if(code)throw Error('Round montage failed');
+   const clips=ids.map(id=>JSON.parse(fs.readFileSync(path.join(root,'shots',id+'.json'),'utf8')));
+   fs.writeFileSync(path.join(root,'shots/rounds_demo.json'),JSON.stringify({shot:{id:'rounds_demo',seconds:7,localMultiplayer:true,clockAdvanced:true},info:clips[0].info,motion:clips.flatMap(c=>c.motion),errors:clips.flatMap(c=>c.errors)},null,2));
+  } else {
   await page.evaluate(()=>{window.__game.physics.setCharacterEnabled(true,{x:290,y:1.2,z:210.84});window.__game.orbit.yaw=-1.2;});
   for(let i=0;i<45;i++)await frame();
   await page.evaluate(()=>window.__game.input.tapped.add('KeyE'));
@@ -69,5 +102,6 @@ try {
   const driving=await page.evaluate(()=>window.__game.state().mode);console.log('Drive mode',driving);if(driving!=='car')throw Error('Did not enter car');
   await capture('game_drive',8,async f=>({keys:f<130?['KeyW']:[]}));
   await snap('game-after-drive');
+  }
  }
 } finally {await context.close();}

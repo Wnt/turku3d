@@ -19,7 +19,8 @@
     "shots": [
       "game_market",
       "game_walk",
-      "game_drive"
+      "game_drive",
+      "game_delivery"
     ],
     "text": "Start with a courier permit from the black market under Aura Bridge. Pick up pizzas, follow the route, and turn deliveries into money. Walk the riverbank, get behind the wheel, or work toward your next vehicle.",
     "sources": [
@@ -29,8 +30,9 @@
     "minimum_seconds": 18,
     "shot_seconds": [
       3,
+      4,
       7,
-      8
+      4
     ]
   },
   {
@@ -38,17 +40,23 @@
     "label": "PLAY TOGETHER",
     "title": "Vote. Count down. Compete.",
     "shots": [
+      "convoy",
       "rounds_demo",
       "sunset"
     ],
-    "text": "Timed multiplayer rounds begin with a vote and a countdown, then rank your earnings. The LAN party target is ten players. Above it all, the sun follows the first of July, twenty twenty seven.",
+    "text": "Bring your friends. Drive together, vote for a timed round, and race to earn the most. The LAN party target is ten players. The sun follows the first of July, twenty twenty seven.",
     "sources": [
       "game/src/net/roundMenu.ts",
       "game/src/net/rounds.ts",
       "user brief",
       "game/src/core/dayCycle.ts"
     ],
-    "minimum_seconds": 14
+    "minimum_seconds": 18,
+    "shot_seconds": [
+      6,
+      7,
+      5
+    ]
   },
   {
     "id": "generation",
@@ -57,12 +65,16 @@
     "shots": [
       "generation"
     ],
-    "text": "The map is generated as players move. Here, an isolated build on the same server shows the two passes, reusing existing stage caches. Basic geometry arrives with collision. The textured version replaces it. The inset shows real elapsed time.",
+    "text": "As players move, the generator builds new tiles. This isolated build uses the same server and cached stages. First, geometry and collision. Then, textures. The clock shows real elapsed time.",
     "sources": [
-      "game/src/world/coarseTiles.ts",
-      "video/evidence/relay.jsonl"
+      "video/evidence/isolated-oci-cityhall.json",
+      "video/evidence/generation-isolated-cityhall-events.jsonl",
+      "game/src/world/coarseTiles.ts"
     ],
-    "minimum_seconds": 20
+    "minimum_seconds": 16,
+    "shot_trims": [
+      8.5
+    ]
   },
   {
     "id": "sources",
@@ -109,7 +121,8 @@
     "sources": [
       "video/evidence/coarse-health-accuracy.json",
       "tools/bulk-warmup/README.md",
-      "docs/reports/bulk-warmup-20261030-progress.jsonl"
+      "docs/reports/bulk-warmup-20261030-progress.jsonl",
+      "docs/reports/flight-loop.md#2026-10-30-iteration-10-west-from-kauppatori-and-wrap-up"
     ],
     "minimum_seconds": 18
   },

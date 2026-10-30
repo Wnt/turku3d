@@ -1,4 +1,4 @@
-"""Footage-led v2 edit: unique moving shots, small data overlays, ducked project music."""
+"""Footage-led showcase edit: unique moving shots, small data overlays, ducked project music."""
 from __future__ import annotations
 
 import argparse
@@ -120,7 +120,7 @@ def timeline():
         'All footage: own sandbox WebGPU client, 1920×1080 at 30 fps. Generator assets served through a sandbox relay from deployed OCI.\n\n'
         + ''.join(f"## {stamp(s['start']).split(',')[0]} — {s['title']}\n\n{s['text']}\n\n"
           f"Shots: {', '.join(s['shots'])}. Evidence: {', '.join(s['sources'])}.\n\n" for s in result))
-    chapters = [(s['id'], s['title']) for s in result]
+    chapters = [(s['id'], s['title']) for s in result if s['id'] not in ('game','credits')]
     (OUT/'chapters-v3.txt').write_text('\n'.join(
         f"{int(next(s['start'] for s in result if s['id']==key))//60:02}:{int(next(s['start'] for s in result if s['id']==key))%60:02} {label}"
         for key,label in chapters)+'\n')
@@ -146,8 +146,8 @@ def overlay(scene, kind):
             'generation':['ISOLATED OCI BUILD / SAME DEPLOYED GENERATOR', 'Shared stage/input caches · time-lapse · real elapsed time in inset'],
             'sources':['LIDAR + ORTHOPHOTO + WFS + OSM', 'Ground · water · roads · structures · trees · facade kit'],
             'stream':['GLB + COLLISION CELLS → TILE PRODUCER → FORWARDER → BROWSER', '4-core OCI Arm64 · three.js WebGPU · Rapier worker'],
-            'numbers':['BULK RUN: 1,128 TILES / 36 MIN / 64 CORES', 'Cache snapshot: 30 October 2026 · coverage is incomplete'],
-            'rounds':['LOCAL MULTIPLAYER DEMONSTRATION · LAN TARGET: 10 PLAYERS', 'Sun date: 1 July 2027'],
+            'numbers':['BULK RUN: 1,128 TILES / 36 MIN / 64 CORES', 'Cache snapshot: 30 October 2026 · coverage is incomplete', 'Flight-loop trace: frame p90 16.74 ms / worst 366.67 ms · captures excluded'],
+            'rounds':['LOCAL MULTIPLAYER DEMONSTRATION · LAN TARGET: 10 PLAYERS', 'Round clock advanced for results · sunset uses developer time control'],
             'credits':['City data © City of Turku · CC BY 4.0', 'Map data © OpenStreetMap contributors · ODbL',
                        'Voice: local Kokoro bf_emma · Music: Turku3D / Harbour Glass'],
         }.get(scene['id'], [])
@@ -156,9 +156,6 @@ def overlay(scene, kind):
             d.rounded_rectangle((55,top,1660,top+45+len(lines)*40),16,fill=(6,16,25,220))
             for i,line in enumerate(lines):text(d,(80,top+20+i*40),line,27,TEAL if i==0 else WHITE,i==0)
 
-    elif kind in ['phaseA','phaseB']:
-        d.rounded_rectangle((1220,250,1865,336),16,fill=(6,16,25,235))
-        text(d,(1245,277),'PROCEDURAL DRAFT' if kind=='phaseA' else 'PUBLISHED DETAILED CORE',30,TEAL,True)
     target=ROOT/'edit'/f"{scene['id']}-{kind}.png"
     im.save(target)
     return target
@@ -171,10 +168,13 @@ def render_scene(scene):
     for i,shot in enumerate(scene['shots']):
         source=ROOT/'shots'/f'{shot}.mp4'
         duration=float(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration','-of','csv=p=0',str(source)]))
-        inputs += ['-i',str(source)]
+        start=scene.get('shot_trims',[0]*count)[i]
+        duration-=start
+        inputs += ['-ss',str(start),'-i',str(source)]
         frames=round(scene['shot_seconds'][i]*FPS) if scene.get('shot_seconds') else scene['frames']//count
-        filters.append(f'[{i}:v]setpts={frames/FPS/duration}*PTS,fps=30,trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]')
-    filters.append(''.join(f'[v{i}]' for i in range(count))+f'concat=n={count}:v=1:a=0,eq=contrast=1.045:saturation=1.055:brightness=-0.008[base]')
+        speed=1 if scene.get('shot_seconds') and duration>=frames/FPS else frames/FPS/duration
+        filters.append(f'[{i}:v]setpts={speed}*PTS,fps=30,trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]')
+    filters.append(''.join(f'[v{i}]' for i in range(count))+f'concat=n={count}:v=1:a=0,eq=contrast=1.08:saturation=1.10:brightness=-0.012:gamma=0.97[base]')
     for kind in ['title','credit','data']:
         inputs += ['-loop','1','-i',str(overlay(scene,kind))]
     panel_end=min(7.0,scene['duration']-0.5) if scene.get('asset')=='parameters' else scene['duration']-0.5
@@ -182,11 +182,7 @@ def render_scene(scene):
                 f'[base][title]overlay=0:0:shortest=1[a]',
                 f'[a][{count+1}:v]overlay=0:0:shortest=1[b]',
                 f'[b][{count+2}:v]overlay=0:0:shortest=1:enable=\'between(t,1.3,{panel_end})\'[v]']
-    if scene['id']=='swap':
-        for kind in ['phaseA','phaseB']:inputs+=['-loop','1','-i',str(overlay(scene,kind))]
-        filters += [f'[v][{count+3}:v]overlay=0:0:shortest=1:enable=\'lt(t,{scene["duration"]/2})\'[c]',
-                    f'[c][{count+4}:v]overlay=0:0:shortest=1:enable=\'gte(t,{scene["duration"]/2})\'[final]']
-    run(['ffmpeg','-v','error','-y',*inputs,'-filter_complex',';'.join(filters),'-map','[final]' if scene['id']=='swap' else '[v]',
+    run(['ffmpeg','-v','error','-y',*inputs,'-filter_complex',';'.join(filters),'-map','[v]',
          '-frames:v',str(scene['frames']),'-an','-c:v','libx264','-profile:v','high','-crf','18',
          '-preset','fast','-pix_fmt','yuv420p','-threads','3',str(ROOT/'edit'/f"{scene['id']}.mp4")])
     print('Rendered',scene['id'],flush=True)
