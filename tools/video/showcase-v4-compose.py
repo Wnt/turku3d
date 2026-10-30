@@ -47,8 +47,17 @@ def timeline():
                 right=anchors[hi]['start'] if hi<len(words) else row['seconds']
                 for k in range(lo+1,hi):anchors[k]={'start':left+(right-left)*(k-lo-1)/(hi-lo-1),'end':left+(right-left)*(k-lo)/(hi-lo-1)}
             count=math.ceil(len(' '.join(words))/76)
-            for k in range(count):
-                lo=round(k*len(words)/count);hi=round((k+1)*len(words)/count)
+            cuts=[0]
+            numeric={'one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','fifteen','twenty','thirty','sixty','hundred','thousand','and'}
+            weak={'a','the','of','in','to','from','with','and','window'}
+            for k in range(1,count):
+                target=len(' '.join(words))*k/count
+                def penalty(n):
+                    prev=norm(words[n-1]);next_=norm(words[n])
+                    return abs(len(' '.join(words[:n]))-target)+(100 if prev in numeric and next_ in numeric else 0)+(30 if prev in weak or next_=='rhythm' else 0)
+                cuts.append(min(range(cuts[-1]+1,len(words)-(count-k)+1),key=penalty))
+            cuts.append(len(words))
+            for lo,hi in zip(cuts,cuts[1:]):
                 a=cursor+local+anchors[lo]['start'];b=cursor+local+min(row['seconds'],anchors[hi-1]['end'])
                 cues.append(f"{len(cues)+1}\n{base.stamp(a)} --> {base.stamp(b)}\n{textwrap.fill(' '.join(words[lo:hi]),43)}\n")
             samples.append(data);local+=len(data)/rate
@@ -61,7 +70,7 @@ def timeline():
     (ROOT/'timeline.json').write_text(json.dumps(story,indent=2)+'\n')
     (OUT/'turku3d-showcase-v4.srt').write_text('\n'.join(cues))
     (OUT/'script-v4.md').write_text('# Turku3D showcase v4 — measurements become a game\n\nLocal Kokoro bf_emma; original game Harbour Glass music, ducked. v3 gameplay and generation excerpts retain their capture provenance. Pipeline game shots are refreshed against deployed assets.\n\n'+''.join(f"## {base.stamp(s['start'])} — {s['title']}\n\n{s['text']}\n\nSources: {', '.join(s['sources'])}.\n\n" for s in story))
-    chapters=[(0,'A city that builds as you move'),(24,'Basic first, textured next'),(40,'Measure the city'),(60,'Roofs, maps and generated facades'),(87,'Stream the world'),(100,'Measured progress and credits')]
+    chapters=[(0,'A city that builds as you move'),(24,'Basic first, textured next'),(40,'Measure the city'),(60,'Roofs, maps and generated facades'),(95,'Measured progress and credits')]
     (OUT/'chapters-v4.txt').write_text('\n'.join(f'{t//60:02}:{t%60:02} {name}' for t,name in chapters)+'\n')
     print(f'Timeline {cursor:.2f}s',flush=True);return story
 
@@ -102,6 +111,14 @@ def render(story,selection=None):
             # Baked v3 graphics/grade stay intact; do not stack new titles on them.
             src=ROOT/'shots'/f"archive_{scene['id']}.mp4"
             seconds=sum(b-a for a,b in scene['archive'])
+            if scene.get('retime'):
+                filters=[]
+                for i,(start,end,length) in enumerate(scene['retime']):
+                    filters.append(f'[0:v]trim=start={start}:end={end},setpts={length/(end-start)}*(PTS-STARTPTS),fps=30[v{i}]')
+                filters.append(''.join(f'[v{i}]' for i in range(len(scene['retime'])))+f"concat=n={len(scene['retime'])}:v=1:a=0[v]")
+                temp=ROOT/'edit/generation-retimed.mp4'
+                base.run(['ffmpeg','-v','error','-y','-i',str(src),'-filter_complex',';'.join(filters),'-map','[v]','-frames:v',str(scene['frames']),'-an','-c:v','libx264','-crf','18','-preset','fast','-threads','3',str(temp)])
+                src=temp;seconds=scene['duration']
             base.run(['ffmpeg','-v','error','-y','-i',str(src),'-vf',f"setpts={scene['duration']/seconds}*PTS,fps=30",'-frames:v',str(scene['frames']),'-an','-c:v','libx264','-crf','18','-preset','fast','-threads','3',str(ROOT/'edit'/f"{scene['id']}.mp4")])
         else:
             base.render_scene(scene)
@@ -133,7 +150,7 @@ def render_matched(scene):
     base.text(d,(55,870),'City imagery helps classify ground and colour roofs; street surfaces use material maps.',27)
     base.text(d,(55,1040),'© City of Turku · CC BY 4.0   |   © OpenStreetMap contributors · ODbL',23)
     p=ROOT/'edit/matched.png';header.save(p)
-    base.run(['ffmpeg','-v','error','-y','-loop','1','-i',str(p),'-i',str(mapped),'-i',str(src),'-filter_complex',
+    base.run(['ffmpeg','-v','error','-y','-framerate','30','-loop','1','-i',str(p),'-i',str(mapped),'-i',str(src),'-filter_complex',
       '[1:v]scale=900:506[a];[2:v]scale=900:506[b];[0:v][a]overlay=30:245:shortest=1[c];[c][b]overlay=990:245:shortest=1[v]',
       '-map','[v]','-frames:v',str(scene['frames']),'-an','-c:v','libx264','-crf','18','-preset','fast','-threads','3',str(ROOT/'edit/ortho.mp4')])
 
@@ -159,6 +176,10 @@ def clarify_archive(scene):
     temp.replace(target)
 
 def finish(story):
+    for scene in story:
+        info=json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=r_frame_rate,avg_frame_rate,time_base,nb_frames','-of','json',str(ROOT/'edit'/f"{scene['id']}.mp4")]))['streams'][0]
+        assert info['r_frame_rate']==info['avg_frame_rate']=='30/1', f"{scene['id']}: non-30fps input"
+        assert info['time_base']=='1/15360' and int(info['nb_frames'])==scene['frames'], f"{scene['id']}: incompatible concat timestamps"
     def thumbnail():
         frame=ROOT/'edit/thumbnail-v4-frame.png'
         base.run(['ffmpeg','-v','error','-y','-ss','2','-i',str(ROOT/'shots/cathedral.mp4'),'-frames:v','1',str(frame)])

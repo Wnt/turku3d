@@ -159,7 +159,7 @@ small reports when discarding intermediate videos and audio after approval.
 
 Outputs: `turku3d-showcase-v3.mp4`, `turku3d-showcase-v3-preview-720p.mp4`, matching
 `.srt`, `chapters-v3.txt`, `script-v3.md`, `thumbnail-v3.png`, and `review-v3.md` in
-`~/turku3d/media/pipeline-video/`. A 720p preview uses 1.1 Mb/s video and 64 kb/s AAC,
+`~/turku3d/media/pipeline-video/`. A 720p preview uses 1.1 Mb/s video and copies the mastered AAC,
 with an enforced 25 MB maximum. No source imagery or captured frames are committed.
 
 ## Rebuild v2

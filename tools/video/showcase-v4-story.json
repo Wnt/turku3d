@@ -62,8 +62,7 @@
     "sources": [
       "game/src/net/roundMenu.ts",
       "game/src/net/rounds.ts",
-      "user brief",
-      "game/src/core/dayCycle.ts"
+      "review-v3.md#capture-and-editorial-provenance"
     ],
     "archive": [
       [
@@ -82,14 +81,31 @@
       "archive_generation"
     ],
     "sources": [
-      "video/evidence/isolated-oci-cityhall.json",
-      "video/evidence/generation-isolated-cityhall-events.jsonl",
+      "review-v4-evidence/archive-v3/isolated-oci-cityhall.json",
+      "review-v4-evidence/archive-v3/generation-isolated-cityhall-events.jsonl",
       "game/src/world/coarseTiles.ts"
     ],
     "archive": [
       [
         44,
         60
+      ]
+    ],
+    "retime": [
+      [
+        0,
+        3,
+        3
+      ],
+      [
+        3,
+        14,
+        9.3
+      ],
+      [
+        14,
+        16,
+        3.7
       ]
     ]
   },
@@ -158,7 +174,7 @@
     "id": "osm",
     "title": "Map tags become a connected world",
     "label": "OPENSTREETMAP / LOCAL EXTRACT",
-    "text": "OpenStreetMap supplies streets, trees, barriers and bridge tags. Roads connect; fences follow terrain; bridge decks leave space below.",
+    "text": "OpenStreetMap supplies streets, trees, barriers and bridge tags. Roads connect; fences follow terrain; bridge decks carry the crossing.",
     "minimum_seconds": 8,
     "shots": [
       "bridge_cross"

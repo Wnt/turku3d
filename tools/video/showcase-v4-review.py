@@ -20,6 +20,7 @@ info=probe(final);video=next(s for s in info['streams'] if s['codec_type']=='vid
 assert (video['width'],video['height'],video['r_frame_rate'],video['codec_name'],video['profile'])==(1920,1080,'30/1','h264','High')
 assert (sound['codec_name'],sound['sample_rate'])==('aac','48000')
 duration=float(info['format']['duration']);assert 110<=duration<=125
+assert video['avg_frame_rate']=='30/1' and int(video['nb_frames'])==round(duration*30), 'Mixed frame-rate export'
 story=read('timeline.json');assert abs(sum(s['duration'] for s in story)-duration)<1/30
 pipeline=[s for s in story if s['id'] in ('lidar','relief','ortho','lod2','osm','parameters','passes')]
 assert 40<=sum(s['duration'] for s in pipeline)<=50
@@ -32,6 +33,11 @@ def secs(t):
 cues=[tuple(map(secs,p)) for p in re.findall(r'(\d\d:\d\d:\d\d,\d\d\d) --> (\d\d:\d\d:\d\d,\d\d\d)',srt)]
 assert cues and all(0<=x<y<=duration for x,y in cues)
 assert all(cues[i][1]<=cues[i+1][0]+.01 for i in range(len(cues)-1))
+# Chapter starts are accurate timeline boundaries and leave at least ten seconds.
+chapters=(out/'chapters-v4.txt').read_text().splitlines()
+starts=[sum(int(v)*m for v,m in zip(line.split()[0].split(':'),[60,1])) for line in chapters]
+assert starts[0]==0 and all(b-a>=10 for a,b in zip(starts,starts[1:]+[duration]))
+assert all(any(abs(t-scene['start'])<1/30 for scene in story) for t in starts)
 archives=[];captures=[]
 for scene in story:
     if scene.get('archive'):
@@ -62,4 +68,6 @@ for begin in range(0,len(images),20):
 for name,args in [('ebur128',['-af','ebur128=peak=true']),('blackdetect',['-vf','blackdetect=d=0.05:pix_th=0.05','-an']),('freezedetect',['-vf','freezedetect=n=-50dB:d=3','-an']),('silencedetect',['-af','silencedetect=noise=-45dB:d=0.7','-vn'])]:
     result=subprocess.run(['ffmpeg','-hide_banner','-i',str(final),*args,'-f','null','-'],capture_output=True,text=True,check=True)
     (review/f'{name}-v4.txt').write_text(result.stderr)
+    if name=='blackdetect':assert 'black_start:' not in result.stderr, 'Black segment in delivered cut'
+    if name=='freezedetect':assert 'freeze_start:' not in result.stderr, 'Three-second freeze in delivered cut'
 print('PASS: format, timeline, preview, captions, archive ranges, current WebGPU footage and matched camera provenance',flush=True)

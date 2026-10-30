@@ -212,7 +212,7 @@ def finish(story, edition="v3", thumbnail_callback=None):
     run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(listing),'-i',str(ROOT/'audio/final.wav'),
          '-map','0:v','-map','1:a','-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-movflags','+faststart','-shortest',str(final)])
     run(['ffmpeg','-v','error','-y','-i',str(final),'-vf','scale=1280:720','-c:v','libx264','-preset','fast',
-         '-b:v','1100k','-maxrate','1200k','-bufsize','2200k','-threads','3','-c:a','aac','-b:a','64k',
+         '-b:v','1100k','-maxrate','1200k','-bufsize','2200k','-threads','3','-c:a','copy',
          '-movflags','+faststart',str(OUT/f'turku3d-showcase-{edition}-preview-720p.mp4')])
     assert (OUT/f'turku3d-showcase-{edition}-preview-720p.mp4').stat().st_size < 25_000_000
     (thumbnail_callback or thumbnail)()
