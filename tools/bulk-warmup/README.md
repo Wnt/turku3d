@@ -55,6 +55,7 @@ Order matters; each step names where it runs. `BULK_HOST=root@<ip>` throughout.
 | `trim-stages.sh` | host | Delete stage caches of finished tiles to save disk |
 | `pull.sh` | OCI | Pull finished tiles (shared textures first) and swap them in atomically |
 | `check-pulled.sh` | OCI | Request random pulled tiles and report any rebuild |
+| `oci-trim-stages.sh` | OCI | Every 10 min, drop stage caches of finished current tiles (keeps the warm-up above its 15 GB disk stop) |
 
 ## What we learned on 2026-10-30
 
