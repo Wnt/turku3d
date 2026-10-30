@@ -13,6 +13,7 @@ from kokoro import KModel, KPipeline
 ap = argparse.ArgumentParser()
 ap.add_argument('mode', choices=['audition', 'narrate'])
 ap.add_argument('--voice', default='bf_emma')
+ap.add_argument('--story', default='tools/video/story.json')
 a = ap.parse_args()
 root = Path(os.environ['TURKU3D_WORK']) / 'video/audio'
 root.mkdir(parents=True, exist_ok=True)
@@ -48,7 +49,7 @@ if a.mode == 'audition':
             sf.write(output, say('From laser points to a playable city. Explore Turku, starting at Läntinen Rantakatu fifteen.', p.stem), 24000)
         print(output.name, flush=True)
 else:
-    story = json.loads(Path('tools/video/story.json').read_text())
+    story = json.loads(Path(a.story).read_text())
     index = []
     try:
         previous = json.loads((root / 'index.json').read_text())
