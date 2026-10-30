@@ -183,3 +183,35 @@ test('only active known collision requests permit a worker hold; failures clear 
     expect(s.pending).toBe(0);
   } finally { warn.mockRestore(); }
 });
+
+test('new retained collision wakes admission before the 250 ms polling interval', async () => {
+  const { manifest, physics } = fakes(0, 0);
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+  const s = new CollisionStreamer(manifest, physics as never, 100);
+  try {
+    expect(s.update(20, 20)).toEqual([]);
+    const entry = { url: 'c_0_0.col', bytes: 4, sha256: 'ready', tris: 1, h: [0, 1] as [number, number] };
+    (manifest as { collision: Record<string, typeof entry> }).collision.c_0_0 = entry;
+    s.retain('c_0_0', entry, new ArrayBuffer(4));
+    clock.mockReturnValue(16);
+    expect(s.update(20, 20)).toEqual(['c_0_0']);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(s.supports(20, 20)).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { clock.mockRestore(); }
+});
+
+test('completed worker loads refill the bounded four slots on the next frame', async () => {
+  const { manifest, physics } = fakes(16, 16);
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+  const s = new CollisionStreamer(manifest, physics as never, 100);
+  try {
+    expect(s.update(300, 300)).toHaveLength(4);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(s.pending).toBe(0);
+    clock.mockReturnValue(16);
+    expect(s.update(300, 300)).toHaveLength(4);
+    expect(s.pending).toBe(4);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  } finally { clock.mockRestore(); }
+});

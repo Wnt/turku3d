@@ -26,7 +26,10 @@ export class CollisionStreamer {
   private known = new Set<string>();
   private lastCheck = -Infinity;
   private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
-  retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) { this.prepared.set(id, { entry, buffer }); }
+  retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) {
+    this.prepared.set(id, { entry, buffer });
+    this.lastCheck = -Infinity; // Newly published ground must reach the worker before the next edge.
+  }
   readonly maxConcurrent = 4;
   /** Tile ids within `r` of (x,z), found through the i/j grid window instead of a scan over the whole manifest
    *  (a city-wide manifest has ~80k collision tiles: a full scan with id parsing costs ~20 ms per call). */
@@ -64,8 +67,8 @@ export class CollisionStreamer {
     return [...out].map(([id, d]) => ({ id, d }));
   }
 
-  /** Call every frame with the focus point and the player's ground velocity (m/s); checks at most 4x per second unless
-   *  forced. Returns ids requested this call. */
+  /** Call every frame with the focus point and the player's ground velocity (m/s); polls at most 4x per second, waking sooner for
+   *  newly retained bytes or a freed worker slot. Returns ids requested this call. */
   update(x: number, z: number, force = false, vx = 0, vz = 0): string[] {
     const now = performance.now();
     if (!force && now - this.lastCheck < 250) return [];
@@ -155,6 +158,7 @@ export class CollisionStreamer {
       }
     } finally {
       this.loading.delete(id);
+      this.lastCheck = -Infinity; // Refill freed slots next frame; polling must not cap throughput.
       this.physics.setTileLoading(id, false);
     }
   }
