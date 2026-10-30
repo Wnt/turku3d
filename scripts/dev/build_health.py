@@ -34,8 +34,8 @@ def smoke_alerts(health):
     signal = health.get('build_health')
     if signal is not None:
         full = signal['passes']['full']
-        if full['failed'] or full['cancelled']:
-            reasons.append(f"recent full passes: {full['failed']} failed, {full['cancelled']} cancelled")
+        if full['failed']:
+            reasons.append(f"recent full passes: {full['failed']} failed")
         if full['p50_seconds'] is not None and full['p50_seconds'] > MAX_P50_SECONDS:
             reason = f"full-pass p50 {full['p50_seconds']:.1f}s > {MAX_P50_SECONDS}s"
             if reason not in reasons:

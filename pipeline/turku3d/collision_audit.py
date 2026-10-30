@@ -49,10 +49,18 @@ def visual_vertices(path: Path) -> tuple[np.ndarray, list[tuple[np.ndarray, np.n
                     attrs = instances["attributes"]
                     translations = accessor_array(js, binary, attrs["TRANSLATION"])
                     scales = accessor_array(js, binary, attrs["SCALE"])
-                    for translation, scale in zip(translations, scales, strict=True):
-                        append(
-                            (points * scale + translation) @ transform[:3, :3].T + transform[:3, 3]
-                        )
+                    rotations = (
+                        accessor_array(js, binary, attrs["ROTATION"])
+                        if "ROTATION" in attrs
+                        else np.tile([0, 0, 0, 1], (len(translations), 1))
+                    )
+                    for translation, scale, rotation in zip(
+                        translations, scales, rotations, strict=True
+                    ):
+                        placed = points * scale
+                        cross = np.cross(rotation[:3], placed)
+                        placed = placed + 2 * (rotation[3] * cross + np.cross(rotation[:3], cross))
+                        append((placed + translation) @ transform[:3, :3].T + transform[:3, 3])
                 else:
                     append(points @ transform[:3, :3].T + transform[:3, 3])
         for child in node.get("children", []):

@@ -6,6 +6,7 @@ import time
 
 import numpy as np
 
+from turku3d.col.format import PRIM_BOX
 from turku3d.col.materials import mat_id, table
 from turku3d.package.gltf import GlbMesh, build_glb
 
@@ -38,6 +39,36 @@ def visual(tile, cells, shells=(), wall_context=(), *, root=None, cache=None):
         indices.append(col.indices + count)
         materials.append(col.materials)
         count += len(col.positions)
+        # First-pass barriers already collide. Draw their exact solid envelopes
+        # until the full pass replaces them with the authored fence prototypes.
+        for primitive in col.primitives:
+            if primitive.kind != PRIM_BOX:
+                raise ValueError(f"{cell.id}: no basic visual for primitive kind {primitive.kind}")
+            corners = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)])
+            corners = corners * primitive.params[:3]
+            q = np.asarray(primitive.rotation)
+            cross = np.cross(q[:3], corners)
+            corners = corners + 2 * (q[3] * cross + np.cross(q[:3], cross))
+            positions.append(corners + primitive.center + np.asarray(cell.origin) - tile.origin)
+            faces = np.array(
+                [
+                    [0, 1, 3],
+                    [0, 3, 2],
+                    [4, 6, 7],
+                    [4, 7, 5],
+                    [0, 4, 5],
+                    [0, 5, 1],
+                    [2, 3, 7],
+                    [2, 7, 6],
+                    [0, 2, 6],
+                    [0, 6, 4],
+                    [1, 5, 7],
+                    [1, 7, 3],
+                ]
+            )
+            indices.append(faces + count)
+            materials.append(np.full(len(faces), primitive.material, np.uint8))
+            count += len(corners)
     pos, idx, ids = np.concatenate(positions), np.concatenate(indices), np.concatenate(materials)
     names = {m.id: m.name for m in table()}
     meshes = []
