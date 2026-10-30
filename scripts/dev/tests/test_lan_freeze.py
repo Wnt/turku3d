@@ -30,3 +30,23 @@ class FreezeTests(unittest.TestCase):
     def test_cutoff_requires_offset(self):
         with self.assertRaisesRegex(ValueError, "UTC offset"):
             lan_freeze.arm("2026-10-30T04:00:00")
+
+    def test_serving_updates_require_byte_identical_frozen_generator_sources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old, new = root / 'old', root / 'new'
+            for source in (old, new):
+                for name in ('pipeline', 'textures', 'game/public/basis'):
+                    (source / name).mkdir(parents=True)
+                    (source / name / 'source').write_bytes(b'frozen')
+                (source / 'tools/remote-drafts').mkdir(parents=True)
+                (source / 'tools/remote-drafts/public.py').write_text(str(source))
+            marker = root / 'freeze.json'
+            marker.write_text(json.dumps({'freeze_at': '2020-10-30T04:00:00+02:00', 'source': str(old)}))
+            with patch.object(lan_freeze, 'MARKER', str(marker)):
+                command = shlex.split(lan_freeze.guard_command(str(new)))
+            self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            (new / 'pipeline/source').write_bytes(b'changed')
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            (new / 'pipeline/source').unlink()
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)

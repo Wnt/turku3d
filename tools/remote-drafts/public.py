@@ -174,10 +174,13 @@ def publication_key(builder, tile):
 
 
 def public_handler(builder, prefetcher, settings):
+    from ready_fragments import ReadyFragments
+
     base = handler(builder, prefetcher)
     instance = os.urandom(8).hex()
     bundles = CollisionBundles(builder.root)
     responses = Responses()
+    ready = ReadyFragments(builder.root, lambda tile: publication_key(builder, tile)[2])
     admitting = {}
 
     class PublicHandler(base):
@@ -272,7 +275,7 @@ def public_handler(builder, prefetcher, settings):
             route, tile = public_route(urlparse(self.path).path, settings["tile_bounds"])
             idle = getattr(builder, 'idle', None)
             # Only game clients carry a client id; probes that merely send a Pages Origin must not hold off prebuilding.
-            if (idle is not None and route in ('demand', 'manifest', 'collision')
+            if (idle is not None and route == 'demand'
                     and 'client' in parse_qs(urlparse(self.path).query)):
                 with builder.lock:
                     idle.activity()
@@ -316,6 +319,11 @@ def public_handler(builder, prefetcher, settings):
             if route in ("manifest", "collision"):
                 q = parse_qs(urlparse(self.path).query)
                 client = q.get("client", [None])[0]
+                # Published assets are public. Lease/admission work must not delay cached delivery;
+                # the background refresh still checks the lease before requesting generation.
+                fragment = ready.get(tile, lambda: self._manifest(route, tile, client))
+                if fragment is not None:
+                    return self._json(200, fragment)
                 if client is not None:
                     with builder.lock:
                         wanted = builder.demand.wants(client, tile)
@@ -377,6 +385,7 @@ def public_handler(builder, prefetcher, settings):
             fragment = state.get("fragment") or json.loads(builder.manifest(tile).read_text())
             return 200, public_fragment(fragment)
 
+    PublicHandler.close_cached = staticmethod(ready.close)
     return PublicHandler
 
 
@@ -430,6 +439,7 @@ def main():
         if retirement is not None:
             retirement.cancel()
         server.server_close()
+        server.RequestHandlerClass.close_cached()
         builder.wait_drained()
         builder.stop()
         prefetcher.stop()

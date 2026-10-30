@@ -112,7 +112,7 @@ def deploy(repo, commit):
             generator_unchanged=True,
             multiplayer=deploy_multiplayer(destination),
         )
-    remote(guard_command())
+    remote(guard_command(destination))
     # Keep the old producer serving while a standby binds the alternate port. Its
     # workers stay paused until the proxy switches. Tile locks serialize any
     # overlap with retiring workers, which finish their existing builds.
@@ -150,7 +150,7 @@ else: raise SystemExit('standby draft producer did not become ready within30s')
     upstream = (source / "tools/remote-drafts/draft-upstream.caddy").read_text().replace(":7765", f":{port}")
     pending = f"{HOME}/.repo-{uuid.uuid4().hex}"
     # Recheck immediately before switching: upload/standby startup can cross the cutoff.
-    remote(guard_command())
+    remote(guard_command(destination))
     remote(
         f"if test -d {HOME}/repo && ! test -L {HOME}/repo; then "
         f"mv {HOME}/repo {HOME}/repo-initial-{uuid.uuid4().hex}; fi && "
