@@ -67,11 +67,39 @@ def test_anchor_follows_bent_mapped_continuation():
 
 def test_cut_terrain_reuses_ground_palette_and_never_tunnel_concrete():
     tile, _, result = buried()
-    ground = result.terrain_visuals(tile, np.full((32, 32, 3), [70, 130, 50], np.uint8))
+    p, ix = grid_mesh(tile, np.full((129, 129), 12.0))
+    p, ix, keep = result.terrain(p, ix)
+    rgb = np.full((32, 32, 3), [70, 130, 50], np.uint8)
+    ids = surfaces.classify(p[ix].mean(axis=1), rgb, tile, ())
+    ground = surfaces.visuals(tile, p, ix, ids, keep, ortho=rgb)
     assert ground
     assert all(m.extras["layer"] == "ground" for m in ground)
     assert surfaces.KEYS.index("grass") in surfaces.channels(ground)
     assert not any(m.name == "tunnel:ground-edge" for m in result.visuals(tile))
+
+
+def test_tunnel_remainders_obey_later_stair_cuts_without_duplicate_collision():
+    from turku3d.coarse import banks, stairs
+    from turku3d.structures.geometry import Faces
+
+    tile = C.VisualTile(0, 0, 0)
+    # A clipped triangle beside a portal used to be added after stair-ground,
+    # restoring both visible rubble and blocking collision above the treads.
+    face = Faces()
+    face.face([[20, 5, 20], [20, 5, 24], [24, 5, 20]])
+    edge = face.mesh("tunnel:ground-edge", "paving_slab")
+    result = tunnels.Tunnels(np.zeros(1, bool), [edge], [], [], 1)
+    p, ix, keep = result.terrain(edge.positions, edge.indices)
+    dry, _, _, solid = banks.produce(p, ix, np.zeros(len(ix), np.uint8), keep, [], 0)
+    cut = shapely.box(20, 20, 22, 24)
+    for mesh in (stairs.cut_ground(dry, [cut]), stairs.cut_ground(solid, [cut])):
+        footprint = shapely.union_all(shapely.polygons(mesh.positions[mesh.indices][:, :, [0, 2]]))
+        assert footprint.intersection(cut).area < 1e-9
+        assert abs(footprint.area - 2) < 1e-9
+    _, collision, _ = result.collision(
+        C.CollisionTile(0, 0), np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8)
+    )
+    assert len(collision) == 0
 
 
 def test_portal_header_follows_bank_cross_section_including_middle_peak():

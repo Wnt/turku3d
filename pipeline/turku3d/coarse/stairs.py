@@ -448,6 +448,7 @@ def stage(
         Path(__file__).with_name("bridge_details.py"),
         Path(__file__).with_name("stair_survey.py"),
         Path(__file__).with_name("walkable.py"),
+        Path(__file__).with_name("tunnels.py"),
         Path(retaining.__file__),
         Path(__file__).with_name("gardens.py"),
         base / "bridges/build.py",
@@ -476,10 +477,20 @@ def stage(
         ],
         geometry,
     )
+
+    def ground():
+        from .banks import join
+
+        apron = retaining.terrain(meshes, dry)
+        cut_dry, cut_solid = cut_ground(dry, openings), cut_ground(solid, openings)
+        if apron is not None:
+            cut_dry, cut_solid = join(cut_dry, apron), join(cut_solid, apron)
+        return cut_dry, cut_solid
+
     dry, solid = cache.run(
         "stair_ground",
         source_key(cut_ground, split_boundaries, *dependencies),
-        [dry, solid, openings],
-        lambda: (cut_ground(dry, openings), cut_ground(solid, openings)),
+        [dry, solid, openings, meshes],
+        ground,
     )
-    return meshes, dry, solid
+    return [m for m in meshes if not m.metadata.get("terrain")], dry, solid

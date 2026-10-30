@@ -321,14 +321,30 @@ class Tunnels:
             if m.visual and m.object_id != "tunnel:ground-edge"
         ]
 
-    def terrain_visuals(self, tile, rgb, streets=(), regions=()):
-        return portals.terrain_visuals(self.meshes, tile, rgb, streets, regions)
+    def terrain(self, positions, indices):
+        """Return cut remainders to the terrain producer before bank/stair grading.
+
+        These pieces retain the original grid plane only until the terrain stage
+        gives them their final height, material and ownership. Publishing them as
+        tunnel geometry would restore terrain removed by later stair/wall cuts.
+        """
+        parts = [m for m in self.meshes if m.object_id == "tunnel:ground-edge"]
+        if not parts:
+            return positions, indices, self.keep
+        points, faces, keep = [positions], [indices], [self.keep]
+        offset = len(positions)
+        for part in parts:
+            points.append(part.positions)
+            faces.append(part.indices + offset)
+            keep.append(np.ones(len(part.indices), bool))
+            offset += len(part.positions)
+        return np.concatenate(points), np.concatenate(faces), np.concatenate(keep)
 
     def collision(self, ct, pos, idx, mat):
         positions, indices, materials = [pos], [idx], [mat]
         count = len(pos)
         for mesh in self.meshes:
-            if mesh.metadata.get("lamp"):
+            if mesh.metadata.get("lamp") or mesh.object_id == "tunnel:ground-edge":
                 continue
             # Duplicate boundary triangles into both cells, so either streamed cell seals the tube.
             triangles = mesh.positions[mesh.indices][:, :, [0, 2]]

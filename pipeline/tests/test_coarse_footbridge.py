@@ -164,11 +164,12 @@ def test_retaining_edge_is_below_grade_and_its_cut_has_complete_walkable_bands()
 
     records = [(line, {"barrier": "retaining_wall", "natural": "cliff"}, False)]
     meshes, cuts = retaining.produce(tile, records, sample)
-    assert len(meshes) == 1
-    mesh = meshes[0]
+    assert len(meshes) == 2
+    mesh = next(m for m in meshes if not m.metadata.get("terrain"))
     assert mesh.metadata["surface"] == "rock"
     assert mesh.positions[:, 1].max() <= 5
-    tris = mesh.positions[mesh.indices]
+    apron = next(m for m in meshes if m.metadata.get("terrain"))
+    tris = apron.positions[apron.indices]
     normal = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
     ground = shapely.union_all(shapely.polygons(tris[normal[:, 1] > 1e-8][:, :, [0, 2]]))
     assert shapely.union_all(cuts).difference(ground).area < 1e-8

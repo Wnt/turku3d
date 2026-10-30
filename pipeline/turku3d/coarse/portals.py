@@ -261,22 +261,3 @@ def mouths(corridor, xz, left, right, direction, aprons, repaired):
         a, b = left[end], right[end]
         bands.append(shapely.Polygon([a, b, b + inward * depth, a + inward * depth]))
     return shapely.union_all([*(corridor.intersection(band) for band in bands), *aprons])
-
-
-def terrain_visuals(meshes, tile, rgb, streets=(), regions=()):
-    """Cut terrain keeps its ground imagery/materials, rather than tunnel concrete."""
-    from . import surfaces
-
-    result = []
-    for mesh in meshes:
-        if mesh.object_id != "tunnel:ground-edge":
-            continue
-        ids = surfaces.classify(
-            mesh.positions[mesh.indices].mean(axis=1), rgb, tile, streets, regions
-        )
-        result.extend(
-            surfaces.visuals(
-                tile, mesh.positions, mesh.indices, ids, np.ones(len(ids), bool), ortho=rgb
-            )
-        )
-    return result

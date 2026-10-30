@@ -262,8 +262,9 @@ def build(
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
+    terrain_pos, terrain_idx, terrain_keep = tunnels.terrain(grid_pos, grid_idx)
     dry, river, bank, solid = banks.stage(
-        cache, tile, grid_pos, grid_idx, inputs, tunnels.keep, level, bool(osm_decks)
+        cache, tile, terrain_pos, terrain_idx, inputs, terrain_keep, level, bool(osm_decks)
     )
     seconds["river_banks"] = cache.metrics["river_banks"]["seconds"]
     dry, river, bank, solid = cache.run(
@@ -580,9 +581,6 @@ def build(
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
     ground_meshes.extend(boats.visuals(tile, boat_meshes))
-    ground_meshes.extend(
-        tunnels.terrain_visuals(tile, corrected_ortho, inputs.streets, visual_regions)
-    )
     ground_meshes.extend(
         surfaces.visuals(
             tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)

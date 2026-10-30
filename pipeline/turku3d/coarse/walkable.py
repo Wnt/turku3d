@@ -41,6 +41,11 @@ def coordinates(line, points):
     direction = b - a
     direction /= np.maximum(np.linalg.norm(direction, axis=1), 1e-12)[:, None]
     normal = np.c_[-direction[:, 1], direction[:, 0]]
+    # Projection clamps to the endpoints, but a path does not own the terrain
+    # beyond its flat end cap. Keep the longitudinal residual there, both for
+    # survey fitting and grading (notably upper walks ending at bridge decks).
+    residual = np.sum((points - centre) * direction, axis=1)
+    station += np.where((station < 1e-8) | (station > line.length - 1e-8), residual, 0)
     return station, np.sum((points - centre) * normal, axis=1)
 
 
@@ -126,7 +131,7 @@ def prepare(tile, osm, water_path, paths):
             or tags.get("footway") == "crossing"
             or tags.get("step_count", "0") not in ("0", "")
             or geom.geom_type not in ("LineString", "Polygon", "MultiPolygon")
-            or geom.length < 8
+            or geom.length < 0.5
             or geom.distance(water) > 25
         ):
             continue
