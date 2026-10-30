@@ -258,3 +258,14 @@ def test_open_water_joins_survey_breaks_and_remnant_islands_across_tile_edges(tm
         for mesh in (dry, bank):
             centres = mesh.positions[mesh.indices].mean(axis=1)
             assert not shapely.contains_xy(interior, centres[:, 0], centres[:, 2]).any()
+
+
+def test_survey_coverage_edge_over_open_water_is_never_a_tile_boundary_bank():
+    tile = C.VisualTile(0, 0, 0)
+    p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), .2))
+    dry, wet, bank, _ = produce(
+        p, ix, np.full(len(ix), mat_id("grass"), np.uint8), np.ones(len(ix), bool),
+        [shapely.box(*tile.bbox.as_tuple())], 0,
+    )
+    assert not len(dry.indices) and not len(bank.indices)
+    assert len(wet.indices) == len(ix) and np.all(wet.positions[:, 1] == 0)

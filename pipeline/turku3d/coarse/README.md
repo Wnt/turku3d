@@ -116,10 +116,11 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   hedge, guard rail, handrail and bollard lines/points, including tagged area outlines. Tagged height/material/
   fence type selects cheap chain-link (alpha mask), wood, bars, stone/brick, hedge or steel prototypes (at most nine
   instanced draws per tile). Segments follow grid heights, split at corners, 62.5 m cell edges and every 2.5 m;
+  matching solid boxes use the existing fence/wall/railing/vegetation/bollard materials.
   Architectural assembly passes GPU-instanced layers through intact. Reading a unit
   prototype as an ordinary wall loses its instance placements and draws overlapping
   hedge/fence/bollard cubes at the tile origin, which can lie in open water.
-  matching solid boxes use the existing fence/wall/railing/vegetation/bollard materials. Gates leave openings
+  Gates leave openings
   (3 m for an unmeasured point gate). Street-area crossings are clipped with width clearance, except deliberately
   tagged road barriers and bollards on OSM road nodes. Bollard ways place separate posts, 2.5 m apart. The prepared
   `barriers` dataset reuses the existing optional OSM extract; no downloads or runtime game changes.
