@@ -39,7 +39,8 @@ fig=plt.figure(figsize=(14,8),dpi=140); ax=fig.add_subplot(111,projection='3d')
 ax.scatter(p[:,0],p[:,1],p[:,2],c=p[:,2],cmap='turbo',s=.17,alpha=.85,rasterized=True)
 ax.view_init(32,-70);ax.set_box_aspect((1,1,.34));ax.set_axis_off();fig.subplots_adjust(0,0,1,1)
 fig.savefig(root/'lidar.png',facecolor=fig.get_facecolor());plt.close(fig)
-ground=p[np.isin(p[:,3],[2,12])]
+# Class 12 is overlap, not unconditional ground; show verified class 2 only.
+ground=p[p[:,3]==2]
 # A real narrow lidar section across the riverfront, not invented curb heights.
 near=ground[np.abs(ground[:,0]-168)<1.5]
 fig,ax=plt.subplots(figsize=(10,6),dpi=140)
