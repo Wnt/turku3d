@@ -49,7 +49,7 @@ declare global {
 
 let params: ReturnType<typeof parseParams>;
 try {
-  params = parseParams(location.search);
+  params = parseParams(location.search, navigator);
 } catch (e) {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
@@ -71,7 +71,7 @@ addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); l
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
-  { qa: !!params.qa, idPass: !!idPass }));
+  { qa: !!params.qa, idPass: !!idPass, mobile: params.mobile }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
@@ -107,11 +107,11 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
   graphicsReady = prepared.catch(() => {});
   return prepared;
 };
-const resolution = new AdaptiveResolution();
+const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
-    const scale = resolution.update(performance.now());
-    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false) * scale;
+    const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
+    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
@@ -124,7 +124,7 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   if (params.qa) applyQaCamera();
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!params.qa));
+  renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!params.qa, params.mobile) * (params.qa ? 1 : resolution.scale));
   renderer.setSize(innerWidth, innerHeight);
   env.resize();
 });
@@ -160,6 +160,7 @@ async function draftWorld() {
   const manifest = draftManifest(location.href);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
+    detailRadius: params.mobile ? 80 : undefined,
     previewCollision: collisionPreview,
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),

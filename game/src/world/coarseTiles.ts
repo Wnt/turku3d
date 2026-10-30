@@ -138,7 +138,7 @@ export class CoarseTiles {
   }
   private wantedStarts(x: number, z: number) {
     if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
-    return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z)))];
+    return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }
   private async prepareModel(id: string, entry: Entry, model: THREE.Object3D) {
     const state = entry.state;
@@ -171,9 +171,16 @@ export class CoarseTiles {
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     const lookahead = this.startup ? [] : preparationTiles(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
-    const retain = (id: string) => retainDraftTile(id, [{ x, z }, ...this.retainedStarts]);
+    const retain = (id: string) => this.host.detailRadius === undefined
+      ? retainDraftTile(id, [{ x, z }, ...this.retainedStarts])
+      : [{ x, z }, ...this.retainedStarts].some(p => distToL0(id, p.x, p.z) <= this.host.detailRadius! + 40);
     // Deleting an entry also invalidates in-flight preparation.
     for (const [id, e] of this.entries) {
+      // A distant full model must not remain pinned by the lightweight surface reserve. Re-admit it
+      // as a collision preview below, retaining full detail only near the current mobile player.
+      if (this.host.detailRadius !== undefined && !this.startup && e.model && !e.preview && !wanted.includes(id) && !retain(id)) {
+        this.drop(e); this.entries.delete(id); continue;
+      }
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
       this.drop(e); this.entries.delete(id);
     }

@@ -42,7 +42,7 @@ export class TyreEffects {
   private readonly density: number;
 
   constructor(parent: THREE.Object3D, quality: QualityTier) {
-    this.density = quality === 'low' ? 7 : quality === 'medium' ? 13 : 20;
+    this.density = quality === 'mobile' ? 4 : quality === 'low' ? 7 : quality === 'medium' ? 13 : 20;
     this.root.name = 'tyre-effects';
     parent.add(this.root);
     const geometry = new THREE.BufferGeometry();

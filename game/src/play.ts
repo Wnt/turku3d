@@ -47,7 +47,7 @@ import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
 import { DropoffGuard } from './gameplay/missions/dropoffs';
 import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
-import { applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
+import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT } from './physics/constants';
@@ -63,6 +63,7 @@ import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
 import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
+import { FramePacer } from './render/framePacer';
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
@@ -291,10 +292,16 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let lastDeadlineUpdate = -Infinity;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
+  const framePacer = new FramePacer(params.mobile ? 30 : 0);
+  Object.assign(window.__game!, { framePacer });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
+  }, { signal: listeners.signal });
   renderer.setAnimationLoop(() => {
+    const now = performance.now();
+    if (document.hidden || !framePacer.ready(now)) return;
     clock.frames++;
     perf.begin();
-    const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     frameEma += (dt * 1000 - frameEma) * 0.05;
@@ -582,14 +589,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       minimap.dispose();
       if (coarse) coarse.onMapChange = null;
       fullscreen.dispose();
-      root.removeFromParent();
-      root.traverse(o => {
-        const mesh = o as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.geometry.dispose();
-        for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) m.dispose();
-      });
-      for (const el of [...document.body.children]) if (!body.has(el)) el.remove();
+      disposePlayScene(root, body);
       return snapshot;
     },
     reload() {

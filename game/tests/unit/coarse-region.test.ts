@@ -1,6 +1,13 @@
 import { expect, test } from 'vitest';
 import { startupDraftTiles, wantedTiles } from '../../src/world/coarseRegion';
 
+test('mobile detail covers both sides of tile seams without loading the entire desktop ring', () => {
+  expect(wantedTiles(125, 125, 80)).toEqual(['t0_0_0']);
+  expect(new Set(wantedTiles(249, 249, 80))).toEqual(new Set(['t0_0_0', 't0_0_1', 't0_1_0', 't0_1_1']));
+  expect(wantedTiles(171, 253, 80)).not.toContain('t0_-1_0');
+  expect(wantedTiles(171, 253)).toHaveLength(9);
+});
+
 test('startup covers every selectable start, including the old published starting area', () => {
   const points = [{ x: 120, z: 120 }, { x: -260, z: -260 }];
   const required = startupDraftTiles(points, 50);

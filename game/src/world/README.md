@@ -7,6 +7,13 @@ then `preloadStarts` retains the 80 m collision union of all selectable starts
 while the loading screen uploads textures and warms the GPU. An offline service
 keeps startup waiting and reports its state; there is no static tile fallback.
 
+Mobile startup warms the initial camera view, keeping frustum culling enabled instead of
+allocating GPU resources for every loaded mesh and panorama before showing the menu.
+During mobile play, full textured models cover tiles within 80 m of the player (40 m
+retention hysteresis). The existing predictive collision-surface reserve covers the farther
+world; distant full models are released even if their tile remains in that reserve.
+Desktop retains its complete 3 × 3 detailed window and panorama warmup.
+
 `CoarseTiles` requests a complete visual/collision fragment and validates all sixteen
 collision cells in the physics worker. Startup prepares the detailed GLB. During
 movement, the exact cached collision triangles and solid primitives provide a

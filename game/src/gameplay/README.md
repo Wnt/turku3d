@@ -180,10 +180,11 @@ check on the published graph (1,015 edges) takes 0.3 ms.
 
 ### Minimap (`minimap.ts`)
 
-A 240 × 240 CSS px rounded canvas at the bottom left, sized by `devicePixelRatio`. All streets
-are drawn once into an offscreen layer (3 px/m, fewer when the merged graph is wider than 6,000 px at that
-scale; road width by class), again when the graph changes (`setGraph`); each redraw only rotates
-and scales that layer, then draws the route, markers (`KIND_COLOURS` per `TargetKind`, clamped to
+A 240 × 240 CSS px rounded canvas at the bottom left, sized by `devicePixelRatio`. `StreetLayer`
+rasterizes streets around the current viewport, with overscan for rotation and movement. It reuses
+one canvas capped at 2048 × 2048 pixels (16 MiB), independently of the accumulated city bounds.
+Graph changes invalidate the raster without allocating another bitmap; the next draw refreshes it.
+Ordinary redraws rotate and scale that layer, then draw the route, markers (`KIND_COLOURS` per `TargetKind`, clamped to
 the rim when off the map, the active one ringed) and the player arrow. It redraws only when the
 view, the HUD state or the size changed. `RouteTracker` re-plans when the active target or travel
 mode changes or the player is more than 5 m (`REROUTE_M`) from the last route start. Above the

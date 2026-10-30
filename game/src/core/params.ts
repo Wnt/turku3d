@@ -1,6 +1,6 @@
 // URL parameters. See game/README.md for the contract.
 import { OFFICE_EN } from './origin';
-import { parseQuality, type QualityTier } from '../render/quality';
+import { mobileDevice, parseQuality, type QualityTier } from '../render/quality';
 import type { Antialiasing } from '../render/post';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
@@ -22,12 +22,13 @@ interface Params {
   collisionRadius: number;
   quality: QualityTier;
   aa: Antialiasing;
+  mobile: boolean;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
 const DEFAULT_TIME = '2026-10-15T14:00:00+03:00';
 
-export function parseParams(search: string): Params {
+export function parseParams(search: string, device = { userAgent: '', maxTouchPoints: 0 }): Params {
   const p = new URLSearchParams(search);
   const nums = (s: string | null) => (s ? s.split(',').map((v) => Number(v.trim())) : null);
   let qa: QaCam | null = null;
@@ -48,7 +49,9 @@ export function parseParams(search: string): Params {
   const colRadius = Number(p.get('colRadius') ?? 200);
   if (!(colRadius > 0)) throw new Error(`bad ?colRadius= (metres > 0): ${p.get('colRadius')}`);
   const backend = (p.get('backend') ?? '').toLowerCase() === 'webgl' || p.has('webgl') ? 'webgl' : 'webgpu';
-  const aa = p.get('aa') ?? 'taa';
+  const mobile = !qa && mobileDevice(device.userAgent, device.maxTouchPoints);
+  const quality = parseQuality(p.get('quality'), mobile ? 'mobile' : 'medium');
+  const aa = p.get('aa') ?? (quality === 'mobile' ? 'fxaa' : 'taa');
   if (aa !== 'off' && aa !== 'taa' && aa !== 'fxaa') throw new Error(`bad ?aa= (off|taa|fxaa): ${aa}`);
   return {
     backend,
@@ -62,7 +65,8 @@ export function parseParams(search: string): Params {
     hud: p.get('hud') !== '0',
     test: p.has('test'),
     collisionRadius: colRadius,
-    quality: parseQuality(p.get('quality')),
+    quality,
     aa,
+    mobile,
   };
 }

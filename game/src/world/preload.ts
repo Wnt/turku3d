@@ -57,7 +57,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   // Upload even offscreen textures and compile all currently visible model materials. The temporary culling
   // override includes meshes behind the camera; it never changes the distance-region request set.
   const starts = await prepare?.() ?? [world.spawn];
-  const total = starts.length * 6;
+  const total = world.params.mobile ? 1 : starts.length * 6;
   worldLoad.update({ phase: 'compiling', compile: { done: 0, total } });
   const compiled = loading.begin('GPU texture upload and pipeline warmup');
   const textures = modelTextures(scene);
@@ -67,7 +67,9 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     worldLoad.update({ textures: { loaded: ++uploaded, pending: textures.size - uploaded } });
   }));
   const culled = new Map<THREE.Object3D, boolean>();
-  scene.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
+  // A mobile launch must not allocate vertex buffers and pipelines for the entire loaded world
+  // before its first visible frame. Other views use the normal renderer when the camera reaches them.
+  if (!world.params.mobile) scene.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
   const rotation = camera.quaternion.clone(), position = camera.position.clone();
   const offset = position.clone().sub(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
   try {
@@ -77,13 +79,14 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     renderFrame();
     await drainGpu(renderer);
     firstDraw();
+    if (world.params.mobile) worldLoad.update({ compile: { done: 1, total } });
     for (const [object, value] of culled) object.frustumCulled = value;
     culled.clear();
     // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot
     // cover. Six views also exercise vegetation's view-dependent instance buffers before control is released.
     const directions = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 1, 0], [0, -1, 0]];
     let done = 0;
-    for (const start of starts) {
+    for (const start of world.params.mobile ? [] : starts) {
       camera.position.set(start.x, start.y, start.z).add(offset);
       env.follow(new THREE.Vector3(start.x, start.y, start.z));
       for (const direction of directions) {
