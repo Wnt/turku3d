@@ -47,7 +47,7 @@ const context = await chromium.launchPersistentContext(profile, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: false,
   viewport: null, args: chromeArgs(['--window-size=1280,900', '--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', `--remote-debugging-port=${port(3)}`]),
 });
-let monitor, healthTimer, trace = false, session, traceSession;
+let monitor, healthTimer, trace = false, session, traceSession, traceCompleted, traceResult;
 const page = context.pages()[0];
 const saveResult = async interrupted => {
   const result = await page.evaluate(() => window.__flight && ({ ...window.__flight, longTasks: window.__longTasks, state: window.__game.state(), backend: window.__game.backend,
@@ -91,7 +91,16 @@ try {
     new PerformanceObserver(list => window.__longTasks.push(...list.getEntries().map(e => ({ at: performance.timeOrigin + e.startTime, ms: e.duration })))).observe({ type: 'longtask', buffered: true });
   });
   traceSession = await context.browser().newBrowserCDPSession();
-  await traceSession.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing', transferMode: 'ReturnAsStream', streamCompression: 'gzip' }); trace = true;
+  // Completion may precede final cleanup (for example an externally ended trace).
+  // Keep its stream handle from the start instead of installing a late listener.
+  traceCompleted = new Promise(resolve => traceSession.once('Tracing.tracingComplete', result => {
+    traceResult = result;
+    log('trace-status.jsonl', { kind: 'complete-event', stream: !!result.stream, dataLossOccurred: result.dataLossOccurred });
+    resolve(result);
+  }));
+  traceSession.on('Tracing.bufferUsage', usage => log('trace-buffer.jsonl', usage));
+  await traceSession.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing',
+    transferMode: 'ReturnAsStream', streamCompression: 'gzip', bufferUsageReportingInterval: 5000 }); trace = true;
   const cold = execFileSync('ssh', [...ssh, `python3 - cold ${label} ${route.cold.join(',')}`], { input: host, encoding: 'utf8', timeout: 135000 });
   fs.writeFileSync(path.join(output, 'cold.jsonl'), cold);
   const hostLog = fs.openSync(path.join(output, 'host.jsonl'), 'w');
@@ -196,10 +205,9 @@ try {
 } finally {
   clearTimeout(deadline); clearInterval(healthTimer);
   if (trace) {
-    const completed = new Promise(resolve => traceSession.once('Tracing.tracingComplete', resolve));
-    await traceSession.send('Tracing.end').catch(error => log('trace-status.jsonl', { error: error.message }));
+    if (!traceResult) await traceSession.send('Tracing.end').catch(error => log('trace-status.jsonl', { error: error.message }));
     let traceTimeout;
-    const result = await Promise.race([completed, new Promise(resolve => { traceTimeout = setTimeout(() => resolve(null), 30000); })]);
+    const result = await Promise.race([traceCompleted, new Promise(resolve => { traceTimeout = setTimeout(() => resolve(null), 30000); })]);
     clearTimeout(traceTimeout);
     log('trace-status.jsonl', { complete: !!result?.stream, dataLossOccurred: result?.dataLossOccurred });
     if (result?.stream) {

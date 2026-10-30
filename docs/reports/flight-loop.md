@@ -530,3 +530,67 @@ deduplicate actual backing buffers across source, static, shadow and scene
 geometry and texture data. They exclude GPU/native image memory and private idle
 caches. The next route is north from Turku Castle, targeting `t0_-8_4` and
 `t0_-8_3`; its new starting area makes timing comparisons exploratory.
+
+## 2026-10-30, iteration 9: north from Turku Castle
+
+`after-08` completed on client `0ae214bf`; generator source was the stable river
+release `7c88efee`. First pairs arrived at 9.08/13.61 s and full pairs at
+36.37/51.04 s. First services took 4.512/8.078 s, full services 26.517/36.592 s.
+Both full passes started immediately after their firsts; wall admission waited
+less than 0.5 ms. Ground imagery took 6.427/5.384 s, packaging 3.467/4.867 s;
+the second target's wall and building visual stages took 4.915/4.581 s.
+Most full stages were cold despite retained caches. Host CPU averaged 99.5% busy,
+CPU pressure avg10 45.0; multiplayer reported one online player/two connections.
+
+Target 2 started GLB loading outside the normal window at 12.83 s and became
+visual/collision ready at 13.61 s, **5.28 s before normal-window entry**. This
+validates useful lookahead; the 45 s release threshold was not separately
+exercised. Turn/return/done were 51.02/79.44/91.44 s. All eight exact returning
+URLs avoided GLB requests; repeated load median/max was 277/726 ms and preparation
+609/1800 ms. Five new full hashes during return were served successfully; later
+background upgrades are excluded from return-cache counts. Ten distant collision
+requests returned 429, with no visual or texture failures.
+
+All 24 screenshots were inspected. Frame 1 shows an empty frontier after leaving
+the relocated start; 2–12 show plain city arriving ahead, 13–14 the full detail
+transition, 15–20 the populated return and 21–23 the stationary start view.
+No blank return view or capture resize occurred. Relocation waited for the start
+tile, not the entire surrounding ring. Capture-excluded frames were 8.33 ms
+median, 9.82 ms p90 and 34.15 ms maximum.
+
+The helper retained all 445 phase events. Return preparation's overlapping sums
+were 4.108 s graphics, 1.470 s static/shadows, 1.014 s vegetation/outer queue and
+0.122 s styling. The post-GC inventory found 180.75 MiB of reachable buffers:
+75.59 MiB textures, 36.51 MiB facade programs and 12.35 MiB shadows. There were
+no duplicated static-batch program buffers on this route. CDP reported 443.16
+MiB backing plus 84.50 MiB JS heap; private caches/native buffers are outside the
+inventory. Peak usage was 836.02 MiB. Different geometry prevents a memory-saving
+comparison against office north; the recorded north model oracle remains the
+isolated evidence.
+
+Trace finalization again timed out after 30 s, despite complete application
+records. The runner now arms completion before tracing starts and records buffer
+usage, so an early completion cannot lose its stream and future failures have
+better diagnostics. This is not yet evidence that the timeout is resolved.
+Scheduler snapshots also paused for 22.38 and 10.08 s while builds kept completing.
+The maintenance thread runs retention synchronously; blocking stage locks or the
+full sweep can delay both snapshots and demand expiry. That work is being moved
+to its own single retention loop. The next server optimization splits impossible
+opposite-facing wall candidates before allocating large spatial-query results.
+
+### Server slice after iteration 9
+
+Sign-partitioned wall queries preserve the original scalar cut ordering. A full
+local comparison on 142 retained meshes/641,940 input triangles produced identical
+arrays and metadata (642,325 output triangles). Query pairs fell 195.42M to 99.06M;
+assembly time fell 16.462 to 13.228 s, a 19.6% reduction. This is an isolated local
+assembly result, not a measured whole-tile or OCI improvement. Nineteen existing
+wall tests passed. Protected facade cutting remains unchanged.
+
+Retention now runs in one dedicated daemon, preserving its existing global lock,
+60-second interval after completion, and drain/stop rules. Structured logs record
+sweep completion timestamp, elapsed time and existing result counters. A blocked
+two-second sweep no longer blocks three maintenance snapshots or demand expiry
+in a deterministic probe; overlapping sweeps, early repeat, drain and stop cases
+passed. Twenty-eight existing affected tests passed. Live cadence will be measured
+on the next flight, west from Kauppatori (`t0_-2_-1`, `t0_-3_-1`).
