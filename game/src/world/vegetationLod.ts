@@ -159,6 +159,8 @@ interface Model {
 
 /** One shared per-frame instance budget for published and draft models, on either backend. */
 export class VegetationLod {
+  /** Developer screenshot range; zero restores the quality-tier budget. */
+  screenshotDistance = 0;
   private models = new Map<THREE.Object3D, Model>();
   private materials = new SharedMaterials();
   private prototypes = new PrototypeGeometry();
@@ -291,12 +293,12 @@ export class VegetationLod {
         if (!active) continue;
         this.sphere.copy(bucket.bounds).applyMatrix4(bucket.draw.root.matrixWorld);
         bucket.distance = Math.max(0, this.position.distanceTo(this.sphere.center) - this.sphere.radius);
-        if (bucket.distance <= q.far && this.frustum.intersectsSphere(this.sphere)) this.visible.push(bucket);
+        if (bucket.distance <= Math.max(q.far, this.screenshotDistance) && this.frustum.intersectsSphere(this.sphere)) this.visible.push(bucket);
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
     const remaining = this.remaining;
-    remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = q.farInstances;
+    remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = this.screenshotDistance ? Infinity : q.farInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
       while (level < 3 && remaining[level] <= 0) level++;

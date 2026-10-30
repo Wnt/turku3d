@@ -3,6 +3,7 @@
 // their replacement geometry and collision have been validated.
 import { recordFreshness } from './coarseFreshness';
 import { VisualPassComparison } from './visualPass';
+import { ScreenshotScenery } from './screenshotScenery';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
@@ -73,6 +74,7 @@ export class CoarseTiles {
   private details = 0;
   private materials = new SharedMaterials();
   private comparison: VisualPassComparison;
+  readonly screenshotScenery: ScreenshotScenery;
   get visualPass() { return this.comparison.pass; }
   get comparisonStatus() { return this.comparison.status; }
   setVisualPass(pass: 'auto' | 'first' | 'full') { this.comparison.setPass(pass); }
@@ -113,6 +115,8 @@ export class CoarseTiles {
     this.remote = !isLocalHost(page.hostname);
     this.comparison = new VisualPassComparison(host, this.entries, url => this.request(url), url => this.load(url),
       model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page);
+    this.screenshotScenery = new ScreenshotScenery(host, this.entries, url => this.request(url), url => this.load(url),
+      model => tintDraft(model, this.host.renderer, this.materials), (model, id) => this.dispose(model, id), this.root, this.page);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
@@ -184,6 +188,7 @@ export class CoarseTiles {
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
       this.drop(e); this.entries.delete(id);
     }
+    this.screenshotScenery.update(x, z, now, !!this.outage);
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
       this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
@@ -191,7 +196,11 @@ export class CoarseTiles {
     }
     for (const [id, e] of this.entries) void this.compare(id, e);
     void this.want(x, z);
-    if (this.remote) void this.sendDemand(draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent));
+    if (this.remote) {
+      const demand = draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
+      if (this.screenshotScenery.radius) demand.tiles = [...new Set([...demand.tiles, ...this.screenshotScenery.demand()])].slice(0, 128);
+      void this.sendDemand(demand);
+    }
     const due = (e: Entry) => (e.state === 'pending' || e.state === 'failed' || e.state === 'built')
       && (now >= e.nextPoll || (!e.retries && e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {

@@ -12,6 +12,7 @@ export class Environment {
   readonly sun = new THREE.DirectionalLight(0xfff2e0, 3);
   readonly sunDir = new THREE.Vector3(0, 1, 0);
   readonly csm: CSMShadowNode;
+  screenshotDistance = 0;
   sunElevation = 90;
   sunAzimuth = 0;
   private pmrem: THREE.PMREMGenerator;
@@ -63,6 +64,20 @@ export class Environment {
     scene.add(this.sun, this.sun.target);
     scene.fog = new THREE.Fog(0xb8cde0, 500, 3500);
     scene.environmentIntensity = 0.35;
+  }
+
+  /** Keep the sky behind distant geometry and move haze beyond the requested photo scenery. */
+  setScreenshotDistance(camera: THREE.PerspectiveCamera, distance: number) {
+    this.screenshotDistance = Number.isFinite(distance) ? Math.max(0, Math.min(5000, distance)) : 0;
+    const radius = this.screenshotDistance;
+    camera.far = Math.max(6000, radius * 4);
+    camera.updateProjectionMatrix();
+    this.sky.scale.setScalar(Math.max(4500, radius * 4));
+    if (this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.near = radius || 500;
+      this.scene.fog.far = radius ? radius * 1.5 : 3500;
+    }
+    this.resize();
   }
 
   setTime(date: Date) {
