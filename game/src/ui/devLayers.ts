@@ -59,7 +59,8 @@ export class DevLayers {
   private enabled = devToolsEnabled(location);
   private select = document.createElement('select');
 
-  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer) {
+  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer,
+    private setViewDistance?: (radius: number) => void) {
     if (!this.enabled) return;
     let pass: 'auto' | 'first' | 'full' = 'auto';
     try {
@@ -80,7 +81,24 @@ export class DevLayers {
     this.coarse?.setVisualPass(pass);
     heading.append(this.select);
     this.status.setAttribute('role', 'status');
-    this.panel.append(heading, this.status, this.tree);
+    this.panel.append(heading);
+    if (coarse && setViewDistance) {
+      const distance = document.createElement('select'); distance.id = 'dev-view-distance';
+      const row = document.createElement('label'); row.textContent = 'View distance ';
+      for (const radius of [0, 1000, 2000, 3000, 5000]) distance.append(Object.assign(document.createElement('option'), {
+        value: String(radius), textContent: radius ? `${radius / 1000} km · screenshot` : 'Normal',
+      }));
+      distance.value = String(coarse.screenshotScenery.radius);
+      distance.onchange = () => {
+        const radius = Number(distance.value);
+        coarse.screenshotScenery.setRadius(radius); setViewDistance(radius);
+      };
+      row.append(distance); this.panel.append(row);
+      const hint = document.createElement('div');
+      hint.textContent = 'Long views load gradually and use more memory. Reset to Normal after screenshots.';
+      this.panel.append(hint);
+    }
+    this.panel.append(this.status, this.tree);
     this.element.append(this.button, this.panel); document.body.append(this.element);
   }
 
@@ -188,7 +206,11 @@ export class DevLayers {
     for (const [mesh, owned] of this.filtered) if (!seen.has(mesh)) {
       owned.release();
     }
-    this.status.textContent = this.coarse?.comparisonStatus ?? '';
+    const scenery = this.coarse?.screenshotScenery;
+    const progress = scenery?.progress;
+    this.status.textContent = [this.coarse?.comparisonStatus,
+      scenery?.radius && progress ? `Scenery ${progress.loaded}/${progress.total} · ${progress.pending} awaiting full detail${progress.errors ? ` · ${progress.errors} retrying` : ''}` : '',
+    ].filter(Boolean).join(' · ');
     if (this.dirty) this.renderTree();
     const readout = document.getElementById('position-hud');
     const bottom = readout && !readout.hidden ? readout.getBoundingClientRect().bottom + 4 : 86;
@@ -219,6 +241,7 @@ export class DevLayers {
     }
   }
   dispose() {
+    this.coarse?.screenshotScenery.setRadius(0); this.setViewDistance?.(0);
     this.restore();
     for (const owned of this.filtered.values()) owned.release();
     this.filtered.clear();

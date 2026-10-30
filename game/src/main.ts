@@ -115,6 +115,7 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
   if (post) post.render(); else renderer.render(scene, camera);
   frameSubmitted(renderer);

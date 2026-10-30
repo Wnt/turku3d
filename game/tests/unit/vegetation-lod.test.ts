@@ -221,3 +221,22 @@ it('spreads streamed instance preparation across frames while preserving all pla
     lod.remove(model); expect(model.children).toEqual([tree]);
   } finally { now.mockRestore(); vi.unstubAllGlobals(); }
 });
+
+
+it('screenshot distance admits distant foliage and Normal restores tier culling', () => {
+  const model = new THREE.Group(), scene = new THREE.Scene(); scene.add(model);
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 1);
+  mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage' };
+  mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, -2000)); model.add(mesh);
+  const lod = new VegetationLod('medium'); lod.add(model);
+  const camera = new THREE.PerspectiveCamera(65, 1, .1, 6000);
+  const count = () => {
+    let n = 0;
+    model.traverse(o => { const m = o as THREE.InstancedMesh; if (m !== mesh && m.isInstancedMesh && m.visible) n += m.count; });
+    return n;
+  };
+  lod.update(camera); expect(count()).toBe(0);
+  lod.screenshotDistance = 3000; lod.update(camera); expect(count()).toBe(1);
+  lod.screenshotDistance = 0; lod.update(camera); expect(count()).toBe(0);
+  lod.remove(model);
+});
