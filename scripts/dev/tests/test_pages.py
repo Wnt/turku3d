@@ -25,7 +25,7 @@ class PagesTests(unittest.TestCase):
             (data / "publish").mkdir(parents=True)
             (data / pages.CONFIG).write_text('{"repo":"Owner/game"}')
             (release / "game").mkdir(parents=True)
-            (release / "game/index.html").write_text("game")
+            (release / "game/index.html").write_text("<html><head></head><body>game</body></html>")
             remote = root / "remote.git"
             git("init", "-q", "--bare", str(remote), cwd=root)
             env = {
@@ -45,6 +45,9 @@ class PagesTests(unittest.TestCase):
             self.assertEqual(git("rev-parse", second["commit"] + "^", cwd=remote), first["commit"])
             names = git("ls-tree", "--name-only", "-r", second["commit"], cwd=remote)
             self.assertIn("game/index.html", names)
+            document = git("show", second["commit"] + ":game/index.html", cwd=remote)
+            self.assertIn('name="turku3d-release" content="' + "b" * 40 + '"', document)
+            self.assertNotIn("turku3d-release", (release / "game/index.html").read_text())
             self.assertNotIn("tiles/", names)
             self.assertEqual(second["retries"], 0)
             self.assertFalse((data / "publish/pages.lock").exists())

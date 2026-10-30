@@ -105,14 +105,18 @@ export function draftDemand(visible: string[], ahead: string[], x: number, z: nu
 /** Prepare a bounded corridor before crossing; fast flight needs multiple tiles in flight at once. */
 export function preparationTiles(visible: string[], ahead: string[], x: number, z: number, vx: number, vz: number, path?: readonly string[]) {
   const speed = Math.hypot(vx, vz);
-  if (speed < 1) return [];
+  const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0);
+  // A nearby surface reserve covers sudden acceleration/turns before a heading exists.
+  const reserve = Array.from({ length: 25 }, (_, k) => l0(ci - 2 + k % 5, cj - 2 + Math.floor(k / 5)))
+    .filter(id => !visible.includes(id)).sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z));
   const count = Math.min(8, Math.max(1, Math.ceil(speed * 6 / VISUAL_L0)));
-  return draftDemand(visible, ahead, x, z, vx, vz, path).urgent.filter(id => {
+  const forward = speed < 1 ? [] : draftDemand(visible, ahead, x, z, vx, vz, path).urgent.filter(id => {
     if (visible.includes(id)) return false;
     const distance = distToL0(id, x, z);
     const arrival = path ? distance / speed : arrivalToL0(id, x, z, vx, vz);
     return distance <= Math.max(2 * VISUAL_L0, speed * 8) && arrival <= 30;
   }).slice(0, count);
+  return [...new Set([...forward, ...reserve])].slice(0, 8);
 }
 
 /** Remaining route corridor within 60 s, capped at 3 km; ignores stale/off-route hints and never sends the polyline. */
