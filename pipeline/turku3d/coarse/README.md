@@ -52,7 +52,12 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   so a strip cannot bridge a dip or float between sampled corners. Bridge/tunnel/nonzero-layer
   ways are excluded.
   `marking_triangles`, `kerb_triangles` and `ground_surfaces` record output counts.
-- **Water**: cells inside water polygons become the water sensor at the shoreline level over a synthetic bed
+- **Water**: open river/sea water uses one fixed N2000 0.0 m surface across source pieces,
+  tiles and first/full passes. Shoreline lidar percentiles must not set tile-local levels.
+  Survey polygons are dissolved before tile selection; mapped flowing-water interiors
+  (inset 3 m to retain surveyed outer banks) close survey breaks under bridges and
+  survey-only sliver islands. Complete components prevent tile edges becoming banks.
+  Cells inside water polygons become the water sensor over a synthetic bed
   (`ground.water.add_river_bed`), and are drawn as a flat surface at that level (`material_key` water, which the
   game renders as a river) instead of the ortho.
   Isolated compact standing-water polygons (5–5,000 m², span at most 120 m,
@@ -67,6 +72,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   survey source before selecting tile-local candidates; mapped rivers, streams,
   canals and sea veto pond grading even for small disconnected survey fragments.
   Large/connected water keeps the river/sea profile.
+  `python3 scripts/dev/probe_river_surface.py --commit SHA` audits the whole available
+  mapped Aura reach, measures changed heights/geometry/prototype artifacts, builds
+  representative first/full tiles on OCI and checks current client-facing generations.
   `python3 scripts/dev/probe_river_spawn.py --commit SHA` checks the four spawn
   tiles, counts changed cached tiles and builds only the two affected eastern
   neighbours, first and full. `python3 scripts/dev/probe_ponds.py --commit SHA` measures the reported
@@ -108,7 +116,11 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   hedge, guard rail, handrail and bollard lines/points, including tagged area outlines. Tagged height/material/
   fence type selects cheap chain-link (alpha mask), wood, bars, stone/brick, hedge or steel prototypes (at most nine
   instanced draws per tile). Segments follow grid heights, split at corners, 62.5 m cell edges and every 2.5 m;
-  matching solid boxes use the existing fence/wall/railing/vegetation/bollard materials. Gates leave openings
+  matching solid boxes use the existing fence/wall/railing/vegetation/bollard materials.
+  Architectural assembly passes GPU-instanced layers through intact. Reading a unit
+  prototype as an ordinary wall loses its instance placements and draws overlapping
+  hedge/fence/bollard cubes at the tile origin, which can lie in open water.
+  Gates leave openings
   (3 m for an unmeasured point gate). Street-area crossings are clipped with width clearance, except deliberately
   tagged road barriers and bollards on OSM road nodes. Bollard ways place separate posts, 2.5 m apart. The prepared
   `barriers` dataset reuses the existing optional OSM extract; no downloads or runtime game changes.

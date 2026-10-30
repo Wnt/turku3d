@@ -31,6 +31,7 @@ PRODUCERS = (
     "collision",
     "collision_key",
     "banks",
+    "water",
     "parked",
     "packaging",
     "stages",

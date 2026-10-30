@@ -208,3 +208,64 @@ def test_small_flowing_water_and_sea_fragments_are_never_ponds(tmp_path):
             dict(tags=json.dumps(tags), geometry_local=body.exterior.wkb)
         ]), osm)
         assert pond_bodies(inputs) == []
+
+
+def test_open_water_joins_survey_breaks_and_remnant_islands_across_tile_edges(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.build import water_level
+    from turku3d.coarse.water import LEVEL, flowing_areas, prepare
+
+    river = shapely.box(200, -10, 300, 400)
+    sea = shapely.box(200, 400, 300, 600)
+    island = shapely.box(260, 340, 270, 350)
+    remnant = shapely.box(248, 244, 252, 248)
+    pond = shapely.box(50, 50, 65, 65)
+    # A survey break crosses a visual tile edge; a tiny survey-only hole leaves
+    # a block of dry terrain. The independent mapped island must stay dry.
+    survey = tmp_path / "water.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(geometry_local=g.wkb) for g in (
+            river.intersection(shapely.box(0, -20, 500, 249)).difference(remnant),
+            river.intersection(shapely.box(0, 251, 500, 410)).difference(island),
+            sea, pond,
+        )
+    ]), survey)
+    osm = tmp_path / "osm.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(tags=json.dumps({"water": kind}), geometry_local=g.wkb)
+        for g, kind in ((river.difference(island), "river"), (sea, "sea"))
+    ]), osm)
+    interior = shapely.union_all(flowing_areas(osm)).buffer(-3.01)
+    for tile in (C.VisualTile(0, 0, 0), C.VisualTile(0, 0, 1)):
+        water = prepare(tile, survey, osm)
+        body = shapely.union_all(water)
+        assert body.covers(remnant)
+        assert body.intersection(island).area == 0
+        if tile.j == 0:
+            assert body.intersection(pond).equals(pond)
+        # Different shoreline samples cannot move either tile's open water.
+        level = water_level(np.array([[250, 1 + tile.j * 8, 250]]), water)
+        assert level == LEVEL
+        p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), 4.0))
+        dry, wet, bank, _ = produce(
+            p, ix, np.full(len(ix), mat_id("grass"), np.uint8), np.ones(len(ix), bool),
+            water, level,
+        )
+        assert np.all(wet.positions[:, 1] == LEVEL)
+        for mesh in (dry, bank):
+            centres = mesh.positions[mesh.indices].mean(axis=1)
+            assert not shapely.contains_xy(interior, centres[:, 0], centres[:, 2]).any()
+
+
+def test_survey_coverage_edge_over_open_water_is_never_a_tile_boundary_bank():
+    tile = C.VisualTile(0, 0, 0)
+    p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), .2))
+    dry, wet, bank, _ = produce(
+        p, ix, np.full(len(ix), mat_id("grass"), np.uint8), np.ones(len(ix), bool),
+        [shapely.box(*tile.bbox.as_tuple())], 0,
+    )
+    assert not len(dry.indices) and not len(bank.indices)
+    assert len(wet.indices) == len(ix) and np.all(wet.positions[:, 1] == 0)

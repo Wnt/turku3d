@@ -201,6 +201,11 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
         np.concatenate([ends[:, 0, [0, 2]], ends[:, 1, [0, 2]], ends.mean(axis=1)[:, [0, 2]]])
     )
     shore = (shapely.distance(probe, body.boundary).reshape(3, -1) < 1e-7).all(axis=0)
+    # Survey coverage can end exactly at a tile window, especially over sea.
+    # That artificial edge must never extrude a bank between two water tiles.
+    for axis in (0, 2):
+        for boundary in (positions[:, axis].min(), positions[:, axis].max()):
+            shore &= ~np.all(np.abs(ends[:, :, axis] - boundary) < 1e-7, axis=1)
     ends = ends[shore]
     top = ends.reshape(-1, 3).copy()
     top[:, 1] = rim(top)

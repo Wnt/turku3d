@@ -554,6 +554,7 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
         isinstance(first[d], float)
         for d in (
             "ground",
+            "water",
             "ortho",
             "ortho_canopy",
             "wfs",
@@ -568,28 +569,7 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
     assert not unprepared(tile, root, sources)
     assert {
         k: v for k, v in prepare(tile, root, sources).items() if k != "missing"
-    } == dict.fromkeys(
-        (
-            "ground",
-            "ortho",
-            "ortho_canopy",
-            "wfs",
-            "roads",
-            "trees",
-            "barriers",
-            "forests",
-            "tunnels",
-            "poles",
-            "surfaces",
-            "markings",
-            "kerbs",
-            "appearance",
-            "register",
-            "stairs",
-            "parking",
-        ),
-        "cached",
-    )
+    } == dict.fromkeys(first.keys() - {"missing"}, "cached")
     inputs = gather(tile, root, sources)
     assert inputs.heights.shape == (129, 129) and np.allclose(inputs.heights, 5.0)
     assert inputs.ortho.shape == (512, 512, 3) and inputs.roads["edges"] >= 1
@@ -795,4 +775,3 @@ def test_drive_replicates_the_hooks_window_and_ahead_cells_and_summarises():
     s = D.summary(tiles, 27.0, 2700.0, prefetch)
     assert (s["tiles"], s["built"], s["under_10_s"], s["max_s"]) == (3, 2, 2, 1.5)
     assert s["mb_per_km"] == 2.0 and s["units"] == {"lidar": 2, "wfs": 1}
-

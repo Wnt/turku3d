@@ -39,6 +39,7 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
+    "water": ("water.py", "../spatial.py", "../ground/mesh.py"),
     "walkable": ("walkable.py", "../spatial.py", "../ground/inputs.py", "../lidar/cache.py"),
     "wfs": (
         "roofs.py",
@@ -448,6 +449,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     osm = sources.osm_source(tile)
     return {
         "ground": None if missing else laz,
+        "water": [wfs[2][1], osm] if wfs[2][0] else None,
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
         if osm and not missing else [],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
@@ -499,6 +501,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
     pyarrow.set_cpu_count(1)
     pyarrow.set_io_thread_count(1)
+    if dataset == "water":
+        from .water import prepare as prepare_water
+
+        return prepare_water(tile, *paths)
     if dataset == "boats":
         from .boat_inputs import prepare as prepare_boats
 
@@ -704,7 +710,8 @@ def gather(
     ground, wfs = values["ground"], values["wfs"]
     pool_mask = shapely.union_all([g for g, _, _ in (values["gardens"] or {}).get("pools", ())])
     water = (
-        [g.difference(pool_mask) for g in wfs["water"]] if not pool_mask.is_empty else wfs["water"]
+        [g.difference(pool_mask) for g in values["water"]]
+        if not pool_mask.is_empty else values["water"]
     )
     from .register import enrich, period_evidence
 

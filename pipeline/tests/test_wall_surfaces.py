@@ -248,6 +248,40 @@ def test_prop_prototypes_are_transformed_before_architectural_assembly(tmp_path)
     assert loaded[0].positions[:, 1].min() >= 24
 
 
+def test_gpu_barriers_keep_instances_without_bare_prototypes_at_tile_origin(tmp_path):
+    from turku3d.coarse.fences import Segment, write_instances
+    from turku3d.layers import write_visual
+    from turku3d.package.gltf import accessor_array, read_glb
+    from turku3d.wall_assembly import assemble_layers
+    from turku3d.wall_surfaces import layer_meshes
+
+    tile = C.VisualTile(0, 1, 1)
+    out = tmp_path / tile.id
+    stage = out / ".stage"
+    stage.mkdir(parents=True)
+    path = stage / "barriers-with-any-name.glb"
+    write_instances(path, tile, [
+        Segment("hedge", 290, 3, 320, 2, 1.5, 0),
+        Segment("bollard", 295, 3, 325, .22, .9, 0),
+    ])
+    ground = stage / "ground.vis.glb"
+    ground_mesh = mesh(quad(z=10))
+    ground_mesh.extras.update(layer="ground", object_id="ground", material_key="soil")
+    write_visual(ground, [ground_mesh], root_translation=tile.origin)
+    assert layer_meshes([path]) == []
+    layers = assemble_layers(tile, [ground, path], [], [], out, stage)
+    assert path in layers
+    architecture = layer_meshes([p for p in layers if p != path])
+    assert all(m.extras.get("object_id") not in ("hedge", "bollard") for m in architecture)
+    doc, binary = read_glb(path.read_bytes())
+    for node in doc["nodes"]:
+        if "mesh" in node:
+            attrs = node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"]
+            translations = accessor_array(doc, binary, attrs["TRANSLATION"])
+            assert np.all(translations[:, 0] >= 40)
+            assert np.all(translations[:, 2] >= 70)
+
+
 @pytest.mark.parametrize("split", [None, 520])
 def test_batched_overlap_index_keeps_both_wall_axes_and_chunk_boundaries(split):
     faces = []
