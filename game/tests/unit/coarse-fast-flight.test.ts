@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { FLY } from '../../src/gameplay/flyMode';
 import { CoarseTiles } from '../../src/world/coarseTiles';
+import { aheadTiles, preparationTiles, wantedTiles } from '../../src/world/coarseRegion';
 import type { Manifest } from '../../src/world/manifest';
 
 test.each([[1, 0], [-1, 0], [0, 1], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]])(
@@ -36,3 +37,11 @@ test.each([[1, 0], [-1, 0], [0, 1], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]])(
     expect(coarse.velocity).toEqual({ x: 0, z: 0 });
   },
 );
+
+test('fast flight prepares several upcoming tiles while ordinary movement stays bounded', () => {
+  const x = 125, z = 125;
+  const forward = (speed: number) => preparationTiles(wantedTiles(x, z), aheadTiles(x, z, speed, 0), x, z, speed, 0);
+  expect(forward(FLY.fastSpeed)).toEqual(['t0_2_0', 't0_3_0', 't0_4_0', 't0_5_0', 't0_6_0', 't0_7_0', 't0_8_0']);
+  expect(forward(14)).toEqual(['t0_2_0']);
+  expect(forward(0)).toEqual([]);
+});

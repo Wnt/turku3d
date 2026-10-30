@@ -126,3 +126,32 @@ test('a retained response without collision cannot expose new geometry or replac
     expect(unloadCollision).not.toHaveBeenCalled();
   } finally { warn.mockRestore(); }
 });
+
+test('cached collision surfaces are usable while detailed geometry is blocked, then swap without removing support', async () => {
+  const id = 't0_2_0', scene = new THREE.Scene(), preview = new THREE.Group(), detailed = new THREE.Group();
+  const manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  const cells = Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `col/${cid}.col`, bytes: 4, sha256: cid }]));
+  let release!: (model: THREE.Object3D) => void;
+  const fetch = (async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path === `/coarse/${id}/collision.json`) return new Response(JSON.stringify({ coarse: true, tile: id,
+      pass_kind: 'full', visual: { [id]: { url: 'vis.full.glb', sha256: 'full' } }, collision: cells }));
+    if (path.endsWith('.col')) return new Response(new ArrayBuffer(4));
+    return new Response('{"state":"queued"}', { status: 202 });
+  }) as typeof globalThis.fetch;
+  const checkCollision = vi.fn(async () => 1), unloadCollision = vi.fn();
+  const loadModel = vi.fn(() => new Promise<THREE.Object3D>(resolve => { release = resolve; }));
+  const coarse = new CoarseTiles({ scene, manifest, renderer: {} as THREE.WebGPURenderer,
+    pageUrl: 'http://127.0.0.1:5171/', fetch, loadModel, checkCollision, unloadCollision, refreshCollision: vi.fn(),
+    previewCollision: async buffers => { expect(buffers.size).toBe(16); expect(checkCollision).toHaveBeenCalledTimes(16); return preview; } });
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  coarse.update(600, 100, 0); await settle();
+  expect(preview.parent).toBe(scene); expect(Object.keys(manifest.collision)).toHaveLength(16);
+  expect(loadModel).not.toHaveBeenCalled();
+  coarse.update(600, 100, 3000); await settle();
+  expect(loadModel).toHaveBeenCalledOnce(); expect(preview.parent).toBe(scene);
+  detailed.addEventListener('added', () => expect(preview.parent).toBeNull());
+  release(detailed); await settle();
+  expect(detailed.parent).toBe(scene); expect(unloadCollision).not.toHaveBeenCalled();
+  expect(coarse.entries.get(id)?.preview).toBeUndefined();
+});
