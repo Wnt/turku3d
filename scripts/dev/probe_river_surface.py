@@ -2,9 +2,10 @@
 
 import argparse
 import shlex
+import subprocess
 
 from deploy_drafts import HOME
-from facade_publish import remote
+from facade_publish import HOST, SSH
 
 
 def main():
@@ -16,7 +17,7 @@ def main():
         'timeout', '570', f'{source}/tools/remote-drafts/run.sh', 'python', '-u',
         f'{source}/tools/remote-drafts/probe-river-surface.py',
     ])
-    print(remote(f'TURKU3D_DRAFT_SOURCE={shlex.quote(source)} ' + command), flush=True)
+    subprocess.run([*SSH, HOST, f'TURKU3D_DRAFT_SOURCE={shlex.quote(source)} ' + command], check=True)
 
 
 if __name__ == '__main__':
