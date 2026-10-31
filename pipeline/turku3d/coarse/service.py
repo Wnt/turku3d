@@ -620,6 +620,10 @@ def loaded_files() -> list[str]:
 
 def handler(builder: Builder, prefetcher: Prefetcher | None = None):
     started = time.time()
+    # Serving-only derivative code remains outside producer identity and cannot invalidate base tiles.
+    import runpy
+    scenery_api = runpy.run_path(str(C.REPO_ROOT / "tools/remote-drafts/scenery.py"))
+    scenery = scenery_api["Scenery"](builder.root)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -651,6 +655,8 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
 
         def do_GET(self):
             url = urlparse(self.path)
+            if scenery_api["serve"](self, scenery, url):
+                return
             parts = url.path.removeprefix("/coarse/").split("/", 1)
             if url.path == "/coarse/navigation.json":
                 from .navigation import navigation

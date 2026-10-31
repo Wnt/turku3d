@@ -103,3 +103,27 @@ It flies actual dev input at 288 m/s, tests reversals and diagonal crossings, th
 two simultaneous clients. Every frame checks visible terrain and worker collision
 support. Each flight also waits for the detailed model to return after stopping.
 Screenshots and timing evidence stay under the sandbox reports directory.
+
+## Distant screenshot scenery
+
+Above 1 km, the developer selector freezes the camera origin, horizontal field of
+view and heading. The 6/8 km presets cover the 5.24 km Pääskyvuori–Energia skyline.
+`sceneryView` selects the padded sector; cached source heights prioritize high angular
+silhouettes across its depth, rather than loading every nearby ring first.
+
+`GET /coarse/scenery?tiles=...` reads existing full/retained-full manifests only.
+It never calls Builder, validates raw inputs, or requests generation. Missing sources
+are reported. Per-source derivative descriptors and GLBs live in the separate
+`.scenery/` cache, keyed by source SHA-256, tile and converter content hash. The
+converter reads source geometry/pigments, drops texture payloads and small props,
+reduces geometry while locking skyline extrema and outer terrain borders, and
+produces three vertex-coloured draw groups. Source files/facades/textures are never
+rewritten. The derivative code is outside the base producer hash.
+
+Distant models skip facade shaders, surface textures, CSM shadow batches and per-draw
+shader precompilation. The ordinary nearby visual/collision path retains authored
+quality. Selecting Normal releases derivative residency; reselection captures a new
+view and source snapshot. Generated derivatives can be copied between the Mac,
+`osgallery-dev` (explicitly authorized for this task), and OCI; existing base assets
+remain the reusable inputs. No base-tile rebuild is needed for a derivative recipe
+change.

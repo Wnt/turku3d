@@ -88,6 +88,10 @@ def allowed_origin(origin: str | None) -> bool:
 
 
 def public_route(path: str, bounds: list[int]) -> tuple[str, str | None]:
+    if path == "/coarse/scenery":
+        return "scenery-catalogue", None
+    if re.fullmatch(r"/coarse/scenery/(?:[a-f0-9]{64}\.json|lod\.[a-f0-9]{64}\.glb)", path):
+        return "scenery-asset", None
     if path == "/coarse/navigation.json":
         return "navigation", None
     if path == "/coarse/demand":
@@ -175,6 +179,7 @@ def publication_key(builder, tile):
 
 def public_handler(builder, prefetcher, settings):
     from ready_fragments import ReadyFragments
+    from scenery import Scenery, serve as serve_scenery
 
     base = handler(builder, prefetcher)
     instance = os.urandom(8).hex()
@@ -182,6 +187,7 @@ def public_handler(builder, prefetcher, settings):
     responses = Responses()
     ready = ReadyFragments(builder.root, lambda tile: publication_key(builder, tile)[2])
     admitting = {}
+    scenery = Scenery(builder.root)
 
     class PublicHandler(base):
         server_version = "TurkuDrafts"
@@ -273,6 +279,9 @@ def public_handler(builder, prefetcher, settings):
             if not allowed_origin(self.headers.get("Origin")):
                 return self._json(403, {"error": "origin"})
             route, tile = public_route(urlparse(self.path).path, settings["tile_bounds"])
+            if route in ('scenery-catalogue', 'scenery-asset'):
+                serve_scenery(self, scenery, urlparse(self.path), settings['tile_bounds'])
+                return
             idle = getattr(builder, 'idle', None)
             # Only game clients carry a client id; probes that merely send a Pages Origin must not hold off prebuilding.
             if (idle is not None and route == 'demand'

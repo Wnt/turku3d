@@ -24,6 +24,7 @@ export class VisualTiles {
   /** Final shader-affecting flags and derived geometry precede GPU preparation, while the model is hidden. */
   prepareModel(scene: THREE.Object3D) {
     if (this.prepared.has(scene)) return;
+    if (scene.userData.scenery) { this.prepared.add(scene); return; }
     scene.traverse(object => {
       const mesh = object as THREE.Mesh;
       if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
@@ -39,6 +40,7 @@ export class VisualTiles {
   /** Streaming keeps shadow buffer construction within the preparation frame budget. */
   async prepareModelAsync(scene: THREE.Object3D) {
     if (this.prepared.has(scene)) return;
+    if (scene.userData.scenery) { this.prepared.add(scene); return; }
     scene.traverse(object => {
       const mesh = object as THREE.Mesh;
       if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }

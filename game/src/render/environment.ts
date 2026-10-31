@@ -68,7 +68,7 @@ export class Environment {
 
   /** Keep the sky behind distant geometry and move haze beyond the requested photo scenery. */
   setScreenshotDistance(camera: THREE.PerspectiveCamera, distance: number) {
-    this.screenshotDistance = Number.isFinite(distance) ? Math.max(0, Math.min(5000, distance)) : 0;
+    this.screenshotDistance = Number.isFinite(distance) ? Math.max(0, Math.min(8000, distance)) : 0;
     const radius = this.screenshotDistance;
     camera.far = Math.max(6000, radius * 4);
     camera.updateProjectionMatrix();
