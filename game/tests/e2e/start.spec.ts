@@ -23,3 +23,32 @@ test('start screen discovers, disconnects and reconnects an Xbox controller', { 
   expect(state.E).toBeCloseTo(OFFICE_EN.E, 1); expect(state.N).toBeCloseTo(OFFICE_EN.N, 1);
   expect(Math.hypot(state.vehicle!.pos[0] - state.feet[0], state.vehicle!.pos[2] - state.feet[2])).toBeCloseTo(6, 0);
 });
+
+
+test('Firefox requires acknowledging the unsupported-browser warning before gameplay', { tag: ['@launch', '@input', '@synthetic'] }, async ({ page }, info) => {
+  // Exercise the browser-specific UX in the normal Chromium CI project without needing a Firefox installation.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true, value: 'Mozilla/5.0 (X11; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0',
+    });
+  });
+  await page.goto(`/?scene=dev&backend=${info.project.name}`);
+
+  const warning = page.locator('#firefox-warning');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('Firefox is');
+  await expect(warning).toContainText('Google Chrome');
+  const newGame = page.getByRole('option', { name: 'New game' });
+  await expect(newGame).toHaveAttribute('aria-disabled', 'true');
+
+  // Even a programmatic pointer event behind the overlay cannot start the game.
+  await newGame.evaluate(element => element.dispatchEvent(new Event('pointerup', { bubbles: true })));
+  await expect(page.locator('#intro-dialog')).toBeHidden();
+  await expect(page.evaluate(() => (window.__game!.state as () => { startScreen: boolean })().startScreen)).resolves.toBe(true);
+
+  await warning.getByRole('button', { name: 'I understand · let me suffer' }).click();
+  await expect(warning).toBeHidden();
+  await expect(newGame).toHaveAttribute('aria-disabled', 'false');
+  await newGame.click();
+  await expect(page.locator('#intro-dialog')).toBeVisible();
+});
