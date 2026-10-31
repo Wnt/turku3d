@@ -98,3 +98,32 @@ test('large views capture direction once, use derivatives and never request sour
   scenery.update(5000, 1000, 40000); await settle();
   expect(load).toHaveBeenCalledTimes(1);
 });
+
+test('a ready skyline retry completes before hundreds of untouched scenery tiles', async () => {
+  const { scenery, request, load } = setup();
+  const chimney = 't0_-6_5';
+  const attempts = new Map<string, number>();
+  request.mockImplementation(async (url: string) => {
+    if (url.includes('/scenery?')) {
+      const tiles = new URL(url, 'http://localhost').searchParams.get('tiles')!.split(',');
+      return new Response(JSON.stringify({ tiles: tiles.map(tile => ({ tile, key: tile,
+        h: [0, tile === chimney ? 107 : 0], source_sha256: 'base' })), missing: [] }));
+    }
+    const tile = url.split('/').at(-1)!.replace('.json', '');
+    const count = (attempts.get(tile) ?? 0) + 1; attempts.set(tile, count);
+    if (tile !== chimney || count === 1) return new Response('{}', { status: 202 });
+    return new Response(JSON.stringify({ coarse: true, tile, pass_kind: 'full',
+      visual: { [tile]: { url: '../scenery/chimney.glb', sha256: 'derived' } } }));
+  });
+  scenery.setRadius(6000, { x: 3751.26, y: 164.15, z: 430.05, dx: -1, dz: 0, halfAngle: .8 });
+  await settle();
+  scenery.update(3751.26, 430.05, 0); await settle();
+  expect(attempts.get(chimney)).toBe(1);
+  expect(scenery.progress.total).toBeGreaterThan(100);
+  scenery.update(3751.26, 430.05, 1000); await settle();
+  expect(attempts.size).toBe(16); // Other scenery advances while the skyline retry is cooling down.
+  scenery.update(3751.26, 430.05, 2000); await settle();
+  expect(attempts.get(chimney)).toBe(2);
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/chimney.glb');
+  expect(scenery.progress.loaded).toBe(1);
+});

@@ -88,10 +88,12 @@ export class ScreenshotScenery {
     }
     if (paused || this.cataloguePending || this.catalogueError) return;
     const demand = new Set(this.demand());
-    // Oldest poll first avoids starving the rest of a large view when nearby requests fail.
+    // Frozen views keep skyline priority when a preparation retry becomes due.
+    // Untouched entries must not outrank that retry just because their next time is zero.
+    // The legacy full-detail view still rotates polling fairly across source generation.
     const due = this.wanted.filter(id => (!this.nearby.get(id)?.model || this.nearby.get(id)?.preview)
       && (this.view || demand.has(id) || this.entries.get(id)?.complete))
-      .sort((a, b) => (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
+      .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
     for (const id of due) {
       if (this.active >= (this.view ? 8 : 2)) break;
       let e = this.entries.get(id);
