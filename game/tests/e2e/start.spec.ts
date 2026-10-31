@@ -38,7 +38,8 @@ test('Firefox requires acknowledging the unsupported-browser warning before game
   await expect(warning).toBeVisible();
   await expect(warning).toContainText('Firefox is');
   await expect(warning).toContainText('Google Chrome');
-  const newGame = page.getByRole('option', { name: 'New game' });
+  // Query the underlying menu by DOM: aria-modal may hide it from the accessibility tree.
+  const newGame = page.locator('#start-screen [data-option="new"]');
   await expect(newGame).toHaveAttribute('aria-disabled', 'true');
 
   // Even a programmatic pointer event behind the overlay cannot start the game.
