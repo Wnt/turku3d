@@ -1,3 +1,13 @@
+## Worker startup
+
+The client waits for the worker's ready handshake before transferring collision data.
+If module evaluation silently stalls for 15 seconds, it terminates that worker and
+starts one replacement, retaining queued messages. A second timeout rejects startup
+and surfaces an error instead of leaving the loading screen waiting indefinitely.
+Loading errors reject immediately. The watchdog is cancelled on ready and never
+restarts an active simulation. This recovers the silent pre-handler stall observed
+in an installed iOS PWA without clearing browser or generator asset caches.
+
 ## Breakable traffic-sign poles
 
 The full props layer and the draft producer emit sign and bus-stop nodes with stable
