@@ -140,7 +140,8 @@ def fetch(block, log=print, root=None, repair_tiles=()):
                             text = ET.tostring(tree, encoding="unicode")
                         atomic_write_text(dest / (target.name + suffix), text)
                 sources.invalidate()
-                if sources.ortho_source(tile) is not None:
+                selected = sources.ortho_source(tile)
+                if selected is not None and not blank(tile, selected):
                     break
             else:
                 raise NoCoverage(f"{tile.id}: neither 2022 nor 2025 has usable aerial imagery")
