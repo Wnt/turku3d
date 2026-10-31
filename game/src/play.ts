@@ -58,6 +58,7 @@ import { StreamHint } from './ui/streamHint';
 import { prepareMultiplayer } from './net/preparedStart';
 import type { MultiplayerClient } from './net/client';
 import { SharedVehicles } from './net/sharedVehicles';
+import { MultiplayerProgress } from './net/progress';
 import { RemotePlayers } from './net/remotes';
 import { VEHICLE_POSE_HEIGHT } from './net/height';
 import { vehicleIdentity } from './net/identity';
@@ -98,6 +99,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const voicePreload = audioPreload.then(() => voice.preload());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
   const saves = new SaveStore(browserStorage(), missionSummary);
+  const multiplayerProgress = new MultiplayerProgress(sessionStore());
   for (const id of SLOT_IDS) keepSavedVehicle(manifest, saves.get(id)?.lastVehicle);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
@@ -217,6 +219,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
+    onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },
     onQuit: () => { sharedVehicles?.stop(drivenId); multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
@@ -229,7 +232,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayerRunId = crypto.randomUUID();
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
-        if (at) { multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore()); }
+        if (at) { multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);
@@ -240,6 +243,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const rounds = new RoundUI(client, pauseMenu, () => pauseMenu.show(saveGame.pausePage()),
     () => saveGame.hooks.resume(), () => { paused = true; }, () => multiplayerPlaying);
   bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
+    multiplayerProgress.clear(client.session);
     multiplayerRunId = crypto.randomUUID(); leaveCar(null); fly?.set(false); remotePlayers.dispose();
   }, fail);
   const syncClock = () => world.syncClock?.(client.state.serverTime);

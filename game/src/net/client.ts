@@ -47,6 +47,8 @@ export class MultiplayerClient extends EventTarget {
   readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
   private serverOffset = 0;
   serverNow() { return performance.now() + this.serverOffset; }
+  /** Server-issued token shared with the mission-progress snapshot for this tab. */
+  get session(): string | null { return this.token; }
   round(action: 'propose' | 'agree' | 'start', minutes?: number) {
     if (this.state.connected) this.queue({ type: 'round', action, proposal: this.state.rounds.proposal?.id, minutes });
   }

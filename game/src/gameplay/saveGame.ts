@@ -72,6 +72,8 @@ interface SaveGameOptions {
   timedRounds?: () => void;
   multiplayerActive?: () => boolean;
   onQuit?: () => void;
+  /** Save mission progress for the current multiplayer session at every autosave. */
+  onAutosave?: (mission: string) => void;
 }
 
 /** A teleport where no ground is found (outside the built area) arrives at this height (N2000 m), flying. */
@@ -101,8 +103,8 @@ export class SaveGameController {
       resume: () => { o.pauseMenu.close(); o.setPaused(false); },
       respawn: () => { void this.respawn().catch(o.fail); },
       quit: () => {
-        o.onQuit?.();
         this.autosave.save('quit');
+        o.onQuit?.();
         o.pauseMenu.close();
         o.setPaused(false);
         o.startScreen.reopen(this.startFlow.start());
@@ -110,7 +112,12 @@ export class SaveGameController {
     };
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
     this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer, o.audio, o.timedRounds, o.multiplayerActive);
-    this.autosave = new Autosave(o.saves, () => o.startScreen.active || this.loading ? null : this.capture());
+    this.autosave = new Autosave(o.saves, () => {
+      if (o.startScreen.active || this.loading) return null;
+      const game = this.capture();
+      o.onAutosave?.(game.mission);
+      return game;
+    });
     this.detach = this.autosave.attach(window, document);
   }
 
@@ -185,13 +192,13 @@ export class SaveGameController {
   }
 
   /** Places a multiplayer join at the server's spawn or retained pose, using the normal safe-ground snap. */
-  async playAt(at: Pose, restoreVehicles?: () => Promise<string | null>) {
+  async playAt(at: Pose, restoreVehicles?: () => Promise<string | null>, mission: string | null = null) {
     this.o.startScreen.close();
     this.o.pauseMenu.close();
     this.loading = true;
     this.o.setPaused(true);
     try {
-      await this.place(null, at);
+      await this.place(null, at, mission);
       const seat = await restoreVehicles?.();
       if (seat) {
         this.o.enterVehicle(seat);
@@ -218,12 +225,12 @@ export class SaveGameController {
   }
 
   /** Puts the world in the state of `game` (null: a new game): missions, clock, the own car, then the player. */
-  private async place(game: SaveGame | null, override?: Pose) {
+  private async place(game: SaveGame | null, override?: Pose, mission?: string | null) {
     const { physics, missions, spawn } = this.o;
     const prepared = this.prepared.get(override ?? game);
     this.prepared.clear();
     if (this.o.view().mode === 'car') this.o.leaveCar();
-    missions.restore(game?.mission ?? null);
+    missions.restore(mission ?? game?.mission ?? null);
     const saved = game?.vehicle ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;

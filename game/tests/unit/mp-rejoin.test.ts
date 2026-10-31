@@ -77,15 +77,16 @@ function setup(kind: VehicleKind, seated: boolean, source: string | null = null)
     { setShared: vi.fn() } as unknown as ParkedVehicles);
   const enterVehicle = vi.fn((id: string) => shared.drive(id));
   const paused = vi.fn();
+  const missions = { vehicle: 'none', restore: vi.fn(), begin: vi.fn() };
   const save = new SaveGameController({
     physics, streamer: { update: vi.fn() }, manifest: { collision: {} },
-    missions: { vehicle: 'none', restore: vi.fn(), begin: vi.fn() }, recovery: { restart: vi.fn() },
+    missions, recovery: { restart: vi.fn() },
     saves: new SaveStore(null, missionSummary), startScreen: { close: vi.fn() }, pauseMenu: { close: vi.fn() },
     car: { x: 180, y: 4, z: 260, yaw: 0 }, spawn: { x: 170, y: 4, z: 250, yaw: 0 },
     view: () => ({ mode: 'foot' }), placed: vi.fn(), enterVehicle, setPaused: paused,
   } as unknown as ConstructorParameters<typeof SaveGameController>[0]);
   const at = multiplayerStart(client.state.you!, { pose: vehicle.pose }, seated ? vehicle : undefined);
-  return { client, shared, save, at, ready, vehicle, state, manifest, physics, enterVehicle, paused };
+  return { client, shared, save, at, ready, vehicle, state, manifest, physics, enterVehicle, paused, missions };
 }
 
 test.each(['car', 'scooter', 'truck'] as const)('tab reload while driving %s restores the same body, pose and seat before unpausing', async kind => {
@@ -165,5 +166,16 @@ test('joining again from the menu restores authority even when its epoch has not
   await h.save.playAt(at, () => h.shared.restore());
   expect(h.physics.spawnVehicle).toHaveBeenCalledWith(h.state.pos, expect.any(Number), expect.objectContaining({ id: 'player' }));
   expect(h.physics.latest.vehicles.find(v => v.id === 'player')?.pos).toEqual(h.state.pos);
+  h.save.dispose();
+});
+
+test('multiplayer rejoin restores the saved mission but keeps the server vehicle and position', async () => {
+  const h = setup('car', true);
+  const mission = JSON.stringify({ version: 4, money: 111, permit: 3, plates: true });
+  await h.save.playAt((await h.ready)!, () => h.shared.restore(), mission);
+  expect(h.missions.restore).toHaveBeenCalledWith(mission);
+  expect(h.physics.latest.character.pos).toMatchObject({ x: 720, z: 800 });
+  expect(h.physics.latest.vehicles.find(v => v.id === 'player')?.pos).toEqual(h.state.pos);
+  expect(h.enterVehicle).toHaveBeenCalledWith('player');
   h.save.dispose();
 });
