@@ -1,6 +1,6 @@
 # Developing Turku3D
 
-[Project overview](../README.md) · [Documentation index](README.md) · [Contributor guide](../CONTRIBUTING.md)
+[Project overview](../README.md) · [Documentation index](README.md)
 
 Turku3D has three main runtime parts: **browser game** (`game/`), **multiplayer server** (`server/`), and an **on-demand city-data / tile pipeline** (`pipeline/`, `tools/`). The deployed game and generated world are separate systems.
 
@@ -58,4 +58,4 @@ Generated tile content is requested on demand in production. Pages does **not** 
 
 The public client is hosted at [wnt.github.io/turku-game](https://wnt.github.io/turku-game/) from the deploy-only [Wnt/turku-game](https://github.com/Wnt/turku-game) repository. Its `game/` files are build outputs. Change the source here; project deployment tooling handles publication after integration. A PR does **not** publish to Pages.
 
-For small changes, run only relevant tests, explain what you did and did not verify, and submit a PR. The project's automated task orchestration and merge/deploy rules are described in [AGENTS.md](../AGENTS.md); that workflow assumes the owner's configured data, machines and credentials and is **not** a prerequisite for external contributors.
+For small changes, run only relevant tests and explain what you did and did not verify. The project's automated task orchestration and merge/deploy rules are described in [AGENTS.md](../AGENTS.md); that workflow assumes the owner's configured data, machines and credentials.

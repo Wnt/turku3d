@@ -60,4 +60,4 @@ The browser client is published to GitHub Pages in the **separate, deploy-only**
 
 The project uses City of Turku open building, terrain/lidar, street and aerial datasets, plus OpenStreetMap. Some facade, material and UI art is AI-generated. [Attribution and third-party licences](NOTICE.md) · [MIT licence for repository code](LICENSE).
 
-**Interested in helping?** See [CONTRIBUTING.md](CONTRIBUTING.md) or [open an issue](https://github.com/Wnt/turku3d/issues). For dated technical measurements and known gaps, start at the [documentation index](docs/README.md); older reports are historical evidence, not promises about the live build.
+For dated technical measurements and known gaps, start at the [documentation index](docs/README.md); older reports are historical evidence, not promises about the live build.

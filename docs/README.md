@@ -7,7 +7,6 @@ Choose the entry point for what you want to do:
 | Audience / question | Start here |
 | --- | --- |
 | **Player:** How do I play? What are the controls? | [Playing Turku3D](PLAYING.md) |
-| **Contributor:** How do I propose a change? | [CONTRIBUTING](../CONTRIBUTING.md) |
 | **Developer:** How do I run the browser game or tests? | [Development guide](DEVELOPING.md), [game README](../game/README.md) |
 | **Server developer:** How does multiplayer work? | [Server README](../server/README.md), [protocol](../server/PROTOCOL.md) |
 | **World/pipeline developer:** Where are the data and rendering contracts? | [Architecture](ARCHITECTURE.md), [formats](specs/), [data sources](../data-manifests/sources.yaml) |
