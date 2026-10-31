@@ -288,8 +288,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
-  if (hot?.save) startScreen.close();
-  else if (resume) saveGame.hooks.play(resume);
+  if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
+  else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
   else startScreen.show(saveGame.startFlow.start());
   startScreen.ready(!!multiplayerAt);
   world.loadingScreen.ready(!!multiplayerAt);
