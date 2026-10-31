@@ -16,7 +16,11 @@ from turku3d.fetch import wms
 
 
 @pytest.mark.parametrize("fallback_white", [False, True])
-def test_new_tile_fallback_preserves_warm_neighbours(raw, tmp_path, monkeypatch, fallback_white):  # noqa: F811
+@pytest.mark.parametrize("repair", [False, True])
+@pytest.mark.usefixtures("raw")
+def test_new_tile_fallback_preserves_warm_neighbours(
+    tmp_path, monkeypatch, fallback_white, repair
+):
     warm = C.VisualTile(0, 1, 1)
     _real_raw(warm)
     root = tmp_path / "coarse"
@@ -29,7 +33,7 @@ def test_new_tile_fallback_preserves_warm_neighbours(raw, tmp_path, monkeypatch,
     siblings = block_tiles(block_of(warm))
     new = next(t for t in siblings if t != warm)
     for tile in siblings:
-        if tile != new:
+        if tile != new or repair:
             path = root / tile.id / "manifest.json"
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(dict(pass_kind="full")))
@@ -41,7 +45,7 @@ def test_new_tile_fallback_preserves_warm_neighbours(raw, tmp_path, monkeypatch,
         if p.is_file() and p.name != ".retention.lock"
     }
     sources = ImagerySources(root)
-    assert sources.ortho_source(new) is None
+    assert sources.ortho_source(new) == (vrt if repair else None)
     assert sources.ortho_source(warm) == vrt
     calls = []
 
@@ -63,10 +67,17 @@ def test_new_tile_fallback_preserves_warm_neighbours(raw, tmp_path, monkeypatch,
         from turku3d.coarse.sources import NoCoverage
 
         with pytest.raises(NoCoverage, match="neither 2022 nor 2025"):
-            fetch(block_of(warm), root=root, log=lambda *_: None)
-        assert ImagerySources(root).ortho_source(new) is None
+            fetch(
+                block_of(warm),
+                root=root,
+                log=lambda *_: None,
+                repair_tiles=[new.id] if repair else [],
+            )
+        assert ImagerySources(root).ortho_source(new) == (vrt if repair else None)
     else:
-        fetch(block_of(warm), root=root, log=lambda *_: None)
+        fetch(
+            block_of(warm), root=root, log=lambda *_: None, repair_tiles=[new.id] if repair else []
+        )
         selected = ImagerySources(root).ortho_source(new)
         assert selected != vrt and not blank(new, selected)
         with rasterio.open(selected) as ds:

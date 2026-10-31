@@ -97,9 +97,10 @@ def paths(block):
     return result
 
 
-def fetch(block, log=print, root=None):
-    """Use 2022 imagery when valid, otherwise 2025; preserve every existing full tile."""
+def fetch(block, log=print, root=None, repair_tiles=()):
+    """Fetch new imagery; only explicitly selected repairs may change a full tile's source."""
     sources = ImagerySources(root)
+    repair_tiles = set(repair_tiles)
     primary = dataclasses.replace(
         next(layer for layer in WMS_LAYERS if layer.slug == ORTHO_SLUG),
         px_m=C.VISUAL_TILE_SIZE / ORTHO_PX,
@@ -110,7 +111,11 @@ def fetch(block, log=print, root=None):
     for tile in block_tiles(block):
         # Serialize with generation and external publication, including the final recheck.
         with tile_lock(sources.root / tile.id):
-            if full_exists(tile, sources.root) or sources.ortho_source(tile) is not None:
+            repair = tile.id in repair_tiles
+            if full_exists(tile, sources.root) and not repair:
+                continue
+            path = sources.ortho_source(tile)
+            if path is not None and (not repair or not blank(tile, path)):
                 continue
             target = area(tile)
             for layer in (primary, fallback):
