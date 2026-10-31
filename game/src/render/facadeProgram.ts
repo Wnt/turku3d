@@ -1,6 +1,7 @@
 // Program-sized windows reuse the kit's PBR cells; bands are painted in wall metres.
-import { attribute, float, fract, max, min, mix, sqrt, step, vec2 } from 'three/tsl';
+import { float, fract, max, min, mix, sqrt, step, vec2 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
+import { facadeAttribute } from './facadeProgramAttributes';
 
 function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'float'>, b: Node<'float'>) {
   return t.lessThan(lo).select(t.div(max(lo, .001)).mul(a),
@@ -9,9 +10,9 @@ function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'f
 }
 
 export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: Node<'vec3'>, upper: Node<'float'>, selected: Node<'float'>) {
-  const opening = attribute('_kit_opening', 'vec4');
-  const detail = attribute('_kit_detail', 'vec4');
-  const size = attribute('_kit_extent', 'vec4').zw;
+  const opening = facadeAttribute('_kit_opening', 'vec4');
+  const detail = facadeAttribute('_kit_detail', 'vec4');
+  const size = facadeAttribute('_kit_extent', 'vec4').zw;
   const blank = layout.x.greaterThanEqual(42).select(layout.x, layout.x.div(6).floor().add(42));
   const above = metres.y.greaterThanEqual(size.y);
   const plain = detail.z.mod(2).greaterThan(.5).and(upper.lessThan(1));
@@ -29,7 +30,7 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const shape = isPatch.select(detail.w.div(4).floor(),
     upper.lessThan(1).select(detail.z.div(2).floor(), detail.w.negate())).mul(float(layout.x.lessThan(42)));
   const special = upper.lessThan(1).and(selectedModule.mod(3).notEqual(0)).and(selectedModule.lessThan(42));
-  const floorSize = attribute('_kit_floors', 'vec3');
+  const floorSize = facadeAttribute('_kit_floors', 'vec3');
   const unitHeight = isPatch.select(size.y, mix(floorSize.x, floorSize.y, upper));
   const windowWidth = isPatch.select(float(1), special.select(float(.49), opening.x));
   const windowHeight = isPatch.select(float(1), special.select(float(.76), opening.y));
@@ -61,8 +62,8 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
 
 export function programPigment(metres: Node<'vec2'>, bays: Node<'vec2'>, upper: Node<'float'>, layout: Node<'vec3'>,
   wall: Node<'vec3'>, trim: Node<'vec3'>, data: ReturnType<typeof programLayout>) {
-  const bands = attribute('_kit_bands', 'vec4');
-  const base = attribute('_kit_base', 'vec3');
+  const bands = facadeAttribute('_kit_bands', 'vec4');
+  const base = facadeAttribute('_kit_base', 'vec3');
   const plinth = step(metres.y, bands.x);
   const cornice = step(data.size.y.sub(bands.y), metres.y).mul(step(metres.y, data.size.y));
   const corner = step(min(metres.x, data.size.x.sub(metres.x)), bands.w);

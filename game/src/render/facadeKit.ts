@@ -1,8 +1,8 @@
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
-import { attribute, color, float, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { color, float, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
-import { interleaveProgram } from './facadeProgramAttributes';
+import { facadeAttribute, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
@@ -13,11 +13,11 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const material = renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial;
   // GLTFLoader exposes custom semantics in lowercase on both renderer backends.
   // Retain v1 support for published tiles until their next rebuild.
-  const layout = (p.version ?? 1) >= 2 ? attribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
-  const origin = p.version === 4 ? attribute('_kit_extent', 'vec4').xy
-    : (p.version ?? 1) >= 2 ? attribute('_kit_origin', 'vec2') : vec2(0);
+  const layout = (p.version ?? 1) >= 2 ? facadeAttribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
+  const origin = p.version === 4 ? facadeAttribute('_kit_extent', 'vec4').xy
+    : (p.version ?? 1) >= 2 ? facadeAttribute('_kit_origin', 'vec2') : vec2(0);
   const metres = uv().sub(origin);
-  const floors = (p.version ?? 1) >= 3 ? attribute('_kit_floors', 'vec3') : vec3(layout.z, layout.z, 0);
+  const floors = (p.version ?? 1) >= 3 ? facadeAttribute('_kit_floors', 'vec3') : vec3(layout.z, layout.z, 0);
   const upper = step(floors.x, metres.y);
   const bays = vec2(metres.x.div(layout.y), mix(metres.y.div(floors.x), metres.y.sub(floors.x).div(floors.y).add(1), upper));
   // The entrance module contains one door; use the window module in the other bays.
@@ -37,8 +37,8 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const sample = texture(original.map, coord).grad(dx, dy);
   const albedo = sample.rgb;
   const orm = texture(original.roughnessMap, coord).grad(dx, dy);
-  const wallColour = (p.version ?? 1) >= 2 ? attribute('_kit_wall', 'vec3') : color(p.wall!);
-  const trim = (p.version ?? 1) >= 2 ? attribute('_kit_trim', 'vec3') : color(p.trim!);
+  const wallColour = (p.version ?? 1) >= 2 ? facadeAttribute('_kit_wall', 'vec3') : color(p.wall!);
+  const trim = (p.version ?? 1) >= 2 ? facadeAttribute('_kit_trim', 'vec3') : color(p.trim!);
   const paint = program ? programPigment(metres, bays, upper, layout, wallColour.rgb, trim.rgb, program) : null;
   const wall = paint?.pigment ?? wallColour;
   const tint = (p.version ?? 1) >= 3
