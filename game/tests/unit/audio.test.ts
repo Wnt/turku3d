@@ -118,6 +118,43 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   expect(ctx.nodes.filter(n => n.started).every(n => n.disconnected)).toBe(true);
 });
 
+test('Firefox legacy listener and panner positioning work without spatial AudioParams', async () => {
+  const ctx = new FakeContext();
+  const listenerPositions: number[][] = [], orientations: number[][] = [], pannerPositions: number[][] = [];
+  // Firefox AudioListener lacks positionX/forwardX/upX but exposes the legacy methods.
+  ctx.listener = {
+    setPosition: (x: number, y: number, z: number) => { listenerPositions.push([x, y, z]); },
+    setOrientation: (fx: number, fy: number, fz: number, ux: number, uy: number, uz: number) => {
+      orientations.push([fx, fy, fz, ux, uy, uz]);
+    },
+  } as unknown as FakeContext['listener'];
+  ctx.createPanner = () => {
+    const node = ctx.node();
+    Object.assign(node, {
+      positionX: undefined, positionY: undefined, positionZ: undefined,
+      setPosition: (x: number, y: number, z: number) => { pannerPositions.push([x, y, z]); },
+    });
+    return node;
+  };
+
+  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher);
+  audio.emit(listener); // Can arrive before the context exists.
+  await audio.unlock();
+  audio.emit(listener); // The render loop must update a legacy listener without throwing.
+  expect(listenerPositions).toEqual([[position.x, position.y, position.z]]);
+  expect(orientations).toEqual([[0, 0, -1, 0, 1, 0]]);
+  expect(pannerPositions).toContainEqual([100, 2, 180]); // Spatial traffic ambience.
+  const moved = { x: 9, y: 4, z: 5 };
+  audio.emit({ ...listener, position: moved, forward: { x: 1, y: 0, z: 0 } });
+  audio.emit({ type: 'car', kind: 'car', position: moved, rpm: 3000, throttle: 0.5,
+    speed: 10, slip: 0, running: true });
+  expect(listenerPositions.at(-1)).toEqual([9, 4, 5]);
+  expect(orientations.at(-1)).toEqual([1, 0, 0, 0, 1, 0]);
+  expect(pannerPositions).toContainEqual([9, 4, 5]);
+  expect(audio.errors).toEqual([]);
+  audio.dispose();
+});
+
 test('asset failure is contained, and disposal during decode never starts voices', async () => {
   const ctx = new FakeContext();
   const audio = new GameAudio(() => ctx as unknown as AudioContext,
