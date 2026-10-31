@@ -1,6 +1,13 @@
 import { BufferGeometry, InterleavedBuffer, InterleavedBufferAttribute } from 'three/webgpu';
+import { attribute, varying } from 'three/tsl';
 import { PreparationBudget } from './preparationBudget';
 import { packProgram, type ProgramField } from './packProgram';
+
+/** Authored facade instructions are constant on each triangle, unlike the surface UVs.
+ * Smooth interpolation can move integer module IDs/flags across floor/mod/equality boundaries. */
+export function facadeAttribute<const T extends 'vec2' | 'vec3' | 'vec4'>(name: string, type: T) {
+  return varying(attribute(name, type), `v${name}`).setInterpolation('flat');
+}
 
 function programFields(geometry: BufferGeometry) {
   if (!geometry.hasAttribute('_kit_opening')) return null;

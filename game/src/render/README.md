@@ -271,3 +271,12 @@ The throttled Mac results compare this client implementation; they are not phone
 Generated node attributes from every render pass have explicit object/geometry retirement ownership.
 This complements r186 geometry cleanup, which otherwise sees only the first draw context
 and can retain later instance-matrix attribute views. Interleaved views share buffer ownership.
+
+## Facade program interpolation
+
+Facade-kit attributes are authored constants on each triangle, including integer atlas
+module IDs and packed flags. `facadeAttribute` passes these fields through explicit flat
+varyings on WebGPU and WebGL2. Perspective interpolation can perturb an integer across
+`floor`, modulo or equality boundaries, selecting different atlas cells at adjacent pixels
+and causing severe black speckling/flicker on iPhone GPUs. Surface UVs remain interpolated;
+the original facade instructions, textures and atlas derivatives are preserved.
