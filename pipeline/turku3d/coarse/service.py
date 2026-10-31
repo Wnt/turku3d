@@ -34,7 +34,7 @@ from .service_retention import maintain_retention
 from .service_state import failed_identity, tile_current, unavailable_reply
 from .service_state import snapshot as state_snapshot
 from .serving import retained_fragment as collision_fragment
-from .sources import NoCoverage, Sources, Unit
+from .sources import NoCoverage, Unit
 from .upgrade_queue import next_job, next_upgrade
 from .worker_pool import Workers
 
@@ -728,7 +728,9 @@ def serve(
 ):
     """Without an explicit builder: the real producer, gated on its inputs, with a prefetcher."""
     if builder is None:
-        sources = Sources()
+        from .imagery import ImagerySources
+
+        sources = ImagerySources(root)
         prefetcher = Prefetcher(sources, root=root)
 
         def inputs(tile: str) -> list[str]:

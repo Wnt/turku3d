@@ -414,7 +414,8 @@ def test_wms_fetch_layer_fake(data_root, monkeypatch):
         assert v.res == pytest.approx((layer.px_m / 2, layer.px_m / 2))
 
 
-def test_decode_png_white_as_nodata():
+@pytest.mark.parametrize("mode", ["RGB", "RGBA"])
+def test_decode_png_white_as_nodata(mode):
     np = pytest.importorskip("numpy")
     from PIL import Image
     from turku3d.fetch import wms
@@ -422,7 +423,7 @@ def test_decode_png_white_as_nodata():
     a = np.full((4, 4, 3), 255, np.uint8)
     a[0, 0] = (1, 2, 3)
     buf = io.BytesIO()
-    Image.fromarray(a, "RGB").save(buf, "PNG")
+    Image.fromarray(a, "RGB").convert(mode).save(buf, "PNG")
     rgb, valid = wms.decode_png(buf.getvalue())
     assert valid.sum() == 1 and valid[0, 0]
 
@@ -585,7 +586,9 @@ def test_wms_expired_and_legacy_blanks_are_retried(data_root, monkeypatch):
     def get(*args, **kwargs):
         calls.append(1)
         buf = io.BytesIO()
-        Image.fromarray(np.full((8, 8, 4), 255, np.uint8)).save(buf, "PNG")
+        pixels = np.full((8, 8, 4), 80, np.uint8)
+        pixels[..., 3] = 255
+        Image.fromarray(pixels).save(buf, "PNG")
         return buf.getvalue(), {"content-type": "image/png"}
 
     s = wms.fetch_layer(layer, area, get=get)

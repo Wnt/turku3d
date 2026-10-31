@@ -74,7 +74,9 @@ def decode_png(body: bytes):
         rgb, valid = a[..., :3], a[..., 3] > 0
     else:
         rgb = np.asarray(im.convert("RGB"))
-        valid = ~(rgb.min(axis=2) >= 254)  # pure white = no coverage
+        valid = np.ones(rgb.shape[:2], dtype=bool)
+    # Tekla also returns opaque RGBA white outside coverage; alpha alone is insufficient.
+    valid &= ~(rgb.min(axis=2) >= 254)
     return np.ascontiguousarray(rgb), valid
 
 

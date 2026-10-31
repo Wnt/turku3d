@@ -28,7 +28,7 @@ from turku3d.coarse.service import (
 )
 from turku3d.coarse.serving import public_fragment
 from turku3d.coarse.serving import retained_fragment as collision_fragment
-from turku3d.coarse.sources import Sources, Unit
+from turku3d.coarse.sources import Unit
 
 # Serving derivative only: no generator invocation or format changes to individual .col cells.
 BUNDLE = re.compile(r"^bundle\.[0-9a-f]{64}\.col$")
@@ -393,7 +393,9 @@ def main():
     settings = json.loads(Path(__file__).with_name("config.json").read_text())
     root = C.work_root() / "coarse"
     root.mkdir(parents=True, exist_ok=True)
-    sources = Sources()
+    from turku3d.coarse.imagery import ImagerySources
+
+    sources = ImagerySources(root)
     prefetcher = Prefetcher(sources, root=root)
     builder = Builder(
         root,
