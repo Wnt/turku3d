@@ -11,11 +11,16 @@ const out = path.join(reportsRoot, 'scenery-skyline'); fs.mkdirSync(out, { recur
 const browser = await chromium.launch({ executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs,
   headless: false, args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 const deadline = setTimeout(() => { void browser.close(); }, 240_000);
-const report = { errors: [], requests: [], sourcePose: { E: 23463251.26, N: 6704069.95, H: 164.15, heading: 273, pitch: -17 } };
+const report = { errors: [], requests: [], responses: [], sourcePose: { E: 23463251.26, N: 6704069.95, H: 164.15, heading: 273, pitch: -17 } };
 let page;
 try {
   page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   await page.bringToFront();
+  page.on('response', async response => {
+    if (!response.url().includes('017ee9a8')) return;
+    report.responses.push({ url: response.url(), status: response.status(), at: Date.now(),
+      serviceWorker: response.fromServiceWorker(), body: response.url().endsWith('.json') ? await response.text().catch(() => '') : undefined });
+  });
   const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   page.on('pageerror', error => report.errors.push(error.message));
   page.on('request', request => { if (/\/coarse\/scenery/.test(request.url())) report.requests.push({ url: request.url(), at: Date.now() }); });
@@ -83,6 +88,8 @@ try {
   });
   assert.ok(report.acceptance.seconds < 15, `Chimney arrived after ${report.acceptance.seconds}s`);
   assert.ok(report.acceptance.points.some(([x, y, z]) => Math.abs(x) < 1 && Math.abs(y) < 1 && z > -1 && z < 1), 'Chimney geometry must be inside the rendered view');
+  await page.waitForFunction(() => performance.now() - window.__skylineSelected >= 15_000);
+  report.at15Seconds = await page.evaluate(() => window.__game.coarse.screenshotScenery.progress);
   await page.screenshot({ path: path.join(out, 'chimney-visible.png') });
   const points = report.acceptance.points;
   const x = Math.max(0, Math.min(...points.map(p => (p[0] + 1) * 800)) - 30);

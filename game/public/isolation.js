@@ -11,6 +11,8 @@ function immutableAsset(request) {
   const url = new URL(request.url);
   return request.method === 'GET' && !request.headers.has('range')
     && url.pathname.startsWith('/coarse/')
+    // A scenery key identifies the recipe, but its descriptor changes from preparing to ready.
+    && !/^\/coarse\/scenery\/[a-f0-9]{64}\.json$/.test(url.pathname)
     && /[./][a-f0-9]{64}\.(?:glb|ktx2|bin|col|json)$/.test(url.pathname);
 }
 function assetKey(url) { return new URL(url).pathname.match(/[a-f0-9]{64}\.[a-z0-9]+$/)?.[0] ?? url; }

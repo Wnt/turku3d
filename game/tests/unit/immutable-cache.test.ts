@@ -105,3 +105,10 @@ test('LRU hit survives byte/count eviction and persists across another worker re
   expect([...fresh.stored.keys()]).toEqual([asset()]);
   expect([...fresh.index.keys()]).toEqual([asset()]);
 });
+
+test('scenery preparation descriptors remain mutable while completed geometry is immutable', () => {
+  const w = worker();
+  const key = 'a'.repeat(64);
+  expect(w.immutable(new Request(`https://draft.test/coarse/scenery/${key}.json`))).toBe(false);
+  expect(w.immutable(new Request(`https://draft.test/coarse/scenery/lod.${key}.glb`))).toBe(true);
+});
