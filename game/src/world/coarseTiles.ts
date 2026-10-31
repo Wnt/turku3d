@@ -162,6 +162,8 @@ export class CoarseTiles {
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }) {
     this.clock = now;
+    // Screenshot downloads refill free slots each frame, independently of world-generation polling.
+    this.screenshotScenery.update(x, z, now, !!this.outage);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };
@@ -188,7 +190,6 @@ export class CoarseTiles {
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
       this.drop(e); this.entries.delete(id);
     }
-    this.screenshotScenery.update(x, z, now, !!this.outage);
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
       this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);

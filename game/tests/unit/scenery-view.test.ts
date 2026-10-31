@@ -3,7 +3,7 @@ import { sceneryTiles, skylinePriority, type SceneryView } from '../../src/world
 
 const heading = 273 * Math.PI / 180;
 const view: SceneryView = { x: 3751.26, y: 164.15, z: 430.05, dx: Math.sin(heading), dz: -Math.cos(heading), halfAngle: .8 };
-test('fixed west-facing six-kilometre sector includes the chimney and excludes the rear half', () => {
+test('west-facing six-kilometre sector includes the chimney and excludes the rear half', () => {
   const wanted = sceneryTiles(6000, view);
   expect(wanted).toContain('t0_-6_5');
   expect(wanted).not.toContain('t0_30_1');

@@ -237,7 +237,7 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
   memory is estimated at 135 B/tri. Player E/N/H is in EPSG:3877 + N2000. `window.__perf` exposes the measurements.
 - Verified with the dev tileset in the e2e test: the 3D Tiles Z-up ↔ engine Y-up handling is correct. The NE marker at tile-local (240, ·, 10) ends up at engine x 240, z 10, so `tiles.group.rotation.x = -PI/2` together with the renderer's default glTF Y-up → Z-up rotation is right. This resolves the [U] in docs/specs/tiles.md §1.
 - **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. `src/shared/col/rapierBuild.ts#hitMaterial` relies on `featureId`, so it returns the material of triangle 0.
-- Character rendering interpolates 60 Hz physics states; car rendering still uses the latest state. On foot, camera collision uses an async worker raycast; driving uses a swept sphere and commits only the checked camera pose.
+- Character and driven-car rendering interpolate 60 Hz physics states. The on-foot camera follows the character's rendered position directly; a second positional filter would introduce speed-dependent lag and catch-up jumps during flight or falling. Camera collision distance remains smoothed from an async worker raycast; driving uses a swept sphere.
 - There is no floating origin.
 - The character's walk, jog and sprint clip speeds (1.5, 3.6, 6.0 m/s) were tuned by eye.
 

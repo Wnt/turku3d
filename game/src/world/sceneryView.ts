@@ -4,7 +4,7 @@ import { VISUAL_L0 } from '../core/origin';
 export interface SceneryView { x: number; y: number; z: number; dx: number; dz: number; halfAngle: number }
 export interface ScenerySource { tile: string; key: string; h: [number, number]; source_sha256: string }
 
-/** Fixed selection-time footprint, padded by each tile's bounding circle at the frustum edges. */
+/** Live camera footprint, padded by each tile's bounding circle at the frustum edges. */
 export function sceneryTiles(radius: number, view: SceneryView) {
   const length = Math.hypot(view.dx, view.dz) || 1, dx = view.dx / length, dz = view.dz / length;
   return startupDraftTiles([view], radius).filter(id => {

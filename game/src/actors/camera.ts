@@ -27,8 +27,9 @@ export class OrbitCamera {
   }
 
   update(dt: number, target: THREE.Vector3) {
-    this.target.lerp(target, Math.min(1, dt * 15));
-    if (this.target.distanceTo(target) > 5) this.target.copy(target);
+    // The visual character already follows interpolated physics. A second positional
+    // filter creates speed-dependent lag and catch-up jumps as frame delivery varies.
+    this.target.copy(target);
     const want = Math.min(this.distance, this.clampDist);
     this.curDist += (want - this.curDist) * Math.min(1, dt * (want < this.curDist ? 20 : 4));
     const p = this.backDir().multiplyScalar(this.curDist).add(this.target);

@@ -106,8 +106,11 @@ Screenshots and timing evidence stay under the sandbox reports directory.
 
 ## Distant screenshot scenery
 
-Above 1 km, the developer selector freezes the camera origin, horizontal field of
-view and heading. The 6/8 km presets cover the 5.24 km Pääskyvuori–Energia skyline.
+Above 1 km, distant scenery follows the live camera origin, horizontal field of
+view and heading. The footprint refreshes at most every 150 ms after a meaningful
+turn, movement or FOV change. Source metadata is reused across overlapping views;
+only newly exposed tiles need catalogue requests. Up to 128 tiles outside the
+current cone stay resident for five seconds to make brief look-backs cheap. The 6/8 km presets cover the 5.24 km Pääskyvuori–Energia skyline.
 `sceneryView` selects the padded sector; cached source heights prioritize high angular
 silhouettes across its depth, rather than loading every nearby ring first.
 
@@ -122,8 +125,8 @@ rewritten. The derivative code is outside the base producer hash.
 
 Distant models skip facade shaders, surface textures, CSM shadow batches and per-draw
 shader precompilation. The ordinary nearby visual/collision path retains authored
-quality. Selecting Normal releases derivative residency; reselection captures a new
-view and source snapshot. Generated derivatives can be copied between the Mac,
+quality. Selecting Normal releases derivative residency; changing distance refreshes
+the source snapshot. Turning does not reset loaded scenery or restart shared requests. Generated derivatives can be copied between the Mac,
 `osgallery-dev` (explicitly authorized for this task), and OCI; existing base assets
 remain the reusable inputs. No base-tile rebuild is needed for a derivative recipe
 change.

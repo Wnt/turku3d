@@ -58,6 +58,7 @@ export class DevLayers {
   private open = false;
   private enabled = devToolsEnabled(location);
   private select = document.createElement('select');
+  private viewDirection = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer,
     private setViewDistance?: (radius: number) => void, private camera?: THREE.PerspectiveCamera) {
@@ -91,22 +92,26 @@ export class DevLayers {
       distance.value = String(coarse.screenshotScenery.radius);
       distance.onchange = () => {
         const radius = Number(distance.value);
-        const direction = this.camera?.getWorldDirection(new THREE.Vector3());
-        const length = direction ? Math.hypot(direction.x, direction.z) : 0;
-        coarse.screenshotScenery.setRadius(radius, this.camera && direction && length > .01 ? {
-          x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z,
-          dx: direction.x / length, dz: direction.z / length,
-          halfAngle: Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect),
-        } : undefined);
+        coarse.screenshotScenery.setRadius(radius, this.sceneryView());
         setViewDistance(radius);
       };
       row.append(distance); this.panel.append(row);
       const hint = document.createElement('div');
-      hint.textContent = 'Above 1 km: saved view direction, lightweight scenery. Reselect to capture a new direction.';
+      hint.textContent = 'Above 1 km: lightweight scenery follows the camera as you turn and move.';
       this.panel.append(hint);
     }
     this.panel.append(this.status, this.tree);
     this.element.append(this.button, this.panel); document.body.append(this.element);
+  }
+
+  private sceneryView() {
+    if (!this.camera) return undefined;
+    const direction = this.camera.getWorldDirection(this.viewDirection);
+    const length = Math.hypot(direction.x, direction.z);
+    if (length < .01) return undefined;
+    return { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z,
+      dx: direction.x / length, dz: direction.z / length,
+      halfAngle: Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect) };
   }
 
   private save() {
@@ -214,9 +219,13 @@ export class DevLayers {
       owned.release();
     }
     const scenery = this.coarse?.screenshotScenery;
+    if (scenery && scenery.radius > 1000) {
+      const view = this.sceneryView();
+      if (view) scenery.setView(view, performance.now());
+    }
     const progress = scenery?.progress;
     this.status.textContent = [this.coarse?.comparisonStatus,
-      scenery?.heading !== null && scenery?.heading !== undefined ? `Direction locked: ${Math.round(scenery.heading)}°` : '',
+      scenery?.heading !== null && scenery?.heading !== undefined ? `View direction: ${Math.round(scenery.heading)}°` : '',
       progress?.cataloguePending ? 'Reading existing scenery…' : '',
       progress?.missing ? `${progress.missing} source tiles unavailable` : '', 
       scenery?.radius && progress ? `Scenery ${progress.loaded}/${progress.total} · ${progress.pending} awaiting full detail${progress.errors ? ` · ${progress.errors} retrying` : ''}` : '',

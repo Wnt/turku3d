@@ -2,12 +2,33 @@ import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { CharacterInterpolation, VehicleInterpolation } from '../../src/actors/interpolation';
 import { ChaseCamera } from '../../src/vehicle/chaseCamera';
+import { OrbitCamera } from '../../src/actors/camera';
 import type { CharacterState, VehicleState } from '../../src/physics/protocol';
 
 const character = (x: number): CharacterState => ({ pos: { x, y: 0, z: 0 }, vel: { x: 3, y: 0, z: 0 }, grounded: true, enabled: true, groundMaterial: 0 });
 const vehicle = (x: number): VehicleState => ({ pos: { x, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 },
   linvel: { x: 3, y: 0, z: 0 }, speed: 3, forwardSpeed: 3, curbStrike: null,
   wheels: [{ pos: { x: 1, y: -0.4, z: 0.8 }, steer: 0, rotation: x, contact: true, suspension: 0 }] });
+
+for (const velocity of [[0, 0, -72], [0, 0, -288], [0, -50, 0]]) {
+  test(`orbit camera holds airborne character framing at ${velocity.join(',')} m/s through uneven frames`, () => {
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 6000);
+    const orbit = new OrbitCamera(camera);
+    const focus = new THREE.Vector3(2000, 300, 500);
+    const movement = new THREE.Vector3(...velocity);
+    orbit.update(1 / 60, focus);
+    for (let frame = 0; frame < 120; frame++) {
+      const dt = [1 / 120, 1 / 60, 1 / 30, 0.08][frame % 4];
+      focus.addScaledVector(movement, dt);
+      orbit.update(dt, focus);
+      camera.updateMatrixWorld();
+      const projected = focus.clone().project(camera);
+      expect(projected.x).toBeCloseTo(0, 8);
+      expect(projected.y).toBeCloseTo(0, 8);
+      expect(camera.position.distanceTo(focus)).toBeCloseTo(orbit.distance, 8);
+    }
+  });
+}
 
 test('walking and driving sample adjacent physics ticks with one bounded render clock', () => {
   const walker = new CharacterInterpolation(), car = new VehicleInterpolation();

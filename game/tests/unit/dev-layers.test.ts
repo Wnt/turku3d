@@ -72,3 +72,19 @@ test('parent choices apply to future children and restore runtime camera masks e
   expect(tree.visible).toBe(true);
   panel.dispose();
 });
+
+test('live screenshot direction, position and FOV follow the camera while the panel is closed', () => {
+  const { scene } = setup();
+  const setView = vi.fn();
+  const coarse = { screenshotScenery: { radius: 6000, setView, progress: {} }, setVisualPass() {} };
+  const camera = new THREE.PerspectiveCamera(60, 1.6, .1, 10000);
+  const panel = new DevLayers(scene, coarse as never, undefined, undefined, camera);
+  camera.position.set(3751, 164, 430); camera.rotation.set(0, Math.PI / 2, 0); camera.updateMatrixWorld();
+  panel.update();
+  expect(setView.mock.calls.at(-1)![0]).toMatchObject({ x: 3751, y: 164, z: 430, dx: -1 });
+  camera.position.x += 300; camera.rotation.y = -Math.PI / 2; camera.fov = 90; camera.updateMatrixWorld();
+  panel.update();
+  const view = setView.mock.calls.at(-1)![0];
+  expect(view.x).toBe(4051); expect(view.dx).toBeCloseTo(1);
+  expect(view.halfAngle).toBeCloseTo(Math.atan(1.6));
+});
