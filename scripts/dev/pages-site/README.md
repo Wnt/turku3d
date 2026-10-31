@@ -1,43 +1,29 @@
-# Turku3D
+# Turku3D — playable build
 
-A free-roam game set around Läntinen Rantakatu 15 on the west bank of the Aura river in Turku,
-Finland, built from the city's open 3D data. Walk the riverside, take the parked car, and feel
-curbs, stairs and quay edges on foot and at the wheel.
+**[Play Turku3D]({{url}})**
 
-**Play:** {{url}}
+Turku3D is an experimental open-world game set in Turku, Finland. In an AI-disrupted 2027, become a pizza courier, explore the city on foot or by vehicle, and compete with other players for hourly delivery scores.
 
-This repository only holds the built game (`game/`) and its streamed world tiles (`tiles/`). Each
-publish replaces the whole branch with one commit; the source and the data pipeline live elsewhere.
+This is the **generated GitHub Pages deployment repository**. The actual game, server and geographic data pipeline source code live in **[Wnt/turku3d](https://github.com/Wnt/turku3d)**. Changes belong there, not in this deploy-only branch.
 
-## Browser
+## Start and play
 
-Desktop Chrome (or another Chromium browser) with WebGPU. WebGL2 is the fallback: add
-`?backend=webgl` to the URL. The first load streams about 100 MB of tiles. An Xbox controller is
-recommended; keyboard and mouse work too.
+Use **desktop Google Chrome** for the recommended WebGPU experience. Add `?backend=webgl` to the game URL for WebGL2. **Firefox is unsupported** and displays a warning. An Xbox-style controller or keyboard and mouse work; touch support also exists.
 
-## Controls
+The **public release starts in Multiplayer mode**; local development builds additionally provide solo save/load menus. The first load and newly visited areas can take time: Pages serves the browser application, while a separate service generates and streams the world on demand. This is a playable prototype, not a perfect digital twin.
 
-| Action | Xbox controller | Keyboard / mouse |
-|---|---|---|
-| Move / steer | Left stick | WASD / arrows |
-| Look | Right stick | Click the canvas, then move the mouse |
-| Sprint | A (hold) | Shift |
-| Jump | X | Space |
-| Interact (shops, missions) | A | E |
-| Enter / exit car | Y (within 4 m) | F |
-| Accelerate | RT | W / Up |
-| Brake / reverse | LT | S / Down |
-| Handbrake | RB | Space |
-| Reset camera | R3 | C |
-| Map | View | M |
-| Pause | Menu | Escape |
-| Back out of a shop menu | B | Escape |
-| Mute | D-pad down | N |
+| Action | Keyboard / mouse | Xbox-style controller |
+| --- | --- | --- |
+| Move / steer | WASD | Left stick |
+| Look | Click canvas, move mouse | Right stick |
+| Sprint / jump | Shift / Space | A / X |
+| Mission / shop interaction | E | A |
+| Enter / exit vehicle | F | Y |
+| Accelerate / brake | W / S | RT / LT |
+| Map / pause | M / Escape | View / Menu |
 
-Press a controller button once after connecting it so the browser exposes it.
+See the source repository's [complete player guide](https://github.com/Wnt/turku3d/blob/main/docs/PLAYING.md) and [development guide](https://github.com/Wnt/turku3d/blob/main/docs/DEVELOPING.md).
 
-## Data sources
+## Data and licences
 
-Buildings, street areas, lidar terrain, trees and aerial imagery come from the City of Turku's open
-data; the street network from OpenStreetMap. The full list with licences is in
-[ATTRIBUTION.md](ATTRIBUTION.md).
+World geography uses City of Turku open data and OpenStreetMap. Facade and other visual assets can be stylized or AI-generated; they are not a precise depiction of every building. See [ATTRIBUTION.md](ATTRIBUTION.md) and the source repository's [NOTICE.md](https://github.com/Wnt/turku3d/blob/main/NOTICE.md).

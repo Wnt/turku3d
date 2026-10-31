@@ -1,5 +1,7 @@
 # Turku Open World: Architecture
 
+> **Design and research record (originally 25 October 2026).** For the current playable experience, public-vs-local release behavior, and development entry points, start at the [README](../README.md), [player guide](PLAYING.md), [development guide](DEVELOPING.md) and [docs index](README.md). Sections below include decisions, proposals and historical verification; do not read every planned phase or early static-tiles diagram as a description of the current on-demand production deployment.
+
 Status: draft v2, 2026-10-25 (v2: office address, Street-View-referenced Codex texturing, Astra visual QA loop). Author: architect pass over the six research reports in `docs/research/`.
 Guiding principle (user): **collision is faithful to the lidar; visuals need not match the city 1:1**. Textures are regenerated or improved with AI (Codex), using real photos as references, so the city is recognisable rather than a scan.
 Target: a GTA-style open world of Turku that **runs in desktop Chrome** (WebGPU, WebGL2 fallback, WASM), served as static tiled files over HTTP.

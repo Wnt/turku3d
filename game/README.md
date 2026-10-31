@@ -1,12 +1,24 @@
-# game/
+# Browser game (`game/`)
 
-Game skeleton (ARCHITECTURE.md Phase 0 step 7). It uses Vite 8, TypeScript, three.js 0.186.1 (`three/webgpu` and TSL) with a WebGPU / WebGL2 switch, and Rapier 0.21 (`@dimforge/rapier3d`, non-compat build through `vite-plugin-wasm`) in a physics Web Worker. Visual tiles stream through 3DTilesRendererJS 0.5.3 with KTX2 and meshopt. The player is a third-person CC0 character, and a Kenney CC0 sedan with a raycast suspension, material-based curb strikes and gamepad driving.
+Turku3D's browser client is built with Vite 8, TypeScript, three.js 0.186.1 (WebGPU with WebGL2 fallback), 3DTilesRendererJS, and Rapier 0.21 WASM physics in a worker. It includes third-person movement, drivable vehicles, delivery missions, shop menus, map and route guidance, multiplayer, and audio.
 
-Rendering v1 adds sky IBL, street-scale CSM, light GTAO, TRAA, bloom, AgX, material detail and planar river reflections.
-See [the rendering README](src/render/README.md) for quality tiers, HiDPI/SSE, `window.__perf`, GPU timing and exact
-1440p acceptance/screenshot commands. Hardware results currently use the synthetic dev tile until assembled AOI layers land.
+**[Play the public game](https://wnt.github.io/turku-game/)** · [Player guide](../docs/PLAYING.md) · [Quick development setup](../docs/DEVELOPING.md)
 
-## Play it and inspect the evidence
+**Release distinction:** the public Pages build starts in **Multiplayer** only (`VITE_PUBLIC_RELEASE=1`); the ordinary local game also offers solo play and save slots. Desktop Chrome is recommended; Firefox is unsupported and warned about at startup. Tiles are generated/streamed on demand in production. The detailed sections below include historical AOI/test-baseline workflows and measurements, which should not be mistaken for current production tile publication or live performance.
+
+## Local launch (recommended for client work)
+
+```sh
+npm ci --prefix game
+make game-dev
+# http://localhost:5170/?scene=dev  (synthetic scene; no city-data download)
+make game-test
+make game-build
+```
+
+Run from the repository root. Worktree owners should source `../sandbox.env` before using `make`. For advanced tile/real-AOI workflows see [development](../docs/DEVELOPING.md), [source data](../data-manifests/sources.yaml) and the [current developer tools](../scripts/dev/README.md).
+
+## Historical AOI playtest workflow and evidence
 
 From the repository root:
 

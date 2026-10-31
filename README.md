@@ -1,54 +1,63 @@
 # Turku3D
 
-An open-world game of central Turku, Finland, for desktop Chrome (three.js r186 `three/webgpu` + Rapier 0.21 WASM
-worker + 3DTilesRendererJS). The world is built from the City of Turku's open data (buildings, lidar, street areas,
-aerial imagery) and OpenStreetMap; facade and material textures are AI-generated. Walk and drive around Läntinen
-Rantakatu 15 with an Xbox controller or keyboard and mouse.
+**Turku, 2027. AI took your software job. The city still needs pizza.**
 
-**Play:** https://wnt.github.io/turku-game/ (deploy repository [Wnt/turku-game](https://github.com/Wnt/turku-game)).
+Turku3D is an experimental open-world browser game set in Turku, Finland. Explore the Aura riverside on foot or by vehicle, deliver pizzas to pay for a courier permit, make dubious deals, and compete with other couriers in a shared city. The world is assembled from real geographic data, while its look is intentionally game-like rather than a 1:1 digital twin.
 
-## Multiplayer server
+**[▶ Play Turku3D](https://wnt.github.io/turku-game/)** · [How to play](docs/PLAYING.md) · [Development](docs/DEVELOPING.md) · [Documentation index](docs/README.md)
 
-The [multiplayer server](server/README.md) targets osgallery-dev behind
-`wss://turku.lab.madekivi.fi`, providing presence and Finnish-hour delivery
-scoreboards for the later browser client. See its [protocol](server/PROTOCOL.md)
-and the [project architecture](docs/ARCHITECTURE.md).
+> **Browser:** Desktop **Google Chrome** is the recommended experience. WebGPU is the primary renderer; WebGL2 is available with `?backend=webgl`. **Firefox is not supported** (the game warns before starting). Touch controls exist, but desktop play is the primary target. The world is streamed as you explore, so initial loads and new areas may take time.
 
-## Run locally
+## The game
 
-The game needs world tiles built by the pipeline from the Turku open data sources
-([`data-manifests/sources.yaml`](data-manifests/sources.yaml)); no data is committed here. On a Mac (Python 3.12,
-Node 22, `uv`):
+- **A recognizable Turku.** Walk and drive around the city centre and the Aura river, using streets, terrain, buildings and landmarks derived from open city data and OpenStreetMap. Geometry and presentation are still evolving.
+- **A questionable career change.** Take pizza delivery jobs, rent permits, earn time-based tips, and visit the pizzeria, black market and vehicle dealer. Progress from walking to a scooter, car or trophy truck.
+- **Shared streets.** See other players and their vehicles, join the live multiplayer room, and compete on the **hourly pizza-delivery scoreboard** (Europe/Helsinki hours).
+- **A physical world.** Third-person movement, drivable vehicles, curb and stair collision, changing daylight, ambient audio and a minimap with route guidance.
+- **Built in the open.** A three.js/TypeScript browser client, Rapier WASM physics, a Python geospatial pipeline, and a Node.js multiplayer server.
+
+The **public GitHub Pages release currently starts in multiplayer mode only**. Local development builds also expose solo play, save/load slots and developer tools. This is an actively developed playable prototype, not a finished or geographically exact simulation.
+
+## Quick controls
+
+| Action | Keyboard / mouse | Xbox-style controller |
+| --- | --- | --- |
+| Move / steer | WASD or arrows | Left stick |
+| Look | Click the game canvas, then move mouse | Right stick |
+| Sprint / jump | Shift / Space (on foot) | A / X |
+| Interact with mission or shop | E | A |
+| Enter / exit vehicle | F | Y |
+| Accelerate / brake / reverse | W / S | RT / LT |
+| Handbrake | Space (driving) | RB |
+| Map / pause | M / Esc | View / Menu |
+
+See [the full player guide](docs/PLAYING.md) for getting started, more controls, the mission economy, saves, multiplayer and troubleshooting.
+
+## Local development
+
+For the **browser client and synthetic test scene**, start at the repository root:
 
 ```sh
-make help                      # every target
-make fetch-aoi AREA=work-3x3   # download the open data once into ~/turku3d/data/raw
-make refresh && make tile-build T='t0_0_0 t0_0_1 t0_1_0 t0_1_1'
-make game-preview             # built game + local Turku tiles (default); ?scene=dev for the test world
-cd game && npm install && npm run dev     # the dev server alone runs on the synthetic dev tiles
+npm ci --prefix game
+make game-dev
+# Open http://localhost:5170/?scene=dev
 ```
 
-Licences: the code is MIT ([LICENSE](LICENSE)); third-party data and assets are listed in [NOTICE.md](NOTICE.md).
-Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); formats are in [docs/specs/](docs/specs/).
+`make game-dev` starts Vite and the local coarse-tile service; it does **not** download the complete Turku source dataset. The production Turku world needs separately provisioned geographic inputs and the generator. To run focused checks:
 
+```sh
+make game-test
+make game-build
+npm ci --prefix server --ignore-scripts
+npm test --prefix server
 ```
-make help                 # every target (each area adds its own in mk/<area>.mk)
-make foundation-venv      # pipeline/.venv via uv (python 3.12)
-make foundation-test      # config unit tests
-make tile                 # Phase 0 chain: fetch (cached) -> stub .col + GLB -> tileset/manifest -> sync -> validator -> Chrome
-```
 
-How to run everything (tests per area, data locations, known gaps): [docs/STATUS.md](docs/STATUS.md).
+See [development setup](docs/DEVELOPING.md), [game details](game/README.md), [server and protocol](server/README.md), and [the geospatial architecture](docs/ARCHITECTURE.md). For the source-to-production workflow see [developer tooling](scripts/dev/README.md).
 
-| Dir | What |
-|---|---|
-| `docs/` | architecture, research reports, specs (`col-format.md`, `materials.md`, `tiles.md`) |
-| `pipeline/` | Python package `turku3d` (config = single source of truth for origin/CRS/tiles/paths) |
-| `textures/` | Codex + local material tooling (Mac) |
-| `game/` | Vite + three/webgpu + Rapier game |
-| `tools/` | probes, validator (`tools/validator`), dev server + sync (`tools/dev`) |
-| `qa/` | visual QA loop (D8): reference views, render driver, Codex judge, reports |
-| `data-manifests/` | small committed manifests (LAZ index, AOIs, checksums) |
-| `mk/` | per-area Make fragments, included by the root `Makefile` |
+## How it works
 
-Bulk data is never committed: shared raw inputs live in `~/turku3d/data/raw`; sandbox build products live under `$TURKU3D_WORK`. The pipeline runs locally on the Mac.
+The browser client is published to GitHub Pages in the **separate, deploy-only** [Wnt/turku-game](https://github.com/Wnt/turku-game) repository. World content is generated and delivered on demand by a separate host; the multiplayer WebSocket service handles player presence, shared vehicles and scores. The data pipeline and all source code live **here**, not in the deploy repository.
+
+The project uses City of Turku open building, terrain/lidar, street and aerial datasets, plus OpenStreetMap. Some facade, material and UI art is AI-generated. [Attribution and third-party licences](NOTICE.md) · [MIT licence for repository code](LICENSE).
+
+**Interested in helping?** See [CONTRIBUTING.md](CONTRIBUTING.md) or [open an issue](https://github.com/Wnt/turku3d/issues). For dated technical measurements and known gaps, start at the [documentation index](docs/README.md); older reports are historical evidence, not promises about the live build.

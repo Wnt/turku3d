@@ -1,18 +1,15 @@
-# Status and how to run everything
+# Status snapshots and verification notes
 
-Updated 2026-10-25 (W1-04 layer assembler). Run from the current worktree.
-The native osx-arm64 toolchain is shared under `~/turku3d/tools` and `~/turku3d/envs/pipeline`.
-Inputs live under `$TURKU3D_DATA/raw`; build products under `$TURKU3D_WORK`.
+> **Historical measurements, not a live status dashboard.** The data inventory, tile counts, build measurements and known gaps below were recorded during **25–28 October 2026**. They are valuable evidence of work completed at that time, but they do **not** define the current Pages release, public service availability, or an obligation to prebuild four starting tiles. For current entry points see [the project README](../README.md), [player guide](PLAYING.md), [development guide](DEVELOPING.md), and [documentation index](README.md).
 
-Current delivery (2026-10-28): the world is generated on demand; Pages carries only
-the game. Agents select affected tests for `codex-task finish` (30 seconds total),
-merge into main and immediately package/upload Pages. Five-second curl smoke and a
-selective ten-minute async run follow. There is no automatic integrator or full-tile
-publication stage. See [AGENTS.md](../AGENTS.md) and [tool commands](../scripts/dev/README.md).
-The data-readiness notes below describe the source inventory, not a requirement to
-rebuild hand-built starting tiles.
+## Code state inspected 1 November 2026
 
-## Data readiness
+- The published client is a multiplayer-first public variant (`VITE_PUBLIC_RELEASE=1`); local builds expose solo and save/load menus.
+- The three major active components are the WebGPU/WebGL2 browser game, Node multiplayer service and on-demand city generator. Pages carries the browser app, and external services serve world content and presence.
+- Real-world source inputs and generated world data are outside Git. For local browser changes use `make game-dev` and `?scene=dev`; see [development instructions](DEVELOPING.md).
+- No live uptime, benchmark or current city coverage measurement is asserted by this document. Check the current deployment/services and newly recorded reports for those claims.
+
+## Dated October 2026 data and QA inventory
 
 - `work-3x3`: E 23459000–23460500, N 6703500–6705000 (1.5 × 1.5 km).
 - All nine existing point-cloud LAZ files were checksum-verified and registered without downloading.
