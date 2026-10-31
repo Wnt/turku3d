@@ -44,7 +44,7 @@ test('Firefox requires acknowledging the unsupported-browser warning before game
   // Even a programmatic pointer event behind the overlay cannot start the game.
   await newGame.evaluate(element => element.dispatchEvent(new Event('pointerup', { bubbles: true })));
   await expect(page.locator('#intro-dialog')).toBeHidden();
-  await expect(page.evaluate(() => (window.__game!.state as () => { startScreen: boolean })().startScreen)).resolves.toBe(true);
+  expect(await page.evaluate(() => (window.__game!.state as () => { startScreen: boolean })().startScreen)).toBe(true);
 
   await warning.getByRole('button', { name: 'I understand · let me suffer' }).click();
   await expect(warning).toBeHidden();
