@@ -9,9 +9,10 @@ import type { V3 } from '../core/origin';
 import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, VehicleInput, VehicleSpec } from './protocol';
 
 type StateMsg = Extract<FromWorker, { type: 'state' }>;
+const STARTUP_TIMEOUT_MS = 15_000;
 
 export class PhysicsClient {
-  private worker: Worker;
+  private worker!: Worker;
   private nextId = 1;
   private pending = new Map<number, (m: FromWorker) => void>();
   private tileWaiters = new Map<string, { resolve: (s: TileStats) => void; reject: (e: Error) => void }>();
@@ -53,13 +54,30 @@ export class PhysicsClient {
 
   constructor() {
     const ready = loading.begin('Physics worker · Rapier WASM');
-    this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: 'physics' });
     let resolveReady!: (v: string) => void;
-    this.ready = new Promise((r) => (resolveReady = r));
-    this.worker.onmessage = (ev: MessageEvent<FromWorker>) => {
+    let rejectReady!: (e: Error) => void;
+    this.ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+    let timer: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    const stop = (worker: Worker) => {
+      worker.onmessage = worker.onerror = null;
+      worker.terminate();
+    };
+    const failed = (error: Error) => {
+      clearTimeout(timer);
+      if (!this.isReady) {
+        if (this.worker) stop(this.worker);
+        this.queue.length = 0;
+        ready(`FAILED: ${error.message}`);
+        rejectReady(error);
+      } else this.onError(error.message);
+      for (const waiter of this.tileWaiters.values()) waiter.reject(error);
+      this.tileWaiters.clear();
+    };
+    const message = (ev: MessageEvent<FromWorker>) => {
       const m = ev.data;
       switch (m.type) {
-        case 'ready': ready(`Rapier ${m.rapier} · ${m.wasmBytes ? loadBytes(m.wasmBytes) : 'WASM ready'} · ${m.colReader}`); this.colReader = m.colReader; this.isReady = true; if (this.inputMailbox && this.stateMailbox) this.worker.postMessage({ type: 'exchange', input: this.inputMailbox.buffer, state: this.stateMailbox.buffer }); for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
+        case 'ready': clearTimeout(timer); ready(`Rapier ${m.rapier} · ${m.wasmBytes ? loadBytes(m.wasmBytes) : 'WASM ready'} · ${m.colReader}`); this.colReader = m.colReader; this.isReady = true; if (this.inputMailbox && this.stateMailbox) this.worker.postMessage({ type: 'exchange', input: this.inputMailbox.buffer, state: this.stateMailbox.buffer }); for (const q of this.queue.splice(0)) this.worker.postMessage(q.m, q.transfer); resolveReady(m.rapier); break;
         case 'state':
           this.acceptState(m);
           this.send({ type: 'stateAck', revision: m.revision ?? 0 });
@@ -71,15 +89,27 @@ export class PhysicsClient {
         case 'stepError':
           this.onError(`step ${m.seq}: ${m.error}`);
           break;
-        case 'error': this.onError(m.error); break;
+        case 'error': if (this.isReady) this.onError(m.error); else failed(new Error(m.error)); break;
       }
     };
-    this.worker.onerror = (e) => {
-      const error = new Error(e.message || 'worker failed to load');
-      for (const waiter of this.tileWaiters.values()) waiter.reject(error);
-      this.tileWaiters.clear();
-      this.onError(error.message);
+    const start = () => {
+      let worker: Worker;
+      try { worker = this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name: 'physics' }); }
+      catch (error) { failed(error instanceof Error ? error : new Error(String(error))); return; }
+      ++attempts;
+      worker.onmessage = ev => { if (this.worker === worker) message(ev); };
+      worker.onerror = e => { if (this.worker === worker) failed(new Error(e.message || 'worker failed to load')); };
+      // A module worker can stall before executing its handler without reporting an error. Retry only
+      // before ready: no live physics state or transferred collision data exists to lose at this point.
+      timer = setTimeout(() => {
+        if (attempts === 1) {
+          stop(worker);
+          loading.note('Physics worker startup stalled; retrying once');
+          start();
+        } else failed(new Error('Physics worker did not initialize after two 15-second attempts'));
+      }, STARTUP_TIMEOUT_MS);
     };
+    start();
   }
 
   private send(m: ToWorker, transfer: Transferable[] = []) {
