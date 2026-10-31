@@ -10,7 +10,7 @@ import rasterio
 from PIL import Image
 from test_coarse_prefetch import _real_raw, raw  # noqa: F401
 from turku3d import config as C
-from turku3d.coarse.imagery import ImagerySources, blank, fetch
+from turku3d.coarse.imagery import ImagerySources, area, blank, fetch
 from turku3d.coarse.sources import Sources, block_of, block_tiles, content_paths, tile_blocks
 from turku3d.fetch import wms
 
@@ -62,6 +62,22 @@ def test_new_tile_fallback_preserves_warm_neighbours(
         return buffer.getvalue(), {"content-type": "image/png"}
 
     real_fetch = wms.fetch_layer
+    if repair:
+        # A previous importer admitted opaque white and cached it as an OK tile.
+        # Repair must examine cached pixels, not just the download's success state.
+        import dataclasses
+        from turku3d.fetch.sources import WMS_LAYERS
+
+        primary = dataclasses.replace(
+            next(layer for layer in WMS_LAYERS if layer.slug == "ortho2022to"),
+            px_m=C.VISUAL_TILE_SIZE / 512,
+        )
+        with monkeypatch.context() as old:
+            decode = wms.decode_png
+            old.setattr(wms, "decode_png", lambda body: (
+                decode(body)[0], np.ones(decode(body)[1].shape, dtype=bool)
+            ))
+            real_fetch(primary, area(new), workers=1, log=lambda *_: None, chunk_px=512, get=get)
     monkeypatch.setattr(wms, "fetch_layer", lambda *a, **kw: real_fetch(*a, **kw, get=get))
     if fallback_white:
         from turku3d.coarse.sources import NoCoverage
@@ -73,7 +89,8 @@ def test_new_tile_fallback_preserves_warm_neighbours(
                 log=lambda *_: None,
                 repair_tiles=[new.id] if repair else [],
             )
-        assert ImagerySources(root).ortho_source(new) == (vrt if repair else None)
+        selected = ImagerySources(root).ortho_source(new)
+        assert (selected is not None and blank(new, selected)) if repair else selected is None
     else:
         fetch(
             block_of(warm), root=root, log=lambda *_: None, repair_tiles=[new.id] if repair else []

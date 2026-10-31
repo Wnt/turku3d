@@ -21,15 +21,18 @@ def main():
         "--out",
         "/srv/turku3d/work/new-imagery-probe-" + commit,
     ]
-    print(
-        remote(
+    try:
+        result = remote(
             "TURKU3D_DRAFT_SOURCE="
             + shlex.quote(source)
             + " /home/ubuntu/turku3d-drafts/run.sh "
             + shlex.join(command)
-        ),
-        flush=True,
-    )
+        )
+    except subprocess.CalledProcessError as error:
+        print(error.stdout or "", flush=True)
+        print(error.stderr or "", flush=True)
+        raise
+    print(result, flush=True)
 
 
 if __name__ == "__main__":
