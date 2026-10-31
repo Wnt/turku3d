@@ -95,7 +95,7 @@ export class ScreenshotScenery {
       && (this.view || demand.has(id) || this.entries.get(id)?.complete))
       .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
     for (const id of due) {
-      if (this.active >= (this.view ? 8 : 2)) break;
+      if (this.active >= (this.view ? 16 : 2)) break;
       let e = this.entries.get(id);
       if (!e) { e = { next: 0 }; this.entries.set(id, e); }
       if (e.busy || now < e.next) continue;

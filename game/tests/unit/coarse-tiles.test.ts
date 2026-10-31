@@ -595,7 +595,7 @@ test('developer pass comparison swaps only visuals and cancels stale loads', asy
 
 
 test('cached screenshot scenery fills free slots between normal one-second world scans', async () => {
-  const rows = Array.from({ length: 20 }, (_, i) => ({ tile: `t0_${-6 + Math.floor(i / 4)}_${i % 4}`,
+  const rows = Array.from({ length: 40 }, (_, i) => ({ tile: `t0_${-6 + Math.floor(i / 4)}_${i % 4}`,
     key: `t0_${-6 + Math.floor(i / 4)}_${i % 4}`, h: [0, 107], source_sha256: 'base' }));
   const loadModel = vi.fn(async () => new THREE.Group());
   const fetch = vi.fn(async (url: string) => {
@@ -616,7 +616,7 @@ test('cached screenshot scenery fills free slots between normal one-second world
   coarse.screenshotScenery.setRadius(6000, { x: 3751, y: 164, z: 430, dx: -1, dz: 0, halfAngle: .8 });
   await settle();
   coarse.update(3751, 430, 1000); await settle();
-  expect(loadModel).toHaveBeenCalledTimes(8);
-  coarse.update(3751, 430, 1016); await settle();
   expect(loadModel).toHaveBeenCalledTimes(16);
+  coarse.update(3751, 430, 1016); await settle();
+  expect(loadModel).toHaveBeenCalledTimes(32);
 });

@@ -55,6 +55,9 @@ try {
       const now = performance.now(); window.__skylineFrames.push(now);
       const model = game.coarse.screenshotScenery.entries.get('t0_-6_5')?.model;
       if (model?.parent && window.__skylineSelected && !window.__chimneyDrawn) window.__chimneyDrawn = now;
+      const progress = game.coarse.screenshotScenery.progress;
+      if (window.__skylineSelected && progress.total > 0 && progress.loaded === progress.total && !window.__sceneryCompleteAt)
+        window.__sceneryCompleteAt = now;
     };
   });
   await page.waitForFunction(() => Math.abs(window.__render.camera.position.y - 164.15) < .01);
@@ -89,7 +92,8 @@ try {
   assert.ok(report.acceptance.seconds < 15, `Chimney arrived after ${report.acceptance.seconds}s`);
   assert.ok(report.acceptance.points.some(([x, y, z]) => Math.abs(x) < 1 && Math.abs(y) < 1 && z > -1 && z < 1), 'Chimney geometry must be inside the rendered view');
   await page.waitForFunction(() => performance.now() - window.__skylineSelected >= 15_000);
-  report.at15Seconds = await page.evaluate(() => window.__game.coarse.screenshotScenery.progress);
+  report.at15Seconds = await page.evaluate(() => ({ ...window.__game.coarse.screenshotScenery.progress,
+    fullViewSeconds: window.__sceneryCompleteAt ? (window.__sceneryCompleteAt - window.__skylineSelected) / 1000 : null }));
   await page.screenshot({ path: path.join(out, 'chimney-visible.png') });
   const points = report.acceptance.points;
   const x = Math.max(0, Math.min(...points.map(p => (p[0] + 1) * 800)) - 30);

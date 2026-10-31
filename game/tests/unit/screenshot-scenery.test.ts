@@ -121,7 +121,7 @@ test('a ready skyline retry completes before hundreds of untouched scenery tiles
   expect(attempts.get(chimney)).toBe(1);
   expect(scenery.progress.total).toBeGreaterThan(100);
   scenery.update(3751.26, 430.05, 1000); await settle();
-  expect(attempts.size).toBe(16); // Other scenery advances while the skyline retry is cooling down.
+  expect(attempts.size).toBe(32); // Other scenery advances while the skyline retry is cooling down.
   scenery.update(3751.26, 430.05, 2000); await settle();
   expect(attempts.get(chimney)).toBe(2);
   expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/chimney.glb');
