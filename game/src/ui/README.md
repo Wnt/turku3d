@@ -236,7 +236,7 @@ Fullscreen has a reserved safe-area-aware top-right row; scoreboard/status/notic
 ### Screenshot view distance
 
 In developer mode (localhost or `?dev=1`), open **Layers · F4 / LB** and choose
-**View distance → 1, 2, 3, 5, 6 or 8 km · screenshot**. At 1 km the radius follows the player. Above 1 km it captures the current camera direction and loads lightweight derivatives of existing authored tiles; reselect to aim again. It moves fog beyond the
+**View distance → 1, 2, 3, 5, 6 or 8 km · screenshot**. At 1 km the radius follows the player. Above 1 km the visibility cone follows the camera as you turn, move or change FOV, loading lightweight derivatives of existing authored tiles. A bounded five-second buffer reuses scenery during brief look-backs. It moves fog beyond the
 selected range and extends the camera, sky and far vegetation. Use 6 km or 8 km to see beyond Tuomiokirkko to the Energia chimney from Pääskyvuori. The panel reports loaded scenery,
 full-detail work and retries; uncached tiles take time to generate. FPS and memory
 use can be substantial. **Normal** releases extra scenery and restores rendering

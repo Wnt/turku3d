@@ -102,13 +102,38 @@ try {
   const bottom = Math.min(1000, Math.max(...points.map(p => (1 - p[1]) * 500)) + 30);
   await page.screenshot({ path: path.join(out, 'chimney-detail.png'), clip: { x, y, width: right - x, height: bottom - y } });
   report.acceptance.chimneyVertices = points.length; delete report.acceptance.points;
-  const locked = report.acceptance.heading;
   await page.evaluate(() => {
+    const scenery = window.__game.coarse.screenshotScenery;
+    window.__originalChimney = scenery.entries.get('t0_-6_5').model.uuid;
+    window.__originalFootprint = [...scenery.footprint];
     const camera = window.__render.camera;
-    window.__game.orbit.update = () => { camera.rotation.y += .01; camera.updateMatrixWorld(); };
+    window.__skylineHeading = 333;
+    window.__game.orbit.update = () => {
+      camera.rotation.set(-17 * Math.PI / 180, -window.__skylineHeading * Math.PI / 180, 0, 'YXZ');
+      camera.updateMatrixWorld();
+    };
   });
-  await page.waitForTimeout(1000);
-  assert.equal(await page.evaluate(() => window.__game.coarse.screenshotScenery.heading), locked);
+  await page.waitForFunction(() => Math.abs(window.__game.coarse.screenshotScenery.heading - 333) < .1
+    && !window.__game.coarse.screenshotScenery.footprint.includes('t0_-6_5'));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { window.__skylineHeading = 273; });
+  await page.waitForFunction(() => Math.abs(window.__game.coarse.screenshotScenery.heading - 273) < .1
+    && window.__game.coarse.screenshotScenery.footprint.includes('t0_-6_5'));
+  assert.equal(await page.evaluate(() => window.__game.coarse.screenshotScenery.entries.get('t0_-6_5')?.model?.uuid),
+    await page.evaluate(() => window.__originalChimney), 'Brief look-back must reuse the chimney model');
+  await page.evaluate(() => { window.__skylineHeading = 333; });
+  await page.waitForFunction(() => {
+    const scenery = window.__game.coarse.screenshotScenery;
+    return Math.abs(scenery.heading - 333) < .1 && scenery.footprint.some(id =>
+      !window.__originalFootprint.includes(id) && scenery.entries.get(id)?.model?.parent);
+  }, null, { timeout: 15_000 });
+  report.dynamic = await page.evaluate(() => {
+    const scenery = window.__game.coarse.screenshotScenery;
+    return { heading: scenery.heading, newlyVisibleLoaded: scenery.footprint.filter(id =>
+      !window.__originalFootprint.includes(id) && scenery.entries.get(id)?.model?.parent).length,
+      progress: scenery.progress, lookBackReusedModel: true };
+  });
+  await page.screenshot({ path: path.join(out, 'dynamic-turn.png') });
   await select.selectOption('0');
   assert.equal(await page.evaluate(() => window.__game.coarse.screenshotScenery.progress.total), 0);
   assert.deepEqual(report.errors, []);
