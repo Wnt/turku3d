@@ -3,4 +3,4 @@
 # Usage: tools/dev/coarse-tiles [--port PORT] [--root DIR]
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-exec bash "$REPO/pipeline/env/run.sh" python -m turku3d.coarse serve "$@"
+exec bash "$REPO/pipeline/env/run.sh" python "$REPO/tools/remote-drafts/local_scenery.py" serve "$@"

@@ -60,7 +60,7 @@ export class DevLayers {
   private select = document.createElement('select');
 
   constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer,
-    private setViewDistance?: (radius: number) => void) {
+    private setViewDistance?: (radius: number) => void, private camera?: THREE.PerspectiveCamera) {
     if (!this.enabled) return;
     let pass: 'auto' | 'first' | 'full' = 'auto';
     try {
@@ -84,18 +84,25 @@ export class DevLayers {
     this.panel.append(heading);
     if (coarse && setViewDistance) {
       const distance = document.createElement('select'); distance.id = 'dev-view-distance';
-      const row = document.createElement('label'); row.textContent = 'View distance ';
-      for (const radius of [0, 1000, 2000, 3000, 5000]) distance.append(Object.assign(document.createElement('option'), {
+      const row = document.createElement('label'); row.textContent = 'View distance '; row.style.display = 'block';
+      for (const radius of [0, 1000, 2000, 3000, 5000, 6000, 8000]) distance.append(Object.assign(document.createElement('option'), {
         value: String(radius), textContent: radius ? `${radius / 1000} km · screenshot` : 'Normal',
       }));
       distance.value = String(coarse.screenshotScenery.radius);
       distance.onchange = () => {
         const radius = Number(distance.value);
-        coarse.screenshotScenery.setRadius(radius); setViewDistance(radius);
+        const direction = this.camera?.getWorldDirection(new THREE.Vector3());
+        const length = direction ? Math.hypot(direction.x, direction.z) : 0;
+        coarse.screenshotScenery.setRadius(radius, this.camera && direction && length > .01 ? {
+          x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z,
+          dx: direction.x / length, dz: direction.z / length,
+          halfAngle: Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect),
+        } : undefined);
+        setViewDistance(radius);
       };
       row.append(distance); this.panel.append(row);
       const hint = document.createElement('div');
-      hint.textContent = 'Long views load gradually and use more memory. Reset to Normal after screenshots.';
+      hint.textContent = 'Above 1 km: saved view direction, lightweight scenery. Reselect to capture a new direction.';
       this.panel.append(hint);
     }
     this.panel.append(this.status, this.tree);
@@ -209,6 +216,9 @@ export class DevLayers {
     const scenery = this.coarse?.screenshotScenery;
     const progress = scenery?.progress;
     this.status.textContent = [this.coarse?.comparisonStatus,
+      scenery?.heading !== null && scenery?.heading !== undefined ? `Direction locked: ${Math.round(scenery.heading)}°` : '',
+      progress?.cataloguePending ? 'Reading existing scenery…' : '',
+      progress?.missing ? `${progress.missing} source tiles unavailable` : '', 
       scenery?.radius && progress ? `Scenery ${progress.loaded}/${progress.total} · ${progress.pending} awaiting full detail${progress.errors ? ` · ${progress.errors} retrying` : ''}` : '',
     ].filter(Boolean).join(' · ');
     if (this.dirty) this.renderTree();

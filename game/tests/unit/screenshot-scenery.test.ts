@@ -78,3 +78,23 @@ test('photo range keeps fog and sky beyond scenery and Normal restores defaults'
   expect((scene.fog as THREE.Fog).near).toBe(500); expect((scene.fog as THREE.Fog).far).toBe(3500);
   env.dispose();
 });
+
+test('large views capture direction once, use derivatives and never request source regeneration', async () => {
+  const { scenery, request, host, load } = setup();
+  request.mockImplementation(async (url: string) => {
+    if (url.includes('/scenery?')) return new Response(JSON.stringify({ tiles: [{ tile: 't0_-6_5', h: [0, 107], key: 'a'.repeat(64), source_sha256: 'base' }], missing: [] }));
+    return new Response(JSON.stringify({ coarse: true, scenery: true, tile: 't0_-6_5', pass_kind: 'full',
+      visual: { 't0_-6_5': { url: '../scenery/lod.test.glb', sha256: 'derived' } } }));
+  });
+  const view = { x: 3751.26, y: 164.15, z: 430.05, dx: -1, dz: 0, halfAngle: .8 };
+  scenery.setRadius(6000, view); view.dx = 1;
+  await settle(); scenery.update(3751, 430, 1000); await settle();
+  expect(scenery.heading).toBe(270);
+  expect(scenery.demand()).toEqual([]);
+  expect(scenery.progress.loaded).toBe(1);
+  expect(request.mock.calls.every(([url]) => url.includes('/scenery'))).toBe(true);
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/lod.test.glb');
+  expect(host.checkCollision).not.toHaveBeenCalled();
+  scenery.update(5000, 1000, 40000); await settle();
+  expect(load).toHaveBeenCalledTimes(1);
+});
