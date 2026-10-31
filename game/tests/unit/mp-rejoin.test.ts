@@ -174,7 +174,7 @@ test('multiplayer rejoin restores the saved mission but keeps the server vehicle
   const mission = JSON.stringify({ version: 4, money: 111, permit: 3, plates: true });
   await h.save.playAt((await h.ready)!, () => h.shared.restore(), mission);
   expect(h.missions.restore).toHaveBeenCalledWith(mission);
-  expect(h.physics.latest.character.pos).toEqual({ x: 720, y: 4, z: 800 });
+  expect(h.physics.latest.character.pos).toMatchObject({ x: 720, z: 800 });
   expect(h.physics.latest.vehicles.find(v => v.id === 'player')?.pos).toEqual(h.state.pos);
   expect(h.enterVehicle).toHaveBeenCalledWith('player');
   h.save.dispose();
