@@ -22,6 +22,9 @@ export class StartScreen implements MenuHost {
   private status: HTMLElement;
   private touchLine: HTMLElement;
   private readonly onClose: () => void;
+  private warning: HTMLElement | null = null;
+  private menuReady = false;
+  private afterWarning: (() => void) | null = null;
 
   constructor(input: Input, { hint = null, onClose = () => {} }: StartOptions = {}) {
     this.onClose = onClose;
@@ -52,6 +55,29 @@ export class StartScreen implements MenuHost {
     const fullscreen = this.element.querySelector<HTMLElement>('.start-fullscreen')!;
     fullscreen.textContent = hint;
     fullscreen.hidden = !hint;
+    // Acknowledge the unsupported browser before any start-menu choice can launch the game.
+    // The warning is shown once the start screen is ready, above the compact loading dock.
+    if (/(?:Firefox|FxiOS)\/\d+/i.test(navigator.userAgent)) {
+      const warning = this.warning = document.createElement('section');
+      warning.id = 'firefox-warning';
+      warning.hidden = true;
+      warning.setAttribute('role', 'alertdialog');
+      warning.setAttribute('aria-modal', 'true');
+      warning.setAttribute('aria-labelledby', 'firefox-warning-title');
+      warning.setAttribute('aria-describedby', 'firefox-warning-copy');
+      warning.innerHTML = `<div class="firefox-warning-card">
+        <p class="eyebrow">TURKU3D · OFFICIAL GETAWAY ADVISORY</p>
+        <h2 id="firefox-warning-title">Firefox detected. Your getaway car is a slideshow.</h2>
+        <p id="firefox-warning-copy">Firefox is <strong>not supported</strong>. Even the cops can outrun those frame times.
+          For the real Turku3D experience, please use <strong>Google Chrome</strong>.</p>
+        <div class="firefox-warning-actions">
+          <a href="https://www.google.com/chrome/" target="_blank" rel="noopener noreferrer">Get Chrome</a>
+          <button type="button">I understand · let me suffer</button>
+        </div>
+      </div>`;
+      warning.querySelector('button')!.addEventListener('click', () => this.dismissWarning());
+      this.element.append(warning);
+    }
     this.status = this.element.querySelector('#gamepad-status')!;
     this.touchLine = this.element.querySelector('.start-touch')!;
     this.menu = new MenuPanel(input);
@@ -63,11 +89,34 @@ export class StartScreen implements MenuHost {
     this.menu.show(this.multiplayerReady ? page : { ...page, items: page.items.map(item => item.id === 'multiplayer'
       ? { ...item, enabled: false, detail: 'Connection unavailable · reload to retry' } : item) });
   }
-  /** The world is loaded: the menu accepts picks. */
+  /** Delay automatic saved-game resumes until Firefox's warning is acknowledged. */
+  afterBrowserWarning(action: () => void) {
+    if (this.warning) this.afterWarning = action;
+    else action();
+  }
+
+  private dismissWarning() {
+    if (!this.warning) return;
+    this.warning.hidden = true;
+    this.warning = null;
+    this.element.classList.remove('browser-warning-open');
+    this.menu.setEnabled(this.menuReady);
+    const action = this.afterWarning;
+    this.afterWarning = null;
+    action?.();
+  }
+
+  /** The world is loaded: the menu accepts picks unless Firefox's warning is pending. */
   ready(multiplayerReady = true) {
     this.multiplayerReady = multiplayerReady;
     if (this.menu.page) this.show(this.menu.page);
-    this.menu.setEnabled(true);
+    this.menuReady = true;
+    this.menu.setEnabled(!this.warning);
+    if (this.warning) {
+      this.warning.hidden = false;
+      this.element.classList.add('browser-warning-open');
+      this.warning.querySelector('button')?.focus();
+    }
     this.element.querySelector('.start-hint')!.textContent = multiplayerReady
       ? 'Press Ⓐ or select an option.' : 'Multiplayer unavailable. Choose solo play or reload to reconnect.';
   }
@@ -75,11 +124,16 @@ export class StartScreen implements MenuHost {
     this.status.textContent = input.gamepadName ? `${input.gamepadName} connected`
       : input.source === 'touch' ? 'Touch controls ready.' : 'No controller detected — connect it and press a button.';
     this.touchLine.hidden = !input.touchDevice;
+    if (this.warning) {
+      // Gamepad A / keyboard Enter can acknowledge too; never select a menu row in the same frame.
+      if (input.consume('menuSelect')) this.dismissWarning();
+      return;
+    }
     this.menu.handle(input);
   }
   /** Leaves for the game; call from the pick that starts it (still inside the gesture). */
   close() {
-    if (!this.active) return;
+    if (!this.active || this.warning) return;
     this.active = false;
     this.element.remove();
     this.onClose();
