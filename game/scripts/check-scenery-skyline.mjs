@@ -19,8 +19,13 @@ try {
   const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   page.on('pageerror', error => report.errors.push(error.message));
   page.on('request', request => { if (/\/coarse\/scenery/.test(request.url())) report.requests.push({ url: request.url(), at: Date.now() }); });
-  await page.goto('https://wnt.github.io/turku-game/game/?dev=1&spawn=23463251.26,6704069.95,273&time=2027-07-01T08:20:00Z', { waitUntil: 'domcontentloaded' });
+  await page.goto('https://wnt.github.io/turku-game/game/?dev=1&spawn=23463251.26,6704069.95,273&time=2027-07-01T08:20:00Z&deployment=' + Date.now(), { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 120_000 });
+  // A unique document URL bypasses the previous Pages HTML while assets remain content-addressed.
+  report.release = await page.locator('meta[name=turku3d-release]').getAttribute('content');
+  assert.ok(await page.locator('#dev-view-distance option[value="6000"]').count(),
+    `Pages release ${report.release} must contain the 6 km scenery control before timing starts`);
+  console.log(`Loaded Pages release ${report.release}`);
   await page.getByText('Multiplayer', { exact: true }).click();
   await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 60_000 });
   await page.keyboard.press('Space'); await page.waitForTimeout(80); await page.keyboard.press('Space');
@@ -93,7 +98,7 @@ try {
 } catch (error) {
   report.failure = String(error);
   if (page) { report.body = await page.locator('body').innerText().catch(() => '');
-    report.state = await page.evaluate(() => ({ state: window.__game?.state?.(), scenery: window.__game?.coarse?.screenshotScenery?.progress })).catch(() => null);
+    report.state = await page.evaluate(() => ({ fly: window.__game?.state?.().fly, scenery: window.__game?.coarse?.screenshotScenery?.progress, chimney: window.__game?.coarse?.screenshotScenery?.entries.get('t0_-6_5')?.error })).catch(() => null);
     await page.screenshot({ path: path.join(out, 'failure.png') }).catch(() => {}); }
   throw error;
 } finally {
