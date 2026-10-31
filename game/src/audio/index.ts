@@ -128,9 +128,18 @@ export class GameAudio {
       this.listener = event; this.paused = event.paused;
       if (this.context) {
         const l = this.context.listener;
-        this.vector([l.positionX, l.positionY, l.positionZ], event.position);
-        this.vector([l.forwardX, l.forwardY, l.forwardZ], event.forward);
-        this.vector([l.upX, l.upY, l.upZ], event.up);
+        // Firefox still exposes listener positioning through the legacy methods, not AudioParams.
+        if (l.positionX && l.positionY && l.positionZ) {
+          this.vector([l.positionX, l.positionY, l.positionZ], event.position);
+        } else {
+          l.setPosition(event.position.x, event.position.y, event.position.z);
+        }
+        if (l.forwardX && l.forwardY && l.forwardZ && l.upX && l.upY && l.upZ) {
+          this.vector([l.forwardX, l.forwardY, l.forwardZ], event.forward);
+          this.vector([l.upX, l.upY, l.upZ], event.up);
+        } else {
+          l.setOrientation(event.forward.x, event.forward.y, event.forward.z, event.up.x, event.up.y, event.up.z);
+        }
       }
       this.refreshLoops(); return;
     }
@@ -166,6 +175,14 @@ export class GameAudio {
   private param(param: AudioParam, value: number) { param.setTargetAtTime(value, this.context!.currentTime, 0.04); }
   private vector(params: AudioParam[], v: V3) { [v.x, v.y, v.z].forEach((n, i) => this.param(params[i], n)); }
 
+  private pannerPosition(panner: PannerNode, position: V3) {
+    if (panner.positionX && panner.positionY && panner.positionZ) {
+      this.vector([panner.positionX, panner.positionY, panner.positionZ], position);
+    } else {
+      panner.setPosition(position.x, position.y, position.z);
+    }
+  }
+
   private start(sound: Sound, channel: Channel, gain: number, loop: boolean, position?: V3): Voice | null {
     const ctx = this.context, buffer = this.buffers.get(sound);
     if (!ctx || !buffer || this.disposed || (!loop && (this.voices.size >= 24 || ctx.state !== 'running'))) return null;
@@ -176,7 +193,7 @@ export class GameAudio {
     if (position) {
       panner = ctx.createPanner(); panner.panningModel = 'HRTF'; panner.distanceModel = 'inverse';
       panner.refDistance = channel === 'ambience' ? 25 : 4; panner.maxDistance = 300; panner.rolloffFactor = 0.7;
-      this.vector([panner.positionX, panner.positionY, panner.positionZ], position);
+      this.pannerPosition(panner, position);
       volume.connect(panner); panner.connect(this.channels.get(channel)!);
     } else volume.connect(this.channels.get(channel)!);
     const voice = { source, gain: volume, panner };
@@ -195,7 +212,7 @@ export class GameAudio {
     if (!voice) return;
     this.param(voice.gain.gain, this.paused ? 0 : gain);
     this.param(voice.source.playbackRate, rate);
-    if (position && voice.panner) this.vector([voice.panner.positionX, voice.panner.positionY, voice.panner.positionZ], position);
+    if (position && voice.panner) this.pannerPosition(voice.panner, position);
   }
 
   private refreshLoops() {
