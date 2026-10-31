@@ -19,7 +19,14 @@ try {
   const cdp = await page.context().newCDPSession(page); await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
   page.on('pageerror', error => report.errors.push(error.message));
   page.on('request', request => { if (/\/coarse\/scenery/.test(request.url())) report.requests.push({ url: request.url(), at: Date.now() }); });
-  await page.goto('https://wnt.github.io/turku-game/game/?dev=1&spawn=23463251.26,6704069.95,273&time=2027-07-01T08:20:00Z&deployment=' + Date.now(), { waitUntil: 'domcontentloaded' });
+  const readyUntil = Date.now() + 90_000;
+  do {
+    await page.goto('https://wnt.github.io/turku-game/game/?dev=1&spawn=23463251.26,6704069.95,273&time=2027-07-01T08:20:00Z&deployment=' + Date.now(), { waitUntil: 'domcontentloaded' });
+    report.release = await page.locator('meta[name=turku3d-release]').getAttribute('content');
+    if (!process.env.SKYLINE_EXPECT_RELEASE || report.release === process.env.SKYLINE_EXPECT_RELEASE) break;
+    assert.ok(Date.now() < readyUntil, `Pages still serves ${report.release}`);
+    await page.waitForTimeout(3000);
+  } while (true);
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 120_000 });
   // A unique document URL bypasses the previous Pages HTML while assets remain content-addressed.
   report.release = await page.locator('meta[name=turku3d-release]').getAttribute('content');
