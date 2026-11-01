@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { LOW_PRIORITY, OCCUPANCY, occupancy, slotShown } from '../../src/world/parkedOccupancy';
+import { LOW_PRIORITY, OCCUPANCY, occupancy, parkedNight, slotShown } from '../../src/world/parkedOccupancy';
+import { CYCLE_EPOCH, DAY_MS } from '../../src/core/dayCycle';
 import { ParkedVehicles } from '../../src/world/parkedVehicles';
 import { draftManifest, type ParkedVehicle } from '../../src/world/manifest';
 import type { V3 } from '../../src/core/origin';
@@ -77,4 +78,16 @@ test('an empty slot draws no car and gets no body; a resting body leaves when it
   stream.update(0, 0, 'home', now += 1000); await settle();
   await at(0);
   expect(bodies.has('home')).toBe(true);
+});
+
+test('the night level comes from the shared cycle alone: day, then dusk, full night, dawn', () => {
+  const at = (minutes: number) => parkedNight(CYCLE_EPOCH + minutes * 60_000);
+  expect(at(10)).toBe(0);
+  expect(at(26)).toBe(1);
+  expect(at(10 + DAY_MS / 60_000)).toBe(0);
+  // Through dusk the level only rises, so slots empty or fill one at a time and never flicker.
+  const dusk = Array.from({ length: 41 }, (_, i) => at(20 + i * 0.1));
+  expect(dusk.every((v, i) => i === 0 || v >= dusk[i - 1])).toBe(true);
+  expect(dusk[0]).toBeLessThan(0.05);
+  expect(dusk[40]).toBeGreaterThan(0.95);
 });
