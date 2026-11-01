@@ -3,6 +3,8 @@ import { collisionPreview } from './world/collisionPreview';
 //   play (default): third-person player + car, physics worker, collision streaming, debug HUD
 //   QA (?cam=E,N,H,yaw,pitch,fov[&roll=R]&time=ISO[&pass=id]): the qa/README.md §2 render contract; exact camera
 //   (vertical fov), no HUD/player/physics; sets window.__qaReady/__qaError/__qaPose/__qaInfo/__qaProject[/__qaIdTable]
+//   bench (?bench=camera&id=<street camera>[&at=HH:MM][&quality=]): QA with a street camera's pose at the play-mode
+//   pixel ratio; after settling, warms and measures fixed frames and sets window.__bench (qa/bench.ts)
 import { loading } from './core/loading';
 import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
@@ -30,6 +32,7 @@ import { BuildBadge, type BuildStatus } from './ui/buildBadge';
 import { startPlay, type PlayWorld } from './play';
 import { worldLoad } from './world/loadProgress';
 import { retireAfterFrame, frameSubmitted } from './render/retirement';
+import { CameraBench } from './qa/bench';
 
 declare global {
   interface Window {
@@ -42,6 +45,7 @@ declare global {
     __qaMove?: (pose: { E: number; N: number; H: number; yaw: number; pitch: number; fov: number }) => void;
     __game?: Record<string, unknown>;
     __perf?: PerfSnapshot;
+    __bench?: Record<string, unknown>;
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; setTime: (iso: string) => void; beforeFrame?: () => boolean; afterFrame?: () => void };
   }
@@ -55,6 +59,8 @@ try {
   throw e;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
+/** QA renders 1:1 with the viewport; the bench probe measures at the play-mode pixel ratio (adaptive scale 1). */
+const qaCanvas = !!params.qa && !params.bench;
 const hudEl = document.getElementById('hud')!;
 const errors: string[] = [];
 const fail = (e: unknown) => {
@@ -71,7 +77,7 @@ addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); l
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
-  { qa: !!params.qa, idPass: !!idPass, mobile: params.mobile }));
+  { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
@@ -125,7 +131,7 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   if (params.qa) applyQaCamera();
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!params.qa, params.mobile) * (params.qa ? 1 : resolution.scale));
+  renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile) * (params.qa ? 1 : resolution.scale));
   renderer.setSize(innerWidth, innerHeight);
   env.resize();
 });
@@ -201,6 +207,26 @@ async function runQa() {
     time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, world: 'draft-service',
     quality: params.quality, effectiveTime: params.time.toISOString(), sseUnits: 'drawing-buffer-pixels' };
   env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
+  const bench = params.bench ? new CameraBench({
+    backend: renderer.backend,
+    pipelines: () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null,
+    passes: () => post?.passTargets ?? {},
+    perf,
+    pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
+    info: () => ({ url: location.search, pose: window.__qaPose, tiles: [...loadedTiles], settle: window.__game!.qa,
+      pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
+  }, params.bench, params.quality) : null;
+  const publishBench = (result: Record<string, unknown> | null) => {
+    if (!result) return;
+    window.__bench = result;
+    console.info(`BENCH ${JSON.stringify(result)}`);
+    const out = document.createElement('pre');
+    out.id = 'bench-result';
+    out.style.cssText = 'position:fixed;left:8px;top:8px;max-width:60vw;max-height:90vh;overflow:auto;margin:0;padding:8px;'
+      + 'background:rgba(0,0,0,.75);color:#fff;font:11px/1.3 monospace;z-index:10;user-select:all';
+    out.textContent = JSON.stringify(result, null, 1);
+    document.body.appendChild(out);
+  };
   let stable = 0;
   let t0 = performance.now();
   window.__qaMove = pose => {
@@ -227,6 +253,7 @@ async function runQa() {
     renderFrame();
     perf.end();
     window.__render?.afterFrame?.();
+    if (bench && window.__qaReady && !window.__qaError) bench.frame().then(publishBench).catch(fail);
     if (window.__qaReady || window.__qaError) return;
     const progress = coarse.progressAt(camera.position.x, camera.position.z);
     if (progress.errors.length) { window.__qaError = progress.errors.join('; '); return; }
