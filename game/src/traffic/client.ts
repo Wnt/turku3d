@@ -176,7 +176,8 @@ export class TrafficClient {
     if (claimsKey !== this.sent.claims) { change.claims = claims; this.sent.claims = claimsKey; }
     if (shared !== this.sent.shared) { change.shared = shared; this.sent.shared = shared; }
     if (!(Math.abs(offset - this.sent.offset) < 20)) { change.offsetMs = offset; this.sent.offset = offset; }
-    // A frozen hour is sent to the minute: the developer menu and ?time= move it, a running clock never does.
+    // An hour is sent to the minute: ?time= and the developer clock move it (a running one in DayClock.trafficClock's
+    // steps); the shared cycle is a period the worker evaluates itself.
     const clock = this.clock(), clockKey = JSON.stringify(clock.kind === 'hour' ? { ...clock, hour: Math.round(clock.hour * 60) / 60 } : clock);
     if (clockKey !== this.sent.clock) { change.clock = JSON.parse(clockKey) as TrafficClock; this.sent.clock = clockKey; }
     if (Object.keys(change).length) this.physics.traffic(change);

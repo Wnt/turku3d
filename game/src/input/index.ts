@@ -5,6 +5,9 @@ export type InputSource = 'keyboard' | 'gamepad' | 'touch';
 
 /** Radians of camera turn per CSS px of mouse movement or look drag. */
 const LOOK_PER_PX = 0.0025;
+/** Developer panel toggles and shortcuts, which work while focus is inside a panel (ui/devLayers.ts, ui/timePanel.ts). */
+const PANEL_ACTIONS: readonly Action[] = ['layerPanel', 'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3',
+  'timeSpeed4', 'timeHourBack', 'timeHourForward', 'timeMinutesBack', 'timeMinutesForward', 'timeLive'];
 
 /** The only browser input owner. Gameplay sees actions, never keys or device indices. */
 export class Input {
@@ -39,7 +42,8 @@ export class Input {
     const options = { signal: this.listeners.signal };
     if ((navigator.maxTouchPoints ?? 0) > 0) this.enableTouch();
     addEventListener('keydown', e => {
-      if ((e.target as HTMLElement)?.closest?.('#dev-layers') && e.code !== 'F4') return;
+      // A focused developer panel control keeps its own keys (a slider's arrows); only the panels' keys pass.
+      if ((e.target as HTMLElement)?.closest?.('#dev-layers, #time-panel') && !this.panelKey(e.code)) return;
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
       if (e.code === 'F10') {
@@ -146,6 +150,9 @@ export class Input {
     const shown = this.source === 'touch' ? context : 'hidden';
     if (shown === 'hidden') this.touch.clear();
     this.overlay?.setContext(shown);
+  }
+  private panelKey(code: string) {
+    return PANEL_ACTIONS.some(action => this.bindings[action].some(b => b.kind === 'key' && b.code === code));
   }
   get connected() { return this.pad !== null; }
   get gamepadName() { return this.pad?.id ?? null; }

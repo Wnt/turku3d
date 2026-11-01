@@ -171,6 +171,22 @@
       #dev-layers details > label { display: block; margin-left: 22px; }
       #dev-layers input { vertical-align: middle; }
       #dev-layers [hidden], #dev-layers[hidden] { display: none; }
+      /* Developer time panel (ui/timePanel.ts): above the pause overlay, so it also works while paused. */
+      #time-panel { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 9; width: min(430px, calc(100vw - 32px)); box-sizing: border-box; padding: 8px 10px; background: #10252df2; border: 1px solid #47636c; border-radius: 8px; color: #edf4f3; font: 12px/1.4 system-ui, sans-serif; }
+      #time-panel[hidden] { display: none; }
+      #time-panel header { display: flex; align-items: baseline; gap: 8px; }
+      #time-panel .time-readout { flex: 1; color: #a1ebd3; font: 600 13px/1.4 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #time-panel input[type=range] { display: block; width: 100%; margin: 6px 0 0; accent-color: #a1ebd3; }
+      #time-panel .time-scale { display: flex; justify-content: space-between; color: #9eb5b7; font: 10px ui-monospace, Menlo, monospace; }
+      #time-panel .time-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+      #time-panel button { color: inherit; background: #17343e; border: 1px solid #47636c; border-radius: 4px; padding: 3px 7px; font: inherit; cursor: pointer; }
+      #time-panel button:hover { background: #21474f; }
+      #time-panel button[aria-pressed=true] { background: #a1ebd3; border-color: #a1ebd3; color: #10252d; }
+      #time-panel kbd { margin-left: 5px; color: #9eb5b7; font: 10px ui-monospace, Menlo, monospace; }
+      #time-panel button[aria-pressed=true] kbd { color: #2c5560; }
+      #time-panel .time-close { padding: 0 6px; }
+      #local-time-badge { margin-left: 8px; padding: 1px 6px; border-radius: 3px; background: #f2a541; color: #10252d; font: 700 11px/1.4 system-ui, sans-serif; text-shadow: none; }
+      #local-time-badge[hidden] { display: none; }
       #status-badges { top: calc(58px + env(safe-area-inset-top)) !important; }
       #hud { max-width: calc(100vw - 80px); overflow: hidden; }
       #fullscreen-toggle[hidden] { display: none; }
