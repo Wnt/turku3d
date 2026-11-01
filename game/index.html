@@ -171,8 +171,8 @@
       #dev-layers details > label { display: block; margin-left: 22px; }
       #dev-layers input { vertical-align: middle; }
       #dev-layers [hidden], #dev-layers[hidden] { display: none; }
-      /* Developer time panel (ui/timePanel.ts): above the pause overlay, so it also works while paused. */
-      #time-panel { position: fixed; left: 50%; bottom: calc(36px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 9; width: min(560px, calc(100vw - 32px)); box-sizing: border-box; padding: 8px 10px; background: #10252df2; border: 1px solid #47636c; border-radius: 8px; color: #edf4f3; font: 12px/1.4 system-ui, sans-serif; }
+      /* Developer time panel (ui/timePanel.ts): under the pause overlay, whose Developer → Time of day page has its controls. */
+      #time-panel { position: fixed; left: 50%; bottom: calc(36px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 7; width: min(560px, calc(100vw - 32px)); box-sizing: border-box; padding: 8px 10px; background: #10252df2; border: 1px solid #47636c; border-radius: 8px; color: #edf4f3; font: 12px/1.4 system-ui, sans-serif; }
       #time-panel[hidden] { display: none; }
       #time-panel header { display: flex; align-items: baseline; gap: 8px; }
       #time-panel .time-readout { flex: 1; color: #a1ebd3; font: 600 13px/1.4 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

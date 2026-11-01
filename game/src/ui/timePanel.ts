@@ -161,7 +161,7 @@ export class TimePanel {
     this.refresh(true);
   }
 
-  /** Per frame: T toggles while playing; the time keys act while the panel shows (also over the pause menu). */
+  /** Per frame: T toggles while playing; the time keys act while the panel shows, also while the pause menu is open. */
   handle(input: Input, playing: boolean) {
     if (playing && input.consume('timePanel')) this.toggle();
     this.element.hidden = !(playing && this.shown);
