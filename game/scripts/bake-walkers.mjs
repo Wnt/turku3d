@@ -35,6 +35,8 @@ const VARIANTS = [
 ];
 const CLIPS = [{ id: 'walk', name: 'Walk_Loop' }, { id: 'idle', name: 'Idle_Loop' }];
 const FPS = 30;
+/** A sole vertex this close to y = 0 (the rig's ground) touches the ground. */
+const SOLE_CONTACT = 0.02;
 /** Texture width: every variant keeps at most this many vertices, so the VAT stays under 2 MB. */
 const MAX_VERTICES = 720;
 /** Spherical Fibonacci normal directions; indices up to 2048 are exact in half floats. */
@@ -143,12 +145,9 @@ function bakeClip(doc, body, keep, clip) {
   const frames = Math.round(duration * FPS);
   if (Math.abs(frames / FPS - duration) > 1e-3) throw new Error(`walker bake: ${clip.getName()} is not a whole number of ${FPS} fps frames`);
   const result = [], matrices = jointNodes.map(() => new Matrix4()), p = new Vector3(), n = new Vector3(), acc = new Vector3(), accN = new Vector3();
-  const feet = [];
   for (let f = 0; f < frames; f++) {
     poseAt(clip, f / FPS);
     jointNodes.forEach((joint, j) => matrices[j].fromArray(joint.getWorldMatrix()).multiply(inverseBind[j]));
-    const foot = jointNodes.find(j => j.getName() === 'DEF-foot.L');
-    if (foot) feet.push(new Vector3().setFromMatrixPosition(new Matrix4().fromArray(foot.getWorldMatrix())));
     const frame = new Float32Array(keep.length * 6);
     keep.forEach((v, i) => {
       acc.set(0, 0, 0); accN.set(0, 0, 0);
@@ -164,7 +163,7 @@ function bakeClip(doc, body, keep, clip) {
     });
     result.push(frame);
   }
-  return { frames: result, feet };
+  return { frames: result };
 }
 
 const variants = [], rows = [], provenance = new Map();
@@ -185,14 +184,16 @@ for (const spec of VARIANTS) {
     for (const [node, [t, r, s]] of rest) node.setTranslation(t).setRotation(r).setScale(s);
     const baked = bakeClip(doc, body, order, clip);
     if (c.id === 'walk') {
-      // The in-place loop slides the planted foot backwards at the ground speed it was authored for.
-      const low = Math.min(...baked.feet.map(v => v.y)), speeds = [];
-      baked.feet.forEach((v, f) => {
-        const next = baked.feet[(f + 1) % baked.feet.length];
-        if (v.y < low + 0.015 && next.y < low + 0.015) speeds.push((v.z - next.z) * FPS);
+      // The in-place loop slides each planted sole backwards at the ground speed it was authored for: the median
+      // speed of shoe vertices touching the ground (the ankle joint understates it while the foot rolls).
+      const shoes = order.flatMap((v, i) => body.regions[v] === REGION.shoes ? [i] : []), frames = baked.frames, speeds = [];
+      frames.forEach((a, f) => {
+        const b = frames[(f + 1) % frames.length];
+        for (const i of shoes) if (a[6 * i + 1] < SOLE_CONTACT && b[6 * i + 1] < SOLE_CONTACT) speeds.push((a[6 * i + 2] - b[6 * i + 2]) * FPS);
       });
       if (!speeds.length) throw new Error('walker bake: no stance frames in the walk clip');
-      metresPerLoop = speeds.reduce((a, b) => a + b, 0) / speeds.length * baked.frames.length / FPS;
+      speeds.sort((x, y) => x - y);
+      metresPerLoop = speeds[speeds.length >> 1] * frames.length / FPS;
     }
     clips.push({ id: c.id, clip: c.name, row: rows.length - rowBase, frames: baked.frames.length, fps: FPS });
     rows.push(...baked.frames);

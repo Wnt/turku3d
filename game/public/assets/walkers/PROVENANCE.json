@@ -6,7 +6,7 @@
     "height": 345,
     "format": "rgba16float"
   },
-  "sha256": "1b231c0aa3892bb469a6d1982b6b744dcb1f5478517d374f3fdaebe7c3d3e78d",
+  "sha256": "d91036f7dd1ffa49ab4fd765f5aa1e5286024103ab871a4ec322109cedaa7f31",
   "variants": [
     {
       "id": "hoodie",
@@ -14,7 +14,7 @@
       "triangles": 1174,
       "sourceTriangles": 27057,
       "height": 1.725,
-      "metresPerLoop": 1.233,
+      "metresPerLoop": 1.472,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
@@ -26,7 +26,7 @@
       "triangles": 979,
       "sourceTriangles": 25679,
       "height": 1.739,
-      "metresPerLoop": 1.233,
+      "metresPerLoop": 1.457,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
@@ -38,7 +38,7 @@
       "triangles": 964,
       "sourceTriangles": 30370,
       "height": 1.621,
-      "metresPerLoop": 1.233,
+      "metresPerLoop": 1.424,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
