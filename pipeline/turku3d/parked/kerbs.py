@@ -160,6 +160,16 @@ def read_lines(paths, bbox):
     return sorted({line.wkb: line for line in out}.values(), key=lambda line: line.wkb)
 
 
+def prepare_inputs(tile, signs=None, stops=None, *permits):
+    """Kerb parking evidence near a tile: sign posts, stop points and permit-parking lines."""
+    near = tile.bbox.buffered(60)
+    return dict(
+        posts=read_posts(signs, near),
+        stops=read_points(stops, near),
+        permits=read_lines([p for p in permits if p], near),
+    )
+
+
 def left_normal(dx, dz):
     """Real-world left of an engine direction (engine z points south)."""
     return dz, -dx

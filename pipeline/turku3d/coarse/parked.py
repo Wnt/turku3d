@@ -50,12 +50,12 @@ PEAK = {
 MAX_TILT = 0.15  # m of ground relief under one footprint
 
 
-def prepare(tile, osm, streets=None, buildings=None, signs=None, stops=None, *permits):
+def prepare(tile, osm, streets=None, buildings=None):
     """Read complete source geometries, including neighbouring obstructions; never clip bay IDs."""
     from turku3d.spatial import rows
 
     window = shapely.box(*tile.bbox.buffered(30).as_tuple())
-    features, city, seen = [], [], set()
+    features, city = [], []
     for path, kind in ((osm, "osm"), (streets, "city"), (buildings, "building")):
         if path is None:
             continue
@@ -72,24 +72,26 @@ def prepare(tile, osm, streets=None, buildings=None, signs=None, stops=None, *pe
                     and (tags.get("amenity") == "parking" or tags.get("building"))
                 ):
                     geom = shapely.Polygon(geom.coords)
-                fid = f"osm:{row.get('osm_type', 'way')}:{row.get('osm_id', i)}"
-                # A closed way can come both as its ring and as its area: keep one.
-                if tags.get("amenity") == "parking" and fid in seen:
-                    continue
-                seen.add(fid)
-                features.append(Feature(fid, geom, tags))
+                features.append(
+                    Feature(f"osm:{row.get('osm_type', 'way')}:{row.get('osm_id', i)}", geom, tags)
+                )
             elif kind == "city":
                 city.append(Feature(f"city:{i}", geom, row))
             elif geom.area > 0.1:
                 features.append(Feature(f"building:{i}", geom, {"building": "yes"}))
-    near = tile.bbox.buffered(60)
-    return dict(
-        features=features,
-        city=city,
-        posts=kerbs.read_posts(signs, near),
-        stops=kerbs.read_points(stops, near),
-        permits=kerbs.read_lines([p for p in permits if p], near),
-    )
+    return features, city
+
+
+def unique(features):
+    """A closed OSM way can come both as its ring and as its area: keep the first parking area."""
+    seen, out = set(), []
+    for f in features:
+        if f.tags.get("amenity") == "parking":
+            if f.id in seen:
+                continue
+            seen.add(f.id)
+        out.append(f)
+    return out
 
 
 def signed_areas(city, posts, features):
@@ -155,16 +157,17 @@ def place(
     carried=None,
     stats=None,
     trace=None,
+    kerb=None,
 ):
-    """Cars for the tile's slots. ``stats`` counts outcomes per reason; ``trace`` collects
-    (reason, kind, x, z, yaw) of every owned slot that holds no car, for audits."""
+    """Cars for the tile's slots. ``kerb`` holds the kerb parking evidence (kerbs.prepare_inputs);
+    ``stats`` counts outcomes per reason; ``trace`` collects (reason, kind, x, z, yaw) of every
+    owned slot that fits no car, for audits."""
     from .surfaces import grid_height
 
-    if isinstance(prepared, dict):
-        features, city = prepared["features"], prepared["city"]
-        posts, stops, permits = prepared["posts"], prepared["stops"], prepared["permits"]
-    else:
-        (features, city), posts, stops, permits = prepared, [], [], []
+    features, city = prepared
+    features = unique(features)
+    kerb = kerb or {}
+    posts, stops, permits = kerb.get("posts", []), kerb.get("stops", []), kerb.get("permits", [])
     stats = {} if stats is None else stats
 
     def reject(reason, slot=None):
@@ -428,6 +431,7 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks, carried=None):
         [
             tile,
             inputs.parking,
+            inputs.kerb_parking,
             grid_pos[:, 1],
             inputs.water,
             inputs.barriers,
@@ -446,5 +450,6 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks, carried=None):
             poles,
             decks,
             carried=carried,
+            kerb=inputs.kerb_parking,
         ),
     )

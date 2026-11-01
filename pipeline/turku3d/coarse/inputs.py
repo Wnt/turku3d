@@ -68,7 +68,8 @@ DEPENDENCIES = {
         "../spatial.py",
         "../roads/__init__.py",
     ),
-    "parking": ("parked.py", "../parked/placement.py", "../parked/kerbs.py", "../spatial.py"),
+    "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
+    "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
     "trees": ("../spatial.py",),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
@@ -139,6 +140,7 @@ class Inputs:
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
     register: dict = field(default_factory=dict)
+    kerb_parking: dict = field(default_factory=dict)  # sign posts, stops, permit lines for kerb bays
     tunnels: list = ()  # OSM full tunnel ways, with tags
     stairs: tuple = ((), ())
     parking: tuple = ((), ())
@@ -476,8 +478,9 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         ]
         if osm
         else None,
-        "parking": [osm, wfs[1][1], wfs[0][1], wfs[3][1], wfs[4][1], *permit_sources(tile, sources)]
-        if osm
+        "parking": [osm, wfs[1][1], wfs[0][1]] if osm else None,
+        "kerb_parking": [wfs[3][1], wfs[4][1], *permit_sources(tile, sources)]
+        if all(found for found, _ in wfs[3:5])
         else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
@@ -537,6 +540,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .parked import prepare as prepare_parking
 
         return prepare_parking(tile, *paths)
+    if dataset == "kerb_parking":
+        from turku3d.parked.kerbs import prepare_inputs
+
+        return prepare_inputs(tile, *paths)
     if dataset == "appearance":
         from .register import dated_footprints, read_osm, read_register
 
@@ -662,6 +669,7 @@ def gather(
     for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
         if first_pass and dataset in {
             "parking",
+            "kerb_parking",
             "ortho_canopy",
             "trees",
             "forests",
@@ -756,6 +764,7 @@ def gather(
         boats=values["boats"],
         walkable=values["walkable"] or (),
         kerbs=values["kerbs"],
+        kerb_parking=values.get("kerb_parking") or {},
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),
         register=values["register"],
