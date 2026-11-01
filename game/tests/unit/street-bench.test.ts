@@ -70,14 +70,21 @@ describe('bench draw attribution', () => {
       for (let i = 0; i < draws; i++) backend.draw({ context: { renderTarget: i % 2 ? beauty : prepass }, object: { isInstancedMesh: true, count: 5 } } as never);
       return bench.frame();
     };
-    // Settle: the scene must stay unchanged for 1000 ms of wall time; a change restarts the wait.
+    // Settle: the scene must stay unchanged for 1000 ms of wall time; a change or a slow download restarts the wait.
+    let downloading = false;
+    host.busy = () => downloading;
     expect(await frame(9)).toBeNull();
     clock = 900; loading = 'b';
     expect(await frame(9)).toBeNull();
-    clock = 1800;
+    clock = 1000; downloading = true;
+    expect(await frame(9)).toBeNull();
+    clock = 1800; downloading = false;
     expect(await frame(9)).toBeNull();
     clock = 1950;
-    expect(await frame(9)).toBeNull(); // 1050 ms unchanged: settled, warm-up starts with the next frame
+    expect(await frame(9)).toBeNull();
+    expect(resets).toBe(0);
+    clock = 2850;
+    expect(await frame(9)).toBeNull(); // 1850 ms since the download: settled, warm-up starts with the next frame
     expect(resets).toBe(0);
     expect(await frame(9)).toBeNull(); // warm 1 (not counted)
     expect(await frame(9)).toBeNull(); // warm 2: measurement starts after this frame
@@ -86,11 +93,11 @@ describe('bench draw attribution', () => {
     expect(await frame(4)).toBeNull();
     expect(await frame(4)).toBeNull();
     const result = await frame(4);
-    expect(drawn).toHaveLength(66); // the wrapper always forwards
+    expect(drawn).toHaveLength(84); // the wrapper always forwards
     expect(result).toMatchObject({ id: 'riverside', at: '13:00', quality: 'medium', frames: 3,
       submittedDraws: { total: 4, prepass: 2, beauty: 2, csm: 0, reflection: 0, post: 0 }, instances: 20,
       pipelinesAfterWarmup: 10, pipelinesAfterMeasure: 12, adaptiveScale: 1, tiles: ['t0_0_0'],
-      settleMs: 1950, settleTimedOut: false });
+      settleMs: 2850, settleTimedOut: false });
     expect(flushed).toBe(1);
     expect(paused).toEqual([true, false]);
     expect(await frame(1)).toBeNull(); // done: further frames are ignored

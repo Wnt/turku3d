@@ -45,7 +45,7 @@ fs.mkdirSync(cache, { recursive: true });
 fs.mkdirSync(out, { recursive: true });
 
 // ----------------------------------------------------------------------------------- read-only coarse proxy
-const immutable = /\.[0-9a-f]{64}\.(?:glb|col|json|bin|ktx2|png|jpg)$/;
+const immutable = /(?:^|\.)[0-9a-f]{64}\.(?:glb|col|json|bin|ktx2|png|jpg)$/; // vis.<sha>.glb, shared/<sha>.bin
 const types = { '.json': 'application/json', '.glb': 'model/gltf-binary', '.bin': 'application/octet-stream',
   '.col': 'application/octet-stream', '.ktx2': 'image/ktx2', '.png': 'image/png', '.jpg': 'image/jpeg' };
 const traffic = { upstream: 0, cached: 0, bytes: 0, errors: 0 };

@@ -74,6 +74,8 @@ export interface BenchHost {
   perf: PerfLike; pause: (paused: boolean) => void; info: () => Record<string, unknown>;
   /** Anything that changes while the scene is still loading (resident geometries, textures, pipelines). */
   signature: () => string; now: () => number;
+  /** A download is still running (a long request in flight): the quiet window restarts. */
+  busy?: () => boolean;
 }
 
 /** Counts submitted draws per pass and drives warm-up, measurement and the result. */
@@ -116,6 +118,7 @@ export class CameraBench {
     if (this.phase === 'settle') {
       const now = this.host.now(), signature = this.host.signature();
       if (this.settleStart === null) { this.settleStart = now; this.settle.first = signature; }
+      if (this.host.busy?.()) this.stableSince = now;
       if (signature !== this.signature) {
         this.signature = signature; this.stableSince = now; this.settle.changes++;
         this.settle.timeline.push([Math.round(now - this.settleStart), signature]);
