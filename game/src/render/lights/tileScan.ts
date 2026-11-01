@@ -43,37 +43,43 @@ export function rangeKind(layer: unknown, row: Row, materialKey: unknown): Kind 
   return null;
 }
 
-export interface Cluster { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number; up: boolean; down: boolean; cx: number; cz: number; n: number }
+export interface Cluster { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number; up: boolean; down: boolean }
 
-/** Greedy clustering of light triangles by centroid; one light per cluster (a multi-head lamp gives one corona). */
+/** Connected parts of light triangles, welded by vertex position (1 mm): one head box, one tunnel strip, one rail. */
 class Clusters {
-  readonly list: Cluster[] = [];
-  private grid = new Map<number, Cluster[]>();
-  constructor(private radius = 0.6) {}
+  private parent: number[] = [];
+  private ids = new Map<string, number>();
+  private triangles: { v: number; xs: number[]; ys: number[]; zs: number[]; ny: number }[] = [];
+  private vertex(x: number, y: number, z: number) {
+    const key = `${Math.round(x * 1000)},${Math.round(y * 1000)},${Math.round(z * 1000)}`;
+    let id = this.ids.get(key);
+    if (id === undefined) { id = this.parent.length; this.parent.push(id); this.ids.set(key, id); }
+    return id;
+  }
+  private root(i: number): number {
+    while (this.parent[i] !== i) { this.parent[i] = this.parent[this.parent[i]]; i = this.parent[i]; }
+    return i;
+  }
   add(xs: number[], ys: number[], zs: number[], ny: number) {
-    const cx = (xs[0] + xs[1] + xs[2]) / 3, cz = (zs[0] + zs[1] + zs[2]) / 3;
-    const ix = Math.floor(cx / this.radius), iz = Math.floor(cz / this.radius);
-    let found: Cluster | null = null;
-    for (let dx = -1; dx <= 1 && !found; dx++) for (let dz = -1; dz <= 1 && !found; dz++) {
-      for (const c of this.grid.get(cellKey(ix + dx, iz + dz)) ?? []) {
-        if (Math.hypot(c.cx - cx, c.cz - cz) <= this.radius) { found = c; break; }
+    const v = [0, 1, 2].map(k => this.vertex(xs[k], ys[k], zs[k]));
+    for (const other of v.slice(1)) { const a = this.root(v[0]), b = this.root(other); if (a !== b) this.parent[b] = a; }
+    this.triangles.push({ v: v[0], xs: [...xs], ys: [...ys], zs: [...zs], ny });
+  }
+  get list(): Cluster[] {
+    const parts = new Map<number, Cluster>();
+    for (const t of this.triangles) {
+      const r = this.root(t.v);
+      let c = parts.get(r);
+      if (!c) { c = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity, up: false, down: false }; parts.set(r, c); }
+      for (let i = 0; i < 3; i++) {
+        c.minX = Math.min(c.minX, t.xs[i]); c.maxX = Math.max(c.maxX, t.xs[i]);
+        c.minY = Math.min(c.minY, t.ys[i]); c.maxY = Math.max(c.maxY, t.ys[i]);
+        c.minZ = Math.min(c.minZ, t.zs[i]); c.maxZ = Math.max(c.maxZ, t.zs[i]);
       }
+      if (t.ny > 0.5) c.up = true;
+      if (t.ny < -0.5) c.down = true;
     }
-    if (!found) {
-      found = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity, up: false, down: false, cx, cz, n: 0 };
-      this.list.push(found);
-      const key = cellKey(ix, iz);
-      const bucket = this.grid.get(key) ?? [];
-      bucket.push(found); this.grid.set(key, bucket);
-    }
-    for (let i = 0; i < 3; i++) {
-      found.minX = Math.min(found.minX, xs[i]); found.maxX = Math.max(found.maxX, xs[i]);
-      found.minY = Math.min(found.minY, ys[i]); found.maxY = Math.max(found.maxY, ys[i]);
-      found.minZ = Math.min(found.minZ, zs[i]); found.maxZ = Math.max(found.maxZ, zs[i]);
-    }
-    if (ny > 0.5) found.up = true;
-    if (ny < -0.5) found.down = true;
-    found.n++;
+    return [...parts.values()];
   }
 }
 
@@ -161,7 +167,18 @@ export function* scanTile(model: THREE.Object3D, points: readonly { x: number; z
       }
     }
   }
-  return { probes, tunnel: tunnelLights.list.map(centre), bridge: bridgeLights.list.filter(isDiffuser).map(centre) };
+  return { probes, tunnel: tunnelLights.list.map(centre), bridge: mergeHeads(bridgeLights.list.filter(isDiffuser).map(centre)) };
+}
+
+/** Heads of one multi-head lamp (OSM light:count) sit within about 1.1 m of each other: one corona per lamp. */
+export function mergeHeads(points: readonly LightPoint[], radius = 1.3): LightPoint[] {
+  const groups: LightPoint[][] = [];
+  for (const p of points) {
+    const group = groups.find(g => Math.hypot(g[0].x - p.x, g[0].z - p.z) <= radius && Math.abs(g[0].y - p.y) < 0.5);
+    if (group) group.push(p); else groups.push([p]);
+  }
+  return groups.map(g => ({ x: g.reduce((a, p) => a + p.x, 0) / g.length, y: g.reduce((a, p) => a + p.y, 0) / g.length,
+    z: g.reduce((a, p) => a + p.z, 0) / g.length }));
 }
 
 /** Runs a scan to completion (tests, synchronous callers). */
