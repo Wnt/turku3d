@@ -687,15 +687,49 @@ meshes or boxes to the static tile: the client streams nearby collision-backed a
 loads shared content-addressed model GLBs, and retains borrowed identities after tile
 unload. Saved borrowed cars retain their model URL; trophy trucks use the built-in truck.
 
-Placement reuses the full generator's seeded bay candidates and access exclusions,
-adds surveyed buildings, water margins, bridge/tunnel/layer exclusions, barriers,
-trunks and poles, checks all four support corners (15 cm maximum variation), and
-requires a clear forward or reverse manoeuvre. Whole footprints stay 30 cm inside
-the tile so neighbouring builds do not overlap. Slots retain the existing `<source/bay>` identities, including vehicles saved before
-the draft-only transition. A SHA-256 draw per viable tile/slot selects the larger trophy truck with
-probability 1/1000; an unfitting truck waits for the next fitting bay while ordinary
-cars keep filling valid slots. No runtime rarity override is shipped. Tests can inject
+Slots come from three sources, in this order (`parked.place`):
+
+* **Lots.** OSM `amenity=parking` polygons and city "other traffic areas" (`GIS:Katualueet`
+  Katuosalaji 12) that carry an E2/E4.x/H20 parking sign. Service ways through a lot are its
+  aisles: perpendicular bays line both sides; lots without them get rows with 6 m aisles.
+  A mapped `capacity` caps the cars. A lot car must be able to drive out ahead or behind past
+  walls, trees and poles.
+* **Kerbside strips.** Narrow (< 7 m) or `parking=lane/street_side` polygons get one row along
+  their midline (parallel unless tagged or deeper than 4.4 m), spread over `capacity` bays when
+  mapped, overhanging the outline by up to 15 cm.
+* **Kerbs** (`turku3d/parked/kerbs.py`). The city carriageway outline (Katuosalaji 1) is assigned
+  to the nearest car street side; where a street with explicit kerb parking has no city outline,
+  its kerb is at half its tagged width. A side holds bays where OSM `parking:<side>` says lane,
+  street_side, on_kerb or half_on_kerb (with its orientation), inside a sign zone (E2 or H20 from
+  the post, in the direction of traffic on that side, to the next junction or post; E4.1
+  perpendicular, E4.3 diagonal) or along a `GIS:Lupapysakointipaikat` permit line. Untagged
+  residential and unclassified streets are inferred (`priority` 0) where a 5 m (two-way) or 3 m
+  (one-way) driving width remains. Bays are 6.0 m (parallel), 2.6 m (perpendicular) or 3.6 m
+  (diagonal) along the kerb and slide in 0.5 m steps past the statutory gaps: 5 m from crossing
+  carriageways and marked E1 crossings, 12 m either side of E6 stops, driveway mouths, kerb
+  build-outs and C37/C38 (and C39, C41, C43, E8) posts. Kerb cars pull out sideways, so they
+  need no clear manoeuvre ahead or behind.
+
+Every footprint stays 30 cm inside the tile, clear of buildings, water, bridges, barriers, trunks,
+poles and other cars (55 cm), and rests on ground of at most 12% grade along and 8% across: the
+car records `pitch` and `roll`, and its base is lifted until no corner sinks. Slot ids are stable
+(`<source/bay>`, or `<way>:<side>:<half-metre station>` for kerbs, the same in every tile).
+
+**Occupancy.** Each slot draws `occ` (0..1) from its id. A car is placed when the draw is below its
+class's peak (`PEAK`: centre or residential, kerb or lot; the centre is within 1 km of the market
+square) and records `zone`, `occ` and `priority`. The client shows it while the draw is below the
+class's occupancy at the shared clock's night level (`game/src/world/parkedOccupancy.ts`: the
+centre empties at night, residential streets fill up; inferred kerbs empty first), so every
+client shows the same cars. A SHA-256 draw per viable tile/slot selects the larger trophy truck
+with probability 1/1000; an unfitting truck waits for the next fitting bay. Tests can inject
 `parked.truck_slot`; the existing Developer menu can spawn a truck for a drive check.
+
+The `kerb_parking` prepared input holds the sign posts (`GIS:Liikennemerkit`), stops
+(`kanta:Pysakki`) and permit lines near the tile; the `parking` input is unchanged, so the ground
+ortho cleanup that also reads it keeps its cache. `GIS:Lupapysakointipaikat` is an optional WFS
+layer: blocks fetched before it existed simply have no permit lines until their WFS unit is
+fetched again. Each `parked` stage run logs its outcome counts (`parked <tile>: {...}`) to the
+worker log.
 
 Focused checks:
 

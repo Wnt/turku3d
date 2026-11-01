@@ -230,7 +230,10 @@ def place(
         static_masks(features, spawn, city) + [r for r, _ in roads] + ends + common
     )
     # Kerb bays stand in the street itself: only paths' own width, doors and driveway mouths.
-    kerb_static = static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0) + common
+    kerb_static = (
+        static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0, crossings=False)
+        + common
+    )
     window = shapely.box(*tile.bbox.buffered(15).as_tuple())
     bays, gaps = kerbs.plan(features, city, posts, stops, permits, kerb_static, window)
     kerb_excluded = Masks(kerb_static + gaps)

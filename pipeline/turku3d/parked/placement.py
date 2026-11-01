@@ -58,7 +58,7 @@ def road_width(tags):
         return 6.0
 
 
-def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15):
+def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15, crossings=True):
     """Everything but street corridors: buildings, water, entrances, crossings, paths, pavements."""
     masks = [Point(*spawn).buffer(12)]  # Includes driven-car spawn six metres to the right.
     for f in features:
@@ -67,7 +67,9 @@ def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15
             masks.append(g.buffer(0.5))
         if t.get("entrance") or t.get("amenity") == "parking_entrance":
             masks.append(g.buffer(4 if t.get("amenity") == "parking_entrance" else entrance))
-        if t.get("highway") == "crossing" or t.get("footway") == "crossing" or t.get("crossing"):
+        if crossings and (
+            t.get("highway") == "crossing" or t.get("footway") == "crossing" or t.get("crossing")
+        ):
             masks.append(g.buffer(5))
         h = t.get("highway")
         if h in ("footway", "path", "steps", "cycleway", "pedestrian") and g.geom_type in (

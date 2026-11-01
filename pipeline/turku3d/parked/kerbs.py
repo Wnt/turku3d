@@ -411,6 +411,17 @@ def junctions(streets):
     return nodes, mouths
 
 
+def marked_crossing(tags):
+    """A pedestrian crossing with markings: the 5 m rule applies to these, not to unmarked ones."""
+    if not (
+        tags.get("highway") == "crossing" or tags.get("footway") == "crossing" or tags.get("crossing")
+    ):
+        return False
+    return tags.get("crossing") not in ("unmarked", "no", "informal") and tags.get(
+        "crossing:markings"
+    ) not in ("no",)
+
+
 def kerb_masks(streets, posts, stops, features, city):
     """Statutory no-parking geometry for kerb bays, as a list of parts."""
     nodes, mouths = junctions(streets)
@@ -434,7 +445,7 @@ def kerb_masks(streets, posts, stops, features, city):
         t, g = f.tags, f.geometry
         if t.get("highway") == "bus_stop" or t.get("public_transport") == "platform":
             masks.append(g.buffer(BUS_STOP_RADIUS if g.geom_type == "Point" else 6.0))
-        elif t.get("highway") == "crossing" or t.get("footway") == "crossing" or t.get("crossing"):
+        elif marked_crossing(t):
             # Mapped on the centreline (nodes) or across the street (ways).
             masks.append(g.buffer(CROSSING_RADIUS if g.geom_type == "Point" else 6.5))
     masks += [
