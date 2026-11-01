@@ -124,12 +124,22 @@ Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared 
 
 - `traffic/roads.ts` is the one adapter to the road data: it reads a tile through `gameplay/roadGraph.ts`
   (roads.json revision 2 from G3: stable ids, lanes, widths, limits, car density, heights, setbacks, SEAM
-  flags, signal controllers) and keeps car edges with car density ≥ 3. A v1 tile gets the reader's fallback
-  ids and 1+1 lanes, widths and limits by class; its heights are sampled from collision in the worker, at most
-  24 rays per physics step, following a lane under bridges from its previous sample.
+  flags, signal controllers, OSM `highway`) and keeps the car edges that carry ambient traffic, each with a
+  peak flow (below). A v1 tile gets the reader's fallback ids and 1+1 lanes, widths and limits by class; its
+  heights are sampled from collision in the worker, at most 24 rays per physics step, following a lane under
+  bridges from its previous sample.
+- `traffic/density.ts` sets how many slots carry cars. A street's peak flow (vehicles per hour per lane in the
+  busiest hour) comes from its OSM `highway` in revision 2 (motorway 600, trunk 540, primary 480, secondary
+  420, tertiary 240, unclassified 120, residential 45, living street 6; service roads, aisles, driveways, bus
+  lanes and pedestrian streets none) or its v1 class (street 60, major 450; v1 cannot tell a living street from
+  a residential one), times an area factor for streets below secondary (×1.3 within 900 m of Kauppatori,
+  falling to ×0.7 beyond 3 km). A weekday profile from Fintraffic LAM counts around Turku scales it by clock
+  hour (0.02 of the peak at 1–4, 0.75 at 7–8, 0.61 at 13, 1 at 15–16, 0.16 at 22). The share of slots with a
+  car is flow × profile × `?trafficDensity=` over the conveyor's 600 slots per lane-hour.
 - `traffic/tileNetwork.ts` builds a tile's lanes from that tile alone: stretches between junctions, seams and
   dead ends, lanes offset by the v2 divider rule and stopped at the junction setback, in-lanes matched one to
-  one to out-lanes (straight on, then right, then left, by hash). Slot n of lane L enters it at
+  one to out-lanes (straight on, then right, then left, then by flow mismatch: a living street's cars turn
+  back at a main road rather than main-road chains turning in; by hash). Slot n of lane L enters it at
   `phase(L) + n·H` (H = 6 s on every lane). A car waits at its stop line until the next lane's own slot grid,
   so phases lock across junctions and chains never merge: consecutive cars keep the headway. Junction
   out-lanes split the headway into two windows by approach axis (crossing streams take turns; a signal
@@ -139,15 +149,25 @@ Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared 
 - `traffic/network.ts` links seams between resident tiles and evaluates a car's pose in closed form: the
   timetable (drive, wait, cross) smoothed by a 1.4 s box filter, which keeps cruising exact, turns stops into
   braking and pulling away, and preserves the spacing of a chain. A car's identity in a tile is its chain's
-  origin lane and slot there (`<tile>:<lane>:<slot>`); its model and paint come from that key.
+  origin lane and slot there (`<tile>:<lane>:<slot>`); its model and paint come from that key. `present`
+  decides whether a slot carries a car: a hash of the car's slot at its chain's anchor against its lane's share
+  at the clock hour it reaches the anchor. The anchor is the seam the chain enters the tile by, else the seam it
+  leaves by (the next tile's chain from that crossing anchors there too, so the car keeps its presence across
+  the seam), else its origin lane (closed chains re-decide each lap). Presence therefore never changes during a
+  car's life on its chain; a quieter lane on the same chain shows fewer of its cars.
 - `physics/traffic.ts` runs in the worker: a 5 Hz population ring around the camera (created in view only
-  90–200 m out, out of view from 40 m; removed beyond 300 m in view and 85 m out of view), the cap from
-  `?traffic=` or the quality tier, poses every substep, and permanent kinematic Rapier bodies on cars within
+  90–200 m out, out of view from 40 m; removed beyond 300 m in view and 85 m out of view) that creates cars
+  only on present slots, the cap from `?traffic=` or the quality tier, poses every substep, and permanent
+  kinematic Rapier bodies on cars within
   70 m of the player. A contact hook lets them push the driven car and pile up behind a claimed car but pass
   parked cars. The driven car's contact, a pedestrian in a car's braking path or the player entering a car
   (`trafficClaim`) claims it: the worker turns it into an ordinary dynamic vehicle `tr:<key>` with its speed.
   Automatic claims (pedestrians, pile-ups) are limited to six a minute; beyond that a car pushes the
-  character aside. `ClaimSet` follows each claimed slot across seams, so its continuation stays gone.
+  character aside. `ClaimSet` follows each claimed slot across seams, so its continuation stays gone. A drawn
+  car whose slot stops carrying a car (a seam whose two chains anchor differently, a quieter street, a clock or
+  density change) is `deferred`: it drives on until it is out of view, so density changes never pop a car in
+  sight. The density clock is the shared cycle in multiplayer; in single player the clock the player sees
+  (`?time=`, `?cycle=`, the developer time menu).
 - The main thread (`traffic/client.ts`) feeds the worker the drawn draft tiles' road graphs and copies the
   published poses, moved on by their velocity to the frame, into the parked cars' per-body InstancedMeshes
   after their parked instances (`ParkedCarVisuals.setTraffic`; capacity reserved at load): no draw, material
@@ -159,12 +179,18 @@ Multiplayer: the clock is the server's; `net/client.ts` reports each resident ti
 (`traffic/gate.ts`, including the algorithm version) and the server answers with the hashes every reporting
 player shares (`server/roads.js`). A multiplayer tile carries cars only when its local hash is the agreed one;
 before the answer, or against an older server, it spawns nothing. A claimed car registers with source
-`tr:<key>`, and every client drops that slot. The ring is per client: positions agree, but which cars a
-client draws near the edge of its ring may differ.
+`tr:<key>`, and every client drops that slot. Which slots carry cars is a function of the tile data and the
+shared cycle, so every client thins alike; `?trafficDensity=` is per client, and a lower value shows a subset
+of a higher one's cars. The ring is per client: positions agree, but which cars a client draws near the edge
+of its ring, and how long a deferred car stays, may differ.
 
-`window.__game.traffic.snapshot()` gives the cap, the drawn count, `moving_cars` (engine x, z, the
-`--spawner-state` format of `scripts/dev/richness_scorecard.py`), worker cost per substep and main-thread
-cost per frame.
+Defaults per quality tier: density ×1 everywhere; drawn-car caps mobile 10, low 15, medium 30, high 40. Around
+the centre at 13:00 about 8–14 cars are within 150 m on v1 tiles (every slot used to carry one: 26–48), at
+22:00 about 2–4, at 03:00 under one.
+
+`window.__game.traffic.snapshot()` gives the cap, the density multiplier, the density clock hour, the drawn
+count, `moving_cars` (engine x, z, the `--spawner-state` format of `scripts/dev/richness_scorecard.py`),
+worker stats (cost per substep, `deferred` cars) and main-thread cost per frame.
 
 ```sh
 npm --prefix game test -- --run tests/unit/traffic.test.ts tests/unit/audio.test.ts tests/unit/parked-paint.test.ts

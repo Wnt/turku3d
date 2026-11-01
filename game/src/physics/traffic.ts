@@ -6,7 +6,8 @@
 //
 // Density (traffic/density.ts) only decides which slots carry cars. The ring creates cars only on such slots; a
 // drawn car whose slot stops carrying one (its chain moved onto a quieter street, a seam whose neighbour hashed
-// it out, a density or clock change) keeps driving until it is out of view, so no car vanishes in sight.
+// it out, a density or clock change) keeps driving until it is out of view or beyond the in-view creation
+// minimum, so no car vanishes closer than one may appear.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
 import { DAY_MS, cycleHour } from '../core/dayCycle';
 import type { V3 } from '../core/origin';
@@ -292,7 +293,9 @@ export class TrafficSim {
       const d = Math.hypot(car.pose.x - view.x, car.pose.z - view.z);
       car.visible = inView(view, car.pose.x, car.pose.z);
       const present = this.network.present(car.lane, car.n);
-      if (mustRemove(d, car.visible) || (!present && (!car.visible || this.fill))) this.deactivate(car);
+      // A car on an emptied slot goes where a new one could appear: out of view, or in view beyond the creation
+      // minimum (so a busier chain's cars do not add to the next street's own beyond it).
+      if (mustRemove(d, car.visible) || (!present && (!car.visible || this.fill || d > RING.createInViewMin))) this.deactivate(car);
       else if (!present) deferred++;
     }
     this.stats.deferred = deferred;

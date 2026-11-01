@@ -17,6 +17,7 @@
 //   mostly stays on one kind of street, and each chain names the anchor its cars' identities hash from
 //   (TrafficNetwork.present): the seam it enters or leaves the tile by, so a car keeps its presence across the
 //   seam, or else its origin lane.
+import { VISUAL_L0 } from '../core/origin';
 import { TRAFFIC } from './constants';
 import { hash01, hash32, hex32, mod } from './hash';
 import type { TrafficEdge, TrafficRoads } from './roads';
@@ -376,9 +377,12 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     }
     if (cyclic) { const cars = Math.round((delta + laneSpan(last)) / H); for (const l of chain) l.cycle = Math.max(1, cars); }
     // The anchor: the seam the chain enters by, else the seam it leaves by (the neighbouring tile's chain from
-    // that crossing anchors there too, so a car keeps its presence across the seam), else its origin lane.
+    // that crossing anchors there too, so a car keeps its presence across the seam), else its origin lane. A
+    // chain from seam to seam can match only one neighbour: it takes its exit where that seam line has the even
+    // index and its entry an odd one, so along a street every other seam keeps presence instead of none.
+    const viaEnd = !!last.end.seam && !!origin.start.seam && seamRank(last.end.seam) > seamRank(origin.start.seam);
     const anchor: Anchor = cyclic ? { key: `o|${tile}|${origin.id}`, phase: origin.phase, offset: 0 }
-      : origin.start.seam ? { key: seamAnchor(origin.start.seam, origin.k), phase: seamPhase(origin.start.seam), offset: 0 }
+      : origin.start.seam && !viaEnd ? { key: seamAnchor(origin.start.seam, origin.k), phase: seamPhase(origin.start.seam), offset: 0 }
       : last.end.seam ? { key: seamAnchor(last.end.seam, last.k), phase: seamPhase(last.end.seam), offset: delta + last.tau }
       : { key: `o|${tile}|${origin.id}`, phase: origin.phase, offset: 0 };
     for (const l of chain) l.anchor = anchor;
@@ -392,6 +396,8 @@ const MISMATCH = 1.2;
 const NO_ANCHOR: Anchor = { key: '', phase: 0, offset: 0 };
 /** A seam crossing as both tiles name it: line, direction, lane and the crossing point to 8 m (their copies agree
  *  to 0.1 m; one that straddles a bucket edge only loses presence continuity there, never determinism). */
+/** 1 on seam lines with an even tile index, 0 on odd ones. */
+const seamRank = (s: SeamKey) => Math.abs(Math.round(s.coord / VISUAL_L0)) % 2 === 0 ? 1 : 0;
 const seamAnchor = (s: SeamKey, k: number) => `s|${s.line}|${s.dir}|${k}|${Math.round(s.u / 8)}`;
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
