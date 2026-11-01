@@ -14,15 +14,14 @@ export interface TileLightsField {
   format: 'turku3d-lights'; version: number; count: number; posts: number; street: number; data: string;
 }
 
-export const LIGHT_SCALE = 8;
-export const STREET_FLAG = 0x80;
-export const CATEGORIES = ['street', 'path', 'hung', 'wall'] as const;
-export type LightCategory = typeof CATEGORIES[number];
+const LIGHT_SCALE = 8;
+const CATEGORIES = ['street', 'path', 'hung', 'wall'] as const;
+type LightCategory = typeof CATEGORIES[number];
 /** Corona radius per category, metres. */
 export const CORONA_RADIUS: Record<LightCategory, number> = { street: 1.2, path: 1.0, hung: 1.2, wall: 0.45 };
 const RECORD = 16;
 
-export type Bounds = readonly [number, number, number, number];
+type Bounds = readonly [number, number, number, number];
 
 export function tileBounds(id: string): Bounds | null {
   const m = /^t0_(-?\d+)_(-?\d+)$/.exec(id);

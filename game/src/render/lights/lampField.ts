@@ -20,7 +20,7 @@ export interface Lamp {
 export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number }
 
 /** Lights the generator builds as geometry rather than listing them. */
-export const LIGHT_TYPES = {
+const LIGHT_TYPES = {
   /** Bridge-deck lamps (OSM street_lamp on the deck), warm-white LED. */
   led: { radius: 1.2, color: [1.0, 0.86, 0.68], intensity: 5 },
   tunnel: { radius: 0.5, color: [1.0, 0.86, 0.55], intensity: 1.6 },
