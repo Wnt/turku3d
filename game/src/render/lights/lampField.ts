@@ -3,7 +3,7 @@
 import type * as THREE from 'three/webgpu';
 import type { RoadGraphJson } from '../../gameplay/roadGraph';
 import { LAMP_RULE, WALL_RULE, kerbPoint, lampStations, owns, positionHash, sidePoint, tileBounds, type Bounds, type Station } from './lampRule';
-import { scanTile, type LightPoint, type ScanResult } from './tileScan';
+import { scanTile, type Footprint, type LightPoint, type ScanResult } from './tileScan';
 import { POST_SHAPE } from './lampPosts';
 
 /** One light: a corona sprite, and for rule lamps a post below it. */
@@ -13,15 +13,19 @@ export interface Lamp {
   /** Post base (rule lamps) or the light point itself. */
   x: number; y: number; z: number;
   yaw: number; scale: number; post: boolean;
+  /** Rule street lamp, generator bridge or tunnel lamp, or a facade light. */
+  kind: LampKind;
   light: SpriteLight;
 }
+
+export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall';
 
 /** Corona record. Colour is linear HDR. `day` 1 keeps a light on in daylight (tunnels), 0 follows the night level. */
 export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number }
 
 export const LIGHT_TYPES = {
   /** Warm-white LED, the common Turku street light today. */
-  led: { radius: 1.2, color: [1.0, 0.86, 0.68], intensity: 5 },
+  led: { radius: 1.2, color: [1.0, 0.8, 0.58], intensity: 5 },
   /** Older high-pressure sodium heads. */
   sodium: { radius: 1.2, color: [1.0, 0.62, 0.28], intensity: 4.6 },
   tunnel: { radius: 0.5, color: [1.0, 0.86, 0.55], intensity: 1.6 },
@@ -78,9 +82,9 @@ export function placeLamps(stations: readonly Station[], candidates: readonly Ca
   const lamps: Lamp[] = [];
   const bridge = scan.bridge.filter(p => owns(bounds, p.x, p.z));
   for (const p of scan.tunnel) if (owns(bounds, p.x, p.z))
-    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite(p, 'tunnel', 1) });
+    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'tunnel', light: sprite(p, 'tunnel', 1) });
   for (const p of bridge)
-    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite(p, 'led', 0) });
+    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'bridge', light: sprite(p, 'led', 0) });
   const placed: Lamp[] = [];
   const order = stations.map((_, i) => i).sort((a, b) => stations[b].cls - stations[a].cls || a - b);
   for (const i of order) {
@@ -97,7 +101,7 @@ export function placeLamps(stations: readonly Station[], candidates: readonly Ca
       const yaw = Math.atan2(-az, ax), scale = POST_SCALE[station.cls];
       const head = { x: x + ax * POST_SHAPE.arm * scale, y: y + POST_SHAPE.light * scale, z: z + az * POST_SHAPE.arm * scale };
       const type = positionHash(x, z) / 0x100000000 < SODIUM_SHARE ? 'sodium' : 'led';
-      const lamp: Lamp = { key: lampKey(x, z), x, y, z, yaw, scale, post: true, light: sprite(head, type, 0) };
+      const lamp: Lamp = { key: lampKey(x, z), x, y, z, yaw, scale, post: true, kind: 'street', light: sprite(head, type, 0) };
       placed.push(lamp);
       break;
     }
@@ -139,7 +143,7 @@ export function placeWallLights(stations: readonly Station[], walls: ReturnType<
       if (lights.some(l => Math.hypot(l.x - p.x, l.z - p.z) < WALL_RULE.minSeparation)) continue;
       const [low, high] = WALL_RULE.height;
       const y = street.ground + low + (high - low) * (hash / WALL_RULE.share);
-      lights.push({ key: lampKey(p.x, p.z), x: p.x, y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite({ x: p.x, y, z: p.z }, 'wall', 0) });
+      lights.push({ key: lampKey(p.x, p.z), x: p.x, y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'wall', light: sprite({ x: p.x, y, z: p.z }, 'wall', 0) });
     }
   });
   return lights;
@@ -147,7 +151,11 @@ export function placeWallLights(stations: readonly Station[], walls: ReturnType<
 
 export interface LampSource { id: string; model: THREE.Object3D; roads: RoadGraphJson | null }
 
-interface TileJob { model: THREE.Object3D; roads: RoadGraphJson | null; signature: string; job: Generator<void, Lamp[]> | null; lamps: Lamp[] | null }
+interface TileLights { lamps: Lamp[]; footprint: Footprint | null }
+interface TileJob { model: THREE.Object3D; roads: RoadGraphJson | null; signature: string; job: Generator<void, TileLights> | null; lamps: Lamp[] | null }
+
+/** Building footprints are kept this far around a tile (metres), so a building reaching over a seam still blocks. */
+const FOOTPRINT_MARGIN = 16;
 
 /** Content signature of a street graph: equal for every parse of the same roads.json. */
 export function roadsSignature(roads: RoadGraphJson | null): string {
@@ -160,22 +168,25 @@ export function roadsSignature(roads: RoadGraphJson | null): string {
   return `${roads.nodes.length}/${roads.edges.length}/${(h >>> 0).toString(36)}`;
 }
 
-function* tileLamps(source: LampSource): Generator<void, Lamp[]> {
+function* tileLamps(source: LampSource): Generator<void, TileLights> {
   const bounds = tileBounds(source.id) ?? source.roads?.bbox;
-  if (!bounds) return [];
+  if (!bounds) return { lamps: [], footprint: null };
   const stations = source.roads ? lampStations(source.roads, bounds) : [];
   const facing = source.roads ? lampStations(source.roads, bounds, WALL_RULE.spacing).filter(s => s.deckY === null) : [];
   const { points, candidates } = lampProbes(stations);
   const walls = wallProbes(facing, points.length);
-  const scan = yield* scanTile(source.model, [...points, ...walls.centres], walls.points);
-  return [...placeLamps(stations, candidates, scan, bounds), ...placeWallLights(facing, walls, scan, bounds)];
+  const m = FOOTPRINT_MARGIN;
+  const scan = yield* scanTile(source.model, [...points, ...walls.centres], walls.points, undefined,
+    [bounds[0] - m, bounds[1] - m, bounds[2] + m, bounds[3] + m]);
+  return { lamps: [...placeLamps(stations, candidates, scan, bounds), ...placeWallLights(facing, walls, scan, bounds)],
+    footprint: scan.footprint ?? null };
 }
 
 /** Resident tiles' lamps. `sync` follows the drawn drafts; `step` advances pending tiles within a time budget. */
 export class LampField {
   private tiles = new Map<string, TileJob>();
-  /** Called when a tile's lamps are ready (or null when it left). */
-  onTile: (id: string, lamps: Lamp[] | null) => void = () => {};
+  /** Called when a tile's lamps (and its building footprints) are ready, or with null when it left. */
+  onTile: (id: string, lamps: Lamp[] | null, footprint?: Footprint | null) => void = () => {};
 
   sync(sources: Iterable<LampSource>) {
     const seen = new Set<string>();
@@ -197,7 +208,7 @@ export class LampField {
     for (const [id, tile] of this.tiles) {
       while (tile.job) {
         const next = tile.job.next();
-        if (next.done) { tile.job = null; tile.lamps = next.value; this.onTile(id, next.value); }
+        if (next.done) { tile.job = null; tile.lamps = next.value.lamps; this.onTile(id, next.value.lamps, next.value.footprint); }
         if (now() >= until) return this.pending();
       }
     }

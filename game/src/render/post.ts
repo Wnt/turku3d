@@ -2,13 +2,13 @@ import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB, unpackRGBToNormal,
-  builtinAOContext, context, mix, vec3, vec4, dot, renderOutput } from 'three/tsl';
+  builtinAOContext, context, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { QUALITY, type QualityTier } from './quality';
-import type { TimecycleSample } from './timecycle';
+import { MESOPIC, type TimecycleSample } from './timecycle';
 
 // r186 exposes this public method; the corresponding DefinitelyTyped declaration omits it.
 const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
@@ -33,6 +33,9 @@ export class PostProcessing {
   private glow: ReturnType<typeof bloom> | null;
   /** The timecycle's bloom strength is in medium-tier units. */
   private bloomScale: number;
+  /** Grading saturation of dim light (mesopic vision); the tier's day saturation by day. */
+  private dimSaturation: THREE.UniformNode<'float', number>;
+  private daySaturation: number;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
@@ -100,7 +103,12 @@ export class PostProcessing {
     const lights = overlay?.overlay(renderer, camera, (pre ?? beauty).getTexture('depth'));
     const hdr = lights ? bloomed.add(lights.color) : bloomed;
     const luminance = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
-    const graded = mix(vec3(luminance), hdr, q.saturation).mul(vec3(1.012, 1, 0.99));
+    // Night vision loses colour in dim light while lamps, windows and their pools keep theirs: below the mesopic
+    // range the saturation falls to the timecycle's night value (a uniform, so dusk compiles nothing new).
+    this.daySaturation = q.saturation;
+    this.dimSaturation = uniform(q.saturation);
+    const saturation = mix(this.dimSaturation, q.saturation, smoothstep(MESOPIC.luminance[0], MESOPIC.luminance[1], luminance));
+    const graded = mix(vec3(luminance), hdr, saturation).mul(vec3(1.012, 1, 0.99));
     const output = vec4(graded, 1);
     // FXAA's contrast thresholds require display-referred sRGB, unlike temporal HDR resolve.
     const spatial = aa === 'fxaa' ? fxaa(renderOutput(output)) : null;
@@ -122,9 +130,10 @@ export class PostProcessing {
 
   /** The prepass and scene-pass render targets, so the bench probe (qa/bench.ts) can attribute draws to passes. */
   get passTargets() { return { prepass: this.pre?.renderTarget, beauty: this.beauty.renderTarget }; }
-  /** Night bloom: stronger with a lower threshold, through the effect's uniforms (no new pipeline). Mobile has no
-   *  bloom pass; its night relies on emissive light alone. */
+  /** Night grading through uniforms (no new pipeline): dim-light saturation, and bloom stronger with a lower
+   *  threshold. Mobile has no bloom pass; its night relies on emissive light alone. */
   grade(sample: TimecycleSample) {
+    this.dimSaturation.value = this.daySaturation + (MESOPIC.saturation - this.daySaturation) * sample.night;
     if (!this.glow) return;
     this.glow.strength.value = sample.bloomStrength * this.bloomScale;
     this.glow.threshold.value = sample.bloomThreshold;

@@ -100,7 +100,7 @@ const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
 const dayClock = new DayClock(env, clockMode, !params.qa);
 if (!idPass) env.updateIBL();
-const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights);
+const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights, env.lamps.point);
 const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, lights?.sprites);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
@@ -131,6 +131,8 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
   return prepared;
 };
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
+/** Set by the bench probe (runQa): true once its scene has settled. */
+let benchSettled = () => false;
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
@@ -138,8 +140,9 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
-  // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts.
-  env.updateShadows(!params.qa && worldLoad.snapshot().phase === 'ready');
+  // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
+  // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
+  env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
   post?.grade(env.sample);
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
@@ -245,6 +248,7 @@ async function runQa() {
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
+  if (bench) benchSettled = () => bench.settled;
   const publishBench = (result: Record<string, unknown> | null) => {
     if (!result) return;
     window.__bench = result;
@@ -287,7 +291,8 @@ async function runQa() {
     const progress = coarse.progressAt(camera.position.x, camera.position.z);
     if (progress.errors.length) { window.__qaError = progress.errors.join('; '); return; }
     if (materials?.ground?.errors.length) { window.__qaError = materials.ground.errors[0]; return; }
-    stable = progress.total > 0 && progress.loaded === progress.total && !materials?.ground?.pending ? stable + 1 : 0;
+    stable = progress.total > 0 && progress.loaded === progress.total && coarse.detailedAt(camera.position.x, camera.position.z)
+      && !materials?.ground?.pending ? stable + 1 : 0;
     // Allow temporal colour history to converge after textures finish uploading (QA contract: >= 2 frames).
     if (stable >= 32) {
       window.__qaReady = true;

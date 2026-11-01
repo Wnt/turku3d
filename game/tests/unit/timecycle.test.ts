@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import table from '../../src/render/timecycle.json';
-import { linearRgb, litFraction, nightFactor, timecycle } from '../../src/render/timecycle';
+import { MESOPIC, linearRgb, litFraction, nightFactor, timecycle } from '../../src/render/timecycle';
 import { WINDOW_HASH } from '../../src/render/nightLights';
 
 test('timecycle rows interpolate linearly between elevation keys and clamp outside them', () => {
@@ -82,4 +82,14 @@ test('per-window pattern: the lit share matches the hour, each window is stable,
   // Within a few minutes almost every window keeps its state.
   const flicker = cells.filter(([f, c, s]) => lit(f, c, s, 22) !== lit(f, c, s, 22.05)).length / cells.length;
   expect(flicker).toBeLessThan(0.03);
+});
+
+test('the twilight sky is black by day, deep blue in the blue hour and dark at night; dim light greys at night', () => {
+  for (const e of [2, 6, 30, 90]) { expect(timecycle(e).skyZenith).toEqual([0, 0, 0]); expect(timecycle(e).skyHorizon).toEqual([0, 0, 0]); }
+  const blue = timecycle(-3.5).skyZenith, night = timecycle(-20).skyZenith;
+  expect(blue[2]).toBeGreaterThan(blue[0] * 2); // blue
+  expect(blue[2]).toBeGreaterThan(night[2] * 2); // brighter than the night zenith
+  expect(timecycle(-20).skyHorizon[0]).toBeGreaterThan(night[0]); // the city-lit horizon
+  expect(MESOPIC.saturation).toBeLessThan(0.6);
+  expect(MESOPIC.luminance[0]).toBeLessThan(MESOPIC.luminance[1]);
 });

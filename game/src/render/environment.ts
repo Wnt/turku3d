@@ -2,13 +2,13 @@
 import * as THREE from 'three/webgpu';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
-import { cameraPosition, float, max, mix, normalize, positionWorld, pow, vec3, vec4 } from 'three/tsl';
+import { cameraPosition, float, max, mix, normalize, positionWorld, pow, uniform, vec4 } from 'three/tsl';
 import { sunPosition, sunVector } from '../core/sun';
 import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
 import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
-import { NIGHT_SKY, litFraction, timecycle, type TimecycleSample } from './timecycle';
+import { litFraction, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
 
 /** Below this the sky is dark enough that IBL only needs a slow refresh. */
@@ -38,6 +38,9 @@ export class Environment {
   private iblDirty = true;
   private iblElevation = Number.NaN;
   private state = '';
+  /** Twilight and night sky colours (timecycle rows), added to the analytic sky. */
+  private skyZenith = uniform(new THREE.Color(0, 0, 0));
+  private skyHorizon = uniform(new THREE.Color(0, 0, 0));
 
   /** Reused sky PMREM; mobile water samples it without rendering the city a second time. */
   get environmentMap() { return this.environmentTarget?.texture ?? null; }
@@ -52,12 +55,12 @@ export class Environment {
     this.sky.rayleigh.value = 1.5;
     this.sky.cloudCoverage.value = 0;
     this.sky.cloudSpeed.value = 0;
-    // The analytic sky is black below about -10 degrees. A night term (zenith blue to a city-lit horizon) joins its
-    // single graph, scaled by the night uniform; the IBL clone shares the material and therefore the term.
+    // The analytic sky is black below about -10 degrees. A twilight/night term (the blue hour, then zenith blue to a
+    // city-lit horizon) joins its single graph through uniforms; the IBL clone shares the material and the term.
     const scattered = this.sky.material.colorNode as THREE.Node<'vec4'>;
     const view = normalize(positionWorld.sub(cameraPosition));
     const horizon = pow(float(1).sub(max(view.y, 0)), 4);
-    const night = mix(vec3(...NIGHT_SKY.zenith), vec3(...NIGHT_SKY.horizon), horizon).mul(nightUniforms.night);
+    const night = mix(this.skyZenith, this.skyHorizon, horizon);
     this.sky.material.colorNode = vec4(scattered.rgb.add(night), 1);
     // Mesh.clone shares the sky material/uniforms; keep one IBL source mesh across time edits.
     this.skyScene.add(this.sky.clone());
@@ -134,6 +137,8 @@ export class Environment {
     this.scene.environmentIntensity = s.environmentIntensity;
     this.renderer.toneMappingExposure = s.exposure;
     if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setRGB(...s.fogColor);
+    this.skyZenith.value.setRGB(...s.skyZenith);
+    this.skyHorizon.value.setRGB(...s.skyHorizon);
     this.applyFog();
     nightUniforms.night.value = s.night;
     nightUniforms.hour.value = hour;

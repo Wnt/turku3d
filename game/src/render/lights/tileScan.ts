@@ -20,6 +20,44 @@ export interface ScanResult {
   /** Per facade probe: inside a building footprint. */
   walls: boolean[];
   tunnel: LightPoint[]; bridge: LightPoint[];
+  /** Building footprints over the scanned area, when one was given. */
+  footprint?: Footprint;
+}
+
+/** Building footprints of one tile on a coarse grid (a cell is set when a building surface covers its centre):
+ *  lamp pools use it to skip lamps that stand behind a building, since point lights cast no shadow. */
+export class Footprint {
+  static readonly CELL = 2;
+  readonly nx: number; readonly nz: number;
+  readonly cells: Uint8Array;
+  constructor(readonly x0: number, readonly z0: number, x1: number, z1: number) {
+    this.nx = Math.ceil((x1 - x0) / Footprint.CELL); this.nz = Math.ceil((z1 - z0) / Footprint.CELL);
+    this.cells = new Uint8Array(this.nx * this.nz);
+  }
+  get x1() { return this.x0 + this.nx * Footprint.CELL; }
+  get z1() { return this.z0 + this.nz * Footprint.CELL; }
+  /** True inside a covered cell; false outside the grid. */
+  covers(x: number, z: number) {
+    const i = Math.floor((x - this.x0) / Footprint.CELL), k = Math.floor((z - this.z0) / Footprint.CELL);
+    return i >= 0 && k >= 0 && i < this.nx && k < this.nz && this.cells[k * this.nx + i] === 1;
+  }
+  /** Mark the cells whose centres lie inside one triangle's XZ projection (`det`: twice its signed XZ area). */
+  fill(xs: number[], zs: number[], det: number) {
+    const C = Footprint.CELL;
+    const i0 = Math.max(0, Math.ceil((Math.min(xs[0], xs[1], xs[2]) - this.x0) / C - 0.5));
+    const i1 = Math.min(this.nx - 1, Math.floor((Math.max(xs[0], xs[1], xs[2]) - this.x0) / C - 0.5));
+    const k0 = Math.max(0, Math.ceil((Math.min(zs[0], zs[1], zs[2]) - this.z0) / C - 0.5));
+    const k1 = Math.min(this.nz - 1, Math.floor((Math.max(zs[0], zs[1], zs[2]) - this.z0) / C - 0.5));
+    for (let k = k0; k <= k1; k++) {
+      const z = this.z0 + (k + 0.5) * C;
+      for (let i = i0; i <= i1; i++) {
+        const x = this.x0 + (i + 0.5) * C;
+        const a = ((zs[1] - zs[2]) * (x - xs[2]) + (xs[2] - xs[1]) * (z - zs[2])) / det;
+        const b = ((zs[2] - zs[0]) * (x - xs[2]) + (xs[0] - xs[2]) * (z - zs[2])) / det;
+        if (a >= -1e-6 && b >= -1e-6 && 1 - a - b >= -1e-6) this.cells[k * this.nx + i] = 1;
+      }
+    }
+  }
 }
 
 type Kind = 'ground' | 'water' | 'building' | 'tunnel' | 'deck' | 'tunnel-light' | 'bridge-light';
@@ -132,9 +170,11 @@ class ProbeGrid {
 }
 
 /** Scans the model's triangles against the probe points; yields every `slice` triangles so callers can time-slice.
- *  `walls` are facade-search probes, tested against building footprints only. */
+ *  `walls` are facade-search probes, tested against building footprints only. With an `area` (x0, z0, x1, z1) the
+ *  result also carries the building footprints over it. */
 export function* scanTile(model: THREE.Object3D, points: readonly { x: number; z: number }[],
-  walls: readonly { x: number; z: number }[] = [], slice = 4096): Generator<void, ScanResult> {
+  walls: readonly { x: number; z: number }[] = [], slice = 4096, area?: readonly [number, number, number, number]): Generator<void, ScanResult> {
+  const footprint = area ? new Footprint(area[0], area[1], area[2], area[3]) : undefined;
   const probes: Probe[] = points.map(p => ({ x: p.x, z: p.z, ground: -Infinity, water: -Infinity, building: false, tunnel: false, decks: [] }));
   const covered = walls.map(() => false);
   const surface = new ProbeGrid(probes), facades = new ProbeGrid(walls);
@@ -189,11 +229,12 @@ export function* scanTile(model: THREE.Object3D, points: readonly { x: number; z
         const det = (zs[1] - zs[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (zs[0] - zs[2]);
         if (Math.abs(det) < 1e-6) continue;
         surface.visit(xs, ys, zs, det, onSurface);
-        if (kind === 'building') facades.visit(xs, ys, zs, det, onFacade);
+        if (kind === 'building') { facades.visit(xs, ys, zs, det, onFacade); footprint?.fill(xs, zs, det); }
       }
     }
   }
-  return { probes, walls: covered, tunnel: tunnelLights.list.map(centre), bridge: mergeHeads(bridgeLights.list.filter(isDiffuser).map(centre)) };
+  return { probes, walls: covered, tunnel: tunnelLights.list.map(centre), bridge: mergeHeads(bridgeLights.list.filter(isDiffuser).map(centre)),
+    footprint };
 }
 
 /** Heads of one multi-head lamp (OSM light:count) sit within about 1.1 m of each other: one corona per lamp. */

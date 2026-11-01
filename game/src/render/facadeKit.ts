@@ -58,15 +58,21 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
     quantise(layout.y, 4096), quantise(layout.z, 4096), quantise(extent?.z ?? float(0), 64), quantise(extent?.w ?? float(0), 64),
     quantise(wallColour.r, 1024), quantise(wallColour.g, 1024), quantise(wallColour.b, 1024)]) : wallFrame().plane;
   const glazing = paint ? glassMask(orm.g).mul(float(1).sub(paint.band)).mul(float(1).sub(paint.balcony)) : glassMask(orm.g);
-  material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), floor(bays.y), fract(bays.y), glazing);
+  // Glass modules (atlas row 5) are floor-to-ceiling panes: curtain walls and shopfronts.
+  const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
+  material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), floor(bays.y), fract(bays.y), glazing, pane);
   return material;
 }
 
-/** A building wall (not a roof) by its glTF node extras: only these get non-kit night windows. */
-function buildingWall(mesh: THREE.Object3D) {
+/** A building wall (not a roof) by its glTF node extras: only these get non-kit night windows. A batched mesh
+ *  names its surfaces per object range: a batch of roof ranges is a roof (ortho roofs would otherwise light dark
+ *  roof pixels as windows on the world grid). */
+export function buildingWall(mesh: THREE.Object3D) {
   for (let node: THREE.Object3D | null = mesh; node; node = node.parent) {
-    if (node.userData.surface === 'roof') return false;
-    if (node.userData.layer) return node.userData.layer === 'buildings' || node.userData.layer === 'buildings_outer';
+    const data = node.userData;
+    const objects = Array.isArray(data.objects) ? data.objects as { surface?: unknown }[] : null;
+    if (data.surface === 'roof' || (objects?.length && objects.every(row => row.surface === 'roof'))) return false;
+    if (data.layer) return data.layer === 'buildings' || data.layer === 'buildings_outer';
   }
   return false;
 }

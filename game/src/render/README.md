@@ -12,8 +12,11 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
 
 `timecycle.json` is our own table, tuned by eye. Its light rows are keyed by **sun elevation** (so QA's calendar dates and
 the synthetic cycle share one table): sun colour/intensity (0 below −1°, the sun stays visible and shadowed),
-IBL intensity, hemisphere "artificial ambient" (0 by day), fog colour/range, exposure, bloom strength/threshold and the
-night factor. The lit-window share is keyed by clock hour (15–60 %, peaking at 20:00, thinnest at 04:00).
+IBL intensity, hemisphere "artificial ambient" (0 by day), fog colour/range, exposure, bloom strength/threshold, the
+night factor and the twilight/night sky colours added below the horizon (a blue hour around −4°, then a city-lit night
+horizon; black by day). The lit-window share is keyed by clock hour (15–60 %, peaking at 20:00, thinnest at 04:00).
+The night grade keeps lamps, windows and their pools in colour but lets dim light fall to the table's `mesopic`
+saturation (a luminance-keyed uniform in the final grade): autumn crowns and painted walls no longer glow in the dark.
 All of these are uniforms: the sun is never hidden and no light is added or removed, so day and night share every
 pipeline (`tests/unit/night-pipelines.test.ts` builds the real r186 programs at 13:00 and 23:30 on both backends).
 `renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
@@ -23,8 +26,11 @@ and keeps the hemisphere light on r186's per-light node (the batched hemisphere 
 Each batched light type costs uniform buffers per fragment stage (point 3, spot 4; WebGPU guarantees 12), so spot
 slots need a packed data node first; the pipeline test caps every tested program at 10.
 Facade-kit walls light glazed cells at night (atlas glass is roughness 0.08); non-kit building walls use a
-2.6 × 3.2 m world grid gated by their ORM glass (or dark albedo). Each window's on/off state is an exact u32 hash of
+2.6 × 3.2 m world grid gated by their ORM glass (or dark albedo). Batched meshes whose object ranges are all roofs
+(ortho roofs) are roofs, not walls, and get no grid windows. Each window's on/off state is an exact u32 hash of
 per-triangle constants (or its wall plane), its cell and two-hour epochs of the shared clock: no draw, asset or random state.
+A lit window is brighter towards its ceiling; one in five is a dimmer cool room. Glass modules (curtain walls and
+shopfronts) show a lit ceiling band falling off into the room instead of one evenly glowing floor-to-ceiling cell.
 Night raises bloom (not allocated on mobile), shadow cascades are not re-rendered while the sun has no intensity
 (only after startup warmup), and deep-night IBL refreshes every two minutes. The river's unlit deep colour darkens with the night.
 
@@ -32,7 +38,7 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
   no takram dependency is needed. Clouds are off for this clear-afternoon scene.
   The sky box (2250 m half-extent) re-centres on the rendering camera in `onBeforeRender`, so it surrounds the
   player anywhere in the world; its colour depends only on view direction.
-- A 128-pixel PMREM cube derived from the same sky (plus a night term) provides IBL. It is regenerated on the clock's cadence, reusing the target to retain material bindings and shader programs. Sun vectors use `core/sun.ts`, including true-north to grid-north convergence.
+- A 128-pixel PMREM cube derived from the same sky (plus the twilight/night term) provides IBL. It is regenerated on the clock's cadence, reusing the target to retain material bindings and shader programs. Sun vectors use `core/sun.ts`, including true-north to grid-north convergence.
 - `CSMShadowNode` uses custom street-scale splits, PCF, a 2.5 cm normal bias, cascade fades and the addon's existing
   light-space texel snapping. FOV/aspect changes update the cascade frustums. Camera motion does not resize them.
 - An opaque normal/velocity/depth prepass feeds GTAO. AO radius is 0.6 m and the effect only attenuates indirect light,
@@ -51,6 +57,14 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
   own depth with the opaque prepass depth (beauty depth on mobile), so walls hide lamps behind them. Lamp posts are
   one `InstancedMesh` holding only lamps within 125 m, scaled to zero between 105 and 125 m on the CPU, so every
   pass keeps one count-independent program. `?lights=0..1` fixes the night level.
+- **Light pools** ([lights/pools.ts](lights/pools.ts)): every 250 ms the street and bridge lamps nearest a point 12 m
+  ahead of the camera take the tier's point slots (4 on medium, 8 on high), scaled by the night factor (0 by day, so
+  no slot enters the shader loop). A chosen lamp's weight falls to 0 as its distance approaches the first lamp left
+  out, and a slot fades (0.6 s) before it moves to another lamp, so pools never pop. Point lights cast no shadow, so a
+  lamp whose ground line of sight from the camera crosses a building footprint (a 2 m raster per tile from the lamp
+  scan) takes no slot, and the light hangs a third of the head height below the head, clear of the lamp's own arm.
+  The choice is purely local to this camera; the lamps and the night level are already identical on every client.
+  Facade and tunnel lights stay coronas only.
 
 `?aa=off|taa|fxaa` is a diagnostic selector (default `taa`, or `fxaa` for mobile quality) on both backends. `off` bypasses colour AA; `fxaa`
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,
