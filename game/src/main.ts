@@ -60,6 +60,17 @@ try {
   throw e;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
+/** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
+const benchFetches = new Map<number, number>();
+if (params.bench) {
+  const original = globalThis.fetch.bind(globalThis);
+  let next = 0;
+  globalThis.fetch = (...args: Parameters<typeof fetch>) => {
+    const id = next++;
+    benchFetches.set(id, performance.now());
+    return original(...args).finally(() => benchFetches.delete(id));
+  };
+}
 /** QA renders 1:1 with the viewport; the bench probe measures at the play-mode pixel ratio (adaptive scale 1). */
 const qaCanvas = !!params.qa && !params.bench;
 const hudEl = document.getElementById('hud')!;
@@ -225,7 +236,13 @@ async function runQa() {
     passes: () => post?.passTargets ?? {},
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
-    info: () => ({ url: location.search, pose: window.__qaPose, tiles: [...loadedTiles], settle: window.__game!.qa,
+    now: () => performance.now(),
+    busy: () => [...benchFetches.values()].some(start => performance.now() - start > 1500),
+    // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
+    signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
+      (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
+    info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
+      drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
   const publishBench = (result: Record<string, unknown> | null) => {

@@ -10,6 +10,10 @@ street cameras would pass the G1 scorecard check (at least 3 lamps and 2 furnitu
 In the centre 3×3 tiles, G1 would add about 1,056 props, roughly 117 per tile, plus 315 register
 trees. Its build-time cost is estimated at +0.3 to +0.7 s per tile.
 
+**Frame cost today.** On this M1 Max at medium, the street cameras cost 4.5 to 11.6 ms of GPU time
+per frame at p50 (p95 at most 15.2 ms). That is well inside the 33.3 ms frame of the 30+ FPS target.
+Across both tiers, each frame submits 277 to 636 draws.
+
 ## Cameras
 
 The cameras are defined in `game/src/qa/street-cameras.json`, which also records why each spot was
@@ -28,6 +32,8 @@ picked, its OSM way, its street stretch and its `?cam=` pose.
 | residential | Heikkilänkatu, Port Arthur (5034817) | −1064.91, 9.86, 317.01 | 146.7 | t0_-5_1 | The nearest residential street with mapped kerb parking (`parking:both=lane`, parallel) to the Port Arthur place node. The camera stands mid-block between Rauhankatu and Puutarhakatu (113 m). |
 | park-edge | Puolalanpuisto (232702577) | −201.13, 26.36, −405.87 | 235.9 | t0_-1_-2 | The only car street that follows the Puolalanpuisto boundary for its whole length, with the park on the left and buildings on the right. The camera stands mid-block (165 m). |
 | kupittaa | Kupittaanpuisto lit footway (112315737) | 1375, 19, 625 | 14.4 | t0_5_2 | The camera from `perf-kupittaa-check.md`, unchanged, with fov 65 and pitch −0.32°. The eye is 1.83 m above the 17.17 m ground. There is no car street within 60 m, so the per-100 m figures use the nearest lit path. No targets apply. |
+
+The bench screenshots confirm each view. One adjustment is worth considering: at 13:00 the residential camera looks south-east almost straight into the sun (azimuth 176°), which washes out the right-hand facades. Turning it to yaw 326.7°, looking north-west towards Rauhankatu, would avoid the glare.
 
 ## How the scorecard counts
 
@@ -91,6 +97,80 @@ parking is mapped.
   910 line metres per car km. Crosswalks dominate it.
 - Heikkilänkatu is the only camera street with mapped kerb parking (`parking:both=lane`, parallel), yet
   t0_-5_1 holds 3 parked cars, all about 177 m from the camera. That is a lead for G2, not part of G1.
+
+## Frame cost at the cameras (M1 Max bench)
+
+**How it was measured**
+
+- **Probe.** `?bench=camera&id=<id>&at=<HH:MM>&quality=<tier>` (`game/src/qa/bench.ts`) places the
+  camera from `street-cameras.json` and renders through the QA path. It uses the play-mode pixel ratio
+  with the adaptive scale fixed at 1.
+- **Settle and window.** The probe waits until the resident geometries, textures and pipelines have not
+  changed for 10 s and no download has been running for more than 1.5 s. It then warms 120 frames and
+  measures 240.
+- **Counters.**
+  - GPU time is the whole-frame timestamp interval (`render/gpuTimer.ts`).
+  - CPU time is the main thread's time per frame. With the frame rate unlocked the main thread also
+    waits on the GPU queue, so CPU time tracks GPU time here and is an upper bound on CPU cost.
+  - Draws are counted as they are submitted and attributed by render target. "Reflection" is the river
+    reflector; "post" is GTAO, TRAA, bloom and output.
+- **Driver.** `game/scripts/street-bench.mjs` served a production build next to a read-only proxy to
+  the published tiles (generation `28ba24e011a4a9c4`). Chrome for Testing 156.0.8078.73 ran headless
+  on Metal WebGPU at 1600×913, device pixel ratio 2, with vsync and the frame-rate limit off. The pixel
+  ratio was 1.59 and the drawing buffer 2541×1450.
+- **Runs.** Every configuration ran twice. Both GPU and CPU values are listed (r1 / r2).
+- **Checks.** In all 42 runs the window held 240 GPU samples, settled before the 180 s limit, and
+  created no pipelines while measuring.
+
+**Caveats**
+
+- **Shared host.** Other agents were working on this Mac throughout, with load averages between 9 and
+  135, so the r1/r2 spread (up to about 40 %) is host noise. Draws, instances, triangles and pipelines
+  are deterministic.
+- **Night.** 22:00 renders today's unsupported night: the sun is hidden below −2°, so no CSM pass runs.
+  Phase 1 replaces this look.
+- **Resident tiles.** The QA path keeps 17 draft tiles resident: the camera's 3×3 window plus the ring
+  the client prepares around it.
+
+A screenshot of each camera, time and tier is kept locally, not in git.
+
+| Camera | Time | Tier | Draws per frame: total (prepass / beauty / CSM / reflection / post) | Instances | Triangles | GPU p50 ms | GPU p95 ms | CPU p50 ms | Pipelines |
+|---|---|---|---|---:|---:|---|---|---|---:|
+| riverside | 13:00 | medium | 582 (155 / 159 / 164 / 89 / 15) | 2,627 | 3.55 M | 7.76 / 10.02 | 9.14 / 12.62 | 7.47 / 8.87 | 64 |
+| riverside | 13:00 | high | 636 (157 / 161 / 214 / 89 / 15) | 2,739 | 3.76 M | 7.82 / 8.97 | 9.03 / 10.49 | 7.50 / 8.65 | 64 |
+| riverside | 22:00 | medium | 418 (155 / 159 / 0 / 89 / 15) | 2,442 | 2.84 M | 4.78 / 6.19 | 6.45 / 7.41 | 4.67 / 5.87 | 59 |
+| riverside | 22:00 | high | 422 (157 / 161 / 0 / 89 / 15) | 2,442 | 2.85 M | 5.40 / 5.68 | 5.72 / 6.94 | 4.77 / 5.83 | 59 |
+| shopping | 13:00 | medium | 477 (132 / 132 / 198 / 0 / 15) | 1,265 | 7.81 M | 7.84 / 11.37 / 11.56 | 8.13 / 13.06 / 13.16 | 7.22 / 10.36 / 10.69 | 63 |
+| shopping | 13:00 | high | 540 (131 / 131 / 263 / 0 / 15) | 1,330 | 9.43 M | 9.97 / 12.59 | 10.61 / 14.76 | 9.14 / 11.52 | 63 |
+| shopping | 22:00 | medium | 279 (132 / 132 / 0 / 0 / 15) | 1,067 | 3.98 M | 6.44 / 8.09 | 7.44 / 10.27 | 5.92 / 6.78 | 46 |
+| shopping | 22:00 | high | 277 (131 / 131 / 0 / 0 / 15) | 1,067 | 3.98 M | 7.54 / 8.18 | 7.86 / 9.08 | 6.75 / 7.34 | 46 |
+| residential | 13:00 | medium | 501 (134 / 134 / 218 / 0 / 15) | 5,503 | 5.14 M | 6.67 / 7.20 | 7.96 / 8.45 | 6.41 / 6.85 | 59 |
+| residential | 13:00 | high | 577 (139 / 139 / 284 / 0 / 15) | 5,625 | 5.90 M | 8.00 / 7.06 | 9.47 / 8.19 | 7.13 / 6.79 | 59 |
+| residential | 22:00 | medium | 283 (134 / 134 / 0 / 0 / 15) | 5,285 | 2.55 M | 4.55 / 5.13 | 5.69 / 6.32 | 4.02 / 4.25 | 43 |
+| residential | 22:00 | high | 293 (139 / 139 / 0 / 0 / 15) | 5,285 | 2.57 M | 5.43 / 5.96 | 6.63 / 7.67 | 4.91 / 5.38 | 43 |
+| park-edge | 13:00 | medium | 533 (150 / 150 / 218 / 0 / 15) | 3,030 | 7.79 M | 8.08 / 8.64 | 8.89 / 10.04 | 7.03 / 7.62 | 64 |
+| park-edge | 13:00 | high | 589 (151 / 151 / 272 / 0 / 15) | 3,249 | 8.46 M | 10.26 / 10.57 | 11.57 / 12.32 | 9.41 / 9.88 | 64 |
+| park-edge | 22:00 | medium | 315 (150 / 150 / 0 / 0 / 15) | 2,485 | 4.23 M | 9.91 / 6.69 | 12.16 / 7.97 | 8.83 / 5.88 | 46 |
+| park-edge | 22:00 | high | 317 (151 / 151 / 0 / 0 / 15) | 2,485 | 4.24 M | 8.41 / 7.17 | 9.67 / 8.18 | 7.78 / 6.71 | 46 |
+| kupittaa | 13:00 | medium | 591 (140 / 142 / 132 / 162 / 15) | 9,272 | 3.50 M | 10.66 / 7.57 | 15.19 / 8.74 | 10.88 / 7.31 | 61 |
+| kupittaa | 13:00 | high | 621 (140 / 142 / 162 / 162 / 15) | 9,695 | 3.78 M | 12.15 / 9.44 | 14.62 / 12.00 | 10.38 / 9.06 | 61–63 |
+| kupittaa | 22:00 | medium | 459 (140 / 142 / 0 / 162 / 15) | 8,789 | 3.04 M | 8.28 / 5.22 | 10.85 / 6.68 | 6.03 / 5.06 | 56 |
+| kupittaa | 22:00 | high | 459 (140 / 142 / 0 / 162 / 15) | 8,789 | 3.07 M | 11.18 / 6.39 | 14.09 / 8.17 | 9.73 / 5.84 | 56 |
+
+**Notes on the table**
+
+- **Shopping, 13:00 medium.** One run of the matrix settled while a cold tile was still downloading:
+  33 draws and 18 pipelines. That run is replaced by two reruns (the second and third values), made
+  after the probe learned to treat a running download as unsettled.
+- **Kupittaa versus `perf-kupittaa-check.md`.** That report measured 109–145 draws and 2.6 ms of GPU
+  time at the same camera. Today the same camera submits 591 draws. The difference comes mainly from
+  three things:
+  - 17 resident tiles here, against 9 there;
+  - the water reflection: 162 draws, re-rendered every frame because the QA path is deterministic,
+    whereas play skips reflection updates for a still camera;
+  - today's tile content.
+
+  The two sets of frame costs are not directly comparable.
 
 ## G1 approval request
 
@@ -231,9 +311,13 @@ measure them.
   material, so G1 adds **at most one prop batch per tile**. That is +9 beauty draws plus the prepass in
   the 3×3 window, with shadows in the existing tile shadow batches.
 - **Triangles.** The current prop models have 36 to 276 triangles each. G1 adds about 100 k triangles
-  over the centre 3×3 window. For comparison, the Kupittaa frame totals about 0.5 M triangles and
-  costs 5.9 ms of work on the M1 Max, so G1 fits comfortably within 33.3 ms.
-- **Measurement.** The bench probe, or Jonni's manual run at these cameras, gives the real number.
+  over the centre 3×3 window.
+- **Against today's frame.** The street cameras already submit 477 to 591 draws and 3.5 to 7.8 M
+  triangles per frame at medium by day, at 6.7 to 11.6 ms GPU p50 (see the bench section). G1's additions
+  are at most one batch per resident tile in the prepass and in the beauty pass. With 17 resident tiles
+  that is +34 draws (6 to 7 %), and about +0.2 M triangles (3 to 5 %), so the cameras stay far inside
+  33.3 ms.
+- **Measurement.** Rerun the bench at the same cameras after G1 for the real delta.
 
 ### Points to settle in the G1 implementation
 
@@ -258,4 +342,10 @@ python3 scripts/dev/richness_scorecard.py --cache /tmp/rs --json /tmp/rs/baselin
 python3 scripts/dev/richness_scorecard.py --tiles ~/turku3d-local/tiles     # local copies, same layout
 bash pipeline/env/run.sh python scripts/dev/g1_counts.py --cache /tmp/rs --json /tmp/rs/g1.json --markdown /tmp/rs/g1.md
 python3 scripts/dev/tests/run.py test_richness_scorecard.py
+
+# Bench (own ports, never 5171/5175): build into a private work root, then run the matrix
+cd game && TURKU3D_WORK=/tmp/rs/work node scripts/build.mjs
+TURKU3D_WORK=/tmp/rs/work node scripts/street-bench.mjs --dist /tmp/rs/work/build/game --out /tmp/rs/bench \
+  --port-base 5480 --repeat 2            # or --cameras riverside --at 13:00 --quality medium
+# Manual: open <game>/?bench=camera&id=riverside&at=13:00&quality=medium and copy the JSON it shows
 ```
