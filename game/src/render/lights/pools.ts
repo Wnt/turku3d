@@ -33,7 +33,7 @@ export const POOL = {
 
 /** Peak point-light intensity per lamp kind at full night. Tunnel strips and facade lights stay sprites only: a
  *  point light half a metre from a wall or a tunnel ceiling is a hot spot, not a pool. */
-export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 24, bridge: 18 };
+export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 20, bridge: 16 };
 
 /** One lamp that can light a pool: its light point, linear colour and peak intensity (candela-like, r186 units). */
 export interface PoolLamp { key: string; x: number; y: number; z: number; r: number; g: number; b: number; intensity: number }
@@ -79,7 +79,8 @@ export function poolWeights(ranked: readonly { item: PoolLamp; d: number }[], co
 /** True when the ground segment from (ax, az) to (bx, bz) crosses a building footprint, ignoring its free ends. */
 export type SightTest = (ax: number, az: number, bx: number, bz: number) => boolean;
 
-/** A sight test over footprint grids (tileScan.ts). A camera standing in a covered cell is not blocked by it. */
+/** A sight test over footprint grids (tileScan.ts). The first and last `sightEnds` metres are not tested: a camera
+ *  pressed against a wall, a lamp head reaching over a kerb. */
 export function footprintSight(grids: () => Iterable<{ covers(x: number, z: number): boolean }>): SightTest {
   return (ax, az, bx, bz) => {
     const length = Math.hypot(bx - ax, bz - az);

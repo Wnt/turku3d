@@ -12,6 +12,7 @@ import { MaterialStyler } from '../../src/render/materials';
 import { facadeKitMaterial, tintDraft } from '../../src/render/facadeKit';
 import { QUALITY, type QualityTier } from '../../src/render/quality';
 import { cycleAt } from '../../src/core/dayCycle';
+import { LampPools } from '../../src/render/lights/pools';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -142,6 +143,49 @@ test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slot
   expect(keys()).toEqual(day);
   env.lamps.point[0].castShadow = true;
   expect(keys()['kit-v3'].lights).not.toBe(day['kit-v3'].lights);
+});
+
+test.each([false, true])('lamp pools moving the slots along a street keep every key and program (WebGL=%s)', webgl => {
+  const { env, at, keys, shaders } = world(webgl, 'medium');
+  at(13);
+  const programs = shaders();
+  const day = keys();
+  const pools = new LampPools(env.lamps.point);
+  pools.setLamps(Array.from({ length: 30 }, (_, i) => ({ key: `l${i}`, x: i * 30, y: 5, z: 4, r: 1, g: 0.8, b: 0.58, intensity: 20 })));
+  at(23.5);
+  const active = new Set<number>(), positions = new Set<string>();
+  for (let frame = 0; frame <= 40 * 30; frame++) {
+    const t = frame / 30;
+    pools.update(t * 15, 0, 1, 0, env.nightFactor, t * 1000);
+    active.add(env.lamps.point.filter(l => l.intensity > 0).length);
+    for (const l of env.lamps.point) positions.add(l.position.toArray().join());
+    if (frame % 60 === 0) expect(keys(), `${t} s`).toEqual(day);
+  }
+  // The slots really moved (dozens of lamps, 0 to 4 lit) while the keys held.
+  expect(positions.size).toBeGreaterThan(20);
+  expect(Math.min(...active)).toBe(0); expect(Math.max(...active)).toBe(4);
+  expect(env.lamps.point).toHaveLength(4);
+  expect(shaders()).toEqual(programs);
+  // Dawn: the night level is 0 again, every slot leaves the shader loop.
+  at(13);
+  pools.update(600, 0, 1, 0, env.nightFactor, 41_000);
+  expect(env.lamps.point.every(l => l.intensity === 0)).toBe(true);
+  expect(keys()).toEqual(day);
+});
+
+test('batched roof ranges get no window light; batches with wall ranges do', () => {
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const batch = (surfaces: (string | undefined)[]) => {
+    const tile = new THREE.Group();
+    const mesh = new THREE.Mesh(wall(), new THREE.MeshStandardMaterial({ map: atlas(), roughnessMap: atlas() }));
+    mesh.userData = { layer: 'buildings', material_key: 'roof_ortho', objects: surfaces.map((surface, i) => ({ start: i * 3, count: 3, surface })) };
+    tile.add(mesh);
+    tintDraft(tile, renderer);
+    return (mesh.material as THREE.Material as THREE.MeshStandardNodeMaterial).emissiveNode;
+  };
+  expect(batch(['roof', 'roof'])).toBeFalsy();
+  expect(batch(['roof', 'wall'])).toBeTruthy();
+  expect(batch([undefined])).toBeTruthy();
 });
 
 /** Uniform buffers bound to one shader stage: WebGPU guarantees 12 (maxUniformBuffersPerShaderStage). */
