@@ -87,8 +87,17 @@ export class PhysicsWorld {
       ground: (x, top, z, depth) => this.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, depth, 'solid')?.point.y ?? null,
       resident: (x, z) => { const c = collisionTileAt(x, z); return this.residentCells.has(collisionTileId(c.i, c.j)); },
       spawnVehicle: (pos, yaw, spec) => this.spawnVehicle(pos, yaw, spec),
-      bodyKind: handle => this.vehicles.get(this.drivenId ?? '')?.body.handle === handle ? 'driven'
-        : this.claimedBodies.has(handle) ? 'claimed' : null,
+      bodyKind: handle => {
+        if (!this.charEnabled && this.vehicles.get(this.drivenId ?? '')?.body.handle === handle) return 'driven';
+        if (this.claimedBodies.has(handle)) return 'claimed';
+        for (const vehicle of this.vehicles.values()) if (vehicle.body.handle === handle) return 'vehicle';
+        return null;
+      },
+      pushCharacter: (dx, dz) => {
+        if (!this.charCollider) return;
+        const t = this.charCollider.translation();
+        this.charCollider.setTranslation({ x: t.x + dx, y: t.y, z: t.z + dz });
+      },
       character: () => {
         if (!this.charCollider || !this.charEnabled) return null;
         const t = this.charCollider.translation();
@@ -559,7 +568,7 @@ export class PhysicsWorld {
       const v = car.body.linvel();
       carSpeeds.set(car.body.handle, { speed: Math.hypot(v.x, v.z), local: id === this.drivenId });
     }
-    this.world.step(this.poleEvents);
+    this.world.step(this.poleEvents, this.traffic?.hooks);
     for (const [id, car] of this.vehicles) if (!this.heldVehicles.has(id)) car.afterStep(DT);
     const poleColliders = new Map<number, string>();
     for (const [id, pole] of this.poles) if (pole.brokenAt === null) poleColliders.set(pole.body.collider(0).handle, id);

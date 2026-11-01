@@ -23,8 +23,11 @@ export const TRAFFIC_STRIDE = 12;
 const SAMPLE_STEP = 4;
 /** Lanes whose surface is sampled per physics step at most (raycasts are the expensive part). */
 const SAMPLE_LANES_PER_STEP = 2;
-/** Cars claimed by contact with another claimed car (a pile-up) per minute, at most. */
-const CHAIN_CLAIMS_PER_MINUTE = 4;
+/** Cars claimed without the player's car touching them (stopping for a pedestrian, a pile-up behind a claimed
+ *  car) per minute, at most. Each claim is a registry vehicle in multiplayer (eight per player). */
+const AUTO_CLAIMS_PER_MINUTE = 6;
+/** Deceleration a car brakes with for a pedestrian ahead (m/s²), and the margin it stops short (m). */
+const PEDESTRIAN_BRAKE = 3.5, PEDESTRIAN_MARGIN = 1.2;
 
 export interface TrafficHost {
   /** Downward ray onto solid collision: surface Y or null. */
@@ -32,8 +35,11 @@ export interface TrafficHost {
   /** Collision is resident under (x, z). */
   resident(x: number, z: number): boolean;
   spawnVehicle(pos: V3, yaw: number, spec: { id: string; kind: 'car'; halfExt: V3; rot: Quat; linvel: V3 }): void;
-  /** What a rigid body is to traffic: the local player's driven vehicle, a car this client claimed, or other. */
-  bodyKind(handle: number): 'driven' | 'claimed' | null;
+  /** What a rigid body is to traffic: the vehicle the local player is driving, a car this client claimed, any
+   *  other vehicle (parked cars, which traffic passes rather than shoves), or something else. */
+  bodyKind(handle: number): 'driven' | 'claimed' | 'vehicle' | null;
+  /** Moves the walking character by (dx, dz) (a car it could not stop for pushes it aside). */
+  pushCharacter(dx: number, dz: number): void;
   /** The walking character's feet, or null in a vehicle. */
   character(): V3 | null;
   /** Where the player is (feet or driven vehicle). */
@@ -69,7 +75,7 @@ export class TrafficSim {
   private fill = true;
   private pausedAt: number | null = null;
   private pauseOffset = 0;
-  private chainClaims: number[] = [];
+  private autoClaims: number[] = [];
   private events: TrafficClaimEvent[] = [];
   /** Traffic time of the latest step (s since TRAFFIC.epochMs). */
   time = 0;
@@ -159,8 +165,20 @@ export class TrafficSim {
     this.stats.stepMs = performance.now() - t0;
   }
 
-  /** After the solver step: contacts with the player's car (or a car this client claimed) and the walking
-   *  character claim the slot. */
+  /** Rapier contact filter for traffic colliders: they push the player's car and pile up behind a claimed
+   *  car, but pass parked cars instead of shoving them (positions cannot react to anything local). */
+  readonly hooks: RAPIER_NS.PhysicsHooks = {
+    filterContactPair: (c1, _c2, b1, b2) => {
+      const other = this.colliderCar.has(c1) ? b2 : b1;
+      const kind = other === undefined || other === null ? null : this.host.bodyKind(other);
+      if (kind === 'vehicle' || (kind === 'claimed' && !this.autoBudget(false))) return null;
+      return this.R.SolverFlags.COMPUTE_IMPULSE;
+    },
+    filterIntersectionPair: () => true,
+  };
+
+  /** After the solver step: contact with the player's car claims a car; so does a pedestrian in its braking
+   *  path, or a car this client claimed ahead of it, within the automatic-claim budget. */
   afterStep(events: RAPIER_NS.EventQueue) {
     const hits = new Set<ActiveCar>();
     events.drainCollisionEvents((a, b, started) => {
@@ -169,12 +187,14 @@ export class TrafficSim {
       if (!car || !car.body) return;
       const other = this.world.getCollider(this.colliderCar.has(a) ? b : a)?.parent();
       const kind = other ? this.host.bodyKind(other.handle) : null;
-      if (kind === 'driven') hits.add(car);
-      else if (kind === 'claimed' && this.chainBudget()) hits.add(car);
+      if (kind === 'driven' || (kind === 'claimed' && this.autoBudget(true))) hits.add(car);
     });
     const feet = this.host.character();
     if (feet) for (const car of this.active.values()) {
-      if (car.body && touches(car, feet)) hits.add(car);
+      if (!car.body || hits.has(car)) continue;
+      const contact = footprint(car, feet);
+      if (contact.ahead && this.autoBudget(true)) hits.add(car);
+      else if (contact.overlap) this.host.pushCharacter(contact.pushX, contact.pushZ);
     }
     for (const car of hits) this.claim(car.handle);
   }
@@ -220,11 +240,12 @@ export class TrafficSim {
 
   private claimed(key: string) { return this.localClaims.has(key) || this.remoteClaims.has(key) || this.derived.has(key); }
 
-  private chainBudget(): boolean {
+  /** Automatic claims left this minute; `use` spends one. */
+  private autoBudget(use: boolean): boolean {
     const now = this.time;
-    this.chainClaims = this.chainClaims.filter(t => now - t < 60);
-    if (this.chainClaims.length >= CHAIN_CLAIMS_PER_MINUTE) return false;
-    this.chainClaims.push(now);
+    this.autoClaims = this.autoClaims.filter(t => now - t < 60 && t <= now);
+    if (this.autoClaims.length >= AUTO_CLAIMS_PER_MINUTE) return false;
+    if (use) this.autoClaims.push(now);
     return true;
   }
 
@@ -321,7 +342,7 @@ export class TrafficSim {
       .setTranslation(car.pose.x, car.pose.y + CHASSIS_LIFT, car.pose.z).setRotation(chassisRotation(car.pose)));
     const collider = this.world.createCollider(this.R.ColliderDesc.cuboid(l / 2, h * 0.28, w / 2)
       .setCollisionGroups(groups(GROUP.VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC))
-      .setActiveEvents(this.R.ActiveEvents.COLLISION_EVENTS), body);
+      .setActiveEvents(this.R.ActiveEvents.COLLISION_EVENTS).setActiveHooks(this.R.ActiveHooks.FILTER_CONTACT_PAIRS), body);
     car.body = body;
     this.colliderCar.set(collider.handle, car);
   }
@@ -376,13 +397,19 @@ export function chassisRotation(p: CarPose): Quat {
   return { x: sy * sp, y: sy * cp, z: cy * sp, w: cy * cp };
 }
 
-/** The character's capsule overlaps the car's footprint (with the capsule radius). */
-function touches(car: ActiveCar, feet: V3): boolean {
+/** The character against a car's footprint (capsule radius included): inside the braking path ahead of it, or
+ *  overlapping it, with the shortest sideways push out. */
+export function footprint(car: { model: number; pose: CarPose }, feet: V3) {
   const [w, h, l] = MODEL_SIZE[TRAFFIC_MODELS[car.model]];
   const p = car.pose, dx = feet.x - p.x, dz = feet.z - p.z;
-  if (Math.abs(feet.y - p.y) > h + 0.5) return false;
   const along = dx * p.hx + dz * p.hz, across = -dx * p.hz + dz * p.hx;
-  return Math.abs(along) < l / 2 + 0.35 && Math.abs(across) < w / 2 + 0.35;
+  const side = w / 2 + 0.35, half = l / 2 + 0.35;
+  const level = Math.abs(feet.y - p.y) < h + 0.5;
+  const stop = (p.speed * p.speed) / (2 * PEDESTRIAN_BRAKE) + PEDESTRIAN_MARGIN;
+  const overlap = level && Math.abs(along) < half && Math.abs(across) < side;
+  const ahead = level && p.speed > 0.5 && along > -half && along < half + stop && Math.abs(across) < side + 0.1;
+  const push = overlap ? (across >= 0 ? side - across : -side - across) : 0;
+  return { overlap, ahead, pushX: -p.hz * push, pushZ: p.hx * push };
 }
 
 function pointAlong(lane: Lane, s: number) {
