@@ -223,7 +223,9 @@ def read_osm(path, bbox):
         coords = [(x, z) for x, z, *_ in geom.coords]
         if tags.get("oneway") == "-1":
             coords = coords[::-1]
-        way = int(row.osm_id) if row.osm_type == "way" else 0
+        # Clips without osm_type/osm_id (synthetic fixtures) still build; ids then use way 0.
+        osm_id = getattr(row, "osm_id", None)
+        way = int(osm_id) if getattr(row, "osm_type", "way") == "way" and osm_id is not None else 0
         ways.append(Way(coords, flags, way, row.highway, tags))
     return ways, points, crossings
 
