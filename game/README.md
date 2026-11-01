@@ -156,6 +156,7 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `lights=<0..1>` (or `lights`) | Fix the street-light night level ([render/lights](src/render/lights/index.ts)): `lights` or `lights=1` shows lamp heads and light coronas at any hour, `0` keeps them off. Without it the level follows the timecycle's night factor. |
 | `walkers=N` | Ambient walker cap override, 0–200 (0 disables them). Default per quality: mobile 0, low 10, medium 30, high 50. See [walkers](src/world/walkers/README.md). |
 | `traffic=<0..200>` | Moving ambient-car cap ([traffic](src/physics/README.md#ambient-traffic)); default by quality: mobile 10, low 15, medium 30, high 40. `0` turns ambient traffic off. |
+| `trafficDensity=<0..4>` | Multiplies every street's ambient traffic flow (default 1 on every quality tier; the cap above still bounds what is drawn). Single-player traffic follows `time=`/the developer clock; multiplayer follows the shared cycle. |
 | `cam=...` | Visual QA camera, see below. |
 
 ## Visual QA render contract (D8)

@@ -9,6 +9,8 @@ import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { CAR, FOOT, ONEWAY, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { tileBounds } from '../../src/render/lights/lampRule';
 import { RING, TRAFFIC, TRAFFIC_MODELS } from '../../src/traffic/constants';
+import { HOURLY, profile, slotShare, type TrafficDensity } from '../../src/traffic/density';
+import { cycleHour } from '../../src/core/dayCycle';
 import { trafficRoads } from '../../src/traffic/roads';
 import { buildTileTraffic, laneSpan, type Lane } from '../../src/traffic/tileNetwork';
 import { TrafficNetwork, blankPose } from '../../src/traffic/network';
@@ -315,7 +317,8 @@ describe('population ring', () => {
     const sim = new TrafficSim(R, world, host);
     const tiles = city();
     sim.setTiles([...tiles].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
-    sim.configure({ cap: 12 });
+    // Every slot carries a car (the conveyor's capacity), so the ring alone decides what is drawn.
+    sim.configure({ cap: 12, density: 1e6 });
     const view = { x: 200, z: 100, fx: 1, fz: 0, halfFov: 0.7 };
     sim.setView(view);
     let t = T0;
@@ -429,5 +432,164 @@ describe('rendering', () => {
       expect(pipelineBackend.createRenderPipeline).toHaveBeenCalledTimes(1);
       pipelines.dispose();
     } finally { load.mockRestore(); }
+  });
+});
+
+describe('traffic density', () => {
+  // One tile of revision 2 (spec §3.5 highway names): a secondary street from the west seam to the east seam, a
+  // residential street and a living street off it (both dead ends), a service road and a pedestrian street.
+  const columns = ['way', 's0', 's1', 'length', 'lanes_fwd', 'lanes_bwd', 'width', 'kmh', 'car_density', 'foot_density', 'flags', 'highway', 'setback0', 'setback1'];
+  const HIGHWAYS = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service', 'pedestrian'];
+  const SECONDARY = CAR | FOOT | 3 << 3, SERVICE = CAR | FOOT | 1 << 3, PATH = FOOT;
+  const street = (way: number, length: number, kmh: number, car: number, highway: string, flags = 0) =>
+    [way, 0, length, length, 1, 1, highway === 'secondary' ? 7 : 5.5, kmh, car, 5, flags, HIGHWAYS.indexOf(highway), 0, 0];
+  const mixed = {
+    format: 'turku3d-roadgraph', version: 1, revision: 2, frame: 'engine-xz', bbox: [0, 0, 250, 250],
+    bits: { highways: HIGHWAYS },
+    nodes: [0, 60, 80, 60, 170, 60, 250, 60, 80, 200, 170, 200, 40, 120, 80, 120],
+    edges: [[0, 1, SECONDARY, 80], [1, 2, SECONDARY, 90], [2, 3, SECONDARY, 80], [1, 7, STREET, 60], [7, 4, STREET, 80],
+      [7, 6, SERVICE, 40], [2, 5, STREET, 140], [4, 5, PATH, 90]],
+    edgeHeights: [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+    edgeIds: ['00000000000000a0', '00000000000000a1', '00000000000000a2', '00000000000000b0', '00000000000000b1',
+      '00000000000000c0', '00000000000000d0', '00000000000000e0'],
+    edgeAttrColumns: columns,
+    edgeAttrs: [street(1, 80, 40, 11, 'secondary'), street(1, 90, 40, 11, 'secondary'), street(1, 80, 40, 11, 'secondary'),
+      street(2, 60, 30, 4, 'residential'), street(2, 80, 30, 4, 'residential'), street(3, 40, 20, 2, 'service'),
+      street(4, 140, 20, 1, 'living_street', 2048), [5, 0, 90, 90, 0, 0, 6, 10, 0, 12, 2048, HIGHWAYS.indexOf('pedestrian'), 0, 0]],
+    edgeEvents: [null, null, null, null, null, null, null, null],
+    nodeFlags: [32, 1, 1, 32, 0, 0, 0, 1],
+    controllers: [],
+  } as unknown as RoadGraphJson;
+  const pinned = (hour: number, multiplier = 1): TrafficDensity => ({ hourAt: () => hour, multiplier });
+  /** The shared day cycle, as the worker follows it in multiplayer. */
+  const shared: TrafficDensity = { hourAt: t => cycleHour(TRAFFIC.epochMs + t * 1000).hour, multiplier: 1 };
+  const kind = (lane: Lane) => Math.abs(lane.points[1] - lane.points[lane.points.length - 1]) < 1 ? 'secondary'
+    : lane.points[0] < 120 ? 'residential' : 'living';
+  /** Cars per hour on each lane, by kind of street, over `hours` hours of slots. */
+  const rates = (net: TrafficNetwork, hours: number) => {
+    const out: Record<string, number[]> = {};
+    for (const tile of net.tiles.values()) for (const lane of tile.lanes) {
+      let count = 0;
+      for (let n = 0; n < hours * 3600 / H; n++) if (net.present(lane, n)) count++;
+      (out[kind(lane)] ??= []).push(count / hours);
+    }
+    return out;
+  };
+  const mean = (list: number[]) => list.reduce((a, b) => a + b, 0) / list.length;
+
+  test('the daily curve is low at night, peaks in the morning and the afternoon, and has no steps', () => {
+    expect(HOURLY).toHaveLength(24);
+    for (let h = 0; h < 24; h++) expect(profile(h + 0.5)).toBeCloseTo(HOURLY[h], 9);
+    for (const h of [1, 2, 3, 4]) expect(profile(h)).toBeLessThan(0.05);
+    expect(profile(15.5)).toBe(1);
+    // Two peaks: the morning one (7–8) and the afternoon one (15–16) stand above the hours around them.
+    expect(profile(7.5)).toBeGreaterThan(Math.max(profile(5.5), profile(10.5)));
+    expect(profile(15.5)).toBeGreaterThan(Math.max(profile(12.5), profile(19.5)));
+    expect(profile(22)).toBeLessThan(0.2);
+    expect(profile(13)).toBeGreaterThan(3 * profile(22));
+    let step = 0;
+    for (let m = 0; m < 24 * 60; m++) step = Math.max(step, Math.abs(profile((m + 1) / 60) - profile(m / 60)));
+    expect(step).toBeLessThan(0.01);
+    expect(profile(23.999)).toBeCloseTo(profile(-0.001), 3);
+  });
+
+  test('living streets carry a rare car, pedestrian streets and service roads none, main streets follow the clock', () => {
+    const roads = trafficRoads(mixed);
+    // The service road and the pedestrian street have no car lanes; the living street has, at an access rate.
+    expect(roads.edges.map(e => Math.round(e.flow))).toEqual([420, 420, 420, 59, 59, 8]);
+    const net = new TrafficNetwork();
+    net.setTile(buildTileTraffic('t0_0_0', roads, [0, 0, 250, 250], roadHash(mixed)));
+    expect(new Set(net.tiles.get('t0_0_0')!.lanes.map(kind))).toEqual(new Set(['secondary', 'residential', 'living']));
+    for (const [hour, livingMax] of [[3, 0.5], [8, 7], [13, 7], [16, 10], [22, 2]] as const) {
+      net.density = pinned(hour);
+      const r = rates(net, 40);
+      // Within sampling noise of the model: peak flow × profile per lane and hour.
+      expect(mean(r.secondary)).toBeGreaterThan(0.8 * 420 * profile(hour) - 3);
+      expect(mean(r.secondary)).toBeLessThan(1.2 * 420 * profile(hour) + 3);
+      for (const living of r.living) expect(living).toBeLessThanOrEqual(livingMax);
+      if (hour === 13 || hour === 16) expect(mean(r.secondary)).toBeGreaterThan(25 * Math.max(0.5, mean(r.living)));
+    }
+    // Before, every slot carried a car: 600 an hour on every lane, the living street's too.
+    net.density = null;
+    expect(rates(net, 1).living.every(v => v === 600)).toBe(true);
+  });
+
+  test('two clients thin alike on the shared cycle, whatever their load order; a lower multiplier is a subset', () => {
+    const tiles = city();
+    tiles.set('t0_0_1', { ...mixed, bbox: [...tileBounds('t0_0_1')!] as [number, number, number, number],
+      nodes: mixed.nodes.map((v, i) => i % 2 ? v + 250 : v) });
+    const a = network(tiles, ['t0_0_0', 't0_1_0', 't0_0_1']), b = network(tiles, ['t0_0_1', 't0_1_0', 't0_0_0']);
+    a.density = shared; b.density = { ...shared };
+    let total = 0;
+    // Samples over one whole 30-minute day cycle.
+    for (let k = 0; k < 300; k++) {
+      const t = T0 + k * 6.1, ca = cars(a, t), cb = cars(b, t);
+      expect([...ca.keys()].sort()).toEqual([...cb.keys()].sort());
+      for (const [key, pose] of ca) expect(cb.get(key)).toEqual(pose);
+      total += ca.size;
+    }
+    expect(total).toBeGreaterThan(300);
+    const half = network(tiles);
+    half.density = { ...shared, multiplier: 0.5 };
+    for (let k = 0; k < 60; k++) {
+      const t = T0 + k * 29.3, full = cars(a, t), fewer = cars(half, t);
+      for (const key of fewer.keys()) expect(full.has(key)).toBe(true);
+    }
+  });
+
+  test('a car keeps its presence across a seam where both chains anchor at that crossing', () => {
+    const net = network(city());
+    net.density = pinned(13);
+    let checked = 0;
+    for (const tile of net.tiles.values()) for (const lane of tile.lanes) {
+      const next = lane.seamNext;
+      if (!next || lane.anchor.key !== next.anchor.key) continue;
+      const fa = slotShare(lane.flow, 13), fb = slotShare(next.flow, 13);
+      for (let n = -400; n < 400; n++) {
+        const c = net.continuation(lane, n)!;
+        const before = net.present(lane, n), after = net.present(c.lane, c.n);
+        // The same hash against each lane's share: presence only changes where the shares differ.
+        if (before && fb >= fa) expect(after).toBe(true);
+        if (after && fa >= fb) expect(before).toBe(true);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(800);
+  });
+
+  test('the drawn set thins without pops: a car whose slot goes empty stays until it is out of view', () => {
+    const world = new R.World({ x: 0, y: -9.81, z: 0 });
+    const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null,
+      character: () => null, player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {} };
+    const sim = new TrafficSim(R, world, host);
+    sim.setTiles([...city()].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
+    sim.configure({ cap: 40, clock: { kind: 'hour', hour: 16 } });
+    const view = { x: 200, z: 100, fx: 1, fz: 0, halfFov: 0.7 };
+    sim.setView(view);
+    let t = T0, deferred = 0, nearPops = 0;
+    const last = new Map<number, { x: number; z: number; visible: boolean }>();
+    const drawn: Record<number, number[]> = { 16: [], 22: [], 3: [] };
+    for (let i = 0; i < 120 * 60; i++) {
+      // The clock falls from the afternoon peak to late evening, then to night; the camera turns every 15 s.
+      if (i === 30 * 60) sim.configure({ clock: { kind: 'hour', hour: 22 } });
+      if (i === 75 * 60) sim.configure({ clock: { kind: 'hour', hour: 3 } });
+      if (i % 900 === 0) Object.assign(view, { fx: Math.cos(i / 900 * 1.3), fz: Math.sin(i / 900 * 1.3) });
+      sim.beforeStep(t += 1 / 60);
+      const now = new Map(sim.activeCars().map(c => [c.handle, c]));
+      for (const [handle, before] of last) {
+        if (!now.has(handle) && before.visible && Math.hypot(before.x - view.x, before.z - view.z) < RING.createInViewMin) nearPops++;
+      }
+      last.clear();
+      for (const c of now.values()) last.set(c.handle, { x: c.x, z: c.z, visible: inView(view, c.x, c.z) });
+      deferred = Math.max(deferred, sim.stats.deferred);
+      drawn[i < 30 * 60 ? 16 : i < 75 * 60 ? 22 : 3].push(now.size);
+    }
+    // No car vanished in the near view, although cars were left on emptied slots (they went once out of view).
+    expect(nearPops).toBe(0);
+    expect(deferred).toBeGreaterThan(0);
+    const settled = (hour: number) => mean(drawn[hour].slice(-10 * 60));
+    expect(settled(16)).toBeGreaterThan(2 * settled(22));
+    expect(settled(22)).toBeGreaterThan(settled(3));
+    expect(sim.stats.hour).toBe(3);
   });
 });

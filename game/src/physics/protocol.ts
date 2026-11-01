@@ -38,14 +38,23 @@ export interface TileStats { curbTris?: number; id: string; tris: number; prims:
 
 /** Ambient traffic (physics/traffic.ts). A tile's road graph as CoarseTiles holds it, with its agreed hash. */
 export interface TrafficTile { tile: string; hash: string; bounds: [number, number, number, number]; roads: unknown }
-/** `enabled`: tiles whose lanes may carry cars (null: all); `claims`: slot keys other clients claimed. */
-export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[] }
+/** The clock the traffic density follows: the shared day cycle (with ?cycle='s period in single player) or a frozen
+ *  clock hour (?time=, the developer time menu; single player only). */
+export type TrafficClock = { kind: 'cycle'; periodMs: number } | { kind: 'hour'; hour: number };
+/** `enabled`: tiles whose lanes may carry cars (null: all); `claims`: slot keys other clients claimed; `density`:
+ *  multiplier on every street's flow (?trafficDensity=, 1 by default); `clock`: see TrafficClock (multiplayer
+ *  always follows the shared cycle). */
+export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[];
+  density: number; clock: TrafficClock }
 /** A car the player touched or entered became the dynamic vehicle `id` (a ParkedVehicle-like record). */
 export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; model: string; color: string;
   size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
 /** Camera for the population ring: position, unit horizontal forward and horizontal half field of view. */
 export interface TrafficView { x: number; z: number; fx: number; fz: number; halfFov: number }
-export interface TrafficStats { active: number; bodies: number; lanes: number; tiles: number; stepMs: number; stepMax: number; activationMs: number; claims: number }
+/** `hour`: the clock hour the density follows now; `deferred`: drawn cars whose slot no longer carries a car (they
+ *  go once out of view). */
+export interface TrafficStats { active: number; bodies: number; lanes: number; tiles: number; stepMs: number; stepMax: number; activationMs: number;
+  claims: number; hour: number; deferred: number }
 
 /** Jump is an edge counter, so a pulse survives several render frames between worker reads. */
 export interface LiveInput { character: CharacterInput; vehicle: VehicleInput | null; running: boolean; jump: number; at: number; acknowledged: number; view?: TrafficView }
