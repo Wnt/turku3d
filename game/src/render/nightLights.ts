@@ -17,6 +17,10 @@ export const nightUniforms = {
   litFraction: uniform(0.25).setGroup(renderGroup),
 };
 
+/** Hash salts and the window schedule, shared with the CPU mirror in tests/unit/window-lights.test.ts. */
+export const WINDOW_HASH = { seed: 0x9e3779b9, cell: 0x85ebca6b, phase: 0x68e31da4, storey: 0x51ed2701,
+  tone: 0x2545f491, level: 0x7f4a7c15, plane: 0xc2b2ae35, epochHours: 2, storeyBias: 0.3 } as const;
+
 type U32 = Node<'uint'>;
 /** PCG integer hash: exact on every GPU and backend, unlike float sine hashes. */
 function pcg(value: U32): U32 {
@@ -29,7 +33,7 @@ const salt = (k: U32, s: number) => pcg(k.bitXor(uint(s)));
 
 /** Fold integer-valued floats into one key. Inputs must be exact integers on every GPU: floors of interpolated
  *  cell coordinates, or `quantise`d per-triangle constants. */
-export function facadeKey(values: Node<'float'>[], seed = 0x9e3779b9): U32 {
+export function facadeKey(values: Node<'float'>[], seed: number = WINDOW_HASH.seed): U32 {
   return values.reduce<U32>((k, v) => pcg(k.bitXor(v.toInt().toUint())), uint(seed));
 }
 /** A per-facade constant as an exact integer: a power-of-two scale cannot round, then floor. */
@@ -42,14 +46,15 @@ export const quantise = (v: Node<'float'>, scale: 64 | 1024 | 4096) => floor(v.m
  * per-storey bias: stable per window, changing through the night, deterministic from the shared clock.
  */
 export function windowEmission(facade: U32, column: Node<'float'>, storey: Node<'float'>, rise: Node<'float'>, glass: Node<'float'>) {
-  const window = pcg(facade.bitXor(facadeKey([column, storey], 0x85ebca6b)));
-  const epoch = floor(nightUniforms.hour.mul(0.5).add(unit(salt(window, 0x68e31da4))));
+  const h = WINDOW_HASH;
+  const window = pcg(facade.bitXor(facadeKey([column, storey], h.cell)));
+  const epoch = floor(nightUniforms.hour.div(h.epochHours).add(unit(salt(window, h.phase))));
   const roll = unit(pcg(window.bitXor(epoch.toInt().toUint())));
-  const storeyBias = unit(salt(pcg(facade.bitXor(storey.toInt().toUint())), 0x51ed2701)).sub(0.5).mul(0.3);
+  const storeyBias = unit(salt(pcg(facade.bitXor(storey.toInt().toUint())), h.storey)).sub(0.5).mul(h.storeyBias);
   const lit = step(roll, nightUniforms.litFraction.add(storeyBias));
-  const tone = unit(salt(window, 0x2545f491));
+  const tone = unit(salt(window, h.tone));
   const tint = mix(vec3(...WINDOW_LIGHT.warm), vec3(...WINDOW_LIGHT.cool), step(1 - WINDOW_LIGHT.coolShare, tone));
-  const level = unit(salt(window, 0x7f4a7c15)).mul(0.7).add(0.65).mul(mix(0.75, 1.15, rise.clamp(0, 1)));
+  const level = unit(salt(window, h.level)).mul(0.7).add(0.65).mul(mix(0.75, 1.15, rise.clamp(0, 1)));
   return tint.mul(level.mul(glass).mul(lit).mul(nightUniforms.night).mul(WINDOW_LIGHT.intensity));
 }
 
@@ -62,7 +67,7 @@ export function wallFrame() {
   const n = normalWorldGeometry;
   const horizontal = n.xz.div(max(length(n.xz), 1e-3));
   const along = dot(positionWorld.xz, vec2(horizontal.y.negate(), horizontal.x));
-  const plane = facadeKey([floor(dot(positionWorld.xz, horizontal).div(8))], 0xc2b2ae35);
+  const plane = facadeKey([floor(dot(positionWorld.xz, horizontal).div(8))], WINDOW_HASH.plane);
   const wall = float(1).sub(smoothstep(0.3, 0.7, n.y.abs()));
   return { along, plane, wall };
 }
