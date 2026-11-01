@@ -33,6 +33,8 @@ interface Params {
   mobile: boolean;
   /** ?lights=0..1 fixes the street-light night level (?lights alone is 1); null follows the day cycle. */
   lights: number | null;
+  /** `?walkers=N`: ambient walker cap override (0 disables them); null keeps the quality tier's cap. */
+  walkers: number | null;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -76,6 +78,8 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const lightsStr = p.get('lights');
   const lights = lightsStr === null ? null : lightsStr === '' ? 1 : Number(lightsStr);
   if (lights !== null && !(lights >= 0 && lights <= 1)) throw new Error(`bad ?lights= (night level 0..1): ${lightsStr}`);
+  const walkers = p.has('walkers') ? Number(p.get('walkers')) : null;
+  if (walkers !== null && !(Number.isInteger(walkers) && walkers >= 0 && walkers <= 200)) throw new Error(`bad ?walkers= (0..200): ${p.get('walkers')}`);
   return {
     backend,
     backendGiven: p.has('backend') || p.has('webgl'),
@@ -95,5 +99,6 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     aa,
     mobile,
     lights,
+    walkers,
   };
 }

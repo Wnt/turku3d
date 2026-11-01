@@ -1,6 +1,6 @@
 # Turku3D audio v1 — CC0
 
-All 20 `.ogg` files in this directory are original procedural sound effects created for Turku3D
+All 21 `.ogg` files in this directory are original procedural sound effects created for Turku3D
 on 2026-10-25. Source: [`game/scripts/prepare-audio.mjs`](../../../scripts/prepare-audio.mjs).
 No third-party samples, recordings, voices, music or model-generated audio were used.
 
@@ -26,9 +26,10 @@ including commercial use, without attribution. No warranty is provided.
 | `river.ogg`, `gulls.ogg` | Original water-like noise and stylized gull calls | CC0-1.0 |
 | `wind.ogg` | Original filtered gusting noise | CC0-1.0 |
 | `connect.ogg` | Original two-tone UI blip | CC0-1.0 |
+| `crowd.ogg` | Original crowd murmur: syllable-rate envelopes over speech-band noise, no voices (added 2026-11-01) | CC0-1.0 |
 
 These are compact, synthesized first-version effects, not recordings of Turku or realistic car samples.
-Every file is mono Ogg/Opus at 32 kbit/s, encoded from 24 kHz PCM. Total audio payload: 232,444 bytes.
+Every file is mono Ogg/Opus at 32 kbit/s, encoded from 24 kHz PCM. Total audio payload: 261,174 bytes.
 `manifest.json` records individual sizes, durations and SHA-256 hashes. Loops have overlapped boundaries;
 one-shots have attack/release envelopes. All samples peak below full scale before Opus encoding.
 
@@ -37,6 +38,7 @@ Regenerate from the repository root (requires local FFmpeg with libopus; no netw
 ```sh
 source ../sandbox.env
 npm run prepare-audio --prefix game
+# or only some sounds, keeping the other files and manifest rows: npm run prepare-audio --prefix game -- crowd
 ```
 
 The PCM generation is seeded and deterministic. Ogg container serial numbers can vary on re-encoding;

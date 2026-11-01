@@ -38,6 +38,8 @@ export class DayClock {
 
   /** Server time aligns the shared cycle on every client; a frozen local view (?time=) ignores it. */
   synchronize(serverTime: number) { if (Number.isFinite(serverTime)) this.serverOffset = serverTime - Date.now(); }
+  /** UTC milliseconds on the shared (server-synchronised) clock, also while a QA or developer time is pinned. */
+  sharedNow() { return Date.now() + this.serverOffset; }
 
   /** Freeze a calendar instant with the astronomical sun (window.__render.setTime). */
   set(date: Date) { this.freeze({ kind: 'date', date }); }

@@ -4,7 +4,7 @@ import { MATERIALS } from '../shared/col/materials';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
   'engine', 'scooter', 'truck', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
-  'city', 'river', 'gulls', 'traffic', 'wind', 'connect'] as const;
+  'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
 export const clamp = (v: number, max = 1) => Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
@@ -36,6 +36,10 @@ export function ambience(position: V3) {
     city: 0.16 - near * 0.07, traffic: 0.12 - near * 0.04, wind: 0.06 + near * 0.04 };
 }
 
+/** Crowd murmur bed: silent with nobody around, full with a dozen drawn walkers within 40 m (world/walkers). */
+export const CROWD_RADIUS = 40;
+export const crowdGain = (walkers: number) => clamp(walkers / 12) * 0.13;
+
 /** Engine loop per vehicle class: the car's low four-stroke rumble, the scooter's buzzing single cylinder or the
  *  trophy truck's V6 with its open exhaust. */
 export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter', truck: 'truck' } as const satisfies Record<VehicleKind, Sound>;
@@ -65,6 +69,7 @@ export type AudioEvent =
   | { type: 'mute' }
   | { type: 'volume'; channel: Channel; value: number }
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
+  | { type: 'crowd'; walkers: number }
   | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean };
 
 export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; gain: number; position?: V3 } | null {
