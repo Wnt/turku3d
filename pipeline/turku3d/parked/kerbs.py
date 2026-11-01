@@ -317,8 +317,11 @@ def find_kerbs(streets, carriage, beyond, window):
         return
     segs = np.concatenate(coords)
     mids = shapely.points((segs[:, 0] + segs[:, 1]) / 2)
-    lines = [s.line for s in streets]
-    tree = shapely.STRtree(lines)
+    # Kerbs belong to streets that can have kerb parking, never to a driveway beside them.
+    streets = [s for s in streets if s.highway in KERB_STREETS]
+    if not streets:
+        return
+    tree = shapely.STRtree([s.line for s in streets])
     (seg_i, street_i), _ = tree.query_nearest(mids, max_distance=KERB_REACH, return_distance=True)
     # Ties (equidistant streets) keep the first, so a segment belongs to one street.
     _, first = np.unique(seg_i, return_index=True)
@@ -515,7 +518,8 @@ def evidence(streets, posts, permits):
     """Sign zones, forbidding posts and permit lines as station intervals per street side."""
     if not streets:
         return
-    tree = shapely.STRtree([s.line for s in streets])
+    kerb_streets = [s for s in streets if s.highway in KERB_STREETS]
+    tree = shapely.STRtree([s.line for s in kerb_streets])
     ends = defaultdict(list)
     for s in streets:
         for c in (s.line.coords[0], s.line.coords[-1]):
@@ -530,7 +534,7 @@ def evidence(streets, posts, permits):
     for post in posts:
         if not (post.allows or post.forbids):
             continue
-        hit = locate(streets, tree, post.x, post.z, KERB_REACH + SIGN_REACH)
+        hit = locate(kerb_streets, tree, post.x, post.z, KERB_REACH + SIGN_REACH)
         if hit is None:
             continue
         street, t, side, lateral = hit
@@ -554,7 +558,7 @@ def evidence(streets, posts, permits):
     for i, line in enumerate(permits):
         for frac in np.linspace(0.0, 1.0, max(2, int(line.length // 2) + 1)):
             p = line.interpolate(frac, normalized=True)
-            hit = locate(streets, tree, p.x, p.y, KERB_REACH)
+            hit = locate(kerb_streets, tree, p.x, p.y, KERB_REACH)
             if hit is None:
                 continue
             street, t, side, _ = hit
