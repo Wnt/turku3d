@@ -44,7 +44,8 @@ function* shadowBatchSteps(model: THREE.Object3D): Generator<void, THREE.Mesh | 
     }
     let owner: THREE.Object3D | null = mesh;
     while (owner && !owner.userData.layer) owner = owner.parent;
-    if (owner?.userData.layer === 'ground') {
+    // Ground and road paint lying on it receive shadows; they never cast any.
+    if (owner?.userData.layer === 'ground' || owner?.userData.layer === 'markings') {
       mesh.castShadow = false;
       return;
     }
