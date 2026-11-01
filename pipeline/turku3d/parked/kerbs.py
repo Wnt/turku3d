@@ -587,13 +587,14 @@ def side_rule(street, side, t):
 
 
 def clear_width_ok(street, side, t, depth, rule_other):
-    """An inferred side keeps a driving width beside it and the other side's parked cars."""
+    """An inferred side keeps a driving width beside it and the other side's parked cars. Where
+    both sides are inferred and only one fits, the right-hand side (with the traffic) parks."""
     own = kerb_lateral(street, side, t)
     other = kerb_lateral(street, -side, t)
     if own is None or other is None:
         return False
     other_depth = 0.0
-    if rule_other is not None:
+    if rule_other is not None and not (rule_other[1] == 0 and side == -1):
         other_depth = NOMINAL[0] + KERB_GAP if rule_other[0] == "parallel" else NOMINAL[1]
     need = DRIVE_ONE_WAY if street.oneway else DRIVE_TWO_WAY
     return own + other - depth - KERB_GAP - other_depth >= need

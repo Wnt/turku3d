@@ -110,6 +110,9 @@ def exclusions(features, spawn, city):
     return unary_union(masks), unary_union([f.geometry for _, f in roads])
 
 
+# Depth of a strip bay from its kerb, and the gap left to the kerb face, per orientation.
+STRIP_DEPTH = {"parallel": 2.0, "perpendicular": 5.0, "diagonal": 4.9}
+STRIP_KERB_GAP = 0.25
 # Pitch along a kerbside strip and the bay's turn from the strip axis, per orientation.
 STRIP_BAYS = {
     "parallel": (6.0, math.pi / 2),
@@ -182,7 +185,12 @@ def street_side_strip(feature, part=None):
     return sides.min() < 7
 
 
-def candidates(feature):
+def candidates(feature, street=None):
+    """(key, x, z, yaw, area) of every bay of a parking polygon, or of a street's parallel lanes.
+
+    ``street``, a point on the street a kerbside strip lines, puts the strip's row against its
+    far (pavement) edge, 25 cm off the kerb face, the way kerb bays stand; without it the row
+    follows the strip's midline."""
     g, t = feature.geometry, feature.tags
     if (
         t.get("parking") in ("underground", "multi-storey", "rooftop")
@@ -207,7 +215,12 @@ def candidates(feature):
                 if capacity:
                     # A mapped bay count spreads over the strip, down to the tightest legal bay.
                     pitch = max(pitch * 0.9, (xmax - xmin) / capacity)
-                rows, cols = [(zmin + zmax) / 2], np.arange(xmin + pitch / 2, xmax, pitch)
+                row = (zmin + zmax) / 2
+                if street is not None:
+                    toward = affinity.rotate(Point(street), -angle, origin=(0, 0), use_radians=True)
+                    reach = STRIP_KERB_GAP + STRIP_DEPTH[kind] / 2
+                    row = zmax - reach if toward.y < row else zmin + reach
+                rows, cols = [row], np.arange(xmin + pitch / 2, xmax, pitch)
             else:
                 # Lots: rows of perpendicular bays with 6 m access aisles.
                 turn = 0.0

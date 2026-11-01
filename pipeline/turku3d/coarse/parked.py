@@ -253,18 +253,32 @@ def place(
         if f.tags.get("highway") == "service" and f.geometry.geom_type == "LineString"
     ]
     aisle_tree = shapely.STRtree([f.geometry for f in aisles])
+    kerb_streets = [s for s in kerbs.car_streets(features) if s.highway in kerbs.KERB_STREETS]
+    street_tree = shapely.STRtree([s.line for s in kerb_streets])
     for f in sorted(areas + signed_areas(city, posts, features), key=lambda f: f.id):
         capacity[f.id] = capacity_of(f.tags)
-        lot = []
-        if f.tags.get("amenity") == "parking" and not street_side_strip(f):
+        lot, street = [], None
+        if street_side_strip(f):
+            # A kerbside strip lines its nearest street: bays stand at its kerb and may reach that
+            # street's corridor, like kerb bays.
+            found = street_tree.query_nearest(f.geometry.centroid, max_distance=15, all_matches=False)
+            if len(found):
+                street = kerb_streets[int(found[0])]
+        elif f.tags.get("amenity") == "parking":
             ways = [aisles[i] for i in aisle_tree.query(f.geometry, predicate="intersects")]
             lot = list(aisle_candidates(f, ways))
+        toward = None
+        if street is not None:
+            near = street.line.interpolate(street.line.project(f.geometry.centroid))
+            toward = (near.x, near.y)
         # Mapped aisles lay the lot out; the grid is for lots without them.
-        for key, x, z, yaw, area in lot or list(candidates(f)):
+        for key, x, z, yaw, area in lot or list(candidates(f, toward)):
             kind = "strip" if street_side_strip(f, area) else "lot"
-            slots.append((key, f.id, x, z, yaw, area, kind, None, 1))
+            name = street.name if street is not None and kind == "strip" else None
+            slots.append((key, f.id, x, z, yaw, area, kind, name, 1, street if name else None))
     for b in sorted(bays, key=lambda b: b.key):
-        slots.append((b.key, f"kerb:{b.source}", b.x, b.z, b.yaw, None, "kerb", b.street, b.priority))
+        slot = (b.key, f"kerb:{b.source}", b.x, b.z, b.yaw, None, "kerb", b.street, b.priority, None)
+        slots.append(slot)
 
     bounds = shapely.box(*tile.bbox.buffered(-0.3).as_tuple())
     accepted, occupied = [], []
@@ -279,13 +293,15 @@ def place(
         ]
 
     def blocked_by_street(shape, kind, street, area):
-        """A kerb bay may enter its own street's corridor; a kerbside strip the corridors it lies in."""
+        """A kerb bay or a kerbside strip bay may enter its own street's corridor; a strip without
+        a street nearby, only the corridors it lies in."""
         for i in corridor_tree.query(shape, predicate="intersects"):
             if kind == "lot":
                 return True
-            if kind == "kerb" and corridor_street[i] != street:
-                return True
-            if kind == "strip" and not corridors[i].intersects(area):
+            if street is not None:
+                if corridor_street[i] != street:
+                    return True
+            elif not corridors[i].intersects(area):
                 return True
         return False
 
@@ -294,7 +310,7 @@ def place(
     weights /= weights.sum()
     pending_truck = False
     seen, filled = set(), {}
-    for key, source, x, z, yaw, area, kind, street, priority in slots:
+    for key, source, x, z, yaw, area, kind, street, priority, lined in slots:
         if key in seen:
             continue
         seen.add(key)
@@ -314,11 +330,31 @@ def place(
             continue
         excluded = lot_excluded if kind == "lot" else kerb_excluded
 
-        def fit(width, length, x=x, z=z, yaw=yaw, area=area, kind=kind, excluded=excluded):
+        # A strip bay that meets the pavement or a kerbside tree where OSM and the city survey
+        # disagree steps towards its street, up to a metre.
+        steps = [(x, z)]
+        if lined is not None:
+            near = lined.line.interpolate(lined.line.project(shapely.Point(x, z)))
+            d = math.hypot(near.x - x, near.y - z)
+            if d > 1e-6:
+                ux, uz = (near.x - x) / d, (near.y - z) / d
+                steps += [(x + ux * k, z + uz * k) for k in (0.25, 0.5, 0.75, 1.0)]
+
+        def fit(width, length):
+            outcome = None
+            for px, pz in steps:
+                outcome = fit_at(width, length, px, pz)
+                if not isinstance(outcome, str) or outcome != "access":
+                    break
+            return outcome
+
+        def fit_at(width, length, x, z, yaw=yaw, area=area, kind=kind, excluded=excluded):
             shape = footprint(x, z, yaw, width, length)
             if not bounds.covers(shape):
                 return "bounds"
-            if area is not None and not area.buffer(-0.2 if kind == "lot" else 0.15).covers(shape):
+            # Strip bays stand at the kerb and may overhang the outline on the street side.
+            margin = -0.2 if kind == "lot" else 0.5 if street is not None else 0.15
+            if area is not None and not area.buffer(margin).covers(shape):
                 return "bay"
             if excluded.intersects(shape) or blocked_by_street(shape, kind, street, area):
                 return "access"
@@ -342,7 +378,7 @@ def place(
                 ]
                 if all(hard.intersects(exit) for exit in exits):
                     return "boxed_in"
-            return shape, rest
+            return shape, rest, x, z
 
         width, height, length = MODELS[name]
         fitted = fit(width, length)
@@ -359,7 +395,7 @@ def place(
                 width, height, length = TRUCK_SIZE
                 is_truck = True
                 pending_truck = False
-        shape, (y, pitch, roll) = fitted
+        shape, (y, pitch, roll), x, z = fitted
         reject("placed")
         filled[source] = filled.get(source, 0) + 1
         accepted.append(
