@@ -46,28 +46,38 @@ describe('bench draw attribution', () => {
     expect(classifyTarget(prepass, { prepass, beauty })).toBe('prepass');
     expect(classifyTarget(beauty, { prepass, beauty })).toBe('beauty');
     expect(classifyTarget({ depthTexture: { name: 'ShadowDepthTexture' } }, { prepass, beauty })).toBe('csm');
-    expect(classifyTarget({ texture: { name: 'output' } }, { prepass, beauty })).toBe('other');
-    expect(classifyTarget(null, { prepass, beauty })).toBe('other');
+    expect(classifyTarget({ texture: { name: 'output' } }, { prepass, beauty }, { type: 'OrthographicCamera' })).toBe('post');
+    expect(classifyTarget({ texture: { name: '' } }, { prepass, beauty }, { type: 'PerspectiveCamera' })).toBe('reflection');
+    expect(classifyTarget(null, { prepass, beauty }, { type: 'OrthographicCamera' })).toBe('post');
   });
 
   it('warms, measures a fixed window and reports per-frame draws', async () => {
     const drawn: string[] = [];
     const backend = { draw: (ro: { context: { renderTarget: unknown } }) => { drawn.push(String(ro.context.renderTarget === beauty)); } };
-    let resets = 0, flushed = 0, paused: boolean[] = [], pipelines = 10;
+    let resets = 0, flushed = 0, paused: boolean[] = [], pipelines = 10, clock = 0, loading = 'a';
     const host: BenchHost = {
       backend, pipelines: () => pipelines, passes: () => ({ prepass, beauty }), pause: v => paused.push(v),
-      info: () => ({ tiles: ['t0_0_0'] }),
+      info: () => ({ tiles: ['t0_0_0'] }), now: () => clock, signature: () => loading,
       perf: {
         reset: () => { resets++; }, flush: async () => { flushed++; },
         snapshot: () => ({ gpuMs: { p50: 2 }, cpuMs: { p50: 1 }, workMs: {}, frameMs: {}, gpuStatus: 'timestamp-query',
           gpuSkipped: 0, drawCalls: 4, triangles: 1000, windowFrames: 3, resolution: [100, 50], backend: 'webgpu' }),
       },
     };
-    const bench = new CameraBench(host, benchPose('riverside', null), 'medium', 2, 3);
+    const bench = new CameraBench(host, benchPose('riverside', null), 'medium', 2, 3, 1000);
     const frame = async (draws: number) => {
       for (let i = 0; i < draws; i++) backend.draw({ context: { renderTarget: i % 2 ? beauty : prepass }, object: { isInstancedMesh: true, count: 5 } } as never);
       return bench.frame();
     };
+    // Settle: the scene must stay unchanged for 1000 ms of wall time; a change restarts the wait.
+    expect(await frame(9)).toBeNull();
+    clock = 900; loading = 'b';
+    expect(await frame(9)).toBeNull();
+    clock = 1800;
+    expect(await frame(9)).toBeNull();
+    clock = 1950;
+    expect(await frame(9)).toBeNull(); // 1050 ms unchanged: settled, warm-up starts with the next frame
+    expect(resets).toBe(0);
     expect(await frame(9)).toBeNull(); // warm 1 (not counted)
     expect(await frame(9)).toBeNull(); // warm 2: measurement starts after this frame
     expect(resets).toBe(1);
@@ -75,10 +85,11 @@ describe('bench draw attribution', () => {
     expect(await frame(4)).toBeNull();
     expect(await frame(4)).toBeNull();
     const result = await frame(4);
-    expect(drawn).toHaveLength(30); // the wrapper always forwards
+    expect(drawn).toHaveLength(66); // the wrapper always forwards
     expect(result).toMatchObject({ id: 'riverside', at: '13:00', quality: 'medium', frames: 3,
-      submittedDraws: { total: 4, prepass: 2, beauty: 2, csm: 0, other: 0 }, instances: 20,
-      pipelinesAfterWarmup: 10, pipelinesAfterMeasure: 12, adaptiveScale: 1, tiles: ['t0_0_0'] });
+      submittedDraws: { total: 4, prepass: 2, beauty: 2, csm: 0, reflection: 0, post: 0 }, instances: 20,
+      pipelinesAfterWarmup: 10, pipelinesAfterMeasure: 12, adaptiveScale: 1, tiles: ['t0_0_0'],
+      settleMs: 1950, settleTimedOut: false });
     expect(flushed).toBe(1);
     expect(paused).toEqual([true, false]);
     expect(await frame(1)).toBeNull(); // done: further frames are ignored

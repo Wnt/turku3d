@@ -207,13 +207,19 @@ async function runQa() {
     time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, world: 'draft-service',
     quality: params.quality, effectiveTime: params.time.toISOString(), sseUnits: 'drawing-buffer-pixels' };
   env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
+  if (params.bench) performance.setResourceTimingBufferSize(100_000); // the settle check counts requests
   const bench = params.bench ? new CameraBench({
     backend: renderer.backend,
     pipelines: () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null,
     passes: () => post?.passTargets ?? {},
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
-    info: () => ({ url: location.search, pose: window.__qaPose, tiles: [...loadedTiles], settle: window.__game!.qa,
+    now: () => performance.now(),
+    signature: () => [renderer.info.render.drawCalls, renderer.info.render.triangles, renderer.info.memory.textures,
+      (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size,
+      performance.getEntriesByType('resource').length].join('|'),
+    info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
+      drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
   const publishBench = (result: Record<string, unknown> | null) => {
