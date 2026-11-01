@@ -54,7 +54,8 @@ describe('bench draw attribution', () => {
   it('warms, measures a fixed window and reports per-frame draws', async () => {
     const drawn: string[] = [];
     const backend = { draw: (ro: { context: { renderTarget: unknown } }) => { drawn.push(String(ro.context.renderTarget === beauty)); } };
-    let resets = 0, flushed = 0, paused: boolean[] = [], pipelines = 10, clock = 0, loading = 'a';
+    const paused: boolean[] = [];
+    let resets = 0, flushed = 0, pipelines = 10, clock = 0, loading = 'a';
     const host: BenchHost = {
       backend, pipelines: () => pipelines, passes: () => ({ prepass, beauty }), pause: v => paused.push(v),
       info: () => ({ tiles: ['t0_0_0'] }), now: () => clock, signature: () => loading,

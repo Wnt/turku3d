@@ -135,6 +135,16 @@ try {
 } finally {
   fs.writeFileSync(path.join(out, 'results.json'), JSON.stringify({ chrome: context.browser()?.version() ?? null,
     upstream: upstream.href, traffic, results, host: { cpus: os.cpus()[0]?.model, platform: os.platform(), release: os.release() } }, null, 1));
+  const f = v => (typeof v === 'number' ? v.toFixed(2) : '–');
+  fs.writeFileSync(path.join(out, 'results.md'), [
+    '| Run | Draws total (prepass / beauty / csm / reflection / post) | Instances | Triangles | GPU p50 / p95 ms | CPU p50 ms | Work p50 ms | Pipelines | Buffer | Load avg |',
+    '|---|---|---:|---:|---|---:|---:|---:|---|---:|',
+    ...results.map(({ label, bench: b, error, loadavg }) => b
+      ? `| ${label} | ${b.submittedDraws.total} (${b.submittedDraws.prepass} / ${b.submittedDraws.beauty} / ${b.submittedDraws.csm} / `
+        + `${b.submittedDraws.reflection} / ${b.submittedDraws.post}) | ${b.instances} | ${b.triangles} | ${f(b.gpuMs?.p50)} / ${f(b.gpuMs?.p95)} `
+        + `| ${f(b.cpuMs?.p50)} | ${f(b.workMs?.p50)} | ${b.pipelinesAfterMeasure} | ${b.drawingBuffer?.join('×')} | ${loadavg[0].toFixed(1)} |`
+      : `| ${label} | ${error} | | | | | | | | ${loadavg[0].toFixed(1)} |`),
+  ].join('\n') + '\n');
   await context.close();
   server.kill();
   proxy.close();
