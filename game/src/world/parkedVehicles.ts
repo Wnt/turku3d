@@ -9,9 +9,10 @@ import type { Manifest, ParkedVehicle } from './manifest';
 export interface ParkedPose { pos: V3; rot: Quat }
 
 const SPAWN_RADIUS = 120, DESPAWN_RADIUS = 170;
-/** A capped body moves to a closer car only when that car is at least 15% nearer, so small
- * movements cannot flip a car between physical and visual. */
-const SWAP_RATIO = 0.85;
+/** A capped body moves to a closer car only when that car is at least 15% and 4 m nearer. Undoing
+ * a move then takes more than 4 m of player travel, so jitter cannot flip cars between physical
+ * and visual, while a visual car stays beyond the 250 ms reach even in a dense lot. */
+const SWAP_RATIO = 0.85, SWAP_MARGIN = 4;
 /** A rolling car keeps its body until it rests; it never freezes mid-motion. */
 const RESTING_SPEED = 0.3;
 /** Re-rank faster while the cap leaves nearby cars visual, so the player cannot reach one first. */
@@ -35,7 +36,7 @@ export class ParkedVehicles {
   private inventory = '';
   private busy = false;
   private saturated = false;
-  private next = 0;
+  private last = -Infinity;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
     private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
@@ -44,7 +45,7 @@ export class ParkedVehicles {
   resetRound() {
     for (const id of new Set([...this.spawned.keys(), ...this.borrowed.keys()])) this.physics.removeVehicle(id);
     this.spawned.clear(); this.borrowed.clear(); this.rest.clear(); this.shared.clear(); this.owned.clear();
-    this.sharedKey = ''; this.next = 0; this.saturated = false;
+    this.sharedKey = ''; this.last = -Infinity; this.saturated = false;
   }
 
   setShared(sources: ReadonlySet<string>, owned: ReadonlySet<string>) {
@@ -81,8 +82,8 @@ export class ParkedVehicles {
       const car = this.manifest.vehicles?.find(v => v.object_id === driven) ?? this.spawned.get(driven);
       if (car) this.borrowed.set(driven, car);
     }
-    if (this.busy || now < this.next) return;
-    this.next = now + (this.saturated ? SATURATED_SYNC_MS : SYNC_MS);
+    if (this.busy || now - this.last < (this.saturated ? SATURATED_SYNC_MS : SYNC_MS)) return;
+    this.last = now;
     void this.sync(x, z).catch(error => console.warn('[parked]', error));
   }
 
@@ -131,7 +132,7 @@ export class ParkedVehicles {
         if (car.model === 'truck') continue;
         if (count < this.cap) { this.spawn(id, car); count++; continue; }
         const far = evictable[0];
-        if (!far || d >= far.d * SWAP_RATIO) { this.saturated = true; break; }
+        if (!far || d >= Math.min(far.d * SWAP_RATIO, far.d - SWAP_MARGIN)) { this.saturated = true; break; }
         evictable.shift();
         this.despawn(far.id, states);
         this.spawn(id, car);
