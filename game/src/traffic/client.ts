@@ -80,6 +80,8 @@ export class TrafficClient {
       halfFov: Math.atan(Math.tan((camera.fov * Math.PI) / 360) * camera.aspect) };
     if (!state) return;
     this.stats = state.trafficStats ?? null;
+    if (state.trafficTime !== undefined) this.time = state.trafficTime + (state.publishedAt === undefined ? 0
+      : Math.min(0.1, Math.max(0, (performance.timeOrigin + performance.now() - state.publishedAt) / 1000)));
     for (const event of state.trafficEvents ?? []) this.claimed(event);
     this.read(state);
     this.visuals.setTraffic(this.instances);
@@ -123,9 +125,15 @@ export class TrafficClient {
 
   /** Scorecard / QA view: drawn moving cars (engine x, z), cap and worker stats. */
   snapshot() {
-    return { cap: this.cap, drawn: this.drawn.length, mainMs: this.mainMs, tiles: this.local.size, enabled: this.sent.enabled ? this.sent.enabled.split(',').filter(Boolean).length : null,
+    return { cap: this.cap, drawn: this.drawn.length, mainMs: this.mainMs, tiles: this.local.size,
+      enabled: this.sent.enabled === '*' ? 'all' : this.sent.enabled.split(',').filter(Boolean).length, time: this.time,
       claims: this.claims.size, moving_cars: this.drawn.map(c => [Math.round(c.x * 10) / 10, Math.round(c.z * 10) / 10]), stats: this.stats };
   }
+
+  /** Drawn cars with handle and velocity at traffic time `time` (QA: comparing clients). */
+  debugCars() { return { time: this.time, cars: this.drawn.map(c => ({ handle: c.handle, x: c.x, z: c.z, vx: c.vx, vz: c.vz })) }; }
+  /** Traffic time (s) of the latest worker state, moved on to this frame like the drawn poses. */
+  private time = 0;
 
   private syncTiles() {
     if (!this.source) return;
