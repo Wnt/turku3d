@@ -5,6 +5,8 @@ import type { VehicleState } from '../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedPose } from '../world/parkedVehicles';
 import { paintActor, paintBatch, paintInstances, paintMaterial, recolourable } from './parkedPaint';
+import { CHASSIS_LIFT, TRAFFIC_MODELS } from '../traffic/constants';
+import type { Quat } from '../physics/protocol';
 
 // The asset library has one player sedan. Concurrent consumers share preparation;
 // Object3D clones keep independent suspension transforms and share immutable geometry.
@@ -96,7 +98,9 @@ export class CarVisual {
 /** Pose source for draft cars that have no physics body (world/parkedVehicles.ts). */
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 
-interface Batch { mesh: THREE.InstancedMesh; cars: ParkedVehicle[] }
+interface Batch { mesh: THREE.InstancedMesh; cars: ParkedVehicle[]; trafficPaints: string }
+/** A moving ambient car drawn after a batch's parked instances (traffic/client.ts): chassis centre and rotation. */
+export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat }
 const LOCAL_AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
@@ -112,6 +116,9 @@ export class ParkedCarVisuals {
   private position = new THREE.Vector3();
   private rotation = new THREE.Quaternion();
   private scale = new THREE.Vector3(1, 1, 1);
+  /** Instances each traffic body model keeps free after its parked cars (ambient traffic shares the draw). */
+  private trafficReserve = 0;
+  private traffic = new Map<string, TrafficInstance[]>();
 
   constructor(private readonly scene: THREE.Object3D,
     private readonly prepare: (model: THREE.Object3D) => Promise<void> = async () => {}) {}
@@ -145,6 +152,29 @@ export class ParkedCarVisuals {
     return actor;
   }
 
+  /** Ambient traffic draws up to `count` cars of each recolourable body in that body's parked batch, so moving
+   *  cars add no draw, material or pipeline. Takes effect at the next load. */
+  reserveTraffic(count: number) { this.trafficReserve = Math.max(0, count); }
+
+  /** Body models that ambient traffic can draw now (a resident GLB of the body exists). */
+  trafficModels(): string[] { return TRAFFIC_MODELS.filter(model => this.groups.has(model)); }
+
+  /** This frame's moving cars; drawn by the next update(). Cars of a body without a batch use another body. */
+  setTraffic(cars: readonly TrafficInstance[]) {
+    for (const list of this.traffic.values()) list.length = 0;
+    const fallback = this.trafficModels()[0];
+    for (const car of cars) {
+      const batch = this.groups.has(car.model) ? car.model : fallback;
+      if (!batch) continue;
+      let list = this.traffic.get(batch);
+      if (!list) this.traffic.set(batch, list = []);
+      list.push(car);
+    }
+  }
+
+  /** The parked batches draw this vehicle record (after a load that included it). */
+  renders(id: string) { return [...this.groups.values()].some(({ cars }) => cars.some(c => c.object_id === id)) || this.dynamic.has(id); }
+
   async load(manifest: Manifest) {
     this.manifest = manifest;
     const cars = (manifest.vehicles ?? []).filter(c => c.model !== 'truck' && !this.dynamic.has(c.object_id));
@@ -153,6 +183,8 @@ export class ParkedCarVisuals {
       const batch = paintBatch(car.model, car.color);
       members.set(batch, [...members.get(batch) ?? [], car]);
     }
+    if (this.trafficReserve) for (const model of TRAFFIC_MODELS) if (!members.has(model) && this.assetKey(model)) members.set(model, []);
+    const extra = (batch: string) => (TRAFFIC_MODELS as readonly string[]).includes(batch) ? this.trafficReserve : 0;
     await Promise.all([...members].map(([batch, list]) => this.sources.has(batch) ? null
       : this.source(batch, this.assetKey(batch) ?? `${list[0].model}/${list[0].color}`)));
     for (const [batch, { mesh }] of this.groups) {
@@ -162,13 +194,13 @@ export class ParkedCarVisuals {
     for (const [batch, list] of members) {
       const source = this.sources.get(batch)!;
       const previous = this.groups.get(batch);
-      if (previous && previous.mesh.instanceMatrix.count >= list.length) {
-        previous.cars = list; previous.mesh.count = list.length;
+      if (previous && previous.mesh.instanceMatrix.count >= list.length + extra(batch)) {
+        previous.cars = list; previous.mesh.count = list.length; previous.trafficPaints = '';
         if (recolourable(batch)) paintInstances(previous.mesh, list.map(c => c.color));
         this.scene.add(previous.mesh);
         continue;
       }
-      const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(list.length)));
+      const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(Math.max(1, list.length + extra(batch)))));
       const mesh = new THREE.InstancedMesh(source.geometry, source.material, capacity);
       if (recolourable(batch)) paintInstances(mesh, list.map(c => c.color));
       mesh.count = list.length;
@@ -181,7 +213,7 @@ export class ParkedCarVisuals {
       catch (error) { mesh.dispose(); throw error; }
       if (previous) { previous.mesh.removeFromParent(); previous.mesh.dispose(); }
       this.scene.add(mesh);
-      this.groups.set(batch, { mesh, cars: list });
+      this.groups.set(batch, { mesh, cars: list, trafficPaints: '' });
     }
   }
 
@@ -196,7 +228,9 @@ export class ParkedCarVisuals {
       cars.splice(index, 1);
       mesh.count = cars.length;
       if (recolourable(batch)) paintInstances(mesh, cars.map(c => c.color));
-      if (!mesh.count) mesh.removeFromParent();
+      // A traffic batch stays in the scene: an empty instanced draw is culled by its empty bounds.
+      if (!mesh.count && !this.trafficReserve) mesh.removeFromParent();
+      this.groups.get(batch)!.trafficPaints = '';
       mesh.computeBoundingSphere();
       return;
     }
@@ -227,7 +261,8 @@ export class ParkedCarVisuals {
   /** Bodies follow their physics state; the others rest where `rest` places them, or stay hidden. */
   update(states: VehicleState[], rest?: ParkedRest) {
     const byId = new Map(states.map(s => [s.id, s]));
-    for (const { mesh, cars } of this.groups.values()) {
+    for (const [batch, group] of this.groups) {
+      const { mesh, cars } = group;
       cars.forEach((car, i) => {
         const pose = byId.get(car.object_id) ?? rest?.restingPose(car);
         if (!pose) { mesh.setMatrixAt(i, HIDDEN); return; }
@@ -235,6 +270,21 @@ export class ParkedCarVisuals {
         this.rotation.set(pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w).multiply(LOCAL_AXIS);
         mesh.setMatrixAt(i, this.matrix.compose(this.position, this.rotation, this.scale));
       });
+      // Moving traffic follows the parked instances in the same draw.
+      const moving = this.traffic.get(batch) ?? [];
+      const count = Math.min(moving.length, mesh.instanceMatrix.count - cars.length);
+      for (let i = 0; i < count; i++) {
+        const car = moving[i];
+        this.position.set(car.x, car.y - CHASSIS_LIFT, car.z);
+        this.rotation.set(car.q.x, car.q.y, car.q.z, car.q.w).multiply(LOCAL_AXIS);
+        mesh.setMatrixAt(cars.length + i, this.matrix.compose(this.position, this.rotation, this.scale));
+      }
+      if (this.trafficReserve) {
+        mesh.count = cars.length + count;
+        const paints = `${cars.length}|${moving.slice(0, count).map(c => c.color).join(',')}`;
+        if (count && paints !== group.trafficPaints && recolourable(batch)) paintInstances(mesh, moving.slice(0, count).map(c => c.color), cars.length);
+        group.trafficPaints = paints;
+      }
       mesh.instanceMatrix.needsUpdate = true;
       mesh.computeBoundingSphere();
     }

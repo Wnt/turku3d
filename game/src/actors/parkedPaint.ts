@@ -39,14 +39,14 @@ export function paintOf(color: string): readonly [number, number, number] {
 const instancePaints = new WeakMap<THREE.Object3D, THREE.InstancedBufferAttribute>();
 const actorPaints = new WeakMap<THREE.Object3D, THREE.Vector3>();
 
-/** Writes `colors` as the paints of instances 0..n-1 of `mesh`. */
-export function paintInstances(mesh: THREE.InstancedMesh, colors: readonly string[]) {
+/** Writes `colors` as the paints of instances offset..offset+n-1 of `mesh` (0..n-1 by default). */
+export function paintInstances(mesh: THREE.InstancedMesh, colors: readonly string[], offset = 0) {
   let paints = instancePaints.get(mesh);
   if (!paints) {
     paints = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count * 3), 3);
     instancePaints.set(mesh, paints);
   }
-  colors.forEach((color, i) => paints.setXYZ(i, ...paintOf(color)));
+  colors.forEach((color, i) => paints.setXYZ(offset + i, ...paintOf(color)));
   paints.needsUpdate = true;
 }
 

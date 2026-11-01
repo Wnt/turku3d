@@ -5,6 +5,8 @@ import { TyreEffects } from './vehicle/tyreEffects';
 import type { PlayWorld } from './playWorld';
 export type { PlayWorld } from './playWorld';
 import { ParkedVehicles } from './world/parkedVehicles';
+import { TrafficClient } from './traffic/client';
+import { TRAFFIC_CAPS } from './traffic/constants';
 // Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
 // Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
 import * as THREE from 'three/webgpu';
@@ -117,6 +119,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const seated = new SeatedVehicles(root, physics, groundAt);
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
+  // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
+  const traffic = new TrafficClient(physics, parkedVisuals, parkedVehicles, manifest, params.traffic ?? TRAFFIC_CAPS[params.quality]);
+  traffic.attach(coarse);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
@@ -286,7 +291,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
   const multiplayerAt = await preparedMultiplayer;
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
-  Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, missions, router, minimap, zones, recovery,
+  Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
@@ -367,12 +372,19 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         .filter(v => Math.abs(v.y - feet.y) < 3).sort((a, b) => a.distance - b.distance)[0] : null;
       const nearestShared = multiplayerPlaying && mode === 'foot' ? sharedVehicles?.nearest(feet) : null;
       const nearest = nearestShared && (!nearestLocal || nearestShared.distance < nearestLocal.distance) ? nearestShared : nearestLocal;
-      if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.id)) {
-        const enter = (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); };
-        if (multiplayerPlaying) void sharedVehicles?.acquire(nearest.id).then(id => {
-          if (id && multiplayerPlaying && mode === 'foot') enter(id);
+      // A moving ambient car is claimed first (it becomes an ordinary vehicle), then entered like any other.
+      const moving = mode === 'foot' ? traffic.nearest(feet) : null;
+      const enter = (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); };
+      const take = (id: string) => {
+        if (multiplayerPlaying) void sharedVehicles?.acquire(id).then(acquired => {
+          if (acquired && multiplayerPlaying && mode === 'foot') enter(acquired);
         });
-        else enter(nearest.id);
+        else enter(id);
+      };
+      if (mode === 'foot' && moving && (!nearest || moving.distance < nearest.distance) && missions.mayDrive('traffic')) {
+        void traffic.enter(moving.handle).then(id => { if (id && mode === 'foot') take(id); });
+      } else if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.id)) {
+        take(nearest.id);
       } else if (mode === 'car' && vs) {
         leaveCar(driverSide(vs));
       }
@@ -441,6 +453,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
+    traffic.setMultiplayer(multiplayerPlaying && multiplayer ? { offsetMs: multiplayer.serverNow() - (performance.timeOrigin + performance.now()),
+      agreed: multiplayer.state.roads, sources: multiplayer.state.vehicleSources } : null);
+    if (multiplayerPlaying && multiplayer?.state.connected) multiplayer.reportRoads(traffic.local, traffic.revision);
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
       if (!rounds.blocking) sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
       if (drivenId && seatExit) leaveCar(seatExit);
@@ -458,6 +473,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         vel.set(st.character.vel.x, st.character.vel.y, st.character.vel.z);
         grounded = st.character.grounded; groundMat = st.character.groundMaterial;
       }
+      traffic.update(now, camera, st);
       parkedVisuals.update(st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {

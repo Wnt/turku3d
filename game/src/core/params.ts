@@ -28,6 +28,8 @@ interface Params {
   mobile: boolean;
   /** ?lights=0..1 fixes the street-light night level (?lights alone is 1); null follows the day cycle. */
   lights: number | null;
+  /** ?traffic=N overrides the quality tier's moving-car cap (0 turns ambient traffic off); null keeps the tier's. */
+  traffic: number | null;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -68,6 +70,9 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const lightsStr = p.get('lights');
   const lights = lightsStr === null ? null : lightsStr === '' ? 1 : Number(lightsStr);
   if (lights !== null && !(lights >= 0 && lights <= 1)) throw new Error(`bad ?lights= (night level 0..1): ${lightsStr}`);
+  const trafficStr = p.get('traffic');
+  const traffic = trafficStr === null ? null : Number(trafficStr);
+  if (traffic !== null && !(Number.isInteger(traffic) && traffic >= 0 && traffic <= 200)) throw new Error(`bad ?traffic= (moving-car cap 0..200): ${trafficStr}`);
   return {
     backend,
     backendGiven: p.has('backend') || p.has('webgl'),
@@ -85,5 +90,6 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     aa,
     mobile,
     lights,
+    traffic,
   };
 }

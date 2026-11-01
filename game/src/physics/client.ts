@@ -6,7 +6,7 @@ import type { LiveInput } from './protocol';
 import { loading, loadBytes } from '../core/loading';
 import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
-import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, VehicleInput, VehicleSpec } from './protocol';
+import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, TrafficConfig, TrafficTile, TrafficView, VehicleInput, VehicleSpec } from './protocol';
 
 type StateMsg = Extract<FromWorker, { type: 'state' }>;
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -152,6 +152,14 @@ export class PhysicsClient {
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }
   setPoles(add: PoleSpec[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'poles', add, remove }); }
   breakPole(id: string) { this.send({ type: 'breakPole', id }); }
+  /** Ambient traffic (traffic/client.ts): configuration, resident road tiles and entry claims. */
+  traffic(config: Partial<TrafficConfig>) { this.send({ type: 'traffic', config }); }
+  trafficTiles(add: TrafficTile[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'trafficTiles', add, remove }); }
+  trafficClaim(handle: number) { this.send({ type: 'trafficClaim', handle }); }
+  /** Traffic tiles the worker holds (kept across hot swaps of the play session, like the worker itself). */
+  readonly trafficResident = new Set<string>();
+  /** Camera for the traffic population ring, sent with every frame's input. */
+  trafficView: TrafficView | null = null;
   private placed(actor: string, pos: V3) { this.placement = { seq: this.placement.seq + 1, actor, pos: { ...pos } }; }
 
   /** Explicit stepping for placement/query barriers and deterministic tools, independent of live clocking. */
@@ -163,7 +171,8 @@ export class PhysicsClient {
   updateInput(character: CharacterInput, vehicle: VehicleInput | null, running: boolean) {
     void this.latest;
     const input: LiveInput = { character: { ...character, jump: false }, vehicle, running,
-      jump: this.jump += Number(character.jump && running), at: performance.timeOrigin + performance.now(), acknowledged: this.state?.revision ?? 0 };
+      jump: this.jump += Number(character.jump && running), at: performance.timeOrigin + performance.now(), acknowledged: this.state?.revision ?? 0,
+      ...(this.trafficView ? { view: this.trafficView } : {}) };
     if (this.inputMailbox) this.inputMailbox.write(input);
     else this.send({ type: 'input', input });
   }

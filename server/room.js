@@ -6,6 +6,7 @@ import { nickname } from './nicks.js';
 import { validDelivery } from './economy.js';
 import { validPose, cleanPose } from './pose.js';
 import { VehicleRegistry, VEHICLE_LIMITS } from './vehicles.js';
+import { RoadAgreement } from './roads.js';
 
 export const VERSION = 2;
 export const LIMITS = Object.freeze({ connections: 32, acceptedPerSecond: 20, disconnectPerSecond: 25,
@@ -25,6 +26,7 @@ export class Room {
     this.usedNicks = new Set();
     this.brokenPoles = new Map();
     this.vehicles = new VehicleRegistry(this);
+    this.roads = new RoadAgreement(this);
     this.rounds = new TimedRounds(this);
     this.spawnIndex = 0;
     this.warned = false;
@@ -60,6 +62,7 @@ export class Room {
       c.player.dirty = false;
       this.presence();
       this.rounds.membership();
+      this.roads.flush();
     }
   }
 
@@ -99,6 +102,7 @@ export class Room {
     if (m.type === 'hello' && !c.player) { this.hello(c, m, now); return; }
     if (!c.player) { this.reject(); return; }
     if (m.type === 'round') { this.rounds.command(c.player, m, now); return; }
+    if (m.type === 'roads') { if (!this.roads.report(c.player, m.tiles)) this.reject(); return; }
     if ((this.rounds.epoch && m.epoch !== this.rounds.epoch) || this.rounds.active?.phase === 'countdown') { this.reject(); return; }
     if (m.type === 'vehicle') { this.vehicles.command(c.player, m, now); return; }
     if (m.type === 'pose') { this.pose(c.player, m, now); return; }
@@ -176,7 +180,7 @@ export class Room {
     const wasOnline = p.online;
     p.online = true;
     this.stats.poses++;
-    if (!wasOnline) this.presence();
+    if (!wasOnline) { this.presence(); this.roads.flush(); }
   }
 
   delivery(p, m) {
@@ -254,7 +258,7 @@ export class Room {
         p.online = false; p.dirty = false; changed = true;
       }
     }
-    if (changed) this.presence();
+    if (changed) { this.presence(); this.roads.flush(); }
     const day = this.hour.id.slice(0, 10);
     if (day !== this.lastPruneDay) { this.store.prune(now); this.lastPruneDay = day; }
   }
