@@ -619,7 +619,7 @@ def build(
 
         write_instances(stage / "vegetation.vis.glb", tile, trees + bushes)
         layer_files.append(stage / "vegetation.vis.glb")
-    poles = street["standing"]
+    poles = street["poles"]
     if street["glb"]:
         _write(stage / "props.vis.glb", street["glb"])
         layer_files.append(stage / "props.vis.glb")

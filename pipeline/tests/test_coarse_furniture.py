@@ -190,8 +190,7 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     bench = next(p for p in result["props"] if p.object_id == "bench-wall")
     assert bench.x == pytest.approx(99.7) and bench.y == 1.0
     assert {p.kind for p in result["props"]} == {"bench", "table", "bus_stop"}
-    standing = {p.object_id for p in result["standing"]}
-    assert standing == {"bench-wall", "bench-quay", "lamp", "table", "stop"}
+    assert [p.object_id for p in result["poles"]] == ["stop"]  # parked-car bay masks
     lights, posts = decode(result["lights"])
     assert len(posts) == 1 and posts[0]["x"] == 50
     assert sum(light["category"] == "hung" for light in lights) == 1

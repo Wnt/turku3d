@@ -80,7 +80,7 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
     )
 
 
-EMPTY = {"glb": None, "props": [], "standing": [], "lights": None, "collision": {}, "stats": {}}
+EMPTY = {"glb": None, "props": [], "poles": [], "lights": None, "collision": {}, "stats": {}}
 
 
 def _outside(polygon, point, clearance=CLEARANCE):
@@ -182,7 +182,9 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
     return {
         "glb": visual_bytes(furniture, tile) if furniture else None,
         "props": furniture,
-        "standing": placed,  # every prop on the ground, lamps included (parked-car masks)
+        # Parked-car bays give way to sign and stop poles only, as before G1: furniture and lamps
+        # stand off the carriageway, and a lamp at the kerb would otherwise cost the bay beside it.
+        "poles": [p for p in placed if p.kind in ("sign", "bus_stop")],
         "lights": encode(lights) if lights else None,
         "collision": dict(collision),
         "stats": dict(sorted(stats.items())),
