@@ -13,8 +13,12 @@ export interface Lamp {
   /** Post base (rule lamps) or the light point itself. */
   x: number; y: number; z: number;
   yaw: number; scale: number; post: boolean;
+  /** Rule street lamp, generator bridge or tunnel lamp, or a facade light. */
+  kind: LampKind;
   light: SpriteLight;
 }
+
+export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall';
 
 /** Corona record. Colour is linear HDR. `day` 1 keeps a light on in daylight (tunnels), 0 follows the night level. */
 export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number }
@@ -78,9 +82,9 @@ export function placeLamps(stations: readonly Station[], candidates: readonly Ca
   const lamps: Lamp[] = [];
   const bridge = scan.bridge.filter(p => owns(bounds, p.x, p.z));
   for (const p of scan.tunnel) if (owns(bounds, p.x, p.z))
-    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite(p, 'tunnel', 1) });
+    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'tunnel', light: sprite(p, 'tunnel', 1) });
   for (const p of bridge)
-    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite(p, 'led', 0) });
+    lamps.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'bridge', light: sprite(p, 'led', 0) });
   const placed: Lamp[] = [];
   const order = stations.map((_, i) => i).sort((a, b) => stations[b].cls - stations[a].cls || a - b);
   for (const i of order) {
@@ -97,7 +101,7 @@ export function placeLamps(stations: readonly Station[], candidates: readonly Ca
       const yaw = Math.atan2(-az, ax), scale = POST_SCALE[station.cls];
       const head = { x: x + ax * POST_SHAPE.arm * scale, y: y + POST_SHAPE.light * scale, z: z + az * POST_SHAPE.arm * scale };
       const type = positionHash(x, z) / 0x100000000 < SODIUM_SHARE ? 'sodium' : 'led';
-      const lamp: Lamp = { key: lampKey(x, z), x, y, z, yaw, scale, post: true, light: sprite(head, type, 0) };
+      const lamp: Lamp = { key: lampKey(x, z), x, y, z, yaw, scale, post: true, kind: 'street', light: sprite(head, type, 0) };
       placed.push(lamp);
       break;
     }
@@ -139,7 +143,7 @@ export function placeWallLights(stations: readonly Station[], walls: ReturnType<
       if (lights.some(l => Math.hypot(l.x - p.x, l.z - p.z) < WALL_RULE.minSeparation)) continue;
       const [low, high] = WALL_RULE.height;
       const y = street.ground + low + (high - low) * (hash / WALL_RULE.share);
-      lights.push({ key: lampKey(p.x, p.z), x: p.x, y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite({ x: p.x, y, z: p.z }, 'wall', 0) });
+      lights.push({ key: lampKey(p.x, p.z), x: p.x, y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'wall', light: sprite({ x: p.x, y, z: p.z }, 'wall', 0) });
     }
   });
   return lights;

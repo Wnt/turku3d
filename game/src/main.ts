@@ -100,7 +100,7 @@ const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
 const dayClock = new DayClock(env, clockMode, !params.qa);
 if (!idPass) env.updateIBL();
-const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights);
+const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights, env.lamps.point);
 const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, lights?.sprites);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
@@ -287,7 +287,8 @@ async function runQa() {
     const progress = coarse.progressAt(camera.position.x, camera.position.z);
     if (progress.errors.length) { window.__qaError = progress.errors.join('; '); return; }
     if (materials?.ground?.errors.length) { window.__qaError = materials.ground.errors[0]; return; }
-    stable = progress.total > 0 && progress.loaded === progress.total && !materials?.ground?.pending ? stable + 1 : 0;
+    stable = progress.total > 0 && progress.loaded === progress.total && coarse.detailedAt(camera.position.x, camera.position.z)
+      && !materials?.ground?.pending ? stable + 1 : 0;
     // Allow temporal colour history to converge after textures finish uploading (QA contract: >= 2 frames).
     if (stable >= 32) {
       window.__qaReady = true;
