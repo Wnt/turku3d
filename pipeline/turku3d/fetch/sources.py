@@ -89,6 +89,10 @@ WFS_LAYERS: tuple[WfsLayer, ...] = (
     _c("bldg:Building_LOD3", "CityGML LoD3 (finer roofs, no facade detail)"),
     _c("tran:Road_LOD3", "draped road TIN with katuosalaji (semantics only, too coarse for curbs)"),
     _c("veg:PlantCover_LOD2", "park TIN areas"),
+    _c(
+        "frn:CityFurniture_LOD2",
+        "street-light poles: N2000 base points; Tasonimi rr:js / Kiilai:uv-pylväs (both registers, ~1 m apart)",
+    ),
 )
 
 

@@ -372,19 +372,55 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=())
     }
 
 
-def prepare_trees(tile: C.VisualTile, osm: Path) -> list:
-    """The OSM ``natural=tree`` points in the tile: (id, x, z, height, conifer)."""
+TREE_DUPLICATE = 3.0  # m: an OSM tree this close to a register tree is that tree
+CONIFERS = ("pinus", "picea", "abies", "taxus", "thuja", "juniperus", "pseudotsuga", "tsuga")
+SURVEY_YEAR = 2026
+
+
+def register_trees(tile: C.VisualTile, path: Path) -> list:
+    """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer). Height grows with
+    the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
+    the OSM default of 10 m."""
+    trees = []
+    frame = spatial_frame(path, tile.bbox)
+    for row in frame.to_dict("records"):
+        point = row["geometry_local"]
+        if point is None or point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+            continue
+        try:
+            year = int(float(row.get("Istutusvuosi") or 0))
+        except ValueError:
+            year = 0
+        height = (
+            min(22.0, 4.0 + 0.35 * (SURVEY_YEAR - year)) if 1900 < year <= SURVEY_YEAR else 10.0
+        )
+        species = str(row.get("Kasvilaji") or "").casefold()
+        conifer = str(row.get("Kasviryhma") or "").casefold().startswith("havu") or any(
+            species.startswith(genus) for genus in CONIFERS
+        )
+        trees.append((f"puut:{row['feature_key']}", point.x, point.y, height, conifer))
+    return trees
+
+
+def prepare_trees(tile: C.VisualTile, osm: Path, register: Path | None = None) -> list:
+    """Register trees (GIS:Puut), then the OSM ``natural=tree`` points not within TREE_DUPLICATE
+    of one, in the tile: (id, x, z, height, conifer)."""
     import json
+
+    from scipy.spatial import cKDTree
 
     from turku3d.spatial import rows
 
-    trees = []
+    trees = register_trees(tile, register) if register else []
+    known = cKDTree(np.array([(x, z) for _, x, z, _, _ in trees])) if trees else None
     for k, row in rows(osm, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("natural") != "tree":
             continue
         point = row["geometry_local"]
         if point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+            continue
+        if known is not None and known.query_ball_point((point.x, point.y), TREE_DUPLICATE):
             continue
         try:
             height = float(str(tags.get("height", "10")).removesuffix(" m"))
@@ -476,13 +512,13 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         if osm
         else None,
         "parking": [osm, wfs[1][1], wfs[0][1]] if osm else None,
-        "trees": [osm] if osm else None,
+        "trees": [osm, wfs[WFS_LAYERS.index("GIS:Puut")][1]] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
         "tunnels": [osm] if osm else None,
         "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,
-        "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm]
+        "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm, *(p for _, p in wfs[6:])]
         if all(found for found, _ in wfs)
         else None,
         "surfaces": [osm] if osm else None,
@@ -591,11 +627,13 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
         return read_paths(tile, paths[0])
     if dataset == "trees":
-        return prepare_trees(tile, paths[0])
+        return prepare_trees(tile, *paths)
     if dataset == "poles":
         from turku3d.props import read_sources
 
-        signs, stops, roads, streets, osm = paths
+        from .sources import FURNITURE_WFS_LAYERS
+
+        signs, stops, roads, streets, osm, *furniture = paths
         found, _ = read_sources(
             tile.bbox,
             source_paths={
@@ -603,10 +641,14 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
                 "kanta_Pysakki": stops,
                 "GIS_Keskilinjat": roads,
                 "GIS_Katualueet": streets,
+                **{
+                    name.replace(":", "_"): path
+                    for name, path in zip(FURNITURE_WFS_LAYERS, furniture, strict=True)
+                },
             },
             osm_path=osm,
         )
-        return [p for p in found if p.kind in ("sign", "bus_stop")]
+        return found
     bldg, streets, water, *roof_paths = paths
     return prepare_wfs(tile, bldg, streets, water, roof_paths)
 

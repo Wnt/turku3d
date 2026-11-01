@@ -1,7 +1,5 @@
 """Independent draft stage functions and explicit dependencies for compiler-cache reuse."""
 
-import copy
-
 import numpy as np
 
 from turku3d import config as C
@@ -106,17 +104,6 @@ def roof_crop(tile, roof, photo, fallback):
     out = io.BytesIO()
     Image.fromarray(crop).save(out, format="PNG")
     return out.getvalue(), (uv * size - low) / (high - low)
-
-
-def props_visual(tile, poles, grid_pos):
-    from turku3d.props import visual_bytes
-
-    from .build import grid_height
-
-    poles = copy.deepcopy(poles)
-    for pole in poles:
-        pole.y = grid_height(tile, grid_pos, pole.x, pole.z)
-    return visual_bytes(poles, tile)
 
 
 def kerb_inputs(tile, sources):

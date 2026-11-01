@@ -14,7 +14,7 @@ const SYNC_MS = 250;
 
 /** Drawn draft tiles with their final visual model (collision previews are not the visual surface). */
 function* drawnTiles(entries: ReadonlyMap<string, Entry>): Generator<LampSource> {
-  for (const [id, e] of entries) if (e.state === 'draft' && e.model && !e.preview) yield { id, model: e.model, roads: e.roads ?? null };
+  for (const [id, e] of entries) if (e.state === 'draft' && e.model && !e.preview) yield { id, model: e.model, lights: e.lights ?? null };
 }
 
 export class StreetLights {

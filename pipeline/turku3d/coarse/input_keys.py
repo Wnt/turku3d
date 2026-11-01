@@ -13,7 +13,7 @@ HELPERS = {
     "wfs": ("Building", "_frame", "buildings", "prepare_wfs"),
     "roads": ("prepare_roads",),
     "boats": ("Building", "_frame", "buildings"),
-    "trees": ("prepare_trees",),
+    "trees": ("prepare_trees", "register_trees"),
 }
 
 
@@ -47,9 +47,13 @@ def producer_code(dataset):
         *(branch if branch is not None else fallback),
         *(nodes[name] for name in HELPERS.get(dataset, ())),
     ]
-    constants = ({"ground": (inputs.CELLS, inputs.POINT_MARGIN), "ortho": (inputs.ORTHO_PX,)}).get(
-        dataset, ()
-    )
+    constants = (
+        {
+            "ground": (inputs.CELLS, inputs.POINT_MARGIN),
+            "ortho": (inputs.ORTHO_PX,),
+            "trees": (inputs.TREE_DUPLICATE, inputs.CONIFERS, inputs.SURVEY_YEAR),
+        }
+    ).get(dataset, ())
     h = hashlib.sha256(Path(__file__).read_bytes())
     h.update(Path(C.__file__).read_bytes())
     h.update(repr(constants).encode())

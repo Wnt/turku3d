@@ -15,17 +15,45 @@ from turku3d.props.orientation import heading
 
 
 @pytest.mark.parametrize(
-    ("label", "kind"),
+    ("row", "kind"),
     [
-        ("Kiintopenkki", "bench"),
-        ("Roskakori", "bin"),
-        ("Pollari", "bollard"),
-        ("Polkupyöräteline", "bike_rack"),
-        ("Unknown", "post"),
+        ({"Varustelaji": "Kiintopenkki"}, "bench"),
+        ({"Varustelaji": "Roskakori"}, "bin"),
+        ({"Varustelaji": "Pollari"}, "bollard"),
+        ({"Varustelaji": "Polkupyöräteline"}, "bike_rack"),
+        ({"Tyyppi": "Tuhkakuppi", "Malli": "YLE / Tuhkakuppi Combi, harmaa"}, "ashtray"),
+        ({"Tyyppi": "Tuhkakuppi", "Malli": "YLE / CT-seinätuhkakuppi"}, None),
+        ({"Tyyppi": "Pelastusvaline", "Varustelaji": "Pelastusväline"}, "lifebuoy"),
+        ({"Tyyppi": "Pelastustikas", "Varustelaji": "Pelastusväline"}, None),
+        ({"Tyyppi": "Roskis", "Varustelaji": "Roskasäiliö"}, "waste_container"),
+        ({"Tyyppi": "Opastaulu", "Varustelaji": "Opastetaulu/tiedote"}, "info_board"),
+        ({"Tyyppi": "Opastuspyloni"}, "info_pylon"),
+        ({"Tyyppi": "Opastusviitta"}, "guide_post"),
+        ({"Tyyppi": "Merkki Ei talvikunnossapitoa"}, "path_sign"),
+        ({"Tyyppi": "Poyta", "Varustelaji": "Pöytä"}, "table"),
+        ({"Tyyppi": "Kakkapussiteline"}, "dispenser"),
+        ({"Tyyppi": "Latauspiste"}, "charger"),
+        ({"Tyyppi": "WC"}, None),
+        ({"Varustelaji": "Unknown"}, None),
     ],
 )
-def test_classification(label, kind):
-    assert classify({"Varustelaji": label}) == kind
+def test_classification(row, kind):
+    assert classify(row) == kind
+
+
+def test_register_variants_follow_model_names_and_place_counts():
+    from turku3d.props import variant
+    from turku3d.props.models import stands
+
+    assert variant("bin", {"Malli": "YLE / City 60, vihreä"}) == "green"
+    assert variant("bin", {"Malli": "YLE / City 140, musta"}) == "black"
+    assert variant("bin", {"Malli": "YLE / City 60, harmaa"}) == ""
+    assert variant("bike_rack", {"Pyorapaikkojen_lukumaara": "14"}) == "7"
+    assert variant("bike_rack", {"Pyorapaikkojen_lukumaara": "40"}) == "8"
+    assert variant("bike_rack", {}) == ""
+    assert stands("7") == pytest.approx([-2.4, -1.6, -0.8, 0, 0.8, 1.6, 2.4])
+    assert len(stands("")) == 3
+    assert model("bin", "green").name != model("bin").name
 
 
 def test_road_facing_and_collision_rotation():

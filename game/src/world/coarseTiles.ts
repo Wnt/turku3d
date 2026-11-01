@@ -458,6 +458,7 @@ export class CoarseTiles {
       recordFreshness(e, fragment);
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
+      e.lights = fragment.lights ?? undefined;
       if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
       return;
     }
@@ -471,7 +472,7 @@ export class CoarseTiles {
     this.host.scene.add(model);
     this.comparison.clear(e); e.pass = fragment.pass_kind;
     e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
-    e.state = 'draft'; e.preview = undefined;
+    e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
     this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
@@ -578,6 +579,7 @@ export class CoarseTiles {
       this.host.unloadCollision(cid);
     }
     e.collision.clear();
+    e.lights = undefined;
     if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
     if (e.state === 'draft') e.state = 'pending';
   }

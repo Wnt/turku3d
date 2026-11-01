@@ -31,10 +31,22 @@ SOURCES = {
     "GIS_Pysakointiautomaatit": "parking_meter",
     "kanta_Pysakki": "bus_stop",
     "kanta_Sahkoverkonosa": "post",
+    "frn_CityFurniture_LOD2": "lamp",
 }
 KINDS = (
     "bench",
     "bin",
+    "waste_container",
+    "ashtray",
+    "table",
+    "info_board",
+    "info_pylon",
+    "guide_post",
+    "path_sign",
+    "lifebuoy",
+    "dispenser",
+    "charger",
+    "planter",
     "bollard",
     "bike_rack",
     "bike_station",
@@ -44,6 +56,24 @@ KINDS = (
     "sign",
     "post",
 )
+# Street-light register rows (frn:CityFurniture_LOD2 Tasonimi). Two registers describe most poles
+# about 0.3-1.5 m apart; the better-surveyed row wins (lower rank) and the other is a duplicate.
+LAMP_LAYERS = {
+    "Kiilai:uv-pylväs mitattu": 0,
+    "rr:js,pylväs,valaisin": 1,
+    "rr:js,uv-pylväs": 2,
+    "Kiilai:uv-pylväs digitoitu": 3,
+}
+LAMP_DUPLICATE = 1.5  # m: register lamp rows closer than this are one pole
+OSM_DUPLICATE = 3.0  # m: an OSM item this close to a register item of its kind is the same object
+# OSM tags of the furniture kinds the register may lack (bollards stay in the barrier layer).
+OSM_FURNITURE = {
+    ("amenity", "bench"): "bench",
+    ("amenity", "waste_basket"): "bin",
+    ("amenity", "bicycle_parking"): "bike_rack",
+    ("vending", "parking_tickets"): "parking_meter",
+    ("highway", "street_lamp"): "lamp",
+}
 
 
 @dataclass
@@ -58,27 +88,81 @@ class Prop:
     source: str = ""
     height_distance: float = 0
     orientation: str = "nearest_road"
+    variant: str = ""  # model variant of a non-sign kind (bin colour, bike-rack length)
+    rank: int = 0  # source quality among duplicates; lower wins
 
     @property
     def prototype(self):
-        return self.kind, self.code if self.kind == "sign" else (
-            "E6" if self.kind == "bus_stop" else ""
-        )
+        if self.kind == "sign":
+            return self.kind, self.code
+        return self.kind, "E6" if self.kind == "bus_stop" else self.variant
 
 
-def classify(row: dict) -> str:
-    label = " ".join(str(row.get(k) or "") for k in ("Tyyppi", "Varustelaji")).casefold()
-    for needle, kind in [
-        ("penkki", "bench"),
-        ("rosk", "bin"),
-        ("pollari", "bollard"),
-        ("pyör", "bike_rack"),
-        ("pyor", "bike_rack"),
-        ("valaisin", "lamp"),
-    ]:
+# GIS:Varusteet "Tyyppi Varustelaji Malli" label fragments, in order; None skips the row. Wall-mounted
+# ash trays hang on facades, rescue ladders on quay walls, and toilets, shelters and play equipment
+# are buildings or structures of their own: none of them is street furniture standing on the ground.
+VARUSTEET = (
+    ("seinätuhkakuppi", None),
+    ("tuhkakuppi", "ashtray"),
+    ("pelastustikas", None),
+    ("pelastus", "lifebuoy"),
+    ("syväsäiliö", "waste_container"),
+    ("roskasäiliö", "waste_container"),
+    ("molok", "waste_container"),
+    ("deepload", "waste_container"),
+    ("rosk", "bin"),
+    ("kakkapussi", "dispenser"),
+    ("latauspiste", "charger"),
+    ("pyloni", "info_pylon"),
+    ("viitta", "guide_post"),
+    ("talvikunnossapito", "path_sign"),
+    ("talvihoito", "path_sign"),
+    ("opaste", "info_board"),
+    ("opastaulu", "info_board"),
+    ("nimikyltti", "info_board"),
+    ("kalusteryhm", "table"),
+    ("pöytä", "table"),
+    ("poyta", "table"),
+    ("penkki", "bench"),
+    ("sohva", "bench"),
+    ("tuoli", "bench"),
+    ("istutus", "planter"),
+    ("kukka", "planter"),
+    ("amme", "planter"),
+    ("pollari", "bollard"),
+    ("pyör", "bike_rack"),
+    ("pyor", "bike_rack"),
+    ("wc", None),
+    ("katos", None),
+    ("leikki", None),
+    ("keinu", None),
+    ("peli", None),
+)
+BIN_COLOURS = (("vihreä", "green"), ("musta", "black"))
+
+
+def classify(row: dict) -> str | None:
+    """Street-furniture kind of a GIS:Varusteet row, or None for rows that are not drawn."""
+    label = " ".join(str(row.get(k) or "") for k in ("Tyyppi", "Varustelaji", "Malli")).casefold()
+    for needle, kind in VARUSTEET:
         if needle in label:
             return kind
-    return "post"
+    return None
+
+
+def variant(kind: str, row: dict) -> str:
+    """Model variant from register attributes: bin colours and bike-rack lengths."""
+    model_name = str(row.get("Malli") or "").casefold()
+    if kind == "bin":
+        return next((v for needle, v in BIN_COLOURS if needle in model_name), "")
+    if kind == "bike_rack":
+        try:
+            places = int(float(row.get("Pyorapaikkojen_lukumaara") or 0))
+        except ValueError:
+            places = 0
+        # One stand holds two bikes; the shared model has 3 stands.
+        return str(min(8, max(2, (places + 1) // 2))) if places else ""
+    return ""
 
 
 def face_road(x: float, z: float, roads: STRtree | None) -> tuple[float, str]:
@@ -126,10 +210,24 @@ def roadside(x, z, carriageway):
     return edge.x + dx / length * ROADSIDE_OFFSET, edge.y + dz / length * ROADSIDE_OFFSET
 
 
+def _near(tree, x, z, distance):
+    return tree is not None and len(
+        tree.query(shapely.Point(x, z), predicate="dwithin", distance=distance)
+    )
+
+
 def osm_props(frame, bbox, register, carriageway, skipped):
-    """Lamps, bollards and signs mapped in OSM, plus spacing-rule lamps along lit streets."""
+    """OSM furniture, lamps and signs the register lacks, plus spacing-rule lamps along lit streets.
+
+    An OSM item of a register kind is dropped when a register item of that kind lies within
+    OSM_DUPLICATE. Bollards are drawn by the barrier layer, never as props. A lit street gets a
+    rule lamp only at stations with no register or OSM lamp within LAMP_REACH (per station)."""
     result, lit = [], []
     reach = bbox.buffered(LAMP_REACH)
+    by_kind = defaultdict(list)
+    for q in register:
+        by_kind[q.kind].append(shapely.Point(q.x, q.z))
+    registered = {kind: STRtree(points) for kind, points in by_kind.items()}
     for index, row in enumerate(frame.to_dict("records")):
         tags = row.get("tags", {})
         tags = dict(json.loads(tags) if isinstance(tags, str) else tags or {})
@@ -143,10 +241,13 @@ def osm_props(frame, bbox, register, carriageway, skipped):
             continue
         if g.geom_type != "Point" or not reach.contains(g.x, g.y):
             continue
-        if tags.get("highway") == "street_lamp":
-            result.append(Prop(oid, "lamp", g.x, 0, g.y, source="osm"))
-        elif tags.get("barrier") == "bollard":
-            result.append(Prop(oid, "bollard", g.x, 0, g.y, source="osm"))
+        for (key, value), kind in OSM_FURNITURE.items():
+            if tags.get(key) != value:
+                continue
+            if _near(registered.get(kind), g.x, g.y, OSM_DUPLICATE):
+                skipped[f"osm_{kind}_in_register"] += 1
+                continue
+            result.append(Prop(oid, kind, g.x, 0, g.y, source="osm", rank=10))
         for code in sign_codes(tags):
             if any(
                 q.kind == "sign"
@@ -186,14 +287,86 @@ def osm_props(frame, bbox, register, carriageway, skipped):
             station = side.interpolate(float(distance))
             if not bbox.contains(station.x, station.y):
                 continue
-            if tree is not None and len(
-                tree.query(station, predicate="dwithin", distance=LAMP_REACH)
-            ):
+            if _near(tree, station.x, station.y, LAMP_REACH):
+                skipped["lit_station_has_lamp"] += 1
                 continue
             result.append(
-                Prop(f"{oid}:lamp:{n}", "lamp", station.x, 0, station.y, source="osm_lit_street")
+                Prop(
+                    f"{oid}:lamp:{n}",
+                    "lamp",
+                    station.x,
+                    0,
+                    station.y,
+                    source="osm_lit_street",
+                    rank=20,
+                )
             )
     return [p for p in result if bbox.contains(p.x, p.z)]
+
+
+def register_row(source, default, row, skipped):
+    """(kind, code, variant, rank) of one register row; kind None when the row is not drawn."""
+    kind = default or classify(row)
+    if kind is None:
+        label = row.get("Tyyppi") or row.get("Varustelaji")
+        skipped[f"varusteet_skipped:{label}"] += 1
+        return None, "", "", 0
+    code = str(row.get("Varustelaji_koodi") or "") if kind == "sign" else ""
+    if kind == "sign" and code not in SUPPORTED_SIGNS:
+        skipped["unsupported_sign:" + code] += 1
+        kind = "post"
+    rank = LAMP_LAYERS.get(str(row.get("Tasonimi") or ""), 5) if kind == "lamp" else 0
+    return kind, code, variant(kind, row), rank
+
+
+def deduplicate_lamps(lamps, skipped):
+    """One pole per LAMP_DUPLICATE disc: the better-surveyed register row (lower rank) wins."""
+    kept, cells = [], defaultdict(list)
+    for p in sorted(lamps, key=lambda p: (p.rank, p.object_id)):
+        i, j = int(p.x // LAMP_DUPLICATE), int(p.z // LAMP_DUPLICATE)
+        near = (q for di in (-1, 0, 1) for dj in (-1, 0, 1) for q in cells[(i + di, j + dj)])
+        if any(math.hypot(p.x - q.x, p.z - q.z) < LAMP_DUPLICATE for q in near):
+            skipped["duplicate_register_lamp"] += 1
+            continue
+        cells[(i, j)].append(p)
+        kept.append(p)
+    return kept
+
+
+KERB_MOVE = 2.0  # m: furniture at most this far inside a carriageway moves to just past its kerb
+KERB_CLEARANCE = 0.35  # m past the carriageway edge for a moved item
+
+
+def off_carriageway(props, carriageway, skipped):
+    """Nothing but signs stands on a carriageway. A register point up to KERB_MOVE inside one is
+    a survey offset and moves just past the nearest edge. A lamp deeper inside hangs over the
+    street (variant "hung": a light without a post); other furniture deeper inside is dropped."""
+    if carriageway.is_empty:
+        return props
+    boundary = carriageway.boundary
+    kept = []
+    for p in props:
+        point = shapely.Point(p.x, p.z)
+        if p.kind in ("sign", "bus_stop", "post") or not carriageway.covers(point):
+            kept.append(p)
+            continue
+        edge = shapely.ops.nearest_points(boundary, point)[0]
+        depth = edge.distance(point)
+        # Spacing-rule lamps are synthetic: they always belong at the kerb.
+        if depth <= KERB_MOVE or p.source == "osm_lit_street":
+            dx, dz = edge.x - p.x, edge.y - p.z
+            length = math.hypot(dx, dz) or 1.0
+            p.x = edge.x + dx / length * KERB_CLEARANCE
+            p.z = edge.y + dz / length * KERB_CLEARANCE
+            skipped[f"moved_off_carriageway:{p.kind}"] += 1
+            kept.append(p)
+        elif p.kind == "lamp":
+            p.variant = "hung"
+            skipped["lamp_hung_over_carriageway"] += 1
+            kept.append(p)
+        else:
+            skipped[f"dropped_on_carriageway:{p.kind}"] += 1
+    return kept
 
 
 def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=None):
@@ -225,6 +398,7 @@ def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=No
         )
     else:
         missing.append("GIS_Keskilinjat.parquet")
+    lamps = []
     for source, default in SOURCES.items():
         path = source_paths.get(source) if source_paths is not None else root / f"{source}.parquet"
         if path is None or not path.exists():
@@ -239,13 +413,43 @@ def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=No
             # Register objects just past the edge still mark signs and lamps as present.
             if not outer.contains(p.x, p.y):
                 continue
-            kind = default or classify(row)
-            code = str(row.get("Varustelaji_koodi") or "") if kind == "sign" else ""
-            if kind == "sign" and code not in SUPPORTED_SIGNS:
-                skipped["unsupported_sign:" + code] += 1
-                kind = "post"
-            oid = str(row.get("Id") or row["feature_key"])
-            candidates.append(Prop(f"{source}:{oid}", kind, p.x, 0, p.y, code=code, source=source))
+            kind, code, model_variant, rank = register_row(source, default, row, skipped)
+            if kind is None:
+                continue
+            # Separate register objects can share an Id; the fetch's feature key never repeats.
+            prop = Prop(
+                f"{source}:{row['feature_key']}",
+                kind,
+                p.x,
+                0,
+                p.y,
+                code=code,
+                source=source,
+                variant=model_variant,
+                rank=rank,
+            )
+            (lamps if kind == "lamp" else candidates).append(prop)
+    candidates += deduplicate_lamps(lamps, skipped)
+    streets = (
+        (source_paths or {}).get("GIS_Katualueet")
+        if source_paths is not None
+        else root / "GIS_Katualueet.parquet"
+    )
+    # Carriageway areas near the tile (city polygons can be invalid: repair before union).
+    window = shapely.box(*outer.as_tuple())
+    carriageway = (
+        shapely.union_all(
+            [
+                shapely.make_valid(shapely.force_2d(r["geometry_local"]))
+                for r in load(streets).to_dict("records")
+                if r["Katuosalaji"] == "Ajorata"
+                and r["geometry_local"] is not None
+                and r["geometry_local"].intersects(window)
+            ]
+        )
+        if streets is not None and streets.exists()
+        else shapely.Polygon()
+    )
     osm_paths = (
         ([osm_path] if osm_path else [])
         if source_paths is not None
@@ -255,33 +459,14 @@ def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=No
         missing.append("osm/*.parquet")
     else:
         # Dated fetch snapshot: consume the latest one once, never overlapping epochs.
-        streets = (
-            (source_paths or {}).get("GIS_Katualueet")
-            if source_paths is not None
-            else root / "GIS_Katualueet.parquet"
-        )
-        # Carriageway areas near the tile (city polygons can be invalid: repair before union).
-        window = shapely.box(*outer.as_tuple())
-        carriageway = (
-            shapely.union_all(
-                [
-                    shapely.make_valid(shapely.force_2d(r["geometry_local"]))
-                    for r in load(streets).to_dict("records")
-                    if r["Katuosalaji"] == "Ajorata"
-                    and r["geometry_local"] is not None
-                    and r["geometry_local"].intersects(window)
-                ]
-            )
-            if streets is not None and streets.exists()
-            else shapely.Polygon()
-        )
         candidates += osm_props(load(osm_paths[-1]), bbox, candidates, carriageway, skipped)
     candidates = [p for p in candidates if bbox.contains(p.x, p.z)]
+    candidates = off_carriageway(candidates, carriageway, skipped)
     # Preserve separate signs; collapse only same-kind duplicate records at the same location.
-    props, seen, locations = [], set(), defaultdict(list)
+    props, seen, locations = [], set(), set()
     for p in sorted(candidates, key=lambda p: (p.source == "osm", p.object_id)):
         key = (p.kind, p.code, round(p.x, 2), round(p.z, 2))
-        if p.object_id in seen or key in locations["exact"]:
+        if p.object_id in seen or key in locations:
             skipped["duplicates"] += 1
             continue
         # Stop symbols and E6 register records often describe the same pole.
@@ -293,7 +478,7 @@ def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=No
             skipped["duplicate_stop"] += 1
             continue
         seen.add(p.object_id)
-        locations["exact"].append(key)
+        locations.add(key)
         p.yaw, p.orientation = heading(p.kind, p.x, p.z, roads)
         props.append(p)
     return props, {"missing_sources": missing, "skipped": dict(skipped)}
@@ -360,7 +545,13 @@ def visual_bytes(props, tile):
                     "material_key": f"props_{p.kind}",
                     "prop_type": p.kind,
                     **(
-                        {"pole_id": f"{tile.id}:{p.object_id}", "pole_height": 2.7}
+                        {
+                            "pole_id": f"{tile.id}:{p.object_id}",
+                            "pole_height": 2.7,
+                            # World base of the pole: the client reads it instead of searching
+                            # the batched index range for the lowest vertices.
+                            "pole_base": [round(p.x, 3), round(p.y, 3), round(p.z, 3)],
+                        }
                         if p.kind in ("sign", "bus_stop")
                         else {}
                     ),

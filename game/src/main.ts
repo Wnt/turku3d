@@ -20,6 +20,7 @@ import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
+import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
@@ -97,9 +98,11 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   dayClock.set(date);
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
+const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
+  furniture?.remove(model);
   retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
 });
 let graphicsReady = Promise.resolve();
@@ -125,6 +128,7 @@ const renderFrame = () => {
   dayClock.update();
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
+  furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
   if (post) post.render(); else renderer.render(scene, camera);
   frameSubmitted(renderer);
@@ -178,8 +182,8 @@ async function draftWorld() {
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => retireAfterFrame(renderer, release),
-    style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
-    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); await prepareGraphics(m); } });
+    style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
+    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   lights?.attach(coarse);
   return { physics, rapier, manifest, streamer, coarse };

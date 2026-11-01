@@ -44,6 +44,26 @@ test('extracts packed full-tile ranges and detaches only the broken sign', () =>
   expect(root.children).toHaveLength(3);
 });
 
+test('a recorded pole base is used as is, with the same result as the range scan, and no geometry is read', () => {
+  const root = new THREE.Group();
+  root.position.x = 100;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([1, 0, 2, 1.1, 0, 2, 0.9, 0, 2, 1, 2.7, 2], 3));
+  geometry.setIndex([0, 1, 3, 1, 2, 3]);
+  const batch = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  batch.userData.objects = [{ ...sign('scan'), start: 0, count: 6 }];
+  root.add(batch);
+  const [scanned] = extractPoles(root);
+  batch.userData.objects = [{ ...sign('recorded'), start: 0, count: 6, pole_base: [1, 0, 2] }];
+  // Reading the recorded base must not touch the index: drop it to prove that.
+  geometry.setIndex(null);
+  const [recorded] = extractPoles(root);
+  expect(recorded.spec.base).toEqual(scanned.spec.base);
+  expect(recorded.range).toEqual({ mesh: batch, start: 0, count: 6 });
+  batch.userData.objects = [{ ...sign('bad'), start: 0, count: 6, pole_base: [1, 'x', 2] }];
+  expect(extractPoles(root)).toEqual([]);
+});
+
 test('registers already loaded full poles and later draft poles, then removes evicted bodies', () => {
   const model = (id: string, x: number) => {
     const root = new THREE.Group(), node = new THREE.Group();
