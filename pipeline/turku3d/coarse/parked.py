@@ -49,6 +49,7 @@ PEAK = {
     "residential-lot": 0.9,
 }
 MAX_PITCH, MAX_ROLL = 0.12, 0.08  # ground grade along and across a parked car
+SINK = 0.04  # m a tyre may press into ground the grid smooths (a kerb edge)
 
 
 def prepare(tile, osm, streets=None, buildings=None):
@@ -137,25 +138,27 @@ def zone_of(x, z, kind):
 
 def settle(tile, heights, x, z, yaw, width, length):
     """Base height, pitch and roll of a car resting on the ground under its footprint (nose up and
-    leaning right are positive), or None where the ground is too steep to park on."""
+    leaning right are positive), or None where the ground is too steep to park on.
+
+    The base is the least-squares plane through the ground at the corners, edge midpoints and
+    centre, lifted until no sample is more than SINK below it: a single kerb or verge sample
+    must neither tip the car nor leave the rest of it floating."""
     from .surfaces import grid_height
 
     fx, fz = math.sin(yaw), math.cos(yaw)
     rx, rz = -fz, fx  # real-world right of the heading (engine z points south)
     hl, hw = length / 2, width / 2
-
-    def ground(a, b):
-        return grid_height(tile, heights, x + a * fx + b * rx, z + a * fz + b * rz)
-
-    centre = ground(0, 0)
-    along = (ground(hl, 0) - ground(-hl, 0)) / length
-    across = (ground(0, -hw) - ground(0, hw)) / width  # left minus right
+    a, b = (v.ravel() for v in np.meshgrid([-hl, 0, hl], [-hw, 0, hw]))
+    ground = np.array(
+        [grid_height(tile, heights, x + u * fx + v * rx, z + u * fz + v * rz) for u, v in zip(a, b)]
+    )
+    # The samples are symmetric about the centre, so the fit separates into means and slopes.
+    centre = float(ground.mean())
+    along = float((ground * a).sum() / (a * a).sum())
+    across = -float((ground * b).sum() / (b * b).sum())  # left minus right, per metre
     if abs(along) > MAX_PITCH or abs(across) > MAX_ROLL:
         return None
-    # Lift the tilted base until no corner or edge midpoint is below the ground.
-    lift = max(
-        ground(a, b) - (centre + a * along - b * across) for a in (-hl, 0, hl) for b in (-hw, 0, hw)
-    )
+    lift = float((ground - (centre + a * along - b * across)).max()) - SINK
     return centre + max(0.0, lift), math.atan(along), math.atan(across)
 
 
