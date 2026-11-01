@@ -2,6 +2,7 @@
 import { OFFICE_EN } from './origin';
 import { mobileDevice, parseQuality, type QualityTier } from '../render/quality';
 import type { Antialiasing } from '../render/post';
+import { benchPose, type BenchPose } from '../qa/bench';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
  *  clockwise seen from behind, fov = VERTICAL degrees (three.js camera.fov), H = absolute camera height N2000. */
@@ -11,6 +12,8 @@ interface Params {
   /** ?backend= or ?webgl was in the URL (the touch-device default does not override it). */
   backendGiven: boolean;
   qa: QaCam | null;
+  /** ?bench=camera&id=<street camera>[&at=HH:MM]: the fixed-camera bench probe (qa/bench.ts); implies its QA pose. */
+  bench: BenchPose | null;
   /** QA render pass: 'color' (default) or 'id' (flat unlit object ids, qa/README.md §2). */
   pass: 'color' | 'id';
   time: Date;
@@ -40,10 +43,17 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     if (!(cam[5] > 0 && cam[5] < 180)) throw new Error(`bad ?cam= fov (vertical degrees, 0..180): ${cam[5]}`);
     qa = { E: cam[0], N: cam[1], H: cam[2], yawDeg: cam[3], pitchDeg: cam[4], fovDeg: cam[5], rollDeg: roll };
   }
+  let bench: BenchPose | null = null;
+  if (p.has('bench')) {
+    if (p.get('bench') !== 'camera') throw new Error(`bad ?bench= (camera): ${p.get('bench')}`);
+    if (cam) throw new Error('?bench=camera takes its pose from ?id=, not ?cam=');
+    bench = benchPose(p.get('id') ?? '', p.get('at'));
+    qa = bench.qa;
+  }
   const passStr = (p.get('pass') ?? 'color').toLowerCase();
   if (passStr !== 'color' && passStr !== 'id') throw new Error(`bad ?pass= (color|id): ${passStr}`);
   const timeStr = p.get('time');
-  const time = new Date(timeStr ?? DEFAULT_TIME);
+  const time = bench && timeStr === null ? bench.time : new Date(timeStr ?? DEFAULT_TIME);
   if (Number.isNaN(time.getTime())) throw new Error(`bad ?time= (want ISO-8601): ${timeStr}`);
   const sp = nums(p.get('spawn'));
   const colRadius = Number(p.get('colRadius') ?? 200);
@@ -57,9 +67,10 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     backend,
     backendGiven: p.has('backend') || p.has('webgl'),
     qa,
+    bench,
     pass: passStr,
     time,
-    timeGiven: timeStr !== null,
+    timeGiven: timeStr !== null || bench !== null,
     spawnGiven: sp !== null,
     spawn: { E: sp?.[0] ?? OFFICE_EN.E, N: sp?.[1] ?? OFFICE_EN.N, headingDeg: sp?.[2] ?? 0 },
     hud: p.get('hud') !== '0',

@@ -105,6 +105,9 @@ export class PostProcessing {
     await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext, false, this.beautyDepth);
   }
 
+  /** The prepass and scene-pass render targets, so the bench probe (qa/bench.ts) can attribute draws to passes. */
+  get passTargets() { return { prepass: this.pre?.renderTarget, beauty: this.beauty.renderTarget }; }
+
   render() {
     // Prepass, beauty, cascades and river reflection share world transforms for this frame.
     // Avoid recursively recomputing every object's matrices in each Renderer.render call.
