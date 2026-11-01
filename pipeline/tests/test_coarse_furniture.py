@@ -169,7 +169,7 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     props = [
         Prop("bench-wall", "bench", 100.5, 0, 110),  # 0.5 m inside the house
         Prop("bench-in", "bench", 110, 0, 110),  # deep inside: dropped
-        Prop("lamp-facade", "lamp", 119, 0, 105),  # register lamp on the facade
+        Prop("lamp-wall", "lamp", 119, 0, 105),  # register pole 1 m inside the footprint
         Prop("lamp", "lamp", 50, 0, 58),
         Prop("bin-lake", "bin", 220, 0, 220),
         Prop("bench-quay", "bench", 201, 0, 220),  # 1 m into the lake: the quay edge
@@ -186,21 +186,19 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     assert stats["moved_out_of_water:bench"] == 1 and stats["skipped_unsupported_sign"] == 1
     quay = next(p for p in result["props"] if p.object_id == "bench-quay")
     assert quay.x == pytest.approx(199.7)
-    assert stats["lamp_on_facade"] == 1
+    assert stats["moved_out_of_building:lamp"] == 1
     bench = next(p for p in result["props"] if p.object_id == "bench-wall")
     assert bench.x == pytest.approx(99.7) and bench.y == 1.0
     assert {p.kind for p in result["props"]} == {"bench", "table", "bus_stop"}
     assert [p.object_id for p in result["poles"]] == ["stop"]  # parked-car bay masks
     lights, posts = decode(result["lights"])
-    assert len(posts) == 1 and posts[0]["x"] == 50
-    assert sum(light["category"] == "hung" for light in lights) == 1
-    hung = next(light for light in lights if light["category"] == "hung")
-    assert hung["x"] == pytest.approx(120.3) and hung["y"] == pytest.approx(6.5)
+    assert len(posts) == 2 and not any(light["category"] == "hung" for light in lights)
+    assert sorted(round(p["x"], 2) for p in posts) == [50, 120.3]  # by the wall, not on the roof
     prims = [p for cell in result["collision"].values() for p in cell]
     kinds = Counter(p.kind for p in prims)
     from turku3d.col.format import PRIM_BOX, PRIM_CYLINDER
 
-    assert kinds[PRIM_CYLINDER] == 1 and kinds[PRIM_BOX] == 5  # post; 2 benches x2, table
+    assert kinds[PRIM_CYLINDER] == 2 and kinds[PRIM_BOX] == 5  # 2 posts; 2 benches x2, table
     js, _ = read_glb(result["glb"])
     types = sorted(n["extras"]["prop_type"] for n in js["nodes"][1:])
     assert types == ["bench", "bench", "bus_stop", "table"]

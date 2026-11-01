@@ -4,8 +4,8 @@ Input is the tile's prepared ``poles`` list (``turku3d.props.read_sources``: reg
 fallback, the lit-street rule only where neither has a lamp, nothing left on a carriageway). This
 stage places it against the tile's own ground, buildings, water and bridge decks:
 
-* furniture and signs at most ``BUILDING_MOVE`` inside a building footprint move just outside it;
-  deeper ones are dropped. A register lamp just inside a footprint is mounted on that facade;
+* furniture and signs at most ``BUILDING_MOVE`` (lamp poles ``LAMP_MOVE``) inside a building
+  footprint move just outside it; deeper ones are dropped;
 * anything on a bridge/tunnel deck is dropped (decks carry their own furniture); an item at most
   ``WATER_MOVE`` inside a water polygon (quay edges) moves onto the land, deeper ones are dropped;
 * traffic signs whose code has no face (kind ``post``) are not drawn, as before G1;
@@ -33,8 +33,7 @@ from shapely.strtree import STRtree
 from turku3d import config as C
 
 BUILDING_MOVE = 1.0  # m inside a footprint that a register point may be off (survey offset)
-FACADE_LAMP = 1.5  # m: a lamp this far inside a footprint hangs on that facade
-FACADE_LAMP_HEIGHT = 5.5  # m above the street
+LAMP_MOVE = 1.5  # m inside a footprint that a register lighting pole may be off
 CLEARANCE = 0.3  # m outside the footprint for a moved item
 WATER_MOVE = 1.5  # m inside a water polygon that a quay-edge register point may be off
 WALL_LIGHT_NEAR_LAMP = 3.0  # m: a facade light this close to a street light is that light
@@ -123,12 +122,11 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
             stats[f"moved_out_of_water:{p.kind}"] += 1
         inside = [footprints[i] for i in buildings.query(point)] if buildings is not None else []
         inside = [f for f in inside if f.covers(point)]
-        facade = None
         if inside:
             depth, x, z = _outside(inside[0], point)
-            if p.kind == "lamp" and depth <= FACADE_LAMP:
-                facade = (x, z)
-            elif p.kind != "lamp" and depth <= BUILDING_MOVE:
+            # The register lists lighting poles only: a pole just inside a footprint stands by
+            # that wall (survey offset or a recess), never on the roof.
+            if depth <= (LAMP_MOVE if p.kind == "lamp" else BUILDING_MOVE):
                 p.x, p.z = x, z
                 stats[f"moved_out_of_building:{p.kind}"] += 1
             else:
@@ -139,12 +137,6 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
             continue
         p.y = height_at(p.x, p.z)
         if p.kind == "lamp":
-            if facade is not None:
-                x, z = facade
-                y = height_at(x, z) + FACADE_LAMP_HEIGHT
-                lights.append(Light(x, y, z, "hung", "led", True))
-                stats["lamp_on_facade"] += 1
-                continue
             if p.variant == "hung":
                 lights.append(Light(p.x, p.y + 7.0, p.z, "hung", "led", True))
                 stats["lamp_hung"] += 1

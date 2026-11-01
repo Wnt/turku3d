@@ -32,7 +32,7 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   `lit=yes` lamp rule only at stations with no lamp within 20 m. Bollards stay in the barrier layer.
   Nothing but signs stands on a carriageway: a register point up to 2 m inside one moves just past its
   kerb, a deeper lamp hangs over the street. The stage then moves furniture just inside a building
-  footprint outside it (deeper: dropped), mounts register lamps on the facade they touch, moves quay-edge
+  footprint (lamp poles 1.5 m) outside it (deeper: dropped), moves quay-edge
   items up to 1.5 m inside a water polygon onto the land (deeper: dropped), drops anything on a
   bridge/tunnel deck and sign posts whose code has no face, and sets every base on the draft ground grid. Lamps become the
   manifest's `lights` list (16 B records: post base and head, hung lights, facade lights found along
