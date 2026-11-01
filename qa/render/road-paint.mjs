@@ -3,8 +3,9 @@
 //   node qa/render/road-paint.mjs ROOT OUT [tile ...]
 // ROOT holds built draft tiles (<tile>/vis.glb, <tile>/roads.json, shared/); OUT receives PNGs and views.json.
 // Needs the Vite dev server of this checkout on TURKU3D_PORT_BASE (npm --prefix game run dev).
-// Views come from each tile's roads.json: a top-down overview, a top-down zoom on the busiest junction, and
-// street-level oblique views at a signal stop line, a zebra, a centre line, a seam-crossing edge and a bridge deck.
+// Views come from each tile's roads.json: a top-down overview, and top-down zooms plus street-level oblique views
+// at a rule zebra, a signal stop line, a centre line, a seam-crossing edge and a bridge deck.
+// ROAD_PAINT_VIEWS=zebra,bridge limits the views to names containing one of the words.
 import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../tools/dev/chrome-args.mjs';
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -55,33 +56,51 @@ function street(name, tile, p, sense = 1, back = 16, side = 1.6) {
   return { name, tile, target: [p.x, p.y + 0.5, p.z], position: [p.x - hx * back + rx * side, p.y + 3.2, p.z - hz * back + rz * side], fov: 60 };
 }
 
+// Top-down: a narrow field of view from high up keeps buildings from hiding the street.
+function top(name, tile, x, y, z, extent, size = 1600) {
+  const height = Math.max(120, extent * 3);
+  // A near plane close to the ground keeps 8 mm paint above the asphalt in a 24-bit depth buffer.
+  return { name, tile, target: [x, y, z], position: [x, y + height, z + 0.01], near: height - 60,
+    fov: 2 * Math.atan(extent / 2 / height) * 180 / Math.PI, width: size, height: size };
+}
+
 const views = [];
+const only = process.env.ROAD_PAINT_VIEWS?.split(',');
 for (const tile of tiles) {
   const graph = JSON.parse(fs.readFileSync(path.join(root, tile, 'roads.json'), 'utf8'));
   const [x0, z0, x1, z1] = graph.bbox, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const list = edges(graph), car = list.filter(e => e.flags & 2);
   const yMid = car.find(e => e.ys)?.ys[0] ?? 5;
-  views.push({ name: `${tile}-top`, tile, target: [cx, yMid, cz], position: [cx, yMid + 250, cz + 0.01], fov: 60, width: 2048, height: 2048 });
-  let best = null;
-  for (let i = 0; i < graph.nodeFlags.length; i++) {
-    const score = (graph.nodeFlags[i] & 1 ? 1 : 0) + (graph.nodeFlags[i] & 2 ? 2 : 0) + (graph.nodeFlags[i] & 4 ? 1 : 0);
-    const x = graph.nodes[2 * i], z = graph.nodes[2 * i + 1];
-    if (x - x0 < 25 || x1 - x < 25 || z - z0 < 25 || z1 - z < 25) continue;
-    if (score && (!best || score > best.score)) best = { score, x, z };
-  }
-  if (best) views.push({ name: `${tile}-junction-top`, tile, target: [best.x, yMid, best.z], position: [best.x, yMid + 55, best.z + 0.01], fov: 60, width: 1600, height: 1600 });
+  views.push(top(`${tile}-top`, tile, cx, yMid, cz, 262, 2048));
   const pick = (test) => { for (const e of car) for (const ev of e.events) if (test(e, ev)) return { e, ev }; return null; };
+  const zebra = pick((e, ev) => (ev.code & 15) === CROSSING && ev.code & MARKED && !(ev.code & EXPLICIT) && !(ev.code & 512));
+  if (zebra) {
+    const p = at(zebra.e, zebra.ev.s);
+    views.push(top(`${tile}-zebra-top`, tile, p.x, p.y, p.z, 40));
+    views.push(street(`${tile}-zebra`, tile, p, 1, 14, 0.5));
+  }
   const stop = pick((e, ev) => (ev.code & 15) === SIGNAL && (e.attrs.flags & EDGE.SMOOTH));
-  if (stop) views.push(street(`${tile}-stopline`, tile, at(stop.e, stop.ev.s), stop.ev.code & 16 ? 1 : -1));
-  const zebra = pick((e, ev) => (ev.code & 15) === CROSSING && ev.code & MARKED && !(ev.code & EXPLICIT));
-  if (zebra) views.push(street(`${tile}-zebra`, tile, at(zebra.e, zebra.ev.s), 1, 14, 2.5));
+  if (stop) {
+    const p = at(stop.e, stop.ev.s);
+    views.push(top(`${tile}-stop-top`, tile, p.x, p.y, p.z, 40));
+    views.push(street(`${tile}-stopline`, tile, p, stop.ev.code & 16 ? 1 : -1));
+  }
   const centre = car.filter(e => e.attrs.lanes_bwd > 0 && e.attrs.flags & EDGE.SMOOTH && e.length > 40).sort((p, q) => q.length - p.length)[0];
   if (centre) views.push(street(`${tile}-centre`, tile, at(centre, centre.length / 2), 1, 22, 1.6));
-  const seam = car.find(e => e.attrs.s0 > 0 && e.attrs.lanes_bwd > 0 && e.length > 8);
-  if (seam) views.push(street(`${tile}-seam`, tile, at(seam, 2), 1, 12, 1.6));
+  const seam = car.find(e => e.attrs.s0 > 0 && e.attrs.lanes_bwd > 0 && e.length > 8 && e.attrs.flags & EDGE.SMOOTH);
+  if (seam) {
+    const p = at(seam, 0);
+    views.push(top(`${tile}-seam-top`, tile, p.x, p.y, p.z, 40));
+    views.push(street(`${tile}-seam`, tile, at(seam, 2), 1, 12, 1.6));
+  }
   const bridge = car.filter(e => e.attrs.flags & EDGE.BRIDGE).sort((p, q) => q.length - p.length)[0];
-  if (bridge) views.push(street(`${tile}-bridge`, tile, at(bridge, bridge.length / 2), 1, 20, 1.6));
+  if (bridge) {
+    const p = at(bridge, bridge.length / 2);
+    views.push(top(`${tile}-bridge-top`, tile, p.x, p.y, p.z, 60));
+    views.push(street(`${tile}-bridge`, tile, p, 1, 20, 1.6));
+  }
 }
+if (only) views.splice(0, views.length, ...views.filter(v => only.some(o => v.name.includes(o))));
 fs.writeFileSync(path.join(out, 'views.json'), JSON.stringify(views, null, 1));
 
 const sceneFile = 'game/__road-paint.js', pageFile = 'game/__road-paint.html', link = 'game/public/__road-paint';
@@ -108,7 +127,7 @@ for(const tile of ${JSON.stringify(all)}){
  tintDraft(model,renderer);batchTileShadows(model);lod.add(model);scene.add(model);
 }
 window.probe={async view(v){
- camera.position.set(...v.position);camera.fov=v.fov??60;camera.aspect=(v.width??1280)/(v.height??720);camera.updateProjectionMatrix();
+ camera.position.set(...v.position);camera.near=v.near??0.1;camera.fov=v.fov??60;camera.aspect=(v.width??1280)/(v.height??720);camera.updateProjectionMatrix();
  renderer.setSize(v.width??1280,v.height??720);camera.lookAt(new THREE.Vector3(...v.target));camera.updateMatrixWorld();
  env.follow(camera.position);env.updateIBL();
  for(let i=0;i<40;i++){lod.update(camera);post.render();await new Promise(requestAnimationFrame);}

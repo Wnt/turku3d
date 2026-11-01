@@ -318,9 +318,13 @@ def controllers(points) -> dict:
 
 def _crossing_code(tags: dict, explicit: bool) -> int:
     code = EVENT_KINDS["CROSSING"] | BOTH
-    markings = str(tags.get("crossing:markings", "yes"))
+    markings = str(tags.get("crossing:markings", ""))
     kind = tags.get("crossing")
+    # Zebra paint only where OSM says so; an untagged crossing (often a driveway mouth) stays bare.
     zebra = markings == "yes" or markings.startswith(("zebra", "ladder"))
+    zebra = zebra or (
+        not markings and kind in ("marked", "zebra", "uncontrolled", "traffic_signals")
+    )
     if zebra and kind not in ("unmarked", "no", "informal"):
         code |= EVENT_BITS["MARKED"]
     if kind == "traffic_signals" or tags.get("crossing:signals") == "yes":

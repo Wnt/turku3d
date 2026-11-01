@@ -168,8 +168,9 @@ value, as above and in 3.7) and `"highways"` (the list the `highway` column inde
   - kind (low 4 bits): `1` SIGNAL (stop position of a traffic signal), `2` CROSSING (pedestrian or
     cycle crossing point on the carriageway), `3` GIVE_WAY, `4` STOP;
   - direction: `16` FORWARD (applies to a→b traffic), `32` BACKWARD (b→a); both bits = both;
-  - detail (crossings): `64` MARKED (zebra paint, i.e. not `crossing:markings=no` /
-    `crossing=unmarked`), `128` SIGNALISED (`crossing=traffic_signals`), `256` EXPLICIT (an OSM
+  - detail (crossings): `64` MARKED (zebra paint: `crossing:markings=yes|zebra*|ladder*`, or no
+    markings tag and `crossing=marked|zebra|uncontrolled|traffic_signals`; never with
+    `crossing=unmarked|no|informal`), `128` SIGNALISED (`crossing=traffic_signals`), `256` EXPLICIT (an OSM
     crossing way exists; its own geometry carries the paint), `512` CYCLE (cycle crossing).
 - `ref`: index into `controllers` for SIGNAL and SIGNALISED crossings, else `-1`.
 

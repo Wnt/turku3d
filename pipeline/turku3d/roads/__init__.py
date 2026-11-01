@@ -76,8 +76,9 @@ def reversed_oneway(tags: dict) -> bool:
 
 def osm_ways(path: Path, bbox):
     """(engine x/z vertices, flags) of every OSM highway in the parquet at `path`, clipped to `bbox`."""
-    from turku3d.spatial import frame as spatial_frame
     from shapely import box, get_parts
+
+    from turku3d.spatial import frame as spatial_frame
 
     frame = spatial_frame(path, bbox)
     frame = frame[frame["highway"].notna()]

@@ -31,6 +31,9 @@ STRIPE, PERIOD = 0.5, 1.0  # m: zebra bars across the walking direction
 STOP_WIDTH = 0.5  # m
 CROSSING_CLEAR = 2.5  # m: lines stop this far either side of a zebra centre
 EDGE_INSET = 0.25  # m: edge line centre inside the carriageway edge
+# m past the lane-rule carriageway edge: zebras and stop lines reach the real kerb, where the drape onto
+# road triangles cuts them (OSM centrelines and default widths rarely match the surveyed kerbs).
+KERB_REACH = 1.5
 CENTRE_CLASSES = MAJOR | {
     "tertiary",
     "motorway_link",
@@ -182,7 +185,7 @@ def markings(graph: dict | None) -> list:
                 continue
             centre, tangent = _frame(points, cumulative, s)
             key = (round(centre[0] * 2), round(centre[1] * 2))
-            reach = half + 0.75
+            reach = half + KERB_REACH
             n = math.ceil(reach / PERIOD)
             bars = [
                 _rect(
@@ -193,7 +196,9 @@ def markings(graph: dict | None) -> list:
                 )
                 for k in range(-n, n + 1)
             ]
-            crossings.setdefault(key, (bars, deck))
+            # A crossing on a node is on every car edge there: the widest carriageway is the one crossed.
+            if key not in crossings or crossings[key][2] < attrs["width"]:
+                crossings[key] = (bars, deck, attrs["width"])
 
         # Stop lines at signal and stop-sign positions, ahead of any zebra.
         for s, code in events:
@@ -222,8 +227,9 @@ def markings(graph: dict | None) -> list:
                 if not 0.3 <= at <= length - 0.3:
                     continue
                 centre, tangent = _frame(points, cumulative, at)
+                edge = half + KERB_REACH
                 across = (
-                    (o_div, half) if forward and bwd else (-half, o_div) if bwd else (-half, half)
+                    (o_div, edge) if forward and bwd else (-edge, o_div) if bwd else (-edge, edge)
                 )
                 along = (-STOP_WIDTH, 0.0) if forward else (0.0, STOP_WIDTH)
                 key = (round(centre[0] * 2), round(centre[1] * 2), forward)
@@ -257,7 +263,7 @@ def markings(graph: dict | None) -> list:
                 items.extend(
                     (p, WHITE, deck, "edge") for p in _line(line, solid, offset, RURAL_WIDTH)
                 )
-    for bars, deck in crossings.values():
+    for bars, deck, _ in crossings.values():
         items.extend((bar, WHITE, deck, "crosswalk") for bar in bars)
     for poly, deck in stops.values():
         items.append((poly, WHITE, deck, "stop"))
