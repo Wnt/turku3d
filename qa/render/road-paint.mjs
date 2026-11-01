@@ -87,7 +87,9 @@ for (const tile of tiles) {
   }
   const centre = car.filter(e => e.attrs.lanes_bwd > 0 && e.attrs.flags & EDGE.SMOOTH && e.length > 40).sort((p, q) => q.length - p.length)[0];
   if (centre) views.push(street(`${tile}-centre`, tile, at(centre, centre.length / 2), 1, 22, 1.6));
-  const seam = car.find(e => e.attrs.s0 > 0 && e.attrs.lanes_bwd > 0 && e.length > 8 && e.attrs.flags & EDGE.SMOOTH);
+  const lined = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'];
+  const seam = car.find(e => e.attrs.s0 > 0 && e.attrs.lanes_bwd > 0 && e.length > 8 && e.attrs.flags & EDGE.SMOOTH
+    && lined.includes(graph.bits.highways[e.attrs.highway]));
   if (seam) {
     const p = at(seam, 0);
     views.push(top(`${tile}-seam-top`, tile, p.x, p.y, p.z, 40));
