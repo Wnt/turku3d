@@ -543,7 +543,7 @@ def texture(surface):
 
 
 def surfaces(way, polygon, height_at):
-    """Mapped pedestrian strips, lane paint and railway tracks on the same surveyed deck."""
+    """Mapped pedestrian strips and railway tracks on the same surveyed deck."""
     from .bridges import number, samples, slab
 
     meshes = []
@@ -591,32 +591,6 @@ def surfaces(way, polygon, height_at):
                 line = np.array([p - n * 1.25, p + n * 1.25])
                 ys = height_at(line)
                 meshes.append(wall(key, line, ys + 0.02, ys + 0.12, 0.22, "concrete", "gravel"))
-        if spec["foot"] or spec["railway"]:
-            continue
-        lanes = max(1, min(8, int(number(tags.get("lanes"), 2))))
-        road_width = min(member["width"] - 0.7, lanes * 3.25)
-        for lane in range(1, lanes):
-            offset = -road_width / 2 + road_width * lane / lanes
-            stripe = axis.offset_curve(offset)
-            if stripe.geom_type != "LineString":
-                continue
-            # Lane paint has no separate collision shell or curb.
-            for station in np.arange(1, stripe.length - 2, 6):
-                a = stripe.interpolate(float(station))
-                b = stripe.interpolate(float(min(station + 3, stripe.length)))
-                mark = (
-                    shapely.LineString([a, b]).buffer(0.06, cap_style="flat").intersection(polygon)
-                )
-                parts = slab(
-                    key + ":marking",
-                    mark,
-                    axis,
-                    s,
-                    hh,
-                    "road",
-                    lambda p: height_at(p) + 0.012,
-                    0.005,
-                )
-                if parts:
-                    meshes.append(appearance(parts[0], "paint", collision=False))
+        # Lane paint on road decks comes from the road graph (turku3d.roads.paint), draped in the
+        # tile's one road_paint mesh with the Finnish centre-line colour.
     return combine(meshes, key + ":surface")

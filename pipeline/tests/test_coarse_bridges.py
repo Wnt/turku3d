@@ -433,7 +433,7 @@ def test_skew_abutment_fills_wedge_on_mapped_continuation(monkeypatch):
     assert not deck["outline"].covers(shapely.Point(59.5, 17))
 
 
-def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
+def test_deck_pavement_makes_no_extra_collision_slab_and_lane_paint_is_road_paint():
     from turku3d.coarse.bridge_details import surfaces
 
     road = way("road", [(0, 0), (30, 0)], width=8)
@@ -441,8 +441,8 @@ def test_deck_pavement_and_paint_do_not_make_extra_collision_slabs():
     walk = way("walk", [(0, 5), (30, 5)], width=3)
     road["member_ways"] = [road.copy(), walk]
     meshes = surfaces(road, shapely.box(0, -5, 30, 7), lambda p: np.full(len(p), 5.0))
-    paint = [m for m in meshes if m.metadata["surface"] == "paint"]
-    assert paint and all(not m.metadata["collision"] for m in paint)
+    # Deck lane paint comes from the road graph's rule paint (turku3d.roads.paint), not the deck.
+    assert not [m for m in meshes if m.metadata["surface"] == "paint"]
     pavement = [m for m in meshes if m.material == "sidewalk"]
     assert pavement and max(p.positions[:, 1].max() for p in pavement) == 5.14
 

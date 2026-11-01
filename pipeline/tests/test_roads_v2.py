@@ -263,10 +263,6 @@ def test_real_tiles_agree_on_shared_edges(monkeypatch):
     assert all(r[1][2] & CAR or r[2]["lanes_fwd"] == 0 for g in graphs for r in rows(g))
 
 
-if __name__ == "__main__":
-    FIXTURE.write_text(json.dumps(fixture_graphs(), separators=(",", ":")) + "\n")
-
-
 def test_paint_colours_survive_the_layer_round_trip(tmp_path):
     """Yellow centre lines live in COLOR_0 of the one paint mesh; wall assembly re-reads layers."""
     import numpy as np
@@ -285,3 +281,32 @@ def test_paint_colours_survive_the_layer_round_trip(tmp_path):
     write_visual(tmp_path / "ground.vis.glb", [mesh])
     (read,) = layer_meshes([tmp_path / "ground.vis.glb"])
     assert np.allclose(read.colors, colours)
+
+
+def test_deck_paint_lies_on_the_built_deck_and_ground_paint_stays_below():
+    """A bridge edge's paint sits on the built deck (clipped to the tile); a street under it does not."""
+    import numpy as np
+    from turku3d.coarse.bridges import Deck
+    from turku3d.coarse.surfaces import DECK_PAINT_LIFT, paint_visual
+    from turku3d.col.materials import mat_id
+
+    tile = TILE_A
+    positions = np.array([[0, 1, 0], [250, 1, 0], [250, 1, 250], [0, 1, 250]], float)
+    indices = np.array([[0, 2, 1], [0, 3, 2]])
+    materials = np.array([mat_id("road"), mat_id("road")])
+    line = shapely.LineString([(100, 120), (300, 120)])
+    deck = Deck({"width": 10.0}, line, np.array([0.0, 200.0]), np.array([8.0, 10.0]), [], None)
+    on_deck = (shapely.box(150, 118, 300, 122), road_paint.YELLOW, True, "centre")
+    under = (shapely.box(120, 150, 130, 151), road_paint.WHITE, False, "stop")
+    keep = np.ones(2, bool)
+    mesh = paint_visual(tile, positions, indices, materials, keep, [on_deck, under], [deck])
+    p = mesh.positions + np.asarray(tile.origin)
+    yellow = np.all(np.isclose(mesh.colors, road_paint.YELLOW), axis=1)
+    assert p[yellow][:, 0].max() <= 250.0 + 1e-6  # clipped to the tile; the neighbour paints on
+    expected = np.interp(p[yellow][:, 0] - 100, [0, 200], [8, 10]) + DECK_PAINT_LIFT
+    assert np.allclose(p[yellow][:, 1], expected, atol=1e-3)
+    assert np.allclose(p[~yellow][:, 1], 1.008)
+
+
+if __name__ == "__main__":
+    FIXTURE.write_text(json.dumps(fixture_graphs(), separators=(",", ":")) + "\n")

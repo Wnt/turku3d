@@ -413,13 +413,26 @@ def mapped_paint(tile, path):
     return result
 
 
-def paint_visual(tile, positions, indices, materials, keep, polygons):
-    """Intersect paint with each dry road triangle and interpolate its actual plane.
+DECK_PAINT_LIFT = 0.012  # m above a built bridge deck's top surface
+GROUND_PAINT_LIFT = 0.008  # m above the road triangle's plane
+
+
+def _deck_height(deck, xz):
+    """Deck top Y at x/z points: the deck's own sampler, else its axis profile."""
+    if deck.height_at is not None:
+        return np.asarray(deck.height_at(xz), float)
+    stations = shapely.line_locate_point(deck.line, shapely.points(xz))
+    return np.interp(stations, deck.stations, deck.heights)
+
+
+def paint_visual(tile, positions, indices, materials, keep, polygons, decks=()):
+    """Drape road paint on the tile's road surface: one ``road_paint`` mesh, colours in COLOR_0.
 
     ``polygons`` holds explicit OSM marking polygons (white, any road triangle) and rule paint
-    items ``(polygon, rgb, deck, kind)`` from ``turku3d.roads.paint``: a ground item is draped on
-    road triangles only, a deck item only on bridge-deck triangles, so a street passing under a
-    bridge never paints the deck above it. ``rgb`` multiplies the shared paint colour."""
+    items ``(polygon, rgb, deck, kind)`` from ``turku3d.roads.paint``. A deck item lies on a built
+    bridge deck (``decks``, at its top surface) and on road triangles only where no deck carries it;
+    a ground item never lands on bridge-deck triangles, so a street passing under a bridge never
+    paints the deck above it. ``rgb`` multiplies the shared paint colour."""
     import mapbox_earcut
 
     from turku3d.structures.geometry import Faces
@@ -430,38 +443,66 @@ def paint_visual(tile, positions, indices, materials, keep, polygons):
         materials, [mat_id(k) for k in ("road", "crossing", "cycleway", "bridge_deck")]
     )
     triangles = positions[indices[selected]]
-    if not len(triangles):
-        return None
     on_deck = materials[selected] == mat_id("bridge_deck")
-    footprints = shapely.polygons(triangles[:, :, [0, 2]])
-    tree = shapely.STRtree(footprints)
+    footprints = shapely.polygons(triangles[:, :, [0, 2]]) if len(triangles) else []
+    tree = shapely.STRtree(footprints) if len(triangles) else None
+    window = shapely.box(*tile.bbox.as_tuple())
+    deck_shapes = []
+    for deck in decks:
+        outline = deck.way.get(
+            "outline",
+            deck.line.buffer(deck.way["width"] / 2, cap_style="flat", join_style="mitre"),
+        )
+        shape = outline.buffer(-0.3).intersection(window)
+        if not shape.is_empty:
+            deck_shapes.append((shape, deck))
     faces = Faces()
     colours = []
+
+    def emit(geometry, height, rgb):
+        for part in getattr(geometry, "geoms", [geometry]):
+            if part.geom_type != "Polygon" or part.area < 0.0001:
+                continue
+            rings = [np.asarray(r.coords)[:-1] for r in [part.exterior, *part.interiors]]
+            xz = np.concatenate(rings)
+            ix = mapbox_earcut.triangulate_float64(
+                xz, np.cumsum([len(r) for r in rings]).astype(np.uint32)
+            ).reshape(-1, 3)
+            p = np.c_[xz[:, 0], height(xz), xz[:, 1]]
+            for tri in ix:
+                v = p[tri]
+                if np.cross(v[1] - v[0], v[2] - v[0])[1] < 0:
+                    v = v[::-1]
+                faces.face(v, v[:, [0, 2]])
+                colours.extend([rgb or (1.0, 1.0, 1.0)] * 3)
+
     for item in polygons:
         polygon, rgb, deck = (
             (item[0], item[1], item[2]) if isinstance(item, tuple) else (item, None, None)
         )
-        for index in tree.query(polygon, predicate="intersects"):
-            if deck is not None and bool(on_deck[index]) != deck:
+        if deck:
+            for shape, built in deck_shapes:
+                if shape.intersects(polygon):
+                    emit(
+                        polygon.intersection(shape),
+                        lambda xz, built=built: _deck_height(built, xz) + DECK_PAINT_LIFT,
+                        rgb,
+                    )
+                    polygon = polygon.difference(shape)
+            if polygon.is_empty:
                 continue
-            clipped = polygon.intersection(footprints[index])
-            for part in getattr(clipped, "geoms", [clipped]):
-                if part.geom_type != "Polygon" or part.area < 0.0001:
-                    continue
-                rings = [np.asarray(r.coords)[:-1] for r in [part.exterior, *part.interiors]]
-                xz = np.concatenate(rings)
-                ix = mapbox_earcut.triangulate_float64(
-                    xz, np.cumsum([len(r) for r in rings]).astype(np.uint32)
-                ).reshape(-1, 3)
-                triangle = triangles[index]
-                plane = np.linalg.solve(np.c_[triangle[:, [0, 2]], np.ones(3)], triangle[:, 1])
-                p = np.c_[xz[:, 0], np.c_[xz, np.ones(len(xz))] @ plane + 0.008, xz[:, 1]]
-                for tri in ix:
-                    v = p[tri]
-                    if np.cross(v[1] - v[0], v[2] - v[0])[1] < 0:
-                        v = v[::-1]
-                    faces.face(v, v[:, [0, 2]])
-                    colours.extend([rgb or (1.0, 1.0, 1.0)] * 3)
+        if tree is None:
+            continue
+        for index in tree.query(polygon, predicate="intersects"):
+            if deck is False and on_deck[index]:
+                continue
+            triangle = triangles[index]
+            plane = np.linalg.solve(np.c_[triangle[:, [0, 2]], np.ones(3)], triangle[:, 1])
+            emit(
+                polygon.intersection(footprints[index]),
+                lambda xz, plane=plane: np.c_[xz, np.ones(len(xz))] @ plane + GROUND_PAINT_LIFT,
+                rgb,
+            )
     if not faces.indices:
         return None
     return GlbMesh(

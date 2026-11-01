@@ -578,7 +578,7 @@ def build(
 
     def draped_paint():
         rule = road_paint.markings(json.loads(road_graph) if road_graph else None)
-        paint = surfaces.paint_visual(*paint_args[:-1], [*inputs.markings, *rule])
+        paint = surfaces.paint_visual(*paint_args[:-1], [*inputs.markings, *rule], osm_decks)
         return paint, road_paint.summary(rule)
 
     paint, paint_counts = cache.run(
@@ -590,7 +590,11 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [*paint_args, road_graph],
+        [
+            *paint_args,
+            road_graph,
+            [(d.way["id"], d.line.wkb, d.stations, d.heights) for d in osm_decks],
+        ],
         draped_paint,
     )
     if paint is not None:
