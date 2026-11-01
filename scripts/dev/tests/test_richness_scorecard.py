@@ -274,6 +274,36 @@ class TileReadingTests(unittest.TestCase):
             self.assertEqual(r["targets"]["per_100m.lamps"]["status"], "below")
             self.assertEqual(r["targets"]["per_100m.parked_cars"]["status"], "ok")
 
+    def test_light_list_street_lights_are_lamps_at_their_post_base(self):
+        import base64
+        import struct
+
+        light = struct.Struct("<fffBBBB")
+        post = struct.Struct("<fffHBB")
+        data = (
+            light.pack(10, 8, 18.4, 159, 137, 108, 0x80 | 0)  # street post head
+            + light.pack(30, 9, 0, 159, 137, 108, 0x80 | 2)  # hung over the carriageway
+            + light.pack(20, 6, -9, 57, 42, 26, 3)  # facade light
+            + post.pack(10, 0.5, 20, 16384, 100, 0)
+        )
+        fragment = {
+            "lights": {
+                "format": "turku3d-lights",
+                "version": 1,
+                "count": 3,
+                "posts": 1,
+                "street": 2,
+                "data": base64.b64encode(data).decode(),
+            }
+        }
+        out = rs.TileData("t0_0_0")
+        rs.read_lights(fragment, out)
+        cats = sorted((i.category, i.kind) for i in out.items)
+        self.assertEqual(cats, [("lamp", "hung"), ("lamp", "street"), ("other", "wall")])
+        street = next(i for i in out.items if i.kind == "street")
+        self.assertEqual((street.x, street.z), (10.0, 20.0))
+        self.assertEqual(rs.prop_category("ashtray"), "furniture")
+
     def test_parked_target_needs_kerb_parking(self):
         cam = {
             "id": "x",
