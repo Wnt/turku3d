@@ -13,6 +13,10 @@
 // - A lane ending at a tile seam meets a phase that is a pure function of the seam crossing point; the next tile
 //   computes the same value from its own copy of the crossing, so cars cross seams without either tile knowing
 //   the other. Lanes start pinned to it where possible (junction→seam) or slow slightly (seam→seam).
+// - Every lane has a peak flow (traffic/density.ts). Junction matching prefers lanes of similar flow, so a chain
+//   mostly stays on one kind of street, and each chain names the anchor its cars' identities hash from
+//   (TrafficNetwork.present): the seam it enters or leaves the tile by, so a car keeps its presence across the
+//   seam, or else its origin lane.
 import { TRAFFIC } from './constants';
 import { hash01, hash32, hex32, mod } from './hash';
 import type { TrafficEdge, TrafficRoads } from './roads';
@@ -48,6 +52,8 @@ export interface Lane {
   /** Surface Y per point when the road data has it, else null (the worker samples collision). */
   ys: Float64Array | null;
   speed: number;
+  /** Vehicles per hour at the busiest hour (traffic/density.ts). */
+  flow: number;
   /** Effective speed: the cruise speed, except seam-to-seam lanes that slow to meet the next tile's phase. */
   vEff: number;
   /** Driving time (length / vEff). */
@@ -63,9 +69,14 @@ export interface Lane {
   /** Identity: the first lane of this lane's chain within the tile, the slot offset to it, and, for a closed
    *  chain, the number of cars on it (origin slots repeat modulo this). */
   origin: Lane; shift: number; cycle: number;
+  /** Where a car's presence is decided (TrafficNetwork.present): slot m of `phase + m·H` at the anchor `key`, which
+   *  the car reaches `offset` seconds after entering the origin lane. */
+  anchor: Anchor;
   /** x0, z0, x1, z1 of the lane and its connector. */
   bbox: [number, number, number, number];
 }
+
+export interface Anchor { key: string; phase: number; offset: number }
 
 export interface TileTraffic {
   tile: string;
@@ -92,6 +103,8 @@ interface Stretch {
   /** Carriageway width (m) and junction setbacks at the start and end node (0 when the data has none). */
   width: number; setStart: number; setEnd: number;
   speed: number;
+  /** Lowest peak flow of its edges. */
+  flow: number;
   /** Edge keys in start → end order. */
   keys: string[];
 }
@@ -129,7 +142,8 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   const visited = new Set<number>();
   const stretches: Stretch[] = [];
   const walk = (from: number, first: number) => {
-    const s: Stretch = { start: from, end: from, points: [], ys: [], forward: 0, backward: 0, width: 0, setStart: 0, setEnd: 0, speed: Infinity, keys: [] };
+    const s: Stretch = { start: from, end: from, points: [], ys: [], forward: 0, backward: 0, width: 0, setStart: 0, setEnd: 0, speed: Infinity,
+      flow: Infinity, keys: [] };
     let node = from, e = first;
     for (;;) {
       visited.add(e);
@@ -148,6 +162,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       }
       s.keys.push(edge.key);
       s.speed = Math.min(s.speed, edge.speed);
+      s.flow = Math.min(s.flow, edge.flow);
       node = forward ? edge.b : edge.a;
       s.end = node;
       if (node === from || kind(node) !== 'through') break;
@@ -212,9 +227,9 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
         const n = points.length / 2;
         const start = endOf(startNode, points[2] - points[0], points[3] - points[1]);
         const end = endOf(endNode, points[2 * n - 2] - points[2 * n - 4], points[2 * n - 1] - points[2 * n - 3]);
-        const lane: Lane = { tile, id, index: lanes.length, k, points, cum, length, ys: trimmedYs, speed: s.speed, vEff: s.speed,
-          tau: length / s.speed, start, end, phase: 0, next: null, connector: null, wait: 0, delta: 0, prev: null,
-          seamNext: null, seamPrev: null, origin: null as unknown as Lane, shift: 0, cycle: 0, bbox: bboxOf(points) };
+        const lane: Lane = { tile, id, index: lanes.length, k, points, cum, length, ys: trimmedYs, speed: s.speed, flow: s.flow,
+          vEff: s.speed, tau: length / s.speed, start, end, phase: 0, next: null, connector: null, wait: 0, delta: 0, prev: null,
+          seamNext: null, seamPrev: null, origin: null as unknown as Lane, shift: 0, cycle: 0, anchor: NO_ANCHOR, bbox: bboxOf(points) };
         lanes.push(lane);
       }
     }
@@ -222,7 +237,9 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   // Ids are hashes, so sort for every per-junction decision; lane indices stay in build order.
   const byId = new Map(lanes.map(l => [l.id, l]));
 
-  // Junction matching: in-lanes to out-lanes one to one, preferring straight on, then right, then left turns.
+  // Junction matching: in-lanes to out-lanes one to one, preferring straight on, then right, then left turns, and
+  // a street of similar flow: main-road chains keep to main roads, and a living street's few cars turn back at
+  // the main road rather than main-road cars turning in (each doubling of flow costs about a right turn's worth).
   const ins = new Map<number, Lane[]>(), outs = new Map<number, Lane[]>();
   for (const lane of lanes) {
     if (lane.end.kind === 'junction') push(ins, lane.end.node, lane);
@@ -239,6 +256,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       let cost = Math.abs(theta) < 0.5 ? 0 : theta > 0 ? 0.35 : 0.5;
       if (uTurn) cost = deadEnd ? 0 : 4;
       else if (Math.abs(theta) > 2.0) cost = 1.5;
+      cost += MISMATCH * Math.abs(Math.log2(Math.max(1, a.flow) / Math.max(1, b.flow)));
       pairs.push({ cost: cost + 0.8 * hash01('turn', tile, node, a.id, b.id), a, b });
     }
     pairs.sort((p, q) => p.cost - q.cost || cmp(p.a.id, q.a.id) || cmp(p.b.id, q.b.id));
@@ -348,19 +366,33 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     } else {
       for (let at: Lane | null = head; at && !done.has(at); at = at.next) chain.push(at);
     }
-    const origin = chain[0];
+    const origin = chain[0], last = chain[chain.length - 1];
     let delta = 0;
     for (const l of chain) {
       l.origin = origin;
       l.shift = Math.round((delta - (l.phase - origin.phase)) / H);
-      delta += laneSpan(l);
+      if (l !== last) delta += laneSpan(l);
       done.add(l);
     }
-    if (cyclic) { const cars = Math.round(delta / H); for (const l of chain) l.cycle = Math.max(1, cars); }
+    if (cyclic) { const cars = Math.round((delta + laneSpan(last)) / H); for (const l of chain) l.cycle = Math.max(1, cars); }
+    // The anchor: the seam the chain enters by, else the seam it leaves by (the neighbouring tile's chain from
+    // that crossing anchors there too, so a car keeps its presence across the seam), else its origin lane.
+    const anchor: Anchor = cyclic ? { key: `o|${tile}|${origin.id}`, phase: origin.phase, offset: 0 }
+      : origin.start.seam ? { key: seamAnchor(origin.start.seam, origin.k), phase: seamPhase(origin.start.seam), offset: 0 }
+      : last.end.seam ? { key: seamAnchor(last.end.seam, last.k), phase: seamPhase(last.end.seam), offset: delta + last.tau }
+      : { key: `o|${tile}|${origin.id}`, phase: origin.phase, offset: 0 };
+    for (const l of chain) l.anchor = anchor;
   }
   for (const lane of lanes) if (lane.connector) lane.bbox = bboxOf(lane.points, lane.connector.points);
   return { tile, hash, bounds, lanes, byId };
 }
+
+/** Matching cost per doubling of flow between an in-lane and an out-lane. */
+const MISMATCH = 1.2;
+const NO_ANCHOR: Anchor = { key: '', phase: 0, offset: 0 };
+/** A seam crossing as both tiles name it: line, direction, lane and the crossing point to 8 m (their copies agree
+ *  to 0.1 m; one that straddles a bucket edge only loses presence continuity there, never determinism). */
+const seamAnchor = (s: SeamKey, k: number) => `s|${s.line}|${s.dir}|${k}|${Math.round(s.u / 8)}`;
 
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 function push<K, V>(map: Map<K, V[]>, key: K, value: V) { const list = map.get(key); if (list) list.push(value); else map.set(key, [value]); }

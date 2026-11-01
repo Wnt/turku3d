@@ -41,6 +41,11 @@ export class DayClock {
   /** UTC milliseconds on the shared (server-synchronised) clock, also while a QA or developer time is pinned. */
   sharedNow() { return Date.now() + this.serverOffset; }
 
+  /** The clock ambient traffic follows in single player: the cycle as shown, or the frozen hour. */
+  trafficClock(): { kind: 'cycle'; periodMs: number } | { kind: 'hour'; hour: number } {
+    return this.mode.kind === 'cycle' ? { kind: 'cycle', periodMs: this.mode.periodMs } : { kind: 'hour', hour: this.hour };
+  }
+
   /** Freeze a calendar instant with the astronomical sun (window.__render.setTime). */
   set(date: Date) { this.freeze({ kind: 'date', date }); }
   /** Freeze a clock hour on the cycle's sun path (developer time menu). */

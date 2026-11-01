@@ -4,8 +4,9 @@
 import type { QualityTier } from '../render/quality';
 
 export const TRAFFIC = {
-  /** Algorithm version, part of every agreed road hash. Bump it with any change to positions or identities. */
-  version: 2,
+  /** Algorithm version, part of every agreed road hash. Bump it with any change to positions, identities or which
+   *  slots carry cars (traffic/density.ts). */
+  version: 3,
   /** Shared clock origin: traffic time is seconds since this UTC instant (plus the server offset in multiplayer). */
   epochMs: Date.UTC(2026, 0, 1),
   /** Time headway between consecutive slots on every lane (s). One global value keeps lanes phase-locked. */
@@ -27,7 +28,8 @@ export const TRAFFIC = {
   queueGap: 1.5,
 } as const;
 
-/** Moving-car caps per quality tier (street-richness plan §3.6/§7); the Air default is the low cap. */
+/** Moving-car caps per quality tier (street-richness plan §3.6/§7); the Air default is the low cap. The density
+ *  (traffic/density.ts) sets how many cars the streets carry; the cap only bounds how many this client draws. */
 export const TRAFFIC_CAPS: Readonly<Record<QualityTier, number>> = { mobile: 10, low: 15, medium: 30, high: 40 };
 
 /** Population ring (plan §3.6, provisional until the GTA host measurements). */

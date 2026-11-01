@@ -315,7 +315,8 @@ describe('population ring', () => {
     const sim = new TrafficSim(R, world, host);
     const tiles = city();
     sim.setTiles([...tiles].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
-    sim.configure({ cap: 12 });
+    // Every slot carries a car (the conveyor's capacity), so the ring alone decides what is drawn.
+    sim.configure({ cap: 12, density: 1e6 });
     const view = { x: 200, z: 100, fx: 1, fz: 0, halfFov: 0.7 };
     sim.setView(view);
     let t = T0;

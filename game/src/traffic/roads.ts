@@ -7,11 +7,13 @@
 // Only this tile's own file is read, never the merged graph: a tile's lanes, phases and identities must not depend
 // on which neighbours a client holds (seams are joined by traffic/network.ts instead).
 //
-// Revision 2 (G3) carries ids, lanes, widths, limits, car densities, heights on every edge, setbacks, SEAM node
-// flags and signal controllers. A v1 file gets the reader's fallback (quantised-endpoint ids, 1+1 lanes, width
-// and limit by class) and the plan §3.6 client fallback here: heights sampled from collision by the physics
-// worker (bridge decks keep edgeHeights), seams found on the tile bbox, no signals.
-import { CAR, EDGE, EVENT, NODE, parseRoadGraph, type RoadGraphJson } from '../gameplay/roadGraph';
+// Revision 2 (G3) carries ids, lanes, widths, limits, OSM highway classes, car densities, heights on every edge,
+// setbacks, SEAM node flags and signal controllers. A v1 file gets the reader's fallback (quantised-endpoint ids,
+// 1+1 lanes, width and limit by class) and the plan §3.6 client fallback here: heights sampled from collision by
+// the physics worker (bridge decks keep edgeHeights), seams found on the tile bbox, no signals. Every kept edge
+// has a peak flow (traffic/density.ts) that sets how many of its slots carry cars.
+import { CAR, EDGE, EVENT, NODE, edgeClass, parseRoadGraph, type RoadEdge, type RoadGraphJson } from '../gameplay/roadGraph';
+import { PEAK_FLOW, streetFlow } from './density';
 import { hash32, hex32 } from './hash';
 
 export interface TrafficEdge {
@@ -26,6 +28,8 @@ export interface TrafficEdge {
   forward: number; backward: number; width: number;
   /** Cruise speed (m/s). */
   speed: number;
+  /** Vehicles per hour per lane at the busiest hour (traffic/density.ts); > 0 on every kept edge. */
+  flow: number;
   /** Distance from node a / node b where the junction box begins (m); 0 when unknown. */
   setbackA: number; setbackB: number;
 }
@@ -42,9 +46,8 @@ export interface TrafficRoads {
   signals: ReadonlyMap<number, string>;
 }
 
-/** Car density (0..15) below which a street carries no ambient traffic: service roads (2), parking aisles,
- *  driveways and living streets (1) stay quiet; v1 streets (4) and majors (11) drive. */
-const MIN_CAR_DENSITY = 3;
+/** Revision 2 streets whose `highway` the flow table does not know, by car density (spec §3.5 rules). */
+const BY_DENSITY: readonly [number, string][] = [[13, 'primary'], [11, 'secondary'], [8, 'tertiary'], [5, 'unclassified'], [3, 'residential']];
 /** Share of the speed limit that ambient cars cruise at in town. */
 const LIMIT_SHARE = 0.85;
 /** A signal stop position this close to an edge end belongs to the junction there (m). */
@@ -59,7 +62,9 @@ export function trafficRoads(json: RoadGraphJson): TrafficRoads {
   const edges: TrafficEdge[] = [];
   const seen = new Map<string, number>();
   for (const edge of graph.edges) {
-    if (!(edge.flags & CAR) || edge.carDensity < MIN_CAR_DENSITY || edge.eflags & EDGE.PSV_ONLY) continue;
+    if (!(edge.flags & CAR) || edge.carDensity <= 0 || edge.eflags & EDGE.PSV_ONLY) continue;
+    const flow = edgeFlow(edge, revision);
+    if (!(flow > 0)) continue;
     const forward = Math.max(0, Math.min(4, edge.lanes.fwd | 0)), backward = Math.max(0, Math.min(4, edge.lanes.bwd | 0));
     if (!forward && !backward) continue;
     const [s0, s1, logical] = edge.span;
@@ -68,7 +73,7 @@ export function trafficRoads(json: RoadGraphJson): TrafficRoads {
     const k = seen.get(base) ?? 0; seen.set(base, k + 1);
     const length = edge.cumulative[edge.cumulative.length - 1];
     edges.push({ key: hex32(hash32('road', base, k)), a: edge.a, b: edge.b, points: edge.points, ys: edge.heights ?? null,
-      forward, backward, width: Math.max(3, edge.lanes.width), speed: Math.max(3, edge.kmh / 3.6 * LIMIT_SHARE),
+      forward, backward, width: Math.max(3, edge.lanes.width), speed: Math.max(3, edge.kmh / 3.6 * LIMIT_SHARE), flow,
       // Setbacks are measured from the logical edge's ends; they apply where this row ends there.
       setbackA: s0 < 0.01 ? edge.setbacks[0] : 0, setbackB: Math.abs(s1 - logical) < 0.01 ? edge.setbacks[1] : 0 });
     // A signal's stop position near an end puts the junction there under its controller.
@@ -81,4 +86,15 @@ export function trafficRoads(json: RoadGraphJson): TrafficRoads {
   }
   const seams = revision === 2 ? new Set([...graph.nodeFlags.keys()].filter(n => graph.nodeFlags[n] & NODE.SEAM)) : null;
   return { revision, nodes: graph.nodes, edges, seams, signals };
+}
+
+/** Peak flow of one edge: by OSM `highway` in revision 2 (service roads, aisles and driveways none), by class in v1
+ *  (which cannot tell a living street from a residential one), times the area factor at its midpoint. */
+function edgeFlow(edge: RoadEdge, revision: number): number {
+  const p = edge.points, x = (p[0] + p[p.length - 2]) / 2, z = (p[1] + p[p.length - 1]) / 2;
+  if (revision < 2) return streetFlow(null, edgeClass(edge), x, z);
+  const highway = edge.highway.replace(/_link$/, '');
+  if (highway === 'service') return 0;
+  const known = highway in PEAK_FLOW ? highway : BY_DENSITY.find(([d]) => edge.carDensity >= d)?.[1];
+  return known ? streetFlow(known, 0, x, z) : 0;
 }

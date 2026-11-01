@@ -51,18 +51,25 @@ export function cycleAt(hour: number): CycleState {
   return { time: new Date(LOCAL_MIDNIGHT + h * 3_600_000), hour: h, sun, night: nightFactor(sun.elevation) };
 }
 
-/** The shared clock at a UTC instant; `periodMs` scales the whole cycle (?cycle=) for local viewing. */
-export function dayCycle(utcMs: number, periodMs = DAY_MS): CycleState & { segment: Segment; phase: number } {
+/** The shared clock's hour (0 <= hour < 24), segment and phase at a UTC instant: plain arithmetic, cheap enough to
+ *  evaluate per traffic slot. */
+export function cycleHour(utcMs: number, periodMs = DAY_MS): { hour: number; segment: Segment; phase: number } {
   const phase = ((utcMs - CYCLE_EPOCH) % periodMs + periodMs) % periodMs / periodMs;
   let minutes = phase * NOMINAL_MINUTES;
   for (const segment of SEGMENTS) {
     if (minutes < segment.minutes || segment === SEGMENTS[SEGMENTS.length - 1]) {
       const t = Math.min(1, minutes / segment.minutes);
-      return { ...cycleAt(segment.from + (segment.to - segment.from) * t), segment: segment.name, phase };
+      return { hour: (segment.from + (segment.to - segment.from) * t) % 24, segment: segment.name, phase };
     }
     minutes -= segment.minutes;
   }
   throw new Error('unreachable');
+}
+
+/** The shared clock at a UTC instant; `periodMs` scales the whole cycle (?cycle=) for local viewing. */
+export function dayCycle(utcMs: number, periodMs = DAY_MS): CycleState & { segment: Segment; phase: number } {
+  const { hour, segment, phase } = cycleHour(utcMs, periodMs);
+  return { ...cycleAt(hour), segment, phase };
 }
 
 const helsinki = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Helsinki', hour: 'numeric', minute: 'numeric',

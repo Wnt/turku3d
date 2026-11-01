@@ -3,6 +3,7 @@ import type { V3 } from './core/origin';
 import type { CollisionStreamer } from './world/collisionStreaming';
 import type { LoadingScreen } from './ui/loadingScreen';
 import type { PhysicsClient } from './physics/client';
+import type { TrafficClock } from './physics/protocol';
 import type { Manifest } from './world/manifest';
 import type { CoarseTiles } from './world/coarseTiles';
 import type { VisualTiles } from './world/tiles';
@@ -40,6 +41,8 @@ export interface PlayWorld {
   prepareGraphics: (model: THREE.Object3D) => Promise<void>;
   /** The shared clock; restoration only affects an unpinned developer clock. */
   clockTime: () => Date;
+  /** The clock single-player traffic density follows (DayClock.trafficClock). */
+  trafficClock: () => TrafficClock;
   syncClock?: (serverTime: number) => void;
   /** Shared UTC milliseconds (synchronised with the multiplayer server); deterministic world simulations use it. */
   sharedNow: () => number;
