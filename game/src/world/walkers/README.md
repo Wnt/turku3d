@@ -70,7 +70,7 @@ npx vitest run tests/unit/walkers.test.ts tests/unit/audio.test.ts
 npx tsc --noEmit -p tsconfig.json
 ```
 
-In the browser: `?walkers=30` (or `0` to compare), `window.__game.walkers.snapshot()` for drawn/candidate counts,
+In the browser: `?walkers=30` (or `0` to compare), `scripts/probe-walkers.mjs` (headless tour, close-ups, draw counts per pass, on/off timings), `window.__game.walkers.snapshot()` for drawn/candidate counts,
 network build time, per-frame update and scan cost; `liveWalkerCount()` from this module for the Phase 0 scorecard,
 or `walkersNear(buildWalkNetwork(roadGraphs), x, z, 50, utcMs)` to count them offline from tile data.
 
