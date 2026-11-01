@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "convention": "pos = engine metres [x, y, z] (docs/briefs/COMMON.md: x = E - 23459500, y = H N2000, z = -(N - 6704500)); yaw_deg = grid bearing clockwise from grid north (engine -z), pitch_deg positive up, fov = vertical degrees, all as the ?cam=E,N,H,yaw,pitch,fov QA pose (qa/README.md section 2, game/src/core/params.ts); cam is that pose ready to paste. Street cameras stand on the OSM centreline at ground + 1.7 m, ground read from the published tile ground mesh (scripts/dev/richness_scorecard.py --ground X Z). street.polyline (engine x, z) is the block the camera looks along, between its cross streets; the scorecard counts both sides within half_width_m of it. Each camera is used at both times and both quality tiers listed.",
+  "cameras": [
+    {
+      "id": "riverside",
+      "label": "Läntinen Rantakatu 15, looking upstream along the river",
+      "tiles": ["t0_-1_0", "t0_0_0", "t0_1_0", "t0_-1_1", "t0_0_1", "t0_1_1", "t0_-1_2", "t0_0_2", "t0_1_2"],
+      "pos": [174.21, 5.39, 258.17],
+      "yaw_deg": 62.9,
+      "pitch_deg": 0,
+      "fov": 60,
+      "time_local": ["13:00", "22:00"],
+      "quality": ["medium", "high"],
+      "cam": "23459674.21,6704241.83,5.39,62.9,0,60",
+      "street": {
+        "name": "Läntinen Rantakatu",
+        "osm_ways": [4690693],
+        "kerb_parking": false,
+        "half_width_m": 15,
+        "polyline": [[105.29, 293.82], [109.37, 291.55], [112.7, 289.7], [133.25, 279.17], [138.25, 276.69], [171.31, 259.66], [184.24, 253.03], [192.21, 248.94], [212.19, 237.87], [230.16, 227.91], [239.79, 222.41], [267.1, 206.84], [272.54, 203.73], [274.42, 202.68], [275.69, 201.96], [277.53, 200.93], [283.41, 197.19]]
+      },
+      "why": "The address point E 23459668 N 6704254 is engine (168, 246); the nearest point of the Läntinen Rantakatu centreline (OSM way 4690693, living_street, lit=yes, parking:both=no) is 13.7 m away at (174.21, 258.17), arc 479.9 m. The yaw follows the local centreline tangent towards Aurakatu and Auransilta, i.e. upstream along the river. The block runs from Kristiinankatu (arc 402.3 m) to Aurakatu (arc 605.0 m), 202.7 m. The ground mesh of t0_0_1 is at 3.69 m. The half-width of 15 m covers the carriageway, the building-side pavement and the riverside promenade up to the quay edge."
+    },
+    {
+      "id": "shopping",
+      "label": "Yliopistonkatu pedestrian street between Aurakatu and Puolalankatu",
+      "tiles": ["t0_-1_-2", "t0_0_-2", "t0_1_-2", "t0_-1_-1", "t0_0_-1", "t0_1_-1", "t0_-1_0", "t0_0_0", "t0_1_0"],
+      "pos": [17.61, 9.16, -105.9],
+      "yaw_deg": 236.0,
+      "pitch_deg": 0,
+      "fov": 60,
+      "time_local": ["13:00", "22:00"],
+      "quality": ["medium", "high"],
+      "cam": "23459517.61,6704605.9,9.16,236,0,60",
+      "street": {
+        "name": "Yliopistonkatu",
+        "osm_ways": [4215942],
+        "kerb_parking": false,
+        "half_width_m": 12,
+        "polyline": [[50.77, -128.29], [47.92, -126.35], [46.4, -125.32], [-28.75, -74.63], [-33.09, -71.82]]
+      },
+      "why": "OSM way 4215942 is the pedestrian Yliopistonkatu (highway=pedestrian, paving stones, lit=yes). Sampled every 10 m, the block from Aurakatu (arc 0) to the Puolalankatu crossing (arc 101.1 m) peaks at 15 shops, cafes and restaurants within 50 m at arcs 30 to 40 m, and the camera stands at arc 40 m. It looks north-west along the block. The 50 m disc crosses the t0_-1_-1 / t0_0_-1 seam at x = 0, so seam handling is exercised. The ground mesh of t0_0_-1 is at 7.46 m. The half-width of 12 m reaches the shopfronts on both sides."
+    },
+    {
+      "id": "residential",
+      "label": "Heikkilänkatu, Port Arthur, between Rauhankatu and Puutarhakatu",
+      "tiles": ["t0_-6_0", "t0_-5_0", "t0_-4_0", "t0_-6_1", "t0_-5_1", "t0_-4_1", "t0_-6_2", "t0_-5_2", "t0_-4_2"],
+      "pos": [-1064.91, 9.86, 317.01],
+      "yaw_deg": 146.7,
+      "pitch_deg": 0,
+      "fov": 60,
+      "time_local": ["13:00", "22:00"],
+      "quality": ["medium", "high"],
+      "cam": "23458435.09,6704182.99,9.86,146.7,0,60",
+      "street": {
+        "name": "Heikkilänkatu",
+        "osm_ways": [5034817],
+        "kerb_parking": true,
+        "half_width_m": 10,
+        "polyline": [[-1095.96, 269.81], [-1086.08, 284.83], [-1082.81, 289.8], [-1064.2, 318.1], [-1058.03, 327.5], [-1048.17, 342.15], [-1037.8, 357.57], [-1032.59, 363.71]]
+      },
+      "why": "The OSM place=suburb node 'Port Arthur' (5160673041) is at engine (-1091.5, 399.3), on Puutarhakatu, the district's tertiary through-road. The nearest residential street with mapped kerb parking is Heikkilänkatu (OSM way 5034817: highway=residential, lit=yes, parking:both=lane, parallel, width 11.5 m). The camera stands mid-block on the whole Rauhankatu-to-Puutarhakatu block (113.3 m), at arc 56.5 m. It looks south-east towards Puutarhakatu and the suburb centre. The ground mesh of t0_-5_1 is at 8.16 m. The half-width of 10 m covers the 11.5 m street and both pavements. Kerb parking exists, so the parked-car target applies."
+    },
+    {
+      "id": "park-edge",
+      "label": "Puolalanpuisto street along the park, Puolalanmäki",
+      "tiles": ["t0_-2_-3", "t0_-1_-3", "t0_0_-3", "t0_-2_-2", "t0_-1_-2", "t0_0_-2", "t0_-2_-1", "t0_-1_-1", "t0_0_-1"],
+      "pos": [-201.13, 26.36, -405.87],
+      "yaw_deg": 235.9,
+      "pitch_deg": 0,
+      "fov": 60,
+      "time_local": ["13:00", "22:00"],
+      "quality": ["medium", "high"],
+      "cam": "23459298.87,6704905.87,26.36,235.9,0,60",
+      "street": {
+        "name": "Puolalanpuisto",
+        "osm_ways": [232702577],
+        "kerb_parking": false,
+        "half_width_m": 12,
+        "polyline": [[-132.44, -451.1], [-152.79, -437.71], [-173.03, -424.54], [-185.15, -416.24], [-197.4, -408.4], [-218.1, -394.37], [-222.49, -391.39], [-243.42, -375.18], [-252.12, -368.44], [-265.34, -354.84]]
+      },
+      "why": "Of the car streets within 25 m of the Puolalanpuisto park boundary (OSM leisure=park way 4216689, 3.7 ha), the street named Puolalanpuisto (OSM way 232702577, living_street, oneway, no lit or parking tags) is the only one that follows the edge for its whole length (290 m). Sampled every 20 m, it has park on the left and buildings on the right. Puutarhakatu touches the park for only 59 m and Läntinen Pitkäkatu for 31 m. The block runs from the eastern Puolalanpuisto junction (arc 0) to the service road at arc 164.5 m, and the camera stands at its midpoint (arc 82.25 m), looking west-south-west. The ground mesh of t0_-1_-2 is at 24.66 m. OSM maps no kerb parking, so the parked-car target is n/a until a source shows bays."
+    },
+    {
+      "id": "kupittaa",
+      "label": "Kupittaanpuisto performance camera (perf-kupittaa-check.md)",
+      "tiles": ["t0_4_1", "t0_5_1", "t0_6_1", "t0_4_2", "t0_5_2", "t0_6_2", "t0_4_3", "t0_5_3", "t0_6_3"],
+      "pos": [1375, 19, 625],
+      "yaw_deg": 14.4,
+      "pitch_deg": -0.32,
+      "fov": 65,
+      "look_at": [1420, 18, 450],
+      "time_local": ["13:00", "22:00"],
+      "quality": ["medium", "high"],
+      "cam": "23460875,6703875,19,14.4,-0.32,65",
+      "street": {
+        "name": "Kupittaanpuisto lit footway",
+        "osm_ways": [112315737],
+        "kerb_parking": false,
+        "half_width_m": 8,
+        "polyline": [[1423.67, 662.43], [1415.44, 658.65], [1405.04, 654.92], [1387.48, 645.24], [1333.28, 620.17], [1315.01, 611.72]]
+      },
+      "why": "This is the measured camera from docs/reports/perf-kupittaa-check.md: (1375, 19, 625) looking at (1420, 18, 450), with the report's 65 degree FOV and the nine loaded tiles t0_4_1 to t0_6_3. The tile ground mesh is at 17.17 m, so the eye stands 1.83 m above the ground; the report's position is kept unchanged so that its timings stay comparable. The camera is inside Kupittaanpuisto and has no car street within 60 m. Its street for the per-100 m figures is the nearest lit path (OSM way 112315737, footway, lit=yes, 13 m away), taken 60 m either side of the camera. No richness targets apply."
+    }
+  ]
+}

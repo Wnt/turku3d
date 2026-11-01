@@ -1,0 +1,32 @@
+# Street richness targets read by scripts/dev/richness_scorecard.py (plan: street-richness-plan.md).
+# Provisional values from Phase 0. Edit them freely: the scorecard only compares against them.
+# A number is a minimum; a [low, high] pair is a range. Keys are camera ids in
+# game/src/qa/street-cameras.json. Parked-car targets apply only where the camera's street has
+# kerb parking (street.kerb_parking); otherwise they report "n/a".
+# The frame budget (30+ FPS on the M1 Max at medium) is measured by the bench probe, not here.
+
+# G1 acceptance: at least this many within 50 m of each listed street camera.
+radius_min_cameras = ["riverside", "shopping", "residential", "park-edge"]
+
+[radius_min]
+lamps = 3
+furniture = 2
+
+# Per 100 m of street, both sides together.
+[per_100m.lamps]
+riverside = 5
+shopping = 7
+residential = 4
+park-edge = 3
+
+[per_100m.furniture]
+riverside = 15
+shopping = 12
+residential = 6
+park-edge = 8
+
+[per_100m.parked_cars]
+riverside = [8, 12]
+shopping = [10, 15]
+residential = [12, 15]
+park-edge = [6, 10]
