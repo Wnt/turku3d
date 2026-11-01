@@ -14,10 +14,23 @@ export function roadHash(roads: RoadGraphJson): string {
     const q = Math.round(v * 10) | 0;
     h = Math.imul(h ^ q, 0x01000193); g = Math.imul(g ^ (q >>> 7), 0x5bd1e995);
   };
+  const text = (s: string) => { mix(s.length); for (let i = 0; i < s.length; i++) mix(s.charCodeAt(i)); };
+  const list = (rows: readonly (readonly number[] | null)[] | undefined) => {
+    mix(rows?.length ?? -1);
+    for (const row of rows ?? []) { mix(row?.length ?? -1); for (const v of row ?? []) mix(v); }
+  };
   mix(roads.version);
   for (const v of roads.nodes) mix(v);
   for (const edge of roads.edges) { mix(edge.length); for (const v of edge) mix(v); }
-  for (const ys of roads.edgeHeights ?? []) { mix(ys?.length ?? -1); for (const v of ys ?? []) mix(v); }
+  list(roads.edgeHeights);
+  // Revision 2 fields change lanes, speeds and junctions, so they are part of the agreement too.
+  const v2 = roads as RoadGraphJson & { revision?: number; edgeIds?: string[]; edgeAttrColumns?: string[]; edgeAttrs?: number[][];
+    nodeFlags?: number[]; edgeEvents?: (number[] | null)[]; controllers?: [string, number, number][] };
+  mix(v2.revision ?? 1);
+  for (const id of v2.edgeIds ?? []) text(id);
+  for (const name of v2.edgeAttrColumns ?? []) text(name);
+  list(v2.edgeAttrs); list(v2.nodeFlags ? [v2.nodeFlags] : undefined); list(v2.edgeEvents);
+  for (const [id, x, z] of v2.controllers ?? []) { text(id); mix(x); mix(z); }
   return `${TRAFFIC.version}.${roads.nodes.length / 2}.${roads.edges.length}.${hex32(h)}${hex32(g)}`;
 }
 

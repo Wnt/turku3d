@@ -220,6 +220,46 @@ describe('deterministic conveyor traffic', () => {
   });
 });
 
+describe('roads.json revision 2 (G3)', () => {
+  // docs/specs/roads-json-v2.md on local/g3-roads: an east-west 2+1 street from the west seam to a signalised
+  // junction, a north-south 1+1 street through it, a service road and a bus-only street that carry no traffic.
+  const columns = ['way', 's0', 's1', 'length', 'lanes_fwd', 'lanes_bwd', 'width', 'kmh', 'car_density', 'foot_density', 'flags', 'highway', 'setback0', 'setback1'];
+  const json = {
+    format: 'turku3d-roadgraph', version: 1, revision: 2, frame: 'engine-xz', bbox: [0, 0, 250, 250] as [number, number, number, number],
+    nodes: [0, 100, 120, 100, 120, 20, 120, 200, 200, 100, 120, 240],
+    edges: [[0, 1, STREET, 120], [2, 1, STREET, 80], [1, 3, STREET, 100], [1, 4, CAR | 1 << 3, 80], [3, 5, STREET, 40]],
+    edgeHeights: [[3, 4.2], [5, 4.2], [4.2, 4.0], [4.2, 4.1], [4.0, 4.4]],
+    edgeIds: ['00000000000000aa', '00000000000000bb', '00000000000000bb', '00000000000000cc', '00000000000000dd'],
+    edgeAttrColumns: columns,
+    edgeAttrs: [[11, 30, 150, 150, 2, 1, 9.6, 40, 8, 6, 0, 4, 0, 6.5], [12, 0, 80, 180, 1, 1, 6.5, 30, 4, 5, 0, 6, 0, 0],
+      [12, 80, 180, 180, 1, 1, 6.5, 30, 4, 5, 0, 6, 0, 0], [13, 0, 80, 80, 1, 1, 5, 20, 2, 3, 0, 9, 4, 0],
+      [14, 0, 40, 40, 1, 1, 6, 30, 4, 5, 4096, 6, 0, 0]],
+    edgeEvents: [[118, 1 | 16, 0], null, null, null, null],
+    nodeFlags: [32, 1 | 2, 0, 0, 0, 0],
+    controllers: [['4be1f0a29c3d7e65', 120, 100]],
+  };
+  test('lanes, widths, heights, seams, setbacks and densities come from the data', () => {
+    const roads = trafficRoads(json as unknown as RoadGraphJson);
+    expect(roads.revision).toBe(2);
+    // The service road (density 2) and the bus-only street carry nothing.
+    expect(roads.edges.map(e => [e.forward, e.backward, e.width])).toEqual([[2, 1, 9.6], [1, 1, 6.5], [1, 1, 6.5]]);
+    expect(roads.seams).toEqual(new Set([0]));
+    expect(roads.signals).toEqual(new Map([[1, '4be1f0a29c3d7e65']]));
+    // Stable keys follow edgeIds and spans, never the row order.
+    expect(new Set(roads.edges.map(e => e.key)).size).toBe(3);
+    const tile = buildTileTraffic('t0_0_0', roads, [0, 0, 250, 250], 'h');
+    const eastWest = tile.lanes.filter(l => Math.abs(l.points[1] - l.points[l.points.length - 1]) < 1);
+    // Divider at -1.6 m (south is right of eastbound): eastbound lanes on z 100 and 103.2, westbound on 96.8.
+    const zs = (east: boolean) => eastWest.filter(l => (l.points[2] > l.points[0]) === east).map(l => Math.round(l.points[1] * 10) / 10).sort();
+    expect([zs(true), zs(false)]).toEqual([[100, 103.2], [96.8]]);
+    expect(eastWest.every(l => l.ys !== null)).toBe(true);
+    // The eastbound lanes start on the seam and stop 6.5 m (the setback) before the junction node.
+    const east = eastWest.filter(l => l.points[2] > l.points[0]);
+    expect(east.every(l => l.start.kind === 'seam' && Math.abs(l.points[l.points.length - 2] - 113.5) < 0.01)).toBe(true);
+    expect(tile.lanes.filter(l => l.next).length).toBeGreaterThan(2);
+  });
+});
+
 describe('population ring', () => {
   test('in view a car appears only far away; out of view from 40 m; removal is asymmetric', () => {
     const view = { x: 0, z: 0, fx: 0, fz: -1, halfFov: 0.6 };

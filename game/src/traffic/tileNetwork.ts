@@ -89,6 +89,8 @@ interface Stretch {
   start: number; end: number;
   points: number[]; ys: (number | null)[];
   forward: number; backward: number;
+  /** Carriageway width (m) and junction setbacks at the start and end node (0 when the data has none). */
+  width: number; setStart: number; setEnd: number;
   speed: number;
   /** Edge keys in start → end order. */
   keys: string[];
@@ -105,7 +107,8 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     const x = nodes[2 * n], z = nodes[2 * n + 1];
     const dx = Math.min(Math.abs(x - bounds[0]), Math.abs(x - bounds[2]));
     const dz = Math.min(Math.abs(z - bounds[1]), Math.abs(z - bounds[3]));
-    if (dx >= tol && dz >= tol) return null;
+    // Revision 2 marks seam nodes itself; the bbox only tells which seam line.
+    if (roads.seams ? !roads.seams.has(n) || Math.min(dx, dz) > 0.5 : dx >= tol && dz >= tol) return null;
     if (dx <= dz) return { vertical: true, coord: Math.abs(x - bounds[0]) < Math.abs(x - bounds[2]) ? bounds[0] : bounds[2] };
     return { vertical: false, coord: Math.abs(z - bounds[1]) < Math.abs(z - bounds[3]) ? bounds[1] : bounds[3] };
   };
@@ -126,14 +129,18 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   const visited = new Set<number>();
   const stretches: Stretch[] = [];
   const walk = (from: number, first: number) => {
-    const s: Stretch = { start: from, end: from, points: [], ys: [], forward: 0, backward: 0, speed: Infinity, keys: [] };
+    const s: Stretch = { start: from, end: from, points: [], ys: [], forward: 0, backward: 0, width: 0, setStart: 0, setEnd: 0, speed: Infinity, keys: [] };
     let node = from, e = first;
     for (;;) {
       visited.add(e);
       const edge = edges[e];
       const forward = edge.a === node;
       const n = edge.points.length / 2;
-      if (!s.keys.length) { s.forward = forward ? edge.forward : edge.backward; s.backward = forward ? edge.backward : edge.forward; }
+      if (!s.keys.length) {
+        s.forward = forward ? edge.forward : edge.backward; s.backward = forward ? edge.backward : edge.forward;
+        s.width = edge.width; s.setStart = forward ? edge.setbackA : edge.setbackB;
+      }
+      s.setEnd = forward ? edge.setbackB : edge.setbackA;
       for (let i = s.points.length ? 1 : 0; i < n; i++) {
         const k = forward ? i : n - 1 - i;
         s.points.push(edge.points[2 * k], edge.points[2 * k + 1]);
@@ -170,7 +177,9 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     const dir = (seam.vertical ? tx : tz) >= 0 ? 1 : -1;
     return { kind: 'seam', node: n, seam: { line: `${seam.vertical ? 'x' : 'z'}:${seam.coord}`, vertical: seam.vertical, coord: seam.coord, u, dir } };
   };
-  const trimAt = (n: number) => kind(n) === 'seam' ? 0 : incident[n].length === 1 ? TRAFFIC.deadEndTrim : TRAFFIC.junctionTrim;
+  /** Stop short of a junction node by the data's setback (revision 2), else by the default trim. */
+  const trimAt = (n: number, setback: number) => kind(n) === 'seam' ? 0 : incident[n].length === 1 ? TRAFFIC.deadEndTrim
+    : setback > 0 ? Math.max(2, setback) : TRAFFIC.junctionTrim;
 
   const lanes: Lane[] = [];
   const used = new Set<string>();
@@ -178,17 +187,21 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     for (const dir of [1, -1] as const) {
       const m = dir > 0 ? s.forward : s.backward;
       if (!m) continue;
-      const twoWay = s.forward > 0 && s.backward > 0;
+      // Lane centres as roads-json-v2 §3.4: the divider sits at -width/2 + B·w (w = width / (F + B)) along the
+      // stretch's right-hand normal; lanes count outward from it. 1+1 drives at ±width/4, a one-way lane on the
+      // centreline. Seen in the backward direction the normal flips, and so does the divider's offset.
+      const w = s.width / (s.forward + s.backward), divider = -s.width / 2 + s.backward * w;
       const centre = dir > 0 ? s.points : reversePairs(s.points);
       const ys = s.ys.every(y => y !== null) ? Float64Array.from(dir > 0 ? s.ys as number[] : [...s.ys as number[]].reverse()) : null;
       const startNode = dir > 0 ? s.start : s.end, endNode = dir > 0 ? s.end : s.start;
       const keys = dir > 0 ? s.keys : [...s.keys].reverse();
       for (let k = 0; k < m; k++) {
-        const offset = TRAFFIC.laneWidth * (twoWay ? k + 0.5 : k + 0.5 - m / 2);
+        const offset = (dir > 0 ? divider : -divider) + (k + 0.5) * w;
         const shifted = offsetLine(centre, offset);
         const full = polylineLength(shifted);
         if (full < 0.5) continue;
-        const r0 = Math.min(trimAt(startNode), full * 0.35), r1 = Math.min(trimAt(endNode), full * 0.35);
+        const r0 = Math.min(trimAt(startNode, dir > 0 ? s.setStart : s.setEnd), full * 0.35);
+        const r1 = Math.min(trimAt(endNode, dir > 0 ? s.setEnd : s.setStart), full * 0.35);
         const { points, ys: trimmedYs } = trim(shifted, ys, r0, full - r1);
         const cum = cumulative(points);
         const length = cum[cum.length - 1];
@@ -284,7 +297,10 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     }
     if (progress) continue;
     const seed = [...pending].sort((a, b) => nodes[2 * a.node] - nodes[2 * b.node] || nodes[2 * a.node + 1] - nodes[2 * b.node + 1])[0];
-    resolve(seed, hash01('junction', tile, Math.round(nodes[2 * seed.node] * 2), Math.round(nodes[2 * seed.node + 1] * 2)) * H);
+    // A signal controller's id seeds all of its junctions alike (roads-json-v2 §3.8).
+    const controller = roads.signals.get(seed.node);
+    resolve(seed, (controller ? hash01('controller', controller)
+      : hash01('junction', tile, Math.round(nodes[2 * seed.node] * 2), Math.round(nodes[2 * seed.node + 1] * 2))) * H);
     pending.delete(seed);
   }
   for (const lane of lanes) {
