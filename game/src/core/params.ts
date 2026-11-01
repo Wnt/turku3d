@@ -37,6 +37,8 @@ interface Params {
   traffic: number | null;
   /** `?walkers=N`: ambient walker cap override (0 disables them); null keeps the quality tier's cap. */
   walkers: number | null;
+  /** `?motion=1` with `?cam=`: the QA camera keeps the play-mode water clock and reflection cadence (video capture). */
+  motion: boolean;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -106,5 +108,6 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     lights,
     traffic,
     walkers,
+    motion: !!qa && p.get('motion') === '1',
   };
 }

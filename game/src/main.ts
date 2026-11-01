@@ -113,7 +113,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
-const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
+const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
   retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
 });

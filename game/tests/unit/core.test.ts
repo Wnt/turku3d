@@ -30,6 +30,10 @@ test('url params', () => {
   expect(q.pass).toBe('id');
   expect(q.time.toISOString()).toBe('2019-06-15T11:00:00.000Z');
   expect(parseParams('?cam=1,2,3,4,5,60,7').qa!.rollDeg).toBe(7);
+  // motion=1 only applies to the fixed QA camera (video capture keeps play's water clock)
+  expect(parseParams('?cam=1,2,3,4,5,60&motion=1').motion).toBe(true);
+  expect(parseParams('?cam=1,2,3,4,5,60').motion).toBe(false);
+  expect(parseParams('?motion=1').motion).toBe(false);
   expect(() => parseParams('?cam=1,2,3,4,5,0')).toThrow();
   expect(() => parseParams('?cam=1,2,3,4,5,60&pass=depth')).toThrow();
 });
