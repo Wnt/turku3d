@@ -32,8 +32,9 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   `lit=yes` lamp rule only at stations with no lamp within 20 m. Bollards stay in the barrier layer.
   Nothing but signs stands on a carriageway: a register point up to 2 m inside one moves just past its
   kerb, a deeper lamp hangs over the street. The stage then moves furniture just inside a building
-  footprint outside it (deeper: dropped), mounts register lamps on the facade they touch, drops anything
-  on water or a bridge/tunnel deck, and sets every base on the draft ground grid. Lamps become the
+  footprint outside it (deeper: dropped), mounts register lamps on the facade they touch, moves quay-edge
+  items up to 1.5 m inside a water polygon onto the land (deeper: dropped), drops anything on a
+  bridge/tunnel deck and sign posts whose code has no face, and sets every base on the draft ground grid. Lamps become the
   manifest's `lights` list (16 B records: post base and head, hung lights, facade lights found along
   every car street; `turku3d/props/lights.py`); the client draws their posts and coronas. Benches,
   tables, waste containers, planters, register bollards and lamp posts get static collision primitives

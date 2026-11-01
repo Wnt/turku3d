@@ -6,7 +6,9 @@ stage places it against the tile's own ground, buildings, water and bridge decks
 
 * furniture and signs at most ``BUILDING_MOVE`` inside a building footprint move just outside it;
   deeper ones are dropped. A register lamp just inside a footprint is mounted on that facade;
-* anything on water or a bridge/tunnel deck is dropped (decks carry their own furniture);
+* anything on a bridge/tunnel deck is dropped (decks carry their own furniture); an item at most
+  ``WATER_MOVE`` inside a water polygon (quay edges) moves onto the land, deeper ones are dropped;
+* traffic signs whose code has no face (kind ``post``) are not drawn, as before G1;
 * lamps become light records with a client-drawn post (``turku3d.props.lights``), lamps hung over
   a carriageway become posts-free street lights, and every car street gets facade lights;
 * benches, tables, large waste containers, planters, register bollards and lamp posts get static
@@ -34,6 +36,7 @@ BUILDING_MOVE = 1.0  # m inside a footprint that a register point may be off (su
 FACADE_LAMP = 1.5  # m: a lamp this far inside a footprint hangs on that facade
 FACADE_LAMP_HEIGHT = 5.5  # m above the street
 CLEARANCE = 0.3  # m outside the footprint for a moved item
+WATER_MOVE = 1.5  # m inside a water polygon that a quay-edge register point may be off
 WALL_LIGHT_NEAR_LAMP = 3.0  # m: a facade light this close to a street light is that light
 COLLIDES = ("bench", "table", "waste_container", "planter", "bollard")
 
@@ -80,8 +83,9 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
 EMPTY = {"glb": None, "props": [], "standing": [], "lights": None, "collision": {}, "stats": {}}
 
 
-def _outside(footprint, point, clearance=CLEARANCE):
-    edge = shapely.ops.nearest_points(footprint.exterior, point)[0]
+def _outside(polygon, point, clearance=CLEARANCE):
+    """(depth inside, x, z just outside) of a point covered by a polygon, via its nearest edge."""
+    edge = shapely.ops.nearest_points(polygon.boundary, point)[0]
     dx, dz = edge.x - point.x, edge.y - point.y
     length = math.hypot(dx, dz) or 1.0
     return edge.distance(point), edge.x + dx / length * clearance, edge.y + dz / length * clearance
@@ -98,13 +102,25 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
     placed, lights = [], []
     for source in poles:
         p = copy.copy(source)
+        if p.kind == "post":
+            # A traffic sign whose code has no face: drawn as a bare post it reads as a bollard.
+            stats["skipped_unsupported_sign"] += 1
+            continue
         point = shapely.Point(p.x, p.z)
         if blocked_deck is not None and blocked_deck.distance(point) <= 0.5:
             stats[f"dropped_on_deck:{p.kind}"] += 1
             continue
-        if wet is not None and any(water[i].covers(point) for i in wet.query(point)):
-            stats[f"dropped_on_water:{p.kind}"] += 1
-            continue
+        flooded = [water[i] for i in wet.query(point)] if wet is not None else []
+        flooded = [w for w in flooded if w.covers(point)]
+        if flooded:
+            # Quay-edge benches and lamps: water polygons overlap the quay by survey offsets.
+            depth, x, z = _outside(flooded[0], point)
+            if depth > WATER_MOVE or any(w.covers(shapely.Point(x, z)) for w in flooded):
+                stats[f"dropped_on_water:{p.kind}"] += 1
+                continue
+            p.x, p.z = x, z
+            point = shapely.Point(x, z)
+            stats[f"moved_out_of_water:{p.kind}"] += 1
         inside = [footprints[i] for i in buildings.query(point)] if buildings is not None else []
         inside = [f for f in inside if f.covers(point)]
         facade = None

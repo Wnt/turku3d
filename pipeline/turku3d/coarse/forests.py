@@ -12,13 +12,13 @@ import shapely
 from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 
 from .forest_paths import path_corridors
+from .tree_inputs import REGISTER_TREE
 
 # Measured with runtime LOD at Kupittaa; retain the 5 m placement clearance.
 TREE_CAP = 768
 BUSH_CAP = 24
 SPACING = 5.0
 OPEN_MARGIN = 3.0
-REGISTER_TREE = "puut:"  # object-id prefix of GIS:Puut trees (inputs.register_trees)
 # Trees / square metre. Parks keep open lawns; scrub/heath stay low and sparse.
 DENSITY = {
     "forest": 0.018,

@@ -57,6 +57,7 @@ PRODUCERS = (
     "forests",
     "fences",
     "furniture",
+    "tree_inputs",
     "geometry",
     "extrusion",
     "roofs",

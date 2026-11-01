@@ -68,7 +68,7 @@ DEPENDENCIES = {
         "../roads/__init__.py",
     ),
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
-    "trees": ("../spatial.py",),
+    "trees": ("tree_inputs.py", "../spatial.py"),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
@@ -372,51 +372,6 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=())
     }
 
 
-TREE_DUPLICATE = 3.0  # m: an OSM tree this close to a register tree is that tree
-CONIFERS = ("pinus", "picea", "abies", "taxus", "thuja", "juniperus", "pseudotsuga", "tsuga")
-SURVEY_YEAR = 2026
-
-
-def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) -> list:
-    """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer). Height grows with
-    the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
-    the OSM default of 10 m. A row on a carriageway (GIS:Katualueet Ajorata) is not drawn."""
-    from .forests import REGISTER_TREE
-
-    carriageway = (
-        shapely.union_all(
-            [
-                shapely.make_valid(shapely.force_2d(g))
-                for g, kind in zip(f.geometry_local, f["Katuosalaji"], strict=True)
-                if kind == "Ajorata" and g is not None
-            ]
-        )
-        if streets is not None and len(f := spatial_frame(streets, tile.bbox))
-        else shapely.Polygon()
-    )
-    trees = []
-    frame = spatial_frame(path, tile.bbox)
-    for row in frame.to_dict("records"):
-        point = row["geometry_local"]
-        if point is None or point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
-            continue
-        if not carriageway.is_empty and carriageway.covers(shapely.Point(point.x, point.y)):
-            continue
-        try:
-            year = int(float(row.get("Istutusvuosi") or 0))
-        except ValueError:
-            year = 0
-        height = (
-            min(22.0, 4.0 + 0.35 * (SURVEY_YEAR - year)) if 1900 < year <= SURVEY_YEAR else 10.0
-        )
-        species = str(row.get("Kasvilaji") or "").casefold()
-        conifer = str(row.get("Kasviryhma") or "").casefold().startswith("havu") or any(
-            species.startswith(genus) for genus in CONIFERS
-        )
-        trees.append((f"{REGISTER_TREE}{row['feature_key']}", point.x, point.y, height, conifer))
-    return trees
-
-
 def prepare_trees(
     tile: C.VisualTile, osm: Path, register: Path | None = None, streets: Path | None = None
 ) -> list:
@@ -427,6 +382,8 @@ def prepare_trees(
     from scipy.spatial import cKDTree
 
     from turku3d.spatial import rows
+
+    from .tree_inputs import TREE_DUPLICATE, register_trees
 
     trees = register_trees(tile, register, streets) if register else []
     known = cKDTree(np.array([(x, z) for _, x, z, _, _ in trees])) if trees else None

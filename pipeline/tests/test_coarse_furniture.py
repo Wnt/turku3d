@@ -172,6 +172,8 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
         Prop("lamp-facade", "lamp", 119, 0, 105),  # register lamp on the facade
         Prop("lamp", "lamp", 50, 0, 58),
         Prop("bin-lake", "bin", 220, 0, 220),
+        Prop("bench-quay", "bench", 201, 0, 220),  # 1 m into the lake: the quay edge
+        Prop("unsupported", "post", 70, 0, 70),
         Prop("table", "table", 30, 0, 30, yaw=math.pi / 2),
         Prop("stop", "bus_stop", 60, 0, 58),
     ]
@@ -181,11 +183,15 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     assert stats["dropped_in_building:bench"] == 1
     assert stats["moved_out_of_building:bench"] == 1
     assert stats["dropped_on_water:bin"] == 1
+    assert stats["moved_out_of_water:bench"] == 1 and stats["skipped_unsupported_sign"] == 1
+    quay = next(p for p in result["props"] if p.object_id == "bench-quay")
+    assert quay.x == pytest.approx(199.7)
     assert stats["lamp_on_facade"] == 1
     bench = next(p for p in result["props"] if p.object_id == "bench-wall")
     assert bench.x == pytest.approx(99.7) and bench.y == 1.0
     assert {p.kind for p in result["props"]} == {"bench", "table", "bus_stop"}
-    assert {p.object_id for p in result["standing"]} == {"bench-wall", "lamp", "table", "stop"}
+    standing = {p.object_id for p in result["standing"]}
+    assert standing == {"bench-wall", "bench-quay", "lamp", "table", "stop"}
     lights, posts = decode(result["lights"])
     assert len(posts) == 1 and posts[0]["x"] == 50
     assert sum(light["category"] == "hung" for light in lights) == 1
@@ -195,10 +201,10 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     kinds = Counter(p.kind for p in prims)
     from turku3d.col.format import PRIM_BOX, PRIM_CYLINDER
 
-    assert kinds[PRIM_CYLINDER] == 1 and kinds[PRIM_BOX] == 3  # post; bench x2, table
+    assert kinds[PRIM_CYLINDER] == 1 and kinds[PRIM_BOX] == 5  # post; 2 benches x2, table
     js, _ = read_glb(result["glb"])
     types = sorted(n["extras"]["prop_type"] for n in js["nodes"][1:])
-    assert types == ["bench", "bus_stop", "table"]
+    assert types == ["bench", "bench", "bus_stop", "table"]
     stop = next(n for n in js["nodes"][1:] if n["extras"]["prop_type"] == "bus_stop")
     assert stop["extras"]["pole_base"] == [60, 1.0, 58]
 
