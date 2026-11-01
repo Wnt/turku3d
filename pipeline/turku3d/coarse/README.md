@@ -729,6 +729,9 @@ Slots come from three sources, in this order (`parked.place`):
 
 Every footprint stays 30 cm inside the tile, clear of buildings, water, bridges, barriers, trunks,
 poles and other cars (55 cm), and rests on ground of at most 12% grade along and 8% across: the
+poles are everything the furniture stage stands on the ground (signs, stops, lamp posts, benches,
+bins, meters, racks; benches, tables, planters and waste containers by their collision footprint,
+`furniture.ground_shape`), cleared by 0.6 m in lots and 0.2 m at kerbs; the
 car records `pitch` and `roll`, and its base is lifted until no corner sinks. Slot ids are stable
 (`<source/bay>`, or `<way>:<side>:<half-metre station>` for kerbs, the same in every tile).
 
