@@ -1,7 +1,7 @@
 // Rapier world used by the physics worker (and directly by the Node unit tests).
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
-import { collisionTileId, type V3 } from '../core/origin';
+import { COLLISION_TILE, collisionTileAt, collisionTileId, type V3 } from '../core/origin';
 import { collisionCovers, PlayerCoverageHold } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
@@ -12,6 +12,7 @@ import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
+import { TrafficSim } from './traffic';
 export { CHARACTER, DT };
 import type { CharacterInput, CharacterState, PoleSpec, PoleState, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 
@@ -65,6 +66,12 @@ export class PhysicsWorld {
   private curbQueries: CurbQueries;
   /** Walls along the true edges of the collision (edgeWalls.ts). */
   readonly edges: EdgeWalls;
+  /** Ambient traffic, created by the first traffic message (physics/traffic.ts). */
+  traffic: TrafficSim | null = null;
+  /** Traffic time at the end of the next step() (s); substeps run at it minus the steps still to come. */
+  trafficTime = 0;
+  /** Rigid-body handles of cars claimed from traffic by this client. */
+  private claimedBodies = new Map<number, string>();
 
   constructor(private readonly R: R) {
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
@@ -72,6 +79,28 @@ export class PhysicsWorld {
     this.poleEvents = new R.EventQueue(true);
     this.curbQueries = new CurbQueries(R, this.world);
     this.edges = new EdgeWalls(R, this.world);
+  }
+
+  /** The traffic simulation, created on first use. */
+  trafficSim(): TrafficSim {
+    this.traffic ??= new TrafficSim(this.R, this.world, {
+      ground: (x, top, z, depth) => this.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, depth, 'solid')?.point.y ?? null,
+      resident: (x, z) => { const c = collisionTileAt(x, z); return this.residentCells.has(collisionTileId(c.i, c.j)); },
+      spawnVehicle: (pos, yaw, spec) => this.spawnVehicle(pos, yaw, spec),
+      bodyKind: handle => this.vehicles.get(this.drivenId ?? '')?.body.handle === handle ? 'driven'
+        : this.claimedBodies.has(handle) ? 'claimed' : null,
+      character: () => {
+        if (!this.charCollider || !this.charEnabled) return null;
+        const t = this.charCollider.translation();
+        return { x: t.x, y: t.y - CHARACTER.halfHeight - CHARACTER.radius - CHARACTER.skin, z: t.z };
+      },
+      player: () => {
+        if (this.charCollider && this.charEnabled) return this.charCollider.translation();
+        const driven = this.vehicles.get(this.drivenId ?? '');
+        return driven ? driven.body.translation() : null;
+      },
+    });
+    return this.traffic;
   }
 
   setTileLoading(id: string, loading: boolean) {
@@ -89,6 +118,7 @@ export class PhysicsWorld {
     this.residentCells.add(collisionTileId(col.tileI, col.tileJ));
     const [lo, hi] = heightRange(col);
     this.edges.add(col.tileI, col.tileJ, lo, hi);
+    this.traffic?.collisionChanged(cellArea(col.tileI, col.tileJ));
     return stats;
   }
 
@@ -155,6 +185,7 @@ export class PhysicsWorld {
     this.tiles.delete(id);
     this.residentCells.delete(collisionTileId(...t.cell));
     this.edges.remove(...t.cell);
+    this.traffic?.collisionChanged(cellArea(...t.cell));
     return true;
   }
 
@@ -306,12 +337,14 @@ export class PhysicsWorld {
     if (spec.linvel) created.body.setLinvel(spec.linvel, true);
     const h = spec.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt;
     this.vehicleRadii.set(id, Math.hypot(h.x, h.y, h.z) + 0.5);
+    if (id.startsWith('tr:')) this.claimedBodies.set(created.body.handle, id);
   }
 
   removeVehicle(id: string) {
     if (id === this.drivenId) return;
     const vehicle = this.vehicles.get(id);
     if (!vehicle) return;
+    this.claimedBodies.delete(vehicle.body.handle);
     this.world.removeVehicleController(vehicle.controller);
     this.world.removeRigidBody(vehicle.body);
     this.vehicles.delete(id);
@@ -453,6 +486,7 @@ export class PhysicsWorld {
     this.jumpPending ||= character.jump;
     this.acc = Math.min(this.acc + Math.max(0, dt), MAX_SUBSTEPS * DT);
     let n = 0;
+    const substeps = Math.min(MAX_SUBSTEPS, Math.floor((this.acc + 1e-9) / DT));
     while (this.acc >= DT - 1e-9 && n < MAX_SUBSTEPS) {
       // This decision belongs to the worker, immediately before every fixed substep: main-thread
       // braking cannot stop gravity, an evicted parked car, or a late input after a flight toggle.
@@ -492,7 +526,9 @@ export class PhysicsWorld {
           this.vehicleSnapshots.delete(id);
         }
       }
+      this.traffic?.beforeStep(this.trafficTime - (substeps - 1 - n) * DT);
       this.fixedStep(safeCharacter, vehicle);
+      if (this.traffic) this.traffic.afterStep(this.poleEvents);
       this.jumpPending = false;
       this.acc -= DT;
       n++;
@@ -589,6 +625,8 @@ export class PhysicsWorld {
     return { tris, colBytes: bytes, estWasmBytes: (tris + curbTris) * 135 }; // ~135 B/tri measured (engine.md 2.2)
   }
 }
+
+const cellArea = (i: number, j: number) => [i * COLLISION_TILE, j * COLLISION_TILE, (i + 1) * COLLISION_TILE, (j + 1) * COLLISION_TILE] as const;
 
 /** World heights spanned by a tile's triangles and primitives. */
 function heightRange(col: ColTile): [number, number] {
