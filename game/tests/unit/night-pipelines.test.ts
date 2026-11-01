@@ -44,15 +44,15 @@ function canonical(code: string) {
   });
 }
 
-function world(webgl: boolean, tier: QualityTier) {
+function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new GameLighting(QUALITY[tier].lights)) {
   const renderer = new GameRenderer({ forceWebGL: webgl, canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   renderer.hasFeature = () => false;
   Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
-  renderer.lighting = new GameLighting(QUALITY[tier].lights);
+  renderer.lighting = lighting;
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, 0.1, 6000);
   const env = new Environment(scene, renderer, tier);
-  // Play reuses one PMREM target for every IBL refresh; any fixed texture stands in for it here.
-  scene.environment = atlas();
+  // Play reuses one PMREM target for every IBL refresh; a fixed CubeUV texture stands in for it here.
+  scene.environment = Object.assign(new THREE.DataTexture(new Uint8Array(4 * 64 * 64), 64, 64), { mapping: THREE.CubeUVReflectionMapping });
   const nodes = new NodeManager(renderer, renderer.backend) as Nodes;
   const lightsNode = renderer.lighting.getNode(scene);
   const meshes: THREE.Mesh[] = [];
@@ -111,7 +111,7 @@ function world(webgl: boolean, tier: QualityTier) {
     }));
   };
   const at = (hour: number) => { const c = cycleAt(hour); env.setSun(c.sun.azimuth, c.sun.elevation, c.hour); };
-  const lamps = () => { env.lamps.point[0].intensity = env.lamps.point[1].intensity = 20; env.lamps.spot[0].intensity = 50; };
+  const lamps = () => { env.lamps.point[0].intensity = env.lamps.point[1].intensity = 20; };
   return { env, meshes, at, keys, shaders, lamps };
 }
 
@@ -132,7 +132,7 @@ test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slot
   expect(env.sun.intensity).toBe(0); expect(env.sun.visible).toBe(true); expect(env.nightFactor).toBe(1);
   expect(env.hemisphere.intensity).toBeGreaterThan(0);
   expect(keys()).toEqual(day);
-  // Phase 2 lamps and headlights switch on through the fixed slots without new keys.
+  // Phase 2 lamps switch on through the fixed slots without new keys.
   lamps();
   expect(keys()).toEqual(day);
   // Sanity: the keys do see real light-set changes, such as the former night switch that hid the sun.
@@ -144,12 +144,31 @@ test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slot
   expect(keys()['kit-v3'].lights).not.toBe(day['kit-v3'].lights);
 });
 
+/** Uniform buffers bound to one shader stage: WebGPU guarantees 12 (maxUniformBuffersPerShaderStage). */
+const uniformBuffers = (code: string, webgl: boolean) => (code.match(webgl ? /\buniform\s+\w+\s*\{/g : /var<uniform>/g) ?? []).length;
+
 test.each([false, true])('13:00, 23:30 and lit slots generate the same programs (WebGL=%s)', webgl => {
   const build = (hour: number, lit: boolean) => { const w = world(webgl, 'medium'); w.at(hour); if (lit) w.lamps(); return w.shaders(); };
   const day = build(13, false);
   expect(Object.keys(day)).toHaveLength(9);
+  for (const [name, program] of Object.entries(day)) {
+    expect(uniformBuffers(program.fragment, webgl), `${name} fragment uniform buffers`).toBeLessThanOrEqual(10);
+    expect(uniformBuffers(program.vertex, webgl), `${name} vertex uniform buffers`).toBeLessThanOrEqual(10);
+  }
   expect(build(23.5, false)).toEqual(day);
   expect(build(23.5, true)).toEqual(day);
+});
+
+test.each([false, true])('batched lighting keeps the scene IBL of the default lighting path (WebGL=%s)', webgl => {
+  // Sampled textures per fragment stage: albedo/normal/ORM, shadow maps and the scene environment map.
+  const textures = (lighting?: THREE.Lighting) => {
+    const w = world(webgl, 'medium', lighting); w.at(13);
+    return Object.fromEntries(Object.entries(w.shaders()).map(([name, program]) =>
+      [name, (program.fragment.match(webgl ? /uniform\s+(?:\w+\s+)?sampler\w+/g : /:\s*texture_\w+/g) ?? []).length]));
+  };
+  const batched = textures(), reference = textures(new THREE.Lighting());
+  expect(batched['kit-v3']).toBeGreaterThan(3);
+  expect(batched).toEqual(reference);
 });
 
 test('idle light slots cost no shader loop iterations; active ones are packed first', () => {
@@ -166,7 +185,7 @@ test('idle light slots cost no shader loop iterations; active ones are packed fi
   data.get('PointLight')!.update({ camera });
   expect(data.get('PointLight')!.countNode.value).toBe(2);
   expect(env.lamps.point).toHaveLength(QUALITY.high.lights.point);
-  expect(data.get('SpotLight')!.countNode.value).toBe(0);
+  expect(data.has('SpotLight')).toBe(false);
 });
 
 test('cascades freeze only in play while the sun is dark, and resume at dawn', () => {

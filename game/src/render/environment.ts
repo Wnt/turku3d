@@ -19,9 +19,9 @@ export class Environment {
   readonly sun = new THREE.DirectionalLight(0xfff2e0, 3);
   /** Artificial ambient (cool sky, warm street bounce). Always present; intensity 0 by day. */
   readonly hemisphere = new THREE.HemisphereLight(0xffffff, 0xffffff, 0);
-  /** Fixed DynamicLighting slots (QUALITY[tier].lights), created once with intensity 0. Drive their position,
+  /** Fixed DynamicLighting point slots (QUALITY[tier].lights), created once with intensity 0. Drive their position,
    *  colour and intensity; never add, remove, hide or shadow-enable lights at runtime (that recompiles). */
-  readonly lamps: { point: THREE.PointLight[]; spot: THREE.SpotLight[] };
+  readonly lamps: { point: THREE.PointLight[] };
   readonly sunDir = new THREE.Vector3(0, 1, 0);
   readonly csm: CSMShadowNode;
   screenshotDistance = 0;
@@ -90,15 +90,11 @@ export class Environment {
     this.sun.shadow.shadowNode = this.csm;
     scene.add(this.sun, this.sun.target);
     this.hemisphere.position.set(0, 1, 0);
-    this.lamps = {
-      point: Array.from({ length: q.lights.point }, () => new THREE.PointLight(0xffd6a0, 0, 40, 2)),
-      spot: Array.from({ length: q.lights.spot }, () => new THREE.SpotLight(0xfff1dc, 0, 60, 0.45, 0.4, 2)),
-    };
-    for (const light of [this.hemisphere, ...this.lamps.point, ...this.lamps.spot]) {
+    this.lamps = { point: Array.from({ length: q.lights.point }, () => new THREE.PointLight(0xffd6a0, 0, 40, 2)) };
+    for (const light of [this.hemisphere, ...this.lamps.point]) {
       light.layers.enable(REFLECTION_LAYER);
       scene.add(light);
     }
-    for (const spot of this.lamps.spot) scene.add(spot.target);
     scene.fog = new THREE.Fog(0xb8cde0, 500, 3500);
     scene.environmentIntensity = 0.35;
   }
@@ -191,8 +187,7 @@ export class Environment {
     this.pmrem.dispose();
     this.sky.geometry.dispose();
     this.sky.material.dispose();
-    this.scene.remove(this.sky, this.sun, this.sun.target, this.hemisphere, ...this.lamps.point, ...this.lamps.spot,
-      ...this.lamps.spot.map(spot => spot.target));
+    this.scene.remove(this.sky, this.sun, this.sun.target, this.hemisphere, ...this.lamps.point);
     this.scene.environment = null;
   }
 }

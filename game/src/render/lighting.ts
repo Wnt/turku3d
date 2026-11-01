@@ -4,9 +4,8 @@ import type * as THREE from 'three/webgpu';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import DynamicLightsNode from 'three/addons/tsl/lighting/DynamicLightsNode.js';
 import PointLightDataNode from 'three/addons/tsl/lighting/data/PointLightDataNode.js';
-import SpotLightDataNode from 'three/addons/tsl/lighting/data/SpotLightDataNode.js';
 
-export interface LightSlots { point: number; spot: number }
+export interface LightSlots { point: number }
 
 type DataNodeClass = new (maxCount: number) => THREE.Node;
 type Frame = Parameters<THREE.Node['update']>[0];
@@ -29,24 +28,33 @@ function activeOnly(Base: DataNodeClass): DataNodeClass {
   };
 }
 const ActivePointLights = activeOnly(PointLightDataNode);
-const ActiveSpotLights = activeOnly(SpotLightDataNode);
+
+type Builder = THREE.NodeBuilder & { context: { materialLightings?: THREE.LightingNode[] } };
+/** r186's DynamicLightsNode builds its light list from scene lights only and drops the material lightings that the
+ *  base LightsNode merges in: scene IBL, light maps and ambient occlusion (GTAO and each material's aoNode). Append
+ *  them again, after the lights, as the base class orders them. */
+class GameLightsNode extends DynamicLightsNode {
+  override setupLightsNode(builder: Builder) {
+    return [...super.setupLightsNode(builder), ...(builder.context.materialLightings ?? [])];
+  }
+}
 
 /**
- * r186 DynamicLighting (batched uniform arrays; light counts never recompile) with point and spot slots that exist
- * from the first compile, so lamps and headlights can switch on later without new pipelines. The shadowed sun
- * keeps its per-light path; the hemisphere ("artificial ambient") light is batched.
+ * r186 DynamicLighting (batched uniform arrays; light counts never recompile) with point slots that exist from the
+ * first compile, so lamps can switch on later without new pipelines. The shadowed sun keeps its per-light path; the
+ * hemisphere ("artificial ambient") light is batched.
+ * Budget: every batched light type adds uniform buffers to each lit fragment stage (point 3, hemisphere 3, spot 4)
+ * and WebGPU guarantees only 12 per stage, so spot slots need a packed data node before they can join.
  */
 export class GameLighting extends DynamicLighting {
   constructor(readonly slots: LightSlots) {
-    super({ maxDirectionalLights: 1, maxHemisphereLights: 1,
-      maxPointLights: Math.max(1, slots.point), maxSpotLights: Math.max(1, slots.spot) });
+    super({ maxDirectionalLights: 1, maxHemisphereLights: 1, maxPointLights: Math.max(1, slots.point), maxSpotLights: 1 });
   }
 
   override createNode(lights: THREE.Light[] = []) {
-    const node = new DynamicLightsNode(this.options);
+    const node = new GameLightsNode(this.options);
     const data = (node as unknown as { _dataNodes: Map<string, THREE.Node> })._dataNodes;
     if (this.slots.point > 0) data.set('PointLight', new ActivePointLights(this.slots.point));
-    if (this.slots.spot > 0) data.set('SpotLight', new ActiveSpotLights(this.slots.spot));
     return node.setLights(lights);
   }
 }
