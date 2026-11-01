@@ -22,8 +22,9 @@ const groups = (membership: number, filter: number) => ((membership & 0xffff) <<
 export const TRAFFIC_STRIDE = 12;
 /** Height samples along a lane (m). */
 const SAMPLE_STEP = 4;
-/** Surface samples (downward rays) per physics step at most: a long lane is sampled over several steps. */
-const SAMPLES_PER_STEP = 24;
+/** Worker time per physics step for sampling lane surfaces (ms): a long lane is sampled over several steps.
+ *  A ray from far above costs much more than one near the previous sample, so the budget is time, not rays. */
+const SAMPLE_MS_PER_STEP = 0.2;
 /** Cars claimed without the player's car touching them (stopping for a pedestrian, a pile-up behind a claimed
  *  car) per minute, at most. Each claim is a registry vehicle in multiplayer (eight per player). */
 const AUTO_CLAIMS_PER_MINUTE = 6;
@@ -140,7 +141,7 @@ export class TrafficSim {
       this.activate(t); this.lastActivation = t;
       this.stats.activationMs = performance.now() - a0;
     }
-    this.sampleSome(SAMPLES_PER_STEP);
+    this.sampleSome(performance.now() + SAMPLE_MS_PER_STEP);
     const player = this.host.player();
     let bodies = 0;
     for (const car of this.active.values()) {
@@ -352,10 +353,10 @@ export class TrafficSim {
     return Number.isFinite(y) ? y : Number.isFinite(a) ? a : Number.isFinite(b) ? b : null;
   };
 
-  /** Samples queued lanes' road surface, `budget` points this step, following a lane under bridges by searching
+  /** Samples queued lanes' road surface until the time `until`, following a lane under bridges by searching
    *  near its previous sample. A lane's heights apply once it is complete. */
-  private sampleSome(budget: number) {
-    while (budget > 0) {
+  private sampleSome(until: number) {
+    for (;;) {
       if (!this.sampling) {
         const lane = this.sampleQueue.shift();
         if (!lane) return;
@@ -363,7 +364,8 @@ export class TrafficSim {
         this.sampling = { lane, out: new Float32Array(count).fill(NaN), i: 0, previous: null };
       }
       const job = this.sampling;
-      for (; job.i < job.out.length && budget > 0; job.i++, budget--) {
+      for (; job.i < job.out.length; job.i++) {
+        if (performance.now() > until) return;
         const p = pointAlong(job.lane, Math.min(job.lane.length, job.i * SAMPLE_STEP));
         if (!this.host.resident(p.x, p.z)) continue;
         let y = job.previous !== null ? this.host.ground(p.x, job.previous + 3, p.z, 8) : null;
