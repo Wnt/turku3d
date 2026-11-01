@@ -207,7 +207,6 @@ async function runQa() {
     time: params.timeGiven ? params.time.toISOString() : null, three: THREE.REVISION, tiles: loadedTiles, world: 'draft-service',
     quality: params.quality, effectiveTime: params.time.toISOString(), sseUnits: 'drawing-buffer-pixels' };
   env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
-  if (params.bench) performance.setResourceTimingBufferSize(100_000); // the settle check counts requests
   const bench = params.bench ? new CameraBench({
     backend: renderer.backend,
     pipelines: () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null,
@@ -215,9 +214,9 @@ async function runQa() {
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
     now: () => performance.now(),
-    signature: () => [renderer.info.render.drawCalls, renderer.info.render.triangles, renderer.info.memory.textures,
-      (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size,
-      performance.getEntriesByType('resource').length].join('|'),
+    // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
+    signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
+      (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
     info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),

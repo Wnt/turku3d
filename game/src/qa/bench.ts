@@ -9,10 +9,11 @@ import { E0, N0 } from '../core/origin';
 export const BENCH_WARM = 120;
 export const BENCH_FRAMES = 240;
 /** QA's 32 settled frames pass in a fraction of a second with the frame rate unlocked, before textures, shadow batches
- *  and pipelines finish. The bench also waits until the frame's draws, triangles, pipelines, textures and network
- *  requests have not changed for this long, giving up after BENCH_SETTLE_LIMIT_MS. */
-export const BENCH_SETTLE_MS = 3000;
-const BENCH_SETTLE_LIMIT_MS = 120_000;
+ *  and pipelines finish. The bench also waits until the resident geometries, textures and pipelines have not changed
+ *  for this long (streaming arrives in bursts with quiet gaps of a few seconds), giving up after BENCH_SETTLE_LIMIT_MS.
+ *  Requests are not a signal: the tile client keeps polling. */
+export const BENCH_SETTLE_MS = 10_000;
+const BENCH_SETTLE_LIMIT_MS = 180_000;
 /** The default render date (core/params.ts), in Helsinki summer time. */
 const BENCH_DATE = '2026-10-15';
 const BENCH_OFFSET = '+03:00';
@@ -71,7 +72,7 @@ interface PerfLike {
 export interface BenchHost {
   backend: unknown; pipelines: () => number | null; passes: () => { prepass?: unknown; beauty?: unknown };
   perf: PerfLike; pause: (paused: boolean) => void; info: () => Record<string, unknown>;
-  /** Anything that changes while the scene is still loading (draws, triangles, pipelines, textures, requests). */
+  /** Anything that changes while the scene is still loading (resident geometries, textures, pipelines). */
   signature: () => string; now: () => number;
 }
 
@@ -81,7 +82,7 @@ export class CameraBench {
   private settleStart: number | null = null;
   private stableSince = 0;
   private signature = '';
-  private settle = { ms: 0, timedOut: false };
+  private settle = { ms: 0, timedOut: false, changes: 0, first: '', last: '', timeline: [] as [number, string][] };
   private frames = 0;
   private counting = false;
   private draws: Record<BenchPass, number> = { prepass: 0, beauty: 0, csm: 0, reflection: 0, post: 0 };
@@ -114,11 +115,15 @@ export class CameraBench {
   async frame(): Promise<Record<string, unknown> | null> {
     if (this.phase === 'settle') {
       const now = this.host.now(), signature = this.host.signature();
-      this.settleStart ??= now;
-      if (signature !== this.signature) { this.signature = signature; this.stableSince = now; }
+      if (this.settleStart === null) { this.settleStart = now; this.settle.first = signature; }
+      if (signature !== this.signature) {
+        this.signature = signature; this.stableSince = now; this.settle.changes++;
+        this.settle.timeline.push([Math.round(now - this.settleStart), signature]);
+        if (this.settle.timeline.length > 60) this.settle.timeline.shift(); // the tail shows when loading stopped
+      }
       const waited = now - this.settleStart;
       if (now - this.stableSince < this.settleMs && waited < BENCH_SETTLE_LIMIT_MS) return null;
-      this.settle = { ms: Math.round(waited), timedOut: now - this.stableSince < this.settleMs };
+      Object.assign(this.settle, { ms: Math.round(waited), timedOut: now - this.stableSince < this.settleMs, last: signature });
       this.phase = 'warm';
       return null;
     }
@@ -142,6 +147,8 @@ export class CameraBench {
     this.result = {
       id: this.pose.id, at: this.pose.at, quality: this.quality, backend: s.backend,
       settleMs: this.settle.ms, settleTimedOut: this.settle.timedOut,
+      settleSignature: { changes: this.settle.changes, first: this.settle.first, last: this.settle.last,
+        afterMeasure: this.host.signature(), parts: 'geometries|textures|pipelines', timeline: this.settle.timeline },
       warmFrames: this.warm, frames: this.measure, windowFrames: s.windowFrames,
       submittedDraws: {
         total: per(Object.values(this.draws).reduce((a, b) => a + b, 0)),
