@@ -161,5 +161,18 @@ test('developer time keys use free codes and pass a focused time panel control; 
   key('KeyW', null);
   input.update(1 / 60);
   expect(input.consume('menuUp')).toBe(true);
+  // A slider drag that starts in the panel never turns the camera, even where the pointer leaves the panel.
+  vi.stubGlobal('document', { pointerLockElement: null });
+  const pointer = (type: string, target: unknown, fields: object = {}) => {
+    const e = Object.assign(new Event(type), { pointerType: 'mouse', buttons: 1, movementX: 40, movementY: 0, ...fields });
+    Object.defineProperty(e, 'target', { value: target });
+    events.dispatchEvent(e);
+  };
+  pointer('pointerdown', inPanel); pointer('mousemove', inPanel); pointer('mousemove', null);
+  input.update(1 / 60);
+  expect(input.lookX).toBe(0);
+  pointer('pointerup', null, { buttons: 0 }); pointer('pointerdown', null); pointer('mousemove', null);
+  input.update(1 / 60);
+  expect(input.lookX).toBeGreaterThan(0);
   input.dispose();
 });
