@@ -13,7 +13,7 @@ import { TRAFFIC_VOICES } from './audio/mix';
 import * as THREE from 'three/webgpu';
 import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
 import { devToolsEnabled } from './core/localOnly';
-import { phaseTime } from './core/sun';
+import { PHASE_HOURS } from './core/dayCycle';
 import { Input } from './input';
 import { GameAudio } from './audio';
 import { showAudioPage } from './audio/menu';
@@ -69,6 +69,8 @@ import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
 import { FramePacer } from './render/framePacer';
 import { QUALITY } from './render/quality';
+import { Walkers, walkerCap } from './world/walkers';
+import { CROWD_RADIUS } from './audio/mix';
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
@@ -123,13 +125,17 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
   const traffic = new TrafficClient(physics, parkedVisuals, parkedVehicles, manifest, params.traffic ?? TRAFFIC_CAPS[params.quality]);
   traffic.attach(coarse);
+  // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
+  const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,
+    raycast: (origin, dir, maxToi, filter) => physics.raycast(origin, dir, maxToi, filter), graphs: () => coarse?.roadGraphs() ?? [] });
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
   await loading.track('Player and vehicle models', Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
     seated.load(import.meta.env.BASE_URL),
-    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest)]));
+    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest),
+    walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
   const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
@@ -215,7 +221,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       void saveGame.teleport(E, N, headingDeg).then(ground => { if (!ground) fly.set(true); }).catch(fail);
     },
     ask: question => window.prompt(question),
-    setTime: phase => { const time = phaseTime(world.clockTime(), phase); window.__render!.setTime(time.toISOString()); },
+    setTime: phase => window.__render!.setHour(PHASE_HOURS[phase]),
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
@@ -292,7 +298,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
   const multiplayerAt = await preparedMultiplayer;
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
-  Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, missions, router, minimap, zones, recovery,
+  Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
@@ -301,6 +307,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   startScreen.ready(!!multiplayerAt);
   world.loadingScreen.ready(!!multiplayerAt);
   let lastDeadlineUpdate = -Infinity;
+  let lastCrowd = -1;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
   const framePacer = new FramePacer(params.mobile ? 30 : 0);
@@ -554,6 +561,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
+    walkers.update(dt, camera, now);
+    const crowd = walkers.nearby(CROWD_RADIUS);
+    if (crowd !== lastCrowd) { lastCrowd = crowd; audio.emit({ type: 'crowd', walkers: crowd }); }
     positionHud.update(now, !startScreen.active);
     devLayers.update();
     renderFrame();
@@ -603,6 +613,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       devLayers.dispose();
       remotePlayers.dispose();
       tyreEffects.dispose();
+      walkers.dispose();
       poles.dispose();
       scoreboard.dispose(); rounds.dispose();
       listeners.abort();

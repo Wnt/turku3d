@@ -20,8 +20,10 @@ const logs = [];
 let browser, failurePage;
 const errors = [];
 const events = [];
-const EPOCH = Date.UTC(2027, 9, 15, 5, 45);
+// src/core/dayCycle.ts: CYCLE_EPOCH and the 20/4/4/2 min day/dusk/night/dawn cycle.
+const EPOCH = Date.UTC(2027, 8, 8, 4, 0);
 const DAY = 1_800_000;
+const MINUTE = 60_000;
 function child(args, env = {}) {
   const processChild = spawn(process.execPath, args, { cwd: repo, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   processChild.stdout.on('data', b => logs.push(String(b)));
@@ -97,11 +99,11 @@ try {
   await shot(page, 'debug-f3');
   await page.keyboard.press('F3'); await frames(page, 3);
   assert.equal(await page.locator('#hud').textContent(), nick);
-  await wall(page, EPOCH + DAY * 0.85);
+  await wall(page, EPOCH + 15 * MINUTE);
   await shot(page, 'hud-afternoon');
   const lighting = [];
-  for (const [name, phase] of [['evening', DAY], ['transition-quarter', DAY + 2500],
-    ['transition-middle', DAY + 5000], ['transition-three-quarter', DAY + 7500], ['morning-return', DAY + 10_000]]) {
+  for (const [name, phase] of [['sunset', 20 * MINUTE], ['blue-hour', 22 * MINUTE], ['night', 26 * MINUTE],
+    ['dawn', 29 * MINUTE], ['morning', DAY]]) {
     await wall(page, EPOCH + phase);
     await shot(page, name);
     lighting.push(await page.evaluate(name => ({ name, clock: window.__game.dayClock.snapshot(),
@@ -130,7 +132,7 @@ try {
   assert.equal(await page.evaluate(() => window.__game.state().fly), false);
   assert.equal(await page.locator('#help').evaluate(el => el.hidden), true);
   const perf = {};
-  for (const [name, phase] of [['daylight', DAY / 2], ['transition', DAY + 1000]]) {
+  for (const [name, phase] of [['daylight', 10 * MINUTE], ['night', 26 * MINUTE]]) {
     await wall(page, EPOCH + phase, true);
     await page.evaluate(() => window.__render.perf.reset());
     await frames(page, 180);

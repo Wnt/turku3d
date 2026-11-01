@@ -11,8 +11,7 @@ import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, headingToYaw } from './core/origin';
 import { createRenderer, defaultBackend } from './render/renderer';
-import { DayClock } from './render/dayClock';
-import { dayCycle } from './core/dayCycle';
+import { DayClock, type ClockMode } from './render/dayClock';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
@@ -48,7 +47,8 @@ declare global {
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
-      perf: PerformanceMonitor; setTime: (iso: string) => void; beforeFrame?: () => boolean; afterFrame?: () => void };
+      perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
+      beforeFrame?: () => boolean; afterFrame?: () => void };
   }
 }
 
@@ -60,6 +60,17 @@ try {
   throw e;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
+/** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
+const benchFetches = new Map<number, number>();
+if (params.bench) {
+  const original = globalThis.fetch.bind(globalThis);
+  let next = 0;
+  globalThis.fetch = (...args: Parameters<typeof fetch>) => {
+    const id = next++;
+    benchFetches.set(id, performance.now());
+    return original(...args).finally(() => benchFetches.delete(id));
+  };
+}
 /** QA renders 1:1 with the viewport; the bench probe measures at the play-mode pixel ratio (adaptive scale 1). */
 const qaCanvas = !!params.qa && !params.bench;
 const hudEl = document.getElementById('hud')!;
@@ -78,23 +89,27 @@ addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); l
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
-  { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile }));
+  { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
-env.setTime(params.qa || params.timeGiven ? params.time : dayCycle(Date.now()).lightTime);
+/** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
+const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params.hour }
+  : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
+const dayClock = new DayClock(env, clockMode, !params.qa);
 if (!idPass) env.updateIBL();
 const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights);
 const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, lights?.sprites);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-/** QA stays fixed; play follows the shared UTC cycle unless explicitly set through the developer tools. */
-const dayClock = new DayClock(env, params.qa || params.timeGiven ? params.time : null, !params.qa);
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
+}, setHour: (hour: number) => {
+  if (!Number.isFinite(hour)) throw new Error('invalid render hour');
+  dayClock.setHour(hour);
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
@@ -123,6 +138,9 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts.
+  env.updateShadows(!params.qa && worldLoad.snapshot().phase === 'ready');
+  post?.grade(env.sample);
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
@@ -218,7 +236,13 @@ async function runQa() {
     passes: () => post?.passTargets ?? {},
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
-    info: () => ({ url: location.search, pose: window.__qaPose, tiles: [...loadedTiles], settle: window.__game!.qa,
+    now: () => performance.now(),
+    busy: () => [...benchFetches.values()].some(start => performance.now() - start > 1500),
+    // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
+    signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
+      (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
+    info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
+      drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
   const publishBench = (result: Record<string, unknown> | null) => {
@@ -316,7 +340,8 @@ async function runPlay() {
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
-    loadingScreen, syncClock: time => dayClock.synchronize(time), clockTime: () => dayClock.time, setClock: date => dayClock.restore(date),
+    loadingScreen, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
+    setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
   // place; the world above keeps the player, the vehicles and the loaded tiles. The build badge names main's commit

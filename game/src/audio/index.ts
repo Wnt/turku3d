@@ -1,6 +1,6 @@
 import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
-import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
+import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
 
@@ -29,6 +29,8 @@ export class GameAudio {
   private paused = false;
   private pendingConnect = false;
   private listener: Extract<AudioEvent, { type: 'listener' }> | null = null;
+  /** Drawn walkers near the camera; null until the walker system reports (no crowd loop before that). */
+  private crowd: number | null = null;
   private car: Extract<AudioEvent, { type: 'car' }> | null = null;
   private traffic: Extract<AudioEvent, { type: 'traffic' }> | null = null;
   /** Pooled engine voices of ambient cars; a car keeps its voice while it stays among the nearest. */
@@ -148,6 +150,7 @@ export class GameAudio {
     }
     if (event.type === 'car') { this.car = event; this.refreshLoops(); return; }
     if (event.type === 'traffic') { this.traffic = event; this.refreshTraffic(); return; }
+    if (event.type === 'crowd') { this.crowd = event.walkers; this.refreshLoops(); return; }
     if (event.type === 'gamepad-connected' && (!this.buffers.has('connect') || this.context?.state !== 'running')) { this.pendingConnect = true; return; }
     if (this.paused && event.type !== 'gamepad-connected') return;
     const shot = oneShot(event);
@@ -254,6 +257,7 @@ export class GameAudio {
       this.loop('traffic', 'ambience', mix.traffic * trafficBed(bed?.count ?? 0), bed?.centre ?? this.listener.position);
       this.loop('river', 'ambience', mix.water, mix.river);
       this.loop('gulls', 'ambience', mix.gulls, { ...mix.river, y: 16 });
+      if (this.crowd !== null) this.loop('crowd', 'ambience', crowdGain(this.crowd));
     }
     if (this.car) {
       const c = this.car, mix = carMix(c.rpm, c.throttle, c.speed, c.slip, c.running, c.kind);

@@ -47,9 +47,33 @@ const definitions = {
     return fire * (0.8 + 0.45 * noise()) + 0.55 * sine(45, t) + 0.4 * sine(90, t) + 0.22 * sine(135, t)
       + 0.3 * sine(22.5, t) + brown() * 2 * (0.85 + 0.15 * sine(7.5, t));
   }],
+  // A distant crowd murmur for the ambient walkers: ten talkers' syllable envelopes (3.5-6 Hz, with slow breathing
+  // swells) over speech-band noise and a faint voiced buzz; no words, voices or recordings. Its own generator, so
+  // `prepare-audio.mjs crowd` reproduces it without re-encoding the other sounds.
+  crowd: [8, (() => {
+    let state = 0x2545f491;
+    const random = () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+    const talkers = Array.from({ length: 10 }, () => ({ rate: 3.5 + random() * 2.5, phase: random(), pitch: 105 + random() * 130,
+      breath: 0.1 + random() * 0.12, gain: 0.55 + random() * 0.45, a: 0, b: 0, slow: 0 }));
+    return t => {
+      let out = 0;
+      for (const v of talkers) {
+        const syllable = (t * v.rate + v.phase) % 1, envelope = syllable < 0.75 ? Math.sin(Math.PI * syllable / 0.75) ** 1.5 : 0;
+        const talking = 0.35 + 0.65 * Math.max(0, Math.sin(tau * v.breath * t + v.phase * tau) + 0.3) / 1.3;
+        // Two-pole low-pass (~1.5 kHz) minus a slow one (~200 Hz): the band where speech carries.
+        v.a += (random() * 2 - 1 - v.a) * 0.3; v.b += (v.a - v.b) * 0.3; v.slow += (v.b - v.slow) * 0.05;
+        out += v.gain * envelope * talking * ((v.b - v.slow) + 0.2 * sine(v.pitch, t) * sine(v.pitch * 2.03, t));
+      }
+      return out;
+    };
+  })()],
 };
-const manifest = {};
+// `node scripts/prepare-audio.mjs [name ...]` regenerates only the named sounds and keeps the other manifest rows.
+const only = new Set(process.argv.slice(2));
+for (const name of only) if (!(name in definitions)) throw new Error(`unknown sound ${name}`);
+const manifest = only.size ? JSON.parse(readFileSync(path.join(output, 'manifest.json'), 'utf8')) : {};
 for (const [name, [seconds, sample]] of Object.entries(definitions)) {
+  if (only.size && !only.has(name)) continue;
   low = 0;
   let data = Float32Array.from({ length: Math.round(seconds * rate) }, (_, i) => sample(i / rate));
   if (seconds >= 4) {

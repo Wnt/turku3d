@@ -1,0 +1,99 @@
+{
+  "bytes": 2009680,
+  "vatBytes": 1987200,
+  "vat": {
+    "width": 720,
+    "height": 345,
+    "format": "rgba16float"
+  },
+  "sha256": "d91036f7dd1ffa49ab4fd765f5aa1e5286024103ab871a4ec322109cedaa7f31",
+  "variants": [
+    {
+      "id": "hoodie",
+      "vertices": 720,
+      "triangles": 1174,
+      "sourceTriangles": 27057,
+      "height": 1.725,
+      "metresPerLoop": 1.472,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "jacket",
+      "vertices": 717,
+      "triangles": 979,
+      "sourceTriangles": 25679,
+      "height": 1.739,
+      "metresPerLoop": 1.457,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "skirt",
+      "vertices": 715,
+      "triangles": 964,
+      "sourceTriangles": 30370,
+      "height": 1.621,
+      "metresPerLoop": 1.424,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    }
+  ],
+  "sourceRevision": "852e48f316b90a0937234886630e4fb4cdfd1f78",
+  "rig": {
+    "file": "ual.glb",
+    "sha256": "15e73f92212f6e0a23559afbf8ae1d38da3077e007eaa89e2d2939d01052018f"
+  },
+  "sources": [
+    {
+      "file": "base_body.glb",
+      "sha256": "b5b450af89f6fbf8debf387eda8da40cd0a8c3253a2d59871c730ce7e7f46469"
+    },
+    {
+      "file": "clothing_boots.glb",
+      "sha256": "ca9bd57f279006c5114cc47fbbc8143d0e53ac5ddb9b40c78099a53a0c904895"
+    },
+    {
+      "file": "clothing_hoodie.glb",
+      "sha256": "264ad136179ac35326a273116652cf44badc189f6c78f09d188ecda19b3fd969"
+    },
+    {
+      "file": "clothing_jacket.glb",
+      "sha256": "22c489abb90fa3af3381948a91016ae2fa5dc5ab1c1152721527ac74c70e9dbd"
+    },
+    {
+      "file": "clothing_jeans.glb",
+      "sha256": "dac0e90aba219415e895eed0e471c0a9aab6b53f8870be1f8dfd41cd89c25d11"
+    },
+    {
+      "file": "clothing_shirt.glb",
+      "sha256": "c3467876f712e63a901fa664b1d54eb0127c56d20888dbbb0a606973fd26e9cc"
+    },
+    {
+      "file": "clothing_shoes.glb",
+      "sha256": "ea483876a6de5d51bf9fef16e1fd1e8957573398eab3321870d93af8c7dbc9a2"
+    },
+    {
+      "file": "clothing_skirt.glb",
+      "sha256": "b0c9e31793fc2f0dedd9b1bfb60489711d7bf0c8c72405e949911afd836de6a2"
+    },
+    {
+      "file": "hair_ponytail01.glb",
+      "sha256": "944efb6fb4bc223017697d4838ba27ec95c58866f2c98eac661e32f50467ebed"
+    },
+    {
+      "file": "hair_short02.glb",
+      "sha256": "eb341c197acf3948dac1f41f7722e9dad31018149541504a13ebcc8b6aa9d5aa"
+    },
+    {
+      "file": "hair_short04.glb",
+      "sha256": "ee2b27b2a004297ed5150edb7f6dc321e22cb87a30b5b7dcea582e1cf4789598"
+    }
+  ]
+}

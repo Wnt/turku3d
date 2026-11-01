@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { GameAudio } from '../../src/audio';
 import { GameplayAudio, engineRpm } from '../../src/audio/gameplay';
-import { ENGINE_SOUND, ambience, carMix, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
+import { ENGINE_SOUND, ambience, carMix, crowdGain, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
 import { MAT } from '../../src/shared/col/materials';
 
 class Param {
@@ -100,6 +100,9 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, slip: 0.7, running: true });
   // Every class's engine loop exists (car, scooter, truck) beside roll and screech; only the driven class's one is audible.
   expect(audio.snapshot().loops).toBe(10);
+  // The walkers' crowd murmur joins the beds once the walker system reports a count.
+  audio.emit({ type: 'crowd', walkers: 6 });
+  expect(audio.snapshot().loops).toBe(11);
   audio.emit({ ...listener, position: { x: 1, y: 2, z: 3 } });
   expect(ctx.listener.positionX.value).toBe(1); expect(ctx.listener.forwardZ.value).toBe(-1);
   audio.emit({ type: 'volume', channel: 'master', value: 0.4 });
@@ -237,4 +240,10 @@ test('preload decodes while suspended; the start gesture only resumes and reuses
   expect(ctx.state).toBe('running');
   expect(fetched).toBe(before);
   audio.dispose();
+});
+
+test('crowd murmur follows the drawn walkers near the camera', () => {
+  expect(crowdGain(0)).toBe(0);
+  expect(crowdGain(6)).toBeCloseTo(0.065, 6);
+  expect(crowdGain(12)).toBeCloseTo(0.13, 6); expect(crowdGain(40)).toBeCloseTo(0.13, 6);
 });
