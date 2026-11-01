@@ -1,6 +1,7 @@
 """Draft parking safety, deterministic rarity and shared asset delivery."""
 
 import numpy as np
+import pytest
 import shapely
 from turku3d import config as C
 from turku3d.coarse import parked
@@ -63,3 +64,16 @@ def test_shared_models_have_content_addresses_and_skip_builtin_truck(tmp_path):
 
     assert SHARED.fullmatch(entry["url"].split("/")[-1])
     assert not SHARED.fullmatch("../secret.glb")
+
+
+def test_cars_on_a_slope_rest_on_the_ground_and_lean_with_it():
+    grade = 0.06  # rising towards +x (east)
+    heights = np.tile(np.arange(129) * grade * TILE.size / 128, (129, 1))
+    cars = parked.place(TILE, (fixture(), []), heights)
+    assert len(cars) > 10
+    for car in cars:
+        fx, fz = np.sin(car["yaw"]), np.cos(car["yaw"])
+        rx = -fz  # real-world right of the heading
+        assert car["pitch"] == pytest.approx(np.arctan(grade * fx), abs=2e-4)  # nose up when facing uphill
+        assert car["roll"] == pytest.approx(np.arctan(-grade * rx), abs=2e-4)  # leaning towards the low side
+        assert car["y"] == pytest.approx(grade * (car["x"] - TILE.origin[0]), abs=1e-3)

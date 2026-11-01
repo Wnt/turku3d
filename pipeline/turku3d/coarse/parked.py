@@ -48,7 +48,7 @@ PEAK = {
     "residential-kerb": 0.92,
     "residential-lot": 0.9,
 }
-MAX_TILT = 0.15  # m of ground relief under one footprint
+MAX_PITCH, MAX_ROLL = 0.12, 0.08  # ground grade along and across a parked car
 
 
 def prepare(tile, osm, streets=None, buildings=None):
@@ -135,6 +135,30 @@ def zone_of(x, z, kind):
     return f"{where}-{'lot' if kind == 'lot' else 'kerb'}"
 
 
+def settle(tile, heights, x, z, yaw, width, length):
+    """Base height, pitch and roll of a car resting on the ground under its footprint (nose up and
+    leaning right are positive), or None where the ground is too steep to park on."""
+    from .surfaces import grid_height
+
+    fx, fz = math.sin(yaw), math.cos(yaw)
+    rx, rz = -fz, fx  # real-world right of the heading (engine z points south)
+    hl, hw = length / 2, width / 2
+
+    def ground(a, b):
+        return grid_height(tile, heights, x + a * fx + b * rx, z + a * fz + b * rz)
+
+    centre = ground(0, 0)
+    along = (ground(hl, 0) - ground(-hl, 0)) / length
+    across = (ground(0, -hw) - ground(0, hw)) / width  # left minus right
+    if abs(along) > MAX_PITCH or abs(across) > MAX_ROLL:
+        return None
+    # Lift the tilted base until no corner or edge midpoint is below the ground.
+    lift = max(
+        ground(a, b) - (centre + a * along - b * across) for a in (-hl, 0, hl) for b in (-hw, 0, hw)
+    )
+    return centre + max(0.0, lift), math.atan(along), math.atan(across)
+
+
 def truck_slot(tile, key, seed=SEED):
     return (
         int.from_bytes(
@@ -163,7 +187,6 @@ def place(
     """Cars for the tile's slots. ``kerb`` holds the kerb parking evidence (kerbs.prepare_inputs);
     ``stats`` counts outcomes per reason; ``trace`` collects (reason, kind, x, z, yaw) of every
     owned slot that fits no car, for audits."""
-    from .surfaces import grid_height
 
     features, city = prepared
     features = unique(features)
@@ -296,11 +319,8 @@ def place(
             near = {i for cell in cells(shape) for i in occupied_grid.get(cell, ())}
             if any(occupied[i].distance(shape) < 0.55 for i in near):
                 return "spacing"
-            ys = [
-                grid_height(tile, heights, a, b)
-                for a, b in list(shape.exterior.coords)[:4] + [(x, z)]
-            ]
-            if max(ys) - min(ys) > MAX_TILT:
+            rest = settle(tile, heights, x, z, yaw, width, length)
+            if rest is None:
                 return "slope"
             if kind == "lot":
                 # A lot car must be able to leave ahead or behind; kerb cars pull out sideways.
@@ -316,7 +336,7 @@ def place(
                 ]
                 if all(hard.intersects(exit) for exit in exits):
                     return "boxed_in"
-            return shape, ys
+            return shape, rest
 
         width, height, length = MODELS[name]
         fitted = fit(width, length)
@@ -333,7 +353,7 @@ def place(
                 width, height, length = TRUCK_SIZE
                 is_truck = True
                 pending_truck = False
-        shape, ys = fitted
+        shape, (y, pitch, roll) = fitted
         reject("placed")
         filled[source] = filled.get(source, 0) + 1
         accepted.append(
@@ -341,9 +361,11 @@ def place(
                 object_id=key,
                 source=source,
                 x=float(x),
-                y=float(max(ys)),
+                y=float(y),
                 z=float(z),
                 yaw=float(yaw),
+                pitch=round(pitch, 4),
+                roll=round(roll, 4),
                 model="truck" if is_truck else name,
                 color=color,
                 width=width,

@@ -21,6 +21,16 @@ const SYNC_MS = 1000, SATURATED_SYNC_MS = 250;
 
 const chassisLift = (car: ParkedVehicle) => car.model === 'truck' ? 1 : .75;
 
+/** Chassis rotation of a draft slot: heading (chassis +X forward), then the ground's pitch (nose up,
+ * about the chassis' right +Z) and roll (leaning right, about +X) the generator measured. */
+export function slotRotation(car: Pick<ParkedVehicle, 'yaw' | 'pitch' | 'roll'>): Quat {
+  const y = (car.yaw - Math.PI / 2) / 2, p = (car.pitch ?? 0) / 2, r = (car.roll ?? 0) / 2;
+  const sy = Math.sin(y), cy = Math.cos(y), sp = Math.sin(p), cp = Math.cos(p), sr = Math.sin(r), cr = Math.cos(r);
+  // (0, sy, 0, cy) * (0, 0, sp, cp) * (sr, 0, 0, cr)
+  const qx = sy * sp, qy = sy * cp, qz = cy * sp, qw = cy * cp;
+  return { x: qw * sr + qx * cr, y: qy * cr + qz * sr, z: qz * cr - qy * sr, w: qw * cr - qx * sr };
+}
+
 /** Drafts supply identities; only the nearest `cap` collision-backed cars within 120 m become
  * physics actors (trucks are rare and exempt; their visual exists only with a body). The rest
  * stay visual at their last physical pose, or at their draft slot. Borrowed cars retain their
@@ -75,10 +85,13 @@ export class ParkedVehicles {
     if (this.shared.has(id) || this.borrowed.has(id) || !slotShown(car, this.night)) return null;
     const rest = this.rest.get(id);
     if (rest) return rest;
+    return this.slot(car);
+  }
+
+  private slot(car: ParkedVehicle): ParkedPose {
     let slot = this.slots.get(car);
     if (!slot) {
-      const half = (car.yaw - Math.PI / 2) / 2;
-      slot = { pos: { x: car.x, y: car.y + chassisLift(car), z: car.z }, rot: { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) } };
+      slot = { pos: { x: car.x, y: car.y + chassisLift(car), z: car.z }, rot: slotRotation(car) };
       this.slots.set(car, slot);
     }
     return slot;
@@ -160,10 +173,10 @@ export class ParkedVehicles {
   }
 
   private spawn(id: string, car: ParkedVehicle) {
-    const truck = car.model === 'truck', rest = this.rest.get(id);
+    const truck = car.model === 'truck', pose = this.rest.get(id) ?? this.slot(car);
     const spec = { id, parked: true, kind: truck ? 'truck' as const : 'car' as const,
-      ...(truck ? {} : { halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), ...(rest ? { rot: rest.rot } : {}) };
-    this.physics.spawnVehicle(rest?.pos ?? { x: car.x, y: car.y + chassisLift(car), z: car.z }, car.yaw - Math.PI / 2, spec);
+      ...(truck ? {} : { halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), rot: pose.rot };
+    this.physics.spawnVehicle(pose.pos, car.yaw - Math.PI / 2, spec);
     this.spawned.set(id, car);
   }
 
