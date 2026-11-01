@@ -1,6 +1,7 @@
 """CLI: python -m turku3d.fetch {laz,wfs,wms,osm,all,report,verify} --area office-block
 
-All steps are idempotent: re-running skips complete files (size + sha256 registry) and resumes partial ones.
+``--area`` takes a fixed config area, ``tile-<id>`` or a region manifest name
+(``data-manifests/areas/<name>.yaml``, e.g. ``airport``). All steps are idempotent: re-running skips complete files (size + sha256 registry) and resumes partial ones.
 """
 
 from __future__ import annotations
@@ -12,17 +13,45 @@ import time
 from .. import config
 
 
+def load_area(name: str) -> config.Area:
+    """A fixed config area or tile input area, else a region manifest of the same name."""
+    try:
+        return config.area(name)
+    except (KeyError, ValueError):
+        from ..region.areas import load_area as manifest
+
+        return manifest(name)
+
+
+def area_arg(name: str) -> str:
+    try:
+        load_area(name)
+    except (OSError, KeyError, ValueError) as error:
+        raise ValueError(
+            f"unknown area {name!r}; use {', '.join(config.area_names())}, tile-t0_i_j "
+            "or a data-manifests/areas/<name>.yaml manifest"
+        ) from error
+    return name
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.fetch")
     ap.add_argument("step", choices=["laz", "wfs", "wms", "osm", "all", "report", "verify"])
-    ap.add_argument("--area", default="office-block", type=config.area_arg)
+    ap.add_argument("--area", default="office-block", type=area_arg)
     ap.add_argument("--layers", nargs="*", help="restrict WFS/WMS layers (names or WMS slugs)")
     ap.add_argument("--workers", type=int, default=4, help="parallel WMS requests")
+    ap.add_argument(
+        "--laz-datasets",
+        nargs="+",
+        default=config.LAZ_DATASETS,
+        choices=config.LAZ_DATASETS,
+        help="restrict LAZ datasets",
+    )
     ap.add_argument(
         "--verify", action="store_true", help="re-hash cached LAZ files before trusting them"
     )
     a = ap.parse_args(argv)
-    area = config.area(a.area)
+    area = load_area(a.area)
     t0 = time.time()
     log = lambda s: print(s, flush=True)  # noqa: E731
     log(f"fetch {a.step} area={area.name} data_root={config.data_root()}")
@@ -30,7 +59,7 @@ def main(argv=None) -> int:
     if a.step in ("laz", "all"):
         from . import laz
 
-        laz.fetch_area(area, verify=a.verify, log=log)
+        laz.fetch_area(area, datasets=tuple(a.laz_datasets), verify=a.verify, log=log)
     if a.step in ("wfs", "all"):
         from . import wfs
 

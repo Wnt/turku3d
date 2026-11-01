@@ -1,0 +1,9 @@
+name: ruissalo-bridge
+description: Ruissalo bridge and the eastern end of Ruissalo, L0 tiles t0_-20..-14 x t0_4..9
+crs: EPSG:3877+3900
+margin_m: 50
+polygon_en:
+  - [23454500, 6702000]
+  - [23456250, 6702000]
+  - [23456250, 6703500]
+  - [23454500, 6703500]

@@ -1,0 +1,9 @@
+name: airport
+description: Turku Airport (terminal, apron and runway 08/26), L0 tiles t0_-5..5 x t0_-33..-25
+crs: EPSG:3877+3900
+margin_m: 50
+polygon_en:
+  - [23458250, 6710500]
+  - [23461000, 6710500]
+  - [23461000, 6712750]
+  - [23458250, 6712750]

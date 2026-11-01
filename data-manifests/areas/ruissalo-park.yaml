@@ -1,0 +1,9 @@
+name: ruissalo-park
+description: Ruissalo Kansanpuisto and botanical garden area, L0 tiles t0_-35..-29 x t0_6..11
+crs: EPSG:3877+3900
+margin_m: 50
+polygon_en:
+  - [23450750, 6701500]
+  - [23452500, 6701500]
+  - [23452500, 6703000]
+  - [23450750, 6703000]
