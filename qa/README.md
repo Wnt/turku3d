@@ -125,7 +125,8 @@ node qa/render/render.mjs --views qa/views/views.jsonl \
 
 URL contract: `?cam=E,N,H,yaw,pitch,fov&roll=R&qa=1&pass=color|id&backend=webgpu|webgl`;
 optional `time` is ISO time with UTC offset. QA mode freezes dynamic actors and camera,
-hides HUD, and settles loading/rendering. The viewport is exactly reference width × height.
+hides HUD, and settles loading/rendering: every draft tile around the camera must carry its full visual model
+(not a collision preview), with ground bindings resident, for 32 frames. The viewport is exactly reference width × height.
 The game exposes `__qaReady`, `__qaError`, `__qaPose`, `__qaInfo`, `__qaIdTable` and optionally
 `__qaProject(E,N,H)`. Missing/nonfinite pose fields, including roll, fail the driver.
 Failed captures remove stale PNGs. The loop additionally checks both pass metadata and
