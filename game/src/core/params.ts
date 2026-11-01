@@ -23,6 +23,8 @@ interface Params {
   quality: QualityTier;
   aa: Antialiasing;
   mobile: boolean;
+  /** ?lights=0..1 fixes the street-light night level (?lights alone is 1); null follows the day cycle. */
+  lights: number | null;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -53,6 +55,9 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const quality = parseQuality(p.get('quality'), mobile ? 'mobile' : 'medium');
   const aa = p.get('aa') ?? (quality === 'mobile' ? 'fxaa' : 'taa');
   if (aa !== 'off' && aa !== 'taa' && aa !== 'fxaa') throw new Error(`bad ?aa= (off|taa|fxaa): ${aa}`);
+  const lightsStr = p.get('lights');
+  const lights = lightsStr === null ? null : lightsStr === '' ? 1 : Number(lightsStr);
+  if (lights !== null && !(lights >= 0 && lights <= 1)) throw new Error(`bad ?lights= (night level 0..1): ${lightsStr}`);
   return {
     backend,
     backendGiven: p.has('backend') || p.has('webgl'),
@@ -68,5 +73,6 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     quality,
     aa,
     mobile,
+    lights,
   };
 }
