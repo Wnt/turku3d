@@ -291,14 +291,19 @@ def test_deck_paint_lies_on_the_built_deck_and_ground_paint_stays_below():
     from turku3d.col.materials import mat_id
 
     tile = TILE_A
-    positions = np.array([[0, 1, 0], [250, 1, 0], [250, 1, 250], [0, 1, 250]], float)
-    indices = np.array([[0, 2, 1], [0, 3, 2]])
-    materials = np.array([mat_id("road"), mat_id("road")])
+    # Two road triangles, and a vertical road triangle (no plane) under the street's paint.
+    positions = np.array(
+        [[0, 1, 0], [250, 1, 0], [250, 1, 250], [0, 1, 250], [121, 1, 150.5], [125, 1, 150.5]],
+        float,
+    )
+    positions = np.r_[positions, [[123, 3, 150.5]]]
+    indices = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6]])
+    materials = np.array([mat_id("road")] * 3)
     line = shapely.LineString([(100, 120), (300, 120)])
     deck = Deck({"width": 10.0}, line, np.array([0.0, 200.0]), np.array([8.0, 10.0]), [], None)
     on_deck = (shapely.box(150, 118, 300, 122), road_paint.YELLOW, True, "centre")
     under = (shapely.box(120, 150, 130, 151), road_paint.WHITE, False, "stop")
-    keep = np.ones(2, bool)
+    keep = np.ones(3, bool)
     mesh = paint_visual(tile, positions, indices, materials, keep, [on_deck, under], [deck])
     p = mesh.positions + np.asarray(tile.origin)
     yellow = np.all(np.isclose(mesh.colors, road_paint.YELLOW), axis=1)

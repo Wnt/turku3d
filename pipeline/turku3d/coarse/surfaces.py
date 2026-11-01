@@ -496,10 +496,13 @@ def paint_visual(tile, positions, indices, materials, keep, polygons, decks=()):
         for index in tree.query(polygon, predicate="intersects"):
             if deck is False and on_deck[index]:
                 continue
+            clipped = polygon.intersection(footprints[index])
+            if clipped.area < 0.0001:
+                continue  # also every vertical (zero-footprint) triangle, which has no plane
             triangle = triangles[index]
             plane = np.linalg.solve(np.c_[triangle[:, [0, 2]], np.ones(3)], triangle[:, 1])
             emit(
-                polygon.intersection(footprints[index]),
+                clipped,
                 lambda xz, plane=plane: np.c_[xz, np.ones(len(xz))] @ plane + GROUND_PAINT_LIFT,
                 rgb,
             )
