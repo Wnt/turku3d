@@ -18,6 +18,7 @@ TREE_CAP = 768
 BUSH_CAP = 24
 SPACING = 5.0
 OPEN_MARGIN = 3.0
+REGISTER_TREE = "puut:"  # object-id prefix of GIS:Puut trees (inputs.register_trees)
 # Trees / square metre. Parks keep open lawns; scrub/heath stay low and sparse.
 DENSITY = {
     "forest": 0.018,
@@ -160,23 +161,32 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     from turku3d.roads import CLASS_SHIFT
 
     roads = inputs.roads
+    lanes = []
     if roads and roads.get("json"):
         graph = json.loads(roads["json"])
         nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
-        paths = []
         for edge in graph["edges"]:
             if edge[2] >> CLASS_SHIFT == 0:
                 continue
             coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
-            paths.append(shapely.LineString(coords).buffer(2))
-        blocked = shapely.union_all([blocked, *paths])
+            lanes.append(shapely.LineString(coords).buffer(2))
+        blocked = shapely.union_all([blocked, *lanes])
     paths = path_corridors(inputs)
     blocked = shapely.union_all([blocked, paths])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
     )
+    # Register trees are surveyed street and park trees: they stand in verges, tree grates and
+    # squares, so only buildings, water and the car lanes block them (carriageway rows are dropped
+    # in the prepared input), never the street-part areas around them.
+    surveyed = shapely.union_all([*inputs.water, *(b.footprint for b in inputs.buildings), *lanes])
     trees = [
-        t for t in mapped if not blocked.covers(shapely.Point(t.x, t.z)) and clears_path(t, paths)
+        t
+        for t in mapped
+        if not (surveyed if t.object_id.startswith(REGISTER_TREE) else blocked).covers(
+            shapely.Point(t.x, t.z)
+        )
+        and clears_path(t, paths)
     ][:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())

@@ -377,15 +377,30 @@ CONIFERS = ("pinus", "picea", "abies", "taxus", "thuja", "juniperus", "pseudotsu
 SURVEY_YEAR = 2026
 
 
-def register_trees(tile: C.VisualTile, path: Path) -> list:
+def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) -> list:
     """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer). Height grows with
     the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
-    the OSM default of 10 m."""
+    the OSM default of 10 m. A row on a carriageway (GIS:Katualueet Ajorata) is not drawn."""
+    from .forests import REGISTER_TREE
+
+    carriageway = (
+        shapely.union_all(
+            [
+                shapely.make_valid(shapely.force_2d(g))
+                for g, kind in zip(f.geometry_local, f["Katuosalaji"], strict=True)
+                if kind == "Ajorata" and g is not None
+            ]
+        )
+        if streets is not None and len(f := spatial_frame(streets, tile.bbox))
+        else shapely.Polygon()
+    )
     trees = []
     frame = spatial_frame(path, tile.bbox)
     for row in frame.to_dict("records"):
         point = row["geometry_local"]
         if point is None or point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+            continue
+        if not carriageway.is_empty and carriageway.covers(shapely.Point(point.x, point.y)):
             continue
         try:
             year = int(float(row.get("Istutusvuosi") or 0))
@@ -398,11 +413,13 @@ def register_trees(tile: C.VisualTile, path: Path) -> list:
         conifer = str(row.get("Kasviryhma") or "").casefold().startswith("havu") or any(
             species.startswith(genus) for genus in CONIFERS
         )
-        trees.append((f"puut:{row['feature_key']}", point.x, point.y, height, conifer))
+        trees.append((f"{REGISTER_TREE}{row['feature_key']}", point.x, point.y, height, conifer))
     return trees
 
 
-def prepare_trees(tile: C.VisualTile, osm: Path, register: Path | None = None) -> list:
+def prepare_trees(
+    tile: C.VisualTile, osm: Path, register: Path | None = None, streets: Path | None = None
+) -> list:
     """Register trees (GIS:Puut), then the OSM ``natural=tree`` points not within TREE_DUPLICATE
     of one, in the tile: (id, x, z, height, conifer)."""
     import json
@@ -411,7 +428,7 @@ def prepare_trees(tile: C.VisualTile, osm: Path, register: Path | None = None) -
 
     from turku3d.spatial import rows
 
-    trees = register_trees(tile, register) if register else []
+    trees = register_trees(tile, register, streets) if register else []
     known = cKDTree(np.array([(x, z) for _, x, z, _, _ in trees])) if trees else None
     for k, row in rows(osm, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
@@ -512,7 +529,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         if osm
         else None,
         "parking": [osm, wfs[1][1], wfs[0][1]] if osm else None,
-        "trees": [osm, wfs[WFS_LAYERS.index("GIS:Puut")][1]] if osm else None,
+        "trees": [osm, wfs[WFS_LAYERS.index("GIS:Puut")][1], wfs[1][1]] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,

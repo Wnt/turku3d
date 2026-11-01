@@ -28,6 +28,7 @@ def definitions(source):
 
 def producer_code(dataset):
     from . import inputs
+    from .forests import REGISTER_TREE
 
     dataset = dataset.removesuffix("-first")
     nodes = definitions(Path(inputs.__file__).read_bytes())
@@ -51,7 +52,7 @@ def producer_code(dataset):
         {
             "ground": (inputs.CELLS, inputs.POINT_MARGIN),
             "ortho": (inputs.ORTHO_PX,),
-            "trees": (inputs.TREE_DUPLICATE, inputs.CONIFERS, inputs.SURVEY_YEAR),
+            "trees": (inputs.TREE_DUPLICATE, inputs.CONIFERS, inputs.SURVEY_YEAR, REGISTER_TREE),
         }
     ).get(dataset, ())
     h = hashlib.sha256(Path(__file__).read_bytes())

@@ -231,3 +231,38 @@ def test_register_trees_win_over_nearby_osm_trees(tmp_path):
     assert [t[0] for t in trees] == ["puut:a", "puut:b", "osm:2"]
     assert trees[0][3] == pytest.approx(4 + 0.35 * 10) and not trees[0][4]
     assert trees[1][3] == 10 and trees[1][4]
+    streets = gpd.GeoDataFrame(
+        {"Katuosalaji": ["Ajorata", "Välikaista"]},
+        geometry=[box(25, 25, 35, 35), box(5, 5, 15, 15)],
+    )
+    streets["geometry_local"] = gpd.GeoSeries(list(streets.geometry))
+    streets.to_parquet(tmp_path / "streets.parquet")
+    kept = prepare_trees(
+        TILE, tmp_path / "osm.parquet", tmp_path / "puut.parquet", tmp_path / "streets.parquet"
+    )
+    assert [t[0] for t in kept] == ["puut:a", "osm:2"]  # the verge tree stays, the road one goes
+
+
+def test_register_trees_keep_their_verges_where_mapped_trees_give_way():
+    from types import SimpleNamespace
+
+    from turku3d.coarse.forests import produce
+    from turku3d.vegetation.trees import Tree
+
+    verge = box(0, 0, 250, 20)  # a street part (e.g. Välikaista) along the tile
+    inputs = SimpleNamespace(
+        water=[],
+        buildings=[],
+        streets=[(verge, 0)],
+        roads=None,
+        vegetation_paths=[],
+        forests=[],
+        canopy=(),
+    )
+    mapped = [
+        Tree("puut:a", 50, 10, "osm", height=8),
+        Tree("osm:1", 100, 10, "osm", height=8),
+        Tree("puut:b", 150, 100, "osm", height=8),
+    ]
+    trees, _ = produce(TILE, inputs, lambda x, z: 0.0, mapped)
+    assert sorted(t.object_id for t in trees) == ["puut:a", "puut:b"]
