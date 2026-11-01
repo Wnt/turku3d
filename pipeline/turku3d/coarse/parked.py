@@ -218,10 +218,13 @@ def place(
     for deck in decks:
         common.append(deck.line.buffer(float(deck.way.get("width", 8)) / 2 + 3))
 
+    from .furniture import ground_shape
+
     def trunks(tree, pole):
-        """Tree trunks and sign or stop poles, with clearance radii."""
+        """Tree trunks, and the poles, lamp posts and street furniture of the furniture stage by
+        their own footprints, with clearance radii."""
         return [shapely.Point(t.x, t.z).buffer(tree) for t in trees] + [
-            shapely.Point(p.x, p.z).buffer(pole) for p in poles
+            ground_shape(p).buffer(pole) for p in poles
         ]
 
     roads, ends = road_masks(features, service_ends=False)
@@ -493,6 +496,7 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks, carried=None):
             base / "parked/placement.py",
             base / "parked/kerbs.py",
             base / "parked/models.py",
+            base / "coarse/furniture.py",
             surfaces.grid_height,
             Path(C.__file__),
         ),

@@ -194,7 +194,10 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     bench = next(p for p in result["props"] if p.object_id == "bench-wall")
     assert (bench.x, bench.z, bench.y) == pytest.approx((110, 99.7, 1.0))
     assert {p.kind for p in result["props"]} == {"bench", "table", "bus_stop"}
-    assert [p.object_id for p in result["poles"]] == ["stop"]  # parked-car bay masks
+    # Parked-car slot masks: everything standing, lamp posts included, where it was placed.
+    masks = {p.object_id: (round(p.x, 2), round(p.z, 2)) for p in result["poles"]}
+    assert set(masks) == {"bench-wall", "bench-quay", "lamp-wall", "lamp", "table", "stop"}
+    assert masks["bench-wall"] == (110, 99.7) and masks["lamp-wall"] == (120.3, 105)
     lights, posts = decode(result["lights"])
     assert len(posts) == 2 and not any(light["category"] == "hung" for light in lights)
     assert sorted(round(p["x"], 2) for p in posts) == [50, 120.3]  # by the wall, not on the roof

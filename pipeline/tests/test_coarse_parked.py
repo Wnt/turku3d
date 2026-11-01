@@ -128,3 +128,25 @@ def test_kerb_bays_follow_the_kerb_evidence_and_statutory_gaps():
         assert car["x"] < 870 and abs(car["x"] - 800) > 7.5 - car["length"] / 2  # E1 crossing
     reverse = parked.place(TILE, (features[::-1], city[::-1]), np.zeros((129, 129)), kerb=kerb)
     assert cars == reverse
+
+
+def test_slots_give_way_to_lamps_and_furniture_by_their_footprints():
+    from turku3d.coarse.furniture import ground_shape
+    from turku3d.props import Prop
+
+    heights = np.zeros((129, 129))
+    free = parked.place(TILE, (fixture(), []), heights)
+    lamp = Prop("lamp", "lamp", free[0]["x"], 0, free[0]["z"])  # a lot lamp inside a bay
+    bench = Prop("bench", "bench", free[5]["x"], 0, free[5]["z"], yaw=0.3)
+    cars = parked.place(TILE, (fixture(), []), heights, poles=[lamp, bench])
+    assert 0 < len(cars) < len(free)
+    for car in cars:
+        shape = footprint(car["x"], car["z"], car["yaw"], car["width"], car["length"])
+        assert shape.distance(shapely.Point(lamp.x, lamp.z)) >= 0.6 - 1e-6
+        assert shape.distance(ground_shape(bench)) >= 0.6 - 1e-6
+    # Street lights 0.35 m past the kerb face keep every kerb bay beside them.
+    features, city, kerb = kerb_scene()
+    zeros = np.zeros((129, 129))
+    bays = parked.place(TILE, (features, city), zeros, kerb=kerb)
+    lamps = [Prop(f"lamp-{x}", "lamp", x, 0, 105.35) for x in range(770, 990, 25)]
+    assert parked.place(TILE, (features, city), zeros, poles=lamps, kerb=kerb) == bays

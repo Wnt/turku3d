@@ -177,9 +177,10 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
     return {
         "glb": visual_bytes(furniture, tile) if furniture else None,
         "props": furniture,
-        # Parked-car bays give way to sign and stop poles only, as before G1: furniture and lamps
-        # stand off the carriageway, and a lamp at the kerb would otherwise cost the bay beside it.
-        "poles": [p for p in placed if p.kind in ("sign", "bus_stop")],
+        # Everything standing on the ground masks parked-car slots (coarse/parked.py), each by its
+        # own footprint (ground_shape): lot bays give way to lot lamps, bins and meters, while kerb
+        # bays keep the small kerb clearance, so a lamp beside the kerb never costs the bay.
+        "poles": placed,
         "lights": encode(lights) if lights else None,
         "collision": dict(collision),
         "stats": dict(sorted(stats.items())),
@@ -217,6 +218,22 @@ BOXES = {
     "planter": [((0, 0.3, 0), (0.6, 0.3, 0.6))],
 }
 CYLINDERS = {"waste_container": (0.8, 1.22, "street_furniture"), "bollard": (0.09, 0.95, "bollard")}
+
+
+def ground_shape(p):
+    """The horizontal footprint of a standing item: its collision boxes or cylinder, else its
+    base point (posts, bins, meters, racks; anything without a kind, such as a tree trunk)."""
+    kind = getattr(p, "kind", None)
+    if kind in CYLINDERS:
+        return shapely.Point(p.x, p.z).buffer(CYLINDERS[kind][0])
+    if kind not in BOXES:
+        return shapely.Point(p.x, p.z)
+    c, s = math.cos(p.yaw), math.sin(p.yaw)
+    boxes = []
+    for (cx, _cy, cz), (hx, _hy, hz) in BOXES[kind]:
+        corners = [(cx + dx, cz + dz) for dx, dz in ((-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz))]
+        boxes.append(shapely.Polygon([(p.x + c * x + s * z, p.z - s * x + c * z) for x, z in corners]))
+    return shapely.union_all(boxes)
 
 
 def add_furniture(collision, p):
