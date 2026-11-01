@@ -47,7 +47,8 @@ WFS_LAYERS = (
     "kanta:Pysakki",
     "GIS:Keskilinjat",
 )
-OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste",)
+PERMIT_PARKING = "GIS:Lupapysakointipaikat"
+OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste", PERMIT_PARKING)
 BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 
@@ -123,6 +124,18 @@ class Unit:
 
 def block_bbox(block: C.LazTile) -> C.BBoxLocal:
     return block.bbox_en.to_local()
+
+
+def permit_sources(tile: C.VisualTile, sources) -> list[Path]:
+    """Optional permit-parking kerb lines of every area over the tile and its 60 m margin."""
+    slug = PERMIT_PARKING.replace(":", "_")
+    window = tile.bbox.buffered(60).to_en().as_tuple()
+    paths = []
+    for summary, state in sources.wfs.within(f"{slug}.summary.json", window, intersect=True):
+        path = summary.with_name(f"{slug}.parquet")
+        if state.get("status") == "ok" and path.exists():
+            paths.append(path)
+    return sorted(set(paths))
 
 
 def block_area(block: C.LazTile) -> C.Area:

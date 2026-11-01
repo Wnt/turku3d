@@ -42,31 +42,126 @@ def road_width(tags):
         return 6.0
 
 
-def exclusions(features, spawn, city):
+def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15):
+    """Everything but street corridors: buildings, water, entrances, crossings, paths, pavements."""
     masks = [Point(*spawn).buffer(12)]  # Includes driven-car spawn six metres to the right.
-    roads = []
     for f in features:
         t, g = f.tags, f.geometry
         if t.get("building") or t.get("natural") == "water" or t.get("waterway") == "riverbank":
             masks.append(g.buffer(0.5))
         if t.get("entrance") or t.get("amenity") == "parking_entrance":
-            masks.append(g.buffer(4))
+            masks.append(g.buffer(4 if t.get("amenity") == "parking_entrance" else entrance))
         if t.get("highway") == "crossing" or t.get("footway") == "crossing" or t.get("crossing"):
             masks.append(g.buffer(5))
         h = t.get("highway")
-        if h and g.geom_type in ("LineString", "MultiLineString"):
-            if h in ("footway", "path", "steps", "cycleway", "pedestrian"):
-                masks.append(g.buffer(1.5))
-            else:
-                width = 3.5 if h == "service" else road_width(t)
-                masks.append(g.buffer(width / 2 + 0.35))
-                roads.append(g)
-                for line in getattr(g, "geoms", [g]):
-                    masks.extend(Point(p).buffer(5) for p in [line.coords[0], line.coords[-1]])
+        if h in ("footway", "path", "steps", "cycleway", "pedestrian") and g.geom_type in (
+            "LineString",
+            "MultiLineString",
+        ):
+            masks.append(g.buffer(path))
     for f in city:
-        if f.tags.get("Katuosalaji_koodi") in ("2", "3", "4", "7", "8", "16"):
-            masks.append(f.geometry.buffer(0.15))
-    return unary_union(masks), unary_union(roads)
+        code = f.tags.get("Katuosalaji_koodi")
+        if code in ("2", "3", "4", "7", "8", "16"):
+            masks.append(f.geometry.buffer(driveway if code == "7" else 0.15))
+    return masks
+
+
+def road_masks(features, service_ends=True):
+    """(corridor, feature) of every street and the 5 m discs at its ends (without the ends of
+    service ways when ``service_ends`` is false: parking aisles end inside their lots)."""
+    roads, ends = [], []
+    for f in features:
+        t, g = f.tags, f.geometry
+        h = t.get("highway")
+        if not h or g.geom_type not in ("LineString", "MultiLineString"):
+            continue
+        if h in ("footway", "path", "steps", "cycleway", "pedestrian"):
+            continue
+        width = 3.5 if h == "service" else road_width(t)
+        roads.append((g.buffer(width / 2 + 0.35), f))
+        if h == "service" and not service_ends:
+            continue
+        for line in getattr(g, "geoms", [g]):
+            ends.extend(Point(p).buffer(5) for p in [line.coords[0], line.coords[-1]])
+    return roads, ends
+
+
+def exclusions(features, spawn, city):
+    roads, ends = road_masks(features)
+    masks = static_masks(features, spawn, city) + [r for r, _ in roads] + ends
+    return unary_union(masks), unary_union([f.geometry for _, f in roads])
+
+
+# Pitch along a kerbside strip and the bay's turn from the strip axis, per orientation.
+STRIP_BAYS = {
+    "parallel": (6.0, math.pi / 2),
+    "perpendicular": (2.6, 0.0),
+    "diagonal": (3.6, math.pi / 4),
+}
+
+
+AISLE_OFFSET = 5.4  # bay centre from the aisle centreline: half a 6 m aisle plus half a bay
+AISLE_PITCH = 2.6
+
+
+def aisle_candidates(feature, ways):
+    """Perpendicular bays on both sides of every service way that runs through a lot: mapped
+    aisles show how the lot is laid out better than any grid."""
+    g = feature.geometry
+    for way in sorted(ways, key=lambda w: w.id):
+        inside = way.geometry.intersection(g)
+        for part_id, line in enumerate(getattr(inside, "geoms", [inside])):
+            if line.geom_type != "LineString" or line.length < 2 * AISLE_PITCH:
+                continue
+            for k, t in enumerate(np.arange(AISLE_PITCH / 2, line.length, AISLE_PITCH)):
+                a = line.interpolate(max(0.0, t - 0.5))
+                b = line.interpolate(min(line.length, t + 0.5))
+                dx, dz = b.x - a.x, b.y - a.y
+                n = math.hypot(dx, dz) or 1.0
+                p = line.interpolate(t)
+                for side in (1, -1):
+                    nx, nz = -dz / n * side, dx / n * side  # away from the aisle
+                    yield (
+                        f"{feature.id}:aisle:{way.id}:{part_id}:{side}:{k}",
+                        p.x + nx * AISLE_OFFSET,
+                        p.y + nz * AISLE_OFFSET,
+                        math.atan2(nx, nz),
+                        g,
+                    )
+
+
+def long_axis(part):
+    """Direction of a parking area's bay rows: its dominant edge direction (edges weighted by
+    length, modulo 90 degrees), turned to whichever of the two axes the area is longer along."""
+    c = np.asarray(part.exterior.coords)
+    d = np.diff(c, axis=0)
+    w = np.linalg.norm(d, axis=1)
+    a = np.arctan2(d[:, 1], d[:, 0])
+    theta = math.atan2(float((w * np.sin(4 * a)).sum()), float((w * np.cos(4 * a)).sum())) / 4
+    spans = []
+    for angle in (theta, theta + math.pi / 2):
+        along = c @ np.array([math.cos(angle), math.sin(angle)])
+        spans.append(along.max() - along.min())
+    return theta if spans[0] >= spans[1] else theta + math.pi / 2
+
+
+def capacity_of(tags):
+    """The mapped number of bays, or None."""
+    try:
+        capacity = int(str(tags.get("capacity", "")).strip())
+    except ValueError:
+        return None
+    return capacity if capacity > 0 else None
+
+
+def street_side_strip(feature, part=None):
+    """A separately mapped kerbside strip: its cars stand parallel and may overhang its outline."""
+    g = part if part is not None else feature.geometry
+    if feature.tags.get("parking") in ("lane", "street_side", "on_kerb", "half_on_kerb"):
+        return True
+    rect = np.asarray(g.minimum_rotated_rectangle.exterior.coords)
+    sides = np.linalg.norm(np.diff(rect, axis=0), axis=1)
+    return sides.min() < 7
 
 
 def candidates(feature):
@@ -79,24 +174,30 @@ def candidates(feature):
     if g.geom_type in ("Polygon", "MultiPolygon"):
         if t.get("amenity") != "parking" and t.get("parking") != "street_side":
             return
+        orientation = t.get("orientation", t.get("parking:orientation"))
         for part_id, part in enumerate(getattr(g, "geoms", [g])):
-            rect = np.asarray(part.minimum_rotated_rectangle.exterior.coords)
-            edges = np.diff(rect, axis=0)
-            edge = edges[np.argmax(np.linalg.norm(edges, axis=1))]
-            angle = math.atan2(edge[1], edge[0])
+            angle = long_axis(part)
             local = affinity.rotate(part, -angle, origin=(0, 0), use_radians=True)
             xmin, zmin, xmax, zmax = local.bounds
-            # Narrow street-side strips get parallel bays; lots retain 6 m access aisles.
-            narrow = zmax - zmin < 7
-            for row, z in enumerate(
-                np.arange(zmin + (1.2 if narrow else 2.7), zmax, 2.6 if narrow else 11.4)
-            ):
-                for col, x in enumerate(
-                    np.arange(xmin + (2.8 if narrow else 1.3), xmax, 6.2 if narrow else 2.65)
-                ):
+            if street_side_strip(feature, part):
+                # One row along the strip's midline: parallel unless its bays are tagged otherwise.
+                kind = orientation if orientation in ("perpendicular", "diagonal") else "parallel"
+                if orientation is None and zmax - zmin >= 4.4:
+                    kind = "perpendicular"  # too deep for one parallel row
+                pitch, turn = STRIP_BAYS[kind]
+                capacity = capacity_of(t)
+                if capacity:
+                    # A mapped bay count spreads over the strip, down to the tightest legal bay.
+                    pitch = max(pitch * 0.9, (xmax - xmin) / capacity)
+                rows, cols = [(zmin + zmax) / 2], np.arange(xmin + pitch / 2, xmax, pitch)
+            else:
+                # Lots: rows of perpendicular bays with 6 m access aisles.
+                turn = 0.0
+                rows, cols = np.arange(zmin + 2.7, zmax, 11.4), np.arange(xmin + 1.3, xmax, 2.65)
+            for row, z in enumerate(rows):
+                for col, x in enumerate(cols):
                     p = affinity.rotate(Point(x, z), angle, origin=(0, 0), use_radians=True)
-                    yaw = math.pi / 2 - angle if narrow else -angle
-                    yield f"{feature.id}:{part_id}:{row}:{col}", p.x, p.y, yaw, part
+                    yield f"{feature.id}:{part_id}:{row}:{col}", p.x, p.y, turn - angle, part
     elif g.geom_type == "LineString":
         for side, sign in [("left", 1), ("right", -1)]:
             value = t.get(

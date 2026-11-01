@@ -34,6 +34,7 @@ from turku3d.spatial import frame as spatial_frame
 from . import roofs
 from .register import district as register_district
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
+from .sources import permit_sources
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
@@ -67,7 +68,7 @@ DEPENDENCIES = {
         "../spatial.py",
         "../roads/__init__.py",
     ),
-    "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
+    "parking": ("parked.py", "../parked/placement.py", "../parked/kerbs.py", "../spatial.py"),
     "trees": ("../spatial.py",),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
@@ -475,7 +476,9 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         ]
         if osm
         else None,
-        "parking": [osm, wfs[1][1], wfs[0][1]] if osm else None,
+        "parking": [osm, wfs[1][1], wfs[0][1], wfs[3][1], wfs[4][1], *permit_sources(tile, sources)]
+        if osm
+        else None,
         "trees": [osm] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,

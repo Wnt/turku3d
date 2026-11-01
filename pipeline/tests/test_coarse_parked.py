@@ -39,9 +39,9 @@ def test_deterministic_safe_and_supported():
 def test_truck_draw_is_one_in_thousand_and_fits_next_bay(monkeypatch):
     count = sum(parked.truck_slot(TILE, str(i)) for i in range(100_000))
     assert 70 <= count <= 130
-    # Oversized truck skips a narrow lot and is carried to a later broad parallel strip.
+    # Oversized truck skips a narrow strip and is carried to a later broad one.
     features = [
-        Feature("a", shapely.box(770, 20, 790, 22.5), {"amenity": "parking"}),
+        Feature("a", shapely.box(770, 20, 790, 22.0), {"amenity": "parking"}),
         Feature("b", shapely.box(800, 100, 980, 106), {"parking": "street_side"}),
     ]
     monkeypatch.setattr(parked, "truck_slot", lambda tile, key, seed: key.startswith("a:"))
