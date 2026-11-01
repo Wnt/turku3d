@@ -35,7 +35,12 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
 (only after startup warmup), and deep-night IBL refreshes every two minutes. The river's unlit deep colour darkens with the night.
 
 - `SkyMesh` supplies analytic Rayleigh/Mie scattering. It was smoke-tested under both backends before adding effects;
-  no takram dependency is needed. Clouds are off for this clear-afternoon scene.
+  no takram dependency is needed. Its own cloud option stays off: `CloudLayer` (`clouds.ts`) composites a cumulus
+  layer and a cirrus layer over the composed sky from one 256² tileable noise texture (`assets/nature/clouds.png`),
+  lit by the timecycle's `cloudLight`/`cloudShade`/`cloudBrightness` rows (sunset tints, city glow at night),
+  with a two-tap density gradient towards the sun for self-shadowing and a forward-scattering rim. About six texture
+  reads per sky pixel; the noise loads after startup into a fixed-size texture (no recompilation) and then renews the
+  IBL. QA renders freeze the drift.
   The sky box (2250 m half-extent) re-centres on the rendering camera in `onBeforeRender`, so it surrounds the
   player anywhere in the world; its colour depends only on view direction.
 - A 128-pixel PMREM cube derived from the same sky (plus the twilight/night term) provides IBL. It is regenerated on the clock's cadence, reusing the target to retain material bindings and shader programs. Sun vectors use `core/sun.ts`, including true-north to grid-north convergence.
