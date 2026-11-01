@@ -64,6 +64,7 @@ ORIENTATIONS = {"parallel": "parallel", "perpendicular": "perpendicular", "diago
 
 KERB_REACH = 14.0  # m from the centreline to a kerb of that street
 KERB_GAP = 0.25  # wheels stand this far off the kerb face
+KERB_INSETS = (0.0, 0.15, 0.3)  # a parallel bay may stand this much further out
 MIN_LATERAL = 2.0  # a kerb closer to the centreline is a median or island
 MAX_ANGLE = math.radians(25)
 BUILD_OUT = 0.8  # the kerb steps this much towards the centreline at crossings and corners
@@ -371,7 +372,9 @@ def find_kerbs(streets, carriage, beyond, window):
 
 
 def fallback_kerbs(streets, carriage):
-    """A street with explicit kerb parking and no city carriageway gets kerbs at half its width."""
+    """A street with explicit kerb parking and no city carriageway gets kerbs at half its width.
+    Returns the carriageway those kerbs bound."""
+    added = []
     for street in streets:
         if street.kerbs[1] or street.kerbs[-1] or street.highway not in KERB_STREETS:
             continue
@@ -389,6 +392,8 @@ def fallback_kerbs(streets, carriage):
                     half = 5.4
             ts = np.array([0.0, street.line.length])
             street.kerbs[side].append((ts, np.full(2, half)))
+            added.append(street.line.buffer(half, cap_style="flat"))
+    return shapely.union_all(added) if added else shapely.Polygon()
 
 
 def junctions(streets):
@@ -667,24 +672,31 @@ def bays(streets, carriage, blocked):
                     if centre + pitch / 2 > end:
                         break
                     lateral = float(np.interp(centre, ts, lats))
-                    x, z, yaw, depth = bay_pose(
-                        street, side, centre, orientation, lateral, nominal_w, nominal_l
-                    )
-                    if orientation == "parallel":
-                        probe = footprint(x, z, yaw, nominal_w, pitch - 0.6)
-                    else:
-                        probe = footprint(x, z, yaw, pitch - 0.3, nominal_l)
-                    if (
-                        typical - lateral > BUILD_OUT
-                        or (
-                            priority == 0
-                            and not clear_width_ok(
-                                street, side, centre, depth, side_rule(street, -side, centre)
-                            )
+                    if typical - lateral > BUILD_OUT or (
+                        priority == 0
+                        and not clear_width_ok(
+                            street,
+                            side,
+                            centre,
+                            NOMINAL[0] if orientation == "parallel" else NOMINAL[1],
+                            side_rule(street, -side, centre),
                         )
-                        or blocked.intersects(probe)
-                        or not carriage.covers(probe)
                     ):
+                        t += 0.5
+                        continue
+                    # Where the surveyed kerb and the pavement or path outlines disagree, a
+                    # parallel bay stands a little further out, as a driver would.
+                    for inset in KERB_INSETS if orientation == "parallel" else (0.0,):
+                        x, z, yaw, _depth = bay_pose(
+                            street, side, centre, orientation, lateral - inset, nominal_w, nominal_l
+                        )
+                        if orientation == "parallel":
+                            probe = footprint(x, z, yaw, nominal_w, pitch - 0.6)
+                        else:
+                            probe = footprint(x, z, yaw, pitch - 0.3, nominal_l)
+                        if not blocked.intersects(probe) and carriage.covers(probe):
+                            break
+                    else:
                         t += 0.5
                         continue
                     # The station along the whole way names the bay in every tile that sees it.
@@ -714,11 +726,9 @@ def plan(features, city, posts, stops, permits, obstacles, window):
     streets = car_streets(features)
     carriage = carriageway(city)
     find_kerbs(streets, carriage, not_kerb_areas(city, features), window)
-    fallback_kerbs(streets, carriage)
+    assumed = fallback_kerbs(streets, carriage)
     evidence(streets, posts, permits)
     gaps = kerb_masks(streets, posts, stops, features, city)
-    if carriage.is_empty:
-        carriage = shapely.union_all([s.line.buffer(s.half_width() + 0.5) for s in streets])
-    cover = carriage.buffer(0.3)
+    cover = shapely.union_all([carriage, assumed]).buffer(0.3)
     shapely.prepare(cover)
     return bays(streets, cover, Masks([*gaps, *obstacles])), gaps

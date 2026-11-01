@@ -215,14 +215,21 @@ def place(
         ):
             common.append(g.buffer(8))
     common.extend(g.buffer(0.5) for g, _tags, *_ in barriers)
-    common.extend(shapely.Point(t.x, t.z).buffer(0.7) for t in trees)
-    common.extend(shapely.Point(p.x, p.z).buffer(0.6) for p in poles)
     for deck in decks:
         common.append(deck.line.buffer(float(deck.way.get("width", 8)) / 2 + 3))
+
+    def trunks(tree, pole):
+        """Tree trunks and sign or stop poles, with clearance radii."""
+        return [shapely.Point(t.x, t.z).buffer(tree) for t in trees] + [
+            shapely.Point(p.x, p.z).buffer(pole) for p in poles
+        ]
+
     roads, ends = road_masks(features, service_ends=False)
     # A lot car must be able to drive out over streets and paths, past no wall, tree or pole.
+    lot_trunks = trunks(0.7, 0.6)
     hard = Masks(
         common
+        + lot_trunks
         + [
             f.geometry.buffer(0.5)
             for f in features
@@ -230,12 +237,14 @@ def place(
         ]
     )
     lot_excluded = Masks(
-        static_masks(features, spawn, city) + [r for r, _ in roads] + ends + common
+        static_masks(features, spawn, city) + [r for r, _ in roads] + ends + common + lot_trunks
     )
-    # Kerb bays stand in the street itself: only paths' own width, doors and driveway mouths.
+    # Kerb bays stand in the street itself: only paths' own width, doors and driveway mouths, and
+    # the poles and trunks on the kerb itself (a car parks right beside a sign post).
     kerb_static = (
         static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0, crossings=False)
         + common
+        + trunks(0.45, 0.2)
     )
     window = shapely.box(*tile.bbox.buffered(15).as_tuple())
     bays, gaps = kerbs.plan(features, city, posts, stops, permits, kerb_static, window)
