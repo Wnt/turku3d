@@ -151,6 +151,7 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `quality=mobile\|low\|medium\|high` | Phones/tablets default to mobile; desktops and fixed-camera QA default to medium. Mobile uses one smaller CSM cascade and sky reflections, without GTAO or bloom. Phones/tablets pace play at 30 FPS and cap output at 720p regardless of the input device. See [render budgets](src/render/README.md). |
 | `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
 | `hud=0` | Start with the HUD hidden. |
+| `lights=<0..1>` (or `lights`) | Fix the street-light night level ([render/lights](src/render/lights/index.ts)): `lights` or `lights=1` shows lamp heads and light coronas in today's daylight-only cycle, `0` keeps them off. Without it the level follows the rendered sun (on below about +3°, full below -6°). |
 | `cam=...` | Visual QA camera, see below. |
 
 ## Visual QA render contract (D8)

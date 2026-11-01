@@ -15,6 +15,7 @@ import { DayClock } from './render/dayClock';
 import { dayCycle } from './core/dayCycle';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
+import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
@@ -85,7 +86,8 @@ camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
 env.setTime(params.qa || params.timeGiven ? params.time : dayCycle(Date.now()).lightTime);
 if (!idPass) env.updateIBL();
-const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa);
+const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights);
+const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, lights?.sprites);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 /** QA stays fixed; play follows the shared UTC cycle unless explicitly set through the developer tools. */
 const dayClock = new DayClock(env, params.qa || params.timeGiven ? params.time : null, !params.qa);
@@ -123,6 +125,7 @@ const renderFrame = () => {
   dayClock.update();
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
+  lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
   if (post) post.render(); else renderer.render(scene, camera);
   frameSubmitted(renderer);
 };
@@ -140,7 +143,8 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
-window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot() };
+window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
+  lights };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -177,6 +181,7 @@ async function draftWorld() {
     style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
+  lights?.attach(coarse);
   return { physics, rapier, manifest, streamer, coarse };
 }
 

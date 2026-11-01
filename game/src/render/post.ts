@@ -15,6 +15,11 @@ const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
 
 export type Antialiasing = 'off' | 'taa' | 'fxaa';
 
+/** An additive HDR layer composited after the temporal resolve; it tests its own fragments against `sceneDepth`. */
+export interface PostOverlay {
+  overlay(renderer: THREE.WebGPURenderer, camera: THREE.Camera, sceneDepth: THREE.Texture): { color: THREE.Node<'vec3'>; resource: { dispose(): void } };
+}
+
 export class PostProcessing {
   private pipeline: THREE.RenderPipeline;
   private pre: ReturnType<typeof pass> | null;
@@ -25,7 +30,8 @@ export class PostProcessing {
   private beautyDepth = 2;
   private resources: { dispose(): void }[];
 
-  constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
+  constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
+    overlay: PostOverlay | null = null) {
     const q = QUALITY[tier];
     const pre = this.pre = q.aoSamples > 0 || aa === 'taa' ? pass(scene, camera) : null;
     this.baseContext = renderer.contextNode;
@@ -84,7 +90,10 @@ export class PostProcessing {
     const color = temporal ?? beauty;
     const glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
     glow?.setResolutionScale(q.bloomScale);
-    const hdr = glow ? color.rgb.add(glow.rgb) : color.rgb;
+    const bloomed = glow ? color.rgb.add(glow.rgb) : color.rgb;
+    // Light sprites (render/lights) join after TRAA and bloom: no jitter, no history smear.
+    const lights = overlay?.overlay(renderer, camera, (pre ?? beauty).getTexture('depth'));
+    const hdr = lights ? bloomed.add(lights.color) : bloomed;
     const luminance = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
     const graded = mix(vec3(luminance), hdr, q.saturation).mul(vec3(1.012, 1, 0.99));
     const output = vec4(graded, 1);
@@ -98,6 +107,7 @@ export class PostProcessing {
     if (glow) this.resources.push(glow);
     if (temporal) this.resources.push(temporal);
     if (spatial) this.resources.push(spatial);
+    if (lights) this.resources.push(lights.resource);
   }
 
   async prepare(model: THREE.Object3D) {

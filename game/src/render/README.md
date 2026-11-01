@@ -25,6 +25,12 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
   desaturation/warm grading and **AgX**, exposure **0.65**. Tone mapping and sRGB conversion happen exactly once.
 - QA `pass=id` bypasses IBL generation, material styling and all post-processing; there is no AA, grading, exposure,
   fog or shadow modulation. Colour QA waits for 32 settled frames to let temporal history converge.
+- **Street lights** ([lights/](lights/index.ts)): every light corona in the resident window is one instanced additive
+  draw in its own depth-less pass, added to the HDR colour after TRAA and bloom (no jitter, no history smear). Its
+  vertex stage uses the unjittered projection and clamps coronas to 2..48 output pixels; each fragment compares its
+  own depth with the opaque prepass depth (beauty depth on mobile), so walls hide lamps behind them. Lamp posts are
+  one `InstancedMesh` holding only lamps within 125 m, scaled to zero between 105 and 125 m on the CPU, so every
+  pass keeps one count-independent program. `?lights=0..1` fixes the night level.
 
 `?aa=off|taa|fxaa` is a diagnostic selector (default `taa`, or `fxaa` for mobile quality) on both backends. `off` bypasses colour AA; `fxaa`
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,
