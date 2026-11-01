@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, materialColor, sRGBTransferEOTF, select, uniform, uv } from 'three/tsl';
+import { attribute, materialColor, mix, sRGBTransferEOTF, step, uniform, uv } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 
 // r186 declares the colour-space Fn without its vec3 layout.
@@ -14,7 +14,8 @@ export const PAINT_COLORS: Readonly<Record<string, readonly [number, number, num
   blue: [38, 78, 126], red: [138, 38, 39], beige: [154, 143, 118],
 };
 export const PAINT_COLUMNS: Readonly<Record<string, number>> = { sedan: 6, suv: 3, 'hatchback-sports': 3, van: 7 };
-const ATLAS = 512, COLUMN = 64, FIRST_ROW = 128, ROWS = 128, DARKEST = 0.78;
+export const PAINT_SWATCH = { atlas: 512, column: 64, firstRow: 128, rows: 128, darkest: 0.78 } as const;
+const { atlas: ATLAS, column: COLUMN, firstRow: FIRST_ROW, rows: ROWS, darkest: DARKEST } = PAINT_SWATCH;
 
 /** Batch identity: recolourable models share one draw for every paint; any other model keeps
  * one draw per authored GLB (`model/color`), exactly as supplied. */
@@ -41,11 +42,13 @@ export function paintMaterial(source: THREE.MeshStandardMaterial, model: string)
   const column = PAINT_COLUMNS[model];
   const swatch = uniform(new THREE.Vector4(column * COLUMN / ATLAS, FIRST_ROW / ATLAS, (column + 1) * COLUMN / ATLAS, (FIRST_ROW + ROWS) / ATLAS));
   const p = uv();
-  const inside = p.x.greaterThanEqual(swatch.x).and(p.x.lessThan(swatch.z)).and(p.y.greaterThanEqual(swatch.y)).and(p.y.lessThan(swatch.w));
+  // A branch-free mask keeps the texture sample in uniform control flow for its mip derivatives.
+  // step(edge, x) is x >= edge: the swatch spans [x, z) × [y, w).
+  const inside = step(swatch.x, p.x).mul(step(swatch.z, p.x).oneMinus()).mul(step(swatch.y, p.y)).mul(step(swatch.w, p.y).oneMinus());
   // Texel centres carry the authored shade; bilinear sampling of that ramp is the same line.
   const shade = p.y.mul(ATLAS).sub(FIRST_ROW + 0.5).div(ROWS - 1).clamp(0, 1).mul(DARKEST - 1).add(1);
   const paint = decode(attribute('paint', 'vec3').mul(shade)).mul(uniform(material.color));
-  material.colorNode = select(inside, paint, materialColor);
+  material.colorNode = mix(materialColor, paint, inside);
   return material;
 }
 

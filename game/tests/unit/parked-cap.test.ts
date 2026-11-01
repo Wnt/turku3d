@@ -1,7 +1,8 @@
 import { expect, test, vi } from 'vitest';
 import { ParkedVehicles } from '../../src/world/parkedVehicles';
 import { draftManifest, type ParkedVehicle } from '../../src/world/manifest';
-import type { Quat, V3, VehicleSpec, VehicleState } from '../../src/physics/protocol';
+import type { V3 } from '../../src/core/origin';
+import type { Quat, VehicleSpec, VehicleState } from '../../src/physics/protocol';
 import { QUALITY } from '../../src/render/quality';
 
 const settle = () => new Promise(r => setTimeout(r, 0));
