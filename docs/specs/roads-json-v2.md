@@ -91,9 +91,12 @@ columns are appended):
 Lane rules when OSM has no tag: `lanes=n` on a two-way road splits `ceil(n/2)` forward and
 `floor(n/2)` backward unless `lanes:forward` / `lanes:backward` say otherwise; two-way roads
 default to 1+1, oneways to 1 (major oneways 2). `lanes=1` on a two-way road gives 1+1 with flag
-`SINGLE_TRACK` (both directions share one physical lane). Width: OSM `width` (or `est_width`), else
-`lanes_total * lane_width` with lane width 3.5 m (major), 3.25 m (street), 3.0 m (service),
-minimum 3.0 m.
+`SINGLE_TRACK` (both directions share one physical lane). Width: OSM `width` (or `est_width`,
+`width:carriageway`; 2–40 m), else `lanes_total * lane_width` with lane width 3.5 m (major), 3.25 m
+(street), 3.0 m (service), minimum 3.0 m; two-way service and living streets 5.0 m, `SINGLE_TRACK`
+4.0 m. Foot-only edges: OSM `width`, else 2.5 m (pedestrian 6 m, steps 2 m). The OSM centreline and
+these defaults rarely match the surveyed kerbs exactly: rule paint lets zebras and stop lines run past
+them and cuts them at the real road surface.
 
 Speed defaults (km/h): motorway 100, trunk 80, primary/secondary 50, tertiary/unclassified/
 residential 40, service 20, living_street 20, other 10. Speed tier for traffic is the reader's
