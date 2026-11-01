@@ -20,14 +20,17 @@ export interface TimecycleSample {
   bloomThreshold: number;
   /** 0 by day, 1 at full night: artificial light, lit windows and lamps scale with it. */
   night: number;
+  /** Twilight and night sky added to the analytic sky (black by day). */
+  skyZenith: Rgb;
+  skyHorizon: Rgb;
 }
 
 type ScalarRow = 'sunIntensity' | 'environmentIntensity' | 'hemisphereIntensity' | 'fogNear' | 'fogFar' | 'exposure'
   | 'bloomStrength' | 'bloomThreshold' | 'night';
-type ColorRow = 'sunColor' | 'hemisphereSky' | 'hemisphereGround' | 'fogColor';
+type ColorRow = 'sunColor' | 'hemisphereSky' | 'hemisphereGround' | 'fogColor' | 'skyZenith' | 'skyHorizon';
 const SCALARS: readonly ScalarRow[] = ['sunIntensity', 'environmentIntensity', 'hemisphereIntensity', 'fogNear', 'fogFar',
   'exposure', 'bloomStrength', 'bloomThreshold', 'night'];
-const COLORS: readonly ColorRow[] = ['sunColor', 'hemisphereSky', 'hemisphereGround', 'fogColor'];
+const COLORS: readonly ColorRow[] = ['sunColor', 'hemisphereSky', 'hemisphereGround', 'fogColor', 'skyZenith', 'skyHorizon'];
 
 /** sRGB hex to linear-light RGB, the renderer's working space. */
 export function linearRgb(hex: string): Rgb {
@@ -61,7 +64,7 @@ export function timecycle(elevation: number): TimecycleSample {
   };
   const sample = Object.fromEntries(SCALARS.map(row => [row, scalar(row)])) as Record<ScalarRow, number>;
   return { ...sample, sunColor: colour('sunColor'), hemisphereSky: colour('hemisphereSky'),
-    hemisphereGround: colour('hemisphereGround'), fogColor: colour('fogColor') };
+    hemisphereGround: colour('hemisphereGround'), fogColor: colour('fogColor'), skyZenith: colour('skyZenith'), skyHorizon: colour('skyHorizon') };
 }
 
 /** Night factor for a sun elevation in degrees: 0 by day, 1 at full night. Pure; identical on every client. */
@@ -77,6 +80,9 @@ export function litFraction(hour: number): number {
   return table.litFraction.value[i] + (table.litFraction.value[i + 1] - table.litFraction.value[i]) * t;
 }
 
-export const NIGHT_SKY = { zenith: linearRgb(table.nightSky.zenith), horizon: linearRgb(table.nightSky.horizon) };
+/** Night grading: dim light (scene-linear luminance below `luminance[0]`) keeps `saturation` at full night; light
+ *  above `luminance[1]` keeps the day grade. */
+export const MESOPIC = { saturation: table.mesopic.saturation, luminance: table.mesopic.luminance as [number, number] };
 export const WINDOW_LIGHT = { warm: linearRgb(table.windows.warm), cool: linearRgb(table.windows.cool),
-  coolShare: table.windows.coolShare, intensity: table.windows.intensity };
+  coolShare: table.windows.coolShare, coolLevel: table.windows.coolLevel, paneLevel: table.windows.paneLevel,
+  intensity: table.windows.intensity };

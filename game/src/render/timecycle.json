@@ -1,11 +1,11 @@
 {
-  "about": "Turku3D's own look across the day, chosen by eye. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength.",
+  "about": "Turku3D's own look across the day, chosen by eye. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength. skyZenith/skyHorizon are added to the analytic sky below the horizon: the blue hour, then the city-lit night. mesopic sets how far dim light loses colour at full night.",
   "elevation": [-90, -12, -6, -3, -1, 2, 6, 12, 25, 90],
   "rows": {
     "sunIntensity":         [0,         0,         0,         0,         0,         0.9,       2.0,       3.2,       3.2,       3.2],
     "sunColor":             ["#ff8a5c", "#ff8a5c", "#ff8a5c", "#ff8a5c", "#ff9a66", "#ffb48a", "#ffd1b0", "#ffeee1", "#fffbf9", "#fffbf9"],
     "environmentIntensity": [0.3,       0.3,       0.3,       0.28,      0.26,      0.26,      0.3,       0.35,      0.35,      0.35],
-    "hemisphereIntensity":  [1.8,       1.8,       1.5,       1.1,       0.9,       0.6,       0.25,      0,         0,         0],
+    "hemisphereIntensity":  [1.0,       1.0,       0.9,       0.7,       0.6,       0.4,       0.15,      0,         0,         0],
     "hemisphereSky":        ["#34446a", "#34446a", "#46507a", "#6a6490", "#8a7a9a", "#a090a0", "#a0a8b8", "#a0a8b8", "#a0a8b8", "#a0a8b8"],
     "hemisphereGround":     ["#5a4632", "#5a4632", "#5e4836", "#6e5640", "#7a6048", "#806850", "#807060", "#807060", "#807060", "#807060"],
     "fogColor":             ["#0e1320", "#0e1320", "#2c3247", "#5d5a72", "#9a8a96", "#c9b8a8", "#bcc6d2", "#b8cde0", "#b8cde0", "#b8cde0"],
@@ -14,12 +14,14 @@
     "exposure":             [1.1,       1.1,       1.0,       0.92,      0.85,      0.78,      0.7,       0.65,      0.65,      0.65],
     "bloomStrength":        [0.3,       0.3,       0.27,      0.2,       0.13,      0.07,      0.045,     0.045,     0.045,     0.045],
     "bloomThreshold":       [0.85,      0.85,      0.9,       1.05,      1.2,       1.4,       1.5,       1.5,       1.5,       1.5],
-    "night":                [1,         1,         0.95,      0.7,       0.45,      0.15,      0,         0,         0,         0]
+    "night":                [1,         1,         0.95,      0.7,       0.45,      0.15,      0,         0,         0,         0],
+    "skyZenith":            ["#070b16", "#080d1a", "#12203e", "#1b2e5a", "#14244a", "#000000", "#000000", "#000000", "#000000", "#000000"],
+    "skyHorizon":           ["#302d38", "#33303a", "#3c4263", "#525676", "#3a3a52", "#000000", "#000000", "#000000", "#000000", "#000000"]
   },
   "litFraction": {
     "hour":  [0,    2,    4,    6,    8,    12,   16,   18,   20,   21,   22,   23,   24],
     "value": [0.32, 0.2,  0.15, 0.22, 0.3,  0.25, 0.32, 0.48, 0.6,  0.58, 0.52, 0.42, 0.32]
   },
-  "nightSky": { "zenith": "#080d1a", "horizon": "#33303a" },
-  "windows": { "warm": "#ffc47e", "cool": "#c8dcff", "coolShare": 0.28, "intensity": 1.6 }
+  "mesopic": { "saturation": 0.45, "luminance": [0.01, 0.08] },
+  "windows": { "warm": "#ffc47e", "cool": "#c8dcff", "coolShare": 0.2, "coolLevel": 0.7, "paneLevel": 0.65, "intensity": 1.15 }
 }

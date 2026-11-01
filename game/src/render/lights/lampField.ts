@@ -3,7 +3,7 @@
 import type * as THREE from 'three/webgpu';
 import type { RoadGraphJson } from '../../gameplay/roadGraph';
 import { LAMP_RULE, WALL_RULE, kerbPoint, lampStations, owns, positionHash, sidePoint, tileBounds, type Bounds, type Station } from './lampRule';
-import { scanTile, type LightPoint, type ScanResult } from './tileScan';
+import { scanTile, type Footprint, type LightPoint, type ScanResult } from './tileScan';
 import { POST_SHAPE } from './lampPosts';
 
 /** One light: a corona sprite, and for rule lamps a post below it. */
@@ -25,7 +25,7 @@ export interface SpriteLight { x: number; y: number; z: number; radius: number; 
 
 export const LIGHT_TYPES = {
   /** Warm-white LED, the common Turku street light today. */
-  led: { radius: 1.2, color: [1.0, 0.86, 0.68], intensity: 5 },
+  led: { radius: 1.2, color: [1.0, 0.8, 0.58], intensity: 5 },
   /** Older high-pressure sodium heads. */
   sodium: { radius: 1.2, color: [1.0, 0.62, 0.28], intensity: 4.6 },
   tunnel: { radius: 0.5, color: [1.0, 0.86, 0.55], intensity: 1.6 },
@@ -151,7 +151,11 @@ export function placeWallLights(stations: readonly Station[], walls: ReturnType<
 
 export interface LampSource { id: string; model: THREE.Object3D; roads: RoadGraphJson | null }
 
-interface TileJob { model: THREE.Object3D; roads: RoadGraphJson | null; signature: string; job: Generator<void, Lamp[]> | null; lamps: Lamp[] | null }
+interface TileLights { lamps: Lamp[]; footprint: Footprint | null }
+interface TileJob { model: THREE.Object3D; roads: RoadGraphJson | null; signature: string; job: Generator<void, TileLights> | null; lamps: Lamp[] | null }
+
+/** Building footprints are kept this far around a tile (metres), so a building reaching over a seam still blocks. */
+const FOOTPRINT_MARGIN = 16;
 
 /** Content signature of a street graph: equal for every parse of the same roads.json. */
 export function roadsSignature(roads: RoadGraphJson | null): string {
@@ -164,22 +168,25 @@ export function roadsSignature(roads: RoadGraphJson | null): string {
   return `${roads.nodes.length}/${roads.edges.length}/${(h >>> 0).toString(36)}`;
 }
 
-function* tileLamps(source: LampSource): Generator<void, Lamp[]> {
+function* tileLamps(source: LampSource): Generator<void, TileLights> {
   const bounds = tileBounds(source.id) ?? source.roads?.bbox;
-  if (!bounds) return [];
+  if (!bounds) return { lamps: [], footprint: null };
   const stations = source.roads ? lampStations(source.roads, bounds) : [];
   const facing = source.roads ? lampStations(source.roads, bounds, WALL_RULE.spacing).filter(s => s.deckY === null) : [];
   const { points, candidates } = lampProbes(stations);
   const walls = wallProbes(facing, points.length);
-  const scan = yield* scanTile(source.model, [...points, ...walls.centres], walls.points);
-  return [...placeLamps(stations, candidates, scan, bounds), ...placeWallLights(facing, walls, scan, bounds)];
+  const m = FOOTPRINT_MARGIN;
+  const scan = yield* scanTile(source.model, [...points, ...walls.centres], walls.points, undefined,
+    [bounds[0] - m, bounds[1] - m, bounds[2] + m, bounds[3] + m]);
+  return { lamps: [...placeLamps(stations, candidates, scan, bounds), ...placeWallLights(facing, walls, scan, bounds)],
+    footprint: scan.footprint ?? null };
 }
 
 /** Resident tiles' lamps. `sync` follows the drawn drafts; `step` advances pending tiles within a time budget. */
 export class LampField {
   private tiles = new Map<string, TileJob>();
-  /** Called when a tile's lamps are ready (or null when it left). */
-  onTile: (id: string, lamps: Lamp[] | null) => void = () => {};
+  /** Called when a tile's lamps (and its building footprints) are ready, or with null when it left. */
+  onTile: (id: string, lamps: Lamp[] | null, footprint?: Footprint | null) => void = () => {};
 
   sync(sources: Iterable<LampSource>) {
     const seen = new Set<string>();
@@ -201,7 +208,7 @@ export class LampField {
     for (const [id, tile] of this.tiles) {
       while (tile.job) {
         const next = tile.job.next();
-        if (next.done) { tile.job = null; tile.lamps = next.value; this.onTile(id, next.value); }
+        if (next.done) { tile.job = null; tile.lamps = next.value.lamps; this.onTile(id, next.value.lamps, next.value.footprint); }
         if (now() >= until) return this.pending();
       }
     }

@@ -12,20 +12,28 @@ export const POOL = {
   fade: 0.6,
   /** Lamps are ranked by horizontal distance from a point this far ahead of the camera (metres): a lamp behind the
    *  camera lights little of what it sees. */
-  lookAhead: 10,
+  lookAhead: 12,
   /** A chosen lamp's weight falls linearly to 0 as its rank distance approaches the first lamp left out (or `reach`),
    *  so a lamp leaves or joins the set when its pool is already dark: no pop at a hand-over. Metres. */
   margin: 14,
   /** Lamps beyond this rank distance get no slot. */
   reach: 90,
+  /** Nearest candidates tested for line of sight per pick, beyond the slot count. */
+  spare: 8,
+  /** Line-of-sight samples along the ground from the camera to a lamp head: step, and the free ends (metres). */
+  sightStep: 1.5, sightEnds: 2.5,
   /** Point light range (r186 cutoff window) and physical inverse-square decay. */
-  distance: 32,
+  distance: 24,
   decay: 2,
+  /** The light hangs this share of a post's head height below the head (bridge lamps: `bridgeDrop` metres). Point
+   *  lights cast no shadow: at the head itself the lamp's own arm and pole top, centimetres away, glow white and
+   *  bloom into a halo. Lower, the pool is also tighter, as under a real downward luminaire. */
+  drop: 0.34, bridgeDrop: 1.5,
 } as const;
 
 /** Peak point-light intensity per lamp kind at full night. Tunnel strips and facade lights stay sprites only: a
  *  point light half a metre from a wall or a tunnel ceiling is a hot spot, not a pool. */
-export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 50, bridge: 40 };
+export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 24, bridge: 18 };
 
 /** One lamp that can light a pool: its light point, linear colour and peak intensity (candela-like, r186 units). */
 export interface PoolLamp { key: string; x: number; y: number; z: number; r: number; g: number; b: number; intensity: number }
@@ -36,7 +44,8 @@ export function poolLamp(lamp: Lamp): PoolLamp | null {
   if (!intensity) return null;
   const { x, y, z, r, g, b } = lamp.light;
   const peak = Math.max(r, g, b, 1e-6);
-  return { key: lamp.key, x, y, z, r: r / peak, g: g / peak, b: b / peak, intensity };
+  const drop = lamp.kind === 'street' ? (y - lamp.y) * POOL.drop : POOL.bridgeDrop;
+  return { key: lamp.key, x, y: y - drop, z, r: r / peak, g: g / peak, b: b / peak, intensity };
 }
 
 interface Slot { light: THREE.PointLight; lamp: PoolLamp | null; level: number; target: number }
@@ -67,6 +76,21 @@ export function poolWeights(ranked: readonly { item: PoolLamp; d: number }[], co
   return weights;
 }
 
+/** True when the ground segment from (ax, az) to (bx, bz) crosses a building footprint, ignoring its free ends. */
+export type SightTest = (ax: number, az: number, bx: number, bz: number) => boolean;
+
+/** A sight test over footprint grids (tileScan.ts). A camera standing in a covered cell is not blocked by it. */
+export function footprintSight(grids: () => Iterable<{ covers(x: number, z: number): boolean }>): SightTest {
+  return (ax, az, bx, bz) => {
+    const length = Math.hypot(bx - ax, bz - az);
+    for (let d = POOL.sightEnds; d < length - POOL.sightEnds; d += POOL.sightStep) {
+      const x = ax + (bx - ax) * d / length, z = az + (bz - az) * d / length;
+      for (const grid of grids()) if (grid.covers(x, z)) return true;
+    }
+    return false;
+  };
+}
+
 export class LampPools {
   private slots: Slot[];
   private lamps: readonly PoolLamp[] = [];
@@ -75,7 +99,8 @@ export class LampPools {
   private nextPick = -Infinity;
   private last = -Infinity;
 
-  constructor(lights: readonly THREE.PointLight[]) {
+  /** `blocked` filters lamps behind buildings (point lights cast no shadow, so their light would leak through). */
+  constructor(lights: readonly THREE.PointLight[], private blocked: SightTest = () => false) {
     this.slots = lights.map(light => {
       light.intensity = 0;
       light.distance = POOL.distance;
@@ -131,7 +156,9 @@ export class LampPools {
     const h = Math.hypot(fx, fz);
     const ax = h > 1e-6 ? x + fx / h * POOL.lookAhead : x, az = h > 1e-6 ? z + fz / h * POOL.lookAhead : z;
     const count = this.slots.length;
-    this.weights = poolWeights(nearest(this.lamps, l => (l.x - ax) ** 2 + (l.z - az) ** 2, count), count);
+    const ranked = nearest(this.lamps, l => (l.x - ax) ** 2 + (l.z - az) ** 2, count + POOL.spare)
+      .filter(({ item }) => !this.blocked(x, z, item.x, item.z));
+    this.weights = poolWeights(ranked, count);
   }
 
   /** Lamps currently lighting (for the debug HUD and tests). */

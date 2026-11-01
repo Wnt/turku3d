@@ -44,18 +44,25 @@ export const quantise = (v: Node<'float'>, scale: 64 | 1024 | 4096) => floor(v.m
  * `column`/`storey` are integer cell indices, `rise` is 0..1 up the storey and `glass` the glazing mask.
  * Each window re-rolls once per two clock hours at its own phase, against the hour's lit fraction plus a
  * per-storey bias: stable per window, changing through the night, deterministic from the shared clock.
+ * `pane` is 1 for floor-to-ceiling glazing (curtain walls, shopfronts): a lit room then shows a bright ceiling band
+ * over a dimmer interior instead of one evenly glowing cell.
  */
-export function windowEmission(facade: U32, column: Node<'float'>, storey: Node<'float'>, rise: Node<'float'>, glass: Node<'float'>) {
-  const h = WINDOW_HASH;
+export function windowEmission(facade: U32, column: Node<'float'>, storey: Node<'float'>, rise: Node<'float'>, glass: Node<'float'>,
+  pane: Node<'float'> = float(0)) {
+  const h = WINDOW_HASH, w = WINDOW_LIGHT;
   const window = pcg(facade.bitXor(facadeKey([column, storey], h.cell)));
   const epoch = floor(nightUniforms.hour.div(h.epochHours).add(unit(salt(window, h.phase))));
   const roll = unit(pcg(window.bitXor(epoch.toInt().toUint())));
   const storeyBias = unit(salt(pcg(facade.bitXor(storey.toInt().toUint())), h.storey)).sub(0.5).mul(h.storeyBias);
   const lit = step(roll, nightUniforms.litFraction.add(storeyBias));
   const tone = unit(salt(window, h.tone));
-  const tint = mix(vec3(...WINDOW_LIGHT.warm), vec3(...WINDOW_LIGHT.cool), step(1 - WINDOW_LIGHT.coolShare, tone));
-  const level = unit(salt(window, h.level)).mul(0.7).add(0.65).mul(mix(0.75, 1.15, rise.clamp(0, 1)));
-  return tint.mul(level.mul(glass).mul(lit).mul(nightUniforms.night).mul(WINDOW_LIGHT.intensity));
+  const cool = step(1 - w.coolShare, tone);
+  const tint = mix(vec3(...w.warm), vec3(...w.cool).mul(w.coolLevel), cool);
+  // Ceiling light reaches the upper part of a window most; a full-height pane shows the falloff into the room.
+  const up = rise.clamp(0, 1);
+  const profile = mix(mix(0.6, 1.15, smoothstep(0.15, 0.9, up)), smoothstep(0.45, 0.92, up).mul(0.85).add(0.2), pane);
+  const level = unit(salt(window, h.level)).mul(0.7).add(0.65).mul(profile).mul(mix(1, w.paneLevel, pane));
+  return tint.mul(level.mul(glass).mul(lit).mul(nightUniforms.night).mul(w.intensity));
 }
 
 /** Kit glazing in the shared atlas: panes are authored at roughness 0.08 and metalness 0, frames at 0.6 and every

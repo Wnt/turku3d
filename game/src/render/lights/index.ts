@@ -6,7 +6,8 @@ import type { QualityTier } from '../quality';
 import { LampField, type Lamp, type LampSource } from './lampField';
 import { LampPosts } from './lampPosts';
 import { LightSprites } from './sprites';
-import { LampPools, poolLamp, type PoolLamp } from './pools';
+import { LampPools, footprintSight, poolLamp, type PoolLamp } from './pools';
+import type { Footprint } from './tileScan';
 import { nightLevel, type NightInputs } from './night';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
@@ -26,6 +27,7 @@ export class StreetLights {
   readonly pools: LampPools;
   night = 0;
   private tiles = new Map<string, readonly Lamp[]>();
+  private footprints = new Map<string, Footprint>();
   private source: { entries: ReadonlyMap<string, Entry> } | null = null;
   private nextSync = 0;
   private postsDirty = false;
@@ -35,10 +37,11 @@ export class StreetLights {
   /** `override` (?lights=) fixes the night level. `slots` are Environment.lamps.point. */
   constructor(scene: THREE.Scene, tier: QualityTier, private override: number | null = null, slots: readonly THREE.PointLight[] = []) {
     this.sprites = new LightSprites(tier);
-    this.pools = new LampPools(slots);
+    this.pools = new LampPools(slots, footprintSight(() => this.footprints.values()));
     scene.add(this.posts.mesh);
-    this.field.onTile = (id, lamps) => {
+    this.field.onTile = (id, lamps, footprint) => {
       if (lamps) this.tiles.set(id, lamps); else this.tiles.delete(id);
+      if (footprint) this.footprints.set(id, footprint); else this.footprints.delete(id);
       this.sprites.setGroup(`tile:${id}`, lamps?.map(l => l.light) ?? null);
       this.postsDirty = true;
     };
