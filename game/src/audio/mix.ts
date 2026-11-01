@@ -57,6 +57,18 @@ export function carMix(rpm: number, throttle: number, speed: number, slip: numbe
     screech: clamp((Math.abs(slip) - 0.15) / 0.65) * clamp(Math.abs(speed) / 5) * 0.3 };
 }
 
+/** Engine voices for ambient traffic (traffic/client.ts): at most this many, for the nearest moving cars. */
+export const TRAFFIC_VOICES = 8;
+
+/** A passing car's engine: quieter than the player's, pitch rising with speed (city speeds, 0..14 m/s). */
+export function trafficMix(speed: number) {
+  const s = clamp(speed / 14);
+  return { rate: 0.62 + s * 0.85, engine: 0.05 + s * 0.11 };
+}
+
+/** The street traffic bed follows how many cars are within 150 m, instead of a fixed loop. */
+export const trafficBed = (count: number) => clamp(count / 10);
+
 export type AudioEvent =
   | { type: 'footstep'; material: number; position: V3; speed: number }
   | { type: 'curb' | 'impact'; position: V3; impulse: number }
@@ -65,7 +77,9 @@ export type AudioEvent =
   | { type: 'mute' }
   | { type: 'volume'; channel: Channel; value: number }
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
-  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean };
+  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean }
+  /** Nearest moving ambient cars (stable `id`s) and the count within 150 m. */
+  | { type: 'traffic'; cars: { id: number; position: V3; speed: number }[]; count: number; centre: V3 | null };
 
 export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; gain: number; position?: V3 } | null {
   switch (event.type) {

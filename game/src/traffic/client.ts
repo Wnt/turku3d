@@ -96,6 +96,22 @@ export class TrafficClient {
     return best;
   }
 
+  /** The audio mix's view of traffic: the nearest moving cars within 120 m (at most `voices`) and the count and
+   *  centre of those within 150 m. */
+  audible(at: V3, voices: number) {
+    const near: { id: number; position: V3; speed: number; d: number }[] = [];
+    let count = 0, cx = 0, cz = 0;
+    for (const car of this.drawn) {
+      const d = Math.hypot(car.x - at.x, car.z - at.z);
+      if (d > 150) continue;
+      count++; cx += car.x; cz += car.z;
+      if (d <= 120) near.push({ id: car.handle, position: { x: car.x, y: car.y, z: car.z }, speed: Math.hypot(car.vx, car.vz), d });
+    }
+    near.sort((a, b) => a.d - b.d);
+    return { cars: near.slice(0, voices).map(({ id, position, speed }) => ({ id, position, speed })), count,
+      centre: count ? { x: cx / count, y: at.y, z: cz / count } : null };
+  }
+
   /** Claims a moving car for the player to enter; resolves with its vehicle id, or null if it is gone. */
   enter(handle: number): Promise<string | null> {
     return new Promise(resolve => {

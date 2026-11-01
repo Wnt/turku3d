@@ -7,6 +7,7 @@ export type { PlayWorld } from './playWorld';
 import { ParkedVehicles } from './world/parkedVehicles';
 import { TrafficClient } from './traffic/client';
 import { TRAFFIC_CAPS } from './traffic/constants';
+import { TRAFFIC_VOICES } from './audio/mix';
 // Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
 // Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
 import * as THREE from 'three/webgpu';
@@ -474,6 +475,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         grounded = st.character.grounded; groundMat = st.character.groundMaterial;
       }
       traffic.update(now, camera, st);
+      audio.emit({ type: 'traffic', ...traffic.audible(camera.position, TRAFFIC_VOICES) });
       parkedVisuals.update(st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {

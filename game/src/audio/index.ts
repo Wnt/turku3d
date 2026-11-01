@@ -1,6 +1,6 @@
 import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
-import { ENGINE_SOUND, SOUNDS, ambience, carMix, clamp, duckGain, oneShot, type AudioEvent, type Channel, type Sound } from './mix';
+import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
 
@@ -30,6 +30,9 @@ export class GameAudio {
   private pendingConnect = false;
   private listener: Extract<AudioEvent, { type: 'listener' }> | null = null;
   private car: Extract<AudioEvent, { type: 'car' }> | null = null;
+  private traffic: Extract<AudioEvent, { type: 'traffic' }> | null = null;
+  /** Pooled engine voices of ambient cars; a car keeps its voice while it stays among the nearest. */
+  private trafficVoices: { voice: Voice; car: number | null }[] = [];
   private panel?: HTMLElement;
   private muteButton?: HTMLButtonElement;
   private summary?: HTMLElement;
@@ -144,6 +147,7 @@ export class GameAudio {
       this.refreshLoops(); return;
     }
     if (event.type === 'car') { this.car = event; this.refreshLoops(); return; }
+    if (event.type === 'traffic') { this.traffic = event; this.refreshTraffic(); return; }
     if (event.type === 'gamepad-connected' && (!this.buffers.has('connect') || this.context?.state !== 'running')) { this.pendingConnect = true; return; }
     if (this.paused && event.type !== 'gamepad-connected') return;
     const shot = oneShot(event);
@@ -215,12 +219,39 @@ export class GameAudio {
     if (position && voice.panner) this.pannerPosition(voice.panner, position);
   }
 
+  /** Engine voices follow the nearest moving cars: a car keeps its voice, a freed voice fades and is reused. */
+  private refreshTraffic() {
+    const cars = this.traffic?.cars ?? [];
+    if (!this.context || !this.buffers.has('engine')) return;
+    while (this.trafficVoices.length < TRAFFIC_VOICES) {
+      const voice = this.start('engine', 'vehicle', 0, true, { x: 0, y: 0, z: 0 });
+      if (!voice) return;
+      voice.source.playbackRate.value = 0.6 + this.trafficVoices.length * 0.013; // detuned, so the pool never phases
+      this.trafficVoices.push({ voice, car: null });
+    }
+    const wanted = new Map(cars.slice(0, TRAFFIC_VOICES).map(c => [c.id, c]));
+    for (const slot of this.trafficVoices) if (slot.car !== null && !wanted.has(slot.car)) slot.car = null;
+    for (const car of wanted.values()) {
+      if (this.trafficVoices.some(s => s.car === car.id)) continue;
+      const free = this.trafficVoices.find(s => s.car === null);
+      if (free) free.car = car.id;
+    }
+    for (const slot of this.trafficVoices) {
+      const car = slot.car === null ? null : wanted.get(slot.car)!;
+      const mix = car ? trafficMix(car.speed) : null;
+      this.param(slot.voice.gain.gain, this.paused || !mix ? 0 : mix.engine);
+      if (car && mix) { this.param(slot.voice.source.playbackRate, mix.rate); if (slot.voice.panner) this.pannerPosition(slot.voice.panner, car.position); }
+    }
+  }
+
   private refreshLoops() {
     if (this.listener) {
       const mix = ambience(this.listener.position);
       this.loop('city', 'ambience', mix.city);
       this.loop('wind', 'ambience', mix.wind);
-      this.loop('traffic', 'ambience', mix.traffic, { x: 100, y: 2, z: 180 });
+      // The street bed comes from where the cars are, as loud as there are cars within 150 m.
+      const bed = this.traffic;
+      this.loop('traffic', 'ambience', mix.traffic * trafficBed(bed?.count ?? 0), bed?.centre ?? this.listener.position);
       this.loop('river', 'ambience', mix.water, mix.river);
       this.loop('gulls', 'ambience', mix.gulls, { ...mix.river, y: 16 });
     }
@@ -254,6 +285,7 @@ export class GameAudio {
   }
 
   snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size,
+    trafficVoices: this.trafficVoices.filter(s => s.car !== null).length,
     voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors],
     music: { state: this.musicState, deadline: this.musicDeadline, muffle: this.musicMuffle,
       volume: this.musicVolume, muted: this.musicMuted, playing: this.music?.snapshot() ?? null } }; }
@@ -262,7 +294,7 @@ export class GameAudio {
     this.disposed = true;
     this.music?.dispose(); this.music = null;
     for (const voice of this.voices) { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); voice.panner?.disconnect(); }
-    this.voices.clear(); this.loops.clear(); this.buffers.clear(); this.channels.clear(); this.running = []; this.panel?.remove();
+    this.voices.clear(); this.loops.clear(); this.trafficVoices = []; this.buffers.clear(); this.channels.clear(); this.running = []; this.panel?.remove();
     void this.context?.close().catch(() => {});
   }
 }

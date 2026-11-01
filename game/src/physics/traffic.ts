@@ -133,7 +133,7 @@ export class TrafficSim {
   beforeStep(t: number) {
     const t0 = performance.now();
     this.time = t;
-    if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; return; }
+    if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; this.stats.active = this.stats.bodies = 0; return; }
     if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) {
       const a0 = performance.now();
       this.activate(t); this.lastActivation = t;
