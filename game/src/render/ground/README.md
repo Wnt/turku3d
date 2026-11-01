@@ -60,8 +60,9 @@ paints one) and stop lines at signal stop positions, set back before zebras. Lin
 setbacks and at zebras; no paint on unpaved, living-street, pedestrian or tunnel edges. Dash phases
 follow the logical edge so whole edges continue across tile seams. All paint stays one `ground_paint`
 mesh per tile (`layer: markings`, `material_key: road_paint`, 8 mm lift): COLOR_0 multiplies the shared
-off-white, giving the Finnish centre-line yellow without another draw. Paint for a bridge edge drapes only
-on deck triangles, ground paint never on decks.
+off-white, giving the Finnish centre-line yellow without another draw. Paint for a bridge edge lies on
+the built draft deck (its height profile + 12 mm, clipped to the tile; the bridge builder no longer paints
+its own lane dashes); ground paint never lands on deck triangles. Paint receives shadows and casts none.
 
 ## Tests and screenshots
 
