@@ -24,23 +24,23 @@ def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) 
     """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer). Height grows with
     the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
     the OSM default of 10 m. A row on a carriageway (GIS:Katualueet Ajorata) is not drawn."""
-    carriageway = shapely.Polygon()
+    roads = []
     if streets is not None:
         frame = spatial_frame(streets, tile.bbox)
         if len(frame):
-            carriageway = shapely.union_all(
-                [
-                    shapely.make_valid(shapely.force_2d(g))
-                    for g, kind in zip(frame.geometry_local, frame["Katuosalaji"], strict=True)
-                    if kind == "Ajorata" and g is not None
-                ]
-            )
+            roads = [
+                shapely.make_valid(shapely.force_2d(g))
+                for g, kind in zip(frame.geometry_local, frame["Katuosalaji"], strict=True)
+                if kind == "Ajorata" and g is not None
+            ]
+    carriageway = shapely.STRtree(roads) if roads else None
     trees = []
     for row in spatial_frame(path, tile.bbox).to_dict("records"):
         point = row["geometry_local"]
         if point is None or point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
             continue
-        if not carriageway.is_empty and carriageway.covers(shapely.Point(point.x, point.y)):
+        at = shapely.Point(point.x, point.y)
+        if carriageway is not None and any(roads[i].covers(at) for i in carriageway.query(at)):
             continue
         try:
             year = int(float(row.get("Istutusvuosi") or 0))
