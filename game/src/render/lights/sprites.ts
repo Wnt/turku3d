@@ -100,7 +100,10 @@ export class LightSprites {
     material.vertexNode = vec4(clip.xy.add(corner.mul(size).div(this.viewport).mul(clip.w)), clip.zw);
     const uv = varying(corner, 'vLightUv');
     const r2 = dot(uv, uv);
-    const shape = exp(r2.mul(-9)).add(exp(r2.mul(-2.4)).mul(0.25)).mul(clamp(float(1).sub(r2), 0, 1));
+    // A small hot core in a wide soft halo, smoothly zero at the quad edge: tone mapping keeps the core white
+    // without flattening the whole corona into a disc.
+    const edge = clamp(float(1).sub(r2), 0, 1);
+    const shape = exp(r2.mul(-30)).add(exp(r2.mul(-4.5)).mul(0.18)).mul(edge).mul(edge);
     const own = varying(depth, 'vLightDepth');
     const sceneZ = perspectiveDepthToViewZ(this.sceneDepth.sample(screenUV).x, cameraNear, cameraFar).negate();
     const unoccluded = smoothstep(own.sub(0.3), own.add(0.3), sceneZ);

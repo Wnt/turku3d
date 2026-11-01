@@ -2,7 +2,7 @@
 // tunnel and bridge lamps its generator already built. Tiles are processed in time slices on the main thread.
 import type * as THREE from 'three/webgpu';
 import type { RoadGraphJson } from '../../gameplay/roadGraph';
-import { LAMP_RULE, kerbPoint, lampStations, owns, positionHash, tileBounds, type Bounds, type Station } from './lampRule';
+import { LAMP_RULE, WALL_RULE, kerbPoint, lampStations, owns, positionHash, sidePoint, tileBounds, type Bounds, type Station } from './lampRule';
 import { scanTile, type LightPoint, type ScanResult } from './tileScan';
 import { POST_SHAPE } from './lampPosts';
 
@@ -21,10 +21,12 @@ export interface SpriteLight { x: number; y: number; z: number; radius: number; 
 
 export const LIGHT_TYPES = {
   /** Warm-white LED, the common Turku street light today. */
-  led: { radius: 0.85, color: [1.0, 0.86, 0.68], intensity: 3.2 },
+  led: { radius: 1.2, color: [1.0, 0.86, 0.68], intensity: 5 },
   /** Older high-pressure sodium heads. */
-  sodium: { radius: 0.85, color: [1.0, 0.62, 0.28], intensity: 3.0 },
+  sodium: { radius: 1.2, color: [1.0, 0.62, 0.28], intensity: 4.6 },
   tunnel: { radius: 0.5, color: [1.0, 0.86, 0.55], intensity: 1.6 },
+  /** Entrance and facade lamps, warmer and dimmer than street lights. */
+  wall: { radius: 0.45, color: [1.0, 0.74, 0.46], intensity: 1.8 },
 } as const;
 /** Share of rule lamps drawn as sodium, chosen by position hash. */
 const SODIUM_SHARE = 0.2;
@@ -103,17 +105,70 @@ export function placeLamps(stations: readonly Station[], candidates: readonly Ca
   return lamps.concat(placed);
 }
 
+/** Facade search points: per station and side, outward from the kerb. `centre` indexes a surface probe. */
+export function wallProbes(stations: readonly Station[], firstSurface: number) {
+  const centres: { x: number; z: number }[] = [], points: { x: number; z: number; offset: number }[] = [];
+  const layout = stations.map((station, i) => {
+    centres.push({ x: station.x, z: station.z });
+    const sides = ([1, -1] as const).map(side => {
+      const first = points.length;
+      for (let o = station.offset + WALL_RULE.step; o <= WALL_RULE.reach + 1e-9; o += WALL_RULE.step) points.push(sidePoint(station, side, o));
+      return { side, first, end: points.length };
+    });
+    return { centre: firstSurface + i, sides };
+  });
+  return { centres, points, layout };
+}
+
+/** Wall lights in front of the first building footprint each facade search meets. */
+export function placeWallLights(stations: readonly Station[], walls: ReturnType<typeof wallProbes>, scan: ScanResult, bounds: Bounds): Lamp[] {
+  const lights: Lamp[] = [];
+  stations.forEach((station, i) => {
+    const { centre, sides } = walls.layout[i];
+    const street = scan.probes[centre];
+    if (!owns(bounds, station.x, station.z) || station.deckY !== null || street.tunnel || street.building
+      || street.ground === -Infinity || street.water > street.ground + 0.05) return;
+    for (const { side, first, end } of sides) {
+      let hit = -1;
+      for (let k = first; k < end; k++) if (scan.walls[k]) { hit = k; break; }
+      if (hit < 0) continue;
+      // The facade lies within the last step before the hit: mount 0.25 to 0.75 m in front of it.
+      const p = sidePoint(station, side, walls.points[hit].offset - 0.75);
+      const hash = positionHash(p.x, p.z) / 0x100000000;
+      if (hash >= WALL_RULE.share) continue;
+      if (lights.some(l => Math.hypot(l.x - p.x, l.z - p.z) < WALL_RULE.minSeparation)) continue;
+      const [low, high] = WALL_RULE.height;
+      const y = street.ground + low + (high - low) * (hash / WALL_RULE.share);
+      lights.push({ key: lampKey(p.x, p.z), x: p.x, y, z: p.z, yaw: 0, scale: 1, post: false, light: sprite({ x: p.x, y, z: p.z }, 'wall', 0) });
+    }
+  });
+  return lights;
+}
+
 export interface LampSource { id: string; model: THREE.Object3D; roads: RoadGraphJson | null }
 
-interface TileJob { model: THREE.Object3D; roads: RoadGraphJson | null; job: Generator<void, Lamp[]> | null; lamps: Lamp[] | null }
+interface TileJob { model: THREE.Object3D; roads: RoadGraphJson | null; signature: string; job: Generator<void, Lamp[]> | null; lamps: Lamp[] | null }
+
+/** Content signature of a street graph: equal for every parse of the same roads.json. */
+export function roadsSignature(roads: RoadGraphJson | null): string {
+  if (!roads) return '';
+  let h = 0x811c9dc5;
+  const mix = (v: number) => { h = Math.imul(h ^ (Math.round(v * 10) | 0), 0x01000193); };
+  for (const v of roads.nodes) mix(v);
+  for (const edge of roads.edges) { mix(edge.length); for (const v of edge) mix(v); }
+  for (const ys of roads.edgeHeights ?? []) { mix(ys?.length ?? -1); for (const v of ys ?? []) mix(v); }
+  return `${roads.nodes.length}/${roads.edges.length}/${(h >>> 0).toString(36)}`;
+}
 
 function* tileLamps(source: LampSource): Generator<void, Lamp[]> {
   const bounds = tileBounds(source.id) ?? source.roads?.bbox;
   if (!bounds) return [];
   const stations = source.roads ? lampStations(source.roads, bounds) : [];
+  const facing = source.roads ? lampStations(source.roads, bounds, WALL_RULE.spacing).filter(s => s.deckY === null) : [];
   const { points, candidates } = lampProbes(stations);
-  const scan = yield* scanTile(source.model, points);
-  return placeLamps(stations, candidates, scan, bounds);
+  const walls = wallProbes(facing, points.length);
+  const scan = yield* scanTile(source.model, [...points, ...walls.centres], walls.points);
+  return [...placeLamps(stations, candidates, scan, bounds), ...placeWallLights(facing, walls, scan, bounds)];
 }
 
 /** Resident tiles' lamps. `sync` follows the drawn drafts; `step` advances pending tiles within a time budget. */
@@ -128,7 +183,10 @@ export class LampField {
       seen.add(source.id);
       const tile = this.tiles.get(source.id);
       if (tile && tile.model === source.model && tile.roads === source.roads) continue;
-      this.tiles.set(source.id, { model: source.model, roads: source.roads, job: tileLamps(source), lamps: tile?.lamps ?? null });
+      // CoarseTiles parses the tile's roads.json again on every poll; only a changed street graph is new work.
+      const signature = roadsSignature(source.roads);
+      if (tile && tile.model === source.model && tile.signature === signature) { tile.roads = source.roads; continue; }
+      this.tiles.set(source.id, { model: source.model, roads: source.roads, signature, job: tileLamps(source), lamps: tile?.lamps ?? null });
     }
     for (const id of [...this.tiles.keys()]) if (!seen.has(id)) { this.tiles.delete(id); this.onTile(id, null); }
   }

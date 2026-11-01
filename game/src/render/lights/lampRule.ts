@@ -24,6 +24,19 @@ export const LAMP_RULE = {
   seamTolerance: 0.15,
 } as const;
 
+/** Building-mounted lights: much of a lit street's far sprites are on facades, not poles. A facade search runs
+ *  out from each station on both sides; a light mounts just in front of the first building footprint it meets. */
+export const WALL_RULE = {
+  spacing: 16,
+  /** Facade search: from the kerb outward in `step` metres, up to `reach` from the centreline. */
+  step: 0.5, reach: 14,
+  /** Share of found facades that carry a light, by position hash. */
+  share: 0.7,
+  /** Mount height above the street, metres (hash-varied). */
+  height: [3.2, 4.4] as const,
+  minSeparation: 4,
+} as const;
+
 export type Bounds = readonly [number, number, number, number];
 
 /** A lamp station on a street centreline, before its kerb point is chosen against the tile's surfaces. */
@@ -135,8 +148,7 @@ function seamBase(x: number, z: number, b: Bounds): number | null {
 }
 
 /** Lamp stations of one tile's street graph, in a deterministic order. */
-export function lampStations(json: RoadGraphJson, bounds: Bounds = json.bbox): Station[] {
-  const S = LAMP_RULE.spacing;
+export function lampStations(json: RoadGraphJson, bounds: Bounds = json.bbox, S: number = LAMP_RULE.spacing): Station[] {
   const stations: Station[] = [];
   for (const chain of chains(json, bounds)) {
     const p = chain.points, n = p.length / 2;
@@ -170,11 +182,13 @@ export function lampStations(json: RoadGraphJson, bounds: Bounds = json.bbox): S
   return stations;
 }
 
-/** Kerb point of a station for one side and retreat step (right-hand normal is (-tz, tx)). */
-export function kerbPoint(station: Station, side: 1 | -1, retreat: number) {
-  const offset = Math.max(LAMP_RULE.minOffset, station.offset - retreat);
-  return { x: station.x - station.tz * side * offset, z: station.z + station.tx * side * offset, offset };
-}
+/** Point at `offset` metres to one side of a station (the right-hand normal is (-tz, tx)). */
+export const sidePoint = (station: Station, side: 1 | -1, offset: number) =>
+  ({ x: station.x - station.tz * side * offset, z: station.z + station.tx * side * offset, offset });
+
+/** Kerb point of a station for one side and retreat step. */
+export const kerbPoint = (station: Station, side: 1 | -1, retreat: number) =>
+  sidePoint(station, side, Math.max(LAMP_RULE.minOffset, station.offset - retreat));
 
 /** Deterministic 32-bit hash of a world position at 0.5 m, for per-lamp variation. */
 export function positionHash(x: number, z: number): number {

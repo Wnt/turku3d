@@ -41,7 +41,7 @@ export function postGeometry(): THREE.BufferGeometry {
 
 export interface PostLamp { key: string; x: number; y: number; z: number; yaw: number; scale: number }
 
-const _m = new THREE.Matrix4();
+const _m = new THREE.Matrix4(), _s = new THREE.Vector3();
 
 export class LampPosts {
   readonly mesh: THREE.InstancedMesh;
@@ -91,7 +91,7 @@ export class LampPosts {
         this.slots.set(key, slot);
       }
       const s = lamp.scale * postFade(Math.hypot(lamp.x - x, lamp.z - z));
-      _m.makeRotationY(lamp.yaw).scale(new THREE.Vector3(s, s, s)).setPosition(lamp.x, lamp.y, lamp.z);
+      _m.makeRotationY(lamp.yaw).scale(_s.setScalar(s)).setPosition(lamp.x, lamp.y, lamp.z);
       if (s <= 0) this.park(_m);
       _m.toArray(this.mesh.instanceMatrix.array, slot * 16);
     }

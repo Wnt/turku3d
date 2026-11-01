@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { CAR, FOOT, ONEWAY, mergeRoadGraphs, type RoadGraphJson } from '../../src/gameplay/roadGraph';
-import { LAMP_RULE, lampStations, tileBounds, owns } from '../../src/render/lights/lampRule';
+import { LAMP_RULE, WALL_RULE, lampStations, tileBounds, owns } from '../../src/render/lights/lampRule';
 import { LampField, lampProbes, placeLamps, type Lamp, type LampSource } from '../../src/render/lights/lampField';
 import { scanTileNow, mergeHeads } from '../../src/render/lights/tileScan';
 import { LampPosts, POST_FADE, postFade } from '../../src/render/lights/lampPosts';
@@ -10,6 +10,7 @@ import { LightSprites, SPRITE, spriteLevel, spritePixels } from '../../src/rende
 import { nightLevel } from '../../src/render/lights/night';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { parseParams } from '../../src/core/params';
+import { PostProcessing } from '../../src/render/post';
 
 const S = LAMP_RULE.spacing;
 const street = (cls: number, oneway = false) => CAR | FOOT | (oneway ? ONEWAY : 0) | cls << 3;
@@ -144,6 +145,22 @@ describe('lamp rule', () => {
     expect(none.filter(l => l.post)).toEqual([]);
   });
 
+  test('wall lights mount just in front of the first facade on each side, at a street-relative height', () => {
+    const json = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
+    // Facade 9 m south of the centreline; nothing to the north within reach.
+    const model = tileModel('t0_0_0', { y: 1, buildings: [[0, 109, 250, 130]] });
+    const walls = lampsOf({ id: 't0_0_0', model, roads: json }).filter(l => !l.post);
+    const stations = Math.round(210 / WALL_RULE.spacing);
+    expect(walls.length).toBeGreaterThan(stations * WALL_RULE.share * 0.5);
+    expect(walls.length).toBeLessThanOrEqual(stations);
+    for (const l of walls) {
+      expect(109 - l.z).toBeGreaterThanOrEqual(0.25 - 1e-6); expect(109 - l.z).toBeLessThanOrEqual(0.75 + 1e-6);
+      expect(l.y - 1).toBeGreaterThanOrEqual(WALL_RULE.height[0]); expect(l.y - 1).toBeLessThanOrEqual(WALL_RULE.height[1]);
+      expect(l.light.day).toBe(0);
+    }
+    expect(lampsOf({ id: 't0_0_0', model, roads: json }).map(l => l.key)).toEqual(lampsOf({ id: 't0_0_0', model, roads: json }).map(l => l.key));
+  });
+
   test('bridge decks use their own surface, and decks with generator lamps get no rule lamps', () => {
     const roads = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
     roads.edgeHeights = [[9, 9]];
@@ -188,12 +205,26 @@ describe('lamp rule', () => {
     expect(mergeHeads([{ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }])).toHaveLength(2);
   });
 
+  test('a re-parsed but unchanged roads.json (every tile poll) does not redo the tile; a changed one does', () => {
+    const roads = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
+    const model = tileModel('t0_0_0'), field = new LampField(), calls: string[] = [];
+    field.onTile = id => calls.push(id);
+    field.sync([{ id: 't0_0_0', model, roads }]); field.step(Infinity);
+    field.sync([{ id: 't0_0_0', model, roads: structuredClone(roads) }]); field.step(Infinity);
+    expect(calls).toEqual(['t0_0_0']); expect(field.pending()).toBe(false);
+    const moved = structuredClone(roads); moved.nodes[1] += 1;
+    field.sync([{ id: 't0_0_0', model, roads: moved }]); field.step(Infinity);
+    expect(calls).toEqual(['t0_0_0', 't0_0_0']);
+    field.sync([]);
+    expect(calls).toEqual(['t0_0_0', 't0_0_0', 't0_0_0']); expect(field.size).toBe(0);
+  });
+
   test('a lamp on a shared seam belongs to exactly one tile', () => {
     expect(owns(tileBounds('t0_0_0')!, 250, 10)).toBe(false);
     expect(owns(tileBounds('t0_1_0')!, 250, 10)).toBe(true);
     const { points, candidates } = lampProbes(lampStations(tileRoads('t0_0_0', [{ points: [[0, 0], [249.9, 0.1]], flags: street(1) }])));
     expect(points.length).toBe(candidates.flat().length);
-    expect(placeLamps([], [], { probes: [], tunnel: [{ x: 250, y: 0, z: 5 }], bridge: [] }, tileBounds('t0_0_0')!)).toEqual([]);
+    expect(placeLamps([], [], { probes: [], walls: [], tunnel: [{ x: 250, y: 0, z: 5 }], bridge: [] }, tileBounds('t0_0_0')!)).toEqual([]);
   });
 });
 
@@ -300,5 +331,27 @@ describe('shader programs', () => {
     });
     expect(programs[1]).toEqual(programs[0]);
     expect(programs[0][0]).not.toMatch(/array<mat4x4<f32>,\s*\d+>/);
+  });
+
+  test('the sprite layer renders after the temporal resolve and bloom, tested against the opaque prepass depth', () => {
+    const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+    for (const [tier, aa] of [['medium', 'taa'], ['mobile', 'fxaa']] as const) {
+      const sprites = new LightSprites(tier);
+      const post = new PostProcessing(renderer, scene, camera, tier, aa, sprites);
+      const internals = post as unknown as { pipeline: { _update(): void; _quadMesh: THREE.Mesh }; pre: THREE.PassNode | null; beauty: THREE.PassNode };
+      const depth = (sprites as unknown as { sceneDepth: { value: THREE.Texture } }).sceneDepth.value;
+      expect(depth).toBe((internals.pre ?? internals.beauty).getTexture('depth'));
+      if (tier === 'medium') {
+        internals.pipeline._update();
+        const backend = renderer.backend as typeof renderer.backend & { createNodeBuilder(object: THREE.Object3D, renderer: THREE.WebGPURenderer): ShaderBuilder & { updateBeforeNodes: THREE.Node[] } };
+        const builder = backend.createNodeBuilder(internals.pipeline._quadMesh, renderer);
+        builder.scene = scene; builder.camera = camera; builder.build();
+        const order = builder.updateBeforeNodes.map(n => (n as THREE.PassNode).scene === sprites.scene ? 'sprites' : n.constructor.name);
+        expect(order.at(-1)).toBe('sprites');
+        expect(order.indexOf('TRAANode')).toBeLessThan(order.indexOf('sprites'));
+        expect(order.filter(n => n === 'sprites')).toHaveLength(1);
+      }
+      post.dispose();
+    }
   });
 });

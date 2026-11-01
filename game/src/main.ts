@@ -138,7 +138,7 @@ addEventListener('resize', () => {
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
-  lights: () => lights?.snapshot() ?? null };
+  lights };
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
