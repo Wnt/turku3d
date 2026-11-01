@@ -6,6 +6,8 @@ import { add, dot, float, max, mix, normalize, pow, smoothstep, texture, time, u
 import type { TimecycleSample } from './timecycle';
 
 export const CLOUD_NOISE_URL = `${import.meta.env.BASE_URL}assets/nature/clouds.png`;
+/** clouds.png is 256 x 256 (scripts/build-nature-assets.mjs). The GPU texture is created at this size once. */
+const NOISE_SIZE = 256;
 
 export class CloudLayer {
   /** 0 = clear, 1 = overcast. Every client shares it. */
@@ -14,11 +16,12 @@ export class CloudLayer {
   private light = uniform(new THREE.Color(1, 1, 1));
   private shade = uniform(new THREE.Color(0.5, 0.55, 0.6));
   private sunDir = uniform(new THREE.Vector3(0, 1, 0));
-  /** One data texture for the sky's lifetime: empty (no clouds) until the noise pixels arrive, so nothing recompiles. */
+  /** One data texture for the sky's lifetime: empty (no clouds) until the noise pixels arrive, so nothing recompiles
+   *  and the GPU texture keeps its size. */
   private noise: THREE.DataTexture;
 
   constructor(private deterministic: boolean) {
-    this.noise = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    this.noise = new THREE.DataTexture(new Uint8Array(NOISE_SIZE * NOISE_SIZE * 4), NOISE_SIZE, NOISE_SIZE);
     this.noise.wrapS = this.noise.wrapT = THREE.RepeatWrapping; this.noise.colorSpace = THREE.NoColorSpace;
     this.noise.magFilter = THREE.LinearFilter; this.noise.minFilter = THREE.LinearMipmapLinearFilter;
     this.noise.generateMipmaps = true; this.noise.anisotropy = 4; this.noise.needsUpdate = true;
@@ -29,10 +32,10 @@ export class CloudLayer {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
     const bitmap = await createImageBitmap(await response.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height), context = canvas.getContext('2d')!;
+    if (bitmap.width !== NOISE_SIZE || bitmap.height !== NOISE_SIZE) throw new Error(`${url}: expected ${NOISE_SIZE}² noise`);
+    const canvas = new OffscreenCanvas(NOISE_SIZE, NOISE_SIZE), context = canvas.getContext('2d')!;
     context.drawImage(bitmap, 0, 0);
-    const pixels = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
-    this.noise.image = { data: new Uint8Array(pixels.buffer), width: bitmap.width, height: bitmap.height };
+    (this.noise.image.data as Uint8Array).set(context.getImageData(0, 0, NOISE_SIZE, NOISE_SIZE).data);
     this.noise.needsUpdate = true;
   }
 

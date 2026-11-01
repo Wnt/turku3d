@@ -169,6 +169,7 @@ export class Environment {
   async loadClouds() {
     await this.clouds.load();
     this.iblDirty = true;
+    this.updateIBL();
   }
 
   updateIBL() {
