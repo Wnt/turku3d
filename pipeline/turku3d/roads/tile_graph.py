@@ -424,7 +424,7 @@ def attach_points(edges, points, crossing_lines, car_degree):
                 if kind == "CROSSING":
                     code = _crossing_code(tags, explicit)
                     ref = group[0] if code & EVENT_BITS["SIGNALISED"] and group else None
-                elif at_node:
+                elif at_node and car_degree[k] >= 3:
                     # A signal or sign on a junction node stops traffic arriving there.
                     incoming = FORWARD if i == len(edge.keys) - 1 else BACKWARD
                     if incoming == BACKWARD and edge.way.flags & ONEWAY:

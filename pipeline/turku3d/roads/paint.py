@@ -215,7 +215,11 @@ def markings(graph: dict | None, explicit=()) -> list:
                 if not direction & sense:
                     continue
                 forward = sense == bits["FORWARD"]
-                at = s
+                # A stop position on a node is on both pieces meeting there: the approach piece
+                # (the one traffic arrives along) draws it, clamped just inside its end.
+                if (forward and s <= 0.3) or (not forward and s >= length - 0.3):
+                    continue
+                at = min(s, length - 0.3) if forward else max(s, 0.3)
                 if (
                     forward
                     and s >= length - 0.05

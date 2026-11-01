@@ -202,6 +202,24 @@ def test_rule_paint_follows_lanes_crossings_and_signals():
     )  # right-hand (south) half, ending at the signal
 
 
+def test_a_directed_signal_on_a_footway_node_gets_one_stop_line():
+    """Turku maps stop positions as directed signal nodes; a sidewalk joining there makes a node."""
+    ways = [
+        way([(20, 100), (150, 100), (230, 100)], "tertiary", 21),
+        way([(20, 20), (20, 100), (20, 180)], "residential", 22),
+        way([(230, 20), (230, 100), (230, 180)], "residential", 23),
+        way([(150, 100), (150, 160)], "footway", 24),
+    ]
+    signal = {"highway": "traffic_signals", "traffic_signals:direction": "forward"}
+    graph = build_tile_graph(ways, [(150.0, 100.0, signal)], [], TILE_A.bbox, "t", TILE_A.size)
+    codes = [flat[i + 1] for flat in graph["edgeEvents"] if flat for i in range(0, len(flat), 3)]
+    assert codes and all(c == EVENT_KINDS["SIGNAL"] | EVENT_BITS["FORWARD"] for c in codes)
+    stops = [p for p, _, _, kind in road_paint.markings(graph) if kind == "stop"]
+    assert len(stops) == 1
+    x0, z0, x1, _ = stops[0].bounds
+    assert 149 < x1 <= 150 and z0 >= 100 - 0.01  # eastbound lanes, just before the signal
+
+
 def test_rule_lines_keep_clear_of_explicit_osm_markings():
     """An OSM crossing way painted on its own, with no node on the road, still breaks the lines."""
     zebra = shapely.box(318, 96, 326, 104)
