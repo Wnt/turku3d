@@ -2,6 +2,31 @@
 
 Use English for code, comments, documentation, commits, progress updates and final reports.
 
+## Local Gen 2 phase (from 2026-11-02): this section overrides the merge/deploy flow below
+
+- The published game and its tiles are frozen. Never merge into `main`, never push, never run
+  `codex-task finish` or `land`, never deploy to Pages or OCI. Work on your own `local/*` branch; kept work is merged
+  into `local/loop-integration` (by you or the integrator).
+- Move fast, break things, move forward only (no rollbacks). Think outside the box: fix or improve at the layer that
+  makes most sense (client, generator, tile format, data, assets, tooling). No backward compatibility is needed; the
+  Gen 2 target design is `~/turku3d/plans/gen2-architecture.md`.
+- Choose your own evidence: tests, same-pose renders, the visual judge (`~/turku3d/tools/visual-judge/judge.py`),
+  tile builds, the bench probe. No fixed time budgets, smoke runs, post-deploy runs, agent register, heads-up or
+  acknowledgement ceremony. Shared notes go to `~/turku3d/loops/board.md`.
+- Local generator changes need no approval; only a production rollout does (Jonni decides).
+- Replace existing facades, textures and AI descriptions whenever the new result is better.
+- Debug URL parameters are fine; delete code you replace instead of flagging it.
+- Reports are short: result, evidence, next.
+- Hard limits that stay:
+  - 30+ FPS on Jonni's M1 Max at medium; no new shader pipelines per instance count or hour.
+  - Multiplayer: anything players must see alike comes from tile data or the shared clock.
+  - Your own ports and browser profile; never Jonni's Chrome profile or ports 5171/5175; never kill processes you
+    didn't start; don't stop other agents' servers.
+  - No paid services or new API keys; secrets never printed or committed; `~/turku3d/data/raw` is read-only.
+  - Nothing from GTA V, Google 3D or panoramas goes into the repo; assets use permissive licences (CC0 first, CC-BY
+    with attribution in `game/public/assets/LICENSES.md`); Blender only through the Blender MCP tools.
+  - Keep ≥ 25 GiB free on osgallery-dev; delete your own scratch, builds and caches when done.
+
 ## Goal and context
 
 Turku3D is a GTA-style open world of Turku in desktop Chrome: three.js r186,
