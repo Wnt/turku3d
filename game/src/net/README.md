@@ -39,6 +39,12 @@ Multiplayer placement then restores owned registry bodies before unpausing and
 re-enters that seat, independently of the local solo save. Borrowed cars whose
 source tile is absent use the shared renderer rather than an absent native visual.
 
+Ambient traffic is computed locally from each tile's road graph (physics/README.md, "Ambient traffic").
+`MultiplayerClient.reportRoads` sends the resident tiles' road hashes after each welcome and whenever they
+change; the server's `roads` answer (`state.roads`) gates which tiles may carry cars. A claimed traffic car
+is an ordinary registry vehicle whose source is `tr:<tile>:<lane>:<slot>`; `vehicleSources` therefore
+removes that slot on every client.
+
 Carried pizzas are now visible on remote walking characters. Welcome's server time
 aligns the day cycle (explicit developer/QA time overrides stay explicit).
 
