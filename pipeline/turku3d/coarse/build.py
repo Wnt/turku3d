@@ -710,7 +710,9 @@ def build(
     if roads is not None:
         from turku3d.roads.tile_graph import with_heights
 
+        t_heights = time.perf_counter()
         roads = with_heights(roads, surface_sample)
+        seconds["road_heights"] = time.perf_counter() - t_heights
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
