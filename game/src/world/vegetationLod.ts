@@ -4,6 +4,7 @@ import { PreparationBudget } from '../render/preparationBudget';
 import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
 import { natureAsset, natureScale, natureTint } from './nature/species';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
+import { materialKey, surfaceStyle } from '../render/materials';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
@@ -97,10 +98,12 @@ export class VegetationLod {
       if (!representatives.has(key)) representatives.set(key, mesh);
     }
     const matrix = new THREE.Matrix4(), t = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    const water = yield* waterCells(model), toModel = new THREE.Matrix4(), inModel = new THREE.Vector3();
     for (const mesh of representatives.values()) {
       const owner = vegetationOwner(mesh)!;
       const variant = String(owner.userData.variant ?? owner.name.replace(/:\d+$/, ''));
       const ids = owner.userData.instance_object_ids as unknown[] | undefined;
+      toModel.copy(model.matrixWorld).invert().multiply(mesh.matrixWorld);
       // Group placements by library asset, then by 50 m cell.
       const byAsset = new Map<string, Map<string, Placement[]>>();
       for (let i = 0; i < mesh.count; i++) {
@@ -108,7 +111,9 @@ export class VegetationLod {
         mesh.getMatrixAt(i, matrix);
         matrix.decompose(t, q, s);
         const id = ids?.[i] ?? `${variant}:${i}`;
-        const name = natureAsset(variant, String(id), s.y);
+        inModel.copy(t).applyMatrix4(toModel);
+        const nearWater = water.has(waterCell(inModel.x, inModel.z));
+        const name = natureAsset(variant, String(id), s.y, nearWater);
         const asset = library.asset(name);
         const scale = natureScale(s.y, Math.max(s.x, s.z), asset.height, asset.radius);
         const placed = new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz));
@@ -255,6 +260,42 @@ export class VegetationLod {
     for (const source of data.sources) { source.mesh.visible = source.visible; source.mesh.castShadow = source.shadow; }
     this.models.delete(model);
   }
+}
+
+const WATER_CELL = 4, WATER_REACH = 14;
+const waterCell = (x: number, z: number) => `${Math.floor(x / WATER_CELL)},${Math.floor(z / WATER_CELL)}`;
+
+/** Model-space 4 m cells within 14 m of the tile's water surfaces (their edges are the banks). */
+function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
+  const cells = new Set<string>();
+  model.updateWorldMatrix(true, true);
+  const inverse = model.matrixWorld.clone().invert(), toModel = new THREE.Matrix4();
+  const meshes: THREE.Mesh[] = [];
+  model.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)) return;
+    const key = materialKey(mesh, mesh.material);
+    if (key && surfaceStyle(key) === 'water') meshes.push(mesh);
+  });
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), r = Math.ceil(WATER_REACH / WATER_CELL);
+  for (const mesh of meshes) {
+    toModel.multiplyMatrices(inverse, mesh.matrixWorld);
+    const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
+    const count = index?.count ?? position.count;
+    for (let i = 0; i < count; i++) {
+      if (i % 3000 === 0) yield;
+      const next = i % 3 === 2 ? i - 2 : i + 1;
+      a.fromBufferAttribute(position, index?.getX(i) ?? i).applyMatrix4(toModel);
+      b.fromBufferAttribute(position, index?.getX(next) ?? next).applyMatrix4(toModel);
+      // Sample every triangle edge; interior edges of a water polygon are harmless (also water).
+      const steps = Math.max(1, Math.ceil(a.distanceTo(b) / WATER_CELL));
+      for (let k = 0; k <= steps; k++) {
+        const x = Math.floor((a.x + (b.x - a.x) * k / steps) / WATER_CELL), z = Math.floor((a.z + (b.z - a.z) * k / steps) / WATER_CELL);
+        for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) cells.add(`${x + dx},${z + dz}`);
+      }
+    }
+  }
+  return cells;
 }
 
 /** Bounding sphere of an asset at scale 1 (base at the origin). */

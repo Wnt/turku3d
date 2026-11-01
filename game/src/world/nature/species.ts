@@ -10,7 +10,7 @@ export function hashId(id: string): number {
 
 type Share = readonly (readonly [string, number])[];
 // Street and park shares in central Turku: lindens and maples line streets and parks, birches everywhere, oaks and
-// rowans in parks and yards. Willows belong by water; the tile contract has no water flag yet, so none are picked.
+// rowans in parks and yards, willows only by the water.
 const SMALL: Share = [['tree_birch', 0.36], ['tree_rowan', 0.24], ['tree_maple', 0.2], ['tree_linden', 0.2]];
 const LARGE: Share = [['tree_linden', 0.36], ['tree_maple', 0.28], ['tree_birch', 0.24], ['tree_oak', 0.12]];
 const BROAD: Share = [['tree_oak', 0.65], ['tree_linden', 0.35]];
@@ -23,11 +23,15 @@ function pick(share: Share, unit: number): string {
   return share[share.length - 1][0];
 }
 
-/** Library asset for one tile instance. `variant` is the tile prototype name (legacy tiles: the node name). */
-export function natureAsset(variant: string, objectId: string, height: number): string {
+/**
+ * Library asset for one tile instance. `variant` is the tile prototype name (legacy tiles: the node name);
+ * `nearWater` marks a trunk within reach of the tile's river or sea surface, where some broadleaves become willows.
+ */
+export function natureAsset(variant: string, objectId: string, height: number, nearWater = false): string {
   const unit = (hashId(objectId) % 10007) / 10007;
   if (objectId.startsWith('bush:')) return pick(BUSH, unit);
   if (/pine/i.test(variant)) return pick(CONIFER, unit);
+  if (nearWater && height >= 6 && unit < 0.45) return 'tree_willow';
   if (/oak/i.test(variant)) return pick(BROAD, unit);
   if (height < 6) return unit < 0.6 ? 'tree_rowan' : 'tree_birch';
   return pick(/detailed/i.test(variant) || height >= 13 ? LARGE : SMALL, unit);

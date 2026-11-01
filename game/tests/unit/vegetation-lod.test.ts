@@ -176,3 +176,17 @@ it('screenshot distance admits distant foliage and Normal restores tier culling'
   lod.screenshotDistance = 0; lod.update(camera); expect(count()).toBe(0);
   lod.remove(model);
 });
+
+it('plants willows only by the tile water', () => {
+  const scene = new THREE.Scene(), lod = new VegetationLod('medium', library);
+  const wet = tile(100, 'tree_detailed_fall', i => new THREE.Vector3(5, 0, i * 3));
+  const river = new THREE.Mesh(new THREE.PlaneGeometry(40, 400).rotateX(-Math.PI / 2).translate(-20, 0, 150), new THREE.MeshStandardMaterial());
+  river.userData = { layer: 'ground', material_key: 'water' };
+  wet.model.add(river); scene.add(wet.model); lod.add(wet.model);
+  expect(generated(wet.model, wet.mesh).some(b => b.userData.nature === 'tree_willow')).toBe(true);
+  lod.remove(wet.model);
+  const dry = tile(100, 'tree_detailed_fall', i => new THREE.Vector3(200, 0, i * 3));
+  dry.model.add(river.clone()); scene.add(dry.model); lod.add(dry.model);
+  expect(generated(dry.model, dry.mesh).some(b => b.userData.nature === 'tree_willow')).toBe(false);
+  lod.remove(dry.model);
+});

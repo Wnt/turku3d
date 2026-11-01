@@ -249,5 +249,13 @@ await io.write(glbPath, doc);
 const glb = fs.readFileSync(glbPath);
 manifest.glb = { bytes: glb.length, sha256: createHash('sha256').update(glb).digest('hex') };
 fs.writeFileSync(path.join(out, 'nature.json'), JSON.stringify(manifest, null, 1) + '\n');
+// The README's asset table mirrors nature.json.
+const readme = path.join(out, 'README.md');
+if (fs.existsSync(readme)) {
+  const rows = Object.entries(manifest.assets).map(([name, a]) => `| \`${name}\` | ${a.species ?? a.kind} | ${a.height} | ` +
+    [0, 1, 2].map(k => a.lods[k] ? `${a.lods[k].triangles.toLocaleString('en')}` : '-').join(' | ') + ' |');
+  const text = fs.readFileSync(readme, 'utf8').replace(/<!-- table:begin -->[\s\S]*<!-- table:end -->/, `<!-- table:begin -->\n${rows.join('\n')}\n<!-- table:end -->`);
+  fs.writeFileSync(readme, text);
+}
 log(`nature.glb ${(glb.length / 1024 / 1024).toFixed(2)} MiB, ${assets.length} assets`);
 

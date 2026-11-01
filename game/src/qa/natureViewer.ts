@@ -116,7 +116,7 @@ function forest(lib: NatureLibrary, count: number) {
 }
 
 const assets = [...library.assets.values()];
-let subject = library.assets.get(query.get('asset') ?? 'tree_birch') ?? assets[0];
+const subject = library.assets.get(query.get('asset') ?? 'tree_birch') ?? assets[0];
 const lodParam = query.get('lod') ?? 'auto';
 let vegetation: VegetationLod | null = null;
 const target = new THREE.Vector3();
