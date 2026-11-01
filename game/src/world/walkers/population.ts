@@ -2,7 +2,7 @@
 // seconds (its cycle n) at a hashed point of the cell's FOOT pieces and walks a hashed route through the network.
 // Existence, route and position are pure functions of (network, UTC ms): clients sharing the epoch clock and the
 // resident tiles see the same walkers without any network traffic. Rendering (ring, caps, fades) is local.
-import { CYCLE_EPOCH, dayCycle } from '../../core/dayCycle';
+import { CYCLE_EPOCH, cycleHour } from '../../core/dayCycle';
 import { CELL_M, cellKey, hash32, pointAt, unit, type Cell, type WalkNetwork } from './network';
 
 export const WALKER = {
@@ -25,16 +25,20 @@ export const MAX_TRAVEL = WALKER.life[1] * WALKER.speed[1];
 /** Relative pedestrian activity by local hour (the day cycle's clock); births sample it, lives never end early. */
 const ACTIVITY: [number, number][] = [[0, 0.12], [6, 0.15], [8, 0.55], [9, 0.75], [11.5, 1], [14, 1], [16, 0.85], [18, 0.9],
   [20, 0.6], [22, 0.35], [24, 0.12]];
-export function activity(utcMs: number): number {
-  const time = dayCycle(utcMs).time;
-  // CYCLE_EPOCH is in EEST (UTC+3): the cycle's clock dates are local hours plus three.
-  const hour = ((time.getUTCHours() + 3) % 24) + time.getUTCMinutes() / 60;
+/** Activity at a clock hour, read at the hour's whole minute. */
+export function activityAt(clockHour: number): number {
+  const hour = Math.floor((((clockHour % 24) + 24) % 24) * 60) / 60;
   for (let i = 1; i < ACTIVITY.length; i++) {
     const [h1, v1] = ACTIVITY[i], [h0, v0] = ACTIVITY[i - 1];
     if (hour <= h1) return v0 + (v1 - v0) * (hour - h0) / (h1 - h0);
   }
   return ACTIVITY[0][1];
 }
+
+/** The clock hour births sample at a shared UTC instant: the shared cycle by default (multiplayer, the scorecard);
+ *  single player passes its view clock (DayClock.hourAt: the developer clock, ?time=, ?cycle=). */
+export type BirthClock = (utcMs: number) => number;
+const sharedHour: BirthClock = utcMs => cycleHour(utcMs).hour;
 
 interface Leg {
   chain: number; dir: 1 | -1;
@@ -48,18 +52,6 @@ interface Leg {
 }
 interface Route { legs: Leg[]; known: number; speed: number; life: number; offset: number; box: [number, number, number, number] }
 
-/** Activity at the start of each birth minute (the model samples it per minute; Date math per slot is slow). */
-const minutes = new Map<number, number>();
-function birthActivity(bornSeconds: number): number {
-  const minute = Math.floor(bornSeconds / 60);
-  let value = minutes.get(minute);
-  if (value === undefined) {
-    if (minutes.size > 4096) minutes.clear();
-    value = activity(CYCLE_EPOCH + minute * 60_000);
-    minutes.set(minute, value);
-  }
-  return value;
-}
 
 export interface Walker {
   /** Identity of this life (slot and cycle); the next life of the slot is another walker. */
@@ -89,7 +81,13 @@ const tmp = { x: 0, z: 0, dx: 0, dz: 0, y: 0 };
 export class Population {
   private routes = new Map<number, { route: Route; used: number }>();
   private generation = 0;
-  constructor(readonly network: WalkNetwork) {}
+  constructor(readonly network: WalkNetwork, private readonly clock: BirthClock = sharedHour) {}
+
+  /** Activity at the start of a birth's minute (the model samples it per minute, so a time edit never changes a
+   *  life that began before it). */
+  private birthActivity(bornSeconds: number): number {
+    return activityAt(this.clock(CYCLE_EPOCH + Math.floor(bornSeconds / 60) * 60_000));
+  }
 
   /** Every walker whose route is known at `utcMs` within `radius` of (x, z). */
   near(x: number, z: number, radius: number, utcMs: number, out: Walker[] = []): Walker[] {
@@ -120,7 +118,7 @@ export class Population {
       const cycle = Math.floor((t - phase) / life);
       const born = cycle * life + phase;
       const id = hash32(slot, cycle);
-      if (k + unit(hash32(id, 3)) >= expected * birthActivity(born)) continue;
+      if (k + unit(hash32(id, 3)) >= expected * this.birthActivity(born)) continue;
       const walker = this.walker(cell, slot, id, life, born, t, near);
       if (walker) visit(walker);
     }
