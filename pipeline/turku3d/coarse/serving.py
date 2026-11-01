@@ -5,7 +5,7 @@ import json
 from turku3d import config as C
 
 PUBLIC_FIELDS = (
-    "coarse", "tile", "visual", "collision", "roads", "pass_kind", "vehicles",
+    "coarse", "tile", "visual", "collision", "roads", "pass_kind", "vehicles", "lights",
     "vehicle_models", "stale", "generation", "failure",
 )
 

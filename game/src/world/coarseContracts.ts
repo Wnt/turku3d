@@ -3,11 +3,14 @@ import type { DraftFreshness } from './coarseFreshness';
 import type { CollisionBundle } from './collisionBundle';
 import type { Manifest, ManifestEntry, ParkedVehicle } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
+import type { TileLightsField } from '../render/lights/tileLights';
 
 export interface CoarseFragment { generation?: string; stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
-  roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'] }
+  roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'];
+  /** The generator's street lights for this tile (render/lights/tileLights.ts). */
+  lights?: TileLightsField | null }
 /** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
 type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
 export interface Entry extends DraftFreshness {
@@ -15,6 +18,8 @@ export interface Entry extends DraftFreshness {
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */
   collision: Map<string, ManifestEntry>;
   vehicles?: ParkedVehicle[];
+  /** The light list of the fragment whose model is drawn. */
+  lights?: TileLightsField;
   pass?: 'first' | 'full'; comparison?: THREE.Object3D; comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;

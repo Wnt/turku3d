@@ -46,8 +46,17 @@ WFS_LAYERS = (
     "GIS:Liikennemerkit",
     "kanta:Pysakki",
     "GIS:Keskilinjat",
+    # Street furniture, street lights and register trees (FURNITURE_WFS_LAYERS), appended so the
+    # indices above stay stable. Each is a few requests per block (quadtree paging at the 1000 cap).
+    "GIS:Varusteet",
+    "frn:CityFurniture_LOD2",
+    "GIS:Polkupyoraparkki",
+    "GIS:Pysakointiautomaatit",
+    "GIS:Follariasemat",
+    "GIS:Puut",
 )
 PERMIT_PARKING = "GIS:Lupapysakointipaikat"
+FURNITURE_WFS_LAYERS = WFS_LAYERS[6:]
 OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste", PERMIT_PARKING)
 BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"

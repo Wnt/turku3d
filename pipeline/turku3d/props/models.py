@@ -12,7 +12,20 @@ from PIL import Image, ImageDraw, ImageFont
 from turku3d.package.gltf import GlbMesh
 
 SUPPORTED_SIGNS = {"E1", "E2", "E6", "C37", "C38", "B5", "B6", "D3.1", "H20"}
-COLORS = ["#454e53", "#a97943", "#d0d6d3", "#f4c72d", "#242b2e", "#f3f1dd"]
+# Palette columns of the shared prop atlas (16 px each): steel, wood, light grey, yellow, black,
+# cream, park green, lifebuoy orange.
+COLORS = [
+    "#454e53",
+    "#a97943",
+    "#d0d6d3",
+    "#f4c72d",
+    "#242b2e",
+    "#f3f1dd",
+    "#3e6a47",
+    "#d8582a",
+]
+STEEL, WOOD, GREY, YELLOW, BLACK, CREAM, GREEN, ORANGE = range(len(COLORS))
+BIN_BODY = {"": STEEL, "green": GREEN, "black": BLACK}
 
 
 @cache
@@ -127,8 +140,15 @@ class Shape:
             self.face([a[i], b[i], b[j], a[j]], color)
 
 
+def stands(variant: str) -> list[float]:
+    """Stand x positions of a bike rack: the register's place count sets the length."""
+    n = int(variant) if variant.isdigit() else 3
+    return [(k - (n - 1) / 2) * 0.8 for k in range(n)]
+
+
 @cache
 def model(kind: str, code: str = "") -> GlbMesh:
+    """One prototype per kind and variant (``code``: sign face, bin colour, bike-rack stands)."""
     s = Shape()
     if kind == "bench":
         for x in (-0.65, 0.65):
@@ -140,11 +160,54 @@ def model(kind: str, code: str = "") -> GlbMesh:
         for x in (-0.76, 0.76):
             s.box((x, 0.65, 0), (0.05, 0.05, 0.58))
     elif kind == "bin":
-        s.cylinder(0, 0, 0.24, 0.82)
-        s.cylinder(0, 0, 0.28, 0.08, 2, 0.82)
-        s.box((0, 0.68, 0.238), (0.28, 0.16, 0.015), 4)
+        s.cylinder(0, 0, 0.24, 0.82, BIN_BODY.get(code, STEEL))
+        s.cylinder(0, 0, 0.28, 0.08, GREY, 0.82)
+        s.box((0, 0.68, 0.238), (0.28, 0.16, 0.015), BLACK)
+    elif kind == "waste_container":
+        # Deep collection container: only the wood-clad top 1.2 m stands above the paving.
+        s.cylinder(0, 0, 0.75, 1.12, WOOD)
+        s.cylinder(0, 0, 0.8, 0.1, STEEL, 1.12)
+        s.box((0, 0.95, 0.76), (0.45, 0.3, 0.04), BLACK)
+    elif kind == "ashtray":
+        s.cylinder(0, 0, 0.04, 0.8, STEEL)
+        s.cylinder(0, 0, 0.11, 0.26, GREY, 0.78)
+    elif kind == "table":
+        s.box((0, 0.73, 0), (1.8, 0.06, 0.76), WOOD)
+        for z in (-0.62, 0.62):
+            s.box((0, 0.44, z), (1.8, 0.05, 0.26), WOOD)
+        for x in (-0.7, 0.7):
+            s.box((x, 0.36, 0), (0.08, 0.72, 1.5), STEEL)
+    elif kind == "info_board":
+        for x in (-0.58, 0.58):
+            s.box((x, 0.95, 0), (0.07, 1.9, 0.07), STEEL)
+        s.box((0, 1.4, 0), (1.25, 0.9, 0.05), BLACK)
+        s.box((0, 1.4, 0.03), (1.15, 0.8, 0.012), CREAM)
+    elif kind == "info_pylon":
+        s.box((0, 1.2, 0), (0.55, 2.4, 0.25), BLACK)
+        s.box((0, 1.35, 0.13), (0.45, 1.6, 0.012), CREAM)
+    elif kind == "guide_post":
+        s.cylinder(0, 0, 0.05, 2.6, STEEL)
+        s.box((0.38, 2.35, 0), (0.7, 0.16, 0.025), CREAM)
+        s.box((0, 2.1, 0.38), (0.025, 0.16, 0.7), CREAM)
+    elif kind == "path_sign":
+        s.cylinder(0, 0, 0.03, 1.55, STEEL)
+        s.box((0, 1.35, 0.04), (0.42, 0.3, 0.02), GREY)
+    elif kind == "lifebuoy":
+        s.box((0, 0.85, 0), (0.09, 1.7, 0.09), GREY)
+        s.box((0, 1.3, 0.1), (0.72, 0.72, 0.13), ORANGE)
+        s.box((0, 1.3, 0.17), (0.32, 0.32, 0.01), GREY)
+    elif kind == "dispenser":
+        s.cylinder(0, 0, 0.04, 1.15, STEEL)
+        s.box((0, 1.0, 0.07), (0.22, 0.32, 0.12), GREEN)
+    elif kind == "charger":
+        s.box((0, 0.7, 0), (0.36, 1.4, 0.26), GREY)
+        s.box((0, 1.1, 0.135), (0.22, 0.26, 0.012), BLACK)
+        s.box((0, 0.75, 0.135), (0.08, 0.12, 0.03), GREEN)
+    elif kind == "planter":
+        s.box((0, 0.3, 0), (1.2, 0.6, 1.2), GREY)
+        s.box((0, 0.61, 0), (1.06, 0.03, 1.06), GREEN)
     elif kind in ("bike_rack", "bike_station"):
-        for x in (-0.9, 0, 0.9):
+        for x in stands(code) if kind == "bike_rack" else (-0.9, 0, 0.9):
             for z in (-0.30, 0.30):
                 s.cylinder(x, z, 0.035, 0.78, 2)
             s.box((x, 0.78, 0), (0.07, 0.07, 0.67), 2)
@@ -196,7 +259,7 @@ def model(kind: str, code: str = "") -> GlbMesh:
         np.array(s.positions),
         np.array(s.indices),
         uvs=np.array(s.uvs),
-        image=atlas(code),
+        image=atlas(code if kind in ("sign", "bus_stop") else ""),
         extras={
             "layer": "props",
             "object_id": f"prototype:{kind}:{code}",

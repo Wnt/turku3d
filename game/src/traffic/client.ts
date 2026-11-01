@@ -8,7 +8,7 @@ import type { V3 } from '../core/origin';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { PhysicsClient } from '../physics/client';
 import type { PhysicsState, TrafficClaimEvent, TrafficStats } from '../physics/protocol';
-import { tileBounds } from '../render/lights/lampRule';
+import { tileBounds } from '../render/lights/tileLights';
 import type { Entry } from '../world/coarseContracts';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';

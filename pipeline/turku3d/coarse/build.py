@@ -43,7 +43,6 @@ from .stages import (
     building_visual,
     cached_terrain,
     kerb_inputs,
-    props_visual,
     roof_crop,
     roof_fallback,
     structures_stage,
@@ -389,6 +388,15 @@ def build(
         barrier_stage,
     )
     seconds["fences"] = cache.metrics["fences"]["seconds"]
+    # Street furniture and lights (G1): before collision, which merges their static primitives.
+    from . import furniture
+
+    street = (
+        furniture.EMPTY
+        if first_pass
+        else furniture.stage(cache, tile, inputs, grid_pos, carried_mask, common)
+    )
+    seconds["furniture"] = cache.metrics.get("furniture", {}).get("seconds", 0.0)
     t = time.perf_counter()
     collision = {}
     cols = {}
@@ -408,7 +416,7 @@ def build(
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
         pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes], pos, idx, mat)
-        primitives = trunks(trees, ct) + barrier_cols[ct]
+        primitives = trunks(trees, ct) + barrier_cols[ct] + street["collision"].get(ct.id, [])
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         compact_collision(col)
         if first_pass:
@@ -633,26 +641,9 @@ def build(
 
         write_instances(stage / "vegetation.vis.glb", tile, trees + bushes)
         layer_files.append(stage / "vegetation.vis.glb")
-    poles = [
-        p
-        for p in inputs.poles
-        if carried_mask.distance(shapely.Point(p.x, p.z)) > 0.5 or carried_mask.is_empty
-    ]
-    if poles:
-        data = cache.run(
-            "props",
-            source_key(
-                props_visual,
-                grid_height,
-                base / "props/__init__.py",
-                base / "props/models.py",
-                base / "package/gltf.py",
-                *common,
-            ),
-            [tile, poles, grid_pos],
-            lambda: props_visual(tile, poles, grid_pos),
-        )
-        _write(stage / "props.vis.glb", data)
+    poles = street["poles"]
+    if street["glb"]:
+        _write(stage / "props.vis.glb", street["glb"])
         layer_files.append(stage / "props.vis.glb")
     from turku3d.facade_programs import source_paths as facade_program_sources
 
@@ -781,6 +772,8 @@ def build(
         facade_params=facade_params,
         trees=len(trees),
         poles=len(poles),
+        lights=street["lights"],
+        furniture=street["stats"],
         barriers=barrier_stats,
         vegetation=dict(
             tree_cap=TREE_CAP,

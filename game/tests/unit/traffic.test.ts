@@ -7,7 +7,7 @@ import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 // @ts-expect-error r186 internal pipeline manager has no DefinitelyTyped declaration.
 import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { CAR, FOOT, ONEWAY, type RoadGraphJson } from '../../src/gameplay/roadGraph';
-import { tileBounds } from '../../src/render/lights/lampRule';
+import { tileBounds } from '../../src/render/lights/tileLights';
 import { RING, TRAFFIC, TRAFFIC_MODELS } from '../../src/traffic/constants';
 import { trafficRoads } from '../../src/traffic/roads';
 import { buildTileTraffic, laneSpan, type Lane } from '../../src/traffic/tileNetwork';

@@ -56,7 +56,13 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
   vertex stage uses the unjittered projection and clamps coronas to 2..48 output pixels; each fragment compares its
   own depth with the opaque prepass depth (beauty depth on mobile), so walls hide lamps behind them. Lamp posts are
   one `InstancedMesh` holding only lamps within 125 m, scaled to zero between 105 and 125 m on the CPU, so every
-  pass keeps one count-independent program. `?lights=0..1` fixes the night level.
+  pass keeps one count-independent program. `?lights=0..1` fixes the night level. Where lights are is tile data:
+  each draft manifest carries a `lights` list of 16 B records from the generator (register street-light posts,
+  lamps hung over a carriageway, facade lights; `pipeline/turku3d/props/lights.py`), and the client adds only
+  the tunnel strips and bridge-deck lamps the generator builds as geometry (`lights/tileScan.ts`). Their posts
+  have static collision in the tile's collision cells.
+- **Street furniture** batches (`props_palette`) switch off beyond 125 m from the camera and back on within
+  115 m (`world/propLod.ts`): a hard switch per tile batch, no discard or vertex fade, so no program changes.
 - **Light pools** ([lights/pools.ts](lights/pools.ts)): every 250 ms the street and bridge lamps nearest a point 12 m
   ahead of the camera take the tier's point slots (4 on medium, 8 on high), scaled by the night factor (0 by day, so
   no slot enters the shader loop). A chosen lamp's weight falls to 0 as its distance approaches the first lamp left

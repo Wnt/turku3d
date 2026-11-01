@@ -114,8 +114,8 @@ describe('lamp pools', () => {
     const mesh = new THREE.Mesh(roof, new THREE.MeshStandardMaterial());
     mesh.userData = { layer: 'buildings', object_id: 'buildings:a' };
     model.add(mesh);
-    expect(scanTileNow(model, []).footprint).toBeUndefined();
-    const job = scanTile(model, [], [], 4096, [0, 0, 40, 40]);
+    expect(scanTileNow(model).footprint).toBeUndefined();
+    const job = scanTile(model, 4096, [0, 0, 40, 40]);
     let step = job.next();
     while (!step.done) step = job.next();
     const result = step.value;

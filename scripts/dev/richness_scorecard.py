@@ -14,8 +14,10 @@ Per camera (``game/src/qa/street-cameras.json``) it reports two views:
 
 Categories, all from tile data:
 
-* ``lamps``: props with ``prop_type`` lamp (none today: bridge-deck lamps are merged into the
-  bridge furniture mesh and tunnel light strips are not street lamps, so neither is counted);
+* ``lamps``: street lights of the manifest's ``lights`` list (posts and lamps hung over a
+  carriageway; ``pipeline/turku3d/props/lights.py``), plus any props with ``prop_type`` lamp.
+  Facade lights, bridge-deck lamps (merged into the bridge furniture mesh) and tunnel light
+  strips are not street lamps, so none of them is counted;
 * ``furniture``: props of the kinds in ``FURNITURE`` plus instanced bollards, by kind;
 * ``trees``: vegetation instances that are not bushes, deduplicated over their mesh parts;
 * ``parked_cars``: the manifest's ``vehicles``;
@@ -65,7 +67,26 @@ PAINT_LINE_WIDTH = 0.12
 DEFAULT_URL = os.environ.get("VITE_DRAFT_URL", "https://turku.lab.madekivi.fi/coarse/")
 CAMERAS = REPO / "game/src/qa/street-cameras.json"
 TARGETS = Path(__file__).with_name("richness_targets.toml")
-FURNITURE = ("bench", "bin", "bike_rack", "bike_station", "parking_meter", "bollard", "post")
+FURNITURE = (
+    "bench",
+    "bin",
+    "waste_container",
+    "ashtray",
+    "table",
+    "info_board",
+    "info_pylon",
+    "guide_post",
+    "path_sign",
+    "lifebuoy",
+    "dispenser",
+    "charger",
+    "planter",
+    "bike_rack",
+    "bike_station",
+    "parking_meter",
+    "bollard",
+    "post",
+)
 POLE_KINDS = ("sign", "bus_stop")
 LAMP_KINDS = ("lamp", "street_lamp")
 CAR, FOOT = 2, 1
@@ -503,6 +524,29 @@ def read_vehicles(fragment: dict, out: TileData):
         )
 
 
+LIGHT_RECORD = struct.Struct("<fffBBBB")
+POST_RECORD = struct.Struct("<fffHBB")
+LIGHT_CATEGORIES = ("street", "path", "hung", "wall")
+
+
+def read_lights(fragment: dict, out: TileData):
+    """The light list's street lights as lamps (at the post base), facade lights as other."""
+    field = fragment.get("lights")
+    if not field:
+        return
+    import base64
+
+    data = base64.b64decode(field["data"])
+    n, posts = int(field["count"]), int(field["posts"])
+    for i in range(n):
+        x, y, z, _, _, _, info = LIGHT_RECORD.unpack_from(data, i * LIGHT_RECORD.size)
+        kind = LIGHT_CATEGORIES[info & 0x0F]
+        if i < posts:
+            x, y, z, *_ = POST_RECORD.unpack_from(data, (n + i) * LIGHT_RECORD.size)
+        category = "lamp" if info & 0x80 else "other"
+        out.items.append(Item(category, kind, f"light:{kind}@{x:.2f},{z:.2f}", x, z, y))
+
+
 # --------------------------------------------------------------------------------------------
 # Tile sources
 # --------------------------------------------------------------------------------------------
@@ -591,6 +635,7 @@ class Source:
             if graph:
                 read_roads(graph, out)
         read_vehicles(fragment, out)
+        read_lights(fragment, out)
         return out
 
 

@@ -1,68 +1,23 @@
 import { nightFactor } from '../../src/render/timecycle';
 import { describe, expect, test } from 'vitest';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { CAR, FOOT, ONEWAY, mergeRoadGraphs, type RoadGraphJson } from '../../src/gameplay/roadGraph';
-import { LAMP_RULE, WALL_RULE, lampStations, tileBounds, owns } from '../../src/render/lights/lampRule';
-import { LampField, lampProbes, placeLamps, type Lamp, type LampSource } from '../../src/render/lights/lampField';
+import { LampField, type Lamp, type LampSource } from '../../src/render/lights/lampField';
+import { CORONA_RADIUS, decodeTileLights, lightsSignature, owns, tileBounds, type TileLightsField } from '../../src/render/lights/tileLights';
 import { scanTileNow, mergeHeads } from '../../src/render/lights/tileScan';
-import { LampPosts, POST_FADE, postFade } from '../../src/render/lights/lampPosts';
+import { LampPosts, POST_FADE, POST_SHAPE, postFade } from '../../src/render/lights/lampPosts';
 import { LightSprites, SPRITE, spriteLevel, spritePixels } from '../../src/render/lights/sprites';
 import { nightLevel } from '../../src/render/lights/night';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { parseParams } from '../../src/core/params';
 import { PostProcessing } from '../../src/render/post';
 
-const S = LAMP_RULE.spacing;
-const street = (cls: number, oneway = false) => CAR | FOOT | (oneway ? ONEWAY : 0) | cls << 3;
-
-/** One tile's roads.json: polylines (engine x,z pairs) clipped by the caller to the tile, as the pipeline does. */
-function tileRoads(id: string, ways: { points: number[][]; flags: number }[]): RoadGraphJson {
-  const nodes: number[] = [], edges: number[][] = [];
-  const node = (x: number, z: number) => {
-    for (let i = 0; i < nodes.length; i += 2) if (Math.hypot(nodes[i] - x, nodes[i + 1] - z) < 0.05) return i / 2;
-    nodes.push(x, z); return nodes.length / 2 - 1;
-  };
-  for (const way of ways) {
-    const a = node(way.points[0][0], way.points[0][1]), last = way.points[way.points.length - 1], b = node(last[0], last[1]);
-    let length = 0;
-    for (let i = 1; i < way.points.length; i++) length += Math.hypot(way.points[i][0] - way.points[i - 1][0], way.points[i][1] - way.points[i - 1][1]);
-    edges.push([a, b, way.flags, length, ...way.points.slice(1, -1).flat()]);
-  }
-  return { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [...tileBounds(id)!], nodes, edges };
-}
-
-/** A street from x0 to x1 at z, split at every tile seam (and at `splits`), as roads.json clips it. */
-function eastWest(z: number, x0: number, x1: number, flags: number, splits: number[] = []) {
-  const cuts = [...new Set([x0, x1, ...splits, ...[-250, 0, 250, 500, 750].filter(x => x > x0 && x < x1)])].sort((a, b) => a - b);
-  const byTile = new Map<string, { points: number[][]; flags: number }[]>();
-  for (let i = 1; i < cuts.length; i++) {
-    const id = `t0_${Math.floor((cuts[i - 1] + cuts[i]) / 2 / 250)}_${Math.floor(z / 250)}`;
-    const list = byTile.get(id) ?? [];
-    list.push({ points: [[cuts[i - 1], z], [cuts[i], z]], flags });
-    byTile.set(id, list);
-  }
-  return byTile;
-}
-
-/** Flat ground covering a tile, optionally with building footprints (roof quads) and water. */
-function tileModel(id: string, extras: { buildings?: number[][]; water?: number[][]; y?: number } = {}) {
-  const [x0, z0, x1, z1] = tileBounds(id)!;
-  const y = extras.y ?? 2;
-  const model = new THREE.Group();
-  const quad = (b: number[], height: number, layer: string, key: string) => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute([b[0], height, b[1], b[2], height, b[1], b[2], height, b[3], b[0], height, b[3]], 3));
-    g.setIndex([0, 2, 1, 0, 3, 2]);
-    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial());
-    mesh.userData = { layer, object_id: `${layer}:${key}`, material_key: key };
-    model.add(mesh);
-  };
-  quad([x0, z0, x1, z1], y, 'ground', 'draft_asphalt_worn');
-  for (const [i, b] of (extras.buildings ?? []).entries()) quad(b, y + 12, 'buildings', `facade_kit_${i}`);
-  for (const b of extras.water ?? []) quad(b, y + 0.5, 'ground', 'water');
-  return model;
-}
+/** pipeline/turku3d/props/lights.py `encode` of: a street post at (50, 3, 8) with its arm toward -z (yaw pi/2), a
+ *  path post at (119.04, 4, 40) with yaw 0 and scale 0.6, a lamp hung at (30, 10, 0) and a facade light at
+ *  (20, 6.25, -9.5). Street lights come first, posts before hung lights. */
+const FIXTURE: TileLightsField = { format: 'turku3d-lights', version: 1, count: 4, posts: 2, street: 3,
+  data: 'AABIQq5HKUHNzMxAn4lsgAAA8EKcxAhBAAAgQnNlVYEAAPBBAAAgQQAAAACfiWyCAACgQQAAyEAAABjBOSoaAwAASEIAAEBAAAAAQQBAZAB7FO5CAACAQAAAIEIAADwA' };
 
 function lampsOf(source: LampSource): Lamp[] {
   const field = new LampField();
@@ -72,113 +27,56 @@ function lampsOf(source: LampSource): Lamp[] {
   return out;
 }
 
-describe('lamp rule', () => {
-  test('a street keeps its spacing across tile seams and plain nodes', () => {
-    // 0..700 m east-west, split at two seams, a plain way break at 120 m and a footway crossing node at 400 m.
-    const tiles = eastWest(100, 0, 700, street(2), [120, 400]);
-    const stations = [...tiles].flatMap(([id, ways]) => lampStations(tileRoads(id, ways), tileBounds(id)!));
-    const xs = stations.map(s => s.x).sort((a, b) => a - b);
-    expect(xs.length).toBe(Math.round(250 / S) * 2 + Math.round(200 / S));
-    // The plain way break at 120 m does not end the chain: the first lamp is half a spacing from the street's end.
-    expect(xs[0]).toBeCloseTo(250 / Math.round(250 / S) / 2, 6);
-    const gaps = xs.slice(1).map((x, i) => x - xs[i]);
-    for (const gap of gaps) { expect(gap).toBeGreaterThan(0.8 * S); expect(gap).toBeLessThan(1.25 * S); }
-    // Across the seams at 250 and 500 the gap is half a spacing on each side.
-    const seamGaps = [250, 500].map(seam => xs.find(x => x > seam)! - xs.filter(x => x < seam).at(-1)!);
-    for (const gap of seamGaps) expect(gap).toBeGreaterThan(0.8 * S);
+describe('tile light list', () => {
+  test('the generator records decode into posts with their heads, hung lights and facade lights', () => {
+    const lamps = decodeTileLights(FIXTURE);
+    expect(lamps.map(l => [l.post, l.light.radius])).toEqual([[true, CORONA_RADIUS.street], [true, CORONA_RADIUS.path],
+      [false, CORONA_RADIUS.hung], [false, CORONA_RADIUS.wall]]);
+    expect(lamps.map(l => l.kind)).toEqual(['street', 'street', 'street', 'wall']); // facade lights take no pool
+    const [street, path, hung, wall] = lamps;
+    expect([street.x, street.y, street.z, street.scale]).toEqual([50, 3, 8, 1]);
+    expect(street.yaw).toBeCloseTo(Math.PI / 2, 3);
+    // The corona sits at the post's diffuser: base + arm along local +X (three.js rotation.y) + light height.
+    const head = new THREE.Vector3(POST_SHAPE.arm, POST_SHAPE.light, 0).multiplyScalar(street.scale)
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), street.yaw).add(new THREE.Vector3(street.x, street.y, street.z));
+    expect(street.light.x).toBeCloseTo(head.x, 4); expect(street.light.y).toBeCloseTo(head.y, 4); expect(street.light.z).toBeCloseTo(head.z, 4);
+    expect(path.scale).toBe(0.6); expect(path.x).toBeCloseTo(119.04, 4);
+    expect([hung.x, hung.y, hung.z]).toEqual([30, 10, 0]);
+    expect([wall.x, wall.y, wall.z]).toEqual([20, 6.25, -9.5]);
+    // Colours are HDR intensity x colour; facade lights are dimmer and warmer than street LEDs.
+    expect(street.light.r).toBeCloseTo(5, 1); expect(wall.light.r).toBeCloseTo(1.8, 1);
+    expect(wall.light.b / wall.light.r).toBeLessThan(street.light.b / street.light.r);
+    for (const l of lamps) expect(l.light.day).toBe(0);
   });
 
-  test('placement depends only on world geometry: edge order, edge direction and load order do not matter', () => {
-    const ways = [{ points: [[10, 30], [60, 32], [140, 35], [249.99, 40]], flags: street(2) },
-      { points: [[60, 32], [70, 120], [65, 240]], flags: street(1) },
-      { points: [[140, 35], [140, 200]], flags: street(3) },
-      { points: [[100, 0], [100, 30]], flags: FOOT }];
-    const json = tileRoads('t0_0_0', ways);
-    const reversed = tileRoads('t0_0_0', [...ways].reverse().map(w => ({ ...w, points: [...w.points].reverse() })));
-    const key = (list: { x: number; z: number }[]) => list.map(s => `${s.x.toFixed(3)},${s.z.toFixed(3)}`).sort();
-    expect(key(lampStations(reversed))).toEqual(key(lampStations(json)));
-    // mergeRoadGraphs renumbers nodes and edges in load order; the rule reads only each tile's own file.
-    const renumbered = { ...json, nodes: [...json.nodes.slice(2), ...json.nodes.slice(0, 2)],
-      edges: json.edges.map(([a, b, ...rest]) => [(a + json.nodes.length / 2 - 1) % (json.nodes.length / 2), (b + json.nodes.length / 2 - 1) % (json.nodes.length / 2), ...rest]) };
-    expect(mergeRoadGraphs([renumbered]).edges.length).toBe(json.edges.length);
-    expect(key(lampStations(renumbered))).toEqual(key(lampStations(json)));
-    const tiles = [...eastWest(60, -200, 450, street(2))].map(([id, w]) => ({ id, model: tileModel(id), roads: tileRoads(id, w) }));
-    const run = (order: typeof tiles) => {
-      const field = new LampField(), out = new Map<string, Lamp[]>();
-      field.onTile = (id, lamps) => { if (lamps) out.set(id, lamps); };
-      for (const t of order) { field.sync(order.slice(0, order.indexOf(t) + 1)); field.step(Infinity); }
-      return [...out.values()].flat().map(l => `${l.key}/${l.yaw.toFixed(4)}/${l.y}`).sort();
-    };
-    const forward = run(tiles);
-    expect(forward.length).toBeGreaterThan(15);
-    expect(run([...tiles].reverse())).toEqual(forward);
-    expect(run([tiles[1], tiles[2], tiles[0]])).toEqual(forward);
+  test('the client post matches the generator post its lights and collision assume', () => {
+    const source = readFileSync(new URL('../../../pipeline/turku3d/props/lights.py', import.meta.url), 'utf8');
+    const shape = /POST_SHAPE = \{"height": ([\d.]+), "arm": ([\d.]+), "light": ([\d.]+)\}/.exec(source);
+    expect(shape?.slice(1).map(Number)).toEqual([POST_SHAPE.height, POST_SHAPE.arm, POST_SHAPE.light]);
   });
 
-  test('wide two-way streets alternate sides, also across a seam; one-way streets keep the right-hand kerb', () => {
-    const tiles = eastWest(100, 0, 500, street(3));
-    const lamps = [...tiles].flatMap(([id, w]) => lampsOf({ id, model: tileModel(id), roads: tileRoads(id, w) }))
-      .filter(l => l.post).sort((a, b) => a.x - b.x);
-    expect(lamps.length).toBe(2 * Math.round(250 / S));
-    lamps.forEach((l, i) => { if (i) expect(Math.sign(l.z - 100)).toBe(-Math.sign(lamps[i - 1].z - 100)); });
-    for (const l of lamps) expect(Math.abs(Math.abs(l.z - 100) - LAMP_RULE.offset[3])).toBeLessThan(1e-6);
-    // Heading east (+x), the right-hand side is south (+z); heading west it is north.
-    for (const [x0, x1, sign] of [[20, 230, 1], [230, 20, -1]]) {
-      const json = tileRoads('t0_0_0', [{ points: [[x0, 100], [x1, 100]], flags: street(2, true) }]);
-      const one = lampsOf({ id: 't0_0_0', model: tileModel('t0_0_0'), roads: json }).filter(l => l.post);
-      expect(one.length).toBe(Math.round(210 / S));
-      for (const l of one) expect(Math.sign(l.z - 100)).toBe(sign);
-    }
+  test('missing, foreign or truncated light lists decode to no lamps', () => {
+    expect(decodeTileLights(null)).toEqual([]);
+    expect(decodeTileLights({ ...FIXTURE, version: 2 })).toEqual([]);
+    expect(decodeTileLights({ ...FIXTURE, count: 5 })).toEqual([]);
+    expect(decodeTileLights({ ...FIXTURE, posts: 5, count: 1 })).toEqual([]);
   });
 
-  test('kerb points avoid buildings and water, and stand on the surface', () => {
-    const json = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
-    const plain = lampsOf({ id: 't0_0_0', model: tileModel('t0_0_0', { y: 3 }), roads: json }).filter(l => l.post);
-    const side = Math.sign(plain[0].z - 100);
-    for (const l of plain) { expect(l.y).toBeCloseTo(3, 5); expect(Math.sign(l.z - 100)).toBe(side); }
-    // A building block along the preferred kerb pushes every lamp to the other side; water there drops them.
-    const block = side > 0 ? [0, 101.5, 250, 140] : [0, 60, 250, 98.5];
-    const other = side > 0 ? [0, 60, 250, 98.5] : [0, 101.5, 250, 140];
-    const moved = lampsOf({ id: 't0_0_0', model: tileModel('t0_0_0', { buildings: [block] }), roads: json }).filter(l => l.post);
-    expect(moved.length).toBe(plain.length);
-    for (const l of moved) expect(Math.sign(l.z - 100)).toBe(-side);
-    const none = lampsOf({ id: 't0_0_0', model: tileModel('t0_0_0', { buildings: [block], water: [other] }), roads: json });
-    expect(none.filter(l => l.post)).toEqual([]);
-  });
-
-  test('wall lights mount just in front of the first facade on each side, at a street-relative height', () => {
-    const json = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
-    // Facade 9 m south of the centreline; nothing to the north within reach.
-    const model = tileModel('t0_0_0', { y: 1, buildings: [[0, 109, 250, 130]] });
-    const walls = lampsOf({ id: 't0_0_0', model, roads: json }).filter(l => !l.post);
-    const stations = Math.round(210 / WALL_RULE.spacing);
-    expect(walls.length).toBeGreaterThan(stations * WALL_RULE.share * 0.5);
-    expect(walls.length).toBeLessThanOrEqual(stations);
-    for (const l of walls) {
-      expect(109 - l.z).toBeGreaterThanOrEqual(0.25 - 1e-6); expect(109 - l.z).toBeLessThanOrEqual(0.75 + 1e-6);
-      expect(l.y - 1).toBeGreaterThanOrEqual(WALL_RULE.height[0]); expect(l.y - 1).toBeLessThanOrEqual(WALL_RULE.height[1]);
-      expect(l.light.day).toBe(0);
-    }
-    expect(lampsOf({ id: 't0_0_0', model, roads: json }).map(l => l.key)).toEqual(lampsOf({ id: 't0_0_0', model, roads: json }).map(l => l.key));
-  });
-
-  test('bridge decks use their own surface, and decks with generator lamps get no rule lamps', () => {
-    const roads = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
-    roads.edgeHeights = [[9, 9]];
-    const model = tileModel('t0_0_0');
-    const deck = new THREE.Mesh(new THREE.PlaneGeometry(250, 20).rotateX(-Math.PI / 2).translate(125, 9.2, 100), new THREE.MeshStandardMaterial());
-    deck.userData = { layer: 'bridges', object_id: 'draft-bridge:1:deck', material_key: 'draft_bridge_concrete' };
-    model.add(deck);
-    const lamps = lampsOf({ id: 't0_0_0', model, roads }).filter(l => l.post);
-    expect(lamps.length).toBe(Math.round(210 / S));
-    for (const l of lamps) expect(l.y).toBeCloseTo(9.2, 4);
-    // A generator-built lamp diffuser (thin closed box) on the deck: the deck is already lit.
-    const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.016, 0.2).translate(125, 16, 106), new THREE.MeshStandardMaterial());
-    diffuser.userData = { layer: 'bridges', object_id: 'draft-bridge:1:furniture:paint:3', material_key: 'draft_bridge_paint' };
-    model.add(diffuser);
-    const lit = lampsOf({ id: 't0_0_0', model, roads });
-    expect(lit.filter(l => !l.post).map(l => [l.x, l.z].map(Math.round))).toEqual([[125, 106]]);
-    expect(lit.filter(l => l.post).every(l => Math.abs(l.x - 125) >= 30)).toBe(true);
+  test('a tile combines its light list with the tunnel strips and bridge lamps built as geometry', () => {
+    const model = new THREE.Group();
+    const strips = new THREE.BufferGeometry();
+    strips.setAttribute('position', new THREE.Float32BufferAttribute([9.6, 5, 50, 10.4, 5, 50, 10.4, 5, 50.2, 9.6, 5, 50.2], 3));
+    strips.setIndex([0, 1, 2, 0, 2, 3]);
+    const tunnel = new THREE.Mesh(strips, new THREE.MeshStandardMaterial());
+    tunnel.userData = { layer: 'structures', objects: [{ object_id: 'tunnel:7:lights', start: 0, count: 6, layer: 'structures' }] };
+    model.add(tunnel);
+    const lamps = lampsOf({ id: 't0_0_0', model, lights: FIXTURE });
+    expect(lamps).toHaveLength(5);
+    expect(lamps.filter(l => l.post)).toHaveLength(2);
+    const strip = lamps.at(-1)!;
+    expect([Math.round(strip.x), Math.round(strip.z), strip.light.day]).toEqual([10, 50, 1]);
+    // A strip owned by the neighbour tile is that tile's light.
+    expect(lampsOf({ id: 't0_1_0', model, lights: null })).toEqual([]);
   });
 
   test('tunnel strips and bridge lamp heads become one light each; rails and deck paint do not', () => {
@@ -198,34 +96,35 @@ describe('lamp rule', () => {
     merged.setAttribute('position', new THREE.Float32BufferAttribute(group.flatMap(g => [...g.attributes.position.array]), 3));
     const bridge = new THREE.Mesh(merged, new THREE.MeshStandardMaterial());
     bridge.userData = { layer: 'bridges', object_id: 'draft-bridge:9:furniture:paint:1' };
-    model.add(tunnel, bridge);
-    const scan = scanTileNow(model, []);
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(250, 250), new THREE.MeshStandardMaterial());
+    ground.userData = { layer: 'ground', object_id: 'ground:t0_0_0' };
+    model.add(tunnel, bridge, ground);
+    const scan = scanTileNow(model);
     expect(scan.tunnel.map(l => [Math.round(l.x), Math.round(l.z)])).toEqual([[10, 50], [20, 50], [30, 50]]);
     expect(scan.bridge).toHaveLength(1);
     expect(scan.bridge[0].x).toBeCloseTo(100, 5); expect(scan.bridge[0].z).toBeCloseTo(100, 5);
     expect(mergeHeads([{ x: 0, y: 0, z: 0 }, { x: 3, y: 0, z: 0 }])).toHaveLength(2);
   });
 
-  test('a re-parsed but unchanged roads.json (every tile poll) does not redo the tile; a changed one does', () => {
-    const roads = tileRoads('t0_0_0', [{ points: [[20, 100], [230, 100]], flags: street(2) }]);
-    const model = tileModel('t0_0_0'), field = new LampField(), calls: string[] = [];
+  test('a re-polled but unchanged light list does not redo the tile; a changed one or a new model does', () => {
+    const model = new THREE.Group(), field = new LampField(), calls: string[] = [];
     field.onTile = id => calls.push(id);
-    field.sync([{ id: 't0_0_0', model, roads }]); field.step(Infinity);
-    field.sync([{ id: 't0_0_0', model, roads: structuredClone(roads) }]); field.step(Infinity);
+    field.sync([{ id: 't0_0_0', model, lights: FIXTURE }]); field.step(Infinity);
+    field.sync([{ id: 't0_0_0', model, lights: structuredClone(FIXTURE) }]); field.step(Infinity);
     expect(calls).toEqual(['t0_0_0']); expect(field.pending()).toBe(false);
-    const moved = structuredClone(roads); moved.nodes[1] += 1;
-    field.sync([{ id: 't0_0_0', model, roads: moved }]); field.step(Infinity);
+    field.sync([{ id: 't0_0_0', model, lights: { ...FIXTURE, count: 3, posts: 1, data: FIXTURE.data } }]); field.step(Infinity);
     expect(calls).toEqual(['t0_0_0', 't0_0_0']);
+    field.sync([{ id: 't0_0_0', model: new THREE.Group(), lights: { ...FIXTURE, count: 3, posts: 1 } }]); field.step(Infinity);
+    expect(calls).toHaveLength(3);
     field.sync([]);
-    expect(calls).toEqual(['t0_0_0', 't0_0_0', 't0_0_0']); expect(field.size).toBe(0);
+    expect(calls).toHaveLength(4); expect(field.size).toBe(0);
+    expect(lightsSignature(FIXTURE)).toBe(lightsSignature(structuredClone(FIXTURE)));
   });
 
-  test('a lamp on a shared seam belongs to exactly one tile', () => {
+  test('a light on a shared seam belongs to exactly one tile', () => {
     expect(owns(tileBounds('t0_0_0')!, 250, 10)).toBe(false);
     expect(owns(tileBounds('t0_1_0')!, 250, 10)).toBe(true);
-    const { points, candidates } = lampProbes(lampStations(tileRoads('t0_0_0', [{ points: [[0, 0], [249.9, 0.1]], flags: street(1) }])));
-    expect(points.length).toBe(candidates.flat().length);
-    expect(placeLamps([], [], { probes: [], walls: [], tunnel: [{ x: 250, y: 0, z: 5 }], bridge: [] }, tileBounds('t0_0_0')!)).toEqual([]);
+    expect(tileBounds('t1_0_0')).toBeNull();
   });
 });
 

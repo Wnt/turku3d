@@ -72,7 +72,7 @@ DEPENDENCIES = {
     ),
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
-    "trees": ("../spatial.py",),
+    "trees": ("tree_inputs.py", "../spatial.py"),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
@@ -376,19 +376,29 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=())
     }
 
 
-def prepare_trees(tile: C.VisualTile, osm: Path) -> list:
-    """The OSM ``natural=tree`` points in the tile: (id, x, z, height, conifer)."""
+def prepare_trees(
+    tile: C.VisualTile, osm: Path, register: Path | None = None, streets: Path | None = None
+) -> list:
+    """Register trees (GIS:Puut), then the OSM ``natural=tree`` points not within TREE_DUPLICATE
+    of one, in the tile: (id, x, z, height, conifer)."""
     import json
+
+    from scipy.spatial import cKDTree
 
     from turku3d.spatial import rows
 
-    trees = []
+    from .tree_inputs import TREE_DUPLICATE, register_trees
+
+    trees = register_trees(tile, register, streets) if register else []
+    known = cKDTree(np.array([(x, z) for _, x, z, _, _ in trees])) if trees else None
     for k, row in rows(osm, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("natural") != "tree":
             continue
         point = row["geometry_local"]
         if point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+            continue
+        if known is not None and known.query_ball_point((point.x, point.y), TREE_DUPLICATE):
             continue
         try:
             height = float(str(tags.get("height", "10")).removesuffix(" m"))
@@ -483,13 +493,13 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "kerb_parking": [wfs[3][1], wfs[4][1], *permit_sources(tile, sources)]
         if all(found for found, _ in wfs[3:5])
         else None,
-        "trees": [osm] if osm else None,
+        "trees": [osm, wfs[WFS_LAYERS.index("GIS:Puut")][1], wfs[1][1]] if osm else None,
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
         "tunnels": [osm] if osm else None,
         "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,
-        "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm]
+        "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm, *(p for _, p in wfs[6:])]
         if all(found for found, _ in wfs)
         else None,
         "surfaces": [osm] if osm else None,
@@ -602,11 +612,13 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
         return read_paths(tile, paths[0])
     if dataset == "trees":
-        return prepare_trees(tile, paths[0])
+        return prepare_trees(tile, *paths)
     if dataset == "poles":
         from turku3d.props import read_sources
 
-        signs, stops, roads, streets, osm = paths
+        from .sources import FURNITURE_WFS_LAYERS
+
+        signs, stops, roads, streets, osm, *furniture = paths
         found, _ = read_sources(
             tile.bbox,
             source_paths={
@@ -614,10 +626,14 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
                 "kanta_Pysakki": stops,
                 "GIS_Keskilinjat": roads,
                 "GIS_Katualueet": streets,
+                **{
+                    name.replace(":", "_"): path
+                    for name, path in zip(FURNITURE_WFS_LAYERS, furniture, strict=True)
+                },
             },
             osm_path=osm,
         )
-        return [p for p in found if p.kind in ("sign", "bus_stop")]
+        return found
     bldg, streets, water, *roof_paths = paths
     return prepare_wfs(tile, bldg, streets, water, roof_paths)
 

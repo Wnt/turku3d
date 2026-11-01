@@ -64,8 +64,16 @@ On the four core tiles a tile builds in 30–60 s (t0_0_0, 330 props, about 60 s
   benches use seat/base and backrest boxes. Racks use individual upright cylinders
   and top bars, retaining gaps. Material IDs are 25/27/28 from the shared table.
 - Draft tiles call `read_sources(..., source_paths=..., osm_path=...)` with their cached
-  sign, stop and road inputs, then use `visual_bytes` so the same source IDs reach the
-  runtime pole extractor. See `pipeline/turku3d/coarse/README.md` for the rebuild command.
+  register, sign, stop and road inputs, then place the result with
+  `turku3d.coarse.furniture` (lamps become light-list posts drawn by the client) and use
+  `visual_bytes` so the same source IDs reach the runtime pole extractor. See
+  `pipeline/turku3d/coarse/README.md` for the rules and the rebuild command.
+- `GIS:Varusteet` rows map to bench, bin (grey/green/black from the model name), deep
+  waste container, ash tray, table, info board, info pylon, guide post, path sign
+  ("no winter maintenance"), lifebuoy, dog-bag dispenser, EV charger, planter, bollard and
+  bike rack. Wall-mounted ash trays, quay rescue ladders, toilets, shelters and play
+  equipment are skipped (`VARUSTEET`), as are unknown labels. Bike racks get one stand
+  per two registered places (2 to 8).
 - Exact duplicate type/code/position records are removed. A `kanta_Pysakki` symbol
   within 2 m of an E6 sign is omitted to avoid a duplicate stop pole.
 
@@ -79,7 +87,7 @@ licensing; the CC0 dedication applies to generated geometry and artwork.
 Placement: City of Turku cached WFS `GIS_Varusteet`, `GIS_Liikennemerkit`,
 `GIS_Follariasemat`, `GIS_Polkupyoraparkki`, `GIS_Pysakointiautomaatit`,
 `kanta_Pysakki`, plus `GIS_Keskilinjat` for orientation; OSM contributors for
-`highway=street_lamp` and `barrier=bollard` (ODbL; https://www.openstreetmap.org/copyright).
+`highway=street_lamp`, `amenity=bench`/`waste_basket`/`bicycle_parking` and `vending=parking_tickets` (ODbL; https://www.openstreetmap.org/copyright). Street lights: `frn:CityFurniture_LOD2`.
 Keep the project's original city data provenance/attribution with distributed outputs.
 `kanta_Sahkoverkonosa` is optional and currently unavailable (HTTP 401 in the source
 inventory); no credentials or guessed pole positions are used. Unclassified electrical

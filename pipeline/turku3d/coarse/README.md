@@ -23,7 +23,24 @@ bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_coarse.py pipel
   tile edges. OSM comes from work-3x3 when it holds the tile, else `tile-<id>`, the older per-tile clip
   `coarse-<tile>`, or the `osm` prefetch unit of the tile's block (below).
 
-- **Signs and bus stops**: the cached WFS sign, stop and centreline sources (plus OSM signs when available) feed the shared props reader. Each pole has the same stable `pole_id` as a published tile, and its base sits on the draft ground grid. They have runtime breakable colliders rather than baked primitives. Rebuild a draft after this producer changes with `bash pipeline/env/run.sh python -m turku3d.coarse build t0_2_0 --out "$TURKU3D_WORK/build/coarse/t0_2_0"`.
+- **Signs and bus stops**: the cached WFS sign, stop and centreline sources (plus OSM signs when available) feed the shared props reader. Each pole has the same stable `pole_id` as a published tile, and its base sits on the draft ground grid (`pole_base` in its extras, so the client reads no geometry). They have runtime breakable colliders rather than baked primitives. Rebuild a draft after this producer changes with `bash pipeline/env/run.sh python -m turku3d.coarse build t0_2_0 --out "$TURKU3D_WORK/build/coarse/t0_2_0"`.
+- **Street furniture and lights** (`furniture.py`, G1): the block's wfs unit also holds `GIS:Varusteet`,
+  `frn:CityFurniture_LOD2` (street-light poles), `GIS:Polkupyoraparkki`, `GIS:Pysakointiautomaatit`,
+  `GIS:Follariasemat` and `GIS:Puut`. The props reader takes register items first (keyed on the fetch
+  `feature_key`; the two street-light registers collapse within 1.5 m), OSM benches, bins, bike parking,
+  parking meters and lamps only where the register has no item of the kind within 3 m, and the 30 m
+  `lit=yes` lamp rule only at stations with no lamp within 20 m. Bollards stay in the barrier layer.
+  Nothing but signs stands on a carriageway: a register point up to 2 m inside one moves just past its
+  kerb, a deeper lamp hangs over the street. The stage then moves furniture just inside a building
+  footprint (lamp poles 1.5 m) outside it (deeper: dropped), moves quay-edge
+  items up to 1.5 m inside a water polygon onto the land (deeper: dropped), drops anything on a
+  bridge/tunnel deck and sign posts whose code has no face, and sets every base on the draft ground grid. Lamps become the
+  manifest's `lights` list (16 B records: post base and head, hung lights, facade lights found along
+  every car street; `turku3d/props/lights.py`); the client draws their posts and coronas. Benches,
+  tables, waste containers, planters, register bollards and lamp posts get static collision primitives
+  in the tile's cells. Register trees (`GIS:Puut`, height from the planting year) join the `trees` input;
+  OSM trees within 3 m of one are dropped. The manifest's `furniture` field counts placements, moves and
+  drops by reason. `scripts/dev/g1_tile_check.py` compares a built tile with its sources.
 - **Ground**: a 128 × 128 cell terrain grid (~2 m) interpolated from ground key points.
   City surface polygons override OSM ground-level road/path corridors and mapped land cover;
   their explicit asphalt, concrete, stone and gravel paving overrides the road-use label,

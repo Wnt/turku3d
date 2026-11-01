@@ -54,6 +54,7 @@ wfs:
     - {name: "bldg:Building_LOD3", version: "1.1.0", role: "CityGML LoD3 (finer roofs, no facade detail)"}
     - {name: "tran:Road_LOD3", version: "1.1.0", role: "draped road TIN with katuosalaji (semantics only, too coarse for curbs)"}
     - {name: "veg:PlantCover_LOD2", version: "1.1.0", role: "park TIN areas"}
+    - {name: "frn:CityFurniture_LOD2", version: "1.1.0", role: "street-light poles: N2000 base points; Tasonimi rr:js / Kiilai:uv-pylväs (both registers, ~1 m apart)"}
 wms:
   url: "https://turku.asiointi.fi/TeklaOGCWeb/WMS.ashx"
   max_px: 4096
