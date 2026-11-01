@@ -27,6 +27,8 @@ export class DayClock {
   }
 
   synchronize(serverTime: number) { if (Number.isFinite(serverTime)) this.serverOffset = serverTime - Date.now(); }
+  /** UTC milliseconds on the shared (server-synchronised) clock, also while a QA or developer time is pinned. */
+  sharedNow() { return Date.now() + this.serverOffset; }
 
   set(date: Date) { this.fixed = date; this.time = date; this.env.sky.showSunDisc.value = 1; this.env.setTime(date); this.env.updateIBL(); }
   /** Old saves never override a wall-clock cycle or an explicit ?time= QA pose. */

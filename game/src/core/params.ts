@@ -23,6 +23,8 @@ interface Params {
   quality: QualityTier;
   aa: Antialiasing;
   mobile: boolean;
+  /** `?walkers=N`: ambient walker cap override (0 disables them); null keeps the quality tier's cap. */
+  walkers: number | null;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -53,6 +55,8 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const quality = parseQuality(p.get('quality'), mobile ? 'mobile' : 'medium');
   const aa = p.get('aa') ?? (quality === 'mobile' ? 'fxaa' : 'taa');
   if (aa !== 'off' && aa !== 'taa' && aa !== 'fxaa') throw new Error(`bad ?aa= (off|taa|fxaa): ${aa}`);
+  const walkers = p.has('walkers') ? Number(p.get('walkers')) : null;
+  if (walkers !== null && !(Number.isInteger(walkers) && walkers >= 0 && walkers <= 200)) throw new Error(`bad ?walkers= (0..200): ${p.get('walkers')}`);
   return {
     backend,
     backendGiven: p.has('backend') || p.has('webgl'),
@@ -68,5 +72,6 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     quality,
     aa,
     mobile,
+    walkers,
   };
 }
