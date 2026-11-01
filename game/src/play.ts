@@ -66,6 +66,7 @@ import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
 import { FramePacer } from './render/framePacer';
 import { Walkers, walkerCap } from './world/walkers';
+import { CROWD_RADIUS } from './audio/mix';
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
@@ -299,6 +300,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   startScreen.ready(!!multiplayerAt);
   world.loadingScreen.ready(!!multiplayerAt);
   let lastDeadlineUpdate = -Infinity;
+  let lastCrowd = -1;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
   const framePacer = new FramePacer(params.mobile ? 30 : 0);
@@ -541,6 +543,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
     walkers.update(dt, camera, now);
+    const crowd = walkers.nearby(CROWD_RADIUS);
+    if (crowd !== lastCrowd) { lastCrowd = crowd; audio.emit({ type: 'crowd', walkers: crowd }); }
     positionHud.update(now, !startScreen.active);
     devLayers.update();
     renderFrame();

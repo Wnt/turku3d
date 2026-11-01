@@ -46,7 +46,20 @@ interface Leg {
   /** Lateral offset tapers to zero at a decision node at the leg's start/end. */
   taper0: boolean; taper1: boolean;
 }
-interface Route { legs: Leg[]; known: number; speed: number; life: number; offset: number }
+interface Route { legs: Leg[]; known: number; speed: number; life: number; offset: number; box: [number, number, number, number] }
+
+/** Activity at the start of each birth minute (the model samples it per minute; Date math per slot is slow). */
+const minutes = new Map<number, number>();
+function birthActivity(bornSeconds: number): number {
+  const minute = Math.floor(bornSeconds / 60);
+  let value = minutes.get(minute);
+  if (value === undefined) {
+    if (minutes.size > 4096) minutes.clear();
+    value = activity(CYCLE_EPOCH + minute * 60_000);
+    minutes.set(minute, value);
+  }
+  return value;
+}
 
 export interface Walker {
   /** Identity of this life (slot and cycle); the next life of the slot is another walker. */
@@ -90,15 +103,15 @@ export class Population {
         if (!cell) continue;
         const dx = Math.max(cx * CELL_M - x, 0, x - (cx + 1) * CELL_M), dz = Math.max(cz * CELL_M - z, 0, z - (cz + 1) * CELL_M);
         if (dx * dx + dz * dz > reach * reach) continue;
-        this.cell(cell, t, w => { if ((w.x - x) ** 2 + (w.z - z) ** 2 <= radius * radius) out.push(w); });
+        this.cell(cell, t, w => { if ((w.x - x) ** 2 + (w.z - z) ** 2 <= radius * radius) out.push(w); }, { x, z, radius });
       }
     }
     if (this.routes.size > 4096) for (const [id, r] of this.routes) if (this.generation - r.used > 8) this.routes.delete(id);
     return out;
   }
 
-  /** The walkers alive in one cell at t (seconds since CYCLE_EPOCH). */
-  cell(cell: Cell, t: number, visit: (walker: Walker) => void) {
+  /** The walkers alive in one cell at t (seconds since CYCLE_EPOCH); `near` skips routes that never come close. */
+  cell(cell: Cell, t: number, visit: (walker: Walker) => void, near?: { x: number; z: number; radius: number }) {
     const expected = WALKER.density * cell.weighted;
     for (let k = 0; k < Math.ceil(expected); k++) {
       const slot = hash32(cell.cx, cell.cz, k);
@@ -107,8 +120,8 @@ export class Population {
       const cycle = Math.floor((t - phase) / life);
       const born = cycle * life + phase;
       const id = hash32(slot, cycle);
-      if (k + unit(hash32(id, 3)) >= expected * activity(CYCLE_EPOCH + born * 1000)) continue;
-      const walker = this.walker(cell, slot, id, life, born, t);
+      if (k + unit(hash32(id, 3)) >= expected * birthActivity(born)) continue;
+      const walker = this.walker(cell, slot, id, life, born, t, near);
       if (walker) visit(walker);
     }
   }
@@ -118,7 +131,8 @@ export class Population {
     return this.walker(walker.cell, walker.slot, walker.id, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000);
   }
 
-  private walker(cell: Cell, slot: number, id: number, life: number, born: number, t: number): Walker | null {
+  private walker(cell: Cell, slot: number, id: number, life: number, born: number, t: number,
+    near?: { x: number; z: number; radius: number }): Walker | null {
     const age = t - born;
     if (age < 0 || age >= life) return null;
     let entry = this.routes.get(id);
@@ -126,6 +140,11 @@ export class Population {
     entry.used = this.generation;
     const route = entry.route;
     if (age > route.known || !route.legs.length) return null;
+    if (near) {
+      const [x0, z0, x1, z1] = route.box;
+      const dx = Math.max(x0 - near.x, 0, near.x - x1), dz = Math.max(z0 - near.z, 0, near.z - z1);
+      if (dx * dx + dz * dz > near.radius * near.radius) return null;
+    }
     let lo = 0, hi = route.legs.length - 1;
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (route.legs[mid].t0 <= age) lo = mid; else hi = mid - 1; }
     const leg = route.legs[lo], chain = this.network.chains[leg.chain];
@@ -172,7 +191,7 @@ export class Population {
       legs.push({ chain: c, dir, s0: s, t0: t, t1: t + length / speed, d0: d, idle: false, taper0, taper1: decision });
       t += length / speed; d += length;
       if (t >= life) break;
-      if (!node.complete) return { legs, known: t, speed, life, offset };
+      if (!node.complete) return { legs, known: t, speed, life, offset, box: this.box(legs, speed) };
       const arriving = node.exits.findIndex(e => e.chain === c && e.atStart === (dir < 0));
       let exit = node.exits[arriving];
       if (node.exits.length === 2) exit = node.exits[1 - arriving];
@@ -187,7 +206,22 @@ export class Population {
       }
       c = exit.chain; dir = exit.atStart ? 1 : -1; s = exit.atStart ? 0 : chains[c].length; taper0 = decision;
     }
-    return { legs, known: life, speed, life, offset };
+    return { legs, known: life, speed, life, offset, box: this.box(legs, speed) };
+  }
+
+  /** Bounds of the walked arcs, padded by the keep-right offset. */
+  private box(legs: Leg[], speed: number): [number, number, number, number] {
+    const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const leg of legs) {
+      const chain = this.network.chains[leg.chain], c = chain.cumulative, p = chain.points;
+      const s1 = leg.s0 + leg.dir * (leg.idle ? 0 : (leg.t1 - leg.t0) * speed);
+      const lo = Math.min(leg.s0, s1), hi = Math.max(leg.s0, s1);
+      const add = (x: number, z: number) => { box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], z); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], z); };
+      for (const s of [lo, hi]) { pointAt(chain, s, tmp); add(tmp.x, tmp.z); }
+      for (let i = 0; i < c.length; i++) if (c[i] > lo && c[i] < hi) add(p[2 * i], p[2 * i + 1]);
+    }
+    const pad = WALKER.keepRight[1];
+    return [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad];
   }
 }
 
