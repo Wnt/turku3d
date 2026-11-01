@@ -45,7 +45,7 @@ export interface TrafficClaimEvent { revision: number; handle?: number; id: stri
   size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
 /** Camera for the population ring: position, unit horizontal forward and horizontal half field of view. */
 export interface TrafficView { x: number; z: number; fx: number; fz: number; halfFov: number }
-export interface TrafficStats { active: number; bodies: number; lanes: number; tiles: number; stepMs: number; claims: number }
+export interface TrafficStats { active: number; bodies: number; lanes: number; tiles: number; stepMs: number; stepMax: number; activationMs: number; claims: number }
 
 /** Jump is an edge counter, so a pulse survives several render frames between worker reads. */
 export interface LiveInput { character: CharacterInput; vehicle: VehicleInput | null; running: boolean; jump: number; at: number; acknowledged: number; view?: TrafficView }

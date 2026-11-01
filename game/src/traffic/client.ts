@@ -65,6 +65,14 @@ export class TrafficClient {
 
   /** Per frame, after the physics state was read and before the parked visuals update. */
   update(now: number, camera: THREE.PerspectiveCamera, state: PhysicsState | null) {
+    const t0 = performance.now();
+    this.updateNow(now, camera, state);
+    this.mainMs += (performance.now() - t0 - this.mainMs) * 0.05;
+  }
+  /** Main-thread cost of update() (ms, EMA); the matrix copy happens in the parked visuals' update. */
+  mainMs = 0;
+
+  private updateNow(now: number, camera: THREE.PerspectiveCamera, state: PhysicsState | null) {
     if (now >= this.nextSync) { this.nextSync = now + SYNC_MS; this.syncTiles(); this.syncConfig(); }
     const forward = camera.getWorldDirection(scratch);
     const length = Math.hypot(forward.x, forward.z) || 1;
@@ -99,7 +107,7 @@ export class TrafficClient {
 
   /** Scorecard / QA view: drawn moving cars (engine x, z), cap and worker stats. */
   snapshot() {
-    return { cap: this.cap, drawn: this.drawn.length, tiles: this.local.size, enabled: this.sent.enabled ? this.sent.enabled.split(',').filter(Boolean).length : null,
+    return { cap: this.cap, drawn: this.drawn.length, mainMs: this.mainMs, tiles: this.local.size, enabled: this.sent.enabled ? this.sent.enabled.split(',').filter(Boolean).length : null,
       claims: this.claims.size, moving_cars: this.drawn.map(c => [Math.round(c.x * 10) / 10, Math.round(c.z * 10) / 10]), stats: this.stats };
   }
 

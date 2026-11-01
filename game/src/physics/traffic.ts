@@ -76,7 +76,10 @@ export class TrafficSim {
   private events: TrafficClaimEvent[] = [];
   /** Traffic time of the latest step (s since TRAFFIC.epochMs). */
   time = 0;
-  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, claims: 0 };
+  /** `stepMs`: mean traffic cost per physics substep (ring, poses, bodies, contacts; ms, EMA), `stepMax` its
+   *  recent peak (decaying), `activationMs` the last ring pass. */
+  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0 };
+  private substepMs = 0;
 
   constructor(private readonly R: R, private readonly world: RAPIER_NS.World, private readonly host: TrafficHost) {}
 
@@ -130,8 +133,12 @@ export class TrafficSim {
   beforeStep(t: number) {
     const t0 = performance.now();
     this.time = t;
-    if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.stats.stepMs = 0; return; }
-    if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) { this.activate(t); this.lastActivation = t; }
+    if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; return; }
+    if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) {
+      const a0 = performance.now();
+      this.activate(t); this.lastActivation = t;
+      this.stats.activationMs = performance.now() - a0;
+    }
     for (let i = 0; i < SAMPLE_LANES_PER_STEP && this.sampleQueue.length; i++) this.sample(this.sampleQueue.shift()!);
     const player = this.host.player();
     let bodies = 0;
@@ -159,7 +166,7 @@ export class TrafficSim {
       }
     }
     this.stats.active = this.active.size; this.stats.bodies = bodies;
-    this.stats.stepMs = performance.now() - t0;
+    this.substepMs = performance.now() - t0;
   }
 
   /** Rapier contact filter for traffic colliders: they push the player's car and pile up behind a claimed
@@ -177,6 +184,7 @@ export class TrafficSim {
   /** After the solver step: contact with the player's car claims a car; so does a pedestrian in its braking
    *  path, or a car this client claimed ahead of it, within the automatic-claim budget. */
   afterStep(events: RAPIER_NS.EventQueue) {
+    const t0 = performance.now();
     const hits = new Set<ActiveCar>();
     events.drainCollisionEvents((a, b, started) => {
       if (!started) return;
@@ -194,6 +202,9 @@ export class TrafficSim {
       else if (contact.overlap) this.host.pushCharacter(contact.pushX, contact.pushZ);
     }
     for (const car of hits) this.claim(car.handle);
+    const ms = this.substepMs + performance.now() - t0;
+    this.stats.stepMs += (ms - this.stats.stepMs) * 0.05;
+    this.stats.stepMax = Math.max(ms, this.stats.stepMax * 0.995);
   }
 
   /** Converts an active car into a dynamic vehicle (contact, or the player entering it). Returns its id. */
