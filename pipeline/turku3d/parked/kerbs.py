@@ -287,6 +287,8 @@ def carriageway(city):
 def not_kerb_areas(city, features):
     """Areas beyond an outline that make it a lane edge rather than a kerb: other traffic areas,
     cycle lanes and waiting areas, and separately mapped parking (which brings its own bays)."""
+    from .placement import Masks
+
     parts = [
         f.geometry.buffer(0.1)
         for f in city
@@ -298,7 +300,7 @@ def not_kerb_areas(city, features):
         for f in features
         if f.tags.get("amenity") == "parking" and f.geometry.geom_type in ("Polygon", "MultiPolygon")
     ]
-    return shapely.union_all(parts) if parts else shapely.Polygon()
+    return Masks(parts)
 
 
 def find_kerbs(streets, carriage, beyond, window):
@@ -323,8 +325,6 @@ def find_kerbs(streets, carriage, beyond, window):
     seg_i, street_i = seg_i[first], street_i[first]
     if not len(seg_i):
         return
-    if not beyond.is_empty:
-        shapely.prepare(beyond)
     groups = defaultdict(list)
     for s, k in zip(seg_i.tolist(), street_i.tolist(), strict=True):
         street = streets[k]
@@ -345,9 +345,7 @@ def find_kerbs(streets, carriage, beyond, window):
         if abs(sx * dz - sz * dx) / seg_len > math.sin(MAX_ANGLE):
             continue
         # The far side of a kerb is pavement or verge, not more traffic area.
-        if not beyond.is_empty and beyond.contains(
-            shapely.Point(mx + side * nx * 0.6, mz + side * nz * 0.6)
-        ):
+        if beyond.contains_point(mx + side * nx * 0.6, mz + side * nz * 0.6):
             continue
         la = abs((a[0] - px) * nx + (a[1] - pz) * nz)
         lb = abs((b[0] - px) * nx + (b[1] - pz) * nz)
@@ -414,7 +412,7 @@ def junctions(streets):
 
 
 def kerb_masks(streets, posts, stops, features, city):
-    """Statutory no-parking geometry for kerb bays."""
+    """Statutory no-parking geometry for kerb bays, as a list of parts."""
     nodes, mouths = junctions(streets)
     masks = []
     for (x, z), members in nodes:
@@ -444,7 +442,7 @@ def kerb_masks(streets, posts, stops, features, city):
         for f in city
         if f.tags.get("Katuosalaji_koodi") == "7" and f.geometry.geom_type in ("Polygon", "MultiPolygon")
     ]
-    return shapely.union_all(masks) if masks else shapely.Polygon()
+    return masks
 
 
 def locate(streets, tree, x, z, reach):
@@ -681,8 +679,10 @@ def bays(streets, carriage, blocked):
 def plan(features, city, posts, stops, permits, obstacles, window):
     """Kerb bays of the street sides near ``window`` and the statutory gaps between them.
 
-    ``obstacles`` (prepared) are every static exclusion except street corridors; bays slide past them
-    and past the statutory gaps, which are returned for the final per-car check."""
+    ``obstacles`` are the parts of every static exclusion except street corridors; bays slide past
+    them and past the statutory gaps, whose parts are returned for the final per-car check."""
+    from .placement import Masks
+
     streets = car_streets(features)
     carriage = carriageway(city)
     find_kerbs(streets, carriage, not_kerb_areas(city, features), window)
@@ -693,6 +693,4 @@ def plan(features, city, posts, stops, permits, obstacles, window):
         carriage = shapely.union_all([s.line.buffer(s.half_width() + 0.5) for s in streets])
     cover = carriage.buffer(0.3)
     shapely.prepare(cover)
-    blocked = shapely.union_all([gaps, obstacles])
-    shapely.prepare(blocked)
-    return bays(streets, cover, blocked), gaps
+    return bays(streets, cover, Masks([*gaps, *obstacles])), gaps

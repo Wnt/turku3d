@@ -25,6 +25,7 @@ from turku3d.parked import kerbs
 from turku3d.parked.models import COLORS, MIX, MODELS, model, palette
 from turku3d.parked.placement import (
     Feature,
+    Masks,
     candidates,
     aisle_candidates,
     capacity_of,
@@ -194,7 +195,7 @@ def place(
         common.append(deck.line.buffer(float(deck.way.get("width", 8)) / 2 + 3))
     roads, ends = road_masks(features, service_ends=False)
     # A lot car must be able to drive out over streets and paths, past no wall, tree or pole.
-    hard = shapely.union_all(
+    hard = Masks(
         common
         + [
             f.geometry.buffer(0.5)
@@ -202,20 +203,14 @@ def place(
             if f.tags.get("building") and f.geometry.geom_type in ("Polygon", "MultiPolygon")
         ]
     )
-    shapely.prepare(hard)
-    lot_excluded = shapely.union_all(
+    lot_excluded = Masks(
         static_masks(features, spawn, city) + [r for r, _ in roads] + ends + common
     )
     # Kerb bays stand in the street itself: only paths' own width, doors and driveway mouths.
-    kerb_static = shapely.union_all(
-        static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0) + common
-    )
-    shapely.prepare(kerb_static)
+    kerb_static = static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0) + common
     window = shapely.box(*tile.bbox.buffered(15).as_tuple())
     bays, gaps = kerbs.plan(features, city, posts, stops, permits, kerb_static, window)
-    kerb_excluded = shapely.union_all([kerb_static, gaps])
-    for geom in (lot_excluded, kerb_excluded):
-        shapely.prepare(geom)
+    kerb_excluded = Masks(kerb_static + gaps)
     corridors = [r for r, _ in roads]
     corridor_street = [f.tags.get("name") or f.id for _, f in roads]
     corridor_tree = shapely.STRtree(corridors)
@@ -440,16 +435,30 @@ def stage(cache, tile, inputs, grid_pos, trees, poles, decks, carried=None):
             decks,
             carried,
         ],
-        lambda: place(
+        lambda: logged(
             tile,
-            inputs.parking,
-            grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1),
-            inputs.water,
-            inputs.barriers,
-            trees,
-            poles,
-            decks,
-            carried=carried,
-            kerb=inputs.kerb_parking,
+            lambda stats: place(
+                tile,
+                inputs.parking,
+                grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1),
+                inputs.water,
+                inputs.barriers,
+                trees,
+                poles,
+                decks,
+                carried=carried,
+                stats=stats,
+                kerb=inputs.kerb_parking,
+            ),
         ),
     )
+
+
+def logged(tile, run):
+    """Run a placement and log its outcome counts (the worker log keeps them for audits)."""
+    import sys
+
+    stats = {}
+    cars = run(stats)
+    print(f"parked {tile.id}: {json.dumps(stats, sort_keys=True)}", file=sys.stderr)
+    return cars

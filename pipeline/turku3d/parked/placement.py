@@ -19,6 +19,22 @@ class Feature:
     tags: dict
 
 
+class Masks:
+    """Exclusion geometry kept as an STRtree of its parts: intersection tests without a union."""
+
+    def __init__(self, parts):
+        import shapely
+
+        self.parts = [p for p in parts if p is not None and not p.is_empty]
+        self.tree = shapely.STRtree(self.parts)
+
+    def intersects(self, shape):
+        return len(self.tree.query(shape, predicate="intersects")) > 0
+
+    def contains_point(self, x, z):
+        return len(self.tree.query(Point(x, z), predicate="within")) > 0
+
+
 def random_for(seed, key):
     digest = hashlib.sha256(f"{seed}:{key}".encode()).digest()
     return np.random.default_rng(int.from_bytes(digest[:8], "little"))
