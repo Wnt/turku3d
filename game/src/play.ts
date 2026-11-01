@@ -65,6 +65,7 @@ import { vehicleIdentity } from './net/identity';
 import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
 import { FramePacer } from './render/framePacer';
+import { QUALITY } from './render/quality';
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
@@ -115,7 +116,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const car = new CarVisual(root);
   const seated = new SeatedVehicles(root, physics, groundAt);
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
-  const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated);
+  const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
@@ -457,7 +458,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         vel.set(st.character.vel.x, st.character.vel.y, st.character.vel.z);
         grounded = st.character.grounded; groundMat = st.character.groundMaterial;
       }
-      parkedVisuals.update(st.vehicles);
+      parkedVisuals.update(st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
         if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {
