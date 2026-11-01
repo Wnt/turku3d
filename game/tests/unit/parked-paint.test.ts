@@ -133,7 +133,7 @@ test.each([false, true])('instance counts, paints and body models never add a pr
     const builder = backend.createNodeBuilder(object, renderer);
     renderer.debug.onNodeBuilderCreated!(builder, { object } as never);
     builder.scene = new THREE.Scene(); builder.camera = new THREE.PerspectiveCamera(); builder.build();
-    const generated = (builder as unknown as { bufferAttributes: { node: { value: unknown } }[] }).bufferAttributes.map(a => a.node.value);
+    const generated = (builder as unknown as { bufferAttributes: { node: { attribute: unknown } }[] }).bufferAttributes.map(a => a.node.attribute);
     return { vertexShader: builder.vertexShader, fragmentShader: builder.fragmentShader, generated };
   };
   const { load, manifest } = garage();
@@ -159,8 +159,9 @@ test.each([false, true])('instance counts, paints and body models never add a pr
     expect(variants(single)).toBe(1);
     expect(variants(former.map(program))).toBe(1);
     expect(batched[0].fragmentShader).toContain('sRGBTransferEOTF');
-    // Each batch binds its own paint buffer as a generated attribute (owned and released with the
-    // draw, like its instance matrices); standalone cars read an object uniform instead.
+    // Each batch binds its own paint attribute itself (instance step, re-uploaded on needsUpdate) as a
+    // generated attribute, owned and released with the draw like its instance matrices; standalone
+    // cars read an object uniform instead.
     [...few.meshes, ...many.meshes].forEach((mesh, i) => expect(batched[i].generated).toContain(instancePaintOf(mesh)));
     expect(single.every(state => state.generated.length === 0)).toBe(true);
     expect(batched[0].vertexShader).not.toMatch(/array<mat4x4<f32>,\s*\d+>/);

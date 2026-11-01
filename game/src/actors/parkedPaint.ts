@@ -33,7 +33,8 @@ export function paintOf(color: string): readonly [number, number, number] {
 }
 
 // A batch's per-instance paints are a node attribute of that draw, like its instance matrices:
-// the renderer owns the buffer and releases it with the InstancedMesh. A driven or remote car
+// r186 binds the InstancedBufferAttribute itself (instance step, re-uploaded on needsUpdate), and
+// the renderer releases it with the InstancedMesh. A driven or remote car
 // carries its paint as an object uniform, so it needs no buffer or geometry of its own.
 const instancePaints = new WeakMap<THREE.Object3D, THREE.InstancedBufferAttribute>();
 const actorPaints = new WeakMap<THREE.Object3D, THREE.Vector3>();
@@ -60,7 +61,7 @@ export function actorPaintOf(mesh: THREE.Object3D) { return actorPaints.get(mesh
 // its object uniform. Neither the count nor the paints enter the shader text.
 const paintNode = Fn((builder: NodeBuilder) => {
   const instances = instancePaints.get(builder.object);
-  if (instances) return instancedBufferAttribute(instances, 'vec3', 3, 0);
+  if (instances) return instancedBufferAttribute(instances, 'vec3');
   if (!actorPaints.has(builder.object)) throw new Error(`parked paint missing for ${builder.object.name}`);
   return uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => actorPaints.get(object!));
 }) as unknown as () => Node<'vec3'>;
