@@ -36,6 +36,7 @@ class GlbMesh:
     repeat: bool = False  # Texture wraps (REPEAT) instead of clamping to its edge
     extras: dict = field(default_factory=dict)
     emissive: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    colors: np.ndarray | None = None  # (N,3) linear RGB multiplying ``color`` (COLOR_0)
 
 
 def vertex_normals(pos: np.ndarray, idx: np.ndarray) -> np.ndarray:
@@ -122,6 +123,13 @@ def build_glb(
             "metallicFactor": 0.0,
             "roughnessFactor": m.roughness,
         }
+        if m.colors is not None:
+            attrs["COLOR_0"] = accessor(
+                np.ascontiguousarray(np.asarray(m.colors).reshape(-1, 3), np.float32),
+                FLOAT,
+                "VEC3",
+                ARRAY_BUFFER,
+            )
         if m.uvs is not None:
             attrs["TEXCOORD_0"] = accessor(
                 np.ascontiguousarray(m.uvs, np.float32), FLOAT, "VEC2", ARRAY_BUFFER

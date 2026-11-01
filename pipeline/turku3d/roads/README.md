@@ -51,8 +51,22 @@ An edge row holds its end node indices, flag bits, polyline length and interior 
 `access=no|private`, `area=yes` and indoor ways (corridors) are excluded; `foot=no` and
 `motor_vehicle`/`motorcar`/`vehicle=no` clear the mode; `junction=roundabout` implies oneway.
 
-Draft tiles (`turku3d.coarse`) reuse `osm_ways` and `build_graph(..., connected=False)` to emit one graph per
-250 m tile that keeps every piece; the game merges them with the published graph.
+Draft tiles (`turku3d.coarse`) emit one **roads.json v2** per 250 m tile (`tile_graph.py`, spec
+[`docs/specs/roads-json-v2.md`](../../../docs/specs/roads-json-v2.md)) that keeps every piece; the game merges
+them with the published graph. v2 keeps every v1 field and adds, per edge, a stable seam-independent id
+(sha256 of the OSM way id and the quantised ends and midpoint of the junction-to-junction edge, which
+stays whole across a seam when every tile it touches sees it inside a 90 m context box), its span on that
+logical edge, lanes each way, carriageway width, speed limit, car and walker density (0–15), surface,
+bridge/tunnel and junction flags, junction setbacks, signal/crossing/give-way/stop events with signal
+controllers, and one Y per vertex (`coarse.build`: bridge deck, tunnel floor, else walkable ground,
+sampled every 8 m). `attributes.py` holds the tag rules, `paint.py` the rule road paint built from the graph
+(centre lines yellow, lane and edge lines, zebras at OSM crossing points, stop lines at signal stop
+positions). The published playable-tiles graph above is still v1.
+
+```sh
+bash pipeline/env/run.sh python -m pytest -q pipeline/tests/test_roads_v2.py
+bash pipeline/env/run.sh python pipeline/tests/test_roads_v2.py   # rewrites the client fixture
+```
 
 ## Publication
 

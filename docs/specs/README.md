@@ -6,5 +6,6 @@ Binding formats shared between the pipeline (Python), the game (TypeScript) and 
 - [materials.md](materials.md): uint8 surface material table v1 (append-only)
 - [facades.md](facades.md): buildings → facade texturing metadata, ordering and metre UVs
 - [tiles.md](tiles.md): tile ids and grids, `dist/` layout, `tileset.json`, `manifest.json`
+- [roads-json-v2.md](roads-json-v2.md): per-tile `roads.json` street graph v2 (stable edge ids, lanes, heights, junctions, signals, crossings)
 
 Change a spec first, then its implementations. Numbers (origin, sizes) come from `pipeline/turku3d/config.py`; tests check that config and specs agree where they overlap.
