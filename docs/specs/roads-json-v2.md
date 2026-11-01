@@ -58,7 +58,8 @@ is identical whichever tile produced the row and whatever order a client loads t
 - A logical edge is the stretch of one OSM way between two graph nodes (way ends, or vertices shared
   with another routable way), before any tile clipping.
 - `id = sha256("o" + way_id + "|" + qa + "|" + qb + "|" + qm)[:16]`, where `qa`, `qb`, `qm` are
-  `"<round(x/0.5)>,<round(z/0.5)>"` of the logical edge's start, end and arc-length midpoint.
+  `"<q(x)>,<q(z)>"` of the logical edge's start, end and arc-length midpoint, `q(v) = floor(v/0.5 + 0.5)`,
+  computed on the 0.1 m-rounded vertices.
   (`o` = OSM; a future city-centreline source uses `k` + Keskilinjat `LineId`.)
 - **Seam rule.** Every tile reads OSM at least 100 m around itself. A logical edge stays *whole*
   across tile seams only when it lies inside the 90 m-buffered box of every tile it touches; then
@@ -138,6 +139,7 @@ directions is at `o_div = -width/2 + B * w`.
 | 4096 | `PSV_ONLY` | bus/taxi only (`busway`, `access=no` + `psv|bus=yes`); no ambient cars |
 | 8192 | `NO_MARKINGS` | OSM `lane_markings=no`: the generator paints no centre or lane lines |
 | 16384 | `SINGLE_TRACK` | two-way road with `lanes=1` |
+| 32768 | `SMOOTH` | asphalt-like surface (`asphalt`, `concrete*`, `paved`, `chipseal`, or untagged car road) that takes line paint |
 
 ### 3.6 `nodeFlags`
 
@@ -160,7 +162,8 @@ value, as above and in 3.7) and `"highways"` (the list the `highway` column inde
 
 `edgeEvents[i]` is `null` or a flat list of triples `[s, code, ref, s, code, ref, ...]`, sorted by `s`:
 
-- `s`: arc length (m) from this row's node a, `0 <= s <= length of the row`.
+- `s`: arc length (m) from this row's node a, `0 <= s <= length of the row`. An event exactly on a
+  seam point appears in both rows; a merge keeps it once.
 - `code = kind | direction | detail`:
   - kind (low 4 bits): `1` SIGNAL (stop position of a traffic signal), `2` CROSSING (pedestrian or
     cycle crossing point on the carriageway), `3` GIVE_WAY, `4` STOP;
@@ -194,7 +197,8 @@ client. Readers remap `ref` through `id` when merging tiles.
   a v2 copy wins over a v1 copy.
 - Rows with the same `id` and touching spans (`|s1 - s0'| < 0.2 m`) that meet at a shared node are
   re-joined into one edge (span union, heights and events concatenated).
-- v1 rows get a fallback id `"v1:" + sha256(qa|qb|qm)[:13]`, lanes 1+1 (oneway: 1), width by class,
+- v1 rows get a fallback id `"v1:"` + 14 hex digits of a cyrb53 hash of the quantised start, end and
+  midpoint (client-only, never compared with generator ids), lanes 1+1 (oneway: 1), width by class,
   no events.
 
 `RoadEdge` exposes `id`, `span` (`[s0, s1, length]`), `lanes` (`{fwd, bwd, width}`), `kmh`,
