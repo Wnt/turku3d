@@ -6,14 +6,22 @@ The constructor accepts the Rapier namespace: the browser uses `@dimforge/rapier
 
 The physics worker now keeps vehicles by ID. The spawn car and every parked car use the same
 `Vehicle` controller and enter/drive/exit path. Parked cars start asleep, wake on contact or
-entry, and skip wheel updates while asleep. Parked glTF model/paint variants are rendered as
-instances until takeover. Entering one removes its static instance and adds a shadow-casting
-mesh directly to the actor scene. That mesh follows the rigid body after exit; remaining
-parked instances refresh their culling bounds as physics moves them. `F` or Xbox `Y` enters
-the closest car within 4 m.
+entry, and skip wheel updates while asleep. Only the nearest `QUALITY[tier].parkedBodies`
+draft cars within 120 m (mobile 24, low 40, medium 60, high 80) have bodies
+(`world/parkedVehicles.ts`); a closer car takes a body only when it is 15% and 4 m nearer,
+rolling cars keep theirs, and bodies leave beyond 170 m. Cars without a body are drawn at
+their last physical pose or draft slot; claimed multiplayer slots are left to the shared renderer.
+Each recolourable Kenney body model is one InstancedMesh: a per-instance paint redraws only the
+generator's baked paint swatch (`actors/parkedPaint.ts`), so glass, tyres and lamps keep the GLB
+texture. Other models keep one batch per GLB. Entering a car removes its instance and adds a
+shadow-casting mesh with the same material and its paint as an object uniform. That mesh follows
+the rigid body after exit; remaining parked instances refresh their culling bounds as physics
+moves them. `F` or Xbox `Y` enters the closest car within 4 m.
 
 Run `npm test --prefix game -- --run tests/unit/vehicle-fleet.test.ts` for the 20 m
-physics route and `(cd game && npx playwright test tests/e2e/parked-vehicle.spec.ts
+physics route, `tests/unit/parked-cap.test.ts tests/unit/parked-paint.test.ts` for the
+body cap and the paint batches (real r186 CPU shader builder: one program per pass for any
+count or paint), and `(cd game && npx playwright test tests/e2e/parked-vehicle.spec.ts
 --workers=2)` for the Xbox takeover, 60 m culling and exit route on WebGPU and WebGL2.
 
 ```ts
