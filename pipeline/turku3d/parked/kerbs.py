@@ -600,6 +600,16 @@ def clear_width_ok(street, side, t, depth, rule_other):
     return own + other - depth - KERB_GAP - other_depth >= need
 
 
+def leaves_lane(street, side, t, orientation):
+    """Perpendicular or diagonal bays leave a one-way lane beside them on any explicit kerb."""
+    own, other = kerb_lateral(street, side, t), kerb_lateral(street, -side, t)
+    if own is None or other is None:
+        return False
+    w, length = NOMINAL
+    depth = length if orientation == "perpendicular" else (w + length) * math.sqrt(0.5)
+    return own + other - depth - KERB_GAP >= DRIVE_ONE_WAY + NOMINAL[0]
+
+
 def bay_pose(street, side, t, orientation, lateral, width, length):
     """Centre and yaw of a bay at station t with its outer face KERB_GAP inside the kerb."""
     (px, pz), (dx, dz), (nx, nz) = street.frame(t)
@@ -650,6 +660,8 @@ def bays(streets, carriage, blocked):
                         t += 0.5
                         continue
                     orientation, priority, source = rule
+                    if orientation != "parallel" and not leaves_lane(street, side, t, orientation):
+                        orientation = "parallel"  # a nose-in bay would block the street
                     pitch = PITCH[orientation]
                     centre = t + pitch / 2
                     if centre + pitch / 2 > end:
