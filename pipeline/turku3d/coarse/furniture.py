@@ -126,7 +126,10 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
             depth, x, z = _outside(inside[0], point)
             # The register lists lighting poles only: a pole just inside a footprint stands by
             # that wall (survey offset or a recess), never on the roof.
-            if depth <= (LAMP_MOVE if p.kind == "lamp" else BUILDING_MOVE):
+            moved = shapely.Point(x, z)
+            # Terraced buildings share walls: stepping out of one must not step into the next.
+            neighbour = any(footprints[i].covers(moved) for i in buildings.query(moved))
+            if depth <= (LAMP_MOVE if p.kind == "lamp" else BUILDING_MOVE) and not neighbour:
                 p.x, p.z = x, z
                 stats[f"moved_out_of_building:{p.kind}"] += 1
             else:

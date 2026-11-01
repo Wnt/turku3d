@@ -165,9 +165,11 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     from turku3d.package.gltf import read_glb
 
     house = box(100, 100, 120, 120)
+    terrace = box(80, 100, 100, 120)  # shares the house's west wall
     lake = box(200, 200, 240, 240)
     props = [
-        Prop("bench-wall", "bench", 100.5, 0, 110),  # 0.5 m inside the house
+        Prop("bench-wall", "bench", 110, 0, 100.5),  # 0.5 m inside the house, by its north wall
+        Prop("bench-party-wall", "bench", 100.5, 0, 110),  # nearest wall is the shared one
         Prop("bench-in", "bench", 110, 0, 110),  # deep inside: dropped
         Prop("lamp-wall", "lamp", 119, 0, 105),  # register pole 1 m inside the footprint
         Prop("lamp", "lamp", 50, 0, 58),
@@ -178,9 +180,11 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
         Prop("stop", "bus_stop", 60, 0, 58),
     ]
     roads = graph([(0, 50, 250, 50, CAR | FOOT | 2 << CLASS_SHIFT)])
-    result = produce(TILE, props, lambda x, z: 1.0, [house], [lake], roads, shapely.Polygon())
+    result = produce(
+        TILE, props, lambda x, z: 1.0, [house, terrace], [lake], roads, shapely.Polygon()
+    )
     stats = result["stats"]
-    assert stats["dropped_in_building:bench"] == 1
+    assert stats["dropped_in_building:bench"] == 2  # deep inside; party wall
     assert stats["moved_out_of_building:bench"] == 1
     assert stats["dropped_on_water:bin"] == 1
     assert stats["moved_out_of_water:bench"] == 1 and stats["skipped_unsupported_sign"] == 1
@@ -188,7 +192,7 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     assert quay.x == pytest.approx(199.7)
     assert stats["moved_out_of_building:lamp"] == 1
     bench = next(p for p in result["props"] if p.object_id == "bench-wall")
-    assert bench.x == pytest.approx(99.7) and bench.y == 1.0
+    assert (bench.x, bench.z, bench.y) == pytest.approx((110, 99.7, 1.0))
     assert {p.kind for p in result["props"]} == {"bench", "table", "bus_stop"}
     assert [p.object_id for p in result["poles"]] == ["stop"]  # parked-car bay masks
     lights, posts = decode(result["lights"])
