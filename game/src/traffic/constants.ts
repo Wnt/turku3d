@@ -28,6 +28,9 @@ export const TRAFFIC = {
   smoothing: 1.4,
   /** A seam-to-seam lane may not slow below this share of its cruise speed to meet the next tile's phase. */
   minSpeedShare: 0.35,
+  /** A stop-line wait never exceeds the headway minus this (s): the next car would roll up behind a car that is
+   *  only pulling away. The rest of the wait is spent driving slower. */
+  queueGap: 1.5,
 } as const;
 
 /** Moving-car caps per quality tier (street-richness plan §3.6/§7); the Air default is the low cap. */

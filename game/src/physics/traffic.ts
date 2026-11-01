@@ -11,6 +11,7 @@ import { hash01, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
+import { ClaimSet } from '../traffic/claims';
 import { buildTileTraffic, type Bounds, type Lane } from '../traffic/tileNetwork';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { Quat, TrafficClaimEvent, TrafficConfig, TrafficTile } from './protocol';
@@ -62,11 +63,7 @@ export class TrafficSim {
   private byKey = new Map<string, ActiveCar>();
   private colliderCar = new Map<number, ActiveCar>();
   private nextHandle = 1;
-  private localClaims = new Set<string>();
-  private remoteClaims = new Set<string>();
-  /** Claimed cars that crossed a seam carry new keys; cursors follow each claim's slot. */
-  private cursors = new Map<string, { lane: Lane; n: number } | null>();
-  private derived = new Set<string>();
+  readonly claims = new ClaimSet(this.network);
   private heights = new Map<Lane, { ys: Float32Array; retry: number }>();
   private sampleQueue: Lane[] = [];
   private view: View | null = null;
@@ -96,7 +93,7 @@ export class TrafficSim {
       }
     }
     this.heights.clear(); this.sampleQueue = [];
-    this.cursors.clear();
+    this.claims.reset();
     this.stats.tiles = this.network.tiles.size;
     this.stats.lanes = [...this.network.tiles.values()].reduce((n, t) => n + t.lanes.length, 0);
     this.resync();
@@ -104,7 +101,7 @@ export class TrafficSim {
 
   configure(change: Partial<TrafficConfig>) {
     if (change.enabled !== undefined) this.network.setEnabled(change.enabled ? new Set(change.enabled) : null);
-    if (change.claims) { this.remoteClaims = new Set(change.claims); this.cursors.clear(); }
+    if (change.claims) this.claims.setRemote(change.claims);
     this.config = { ...this.config, ...change };
     this.resync();
   }
@@ -146,7 +143,7 @@ export class TrafficSim {
         const key = this.network.key(at.lane, at.n);
         if (key !== car.key) {
           this.byKey.delete(car.key); car.key = key;
-          if (this.claimed(key) || this.byKey.has(key)) { this.deactivate(car); continue; }
+          if (this.claims.has(key) || this.byKey.has(key)) { this.deactivate(car); continue; }
           this.byKey.set(key, car);
         }
       } else car.n = at.n;
@@ -208,7 +205,7 @@ export class TrafficSim {
     const pos = { x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z }, rot = chassisRotation(car.pose);
     const yaw = Math.atan2(-car.pose.hz, car.pose.hx);
     const linvel = { x: car.pose.hx * car.pose.speed, y: 0, z: car.pose.hz * car.pose.speed };
-    this.localClaims.add(car.key);
+    this.claims.addLocal(car.key);
     this.deactivate(car);
     this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel });
     this.events.push({ revision: 0, handle, id, key: car.key, model, color: TRAFFIC_PAINTS[car.paint],
@@ -225,6 +222,11 @@ export class TrafficSim {
     return this.events;
   }
 
+  /** Identities of the drawn cars (QA and tests). */
+  activeKeys(): string[] { return [...this.byKey.keys()].sort(); }
+  /** The drawn cars with their identity and ground position (QA and tests). */
+  activeCars() { return [...this.active.values()].map(c => ({ key: c.key, handle: c.handle, x: c.pose.x, z: c.pose.z, body: !!c.body })); }
+
   /** Flat [handle, model, paint, x, y, z, qx, qy, qz, qw, vx, vz] per drawn car (chassis centre). */
   publish(): number[] {
     const out: number[] = [];
@@ -237,8 +239,6 @@ export class TrafficSim {
     }
     return out;
   }
-
-  private claimed(key: string) { return this.localClaims.has(key) || this.remoteClaims.has(key) || this.derived.has(key); }
 
   /** Automatic claims left this minute; `use` spends one. */
   private autoBudget(use: boolean): boolean {
@@ -255,9 +255,9 @@ export class TrafficSim {
     if (!view) return;
     if (this.lastView && Math.hypot(view.x - this.lastView.x, view.z - this.lastView.z) > 150) this.fill = true;
     this.lastView = { ...view };
-    this.followClaims(t);
+    this.claims.follow(t);
     for (const car of this.active.values()) {
-      if (!this.network.isEnabled(car.lane.tile) || this.claimed(car.key)) { this.deactivate(car); continue; }
+      if (!this.network.isEnabled(car.lane.tile) || this.claims.has(car.key)) { this.deactivate(car); continue; }
       const d = Math.hypot(car.pose.x - view.x, car.pose.z - view.z);
       car.visible = inView(view, car.pose.x, car.pose.z);
       if (mustRemove(d, car.visible)) this.deactivate(car);
@@ -266,7 +266,7 @@ export class TrafficSim {
     const candidates: { lane: Lane; n: number; d: number; key: string }[] = [];
     this.network.enumerate(view.x, view.z, RING.createInViewMax, t, (lane, n, x, z) => {
       const key = this.network.key(lane, n);
-      if (this.byKey.has(key) || this.claimed(key)) return;
+      if (this.byKey.has(key) || this.claims.has(key)) return;
       const d = Math.hypot(x - view.x, z - view.z);
       if (!mayCreate(d, inView(view, x, z), this.fill) || !this.host.resident(x, z)) return;
       candidates.push({ lane, n, d, key });
@@ -284,36 +284,6 @@ export class TrafficSim {
     this.fill = false;
   }
 
-  /** Each claim's slot keeps moving: where it crosses into another tile it has a new key there, also claimed. */
-  private followClaims(t: number) {
-    this.derived.clear();
-    for (const key of [...this.localClaims, ...this.remoteClaims]) {
-      let cursor = this.cursors.get(key);
-      if (cursor === undefined) {
-        cursor = this.start(key);
-        this.cursors.set(key, cursor);
-      }
-      if (!cursor) continue;
-      // Walk forward along the chain; keys change only across seams.
-      for (let guard = 0; guard < 256; guard++) {
-        const next = this.network.continuation(cursor.lane, cursor.n);
-        if (!next || next.lane.phase + next.n * TRAFFIC.headway > t) break;
-        cursor = next;
-        this.derived.add(this.network.key(cursor.lane, cursor.n));
-      }
-      this.cursors.set(key, cursor);
-    }
-  }
-
-  /** The origin lane and slot of a claim key, when its tile is resident. */
-  private start(key: string): { lane: Lane; n: number } | null {
-    const [tile, origin, n0] = key.split(':');
-    const lane = this.network.tiles.get(tile)?.byId.get(origin);
-    const n = Number(n0);
-    if (!lane || !Number.isInteger(n) || lane.cycle) return null;
-    return { lane, n };
-  }
-
   private deactivate(car: ActiveCar) {
     if (car.body) this.removeBody(car);
     this.active.delete(car.handle);
@@ -326,7 +296,7 @@ export class TrafficSim {
   private resync() {
     for (const car of [...this.active.values()]) {
       const tile = this.network.tiles.get(car.lane.tile);
-      if (!tile || tile.lanes[car.lane.index] !== car.lane || !this.network.isEnabled(car.lane.tile) || this.claimed(car.key)) this.deactivate(car);
+      if (!tile || tile.lanes[car.lane.index] !== car.lane || !this.network.isEnabled(car.lane.tile) || this.claims.has(car.key)) this.deactivate(car);
     }
     const view = this.view;
     const distance = (car: ActiveCar) => view ? Math.hypot(car.pose.x - view.x, car.pose.z - view.z) : 0;

@@ -262,6 +262,10 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     lane.delta = lane.connector.length / lane.next.speed;
     const wait = mod(lane.next.phase - lane.delta - lane.phase - lane.tau, H);
     lane.wait = wait > H - 1e-6 ? 0 : wait;
+    // The next car of the lane reaches the stop line H after this one did. A wait close to H would let it roll
+    // up to a car that is only just pulling away: drive slower instead and keep a gap of `queueGap` seconds.
+    const over = lane.wait - (H - TRAFFIC.queueGap);
+    if (over > 0) { lane.tau += over; lane.vEff = lane.length / lane.tau; lane.wait -= over; }
   }
 
   // Identity: chains are simple paths or cycles (a matching). The origin is the chain's first lane, or the
