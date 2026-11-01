@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
-import { attribute, materialColor, mix, sRGBTransferEOTF, step, uniform, uv } from 'three/tsl';
+import { Fn, instancedBufferAttribute, materialColor, mix, sRGBTransferEOTF, step, uniform, uv } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
+import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 
 // r186 declares the colour-space Fn without its vec3 layout.
 const decode = sRGBTransferEOTF as unknown as (srgb: Node<'vec3'>) => Node<'vec3'>;
@@ -25,14 +26,47 @@ export function paintBatch(model: string, color: string): string {
 
 export function recolourable(batch: string) { return batch in PAINT_COLUMNS; }
 
-/** Paint as stored in the `paint` attribute: sRGB in 0..1. */
+/** Paint as the shader reads it: sRGB in 0..1. */
 export function paintOf(color: string): readonly [number, number, number] {
   const [r, g, b] = PAINT_COLORS[color];
   return [r / 255, g / 255, b / 255];
 }
 
-/** The body material of `model` with its paint swatch taken from the per-instance `paint`
- * attribute. Every model compiles to the same program; only the swatch uniform differs. */
+// A batch's per-instance paints are a node attribute of that draw, like its instance matrices:
+// the renderer owns the buffer and releases it with the InstancedMesh. A driven or remote car
+// carries its paint as an object uniform, so it needs no buffer or geometry of its own.
+const instancePaints = new WeakMap<THREE.Object3D, THREE.InstancedBufferAttribute>();
+const actorPaints = new WeakMap<THREE.Object3D, THREE.Vector3>();
+
+/** Writes `colors` as the paints of instances 0..n-1 of `mesh`. */
+export function paintInstances(mesh: THREE.InstancedMesh, colors: readonly string[]) {
+  let paints = instancePaints.get(mesh);
+  if (!paints) {
+    paints = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count * 3), 3);
+    instancePaints.set(mesh, paints);
+  }
+  colors.forEach((color, i) => paints.setXYZ(i, ...paintOf(color)));
+  paints.needsUpdate = true;
+}
+
+export function paintActor(mesh: THREE.Mesh, color: string) {
+  actorPaints.set(mesh, new THREE.Vector3(...paintOf(color)));
+}
+
+export function instancePaintOf(mesh: THREE.Object3D) { return instancePaints.get(mesh); }
+export function actorPaintOf(mesh: THREE.Object3D) { return actorPaints.get(mesh); }
+
+// Node graphs build per object: an instanced batch binds its own paint buffer, a standalone draw
+// its object uniform. Neither the count nor the paints enter the shader text.
+const paintNode = Fn((builder: NodeBuilder) => {
+  const instances = instancePaints.get(builder.object);
+  if (instances) return instancedBufferAttribute(instances, 'vec3', 3, 0);
+  if (!actorPaints.has(builder.object)) throw new Error(`parked paint missing for ${builder.object.name}`);
+  return uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => actorPaints.get(object!));
+}) as unknown as () => Node<'vec3'>;
+
+/** The body material of `model` with its paint swatch taken from the draw's paint. Every model
+ * compiles to the same program; only the swatch uniform differs. */
 export function paintMaterial(source: THREE.MeshStandardMaterial, model: string): THREE.MeshStandardNodeMaterial {
   const material = new THREE.MeshStandardNodeMaterial({
     name: `${model}/paint`, color: source.color, map: source.map, roughness: source.roughness, metalness: source.metalness,
@@ -47,27 +81,7 @@ export function paintMaterial(source: THREE.MeshStandardMaterial, model: string)
   const inside = step(swatch.x, p.x).mul(step(swatch.z, p.x).oneMinus()).mul(step(swatch.y, p.y)).mul(step(swatch.w, p.y).oneMinus());
   // Texel centres carry the authored shade; bilinear sampling of that ramp is the same line.
   const shade = p.y.mul(ATLAS).sub(FIRST_ROW + 0.5).div(ROWS - 1).clamp(0, 1).mul(DARKEST - 1).add(1);
-  const paint = decode(attribute('paint', 'vec3').mul(shade)).mul(uniform(material.color));
+  const paint = decode(paintNode().mul(shade)).mul(uniform(material.color));
   material.colorNode = mix(materialColor, paint, inside);
   return material;
-}
-
-/** A draw's own view of `source`: shared vertex buffers plus its per-instance paint. Never dispose
- * it: r186 geometry disposal also destroys the shared buffers; the paint buffer is collected with it. */
-export function paintGeometry(source: THREE.BufferGeometry, capacity: number): THREE.BufferGeometry {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setIndex(source.index);
-  for (const [name, value] of Object.entries(source.attributes)) geometry.setAttribute(name, value);
-  geometry.setAttribute('paint', new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3));
-  if (!source.boundingBox) source.computeBoundingBox();
-  if (!source.boundingSphere) source.computeBoundingSphere();
-  geometry.boundingBox = source.boundingBox!.clone();
-  geometry.boundingSphere = source.boundingSphere!.clone();
-  return geometry;
-}
-
-export function setPaint(geometry: THREE.BufferGeometry, colors: readonly string[]) {
-  const attribute = geometry.getAttribute('paint') as THREE.InstancedBufferAttribute;
-  colors.forEach((color, i) => attribute.setXYZ(i, ...paintOf(color)));
-  attribute.needsUpdate = true;
 }

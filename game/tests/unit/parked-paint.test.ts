@@ -7,7 +7,7 @@ import { mrt, normalView, velocity } from 'three/tsl';
 // @ts-expect-error r186 internal pipeline manager has no DefinitelyTyped declaration.
 import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { ParkedCarVisuals } from '../../src/actors/car';
-import { PAINT_COLORS, PAINT_COLUMNS, PAINT_SWATCH, paintOf } from '../../src/actors/parkedPaint';
+import { PAINT_COLORS, PAINT_COLUMNS, PAINT_SWATCH, actorPaintOf, instancePaintOf, paintOf } from '../../src/actors/parkedPaint';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { draftManifest, type ParkedVehicle } from '../../src/world/manifest';
 import type { VehicleState } from '../../src/physics/protocol';
@@ -17,8 +17,9 @@ const MODELS = Object.keys(PAINT_COLUMNS), COLORS = Object.keys(PAINT_COLORS);
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(r => setTimeout(r, 0)); };
 const car = (object_id: string, model: string, color: string, x = 0): ParkedVehicle => ({ object_id, model, color,
   x, y: 2, z: 5, yaw: 0, width: 1.85, length: 4.55, height: 1.48, clear_front_m: 10, clear_rear_m: 10 });
-const paintAt = (geometry: THREE.BufferGeometry, i: number) => Array.from(geometry.getAttribute('paint').array.slice(i * 3, i * 3 + 3));
+const paintAt = (mesh: THREE.InstancedMesh, i: number) => Array.from(instancePaintOf(mesh)!.array.slice(i * 3, i * 3 + 3));
 const expected = (color: string) => paintOf(color).map(Math.fround);
+const actorPaint = (mesh: THREE.Mesh) => actorPaintOf(mesh)!.toArray();
 
 /** The generator's published GLBs: one per model/paint, same geometry per model, own palette texture. */
 function garage(assets = [...MODELS, 'fixture'].flatMap(m => [...COLORS, 'purple'].map(c => `${m}/${c}`))) {
@@ -51,17 +52,17 @@ test('one draw per body model carries each paint per instance; other models keep
     for (const model of MODELS) {
       const draw = draws.find(d => d.name === `parked/${model}`)!, members = cars.filter(c => c.model === model);
       expect(draw.count).toBe(members.length);
-      expect(draw.geometry.getAttribute('paint')).toBeInstanceOf(THREE.InstancedBufferAttribute);
-      members.forEach((c, i) => expect(paintAt(draw.geometry, i)).toEqual(expected(c.color)));
-      // Shared vertex buffers, authored texture and PBR values; shadows as before.
-      expect(draw.geometry.getAttribute('position')).toBe(geometries.get(model)!.getAttribute('position'));
+      expect(instancePaintOf(draw)!.count).toBe(draw.instanceMatrix.count);
+      members.forEach((c, i) => expect(paintAt(draw, i)).toEqual(expected(c.color)));
+      // The GLB's own geometry, authored texture and PBR values; shadows as before.
+      expect(draw.geometry).toBe(geometries.get(model));
       const material = draw.material as THREE.MeshStandardNodeMaterial;
       expect(material.isMeshStandardNodeMaterial && !!material.map && material.roughness === 0.42 && material.color.getHex() === 0xcccccc).toBe(true);
       expect(draw.castShadow && draw.receiveShadow).toBe(true);
     }
     const fixture = draws.find(d => d.name === 'parked/fixture/blue')!;
     expect((fixture.material as THREE.MeshStandardMaterial).isMeshStandardMaterial).toBe(true);
-    expect(fixture.geometry.getAttribute('paint')).toBeUndefined();
+    expect(instancePaintOf(fixture)).toBeUndefined();
   } finally { load.mockRestore(); }
 });
 
@@ -81,12 +82,13 @@ test('visual cars rest where told, claimed cars stay hidden, and driven and remo
     visuals.takeOver('a');
     const driven = scene.getObjectByName('driven/a') as THREE.Mesh;
     expect(driven.material).toBe(draw.material);
-    expect(paintAt(driven.geometry, 0)).toEqual(expected('red'));
-    expect([paintAt(draw.geometry, 0), paintAt(draw.geometry, 1)]).toEqual([expected('blue'), expected('white')]);
+    expect(actorPaint(driven)).toEqual([...paintOf('red')]);
+    expect(driven.geometry).toBe(draw.geometry);
+    expect([paintAt(draw, 0), paintAt(draw, 1)]).toEqual([expected('blue'), expected('white')]);
     expect(draw.count).toBe(2);
     const remote = visuals.remoteModel('sedan/beige')!;
     expect(remote.material).toBe(draw.material);
-    expect(paintAt(remote.geometry, 0)).toEqual(expected('beige'));
+    expect(actorPaint(remote)).toEqual([...paintOf('beige')]);
     expect(remote.castShadow && remote.receiveShadow).toBe(true);
   } finally { load.mockRestore(); }
 });
@@ -100,9 +102,9 @@ test('a remote paint that no resident draft uses loads any GLB of its body model
     visuals.requestRemoteModel('suv/red'); visuals.requestRemoteModel('suv/white'); visuals.requestRemoteModel('fixture/red');
     await settle();
     expect(urls.map(url => new URL(url).pathname).sort()).toEqual(['/fixture~red.glb', '/suv~blue.glb']);
-    expect(paintAt(visuals.remoteModel('suv/red')!.geometry, 0)).toEqual(expected('red'));
+    expect(actorPaint(visuals.remoteModel('suv/red')!)).toEqual([...paintOf('red')]);
     const fixture = visuals.remoteModel('fixture/red')!;
-    expect((fixture.material as THREE.MeshStandardMaterial).isMeshStandardMaterial && !fixture.geometry.getAttribute('paint')).toBe(true);
+    expect((fixture.material as THREE.MeshStandardMaterial).isMeshStandardMaterial && !actorPaintOf(fixture)).toBe(true);
   } finally { load.mockRestore(); }
 });
 
@@ -131,7 +133,8 @@ test.each([false, true])('instance counts, paints and body models never add a pr
     const builder = backend.createNodeBuilder(object, renderer);
     renderer.debug.onNodeBuilderCreated!(builder, { object } as never);
     builder.scene = new THREE.Scene(); builder.camera = new THREE.PerspectiveCamera(); builder.build();
-    return { vertexShader: builder.vertexShader, fragmentShader: builder.fragmentShader };
+    const generated = (builder as unknown as { bufferAttributes: { node: { value: unknown } }[] }).bufferAttributes.map(a => a.node.value);
+    return { vertexShader: builder.vertexShader, fragmentShader: builder.fragmentShader, generated };
   };
   const { load, manifest } = garage();
   try {
@@ -156,7 +159,10 @@ test.each([false, true])('instance counts, paints and body models never add a pr
     expect(variants(single)).toBe(1);
     expect(variants(former.map(program))).toBe(1);
     expect(batched[0].fragmentShader).toContain('sRGBTransferEOTF');
-    expect(batched[0].vertexShader).toMatch(/@location\( \d+ \) paint : vec3<f32>/);
+    // Each batch binds its own paint buffer as a generated attribute (owned and released with the
+    // draw, like its instance matrices); standalone cars read an object uniform instead.
+    [...few.meshes, ...many.meshes].forEach((mesh, i) => expect(batched[i].generated).toContain(instancePaintOf(mesh)));
+    expect(single.every(state => state.generated.length === 0)).toBe(true);
     expect(batched[0].vertexShader).not.toMatch(/array<mat4x4<f32>,\s*\d+>/);
     // The paint mask is arithmetic: the palette sample stays in uniform control flow.
     expect(batched[0].fragmentShader).not.toMatch(/\bif\s*\(/);

@@ -4,7 +4,7 @@ import { CAR } from '../physics/constants';
 import type { VehicleState } from '../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedPose } from '../world/parkedVehicles';
-import { paintBatch, paintGeometry, paintMaterial, recolourable, setPaint } from './parkedPaint';
+import { paintActor, paintBatch, paintInstances, paintMaterial, recolourable } from './parkedPaint';
 
 // The asset library has one player sedan. Concurrent consumers share preparation;
 // Object3D clones keep independent suspension transforms and share immutable geometry.
@@ -137,9 +137,8 @@ export class ParkedCarVisuals {
   /** A standalone draw of a driven or remote car with its own paint. */
   private actor(batch: string, color: string, name: string): THREE.Mesh {
     const source = this.sources.get(batch)!;
-    let geometry = source.geometry;
-    if (recolourable(batch)) { geometry = paintGeometry(geometry, 1); setPaint(geometry, [color]); }
-    const actor = new THREE.Mesh(geometry, source.material);
+    const actor = new THREE.Mesh(source.geometry, source.material);
+    if (recolourable(batch)) paintActor(actor, color);
     actor.name = name;
     actor.castShadow = true;
     actor.receiveShadow = true;
@@ -165,14 +164,13 @@ export class ParkedCarVisuals {
       const previous = this.groups.get(batch);
       if (previous && previous.mesh.instanceMatrix.count >= list.length) {
         previous.cars = list; previous.mesh.count = list.length;
-        if (recolourable(batch)) setPaint(previous.mesh.geometry, list.map(c => c.color));
+        if (recolourable(batch)) paintInstances(previous.mesh, list.map(c => c.color));
         this.scene.add(previous.mesh);
         continue;
       }
       const capacity = Math.max(16, 2 ** Math.ceil(Math.log2(list.length)));
-      const geometry = recolourable(batch) ? paintGeometry(source.geometry, capacity) : source.geometry;
-      if (recolourable(batch)) setPaint(geometry, list.map(c => c.color));
-      const mesh = new THREE.InstancedMesh(geometry, source.material, capacity);
+      const mesh = new THREE.InstancedMesh(source.geometry, source.material, capacity);
+      if (recolourable(batch)) paintInstances(mesh, list.map(c => c.color));
       mesh.count = list.length;
       list.forEach((_car, i) => mesh.setMatrixAt(i, HIDDEN));
       mesh.name = `parked/${batch}`;
@@ -197,7 +195,7 @@ export class ParkedCarVisuals {
       this.dynamic.set(id, actor);
       cars.splice(index, 1);
       mesh.count = cars.length;
-      if (recolourable(batch)) setPaint(mesh.geometry, cars.map(c => c.color));
+      if (recolourable(batch)) paintInstances(mesh, cars.map(c => c.color));
       if (!mesh.count) mesh.removeFromParent();
       mesh.computeBoundingSphere();
       return;
