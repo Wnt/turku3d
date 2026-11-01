@@ -10,7 +10,8 @@ Per tile it reports:
   ``furniture`` stage statistics (moves and drops with their reasons);
 * ``anomalies``: placed props or lamp posts inside a building footprint, non-sign props or posts
   on a carriageway, props whose base is more than ``--tolerance`` m off the visual ground under
-  them (floating or sunk), and same-kind props closer than 0.5 m (duplicates).
+  them (floating or sunk), and same-kind furniture closer than 0.5 m (duplicates; separate signs
+  on one pole are separate register rows by design).
 
 It reads the tile directory the builder wrote (``--root DIR``: ``DIR/<tile>/manifest.json``,
 the visual GLB, ``DIR/.inputs``) and the raw cache of ``TURKU3D_DATA``; it writes nothing else.
@@ -105,8 +106,15 @@ def check_tile(root: Path, tile_id: str, tolerance: float):
     manifest = json.loads((root / tile_id / "manifest.json").read_text())
     data = rs.Source(tiles=root).load(tile_id, ground=True)
     tris = np.concatenate(data.ground) if data.ground else np.zeros((0, 3, 3))
-    props = [i for i in data.items if i.category in ("furniture", "sign_pole", "other", "lamp")]
-    props = [i for i in props if not i.ident.startswith("light:") and i.kind != "bollard"]
+    # G1 props and the sign/stop poles they share the props layer with; the barrier layer's
+    # instanced bollards, chains and hedges are not part of this check.
+    props = [
+        i
+        for i in data.items
+        if (i.category == "furniture" and i.kind not in ("bollard", "post"))
+        or i.category in ("sign_pole", "lamp")
+    ]
+    props = [i for i in props if not i.ident.startswith("light:")]
     lights, posts = decode(manifest.get("lights"))
     inputs = gather(tile, root)
     footprints = [b.footprint for b in (*inputs.buildings, *inputs.wall_context)]
@@ -182,7 +190,9 @@ def check_tile(root: Path, tile_id: str, tolerance: float):
             )
     by_kind = {}
     for p in props:
-        by_kind.setdefault(p.kind, []).append(p)
+        # Separate signs on one pole are separate register rows by design; not duplicates.
+        if p.category != "sign_pole":
+            by_kind.setdefault(p.kind, []).append(p)
     for kind, items in by_kind.items():
         for a_index, a in enumerate(items):
             for b in items[a_index + 1 :]:
