@@ -236,16 +236,56 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     }
   }
 
-  // Phases. Seam starts take the seam's phase; a lane from a junction to a seam is pinned back from the seam;
-  // the other out-lanes of a junction are staggered by H/k around a per-junction base.
+  // Phases. Seam starts take the seam's phase; a lane from a junction to a seam is pinned back from the seam.
+  // At a junction the out-lanes split into two windows of the headway by approach axis, so crossing streams
+  // take turns (a signal controller's approaches likewise); within a window they are staggered. The window
+  // grid is placed so the junction's main straight-on movement (fastest street) waits zero: main roads flow
+  // in a green wave and side streets give way. Junctions are resolved once their main in-lane has a phase;
+  // a ring of junctions without a start takes a hashed base at its lowest node.
   for (const lane of lanes) {
     if (lane.start.kind === 'seam') lane.phase = seamPhase(lane.start.seam!);
     else if (lane.end.kind === 'seam') lane.phase = mod(seamPhase(lane.end.seam!) - lane.tau, H);
   }
+  const known = new Set<Lane>(lanes.filter(l => l.start.kind === 'seam' || l.end.kind === 'seam'));
+  const axis = (hx: number, hz: number) => mod(Math.atan2(hz, hx), Math.PI);
+  interface Plan { node: number; free: Lane[]; main: Lane | null; group: Map<Lane, number> }
+  const plans: Plan[] = [];
   for (const [node, list] of outs) {
-    const free = list.filter(l => l.end.kind !== 'seam').sort((a, b) => cmp(a.id, b.id));
-    const base = hash01('junction', tile, Math.round(nodes[2 * node] * 2), Math.round(nodes[2 * node + 1] * 2)) * H;
-    free.forEach((lane, i) => { lane.phase = mod(base + i * H / free.length, H); });
+    const free = list.filter(l => !known.has(l));
+    if (!free.length) continue;
+    const feeds = (ins.get(node) ?? []).filter(l => l.next && l.connector);
+    const straight = feeds.filter(l => { const [ax, az] = tangentAtEnd(l), [bx, bz] = tangentAtStart(l.next!); return ax * bx + az * bz > Math.cos(0.5); });
+    const main = straight.sort((a, b) => b.speed - a.speed || cmp(a.id, b.id))[0] ?? null;
+    const reference = main ?? [...feeds].sort((a, b) => cmp(a.id, b.id))[0] ?? null;
+    const theta0 = reference ? axis(...tangentAtEnd(reference)) : 0;
+    const group = new Map<Lane, number>();
+    for (const out of free) {
+      const feed = out.prev;
+      const [hx, hz] = feed ? tangentAtEnd(feed) : tangentAtStart(out);
+      group.set(out, mod(axis(hx, hz) - theta0 + Math.PI / 4, Math.PI) < Math.PI / 2 ? 0 : 1);
+    }
+    plans.push({ node, free: free.sort((a, b) => cmp(a.id, b.id)), main: main && free.includes(main.next!) ? main : null, group });
+  }
+  const slot = (plan: Plan, out: Lane) => {
+    const g = plan.group.get(out)!, members = plan.free.filter(l => plan.group.get(l) === g);
+    return g * H / 2 + members.indexOf(out) * (H / 2) / members.length;
+  };
+  const resolve = (plan: Plan, base: number) => {
+    for (const out of plan.free) { out.phase = mod(base + slot(plan, out), H); known.add(out); }
+  };
+  const pending = new Set(plans);
+  while (pending.size) {
+    let progress = false;
+    for (const plan of [...pending]) {
+      if (!plan.main || !known.has(plan.main)) continue;
+      const m = plan.main, arrival = m.phase + m.tau + m.connector!.length / m.next!.speed;
+      resolve(plan, arrival - slot(plan, m.next!));
+      pending.delete(plan); progress = true;
+    }
+    if (progress) continue;
+    const seed = [...pending].sort((a, b) => nodes[2 * a.node] - nodes[2 * b.node] || nodes[2 * a.node + 1] - nodes[2 * b.node + 1])[0];
+    resolve(seed, hash01('junction', tile, Math.round(nodes[2 * seed.node] * 2), Math.round(nodes[2 * seed.node + 1] * 2)) * H);
+    pending.delete(seed);
   }
   for (const lane of lanes) {
     if (lane.start.kind === 'seam' && lane.end.kind === 'seam') {
