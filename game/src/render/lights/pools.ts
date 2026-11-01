@@ -103,7 +103,10 @@ export class LampPools {
     }
     const step = dt / POOL.fade;
     for (const slot of this.slots) {
-      slot.target = slot.lamp ? this.weights.get(slot.lamp.key)?.weight ?? 0 : 0;
+      const chosen = slot.lamp ? this.weights.get(slot.lamp.key) : undefined;
+      // A re-streamed tile hands over an equal lamp (same key, same place) as a new record.
+      if (chosen) slot.lamp = chosen.lamp;
+      slot.target = chosen?.weight ?? 0;
       slot.level += Math.max(-step, Math.min(step, slot.target - slot.level));
       if (slot.level <= 0 && slot.target <= 0) { slot.level = 0; slot.lamp = null; }
     }
