@@ -312,8 +312,12 @@ export function meshTree(sk, sp, lod, seed) {
     let up;
     if (a.tuft) up = V.norm(V.add(V.add(a.dir, V.mul(out, 0.6)), [r.range(-0.6, 0.6), r.range(0.0, 0.8), r.range(-0.6, 0.6)]));
     else up = V.norm(V.add(V.add(V.mul(a.dir, sp.cardAlong ?? 0.6), V.mul(out, sp.cardOut ?? 0.6)), [r.range(-0.25, 0.25), (sp.cardUp ?? 0.2) + r.range(-0.2, 0.2), r.range(-0.25, 0.25)]));
-    // Facing: towards the outside, rolled randomly around the card axis.
-    let facing = V.sub(out, V.mul(up, V.dot(out, up)));
+    // Facing: outwards, tipped towards the sky in the upper crown (with a flatter card axis) so the canopy also reads
+    // from above; then rolled randomly around the card axis.
+    const sky = r.range(0, sp.cardSky ?? 1.2) * Math.min(1, Math.max(0, (a.p[1] - sk.crown.y0) / (2 * hc) + 0.2));
+    if (!a.tuft && !sp.flatCards) up = V.norm(V.sub(up, V.mul(UP, V.dot(up, UP) * Math.min(0.8, sky * 0.6))));
+    let facing = V.add(out, V.mul(UP, sky));
+    facing = V.sub(facing, V.mul(up, V.dot(facing, up)));
     if (V.len(facing) < 0.1) facing = anyPerp(up);
     facing = V.rot(V.norm(facing), up, r.range(-1, 1) * (sp.cardRoll ?? 0.9));
     if (sp.flatCards) facing = V.norm(V.lerp(facing, UP, sp.flatCards));
