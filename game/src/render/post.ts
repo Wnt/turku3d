@@ -8,6 +8,7 @@ import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { QUALITY, type QualityTier } from './quality';
+import type { TimecycleSample } from './timecycle';
 
 // r186 exposes this public method; the corresponding DefinitelyTyped declaration omits it.
 const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
@@ -24,6 +25,9 @@ export class PostProcessing {
   private preDepth = 2;
   private beautyDepth = 2;
   private resources: { dispose(): void }[];
+  private glow: ReturnType<typeof bloom> | null;
+  /** The timecycle's bloom strength is in medium-tier units. */
+  private bloomScale: number;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa') {
     const q = QUALITY[tier];
@@ -82,7 +86,8 @@ export class PostProcessing {
     const temporal = aa === 'taa' && pre ? traa(beauty, pre.getTextureNode('depth'), pre.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
     const color = temporal ?? beauty;
-    const glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
+    const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
+    this.bloomScale = q.bloomStrength / QUALITY.medium.bloomStrength;
     glow?.setResolutionScale(q.bloomScale);
     const hdr = glow ? color.rgb.add(glow.rgb) : color.rgb;
     const luminance = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
@@ -103,6 +108,14 @@ export class PostProcessing {
   async prepare(model: THREE.Object3D) {
     if (this.pre) await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true, this.preDepth, this.pre.overrideMaterial);
     await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext, false, this.beautyDepth);
+  }
+
+  /** Night bloom: stronger with a lower threshold, through the effect's uniforms (no new pipeline). Mobile has no
+   *  bloom pass; its night relies on emissive light alone. */
+  grade(sample: TimecycleSample) {
+    if (!this.glow) return;
+    this.glow.strength.value = sample.bloomStrength * this.bloomScale;
+    this.glow.threshold.value = sample.bloomThreshold;
   }
 
   render() {

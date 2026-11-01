@@ -1,7 +1,8 @@
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
-import { color, float, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { color, float, floor, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
+import { draftWindows, facadeKey, glassMask, quantise, wallFrame, windowEmission } from './nightLights';
 import { facadeAttribute, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
 
@@ -50,37 +51,59 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   material.roughnessNode = paint ? mix(orm.g, float(.85), paint.band) : orm.g;
   material.metalnessNode = paint ? mix(orm.b, float(0), paint.band) : orm.b;
   material.aoNode = orm.r;
+  // Night windows: kit glass, one cell per bay and storey. The wall's own constants (exact per triangle) name it;
+  // v1 has none, so its world-space wall plane does.
+  const extent = p.version === 4 ? facadeAttribute('_kit_extent', 'vec4') : null;
+  const identity = (p.version ?? 1) >= 2 ? facadeKey([quantise(origin.x, 64), quantise(origin.y, 64),
+    quantise(layout.y, 4096), quantise(layout.z, 4096), quantise(extent?.z ?? float(0), 64), quantise(extent?.w ?? float(0), 64),
+    quantise(wallColour.r, 1024), quantise(wallColour.g, 1024), quantise(wallColour.b, 1024)]) : wallFrame().plane;
+  const glazing = paint ? glassMask(orm.g).mul(float(1).sub(paint.band)).mul(float(1).sub(paint.balcony)) : glassMask(orm.g);
+  material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), floor(bays.y), fract(bays.y), glazing);
   return material;
+}
+
+/** A building wall (not a roof) by its glTF node extras: only these get non-kit night windows. */
+function buildingWall(mesh: THREE.Object3D) {
+  for (let node: THREE.Object3D | null = mesh; node; node = node.parent) {
+    if (node.userData.surface === 'roof') return false;
+    if (node.userData.layer) return node.userData.layer === 'buildings' || node.userData.layer === 'buildings_outer';
+  }
+  return false;
 }
 
 /** Bind draft facade materials and draw just in front of coplanar published terrain. */
 export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer, shared?: SharedMaterials) {
-  const cache = new Map<THREE.Material, THREE.Material>();
+  const cache = new Map<THREE.Material, Map<boolean, THREE.Material>>();
   model.traverse(o => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     interleaveProgram(mesh.geometry);
     mesh.castShadow = true; mesh.receiveShadow = true;
     const style = (source: THREE.Material) => {
-      if (cache.has(source)) return cache.get(source)!;
+      const cached = cache.get(source)?.get(buildingWall(mesh));
+      if (cached) return cached;
       const pbr = source as THREE.MeshStandardMaterial;
       let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
+      const wall = buildingWall(mesh);
       if (pbr.type === 'MeshStandardMaterial' &&
           !Object.values(pbr).some(value => value?.isTexture)) {
         // Plain car/tree/prop colours need no per-tile node graph. LOD can still combine bark/crown.
         node = pbr;
       } else {
         const create = () => {
-          const material = facadeKitMaterial(source, renderer) ?? renderer.library.fromMaterial(source.clone());
+          const kit = facadeKitMaterial(source, renderer);
+          const material = kit ?? renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial;
+          if (!kit && wall && material.isMeshStandardNodeMaterial) draftWindows(material);
           material.polygonOffset = true; material.polygonOffsetFactor = -1; material.polygonOffsetUnits = -2;
           return material;
         };
         node = ((source as THREE.NodeMaterial).isNodeMaterial ? source
-          : shared ? shared.styled.acquire(source, 'draft', model, create) : create()) as THREE.MeshStandardNodeMaterial;
+          : shared ? shared.styled.acquire(source, wall ? 'draft-wall' : 'draft', model, create) : create()) as THREE.MeshStandardNodeMaterial;
       }
       node.polygonOffset = true; node.polygonOffsetFactor = -1; node.polygonOffsetUnits = -2;
       if (shared) node = shared.acquire(node, model) as typeof node;
-      cache.set(source, node);
+      if (!cache.has(source)) cache.set(source, new Map());
+      cache.get(source)!.set(wall, node);
       return node;
     };
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);

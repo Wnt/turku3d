@@ -10,7 +10,7 @@ import { ParkedVehicles } from './world/parkedVehicles';
 import * as THREE from 'three/webgpu';
 import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
 import { devToolsEnabled } from './core/localOnly';
-import { phaseTime } from './core/sun';
+import { PHASE_HOURS } from './core/dayCycle';
 import { Input } from './input';
 import { GameAudio } from './audio';
 import { showAudioPage } from './audio/menu';
@@ -208,7 +208,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       void saveGame.teleport(E, N, headingDeg).then(ground => { if (!ground) fly.set(true); }).catch(fail);
     },
     ask: question => window.prompt(question),
-    setTime: phase => { const time = phaseTime(world.clockTime(), phase); window.__render!.setTime(time.toISOString()); },
+    setTime: phase => window.__render!.setHour(PHASE_HOURS[phase]),
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;

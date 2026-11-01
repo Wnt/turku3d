@@ -2,6 +2,7 @@
 import { OFFICE_EN } from './origin';
 import { mobileDevice, parseQuality, type QualityTier } from '../render/quality';
 import type { Antialiasing } from '../render/post';
+import { DAY_MS, cycleAt, parseClockHour } from './dayCycle';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
  *  clockwise seen from behind, fov = VERTICAL degrees (three.js camera.fov), H = absolute camera height N2000. */
@@ -15,6 +16,10 @@ interface Params {
   pass: 'color' | 'id';
   time: Date;
   timeGiven: boolean;
+  /** ?time=HH:MM: a frozen local view of the cycle at that clock hour (null otherwise). */
+  hour: number | null;
+  /** ?cycle=MIN: real minutes per day cycle. The default 30 is the shared cycle; other values are a local view. */
+  cycleMinutes: number;
   spawnGiven: boolean;
   spawn: { E: number; N: number; headingDeg: number };
   hud: boolean;
@@ -43,8 +48,11 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const passStr = (p.get('pass') ?? 'color').toLowerCase();
   if (passStr !== 'color' && passStr !== 'id') throw new Error(`bad ?pass= (color|id): ${passStr}`);
   const timeStr = p.get('time');
-  const time = new Date(timeStr ?? DEFAULT_TIME);
-  if (Number.isNaN(time.getTime())) throw new Error(`bad ?time= (want ISO-8601): ${timeStr}`);
+  const hour = timeStr === null ? null : parseClockHour(timeStr);
+  const time = hour !== null ? cycleAt(hour).time : new Date(timeStr ?? DEFAULT_TIME);
+  if (Number.isNaN(time.getTime())) throw new Error(`bad ?time= (want HH:MM or ISO-8601): ${timeStr}`);
+  const cycleMinutes = Number(p.get('cycle') ?? DAY_MS / 60_000);
+  if (!(cycleMinutes > 0 && cycleMinutes <= 1440)) throw new Error(`bad ?cycle= (real minutes per day, 0..1440): ${p.get('cycle')}`);
   const sp = nums(p.get('spawn'));
   const colRadius = Number(p.get('colRadius') ?? 200);
   if (!(colRadius > 0)) throw new Error(`bad ?colRadius= (metres > 0): ${p.get('colRadius')}`);
@@ -60,6 +68,8 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     pass: passStr,
     time,
     timeGiven: timeStr !== null,
+    hour,
+    cycleMinutes,
     spawnGiven: sp !== null,
     spawn: { E: sp?.[0] ?? OFFICE_EN.E, N: sp?.[1] ?? OFFICE_EN.N, headingDeg: sp?.[2] ?? 0 },
     hud: p.get('hud') !== '0',
