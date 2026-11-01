@@ -577,7 +577,7 @@ def build(
     road_graph = inputs.roads["json"] if inputs.roads else None
 
     def draped_paint():
-        rule = road_paint.markings(json.loads(road_graph) if road_graph else None)
+        rule = road_paint.markings(json.loads(road_graph) if road_graph else None, inputs.markings)
         paint = surfaces.paint_visual(*paint_args[:-1], [*inputs.markings, *rule], osm_decks)
         return paint, road_paint.summary(rule)
 

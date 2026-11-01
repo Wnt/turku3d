@@ -149,8 +149,14 @@ def _layout(attrs):
     return -width / 2 + bwd * w, w, width / 2
 
 
-def markings(graph: dict | None) -> list:
-    """Rule paint items ``(polygon, rgb, deck, kind)`` for one tile's v2 graph (empty for v1)."""
+EXPLICIT_CLEAR = 0.75  # m: rule lines stop this far from explicit OSM marking polygons
+
+
+def markings(graph: dict | None, explicit=()) -> list:
+    """Rule paint items ``(polygon, rgb, deck, kind)`` for one tile's v2 graph (empty for v1).
+
+    ``explicit`` holds the OSM marking polygons painted anyway (crossing ways): rule lines and stop
+    lines keep clear of them, also where a crossing way shares no node with the road."""
     import shapely
 
     if not graph or graph.get("revision", 1) < 2:
@@ -267,6 +273,16 @@ def markings(graph: dict | None) -> list:
         items.extend((bar, WHITE, deck, "crosswalk") for bar in bars)
     for poly, deck in stops.values():
         items.append((poly, WHITE, deck, "stop"))
+    if len(explicit):
+        clear = shapely.union_all(list(explicit)).buffer(EXPLICIT_CLEAR)
+        kept = []
+        for poly, rgb, deck, kind in items:
+            if kind != "crosswalk" and poly.intersects(clear):
+                poly = poly.difference(clear)
+                if poly.is_empty or poly.area < 0.01:
+                    continue
+            kept.append((poly, rgb, deck, kind))
+        items = kept
     return items
 
 

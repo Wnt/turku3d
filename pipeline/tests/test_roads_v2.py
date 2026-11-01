@@ -202,6 +202,15 @@ def test_rule_paint_follows_lanes_crossings_and_signals():
     )  # right-hand (south) half, ending at the signal
 
 
+def test_rule_lines_keep_clear_of_explicit_osm_markings():
+    """An OSM crossing way painted on its own, with no node on the road, still breaks the lines."""
+    zebra = shapely.box(318, 96, 326, 104)
+    plain = road_paint.markings(tile_graph(TILE_B))
+    cleared = road_paint.markings(tile_graph(TILE_B), [zebra])
+    assert any(p.intersects(zebra) for p, _, _, kind in plain if kind == "centre")
+    assert not any(p.distance(zebra) < 0.7 for p, _, _, kind in cleared if kind == "centre")
+
+
 def test_heights_cover_every_edge_and_densify():
     graph = tile_graph(TILE_A)
     out = json.loads(with_heights({"json": encode(graph)}, lambda x, z: 0.01 * x + 2)["json"])
