@@ -30,21 +30,43 @@ function activeOnly(Base: DataNodeClass): DataNodeClass {
 const ActivePointLights = activeOnly(PointLightDataNode);
 
 type Builder = THREE.NodeBuilder & { context: { materialLightings?: THREE.LightingNode[] } };
-/** r186's DynamicLightsNode builds its light list from scene lights only and drops the material lightings that the
- *  base LightsNode merges in: scene IBL, light maps and ambient occlusion (GTAO and each material's aoNode). Append
- *  them again, after the lights, as the base class orders them. */
+type LightNodeClass = new (light: THREE.Light) => THREE.LightingNode;
+const perLightNodes = new WeakMap<THREE.Light, THREE.LightingNode>();
+const isHemisphere = (light: THREE.Light) => (light as THREE.HemisphereLight).isHemisphereLight === true;
+
+/**
+ * Two corrections to r186's DynamicLightsNode, both found in browser renders:
+ * - It builds its list from scene lights only and drops the material lightings the base LightsNode merges in (scene
+ *   IBL, light maps, GTAO and each material's aoNode). They are appended again, after the lights, as the base orders them.
+ * - Its batched hemisphere loop cost about 2 ms of GPU per frame on an M1 Max at medium, by day, for one light.
+ *   The always-present hemisphere light therefore uses r186's ordinary per-light node (render-group uniforms).
+ */
 class GameLightsNode extends DynamicLightsNode {
   override setupLightsNode(builder: Builder) {
-    return [...super.setupLightsNode(builder), ...(builder.context.materialLightings ?? [])];
+    const self = this as unknown as { _lights: THREE.Light[] };
+    const all = self._lights;
+    self._lights = all.filter(light => !isHemisphere(light));
+    let batched: THREE.LightingNode[];
+    try { batched = super.setupLightsNode(builder); } finally { self._lights = all; }
+    const direct = all.filter(isHemisphere).map(light => {
+      let node = perLightNodes.get(light);
+      if (!node) {
+        const LightNode = builder.renderer.library.getLightNodeClass(light.constructor as never) as unknown as LightNodeClass;
+        perLightNodes.set(light, node = new LightNode(light));
+      }
+      return node;
+    });
+    return [...batched, ...direct, ...(builder.context.materialLightings ?? [])];
   }
 }
 
 /**
  * r186 DynamicLighting (batched uniform arrays; light counts never recompile) with point slots that exist from the
- * first compile, so lamps can switch on later without new pipelines. The shadowed sun keeps its per-light path; the
- * hemisphere ("artificial ambient") light is batched.
- * Budget: every batched light type adds uniform buffers to each lit fragment stage (point 3, hemisphere 3, spot 4)
- * and WebGPU guarantees only 12 per stage, so spot slots need a packed data node before they can join.
+ * first compile, so lamps can switch on later without new pipelines. The shadowed sun and the hemisphere ("artificial
+ * ambient") light keep per-light paths. Idle point slots still cost about 1 ms of GPU on an M1 Max at medium (the
+ * loop's code is compiled in), so mobile and low have none.
+ * Budget: every batched light type adds uniform buffers to each lit fragment stage (point 3, spot 4) and WebGPU
+ * guarantees only 12 per stage, so spot slots need a packed data node before they can join.
  */
 export class GameLighting extends DynamicLighting {
   constructor(readonly slots: LightSlots) {

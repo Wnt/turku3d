@@ -16,11 +16,12 @@ IBL intensity, hemisphere "artificial ambient" (0 by day), fog colour/range, exp
 night factor. The lit-window share is keyed by clock hour (15–60 %, peaking at 20:00, thinnest at 04:00).
 All of these are uniforms: the sun is never hidden and no light is added or removed, so day and night share every
 pipeline (`tests/unit/night-pipelines.test.ts` builds the real r186 programs at 13:00 and 23:30 on both backends).
-`renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 2 low,
+`renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
 4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
-re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops.
-Each batched light type costs uniform buffers per fragment stage (point 3, hemisphere 3, spot 4; WebGPU guarantees 12),
-so spot slots need a packed data node first; the pipeline test caps every tested program at 10.
+re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,
+and keeps the hemisphere light on r186's per-light node (the batched hemisphere loop cost about 2 ms GPU on an M1 Max).
+Each batched light type costs uniform buffers per fragment stage (point 3, spot 4; WebGPU guarantees 12), so spot
+slots need a packed data node first; the pipeline test caps every tested program at 10.
 Facade-kit walls light glazed cells at night (atlas glass is roughness 0.08); non-kit building walls use a
 2.6 × 3.2 m world grid gated by their ORM glass (or dark albedo). Each window's on/off state is an exact u32 hash of
 per-triangle constants (or its wall plane), its cell and two-hour epochs of the shared clock: no draw, asset or random state.

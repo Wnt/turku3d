@@ -9,7 +9,7 @@ export const QUALITY = {
     lights: { point: 0 } },
   low: { vegetation: { near: 40, mid: 130, far: 450, nearInstances: 384, midInstances: 1800, farInstances: 5000 }, shadowSize: 1024, splits: [50, 180], aoScale: 0.5, aoSamples: 4, aoStrength: 0.22,
     bloomScale: 0.25, bloomStrength: 0.035, temporalSubpixel: false, reflectionScale: 0.25, reflectionSlowFps: 8, detail: 0.035, saturation: 0.98,
-    lights: { point: 2 } },
+    lights: { point: 0 } },
   medium: { vegetation: { near: 65, mid: 190, far: 650, nearInstances: 1024, midInstances: 4000, farInstances: 10000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 8, aoStrength: 0.28,
     bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, detail: 0.055, saturation: 0.97,
     lights: { point: 4 } },
