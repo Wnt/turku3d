@@ -3,7 +3,7 @@
 /** Body regions the renderer tints per instance, in the bake's order. */
 export const REGIONS = ['skin', 'top', 'bottom', 'shoes', 'hair', 'inner', 'legwear'] as const;
 
-export interface WalkerClip { row: number; frames: number }
+interface WalkerClip { row: number; frames: number }
 export interface WalkerVariant {
   id: string;
   vertices: number;

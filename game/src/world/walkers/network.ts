@@ -40,7 +40,7 @@ export interface Chain {
   flags: number;
 }
 
-export interface WalkNode {
+interface WalkNode {
   x: number; z: number;
   /** hash32 of the quantised coordinates. */
   key: number;
@@ -52,7 +52,7 @@ export interface WalkNode {
 
 /** The part of one network segment inside a birth cell: chain arc [s0, s0 + length]. `forward` is true when the
  *  chain runs from the piece's smaller quantised end to its larger one (births are placed from the smaller end). */
-export interface Piece { chain: number; s0: number; length: number; forward: boolean; weight: number }
+interface Piece { chain: number; s0: number; length: number; forward: boolean; weight: number }
 export interface Cell { cx: number; cz: number; pieces: Piece[]; weighted: number }
 
 export interface WalkNetwork {
@@ -66,7 +66,7 @@ export interface WalkNetwork {
 export const cellKey = (cx: number, cz: number) => hash32(cx, cz);
 
 /** Walker density weight per metre of FOOT-only way, by its own class and the busiest street in the same cell. */
-export function pieceWeight(footClass: number, carClass: number): number {
+function pieceWeight(footClass: number, carClass: number): number {
   if (footClass >= 1) return 1.6; // pedestrianised service/residential street
   return [0.7, 0.85, 1.0, 1.4][carClass] ?? 1.4;
 }
@@ -247,7 +247,7 @@ function reversePairs(pts: number[]): number[] {
 }
 
 /** Calls back with each birth cell the segment crosses and the segment parameter range inside it. */
-export function forCells(x0: number, z0: number, x1: number, z1: number, visit: (cx: number, cz: number, t0: number, t1: number) => void) {
+function forCells(x0: number, z0: number, x1: number, z1: number, visit: (cx: number, cz: number, t0: number, t1: number) => void) {
   const ts = [0, 1];
   for (const [a, b] of [[x0, x1], [z0, z1]]) {
     if (a === b) continue;

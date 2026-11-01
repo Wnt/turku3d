@@ -5,7 +5,7 @@ import type { RayFilter, RayHit } from '../../physics/protocol';
 import type { Chain } from './network';
 
 /** Metres between samples along a chain; walkers interpolate between them. */
-export const HEIGHT_SPACING = 2;
+const HEIGHT_SPACING = 2;
 /** A sample higher than both neighbours by this much is an overhead deck, re-cast from just above them. */
 const OVERHEAD = 2.5;
 const RETRY_MS = 1500;

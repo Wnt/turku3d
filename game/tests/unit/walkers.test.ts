@@ -12,7 +12,7 @@ import { REGIONS, parseWalkerAsset, type WalkerAsset } from '../../src/world/wal
 import { buildWalkNetwork, hash32 } from '../../src/world/walkers/network';
 import { MAX_TRAVEL, Population, WALKER, type Walker } from '../../src/world/walkers/population';
 import { RING, Ring, type RingView } from '../../src/world/walkers/ring';
-import { WALKER_CAPS, walkerCap } from '../../src/world/walkers';
+import { WALKER_CAPS, liveWalkerCount, walkerCap, walkersNear } from '../../src/world/walkers';
 import { WalkerMeshes } from '../../src/world/walkers/visuals';
 
 const TILE = 250;
@@ -76,6 +76,12 @@ const key = (w: Walker) => [w.id, w.x, w.z, w.yaw, w.distance, w.idleTime, w.mov
 const sorted = (list: Walker[]) => list.map(key).sort();
 
 describe('deterministic population', () => {
+  test('the scorecard reads the same walkers from tile data alone, and the live count starts at zero', () => {
+    const network = buildWalkNetwork(parts(...ALL));
+    expect(sorted(walkersNear(network, 250, 250, 50, T0))).toEqual(sorted(new Population(network).near(250, 250, 50, T0)));
+    expect(liveWalkerCount()).toBe(0);
+  });
+
   test('two clients with the same clock get identical walkers', () => {
     const a = new Population(buildWalkNetwork(parts(...ALL))), b = new Population(buildWalkNetwork(parts(...ALL)));
     for (let k = 0; k < 6; k++) {

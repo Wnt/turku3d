@@ -17,7 +17,7 @@ export { buildWalkNetwork } from './network';
 
 /** Drawn walkers per quality tier (street-richness plan §7); `?walkers=N` overrides. Phones stay at zero. */
 export const WALKER_CAPS: Record<QualityTier, number> = { mobile: 0, low: 10, medium: 30, high: 50 };
-export const MAX_WALKERS = 200;
+const MAX_WALKERS = 200;
 export function walkerCap(quality: QualityTier, override: number | null): number {
   return Math.max(0, Math.min(MAX_WALKERS, override ?? WALKER_CAPS[quality]));
 }
@@ -35,7 +35,7 @@ const PALETTE = {
 const pick = (id: number, salt: number, list: readonly number[]) => list[hash32(id, salt) % list.length];
 
 type Raycast = (origin: V3, dir: V3, maxToi: number, filter: RayFilter) => Promise<RayHit | null>;
-export interface WalkerOptions {
+interface WalkerOptions {
   cap: number;
   raycast: Raycast;
   /** Shared UTC milliseconds (the day clock synchronised to the multiplayer server). */
@@ -44,9 +44,9 @@ export interface WalkerOptions {
   graphs: () => readonly RoadGraphJson[];
 }
 
-let active: Walkers | null = null;
+const systems = new Set<Walkers>();
 /** Walkers drawn by this client right now (Phase 0 richness scorecard). */
-export function liveWalkerCount(): number { return active?.count ?? 0; }
+export function liveWalkerCount(): number { let n = 0; for (const s of systems) n += s.count; return n; }
 
 const SCAN_MS = 400, GRAPH_POLL_MS = 1000, RAYS_PER_FRAME = 24, YAW_RATE = 8, IDLE_SECONDS = 2.5;
 
@@ -76,10 +76,8 @@ export class Walkers {
     this.group.name = 'walkers';
     parent.add(this.group);
     this.heights = new GroundHeights(options.raycast);
-    active = this;
+    systems.add(this);
   }
-
-  get cap() { return this.options.cap; }
 
   async load(url: string) {
     if (this.options.cap <= 0) return;
@@ -203,6 +201,6 @@ export class Walkers {
     this.meshes?.dispose();
     this.group.removeFromParent();
     this.ring.clear();
-    if (active === this) active = null;
+    systems.delete(this);
   }
 }

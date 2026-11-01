@@ -79,7 +79,7 @@ The same commands are available from the repo root through `mk/game.mk`: `make g
 ## Audio
 
 Game audio v1 adds material footsteps, positional car/impact/door effects, city/river/gull/traffic/wind ambience,
-and a connection blip. The Audio panel controls master and channel volumes. D-pad down/N mutes; Menu/Escape pauses.
+a crowd murmur that follows the ambient walkers within 40 m, and a connection blip. The Audio panel controls master and channel volumes. D-pad down/N mutes; Menu/Escape pauses.
 Audio unlocks on first input; if Chrome keeps it suspended after gamepad input, click once or press a key.
 See [audio setup and tests](src/audio/README.md) and [CC0 sources](public/assets/audio/LICENSES.md).
 
@@ -151,6 +151,7 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `quality=mobile\|low\|medium\|high` | Phones/tablets default to mobile; desktops and fixed-camera QA default to medium. Mobile uses one smaller CSM cascade and sky reflections, without GTAO or bloom. Phones/tablets pace play at 30 FPS and cap output at 720p regardless of the input device. See [render budgets](src/render/README.md). |
 | `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
 | `hud=0` | Start with the HUD hidden. |
+| `walkers=N` | Ambient walker cap override, 0–200 (0 disables them). Default per quality: mobile 0, low 10, medium 30, high 50. See [walkers](src/world/walkers/README.md). |
 | `cam=...` | Visual QA camera, see below. |
 
 ## Visual QA render contract (D8)
@@ -201,6 +202,7 @@ src/world/tiles.ts          TilesRenderer + GLTFExtensionsPlugin(KTX2Loader, Mes
 src/world/manifest.ts       manifest.json loader + origin/grid assertions
 src/world/collisionStreaming.ts   .col tiles within radius -> worker (transferable ArrayBuffer)
 src/world/releaseSwap.ts    a new tile release behind /tiles applied in place (localhost game; see src/world/README.md)
+src/world/walkers/          deterministic ambient walkers on FOOT ways, VAT-instanced bodies (see its README)
 src/physics/protocol.ts     worker message protocol (typed)
 src/physics/worker.ts       the worker; src/physics/client.ts is the main-thread side
 src/physics/world.ts        Rapier world: tile colliders, KCC, vehicle integration, camera sphere casts and raycasts
@@ -212,6 +214,7 @@ src/actors/                 player, foot IK, fixed-state interpolation, car visu
 src/ui/hud.ts               debug HUD
 scripts/make-dev-tiles.mjs  dummy tileset generator (also a minimal .col v1.0 RAW writer)
 scripts/prepare-character.mjs   retargets the CC0 human/outfit to UAL and compresses the GLB
+scripts/bake-walkers.mjs    three CC0 outfits on the UAL rig -> walker vertex animation texture (public/assets/walkers)
 public/dev-tiles/           generated dummy tileset (small; committed so build/tests work offline)
 public/assets/              CC0 character, see public/assets/LICENSES.md
 public/basis/               basis transcoder (copied from three/examples/jsm/libs/basis)

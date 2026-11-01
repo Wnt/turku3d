@@ -10,7 +10,7 @@ import {
 import { GOLDEN_FRACTION, fibonacciDirection, type WalkerAsset, type WalkerVariant } from './asset';
 
 /** Per-vertex: (VAT column, body region). Per instance: clip rows and phases, and packed sRGB tints. */
-export const WALKER_ATTRIBUTES = { vertex: 'walkerVertex', anim: 'walkerAnim', look: 'walkerLook', trim: 'walkerTrim' } as const;
+const WALKER_ATTRIBUTES = { vertex: 'walkerVertex', anim: 'walkerAnim', look: 'walkerLook', trim: 'walkerTrim' } as const;
 
 /** Packs an 8-bit sRGB colour exactly into one float (24 bits fit f32's mantissa). */
 export const packColour = (hex: number) => hex & 0xffffff;
@@ -64,7 +64,7 @@ export class WalkerMaterial extends THREE.MeshStandardNodeMaterial {
   }
 }
 
-export function vatTexture(asset: WalkerAsset): THREE.DataTexture {
+function vatTexture(asset: WalkerAsset): THREE.DataTexture {
   const texture = new THREE.DataTexture(asset.vat.data, asset.vat.width, asset.vat.height, THREE.RGBAFormat, THREE.HalfFloatType);
   texture.name = 'walker-vat';
   texture.minFilter = texture.magFilter = THREE.NearestFilter;
@@ -75,7 +75,7 @@ export function vatTexture(asset: WalkerAsset): THREE.DataTexture {
 }
 
 /** Bind pose (first idle frame) for bounds and the attribute layout; the shader replaces it every frame. */
-export function walkerGeometry(asset: WalkerAsset, variant: WalkerVariant, capacity: number): THREE.BufferGeometry {
+function walkerGeometry(asset: WalkerAsset, variant: WalkerVariant, capacity: number): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   const n = variant.vertices, position = new Float32Array(3 * n), normal = new Float32Array(3 * n), vertex = new Float32Array(2 * n);
   const row = variant.rowBase + variant.idle.row, data = asset.vat.data, width = asset.vat.width;

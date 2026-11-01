@@ -23,7 +23,7 @@ export function inView(view: RingView, x: number, z: number): boolean {
 }
 
 /** Ring distance: true distance in view, scaled up out of view. */
-export function ringScore(view: RingView, x: number, z: number): number {
+function ringScore(view: RingView, x: number, z: number): number {
   const d = Math.hypot(x - view.x, z - view.z);
   return inView(view, x, z) ? d : d * RING.inView / RING.outOfView;
 }
