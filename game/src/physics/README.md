@@ -184,9 +184,11 @@ shared cycle, so every client thins alike; `?trafficDensity=` is per client, and
 of a higher one's cars. The ring is per client: positions agree, but which cars a client draws near the edge
 of its ring, and how long a deferred car stays, may differ.
 
-Defaults per quality tier: density ×1 everywhere; drawn-car caps mobile 10, low 15, medium 30, high 40. Around
-the centre at 13:00 about 8–14 cars are within 150 m on v1 tiles (every slot used to carry one: 26–48), at
-22:00 about 2–4, at 03:00 under one.
+Defaults per quality tier: density ×1 everywhere; drawn-car caps mobile 10, low 15, medium 30, high 40. On the
+published v1 tiles around the centre (medium tier) 3–7 cars are within 150 m of the player at 13:00 and 1–2 at
+22:00, where every slot used to carry one (14–21 within 150 m at any hour, the cap of 30 drawn). On a v1 tile a
+living street drives like a residential street (about 48 cars an hour each way at 13:00, 12 at 22:00); with
+revision 2 data it carries about 5 and 1.
 
 `window.__game.traffic.snapshot()` gives the cap, the density multiplier, the density clock hour, the drawn
 count, `moving_cars` (engine x, z, the `--spawner-state` format of `scripts/dev/richness_scorecard.py`),
