@@ -131,6 +131,8 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
   return prepared;
 };
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
+/** Set by the bench probe (runQa): true once its scene has settled. */
+let benchSettled = () => false;
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
@@ -138,8 +140,9 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
-  // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts.
-  env.updateShadows(!params.qa && worldLoad.snapshot().phase === 'ready');
+  // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
+  // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
+  env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
   post?.grade(env.sample);
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
@@ -245,6 +248,7 @@ async function runQa() {
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
+  if (bench) benchSettled = () => bench.settled;
   const publishBench = (result: Record<string, unknown> | null) => {
     if (!result) return;
     window.__bench = result;

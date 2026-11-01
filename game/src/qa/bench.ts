@@ -113,6 +113,9 @@ export class CameraBench {
     };
   }
 
+  /** The scene has settled: from here on the frame behaves as in play (night cascades stay frozen, as in play). */
+  get settled() { return this.phase !== 'settle'; }
+
   /** Call after every rendered frame once the view has settled. Resolves when the result is published. */
   async frame(): Promise<Record<string, unknown> | null> {
     if (this.phase === 'settle') {

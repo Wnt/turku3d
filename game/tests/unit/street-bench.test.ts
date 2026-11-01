@@ -83,9 +83,11 @@ describe('bench draw attribution', () => {
     clock = 1950;
     expect(await frame(9)).toBeNull();
     expect(resets).toBe(0);
+    expect(bench.settled).toBe(false); // night cascades keep rendering while the scene loads
     clock = 2850;
     expect(await frame(9)).toBeNull(); // 1850 ms since the download: settled, warm-up starts with the next frame
     expect(resets).toBe(0);
+    expect(bench.settled).toBe(true); // from here on night cascades freeze, as in play
     expect(await frame(9)).toBeNull(); // warm 1 (not counted)
     expect(await frame(9)).toBeNull(); // warm 2: measurement starts after this frame
     expect(resets).toBe(1);
