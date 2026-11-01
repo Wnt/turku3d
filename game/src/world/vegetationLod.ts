@@ -1,8 +1,9 @@
 import * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../render/quality';
 import { PreparationBudget } from '../render/preparationBudget';
-import type { NatureAsset, NatureLibrary } from './nature/library';
+import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
 import { natureAsset, natureScale, natureTint } from './nature/species';
+import { TILE_SHADOW_LAYER } from './shadowBatch';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
@@ -150,15 +151,21 @@ export class VegetationLod {
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
       matrices.setUsage(THREE.DynamicDrawUsage); colors.setUsage(THREE.DynamicDrawUsage);
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
-      return lod.parts.map(part => {
-        const batch = new THREE.InstancedMesh(part.geometry, part.material, count);
-        batch.instanceMatrix = matrices; batch.instanceColor = colors;
-        batch.userData = { ...owner.userData, vegetationLod: true, nature: asset.name, level, instance_object_ids: [] };
-        batch.receiveShadow = !impostor; batch.castShadow = level === 0;
-        batch.visible = false; batch.count = 0;
-        root.add(batch);
-        return batch;
-      });
+      const batch = (part: NaturePart, shadowProxy = false) => {
+        const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
+        mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
+        mesh.userData = { ...owner.userData, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: [] };
+        mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
+        if (shadowProxy) mesh.layers.set(TILE_SHADOW_LAYER);
+        mesh.visible = false; mesh.count = 0;
+        root.add(mesh);
+        return mesh;
+      };
+      const parts = lod.parts.map(part => batch(part));
+      // Near trees cast their shadow with the reduced LOD on the shadow-only layer: the same canopy cards at about a
+      // third of the triangles, as GTA's per-tree shadow proxies (docs/reports/environment-assets.md).
+      if (level === 0 && asset.lods.length > 1) parts.push(...asset.lods[1].parts.map(part => batch(part, true)));
+      return parts;
     });
     source.parent!.add(root);
     return { root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };

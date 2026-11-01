@@ -368,7 +368,6 @@ export async function propTiles(src) {
   }
   const woodNormal = await resized(acg(src, 'PaintedWood008A', 'NormalGL', 'jpg', '1K-JPG'), 512, 512);
   const granite = calibrate(await resized(acg(src, 'Granite003B', 'Color', 'jpg', '1K-JPG'), 512, 512), 0.20, 0.8);
-  const graniteRed = calibrate(await resized(acg(src, 'Granite006B', 'Color', 'jpg', '1K-JPG'), 512, 512), 0.15, 0.85);
   const graniteNormal = await resized(acg(src, 'Granite003B', 'NormalGL', 'jpg', '1K-JPG'), 512, 512);
-  return { wood, woodNormal, granite, graniteRed, graniteNormal };
+  return { wood, woodNormal, granite, graniteNormal };
 }

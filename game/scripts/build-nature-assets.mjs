@@ -195,7 +195,6 @@ const tex = {
   wood: await addTexture('nature_wood', props.wood, { srgb: true }),
   woodNormal: await addTexture('nature_wood_normal', props.woodNormal, { srgb: false, normal: true }),
   granite: await addTexture('nature_granite', props.granite, { srgb: true }),
-  graniteRed: await addTexture('nature_granite_red', props.graniteRed, { srgb: true }),
   graniteNormal: await addTexture('nature_granite_normal', props.graniteNormal, { srgb: false, normal: true }),
 };
 const materials = {

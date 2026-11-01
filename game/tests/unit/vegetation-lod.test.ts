@@ -21,7 +21,7 @@ const generated = (model: THREE.Object3D, source: THREE.Object3D) => {
   model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== source) batches.push(o as THREE.InstancedMesh); });
   return batches;
 };
-const drawn = (batches: THREE.InstancedMesh[]) => batches.filter(b => b.visible && b.material !== library.materials.bark).reduce((n, b) => n + b.count, 0);
+const drawn = (batches: THREE.InstancedMesh[]) => batches.filter(b => b.visible && !b.userData.shadowProxy && b.material !== library.materials.bark).reduce((n, b) => n + b.count, 0);
 
 describe('species mapping', () => {
   it('maps tile variants and inventory ids to Turku species deterministically', () => {
@@ -53,13 +53,15 @@ describe('vegetation LOD', () => {
     const batches = generated(model, mesh);
     expect(mesh.visible).toBe(false);
     const species = new Set(batches.map(b => b.userData.nature));
-    // Per species: bark + leaves at LOD 0 and 1, the impostor at LOD 2.
-    expect(batches).toHaveLength(species.size * 5);
-    expect(batches.every(b => b.geometry === library.asset(b.userData.nature).lods[b.userData.level].parts.find(p => p.geometry === b.geometry)?.geometry)).toBe(true);
+    // Per species: bark + leaves at LOD 0 and 1, LOD 1's bark + leaves as LOD 0's shadow proxy, the impostor at LOD 2.
+    expect(batches).toHaveLength(species.size * 7);
+    const source = (b: THREE.InstancedMesh) => library.asset(b.userData.nature).lods[b.userData.shadowProxy ? 1 : b.userData.level];
+    expect(batches.every(b => source(b).parts.some(p => p.geometry === b.geometry && p.material === b.material))).toBe(true);
     const visible = batches.filter(m => m.visible);
     expect(visible.length).toBeGreaterThan(0);
     expect(drawn(batches)).toBeLessThan(mesh.count);
-    expect(batches.filter(b => b.userData.level > 0).every(b => !b.castShadow)).toBe(true);
+    // Only the shadow-layer proxies cast shadows; they never draw in colour passes.
+    expect(batches.filter(b => b.castShadow).every(b => b.userData.shadowProxy && b.layers.mask === 2)).toBe(true);
     // Parts of one LOD share one matrix and one tint buffer.
     for (const b of batches) {
       const sibling = batches.find(o => o !== b && o.userData.nature === b.userData.nature && o.userData.level === b.userData.level && o.parent === b.parent);
@@ -80,7 +82,10 @@ describe('vegetation LOD', () => {
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
     const nearCount = (tier: 'low' | 'medium') => {
       const lod = new VegetationLod(tier, library); lod.add(model); lod.update(camera);
-      const count = generated(model, mesh).filter(b => b.visible && b.userData.level === 0 && b.material === library.materials.leaves).reduce((n, b) => n + b.count, 0);
+      const near = generated(model, mesh).filter(b => b.visible && b.userData.level === 0 && b.material === library.materials.leaves);
+      const count = near.filter(b => !b.userData.shadowProxy).reduce((n, b) => n + b.count, 0);
+      // Every near tree also casts its shadow through the proxy.
+      expect(near.filter(b => b.userData.shadowProxy).reduce((n, b) => n + b.count, 0)).toBe(count);
       lod.remove(model);
       return count;
     };

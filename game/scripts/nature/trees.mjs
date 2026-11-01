@@ -302,8 +302,11 @@ export function meshTree(sk, sp, lod, seed) {
     tube(bark, b, segs[b.level], sp.bark, sp.barkTint ?? [1, 1, 1], barkAo, v, rings[b.level]);
     v += 0.37;
   }
-  const anchors = lod === 0 ? sk.anchors : sk.anchors.filter(() => r() < (sp.lod1Keep ?? 0.35));
-  const grow = lod === 0 ? 1 : 1 / Math.sqrt(sp.lod1Keep ?? 0.35) * 0.95;
+  // The reduced LOD keeps the whole canopy as flat cards (2 triangles instead of 4) and saves on bark: the crown's
+  // silhouette and density do not change at the switch. Trees with very many cards keep a large share at a larger size.
+  const keep = lod === 0 ? 1 : sp.lod1Keep ?? 1;
+  const anchors = keep === 1 ? sk.anchors : sk.anchors.filter(() => r() < keep);
+  const grow = 1 / Math.sqrt(keep);
   for (const a of anchors) {
     const out = radial(a.p);
     let up;
@@ -340,7 +343,7 @@ export const SPECIES = {
   pine: { kind: 'pine', cell: 'pine', bark: 'pine', height: 17, radius: 3.6, trunk: 0.24, crownBase: 0.58, whorl: 0.75, perWhorl: [3, 5], elev: [8, 38], ratio: 0.4,
     up1: 0.12, droop1: 0.04, noise: 0.18, d2: 1.6, l2ratio: 0.45, hang: 0.0, droop2: 0.05, card: 1.05, cards: 300, segs: [10, 5, 3, 0],
     barkTint: p => p[1] > 7 ? [1.25, 0.86, 0.62] : [1, 1, 1] },
-  spruce: { kind: 'spruce', cell: 'spruce', bark: 'spruce', height: 17, radius: 3.0, trunk: 0.25, crownBase: 0.03, whorl: 0.55, perWhorl: [4, 5], elev: [-22, 32], ratio: 0.35,
+  spruce: { kind: 'spruce', cell: 'spruce', bark: 'spruce', height: 17, radius: 3.0, trunk: 0.25, crownBase: 0.03, lod1Keep: 0.6, whorl: 0.55, perWhorl: [4, 5], elev: [-22, 32], ratio: 0.35,
     up1: 0.18, droop1: 0.12, noise: 0.06, d2: 3.2, l2ratio: 0.45, hang: 0.55, droop2: 0.6, card: 1.0, cardSpacing: 0.5, cards: 560, segs: [10, 5, 3, 0],
     cardAlong: 1.0, cardOut: 0.35, cardUp: -0.15, flatCards: 0.55, cardRoll: 0.5 },
   lilac: { kind: 'shrub', cell: 'lilac', bark: 'smooth', height: 3.4, radius: 1.8, stems: 8, base: 0.3, elev: [55, 82], stem: 0.035, droop: 0.12, d2: 2.4, l2: 1.0,
