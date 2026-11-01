@@ -1,5 +1,5 @@
 {
-  "about": "Turku3D's own look across the day, chosen by eye. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength. skyZenith/skyHorizon are added to the analytic sky below the horizon: the blue hour, then the city-lit night. mesopic sets how far dim light loses colour at full night.",
+  "about": "Turku3D's own look across the day, chosen by eye. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength. skyZenith/skyHorizon are added to the analytic sky below the horizon: the blue hour, then the city-lit night. cloudLight/cloudShade (times cloudBrightness, in sky units) light the cloud layer's sunlit tops and shaded bases; at night the bases take the city glow. mesopic sets how far dim light loses colour at full night.",
   "elevation": [-90, -12, -6, -3, -1, 2, 6, 12, 25, 90],
   "rows": {
     "sunIntensity":         [0,         0,         0,         0,         0,         0.9,       2.0,       3.2,       3.2,       3.2],
@@ -16,7 +16,10 @@
     "bloomThreshold":       [0.85,      0.85,      0.9,       1.05,      1.2,       1.4,       1.5,       1.5,       1.5,       1.5],
     "night":                [1,         1,         0.95,      0.7,       0.45,      0.15,      0,         0,         0,         0],
     "skyZenith":            ["#070b16", "#080d1a", "#12203e", "#1b2e5a", "#14244a", "#000000", "#000000", "#000000", "#000000", "#000000"],
-    "skyHorizon":           ["#302d38", "#33303a", "#3c4263", "#525676", "#3a3a52", "#000000", "#000000", "#000000", "#000000", "#000000"]
+    "skyHorizon":           ["#302d38", "#33303a", "#3c4263", "#525676", "#3a3a52", "#000000", "#000000", "#000000", "#000000", "#000000"],
+    "cloudLight":           ["#4c566e", "#4c566e", "#5c6080", "#b07c78", "#f09070", "#ffac7c", "#ffd2b2", "#fff0e2", "#ffffff", "#ffffff"],
+    "cloudShade":           ["#8a6248", "#8a6248", "#5e5672", "#6c5c7c", "#7c6c8a", "#8c8498", "#98a0b2", "#a4aec0", "#a8b2c2", "#a8b2c2"],
+    "cloudBrightness":      [0.2,       0.2,       0.22,      0.32,      0.45,      0.65,      1.0,       1.35,      1.5,       1.5]
   },
   "litFraction": {
     "hour":  [0,    2,    4,    6,    8,    12,   16,   18,   20,   21,   22,   23,   24],

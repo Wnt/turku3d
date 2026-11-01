@@ -1,4 +1,4 @@
-// Analytic Rayleigh/Mie sky, PMREM sky IBL, street-scale CSM and the timecycle-driven day/night look.
+// Analytic Rayleigh/Mie sky with a two-layer cloud deck, PMREM sky IBL, street-scale CSM and the timecycle-driven day/night look.
 import * as THREE from 'three/webgpu';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
@@ -10,12 +10,14 @@ import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
 import { litFraction, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
+import { CloudLayer } from './clouds';
 
 /** Below this the sky is dark enough that IBL only needs a slow refresh. */
 const DEEP_NIGHT = -12;
 
 export class Environment {
   readonly sky = new SkyMesh();
+  readonly clouds: CloudLayer;
   readonly sun = new THREE.DirectionalLight(0xfff2e0, 3);
   /** Artificial ambient (cool sky, warm street bounce). Always present; intensity 0 by day. */
   readonly hemisphere = new THREE.HemisphereLight(0xffffff, 0xffffff, 0);
@@ -47,12 +49,13 @@ export class Environment {
   /** 0 by day, 1 at full night: the same value the shaders read from nightUniforms.night. */
   get nightFactor() { return this.sample.night; }
 
-  constructor(private scene: THREE.Scene, private renderer: THREE.WebGPURenderer, tier: QualityTier) {
+  constructor(private scene: THREE.Scene, private renderer: THREE.WebGPURenderer, tier: QualityTier, deterministic = false) {
     const q = QUALITY[tier];
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.sky.scale.setScalar(4500);
     this.sky.turbidity.value = 2.5;
     this.sky.rayleigh.value = 1.5;
+    // SkyMesh's own single-layer clouds stay off: CloudLayer draws ours over the composed sky.
     this.sky.cloudCoverage.value = 0;
     this.sky.cloudSpeed.value = 0;
     // The analytic sky is black below about -10 degrees. A twilight/night term (the blue hour, then zenith blue to a
@@ -61,7 +64,8 @@ export class Environment {
     const view = normalize(positionWorld.sub(cameraPosition));
     const horizon = pow(float(1).sub(max(view.y, 0)), 4);
     const night = mix(this.skyZenith, this.skyHorizon, horizon);
-    this.sky.material.colorNode = vec4(scattered.rgb.add(night), 1);
+    this.clouds = new CloudLayer(deterministic);
+    this.sky.material.colorNode = vec4(this.clouds.composite(view, scattered.rgb.add(night)), 1);
     // Mesh.clone shares the sky material/uniforms; keep one IBL source mesh across time edits.
     this.skyScene.add(this.sky.clone());
     // The sky is a back-faced unit box scaled to a 2250 m half-extent (corners 3.9 km, inside the 6 km far plane).
@@ -139,6 +143,7 @@ export class Environment {
     if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setRGB(...s.fogColor);
     this.skyZenith.value.setRGB(...s.skyZenith);
     this.skyHorizon.value.setRGB(...s.skyHorizon);
+    this.clouds.apply(s, this.sunDir);
     this.applyFog();
     nightUniforms.night.value = s.night;
     nightUniforms.hour.value = hour;
@@ -160,6 +165,12 @@ export class Environment {
   }
 
   /** Regenerate only after a time edit, not every frame. Reuse the target so time edits keep material bindings and shader programs warm. */
+  /** Browser only: fetch the cloud noise; the sky IBL is renewed once the clouds appear. */
+  async loadClouds() {
+    await this.clouds.load();
+    this.iblDirty = true;
+  }
+
   updateIBL() {
     if (!this.iblDirty) return;
     this.iblDirty = false;
@@ -192,6 +203,7 @@ export class Environment {
     this.pmrem.dispose();
     this.sky.geometry.dispose();
     this.sky.material.dispose();
+    this.clouds.dispose();
     this.scene.remove(this.sky, this.sun, this.sun.target, this.hemisphere, ...this.lamps.point);
     this.scene.environment = null;
   }

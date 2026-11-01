@@ -23,14 +23,18 @@ export interface TimecycleSample {
   /** Twilight and night sky added to the analytic sky (black by day). */
   skyZenith: Rgb;
   skyHorizon: Rgb;
+  /** Cloud layer colours (render/clouds.ts), scaled by cloudBrightness in sky units. */
+  cloudLight: Rgb;
+  cloudShade: Rgb;
+  cloudBrightness: number;
 }
 
 type ScalarRow = 'sunIntensity' | 'environmentIntensity' | 'hemisphereIntensity' | 'fogNear' | 'fogFar' | 'exposure'
-  | 'bloomStrength' | 'bloomThreshold' | 'night';
-type ColorRow = 'sunColor' | 'hemisphereSky' | 'hemisphereGround' | 'fogColor' | 'skyZenith' | 'skyHorizon';
+  | 'bloomStrength' | 'bloomThreshold' | 'night' | 'cloudBrightness';
+type ColorRow = 'sunColor' | 'hemisphereSky' | 'hemisphereGround' | 'fogColor' | 'skyZenith' | 'skyHorizon' | 'cloudLight' | 'cloudShade';
 const SCALARS: readonly ScalarRow[] = ['sunIntensity', 'environmentIntensity', 'hemisphereIntensity', 'fogNear', 'fogFar',
-  'exposure', 'bloomStrength', 'bloomThreshold', 'night'];
-const COLORS: readonly ColorRow[] = ['sunColor', 'hemisphereSky', 'hemisphereGround', 'fogColor', 'skyZenith', 'skyHorizon'];
+  'exposure', 'bloomStrength', 'bloomThreshold', 'night', 'cloudBrightness'];
+const COLORS: readonly ColorRow[] = ['sunColor', 'hemisphereSky', 'hemisphereGround', 'fogColor', 'skyZenith', 'skyHorizon', 'cloudLight', 'cloudShade'];
 
 /** sRGB hex to linear-light RGB, the renderer's working space. */
 export function linearRgb(hex: string): Rgb {
@@ -64,7 +68,8 @@ export function timecycle(elevation: number): TimecycleSample {
   };
   const sample = Object.fromEntries(SCALARS.map(row => [row, scalar(row)])) as Record<ScalarRow, number>;
   return { ...sample, sunColor: colour('sunColor'), hemisphereSky: colour('hemisphereSky'),
-    hemisphereGround: colour('hemisphereGround'), fogColor: colour('fogColor'), skyZenith: colour('skyZenith'), skyHorizon: colour('skyHorizon') };
+    hemisphereGround: colour('hemisphereGround'), fogColor: colour('fogColor'), skyZenith: colour('skyZenith'), skyHorizon: colour('skyHorizon'),
+    cloudLight: colour('cloudLight'), cloudShade: colour('cloudShade') };
 }
 
 /** Night factor for a sun elevation in degrees: 0 by day, 1 at full night. Pure; identical on every client. */

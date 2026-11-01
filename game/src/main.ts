@@ -19,6 +19,7 @@ import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
+import { loadNatureLibrary } from './world/nature/library';
 import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
@@ -94,7 +95,9 @@ const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
-const env = new Environment(scene, renderer, params.quality);
+const deterministic = !!params.qa && !params.motion;
+const env = new Environment(scene, renderer, params.quality, deterministic);
+if (!idPass) env.loadClouds().catch(e => console.warn(`clouds: ${String(e)}`));
 /** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
 const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params.hour }
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
@@ -111,9 +114,9 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-const vegetation = idPass ? null : new VegetationLod(params.quality);
+const vegetation = idPass ? null : new VegetationLod(params.quality, loadNatureLibrary(renderer, env, deterministic));
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
-const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
+const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, deterministic);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
   retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
 });
