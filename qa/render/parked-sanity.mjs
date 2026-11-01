@@ -28,6 +28,7 @@ const spots = [
   { name: 'rauhankatu', tile: 't0_-5_1', at: [-1180, 318.7], yaw: 58.6, pitch: -4 },
   { name: 'heikkilankatu-detail', tile: 't0_-5_1', top: [-1072, 310], height: 70 },
   { name: 'strips-detail', tile: 't0_-5_1', top: [-1200, 395], height: 70 },
+  { name: 'sloped-lot', tile: 't0_-5_1', at: [-1012, 432], yaw: 300, pitch: -18, rise: 6 },
   { name: 'office-lot', tile: 't0_0_0', at: [58, 85], yaw: 146.6, pitch: -6 },
   { name: 'office-kerb', tile: 't0_0_0', at: [8, 148], yaw: 147, pitch: -4 },
   { name: 'office-east-lot', tile: 't0_0_0', at: [190, 132], yaw: 146.6, pitch: -6 },
@@ -88,7 +89,7 @@ window.audit=()=>{const gaps=[];manifest.vehicles.filter((c,i)=>i%3===0&&slotSho
 const perf=new PerformanceMonitor(renderer,'webgpu');
 window.probe={async view(v){
  if(v.top){const g=groundAt(v.top[0],v.top[1]);camera.fov=60;camera.position.set(v.top[0],g+v.height,v.top[1]+0.01);camera.lookAt(v.top[0],g,v.top[1]);}
- else{const y=groundAt(v.at[0],v.at[1])+1.7,yaw=v.yaw*Math.PI/180,p=v.pitch*Math.PI/180;
+ else{const y=groundAt(v.at[0],v.at[1])+(v.rise??1.7),yaw=v.yaw*Math.PI/180,p=v.pitch*Math.PI/180;
   camera.fov=60;camera.position.set(v.at[0],y,v.at[1]);
   camera.lookAt(v.at[0]+Math.sin(yaw)*Math.cos(p)*10,y+Math.sin(p)*10,v.at[1]-Math.cos(yaw)*Math.cos(p)*10);}
  camera.updateProjectionMatrix();camera.updateMatrixWorld();env.follow(camera.position);env.updateIBL();
