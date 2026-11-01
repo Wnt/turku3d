@@ -79,7 +79,7 @@ The same commands are available from the repo root through `mk/game.mk`: `make g
 ## Audio
 
 Game audio v1 adds material footsteps, positional car/impact/door effects, city/river/gull/traffic/wind ambience,
-and a connection blip. The Audio panel controls master and channel volumes. D-pad down/N mutes; Menu/Escape pauses.
+a crowd murmur that follows the ambient walkers within 40 m, and a connection blip. The Audio panel controls master and channel volumes. D-pad down/N mutes; Menu/Escape pauses.
 Audio unlocks on first input; if Chrome keeps it suspended after gamepad input, click once or press a key.
 See [audio setup and tests](src/audio/README.md) and [CC0 sources](public/assets/audio/LICENSES.md).
 
@@ -146,12 +146,16 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `tiles=<url>` | Override the scene tileset (also overrides `scene=dev`). Default: `../tiles/tileset.json`, resolving to sibling `tiles/` on Pages and `/tiles/` on local servers. |
 | `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
 | `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
-| `time=<ISO-8601>` | Sun and sky IBL (NOAA formula, Turku lat/lon). Default: `2026-10-15T14:00:00+03:00`; play mode also has a time slider. |
+| `time=HH:MM` | Freeze a local view of the play cycle at that clock hour (sun path, timecycle, lit windows), e.g. `13:00`, `19:30`, `22:00`. |
+| `time=<ISO-8601>` | Freeze a calendar instant with the astronomical sun (NOAA formula, Turku lat/lon) under the same timecycle. QA default: `2026-10-15T14:00:00+03:00`. |
+| `cycle=<minutes>` | Local length of the play cycle (default 30, the shared cycle; other values only change this browser's view). |
 | `aa=off\|taa\|fxaa` | AA diagnostic; default `taa`, or `fxaa` for mobile quality. `off` and `fxaa` disable temporal jitter/history and AO temporal sampling; ID passes always bypass AA. |
 | `quality=mobile\|low\|medium\|high` | Phones/tablets default to mobile; desktops and fixed-camera QA default to medium. Mobile uses one smaller CSM cascade and sky reflections, without GTAO or bloom. Phones/tablets pace play at 30 FPS and cap output at 720p regardless of the input device. See [render budgets](src/render/README.md). |
 | `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
 | `hud=0` | Start with the HUD hidden. |
-| `lights=<0..1>` (or `lights`) | Fix the street-light night level ([render/lights](src/render/lights/index.ts)): `lights` or `lights=1` shows lamp heads and light coronas in today's daylight-only cycle, `0` keeps them off. Without it the level follows the rendered sun (on below about +3°, full below -6°). |
+| `lights=<0..1>` (or `lights`) | Fix the street-light night level ([render/lights](src/render/lights/index.ts)): `lights` or `lights=1` shows lamp heads and light coronas at any hour, `0` keeps them off. Without it the level follows the timecycle's night factor. |
+| `walkers=N` | Ambient walker cap override, 0–200 (0 disables them). Default per quality: mobile 0, low 10, medium 30, high 50. See [walkers](src/world/walkers/README.md). |
+| `traffic=<0..200>` | Moving ambient-car cap ([traffic](src/physics/README.md#ambient-traffic)); default by quality: mobile 10, low 15, medium 30, high 40. `0` turns ambient traffic off. |
 | `cam=...` | Visual QA camera, see below. |
 
 ## Visual QA render contract (D8)
@@ -202,6 +206,7 @@ src/world/tiles.ts          TilesRenderer + GLTFExtensionsPlugin(KTX2Loader, Mes
 src/world/manifest.ts       manifest.json loader + origin/grid assertions
 src/world/collisionStreaming.ts   .col tiles within radius -> worker (transferable ArrayBuffer)
 src/world/releaseSwap.ts    a new tile release behind /tiles applied in place (localhost game; see src/world/README.md)
+src/world/walkers/          deterministic ambient walkers on FOOT ways, VAT-instanced bodies (see its README)
 src/physics/protocol.ts     worker message protocol (typed)
 src/physics/worker.ts       the worker; src/physics/client.ts is the main-thread side
 src/physics/world.ts        Rapier world: tile colliders, KCC, vehicle integration, camera sphere casts and raycasts
@@ -213,6 +218,7 @@ src/actors/                 player, foot IK, fixed-state interpolation, car visu
 src/ui/hud.ts               debug HUD
 scripts/make-dev-tiles.mjs  dummy tileset generator (also a minimal .col v1.0 RAW writer)
 scripts/prepare-character.mjs   retargets the CC0 human/outfit to UAL and compresses the GLB
+scripts/bake-walkers.mjs    three CC0 outfits on the UAL rig -> walker vertex animation texture (public/assets/walkers)
 public/dev-tiles/           generated dummy tileset (small; committed so build/tests work offline)
 public/assets/              CC0 character, see public/assets/LICENSES.md
 public/basis/               basis transcoder (copied from three/examples/jsm/libs/basis)
@@ -233,6 +239,7 @@ All coordinates are engine world-local metres: `x = E − 23459500`, `y = H`, `z
 - `step {seq, dt, character{vx,vz,jump}, vehicle{throttle,steer,brake,handbrake}|null}` → `state {character, previousCharacter, tick, remainder, vehicle, substeps, stepMs}`. The worker runs fixed 60 Hz substeps (at most 5), and the client keeps a single step in flight.
 - `raycast {id, origin, dir, maxToi, filter: solid|query|all|foot}` → `raycastResult {hit{toi, point, normal, material, tile}}`.
 - `stats {id}` → `statsResult {tiles[], tris, colBytes, estWasmBytes}`.
+- Ambient traffic: `trafficTiles {add[{tile, hash, bounds, roads}], remove[]}`, `traffic {config}` (cap, clock offset, shared, enabled tiles, remote claims) and `trafficClaim {handle}`. Live input carries the camera `view`; `state` adds `traffic` (12 numbers per drawn car), `trafficEvents` (claims, repeated until acknowledged), `trafficStats` and `trafficTime`. See [ambient traffic](src/physics/README.md#ambient-traffic).
 
 Character (KCC):
 - Capsule r 0.3, half-height 0.6, skin 0.02.
@@ -311,9 +318,9 @@ by default; override `GROUND_QA_PORT` outside the W1-10 sandbox).
 
 Public live/Pages builds set `VITE_PUBLIC_RELEASE=1` at build time. Their start menu offers Multiplayer only; local dev and ordinary `npm run build` keep all start options. This is a build target, not a runtime URL option. A public `make game-build` also writes a local production companion to `$TURKU3D_WORK/build/check-game`. The integrator uses that companion for the existing New game gameplay checks (`E2E_GAME_DIST`), while live and Pages publish `build/game`. Both variants are cached and carried together; manual Pages builds also select the public target.
 
-The play clock repeats 08:45–17:30 Europe/Helsinki over 30 real minutes, followed by a ten-second fast-forward, always on 15 October 2027. Phase is `(UTC milliseconds - 2027-10-15T05:45:00Z) mod 1810000`, so clients agree without server state. During the skip the sky and shadows smoothly return through daylight (smoothstep), never sampling night. The visible sun disc fades during the middle of the skip to prevent a bloom flash; directional daylight and shadows remain active. The time slider is removed. `?time=ISO` and QA cameras remain fixed; saves never change the live cycle or explicit QA time. F3 diagnostics are available in releases.
+The play clock is a 30-minute cycle: 20 min of day (07:00–19:00), 4 min of dusk (to 21:30), 4 min of night (to 04:30) and 2 min of dawn, shown on 8 September 2027 Europe/Helsinki. Phase is `(UTC milliseconds - 2027-09-08T04:00:00Z) mod 1800000`, and the server's welcome time aligns it, so every client sees the same time, sun, night factor and lit windows without extra server state. The sun follows a fixed synthetic path (declination 6°, solar noon 13:15) decoupled from the calendar, so it stays below −12° for about four real minutes per cycle. `?time=HH:MM`, `?time=ISO` and QA cameras freeze a local view; saves never change the live cycle or an explicit URL time. The developer menu's dawn/noon/dusk/night entries freeze 06:30, 13:15, 19:45 and 23:30. F3 diagnostics are available in releases.
 
-Sun direction updates each frame using existing shadow passes; there is no extra shadow render. Sky IBL is reused for 30 seconds and throughout the transition. `window.__game.dayClock.snapshot()` reports measured CPU and IBL update cost.
+Sun direction and the timecycle (`src/render/timecycle.json`) update each frame. Sky IBL is reused for 30 s by day, refreshed per degree of sun movement around sunset and sunrise, and every two minutes in deep night. While the sun has no intensity the shadow cascades are not re-rendered. `window.__game.dayClock.snapshot()` reports hour, segment, night factor, shadow freeze and measured CPU and IBL update cost.
 
 Controls help learns foot, fly and car separately. It disappears after one active minute in that mode or two uses of at least 75% of the shown controls, and remembers learned modes per browser. Switching to an unlearned mode shows its prompts.
 

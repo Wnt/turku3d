@@ -1,17 +1,59 @@
-// Reads the lamps the generator builds as geometry from one draft tile's visual model: tunnel light strips and
-// OSM lamps on bridge decks. Only those object ranges are walked, so the scan is small; every other light comes
-// from the tile's light list (tileLights.ts). Only the tile's own model is read, so every client agrees.
+// Reads one draft tile's visual model for street lights: the lamps the generator builds as geometry (tunnel light
+// strips, OSM lamps on bridge decks) and, for the lamp pools, a grid of the building footprints. Only those object
+// ranges are walked; every other light comes from the tile's light list (tileLights.ts). Only the tile's own model
+// is read, so every client derives identical results from the same tile build.
 import type * as THREE from 'three/webgpu';
 
 export interface LightPoint { x: number; y: number; z: number }
-export interface ScanResult { tunnel: LightPoint[]; bridge: LightPoint[] }
+export interface ScanResult {
+  tunnel: LightPoint[]; bridge: LightPoint[];
+  /** Building footprints over the scanned area, when one was given. */
+  footprint?: Footprint;
+}
 
-type Kind = 'tunnel-light' | 'bridge-light';
+/** Building footprints of one tile on a coarse grid (a cell is set when a building surface covers its centre):
+ *  lamp pools use it to skip lamps that stand behind a building, since point lights cast no shadow. */
+export class Footprint {
+  static readonly CELL = 2;
+  readonly nx: number; readonly nz: number;
+  readonly cells: Uint8Array;
+  constructor(readonly x0: number, readonly z0: number, x1: number, z1: number) {
+    this.nx = Math.ceil((x1 - x0) / Footprint.CELL); this.nz = Math.ceil((z1 - z0) / Footprint.CELL);
+    this.cells = new Uint8Array(this.nx * this.nz);
+  }
+  get x1() { return this.x0 + this.nx * Footprint.CELL; }
+  get z1() { return this.z0 + this.nz * Footprint.CELL; }
+  /** True inside a covered cell; false outside the grid. */
+  covers(x: number, z: number) {
+    const i = Math.floor((x - this.x0) / Footprint.CELL), k = Math.floor((z - this.z0) / Footprint.CELL);
+    return i >= 0 && k >= 0 && i < this.nx && k < this.nz && this.cells[k * this.nx + i] === 1;
+  }
+  /** Mark the cells whose centres lie inside one triangle's XZ projection (`det`: twice its signed XZ area). */
+  fill(xs: number[], zs: number[], det: number) {
+    const C = Footprint.CELL;
+    const i0 = Math.max(0, Math.ceil((Math.min(xs[0], xs[1], xs[2]) - this.x0) / C - 0.5));
+    const i1 = Math.min(this.nx - 1, Math.floor((Math.max(xs[0], xs[1], xs[2]) - this.x0) / C - 0.5));
+    const k0 = Math.max(0, Math.ceil((Math.min(zs[0], zs[1], zs[2]) - this.z0) / C - 0.5));
+    const k1 = Math.min(this.nz - 1, Math.floor((Math.max(zs[0], zs[1], zs[2]) - this.z0) / C - 0.5));
+    for (let k = k0; k <= k1; k++) {
+      const z = this.z0 + (k + 0.5) * C;
+      for (let i = i0; i <= i1; i++) {
+        const x = this.x0 + (i + 0.5) * C;
+        const a = ((zs[1] - zs[2]) * (x - xs[2]) + (xs[2] - xs[1]) * (z - zs[2])) / det;
+        const b = ((zs[2] - zs[0]) * (x - xs[2]) + (xs[0] - xs[2]) * (z - zs[2])) / det;
+        if (a >= -1e-6 && b >= -1e-6 && 1 - a - b >= -1e-6) this.cells[k * this.nx + i] = 1;
+      }
+    }
+  }
+}
+
+type Kind = 'building' | 'tunnel-light' | 'bridge-light';
 type Row = Record<string, unknown>;
 
-/** Classify one object range of a tile mesh; null ranges are not read. */
+/** Classify one object range of a tile mesh; null ranges are not read. Buildings are read only for a footprint. */
 export function rangeKind(layer: unknown, row: Row): Kind | null {
   const id = String(row.object_id ?? row.id ?? '');
+  if (layer === 'buildings' || layer === 'massing') return 'building';
   if (layer === 'structures' && id.startsWith('tunnel:') && id.endsWith(':lights')) return 'tunnel-light';
   // Bridge furniture groups merge parts by surface; lamp diffusers share "paint" with railings and markings.
   if (layer === 'bridges' && id.includes(':furniture:paint')) return 'bridge-light';
@@ -66,8 +108,10 @@ export function isDiffuser(c: Cluster) {
   return h < 0.05 && Math.max(w, d) <= 0.9 && Math.max(w, d) >= 0.12 && c.up && c.down;
 }
 
-/** Walks the model's light ranges; yields every `slice` triangles so callers can time-slice. */
-export function* scanTile(model: THREE.Object3D, slice = 4096): Generator<void, ScanResult> {
+/** Walks the model's light ranges, and with an `area` (x0, z0, x1, z1) its building ranges for the footprint grid;
+ *  yields every `slice` triangles so callers can time-slice. */
+export function* scanTile(model: THREE.Object3D, slice = 4096, area?: readonly [number, number, number, number]): Generator<void, ScanResult> {
+  const footprint = area ? new Footprint(area[0], area[1], area[2], area[3]) : undefined;
   const tunnelLights = new Clusters(), bridgeLights = new Clusters();
   const meshes: THREE.Mesh[] = [];
   model.updateMatrixWorld(true);
@@ -85,9 +129,9 @@ export function* scanTile(model: THREE.Object3D, slice = 4096): Generator<void, 
     const e = mesh.matrixWorld.elements;
     for (const row of rows) {
       const kind = rangeKind(row.layer ?? mesh.userData.layer, row);
-      if (!kind) continue;
+      if (!kind || (kind === 'building' && !footprint)) continue;
       const start = Math.max(0, Number(row.start) || 0), end = Math.min(total, start + (Number(row.count) || 0));
-      const light = kind === 'tunnel-light' ? tunnelLights : bridgeLights;
+      const light = kind === 'tunnel-light' ? tunnelLights : kind === 'bridge-light' ? bridgeLights : null;
       for (let i = start; i + 2 < end; i += 3) {
         for (let k = 0; k < 3; k++) {
           const v = index ? index.getX(i + k) : i + k;
@@ -97,13 +141,19 @@ export function* scanTile(model: THREE.Object3D, slice = 4096): Generator<void, 
           zs[k] = e[2] * px + e[6] * py + e[10] * pz + e[14];
         }
         if (++work % slice === 0) yield;
-        const ux = xs[1] - xs[0], uy = ys[1] - ys[0], uz = zs[1] - zs[0], vx = xs[2] - xs[0], vy = ys[2] - ys[0], vz = zs[2] - zs[0];
-        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-        light.add(xs, ys, zs, ny / (Math.hypot(nx, ny, nz) || 1));
+        if (light) {
+          const ux = xs[1] - xs[0], uy = ys[1] - ys[0], uz = zs[1] - zs[0], vx = xs[2] - xs[0], vy = ys[2] - ys[0], vz = zs[2] - zs[0];
+          const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+          light.add(xs, ys, zs, ny / (Math.hypot(nx, ny, nz) || 1));
+          continue;
+        }
+        // Twice the XZ-projected signed area; vertical faces cover no cell.
+        const det = (zs[1] - zs[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (zs[0] - zs[2]);
+        if (Math.abs(det) >= 1e-6) footprint?.fill(xs, zs, det);
       }
     }
   }
-  return { tunnel: tunnelLights.list.map(centre), bridge: mergeHeads(bridgeLights.list.filter(isDiffuser).map(centre)) };
+  return { tunnel: tunnelLights.list.map(centre), bridge: mergeHeads(bridgeLights.list.filter(isDiffuser).map(centre)), footprint };
 }
 
 /** Heads of one multi-head lamp (OSM light:count) sit within about 1.1 m of each other: one corona per lamp. */
@@ -118,7 +168,7 @@ export function mergeHeads(points: readonly LightPoint[], radius = 1.3): LightPo
 }
 
 /** Runs a scan to completion (tests, synchronous callers). */
-export function scanTileNow(model: THREE.Object3D): ScanResult {
-  const job = scanTile(model);
+export function scanTileNow(model: THREE.Object3D, area?: readonly [number, number, number, number]): ScanResult {
+  const job = scanTile(model, undefined, area);
   for (;;) { const step = job.next(); if (step.done) return step.value; }
 }

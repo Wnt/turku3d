@@ -138,5 +138,12 @@
     "seconds": 3.9,
     "sha256": "b66e3391022c43d0975044ce3dc8e38c6e48b2b081bef38ac210bb2ac7da0746",
     "license": "CC0-1.0"
+  },
+  "crowd.ogg": {
+    "bytes": 28730,
+    "channels": 1,
+    "seconds": 7.9,
+    "sha256": "102d67d739610db957de6d01eafbb18f88e214e1a5d977bdc3e432e263535f2a",
+    "license": "CC0-1.0"
   }
 }

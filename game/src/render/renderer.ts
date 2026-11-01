@@ -2,7 +2,8 @@
 import { loading } from '../core/loading';
 import * as THREE from 'three/webgpu';
 import { GameRenderer } from './shadowMaterials';
-import { renderPixelRatio } from './quality';
+import { QUALITY, renderPixelRatio, type QualityTier } from './quality';
+import { GameLighting } from './lighting';
 import { retainRendererPrograms } from './programCache';
 
 /**
@@ -17,9 +18,12 @@ export async function defaultBackend(want: 'webgpu' | 'webgl', given: boolean): 
 interface RendererInfo { renderer: THREE.WebGPURenderer; backend: 'WebGPU' | 'WebGL2' }
 
 /** opts.qa: canvas 1:1 with the viewport (pixel ratio 1, qa/README.md §2); opts.idPass: no antialiasing. */
-export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTMLElement, opts: { qa?: boolean; idPass?: boolean; mobile?: boolean } = {}): Promise<RendererInfo> {
+export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTMLElement,
+  opts: { qa?: boolean; idPass?: boolean; mobile?: boolean; quality?: QualityTier } = {}): Promise<RendererInfo> {
   // TRAA handles color antialiasing; MSAA must be off for its depth/velocity history.
   const renderer = new GameRenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
+  // Installed once, before any compile: the tier's light slots exist for the whole session.
+  renderer.lighting = new GameLighting(QUALITY[opts.quality ?? 'medium'].lights);
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa, opts.mobile));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;

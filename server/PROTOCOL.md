@@ -223,6 +223,22 @@ its delivery, regardless of `t` or when the client started the order.
 
 A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":2,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it records the fine without changing earned cash or leaderboard rank. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
 
+### roads (ambient traffic agreement)
+
+```json
+{"v":2,"type":"roads","tiles":{"t0_0_0":"1.219.255.a59a3700c0ffee00"}}
+```
+
+Clients compute ambient traffic locally from each tile's road graph (game/src/traffic). A client reports one
+hash per resident tile (at most 64, tile ids `t0_<i>_<j>`, hashes `[A-Za-z0-9.:_-]{1,64}`), replacing its
+previous report, whenever its tiles change and after every welcome. The server answers each reporting client
+with `{"type":"roads","agreed":{tile:hash}}` over that client's own tiles: a tile is agreed when every online
+player who reported it reported the same hash. It is resent only when it changes (reports, disconnects, idle
+and resume). A client spawns traffic on a multiplayer tile only when its own hash is the agreed one, so two
+clients with different road data spawn nothing there. Claimed traffic cars use the ordinary vehicle registry,
+with sources `tr:<tile>:<lane>:<slot>`. Malformed reports are rejected. The message is accepted outside the
+round epoch check.
+
 ## Server → client
 
 | Type | Fields in addition to `v,type` | When / behavior |
@@ -231,6 +247,7 @@ A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","
 | `players` | `players:Player[]` | Full replacement roster after join, leave, idle/resume or reset. Remove absent remote bodies. |
 | `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,vehicle,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Driven poses are limited to recipients within 250 m. Omitted players have no new pose; omission does not remove them. |
 | `world` | `action:"break",poleId,by,t` | Re-broadcast of an accepted pole break. |
+| `roads` | `agreed:{tile:hash}` | Road-hash agreement over the recipient's reported tiles; sent when it changes. |
 | `scores` | `scores:Score[]` | Full replacement scoreboard after every accepted delivery or fine and presence change/join/reset. Includes idle/disconnected participants from this hour. |
 | `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
 | `hour_reset` | `hour:Hour` | Old hour archived; switch the UI to the new hour, clearing previous scores. Followed by welcome and roster/scores. |

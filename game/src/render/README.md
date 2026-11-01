@@ -1,19 +1,44 @@
 # Rendering
 
 The renderer uses three.js **0.186.1**, `three/webgpu`, on both WebGPU and the `forceWebGL` WebGL2 backend.
-Play repeats **2027-07-01 08:45–17:30 Europe/Helsinki** over 30 real minutes with a ten-second skip back to morning.
-`core/dayCycle.ts` derives phase from UTC. During the skip, lighting returns smoothly through daylight; no night is rendered. The HDR solar disc fades out during the middle of the rapid sweep to prevent a bloom flash, while daylight and shadows remain active.
-The clock has no slider. Sun/sky update each frame using existing shadow passes; sky IBL is reused for 30 seconds and throughout the skip.
-QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` pins time and disables the cycle
+Play runs a **30-minute cycle: 20 min day (07:00–19:00), 4 min dusk, 4 min night, 2 min dawn**, Europe/Helsinki.
+`core/dayCycle.ts` derives the clock from UTC (the server's welcome time aligns it), so every client agrees. The sun
+follows a fixed synthetic path decoupled from the calendar and stays below −12° for about four real minutes per cycle.
+The clock has no slider. `?time=HH:MM` freezes a local view of the cycle at that hour; `?cycle=MIN` shortens the cycle locally.
+QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` pins an astronomical instant and disables the cycle
 (encode a literal `+` as `%2B`). `__game.dayClock.snapshot()` exposes measured clock/IBL costs. F3 toggles the debug HUD.
 
 ## Lighting and post-processing
+
+`timecycle.json` is our own table, tuned by eye. Its light rows are keyed by **sun elevation** (so QA's calendar dates and
+the synthetic cycle share one table): sun colour/intensity (0 below −1°, the sun stays visible and shadowed),
+IBL intensity, hemisphere "artificial ambient" (0 by day), fog colour/range, exposure, bloom strength/threshold, the
+night factor and the twilight/night sky colours added below the horizon (a blue hour around −4°, then a city-lit night
+horizon; black by day). The lit-window share is keyed by clock hour (15–60 %, peaking at 20:00, thinnest at 04:00).
+The night grade keeps lamps, windows and their pools in colour but lets dim light fall to the table's `mesopic`
+saturation (a luminance-keyed uniform in the final grade): autumn crowns and painted walls no longer glow in the dark.
+All of these are uniforms: the sun is never hidden and no light is added or removed, so day and night share every
+pipeline (`tests/unit/night-pipelines.test.ts` builds the real r186 programs at 13:00 and 23:30 on both backends).
+`renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
+4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
+re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,
+and keeps the hemisphere light on r186's per-light node (the batched hemisphere loop cost about 2 ms GPU on an M1 Max).
+Each batched light type costs uniform buffers per fragment stage (point 3, spot 4; WebGPU guarantees 12), so spot
+slots need a packed data node first; the pipeline test caps every tested program at 10.
+Facade-kit walls light glazed cells at night (atlas glass is roughness 0.08); non-kit building walls use a
+2.6 × 3.2 m world grid gated by their ORM glass (or dark albedo). Batched meshes whose object ranges are all roofs
+(ortho roofs) are roofs, not walls, and get no grid windows. Each window's on/off state is an exact u32 hash of
+per-triangle constants (or its wall plane), its cell and two-hour epochs of the shared clock: no draw, asset or random state.
+A lit window is brighter towards its ceiling; one in five is a dimmer cool room. Glass modules (curtain walls and
+shopfronts) show a lit ceiling band falling off into the room instead of one evenly glowing floor-to-ceiling cell.
+Night raises bloom (not allocated on mobile), shadow cascades are not re-rendered while the sun has no intensity
+(only after startup warmup), and deep-night IBL refreshes every two minutes. The river's unlit deep colour darkens with the night.
 
 - `SkyMesh` supplies analytic Rayleigh/Mie scattering. It was smoke-tested under both backends before adding effects;
   no takram dependency is needed. Clouds are off for this clear-afternoon scene.
   The sky box (2250 m half-extent) re-centres on the rendering camera in `onBeforeRender`, so it surrounds the
   player anywhere in the world; its colour depends only on view direction.
-- A 128-pixel PMREM cube derived from the same sky provides IBL. It is regenerated only on time edits, reusing the target to retain material bindings and shader programs. The sun uses `core/sun.ts`, including true-north to grid-north convergence.
+- A 128-pixel PMREM cube derived from the same sky (plus the twilight/night term) provides IBL. It is regenerated on the clock's cadence, reusing the target to retain material bindings and shader programs. Sun vectors use `core/sun.ts`, including true-north to grid-north convergence.
 - `CSMShadowNode` uses custom street-scale splits, PCF, a 2.5 cm normal bias, cascade fades and the addon's existing
   light-space texel snapping. FOV/aspect changes update the cascade frustums. Camera motion does not resize them.
 - An opaque normal/velocity/depth prepass feeds GTAO. AO radius is 0.6 m and the effect only attenuates indirect light,
@@ -21,8 +46,9 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
 - Velocity uses **signed half-float** storage, independently of the unsigned-byte packed normals. Three.js lazily
   clones the first attachment when creating another MRT texture; inheriting the normal format clamps negative motion
   to zero and quantises small motion, leaving old car and wheel edges in temporal history.
-- TRAA runs at full output resolution with MSAA disabled. Bloom is subdued (HDR threshold 1.5), followed by subtle
-  desaturation/warm grading and **AgX**, exposure **0.65**. Tone mapping and sRGB conversion happen exactly once.
+- TRAA runs at full output resolution with MSAA disabled. Daytime bloom is subdued (HDR threshold 1.5), followed by subtle
+  desaturation/warm grading and **AgX**, daytime exposure **0.65** (the timecycle raises both at night). Tone mapping and
+  sRGB conversion happen exactly once.
 - QA `pass=id` bypasses IBL generation, material styling and all post-processing; there is no AA, grading, exposure,
   fog or shadow modulation. Colour QA waits for 32 settled frames to let temporal history converge.
 - **Street lights** ([lights/](lights/index.ts)): every light corona in the resident window is one instanced additive
@@ -37,6 +63,14 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
   have static collision in the tile's collision cells.
 - **Street furniture** batches (`props_palette`) switch off beyond 125 m from the camera and back on within
   115 m (`world/propLod.ts`): a hard switch per tile batch, no discard or vertex fade, so no program changes.
+- **Light pools** ([lights/pools.ts](lights/pools.ts)): every 250 ms the street and bridge lamps nearest a point 12 m
+  ahead of the camera take the tier's point slots (4 on medium, 8 on high), scaled by the night factor (0 by day, so
+  no slot enters the shader loop). A chosen lamp's weight falls to 0 as its distance approaches the first lamp left
+  out, and a slot fades (0.6 s) before it moves to another lamp, so pools never pop. Point lights cast no shadow, so a
+  lamp whose ground line of sight from the camera crosses a building footprint (a 2 m raster per tile from the lamp
+  scan) takes no slot, and the light hangs a third of the head height below the head, clear of the lamp's own arm.
+  The choice is purely local to this camera; the lamps and the night level are already identical on every client.
+  Facade and tunnel lights stay coronas only.
 
 `?aa=off|taa|fxaa` is a diagnostic selector (default `taa`, or `fxaa` for mobile quality) on both backends. `off` bypasses colour AA; `fxaa`
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,

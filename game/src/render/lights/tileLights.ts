@@ -61,13 +61,15 @@ export function decodeTileLights(field: TileLightsField | null | undefined): Lam
     const k = LIGHT_SCALE / 255;
     const light: SpriteLight = { x, y, z, radius: CORONA_RADIUS[category],
       r: view.getUint8(o + 12) * k, g: view.getUint8(o + 13) * k, b: view.getUint8(o + 14) * k, day: 0 };
+    // Facade lights are building lights; posts and lamps hung over the street are street lights (lamp pools).
+    const kind = category === 'wall' ? 'wall' : 'street';
     if (i < field.posts) {
       const p = (field.count + i) * RECORD;
       const bx = view.getFloat32(p, true), by = view.getFloat32(p + 4, true), bz = view.getFloat32(p + 8, true);
       const yaw = view.getUint16(p + 12, true) / 65536 * Math.PI * 2;
-      lamps.push({ key: lampKey(bx, bz), x: bx, y: by, z: bz, yaw, scale: view.getUint8(p + 14) / 100, post: true, light });
+      lamps.push({ key: lampKey(bx, bz), x: bx, y: by, z: bz, yaw, scale: view.getUint8(p + 14) / 100, post: true, kind, light });
     } else {
-      lamps.push({ key: lampKey(x, z), x, y, z, yaw: 0, scale: 1, post: false, light });
+      lamps.push({ key: lampKey(x, z), x, y, z, yaw: 0, scale: 1, post: false, kind, light });
     }
   }
   return lamps;

@@ -4,7 +4,7 @@ import { MATERIALS } from '../shared/col/materials';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
   'engine', 'scooter', 'truck', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
-  'city', 'river', 'gulls', 'traffic', 'wind', 'connect'] as const;
+  'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
 export const clamp = (v: number, max = 1) => Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
@@ -36,6 +36,10 @@ export function ambience(position: V3) {
     city: 0.16 - near * 0.07, traffic: 0.12 - near * 0.04, wind: 0.06 + near * 0.04 };
 }
 
+/** Crowd murmur bed: silent with nobody around, full with a dozen drawn walkers within 40 m (world/walkers). */
+export const CROWD_RADIUS = 40;
+export const crowdGain = (walkers: number) => clamp(walkers / 12) * 0.13;
+
 /** Engine loop per vehicle class: the car's low four-stroke rumble, the scooter's buzzing single cylinder or the
  *  trophy truck's V6 with its open exhaust. */
 export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter', truck: 'truck' } as const satisfies Record<VehicleKind, Sound>;
@@ -57,6 +61,18 @@ export function carMix(rpm: number, throttle: number, speed: number, slip: numbe
     screech: clamp((Math.abs(slip) - 0.15) / 0.65) * clamp(Math.abs(speed) / 5) * 0.3 };
 }
 
+/** Engine voices for ambient traffic (traffic/client.ts): at most this many, for the nearest moving cars. */
+export const TRAFFIC_VOICES = 8;
+
+/** A passing car's engine: quieter than the player's, pitch rising with speed (city speeds, 0..14 m/s). */
+export function trafficMix(speed: number) {
+  const s = clamp(speed / 14);
+  return { rate: 0.62 + s * 0.85, engine: 0.05 + s * 0.11 };
+}
+
+/** The street traffic bed follows how many cars are within 150 m, instead of a fixed loop. */
+export const trafficBed = (count: number) => clamp(count / 10);
+
 export type AudioEvent =
   | { type: 'footstep'; material: number; position: V3; speed: number }
   | { type: 'curb' | 'impact'; position: V3; impulse: number }
@@ -65,7 +81,10 @@ export type AudioEvent =
   | { type: 'mute' }
   | { type: 'volume'; channel: Channel; value: number }
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
-  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean };
+  | { type: 'crowd'; walkers: number }
+  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean }
+  /** Nearest moving ambient cars (stable `id`s) and the count within 150 m. */
+  | { type: 'traffic'; cars: { id: number; position: V3; speed: number }[]; count: number; centre: V3 | null };
 
 export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; gain: number; position?: V3 } | null {
   switch (event.type) {

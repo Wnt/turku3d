@@ -62,6 +62,10 @@ export class ParkedVehicles {
     }
   }
 
+  /** A car claimed from ambient traffic (traffic/client.ts): its dynamic body already exists and is moving. From
+   *  now on it is managed like a spawned parked car: kept near the player, rested and respawned beyond. */
+  adopt(id: string, car: ParkedVehicle) { this.spawned.set(id, car); this.last = -Infinity; }
+
   /** Where a draft car without a physics state is drawn; null when another owner renders it. */
   restingPose(car: ParkedVehicle): ParkedPose | null {
     const id = car.object_id;

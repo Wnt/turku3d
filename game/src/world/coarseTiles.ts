@@ -266,6 +266,12 @@ export class CoarseTiles {
     const ready = wanted.filter(id => this.entries.get(id)?.state === 'draft');
     return { loaded: ready.length, total: wanted.length, errors: [] as string[] };
   }
+
+  /** True when every drawn tile around (x, z) carries its full visual model, not a collision preview. Play may
+   *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
+  detailedAt(x: number, z: number) {
+    return this.wantedStarts(x, z).every(id => { const e = this.entries.get(id); return e?.state !== 'draft' || !e.preview; });
+  }
   private skipped = new Set<string>();
 
   private show(status: string) {

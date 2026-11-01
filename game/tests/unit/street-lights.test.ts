@@ -1,3 +1,4 @@
+import { nightFactor } from '../../src/render/timecycle';
 import { describe, expect, test } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three/webgpu';
@@ -31,6 +32,7 @@ describe('tile light list', () => {
     const lamps = decodeTileLights(FIXTURE);
     expect(lamps.map(l => [l.post, l.light.radius])).toEqual([[true, CORONA_RADIUS.street], [true, CORONA_RADIUS.path],
       [false, CORONA_RADIUS.hung], [false, CORONA_RADIUS.wall]]);
+    expect(lamps.map(l => l.kind)).toEqual(['street', 'street', 'street', 'wall']); // facade lights take no pool
     const [street, path, hung, wall] = lamps;
     expect([street.x, street.y, street.z, street.scale]).toEqual([50, 3, 8, 1]);
     expect(street.yaw).toBeCloseTo(Math.PI / 2, 3);
@@ -149,7 +151,8 @@ describe('sprites and fades', () => {
     expect(spriteLevel(0, 1, 50, 10)).toBe(1);
     expect(spriteLevel(1, 0, 50, SPRITE.fadeIn / 2)).toBeCloseTo(0.5, 6);
     expect(nightLevel({ time: new Date(), sunElevation: 30 })).toBe(0);
-    expect(nightLevel({ time: new Date(), sunElevation: -10 })).toBe(1);
+    expect(nightLevel({ time: new Date(), sunElevation: -20 })).toBe(1);
+    expect(nightLevel({ time: new Date(), sunElevation: -4 })).toBe(nightFactor(-4));
   });
 
   test('posts keep stable slots, scale with distance and never draw zero instances', () => {

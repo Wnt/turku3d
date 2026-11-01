@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { GameAudio } from '../../src/audio';
 import { GameplayAudio, engineRpm } from '../../src/audio/gameplay';
-import { ENGINE_SOUND, ambience, carMix, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
+import { ENGINE_SOUND, ambience, carMix, crowdGain, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
 import { MAT } from '../../src/shared/col/materials';
 
 class Param {
@@ -100,6 +100,9 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, slip: 0.7, running: true });
   // Every class's engine loop exists (car, scooter, truck) beside roll and screech; only the driven class's one is audible.
   expect(audio.snapshot().loops).toBe(10);
+  // The walkers' crowd murmur joins the beds once the walker system reports a count.
+  audio.emit({ type: 'crowd', walkers: 6 });
+  expect(audio.snapshot().loops).toBe(11);
   audio.emit({ ...listener, position: { x: 1, y: 2, z: 3 } });
   expect(ctx.listener.positionX.value).toBe(1); expect(ctx.listener.forwardZ.value).toBe(-1);
   audio.emit({ type: 'volume', channel: 'master', value: 0.4 });
@@ -143,7 +146,8 @@ test('Firefox legacy listener and panner positioning work without spatial AudioP
   audio.emit(listener); // The render loop must update a legacy listener without throwing.
   expect(listenerPositions).toEqual([[position.x, position.y, position.z]]);
   expect(orientations).toEqual([[0, 0, -1, 0, 1, 0]]);
-  expect(pannerPositions).toContainEqual([100, 2, 180]); // Spatial traffic ambience.
+  // Spatial street traffic bed: at the cars within 150 m, at the listener (silent) before any traffic event.
+  expect(pannerPositions).toContainEqual([position.x, position.y, position.z]);
   const moved = { x: 9, y: 4, z: 5 };
   audio.emit({ ...listener, position: moved, forward: { x: 1, y: 0, z: 0 } });
   audio.emit({ type: 'car', kind: 'car', position: moved, rpm: 3000, throttle: 0.5,
@@ -152,6 +156,26 @@ test('Firefox legacy listener and panner positioning work without spatial AudioP
   expect(orientations.at(-1)).toEqual([1, 0, 0, 0, 1, 0]);
   expect(pannerPositions).toContainEqual([9, 4, 5]);
   expect(audio.errors).toEqual([]);
+  audio.dispose();
+});
+
+test('ambient traffic: at most eight engine voices follow the nearest cars, each car keeps its voice', async () => {
+  const ctx = new FakeContext();
+  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher);
+  await audio.unlock();
+  audio.emit(listener);
+  const car = (id: number, d: number, speed = 8) => ({ id, position: { x: position.x + d, y: position.y, z: position.z }, speed });
+  const send = (cars: ReturnType<typeof car>[]) => audio.emit({ type: 'traffic', cars, count: cars.length, centre: cars[0]?.position ?? null });
+  send(Array.from({ length: 10 }, (_, i) => car(i + 1, 10 + i * 5)));
+  expect(audio.snapshot().trafficVoices).toBe(8);
+  // Engines are positional loops on the vehicle bus, pitched by speed.
+  const engines = ctx.nodes.filter(n => n.loop && n.started);
+  expect(engines.length).toBeGreaterThanOrEqual(8);
+  const pitched = (speed: number) => { send([car(1, 10, speed)]); return Math.max(...engines.map(n => n.playbackRate.value)); };
+  expect(pitched(14)).toBeGreaterThan(pitched(2));
+  expect(audio.snapshot().trafficVoices).toBe(1);
+  send([]);
+  expect(audio.snapshot().trafficVoices).toBe(0);
   audio.dispose();
 });
 
@@ -216,4 +240,10 @@ test('preload decodes while suspended; the start gesture only resumes and reuses
   expect(ctx.state).toBe('running');
   expect(fetched).toBe(before);
   audio.dispose();
+});
+
+test('crowd murmur follows the drawn walkers near the camera', () => {
+  expect(crowdGain(0)).toBe(0);
+  expect(crowdGain(6)).toBeCloseTo(0.065, 6);
+  expect(crowdGain(12)).toBeCloseTo(0.13, 6); expect(crowdGain(40)).toBeCloseTo(0.13, 6);
 });
