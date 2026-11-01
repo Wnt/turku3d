@@ -100,6 +100,7 @@ for (const tile of tiles) {
     const p = at(bridge, bridge.length / 2);
     views.push(top(`${tile}-bridge-top`, tile, p.x, p.y, p.z, 60));
     views.push(street(`${tile}-bridge`, tile, p, 1, 20, 1.6));
+    views.push(street(`${tile}-bridge-back`, tile, p, -1, 20, 1.6));
   }
 }
 if (only) views.splice(0, views.length, ...views.filter(v => only.some(o => v.name.includes(o))));
