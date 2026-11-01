@@ -5,17 +5,11 @@ import type { QualityTier } from '../render/quality';
 
 export const TRAFFIC = {
   /** Algorithm version, part of every agreed road hash. Bump it with any change to positions or identities. */
-  version: 1,
+  version: 2,
   /** Shared clock origin: traffic time is seconds since this UTC instant (plus the server offset in multiplayer). */
   epochMs: Date.UTC(2026, 0, 1),
   /** Time headway between consecutive slots on every lane (s). One global value keeps lanes phase-locked. */
   headway: 6,
-  /** Lane width (m): one v1 lane per direction sits half a width right of the centreline. */
-  laneWidth: 3.2,
-  /** Road classes (roadGraph.ts) that carry traffic: 2 street, 3 major. Service roads (1) are lots and driveways. */
-  minClass: 2,
-  /** Cruise speed by class without G3 speeds (m/s). */
-  classSpeed: [0, 0, 30 / 3.6, 40 / 3.6] as readonly number[],
   /** Distance a lane stops short of a junction node (m); the connector curve crosses the junction. */
   junctionTrim: 5.5,
   /** Same at a dead end, where cars turn around. */

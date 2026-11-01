@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import * as R from '@dimforge/rapier3d';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
@@ -257,6 +258,32 @@ describe('roads.json revision 2 (G3)', () => {
     const east = eastWest.filter(l => l.points[2] > l.points[0]);
     expect(east.every(l => l.start.kind === 'seam' && Math.abs(l.points[l.points.length - 2] - 113.5) < 0.01)).toBe(true);
     expect(tile.lanes.filter(l => l.next).length).toBeGreaterThan(2);
+  });
+});
+
+describe('generator-written revision 2 tiles (tests/fixtures/roads-v2-seam.json)', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../fixtures/roads-v2-seam.json', import.meta.url), 'utf8')) as { a: RoadGraphJson; b: RoadGraphJson };
+  const tiles = new Map([['t0_0_0', fixture.a], ['t0_1_0', fixture.b]]);
+  test('lanes join across the seam, cars cross it, and load order does not matter', () => {
+    const ab = network(tiles, ['t0_0_0', 't0_1_0']), ba = network(tiles, ['t0_1_0', 't0_0_0']);
+    const lanes = [...ab.tiles.values()].flatMap(t => t.lanes);
+    expect(lanes.length).toBeGreaterThan(4);
+    expect(lanes.every(l => l.ys !== null)).toBe(true);
+    const crossing = lanes.filter(l => l.seamNext);
+    expect(crossing.length).toBeGreaterThanOrEqual(2);
+    for (const lane of crossing) expect(lane.seamNext!.tile).not.toBe(lane.tile);
+    let crossed = 0;
+    for (let k = 0; k < 120; k++) {
+      const t = T0 + k * 0.5, ca = cars(ab, t), cb = cars(ba, t);
+      expect([...ca.keys()].sort()).toEqual([...cb.keys()].sort());
+      for (const [key, pose] of ca) expect(cb.get(key)).toEqual(pose);
+    }
+    for (const lane of crossing) {
+      const [n] = ab.slots(lane, T0);
+      const after = ab.advance(lane, n, T0 + laneSpan(lane) + 1);
+      if (after && after.lane.tile !== lane.tile) crossed++;
+    }
+    expect(crossed).toBeGreaterThan(0);
   });
 });
 
