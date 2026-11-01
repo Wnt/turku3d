@@ -265,3 +265,23 @@ def test_real_tiles_agree_on_shared_edges(monkeypatch):
 
 if __name__ == "__main__":
     FIXTURE.write_text(json.dumps(fixture_graphs(), separators=(",", ":")) + "\n")
+
+
+def test_paint_colours_survive_the_layer_round_trip(tmp_path):
+    """Yellow centre lines live in COLOR_0 of the one paint mesh; wall assembly re-reads layers."""
+    import numpy as np
+    from turku3d.layers import write_visual
+    from turku3d.package.gltf import GlbMesh
+    from turku3d.wall_surfaces import layer_meshes
+
+    colours = np.array([road_paint.YELLOW] * 3 + [road_paint.WHITE] * 3, np.float32)
+    mesh = GlbMesh(
+        "ground_paint",
+        np.array([[0, 0, 0], [1, 0, 0], [0, 0, 1], [2, 0, 0], [3, 0, 0], [2, 0, 1]], float),
+        np.array([[0, 2, 1], [3, 5, 4]]),
+        colors=colours,
+        extras=dict(layer="markings", object_id="paint_t0_0_0", material_key="road_paint"),
+    )
+    write_visual(tmp_path / "ground.vis.glb", [mesh])
+    (read,) = layer_meshes([tmp_path / "ground.vis.glb"])
+    assert np.allclose(read.colors, colours)

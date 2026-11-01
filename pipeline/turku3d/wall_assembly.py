@@ -153,9 +153,7 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             if not bounded:
                 trees.append((sign, None, indexed, shapely.STRtree(boxes[indexed])))
                 continue
-            for slab in range(
-                int(index_low[indexed].min()), int(index_high[indexed].max()) + 1
-            ):
+            for slab in range(int(index_low[indexed].min()), int(index_high[indexed].max()) + 1):
                 members = indexed[(index_low[indexed] <= slab) & (index_high[indexed] >= slab)]
                 if len(members):
                     trees.append((sign, slab, members, shapely.STRtree(boxes[members])))
@@ -274,7 +272,7 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             result.append(original)
             continue
         mesh = copy.copy(original)
-        positions, uvs, normals_out = [], [], []
+        positions, uvs, normals_out, colours = [], [], [], []
         # Program ranges address vertices, not wall/triangle numbers. Retessellation
         # duplicates even untouched triangles, so every output vertex needs its
         # original instruction (including triangles preceding the first cut).
@@ -317,6 +315,8 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                     uvs.append(original.uvs[indices])
                 if original.normals is not None:
                     normals_out.append(original.normals[indices])
+                if original.colors is not None:
+                    colours.append(original.colors[indices])
                 continue
             pieces, xy, origin, basis = replacement
             for coords in pieces:
@@ -327,12 +327,15 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                     uvs.append(weights @ original.uvs[indices])
                 if original.normals is not None:
                     normals_out.append(weights @ original.normals[indices])
+                if original.colors is not None:
+                    colours.append(weights @ original.colors[indices])
         if not positions:
             continue
         mesh.positions = np.concatenate(positions)
         mesh.indices = np.arange(len(mesh.positions), dtype=np.uint32).reshape(-1, 3)
         mesh.uvs = np.concatenate(uvs) if uvs else None
         mesh.normals = np.concatenate(normals_out) if normals_out else None
+        mesh.colors = np.concatenate(colours) if colours else None
         mesh.extras = {k: v for k, v in original.extras.items() if k != "component_box"}
         if rows is not None:
             mesh.extras["facade_kit_walls"] = instructions

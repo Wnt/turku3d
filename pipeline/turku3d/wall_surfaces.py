@@ -407,6 +407,9 @@ def layer_meshes(paths):
                         uvs=accessor_array(document, binary, attrs["TEXCOORD_0"])
                         if "TEXCOORD_0" in attrs
                         else None,
+                        colors=accessor_array(document, binary, attrs["COLOR_0"])
+                        if "COLOR_0" in attrs
+                        else None,
                         image=image,
                         repeat=repeat,
                         color=tuple(pbr["baseColorFactor"]),
