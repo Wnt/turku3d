@@ -33,7 +33,7 @@ export const POOL = {
 
 /** Peak point-light intensity per lamp kind at full night. Tunnel strips and facade lights stay sprites only: a
  *  point light half a metre from a wall or a tunnel ceiling is a hot spot, not a pool. */
-export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 20, bridge: 16 };
+export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 16, bridge: 13 };
 
 /** One lamp that can light a pool: its light point, linear colour and peak intensity (candela-like, r186 units). */
 export interface PoolLamp { key: string; x: number; y: number; z: number; r: number; g: number; b: number; intensity: number }
