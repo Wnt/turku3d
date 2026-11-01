@@ -156,6 +156,7 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `lights=<0..1>` (or `lights`) | Fix the street-light night level ([render/lights](src/render/lights/index.ts)): `lights` or `lights=1` shows lamp heads and light coronas at any hour, `0` keeps them off. Without it the level follows the timecycle's night factor. |
 | `walkers=N` | Ambient walker cap override, 0–200 (0 disables them). Default per quality: mobile 0, low 10, medium 30, high 50. See [walkers](src/world/walkers/README.md). |
 | `traffic=<0..200>` | Moving ambient-car cap ([traffic](src/physics/README.md#ambient-traffic)); default by quality: mobile 10, low 15, medium 30, high 40. `0` turns ambient traffic off. |
+| `trafficDensity=<0..4>` | Multiplies every street's ambient traffic flow (default 1 on every quality tier; the cap above still bounds what is drawn). Single-player traffic follows `time=`/the developer clock; multiplayer follows the shared cycle. |
 | `cam=...` | Visual QA camera, see below. |
 
 ## Visual QA render contract (D8)
@@ -169,6 +170,7 @@ The game implements the contract in [qa/README.md §2](../qa/README.md) (the qa/
 - `fov`: **vertical** field of view in degrees (three.js `camera.fov`). Mapping: `camera.rotation.set(rad(pitch), -rad(yaw), -rad(roll), 'YXZ')`.
 - `time`: ISO-8601 with offset (`+` URL-encoded as `%2B`). Sun azimuth/elevation, clear sky, frozen waves. Absent: `2026-10-15T14:00+03:00`.
 - QA mode: no HUD, help, player, car or physics worker; pixel ratio 1 so the canvas is 1:1 with the viewport.
+- `motion=1`: the QA camera keeps play's water clock and reflection cadence instead of frozen waves, for video clips of a fixed pose.
 - Globals: `__qaReady` (tileset settled for 32 consecutive frames), `__qaError` (bad params, tile load error, camera outside the tileset footprint with nothing loaded after ~2 s, timeout after 120 s of frame time, each frame counting at most 0.1 s like the play loop's dt), `__qaPose` `{E,N,H,yaw,pitch,roll,fov}`, `__qaInfo` `{renderer, backend, pass, time, effectiveTime, quality, sseUnits, three, tiles[], tileset}`, `__qaProject(E,N,H)` → `[px,py]` CSS pixels or `null` behind the camera. `window.__game.qa` holds `{loadMs, visTris, models, sunElevation, sunAzimuth}`.
 - `pass=id` (`src/render/idPass.ts`): every mesh unlit (`MeshBasicNodeMaterial`), no antialiasing, no tone mapping, linear output (no sRGB encode), no sky/fog/shadows; id = `R<<16|G<<8|B`, 0 = sky. Ids come from glTF node extras `{kind, id, tile, material}` (docs/specs/tiles.md §3.1); `__qaIdTable` maps id → entry.
 - Driver: `node qa/render/render.mjs --views qa/views/views.jsonl --url "http://localhost:8080/" --out DIR`, or `make tile-qa` (serves `dist/` + the synced tiles and runs `qa/loop.py --no-judge`).

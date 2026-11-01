@@ -7,11 +7,12 @@ import type { ParkedCarVisuals, TrafficInstance } from '../actors/car';
 import type { V3 } from '../core/origin';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { PhysicsClient } from '../physics/client';
-import type { PhysicsState, TrafficClaimEvent, TrafficStats } from '../physics/protocol';
+import type { PhysicsState, TrafficClaimEvent, TrafficClock, TrafficStats } from '../physics/protocol';
 import { tileBounds } from '../render/lights/tileLights';
 import type { Entry } from '../world/coarseContracts';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
+import { DAY_MS } from '../core/dayCycle';
 import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS } from './constants';
 import { enabledTiles, roadHash } from './gate';
 
@@ -37,7 +38,7 @@ export class TrafficClient {
   /** Tiles sent to the worker, with their hash. */
   readonly local = new Map<string, string>();
   private nextSync = 0;
-  private sent = { enabled: '', claims: '', offset: NaN, shared: false };
+  private sent = { enabled: '', claims: '', offset: NaN, shared: false, clock: '' };
   private multiplayer: TrafficMultiplayer | null = null;
   private handled = new Set<string>();
   private claims = new Map<string, TrafficClaimEvent>();
@@ -48,13 +49,18 @@ export class TrafficClient {
   revision = 0;
   stats: TrafficStats | null = null;
 
+  /** `density` multiplies every street's flow (traffic/density.ts); `clock` is the clock single-player density
+   *  follows (multiplayer always follows the shared cycle). */
   constructor(private readonly physics: PhysicsClient, private readonly visuals: ParkedCarVisuals,
-    private readonly parked: Pick<ParkedVehicles, 'adopt'>, private readonly manifest: Manifest, readonly cap: number) {
+    private readonly parked: Pick<ParkedVehicles, 'adopt'>, private readonly manifest: Manifest, readonly cap: number,
+    readonly density = 1, private readonly clock: () => TrafficClock = () => ({ kind: 'cycle', periodMs: DAY_MS })) {
     visuals.reserveTraffic(cap);
     // A hot-swapped session restarts from a clean worker state.
     physics.trafficTiles([], [...physics.trafficResident]);
     physics.trafficResident.clear();
-    physics.traffic({ cap, offsetMs: 0, shared: false, enabled: null, claims: [] });
+    const start = clock();
+    this.sent.clock = JSON.stringify(start);
+    physics.traffic({ cap, offsetMs: 0, shared: false, enabled: null, claims: [], density, clock: start });
   }
 
   /** Follow the drawn draft tiles' road graphs (CoarseTiles). */
@@ -125,7 +131,7 @@ export class TrafficClient {
 
   /** Scorecard / QA view: drawn moving cars (engine x, z), cap and worker stats. */
   snapshot() {
-    return { cap: this.cap, drawn: this.drawn.length, mainMs: this.mainMs, tiles: this.local.size,
+    return { cap: this.cap, density: this.density, hour: this.stats?.hour ?? null, drawn: this.drawn.length, mainMs: this.mainMs, tiles: this.local.size,
       enabled: this.sent.enabled === '*' ? 'all' : this.sent.enabled.split(',').filter(Boolean).length, time: this.time,
       claims: this.claims.size, moving_cars: this.drawn.map(c => [Math.round(c.x * 10) / 10, Math.round(c.z * 10) / 10]), stats: this.stats };
   }
@@ -170,6 +176,9 @@ export class TrafficClient {
     if (claimsKey !== this.sent.claims) { change.claims = claims; this.sent.claims = claimsKey; }
     if (shared !== this.sent.shared) { change.shared = shared; this.sent.shared = shared; }
     if (!(Math.abs(offset - this.sent.offset) < 20)) { change.offsetMs = offset; this.sent.offset = offset; }
+    // A frozen hour is sent to the minute: the developer menu and ?time= move it, a running clock never does.
+    const clock = this.clock(), clockKey = JSON.stringify(clock.kind === 'hour' ? { ...clock, hour: Math.round(clock.hour * 60) / 60 } : clock);
+    if (clockKey !== this.sent.clock) { change.clock = JSON.parse(clockKey) as TrafficClock; this.sent.clock = clockKey; }
     if (Object.keys(change).length) this.physics.traffic(change);
   }
 

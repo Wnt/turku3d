@@ -5,8 +5,13 @@
 // The timetable has corners (stops at junctions, speed changes); a box filter of half-width T over the
 // timetable's distance turns them into braking and pulling away while leaving straight cruising exact, and it
 // preserves the headway between consecutive cars of a chain, so they still cannot overlap.
+//
+// Not every slot carries a car: `present` thins them by street, area and clock hour (traffic/density.ts). A car's
+// presence is decided once, at its chain's anchor, with the hour it reaches it, so it never changes during its
+// life on the chain; a lane of lower flow on the same chain shows fewer of the chain's cars.
 import { TRAFFIC } from './constants';
-import { mod } from './hash';
+import { slotShare, type TrafficDensity } from './density';
+import { hash01, mod } from './hash';
 import { laneSpan, type Connector, type Lane, type TileTraffic } from './tileNetwork';
 
 const H = TRAFFIC.headway;
@@ -32,6 +37,8 @@ export class TrafficNetwork {
   private enabled: ReadonlySet<string> | null = null;
   /** Bumped whenever lanes or links change (callers cache per-lane data against it). */
   revision = 0;
+  /** Which slots carry cars; null: every slot (the conveyor's capacity). */
+  density: TrafficDensity | null = null;
 
   setTile(tile: TileTraffic) { this.tiles.set(tile.tile, tile); this.relink(); }
   removeTile(id: string) { if (this.tiles.delete(id)) this.relink(); }
@@ -86,6 +93,15 @@ export class TrafficNetwork {
     return [Math.floor((t - lane.phase - span) / H) + 1, Math.floor((t - lane.phase) / H)];
   }
 
+  /** Does slot n of `lane` carry a car? A hash of the car's anchor slot against the lane's share of slots at the
+   *  hour the car reaches its anchor: a pure function of the tile's data and the shared clock. */
+  present(lane: Lane, n: number): boolean {
+    const density = this.density;
+    if (!density) return true;
+    const a = lane.anchor, t = lane.origin.phase + (n - lane.shift) * H + a.offset;
+    return hash01('car', a.key, Math.round((t - a.phase) / H)) < slotShare(lane.flow, density.hourAt(t), density.multiplier);
+  }
+
   /** Identity of a car: the slot on its chain's first lane in this tile (stable while it stays in the tile). */
   key(lane: Lane, n: number): string {
     const n0 = n - lane.shift;
@@ -102,7 +118,8 @@ export class TrafficNetwork {
     return at && this.isEnabled(at.lane.tile) ? at : null;
   }
 
-  /** Calls `visit` for every car within `radius` of (x, z) at time t, with its unsmoothed (timetable) position. */
+  /** Calls `visit` for every car (present slot) within `radius` of (x, z) at time t, with its unsmoothed
+   *  (timetable) position. */
   enumerate(x: number, z: number, radius: number, t: number, visit: (lane: Lane, n: number, px: number, pz: number) => void) {
     for (const tile of this.tiles.values()) {
       if (!this.isEnabled(tile.tile)) continue;
@@ -113,6 +130,7 @@ export class TrafficNetwork {
         if (x < l[0] - radius || x > l[2] + radius || z < l[1] - radius || z > l[3] + radius) continue;
         const [first, last] = this.slots(lane, t);
         for (let n = first; n <= last; n++) {
+          if (!this.present(lane, n)) continue;
           const r = timetable(lane, n, t);
           const p = pointOnLane(lane, r);
           if (Math.hypot(p.x - x, p.z - z) <= radius) visit(lane, n, p.x, p.z);

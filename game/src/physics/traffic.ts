@@ -3,7 +3,13 @@
 // kinematic Rapier bodies on the ones near the player, and turns a car the player touches into an ordinary
 // dynamic vehicle: a claim, which the main thread shares through net/sharedVehicles.ts so every client drops
 // that slot.
+//
+// Density (traffic/density.ts) only decides which slots carry cars. The ring creates cars only on such slots; a
+// drawn car whose slot stops carrying one (its chain moved onto a quieter street, a seam whose neighbour hashed
+// it out, a density or clock change) keeps driving until it is out of view or beyond the in-view creation
+// minimum, so no car vanishes closer than one may appear.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
+import { DAY_MS, cycleHour } from '../core/dayCycle';
 import type { V3 } from '../core/origin';
 import { GROUP } from '../shared/col/materials';
 import { CHASSIS_LIFT, MODEL_SIZE, MODEL_WEIGHTS, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS } from '../traffic/constants';
@@ -59,7 +65,8 @@ interface ActiveCar {
 
 export class TrafficSim {
   readonly network = new TrafficNetwork();
-  private config: TrafficConfig = { cap: 0, offsetMs: 0, shared: false, enabled: null, claims: [] };
+  private config: TrafficConfig = { cap: 0, offsetMs: 0, shared: false, enabled: null, claims: [], density: 1,
+    clock: { kind: 'cycle', periodMs: DAY_MS } };
   private active = new Map<number, ActiveCar>();
   private byKey = new Map<string, ActiveCar>();
   private colliderCar = new Map<number, ActiveCar>();
@@ -80,10 +87,19 @@ export class TrafficSim {
   time = 0;
   /** `stepMs`: mean traffic cost per physics substep (ring, poses, bodies, contacts; ms, EMA), `stepMax` its
    *  recent peak (decaying), `activationMs` the last ring pass. */
-  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0 };
+  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0, hour: 0, deferred: 0 };
   private substepMs = 0;
 
-  constructor(private readonly R: R, private readonly world: RAPIER_NS.World, private readonly host: TrafficHost) {}
+  constructor(private readonly R: R, private readonly world: RAPIER_NS.World, private readonly host: TrafficHost) {
+    this.network.density = { hourAt: t => this.hourAt(t), multiplier: 1 };
+  }
+
+  /** Clock hour at traffic time t. Multiplayer: the shared cycle, so every client thins alike. Single player: the
+   *  clock the player sees, a frozen hour or the (possibly rescaled) cycle at the wall time t corresponds to. */
+  hourAt(t: number): number {
+    const clock = this.config.shared ? { kind: 'cycle' as const, periodMs: DAY_MS } : this.config.clock;
+    return clock.kind === 'hour' ? clock.hour : cycleHour(TRAFFIC.epochMs + t * 1000 + this.pauseOffset, clock.periodMs).hour;
+  }
 
   setTiles(add: TrafficTile[], remove: string[]) {
     for (const id of remove) this.network.removeTile(id);
@@ -108,6 +124,7 @@ export class TrafficSim {
     if (change.enabled !== undefined) this.network.setEnabled(change.enabled ? new Set(change.enabled) : null);
     if (change.claims) this.claims.setRemote(change.claims);
     this.config = { ...this.config, ...change };
+    this.network.density!.multiplier = Math.max(0, this.config.density);
     this.resync();
   }
 
@@ -269,12 +286,19 @@ export class TrafficSim {
     if (this.lastView && Math.hypot(view.x - this.lastView.x, view.z - this.lastView.z) > 150) this.fill = true;
     this.lastView = { ...view };
     this.claims.follow(t);
+    this.stats.hour = this.hourAt(t);
+    let deferred = 0;
     for (const car of this.active.values()) {
       if (!this.network.isEnabled(car.lane.tile) || this.claims.has(car.key)) { this.deactivate(car); continue; }
       const d = Math.hypot(car.pose.x - view.x, car.pose.z - view.z);
       car.visible = inView(view, car.pose.x, car.pose.z);
-      if (mustRemove(d, car.visible)) this.deactivate(car);
+      const present = this.network.present(car.lane, car.n);
+      // A car on an emptied slot goes where a new one could appear: out of view, or in view beyond the creation
+      // minimum (so a busier chain's cars do not add to the next street's own beyond it).
+      if (mustRemove(d, car.visible) || (!present && (!car.visible || this.fill || d > RING.createInViewMin))) this.deactivate(car);
+      else if (!present) deferred++;
     }
+    this.stats.deferred = deferred;
     if (this.active.size >= this.config.cap) { this.fill = false; return; }
     const candidates: { lane: Lane; n: number; d: number; key: string }[] = [];
     this.network.enumerate(view.x, view.z, RING.createInViewMax, t, (lane, n, x, z) => {

@@ -35,8 +35,12 @@ interface Params {
   lights: number | null;
   /** ?traffic=N overrides the quality tier's moving-car cap (0 turns ambient traffic off); null keeps the tier's. */
   traffic: number | null;
+  /** ?trafficDensity=X multiplies every street's traffic flow (0..4, default 1 on every tier). */
+  trafficDensity: number;
   /** `?walkers=N`: ambient walker cap override (0 disables them); null keeps the quality tier's cap. */
   walkers: number | null;
+  /** `?motion=1` with `?cam=`: the QA camera keeps the play-mode water clock and reflection cadence (video capture). */
+  motion: boolean;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -83,6 +87,8 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const trafficStr = p.get('traffic');
   const traffic = trafficStr === null ? null : Number(trafficStr);
   if (traffic !== null && !(Number.isInteger(traffic) && traffic >= 0 && traffic <= 200)) throw new Error(`bad ?traffic= (moving-car cap 0..200): ${trafficStr}`);
+  const trafficDensity = Number(p.get('trafficDensity') ?? 1);
+  if (!(trafficDensity >= 0 && trafficDensity <= 4)) throw new Error(`bad ?trafficDensity= (flow multiplier 0..4): ${p.get('trafficDensity')}`);
   const walkers = p.has('walkers') ? Number(p.get('walkers')) : null;
   if (walkers !== null && !(Number.isInteger(walkers) && walkers >= 0 && walkers <= 200)) throw new Error(`bad ?walkers= (0..200): ${p.get('walkers')}`);
   return {
@@ -105,6 +111,8 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     mobile,
     lights,
     traffic,
+    trafficDensity,
     walkers,
+    motion: !!qa && p.get('motion') === '1',
   };
 }

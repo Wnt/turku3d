@@ -115,7 +115,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
 const vegetation = idPass ? null : new VegetationLod(params.quality);
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
-const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa);
+const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
   furniture?.remove(model);
   retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
@@ -350,6 +350,7 @@ async function runPlay() {
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
     loadingScreen, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
+    trafficClock: () => dayClock.trafficClock(),
     setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
