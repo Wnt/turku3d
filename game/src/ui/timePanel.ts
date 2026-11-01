@@ -185,6 +185,4 @@ export class TimePanel {
     for (const [speed, b] of this.speedButtons) b.setAttribute('aria-pressed', String(c.rate === speed));
     this.liveButton.setAttribute('aria-pressed', String(!c.local));
   }
-
-  dispose() { this.element.remove(); }
 }

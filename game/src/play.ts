@@ -128,7 +128,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     params.trafficDensity, world.trafficClock);
   traffic.attach(coarse);
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
-  // Births sample the shared cycle in multiplayer and this browser's view clock (?time=, the time panel) alone.
   const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,
     birthHour: utc => multiplayerPlaying ? cycleHour(utc).hour : world.dayClock.hourAt(utc),
     raycast: (origin, dir, maxToi, filter) => physics.raycast(origin, dir, maxToi, filter), graphs: () => coarse?.roadGraphs() ?? [] });
@@ -213,8 +212,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     mode = 'car';
     orbit.distance = 8;
   };
-  // Developer tools (localhost, or ?dev=1 also on Pages): fly mode, the time panel (T) and the pause menu's Developer
-  // page (ui/devMenu.ts).
+  // Developer tools (localhost, or ?dev=1 also on Pages): fly mode, the time panel (T) and the Developer page (ui/devMenu.ts).
   const fly = devToolsEnabled(location) ? new FlyMode() : null;
   const timePanel = fly ? new TimePanel(document.body, world.dayClock) : null;
   const devFlow = fly && timePanel ? new DevMenuFlow(pauseMenu, {
@@ -227,9 +225,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       void saveGame.teleport(E, N, headingDeg).then(ground => { if (!ground) fly.set(true); }).catch(fail);
     },
     ask: question => window.prompt(question),
-    clock: world.dayClock,
-    timePanel: () => timePanel.open,
-    toggleTimePanel: () => timePanel.toggle(),
+    clock: world.dayClock, timePanel: () => timePanel.open, toggleTimePanel: () => timePanel.toggle(),
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
@@ -620,7 +616,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
       devLayers.dispose();
-      timePanel?.dispose();
       remotePlayers.dispose();
       tyreEffects.dispose();
       walkers.dispose();
