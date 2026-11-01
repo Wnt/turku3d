@@ -10,16 +10,25 @@ Use English for code, comments, documentation, commits, progress updates and fin
 - Move fast, break things, move forward only (no rollbacks). Think outside the box: fix or improve at the layer that
   makes most sense (client, generator, tile format, data, assets, tooling). No backward compatibility is needed; the
   Gen 2 target design is `~/turku3d/plans/gen2-architecture.md`.
+- Ambition: visual fidelity rises significantly. Street level, where players spend their time, comes first.
 - Choose your own evidence: tests, same-pose renders, the visual judge (`~/turku3d/tools/visual-judge/judge.py`),
   tile builds, the bench probe. No fixed time budgets, smoke runs, post-deploy runs, agent register, heads-up or
   acknowledgement ceremony. Shared notes go to `~/turku3d/loops/board.md`.
+- Iterate in a long-lived browser session instead of reloading the game: keep one session per agent alive (close it
+  after at most ~2 h idle), connect over the Chrome DevTools Protocol, and switch options and patch code at runtime
+  (a shared dev API on `window.__game`/`window.__dev`, Vite HMR, monkey-patching). Prefer runtime toggles over new URL
+  parameters, because the game's startup is slow; URL parameters only for things needed at initial load.
 - Local generator changes need no approval; only a production rollout does (Jonni decides).
-- Replace existing facades, textures and AI descriptions whenever the new result is better.
-- Debug URL parameters are fine; delete code you replace instead of flagging it.
-- Reports are short: result, evidence, next.
+- Buildings: improve the data of all buildings and make generation scale to the whole city. Every time a vision model
+  looks at a facade, write what it learns back into the building data; reuse earlier vision/facade work that hasn't
+  been fully used yet. Replace existing facades, textures and AI descriptions whenever the new result is better.
+- Caching: keep content hashes, and aim for fine-grained, per-area rebuilds of geometry, textures and assets that
+  happen on demand (when a player views an area whose latest version isn't cached yet).
+- Delete code you replace instead of flagging it. Reports are short: result, evidence, next.
 - Hard limits that stay:
-  - 30+ FPS on Jonni's M1 Max at medium; no new shader pipelines per instance count or hour.
-  - Multiplayer: anything players must see alike comes from tile data or the shared clock.
+  - An average of 30 FPS on Jonni's M1 Max at medium (optimise further later).
+  - Multiplayer is not a hard limit: keep collision geometry and shared world data structured so it can be made
+    multiplayer-compatible later if it isn't from the start.
   - Your own ports and browser profile; never Jonni's Chrome profile or ports 5171/5175; never kill processes you
     didn't start; don't stop other agents' servers.
   - No paid services or new API keys; secrets never printed or committed; `~/turku3d/data/raw` is read-only.
