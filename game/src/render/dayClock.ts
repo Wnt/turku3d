@@ -35,6 +35,8 @@ export class DayClock {
   /** Earlier modes with the local instant each started, for `hourAt` (newest last). */
   private history: { from: number; mode: ClockMode }[];
   private iblPending = false;
+  /** Local clock hour of each frozen calendar instant (Intl is too slow to repeat per walker slot). */
+  private dateHours = new WeakMap<Date, number>();
   private lastIBL: number;
   private frames = 0;
   private totalMs = 0;
@@ -105,9 +107,16 @@ export class DayClock {
       case 'cycle': return cycleHour(local + this.serverOffset, mode.periodMs).hour;
       case 'hour': return ((mode.hour % 24) + 24) % 24;
       case 'run': { const h = mode.hour + (local - mode.since) * mode.rate / 3_600_000; return ((h % 24) + 24) % 24; }
-      case 'date': return localHour(mode.date);
+      case 'date': {
+        let hour = this.dateHours.get(mode.date);
+        if (hour === undefined) this.dateHours.set(mode.date, hour = localHour(mode.date));
+        return hour;
+      }
     }
   }
+
+  /** The view's hour now: `hour` is the last frame's, which a fast clock has already left. */
+  private current() { return this.hourOf(this.mode, this.now()); }
 
   /** Freeze a calendar instant with the astronomical sun (window.__render.setTime). */
   set(date: Date) { this.freeze({ kind: 'date', date }); }
@@ -124,14 +133,14 @@ export class DayClock {
     const h = ((hour % 24) + 24) % 24;
     this.switchTo(this.mode.kind === 'run' ? { kind: 'run', hour: h, since: this.now(), rate: this.mode.rate } : { kind: 'hour', hour: h });
   }
-  step(hours: number) { this.seek(this.hour + hours); }
+  step(hours: number) { this.seek(this.current() + hours); }
   /** Freeze the view at its current hour. */
-  pause() { this.switchTo({ kind: 'hour', hour: this.hour }); }
+  pause() { this.switchTo({ kind: 'hour', hour: this.current() }); }
   /** Run from the current hour at `rate` clock hours per real hour (default: the last speed). */
   resume(rate = this.speed) {
     if (!(rate > 0)) return;
     this.speed = rate;
-    this.switchTo({ kind: 'run', hour: this.hour, since: this.now(), rate });
+    this.switchTo({ kind: 'run', hour: this.current(), since: this.now(), rate });
   }
   /** Follow the shared cycle again. */
   goLive() { this.switchTo(this.live); }
