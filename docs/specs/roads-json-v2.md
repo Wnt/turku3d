@@ -45,7 +45,7 @@ All `edge*` arrays are parallel to `edges` (same index); `nodeFlags` is parallel
 ### 3.1 `edgeHeights` (now on every edge)
 
 v1 had a Y array only on bridge-deck and tunnel edges. v2 has one on **every** edge: one Y per
-polyline vertex (node a, interior vertices, node b), so `edgeHeights[i].length == edges[i].length/2 - 1`.
+polyline vertex (node a, interior vertices, node b), so `edgeHeights[i].length == edges[i].length / 2`.
 Source by priority: bridge deck surface (OSM `bridge=*` ways matched to the built deck), tunnel
 floor, else the tile's walkable ground surface (terrain + kerbs/road top). Interpolate linearly
 between vertices.

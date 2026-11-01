@@ -444,14 +444,17 @@ def build(
         _write(out / "col" / f"{cid}.col", data)
     seconds["collision_ready"] = time.perf_counter() - started
     if first_pass:
+        from turku3d.roads.tile_graph import with_heights
+
         from .basic import publish
 
+        first_roads = tunnels.roads(bridge_roads)
         return publish(
             tile,
             out,
             basic_cells,
             collision,
-            tunnels.roads(bridge_roads),
+            with_heights(first_roads, surface_sample) if first_roads is not None else None,
             producer_code,
             inputs.key,
             len(blds),
@@ -561,6 +564,8 @@ def build(
         [visual_args, corrected_ortho, surfaces.KEYS, surfaces.BINDINGS],
         lambda: surfaces.visuals(*visual_args, ortho=corrected_ortho),
     )
+    from turku3d.roads import paint as road_paint
+
     paint_args = (
         tile,
         surface_pos,
@@ -569,11 +574,24 @@ def build(
         np.ones(len(surface_idx), bool),
         inputs.markings,
     )
-    paint = cache.run(
+    road_graph = inputs.roads["json"] if inputs.roads else None
+
+    def draped_paint():
+        rule = road_paint.markings(json.loads(road_graph) if road_graph else None)
+        paint = surfaces.paint_visual(*paint_args[:-1], [*inputs.markings, *rule])
+        return paint, road_paint.summary(rule)
+
+    paint, paint_counts = cache.run(
         "markings",
-        source_key(surfaces.paint_visual, base / "package/gltf.py", *common),
-        paint_args,
-        lambda: surfaces.paint_visual(*paint_args),
+        source_key(
+            surfaces.paint_visual,
+            Path(road_paint.__file__),
+            base / "roads/attributes.py",
+            base / "package/gltf.py",
+            *common,
+        ),
+        [*paint_args, road_graph],
+        draped_paint,
     )
     if paint is not None:
         ground_meshes.append(paint)
@@ -685,6 +703,10 @@ def build(
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
     roads = tunnels.roads(bridge_roads)
+    if roads is not None:
+        from turku3d.roads.tile_graph import with_heights
+
+        roads = with_heights(roads, surface_sample)
 
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
@@ -732,6 +754,7 @@ def build(
         gardens=gardens.stats(tile, inputs.gardens),
         boats=boats.stats(tile, inputs.boats, boat_meshes),
         marking_triangles=len(paint.indices) if paint is not None else 0,
+        rule_paint=paint_counts,
         ground_ortho_cleanup=cleanup_stats,
         ground_colour_calibration=colour_stats,
         ground_surfaces={

@@ -66,6 +66,8 @@ DEPENDENCIES = {
         "area.py",
         "../spatial.py",
         "../roads/__init__.py",
+        "../roads/attributes.py",
+        "../roads/tile_graph.py",
     ),
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "trees": ("../spatial.py",),
@@ -357,11 +359,10 @@ def prepare_wfs(
 
 def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=()) -> dict:
     """``roads.json`` bytes of the tile's street graph with its node and edge counts."""
-    from turku3d.roads import build_graph, encode, osm_ways
+    from turku3d.roads import encode
+    from turku3d.roads.tile_graph import prepare as tile_graph
 
-    graph = build_graph(
-        osm_ways(osm, tile.bbox), tile.bbox.as_tuple(), f"coarse-{tile.id}", connected=False
-    )
+    graph = tile_graph(osm, tile.bbox, f"coarse-{tile.id}", tile.size)
     from .bridges import prepare as prepare_bridges
 
     return {

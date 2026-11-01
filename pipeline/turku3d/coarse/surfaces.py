@@ -414,22 +414,36 @@ def mapped_paint(tile, path):
 
 
 def paint_visual(tile, positions, indices, materials, keep, polygons):
-    """Intersect paint with each dry road triangle and interpolate its actual plane."""
+    """Intersect paint with each dry road triangle and interpolate its actual plane.
+
+    ``polygons`` holds explicit OSM marking polygons (white, any road triangle) and rule paint
+    items ``(polygon, rgb, deck, kind)`` from ``turku3d.roads.paint``: a ground item is draped on
+    road triangles only, a deck item only on bridge-deck triangles, so a street passing under a
+    bridge never paints the deck above it. ``rgb`` multiplies the shared paint colour."""
     import mapbox_earcut
 
     from turku3d.structures.geometry import Faces
 
     if not polygons:
         return None
-    road = np.isin(materials, [mat_id(k) for k in ("road", "crossing", "cycleway", "bridge_deck")])
-    triangles = positions[indices[keep & road]]
+    selected = keep & np.isin(
+        materials, [mat_id(k) for k in ("road", "crossing", "cycleway", "bridge_deck")]
+    )
+    triangles = positions[indices[selected]]
     if not len(triangles):
         return None
+    on_deck = materials[selected] == mat_id("bridge_deck")
     footprints = shapely.polygons(triangles[:, :, [0, 2]])
     tree = shapely.STRtree(footprints)
     faces = Faces()
-    for polygon in polygons:
+    colours = []
+    for item in polygons:
+        polygon, rgb, deck = (
+            (item[0], item[1], item[2]) if isinstance(item, tuple) else (item, None, None)
+        )
         for index in tree.query(polygon, predicate="intersects"):
+            if deck is not None and bool(on_deck[index]) != deck:
+                continue
             clipped = polygon.intersection(footprints[index])
             for part in getattr(clipped, "geoms", [clipped]):
                 if part.geom_type != "Polygon" or part.area < 0.0001:
@@ -447,6 +461,7 @@ def paint_visual(tile, positions, indices, materials, keep, polygons):
                     if np.cross(v[1] - v[0], v[2] - v[0])[1] < 0:
                         v = v[::-1]
                     faces.face(v, v[:, [0, 2]])
+                    colours.extend([rgb or (1.0, 1.0, 1.0)] * 3)
     if not faces.indices:
         return None
     return GlbMesh(
@@ -456,11 +471,19 @@ def paint_visual(tile, positions, indices, materials, keep, polygons):
         color=(0.72, 0.71, 0.66, 1),
         roughness=0.9,
         extras=dict(layer="markings", object_id=f"paint_{tile.id}", material_key="road_paint"),
+        colors=np.asarray(colours, np.float32),
     )
 
 
 def split_boundaries(
-    positions, indices, materials, keep, regions, fallback_materials=None, *, preserve_materials=False
+    positions,
+    indices,
+    materials,
+    keep,
+    regions,
+    fallback_materials=None,
+    *,
+    preserve_materials=False,
 ):
     """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals."""
     import mapbox_earcut
@@ -514,7 +537,8 @@ def split_boundaries(
         owners.append(boundary[hits])
         channels.append(
             materials[selected[boundary[hits]]]
-            if preserve_materials else np.full(len(hits), regions[region][1], np.uint8)
+            if preserve_materials
+            else np.full(len(hits), regions[region][1], np.uint8)
         )
         remaining[hits] = overlay(shapely.difference, remaining[hits], polygons[region])
     pieces.append(remaining)
