@@ -46,3 +46,18 @@ class SceneryTest(unittest.TestCase):
                 run.assert_not_called()
             self.assertEqual(cache.descriptor('../bad')[0], 404)
             cache.pool.shutdown()
+
+    def test_cached_builds_use_an_isolated_derivative_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'sources'; folder = root / 't0_4_0'; folder.mkdir(parents=True)
+            raw = b'cached complete build'; digest = hashlib.sha256(raw).hexdigest()
+            (folder / 'vis.glb').write_bytes(raw)
+            (folder / 'manifest.json').write_text(json.dumps(dict(coarse=True,
+                visual={folder.name: dict(url='vis.glb', sha256=digest, h=[0, 30])})))
+            cache = Scenery(root, Path(temp) / 'work' / 'derived')
+            result = cache.catalogue([folder.name])
+            self.assertEqual(len(result['tiles']), 1)
+            self.assertFalse((root / '.scenery').exists())
+            self.assertEqual((folder / 'vis.glb').read_bytes(), raw)
+            self.assertTrue((cache.cache / (result['tiles'][0]['key'] + '.source.json')).exists())
+            cache.pool.shutdown()

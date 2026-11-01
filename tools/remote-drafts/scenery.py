@@ -12,13 +12,13 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 TILE = re.compile(r'^t0_-?\d+_-?\d+$')
 KEY = re.compile(r'^[a-f0-9]{64}$')
-VISUAL = re.compile(r'^vis\.[a-f0-9]{64}\.glb$')
+VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
 
 
 class Scenery:
-    def __init__(self, root):
+    def __init__(self, root, cache=None):
         self.root = Path(root)
-        self.cache = self.root / '.scenery'
+        self.cache = Path(cache) if cache else self.root / '.scenery'
         self.script = Path(__file__).with_suffix('.mjs')
         self.recipe = hashlib.sha256(self.script.read_bytes()).hexdigest()
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
@@ -28,7 +28,7 @@ class Scenery:
     def catalogue(self, tiles):
         """No Builder access, freshness checks, raw-data reads or source writes on this path."""
         rows, missing = [], []
-        self.cache.mkdir(exist_ok=True)
+        self.cache.mkdir(parents=True, exist_ok=True)
         for tile in dict.fromkeys(tiles):
             if not TILE.fullmatch(tile):
                 continue
@@ -37,7 +37,7 @@ class Scenery:
                 try:
                     fragment = json.loads((self.root / tile / name).read_text())
                     entry = fragment['visual'][tile]
-                    if fragment.get('pass_kind') != 'full' or not VISUAL.fullmatch(entry['url']):
+                    if fragment.get('pass_kind', 'full') != 'full' or not VISUAL.fullmatch(entry['url']):
                         continue
                     if (self.root / tile / entry['url']).is_file():
                         source = entry
