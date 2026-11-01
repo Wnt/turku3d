@@ -269,3 +269,21 @@ def test_survey_coverage_edge_over_open_water_is_never_a_tile_boundary_bank():
     )
     assert not len(dry.indices) and not len(bank.indices)
     assert len(wet.indices) == len(ix) and np.all(wet.positions[:, 1] == 0)
+
+
+def test_retaining_cut_masks_stay_polygonal():
+    """A degenerate cut leaves a line sliver; GEOS cannot subtract a mixed-dimension mask from an
+    empty polygon (t0_3_1 failed its full pass on it), so cuts keep only their areas."""
+    import pytest
+    import shapely
+    from turku3d.coarse.retaining import _areas
+
+    mixed = shapely.GeometryCollection([shapely.box(0, 0, 1, 1), shapely.LineString([(2, 0), (3, 0)])])
+    with pytest.raises(shapely.errors.GEOSException):
+        shapely.Polygon().difference(mixed)
+    mask = _areas(mixed)
+    assert mask.equals(shapely.box(0, 0, 1, 1))
+    assert shapely.Polygon().difference(mask).is_empty
+    assert _areas(shapely.GeometryCollection([shapely.LineString([(0, 0), (1, 0)])])).is_empty
+    square = shapely.box(0, 0, 2, 2)
+    assert _areas(square) is square

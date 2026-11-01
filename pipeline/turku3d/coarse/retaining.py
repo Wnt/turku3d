@@ -39,6 +39,18 @@ def sections(line, spacing=2.0, radius=2.5):
     return centres, centres - sides, centres + sides
 
 
+def _areas(geometry):
+    """The polygonal part of an overlay result. A degenerate cut leaves line and point slivers in a
+    GeometryCollection; a mask of mixed dimension makes the next GEOS overlay fail ("Unable to
+    determine overlay result geometry dimension", t0_3_1)."""
+    if geometry.geom_type in ("Polygon", "MultiPolygon"):
+        return geometry
+    parts = [p for p in shapely.get_parts(geometry) if p.geom_type == "Polygon" and not p.is_empty]
+    if not parts:
+        return shapely.Polygon()
+    return parts[0] if len(parts) == 1 else shapely.MultiPolygon(parts)
+
+
 def produce(tile, records, sample, stairs=(), water=()):
     from .tunnels import _polygon_faces
 
@@ -46,7 +58,7 @@ def produce(tile, records, sample, stairs=(), water=()):
     stair_mask = shapely.union_all(stairs)
     shore = shapely.union_all(water).buffer(2.5)
     window = shapely.box(*tile.bbox.as_tuple()).buffer(3)
-    claimed = shapely.GeometryCollection()
+    claimed = shapely.Polygon()
     for index, (geom, tags, _) in enumerate(records):
         if tags.get("barrier") not in ("retaining_wall", "wall", "city_wall"):
             continue
@@ -99,7 +111,9 @@ def produce(tile, records, sample, stairs=(), water=()):
                         polygon = shapely.Polygon(tri)
                         if polygon.area < 1e-8:
                             continue
-                        polygon = polygon.difference(stair_mask).difference(claimed)
+                        polygon = _areas(polygon.difference(stair_mask))
+                        if not polygon.is_empty:
+                            polygon = _areas(polygon.difference(claimed))
                         if polygon.is_empty:
                             continue
                         coeff = np.linalg.solve(np.c_[tri, np.ones(3)], heights[ids])
