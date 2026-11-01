@@ -1,5 +1,5 @@
 // Program-sized windows reuse the kit's PBR cells; bands are painted in wall metres.
-import { float, fract, max, min, mix, sqrt, step, vec2 } from 'three/tsl';
+import { float, floor, fract, max, min, mix, sqrt, step, vec2 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { facadeAttribute } from './facadeProgramAttributes';
 
@@ -57,7 +57,9 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const patch = patchKind.equal(2).select(vec2(x.sub(.5).mul(.49).add(.5), patchY.mul(.76)),
     vec2(x.sub(.5).mul(.45).add(.5), patchY.mul(.5).add(.21)));
   const local = cutout.select(vec2(.05, .95), isPatch.select(patch, ordinary));
-  return { module, local, opening, detail, size, x, y };
+  // The bay index that `x` wraps within: one lit-window cell per program bay.
+  const column = floor(bays.x.add(phase));
+  return { module, local, opening, detail, size, x, y, column };
 }
 
 export function programPigment(metres: Node<'vec2'>, bays: Node<'vec2'>, upper: Node<'float'>, layout: Node<'vec3'>,

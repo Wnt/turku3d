@@ -44,11 +44,12 @@ test('sun position in Turku', () => {
 });
 
 test('sun direction is rotated from true to grid azimuth (meridian convergence)', async () => {
-  const { sunDirection } = await import('../../src/core/sun');
+  const { sunVector } = await import('../../src/core/sun');
   const { TRUE_NORTH_GRID_BEARING_DEG } = await import('../../src/core/origin');
-  const d = sunDirection(new Date('2026-06-21T10:30:00Z'));
+  const sun = sunPosition(new Date('2026-06-21T10:30:00Z'));
+  const d = sunVector(sun.azimuth, sun.elevation);
   const gridAz = ((Math.atan2(d.x, -d.z) * 180) / Math.PI + 360) % 360; // engine: east +x, north -z
-  expect(gridAz - d.azimuth).toBeCloseTo(TRUE_NORTH_GRID_BEARING_DEG, 6);
+  expect(gridAz - sun.azimuth).toBeCloseTo(TRUE_NORTH_GRID_BEARING_DEG, 6);
   expect(Math.hypot(d.x, d.y, d.z)).toBeCloseTo(1, 9);
 });
 

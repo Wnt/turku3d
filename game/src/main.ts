@@ -11,8 +11,7 @@ import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, headingToYaw } from './core/origin';
 import { createRenderer, defaultBackend } from './render/renderer';
-import { DayClock } from './render/dayClock';
-import { dayCycle } from './core/dayCycle';
+import { DayClock, type ClockMode } from './render/dayClock';
 import { Environment } from './render/environment';
 import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
@@ -48,7 +47,8 @@ declare global {
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
-      perf: PerformanceMonitor; setTime: (iso: string) => void; beforeFrame?: () => boolean; afterFrame?: () => void };
+      perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
+      beforeFrame?: () => boolean; afterFrame?: () => void };
   }
 }
 
@@ -78,23 +78,27 @@ addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); l
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
-  { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile }));
+  { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
-env.setTime(params.qa || params.timeGiven ? params.time : dayCycle(Date.now()).lightTime);
+/** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
+const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params.hour }
+  : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
+const dayClock = new DayClock(env, clockMode, !params.qa);
 if (!idPass) env.updateIBL();
 const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights);
 const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, lights?.sprites);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-/** QA stays fixed; play follows the shared UTC cycle unless explicitly set through the developer tools. */
-const dayClock = new DayClock(env, params.qa || params.timeGiven ? params.time : null, !params.qa);
 window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
+}, setHour: (hour: number) => {
+  if (!Number.isFinite(hour)) throw new Error('invalid render hour');
+  dayClock.setHour(hour);
 } };
 const vegetation = idPass ? null : new VegetationLod(params.quality);
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
@@ -123,6 +127,9 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts.
+  env.updateShadows(!params.qa && worldLoad.snapshot().phase === 'ready');
+  post?.grade(env.sample);
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });

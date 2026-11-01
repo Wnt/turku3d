@@ -1,3 +1,4 @@
+import { nightFactor } from '../../src/render/timecycle';
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
@@ -251,7 +252,8 @@ describe('sprites and fades', () => {
     expect(spriteLevel(0, 1, 50, 10)).toBe(1);
     expect(spriteLevel(1, 0, 50, SPRITE.fadeIn / 2)).toBeCloseTo(0.5, 6);
     expect(nightLevel({ time: new Date(), sunElevation: 30 })).toBe(0);
-    expect(nightLevel({ time: new Date(), sunElevation: -10 })).toBe(1);
+    expect(nightLevel({ time: new Date(), sunElevation: -20 })).toBe(1);
+    expect(nightLevel({ time: new Date(), sunElevation: -4 })).toBe(nightFactor(-4));
   });
 
   test('posts keep stable slots, scale with distance and never draw zero instances', () => {

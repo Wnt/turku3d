@@ -8,6 +8,7 @@ import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { QUALITY, type QualityTier } from './quality';
+import type { TimecycleSample } from './timecycle';
 
 // r186 exposes this public method; the corresponding DefinitelyTyped declaration omits it.
 const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
@@ -29,6 +30,9 @@ export class PostProcessing {
   private preDepth = 2;
   private beautyDepth = 2;
   private resources: { dispose(): void }[];
+  private glow: ReturnType<typeof bloom> | null;
+  /** The timecycle's bloom strength is in medium-tier units. */
+  private bloomScale: number;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
@@ -88,7 +92,8 @@ export class PostProcessing {
     const temporal = aa === 'taa' && pre ? traa(beauty, pre.getTextureNode('depth'), pre.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
     const color = temporal ?? beauty;
-    const glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
+    const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
+    this.bloomScale = q.bloomStrength / QUALITY.medium.bloomStrength;
     glow?.setResolutionScale(q.bloomScale);
     const bloomed = glow ? color.rgb.add(glow.rgb) : color.rgb;
     // Light sprites (render/lights) join after TRAA and bloom: no jitter, no history smear.
@@ -117,6 +122,13 @@ export class PostProcessing {
 
   /** The prepass and scene-pass render targets, so the bench probe (qa/bench.ts) can attribute draws to passes. */
   get passTargets() { return { prepass: this.pre?.renderTarget, beauty: this.beauty.renderTarget }; }
+  /** Night bloom: stronger with a lower threshold, through the effect's uniforms (no new pipeline). Mobile has no
+   *  bloom pass; its night relies on emissive light alone. */
+  grade(sample: TimecycleSample) {
+    if (!this.glow) return;
+    this.glow.strength.value = sample.bloomStrength * this.bloomScale;
+    this.glow.threshold.value = sample.bloomThreshold;
+  }
 
   render() {
     // Prepass, beauty, cascades and river reflection share world transforms for this frame.

@@ -7,7 +7,7 @@ import { SPEED } from '../../src/actors/player';
 import { MissionSystem, missionSummary } from '../../src/gameplay/missions/missions';
 import { START_MONEY } from '../../src/gameplay/economy';
 import { SaveStore, formatDetails, type KeyValueStore, type SaveGame } from '../../src/core/save';
-import { phaseTime, sunPosition } from '../../src/core/sun';
+import { PHASE_HOURS, cycleAt } from '../../src/core/dayCycle';
 import { PLACES, parsePlace } from '../../src/gameplay/content/places';
 import { DevMenuFlow, type DevHooks } from '../../src/ui/devMenu';
 import { SaveMenuFlow, type GameHooks, type MenuPage } from '../../src/ui/menu';
@@ -107,27 +107,14 @@ describe('dev money', () => {
 });
 
 describe('time of day', () => {
-  const day = new Date('2026-10-15T14:00:00+03:00');
-  const hour = (d: Date) => (d.getTime() - new Date('2026-10-15T00:00:00+03:00').getTime()) / 3_600_000;
-  test('dawn, noon, dusk and the night after, in order, with the sun where it should be', () => {
-    const [dawn, noon, dusk, night] = (['dawn', 'noon', 'dusk', 'night'] as const).map(p => phaseTime(day, p));
-    expect(hour(dawn)).toBeGreaterThan(7.5); expect(hour(dawn)).toBeLessThan(9.5);
-    expect(hour(noon)).toBeGreaterThan(12.9); expect(hour(noon)).toBeLessThan(13.6);
-    expect(hour(dusk)).toBeGreaterThan(17); expect(hour(dusk)).toBeLessThan(18.5);
-    expect(hour(night)).toBeGreaterThan(24); expect(hour(night)).toBeLessThan(26); // the coming night
-    expect(sunPosition(dawn).elevation).toBeCloseTo(4, 0);
-    expect(sunPosition(dusk).elevation).toBeCloseTo(4, 0);
-    expect(sunPosition(noon).elevation).toBeGreaterThan(20);
-    expect(sunPosition(night).elevation).toBeLessThan(-30);
-    // Any time of that day gives the same moments.
-    expect(phaseTime(new Date('2026-10-15T23:30:00+03:00'), 'noon').getTime()).toBe(noon.getTime());
-  });
-  test('deep winter: dawn and dusk fall back to three hours around noon when the sun stays low', () => {
-    const winter = new Date('2026-12-21T12:00:00+02:00');
-    const noon = phaseTime(winter, 'noon');
-    expect(sunPosition(noon).elevation).toBeLessThan(7);
-    expect(phaseTime(winter, 'dawn').getTime()).toBeLessThan(noon.getTime());
-    expect(phaseTime(winter, 'dusk').getTime()).toBeGreaterThan(noon.getTime());
+  test('dawn, noon, dusk and night are fixed hours on the cycle, with the sun where it should be', () => {
+    const [dawn, noon, dusk, night] = (['dawn', 'noon', 'dusk', 'night'] as const).map(p => cycleAt(PHASE_HOURS[p]));
+    expect(dawn.hour).toBeLessThan(noon.hour); expect(noon.hour).toBeLessThan(dusk.hour); expect(dusk.hour).toBeLessThan(night.hour);
+    expect(Math.abs(dawn.sun.elevation)).toBeLessThan(4);
+    expect(Math.abs(dusk.sun.elevation)).toBeLessThan(4);
+    expect(noon.sun.elevation).toBeGreaterThan(30);
+    expect(night.sun.elevation).toBeLessThan(-18);
+    expect(night.night).toBe(1); expect(noon.night).toBe(0);
   });
 });
 

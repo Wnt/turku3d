@@ -5,6 +5,7 @@ import { cameraPosition, dot, float, max, mix, normalize, positionWorld, pow, re
 import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
+import { nightUniforms } from './nightLights';
 
 /** Periodic normal map from a small directional wave spectrum: no external asset request or seams. */
 function waveNormalTexture() {
@@ -74,11 +75,13 @@ export class RiverMaterial {
     const view = normalize(cameraPosition.sub(positionWorld));
     const fresnel = float(0.02).add(pow(float(1).sub(max(dot(view, normal), 0)), 5).mul(0.98));
     if (reflection) reflection.uvNode = reflection.uvNode!.add(normal.xz.mul(0.006));
+    // The unlit deep-water colour (and the no-IBL sky stand-in) darkens with the night; reflections darken by themselves.
+    const daylight = float(1).sub(nightUniforms.night.mul(0.75));
     const reflected = reflection?.rgb ?? (env.environmentMap
-      ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)) : vec3(0.18, 0.25, 0.3));
+      ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)) : vec3(0.18, 0.25, 0.3).mul(daylight));
     const specular = pow(max(dot(reflect(uniform(env.sunDir).negate(), normal), view), 0), 180)
       .mul(uniform(env.sun.color)).mul(uniform('float').onRenderUpdate(() => env.sun.intensity));
-    this.material.colorNode = mix(vec3(0.025, 0.065, 0.06), reflected, fresnel).add(specular);
+    this.material.colorNode = mix(vec3(0.025, 0.065, 0.06).mul(daylight), reflected, fresnel).add(specular);
     // Opaque colour, but exclude the river from the opaque normal/velocity prepass and its recursive reflection.
     this.material.transparent = true;
     this.material.name = reflection ? 'river-planar' : 'river-sky';
