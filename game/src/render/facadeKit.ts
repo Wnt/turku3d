@@ -79,12 +79,12 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer,
     if (!mesh.isMesh) return;
     interleaveProgram(mesh.geometry);
     mesh.castShadow = true; mesh.receiveShadow = true;
+    const wall = buildingWall(mesh);
     const style = (source: THREE.Material) => {
-      const cached = cache.get(source)?.get(buildingWall(mesh));
+      const cached = cache.get(source)?.get(wall);
       if (cached) return cached;
       const pbr = source as THREE.MeshStandardMaterial;
       let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
-      const wall = buildingWall(mesh);
       if (pbr.type === 'MeshStandardMaterial' &&
           !Object.values(pbr).some(value => value?.isTexture)) {
         // Plain car/tree/prop colours need no per-tile node graph. LOD can still combine bark/crown.
