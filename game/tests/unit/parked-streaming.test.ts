@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { ParkedVehicles } from '../../src/world/parkedVehicles';
+import { ParkedVehicles, slotRotation } from '../../src/world/parkedVehicles';
 import { draftManifest, type ParkedVehicle } from '../../src/world/manifest';
 import type { PhysicsClient } from '../../src/physics/client';
 
@@ -36,7 +36,7 @@ test('rare parked truck uses the built-in truck appearance and physics without a
   stream.update(30, 30, null, 0); await settle();
   expect(seated.addTruck).toHaveBeenCalledExactlyOnceWith(car.object_id);
   expect(physics.spawnVehicle).toHaveBeenCalledWith({ x: 30, y: 6, z: 30 }, .7 - Math.PI / 2,
-    { id: car.object_id, kind: 'truck', parked: true });
+    { id: car.object_id, kind: 'truck', parked: true, rot: slotRotation(car) });
   manifest.vehicles = [];
   stream.update(1000, 1000, null, 1000); await settle();
   expect(seated.retainTrucks).toHaveBeenLastCalledWith(new Set());

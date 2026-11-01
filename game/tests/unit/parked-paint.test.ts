@@ -46,9 +46,9 @@ test('one draw per body model carries each paint per instance; other models keep
     const scene = new THREE.Scene();
     await new ParkedCarVisuals(scene).load(manifest);
     const draws = scene.children as THREE.InstancedMesh[];
-    // Per model × paint this was 24 + 2 resident draws, and 26 GLB downloads.
+    // Per model × paint this was 36 + 2 resident draws, and 38 GLB downloads.
     expect(draws.map(d => d.name).sort()).toEqual([...MODELS.map(m => `parked/${m}`), 'parked/fixture/blue', 'parked/sedan/purple'].sort());
-    expect(urls).toHaveLength(6);
+    expect(urls).toHaveLength(MODELS.length + 2);
     for (const model of MODELS) {
       const draw = draws.find(d => d.name === `parked/${model}`)!, members = cars.filter(c => c.model === model);
       expect(draw.count).toBe(members.length);
@@ -145,7 +145,7 @@ test.each([false, true])('instance counts, paints and body models never add a pr
     };
     const few = await draws(MODELS.flatMap(m => [0, 1, 2].map(i => car(`${m}${i}`, m, 'red'))));
     const many = await draws(MODELS.flatMap(m => Array.from({ length: 150 }, (_, i) => car(`${m}${i}`, m, COLORS[i % 6]))));
-    expect([...few.meshes, ...many.meshes].map(m => m.count)).toEqual([3, 3, 3, 3, 150, 150, 150, 150]);
+    expect([...few.meshes, ...many.meshes].map(m => m.count)).toEqual([...MODELS.map(() => 3), ...MODELS.map(() => 150)]);
     many.visuals.takeOver(`${MODELS[0]}7`);
     const standalone = [many.scene.getObjectByName(`driven/${MODELS[0]}7`) as THREE.Mesh,
       ...MODELS.flatMap(m => ['white', 'charcoal'].map(c => many.visuals.remoteModel(`${m}/${c}`)!))];
@@ -167,7 +167,7 @@ test.each([false, true])('instance counts, paints and body models never add a pr
     expect(batched[0].vertexShader).not.toMatch(/array<mat4x4<f32>,\s*\d+>/);
     // The paint mask is arithmetic: the palette sample stays in uniform control flow.
     expect(batched[0].fragmentShader).not.toMatch(/\bif\s*\(/);
-    // Native pipelines are keyed by program pair and pass state: 2 for 8 batches and 9 standalone cars.
+    // Native pipelines are keyed by program pair and pass state: 2 for every batch and standalone car.
     const pipelineBackend = { createProgram: vi.fn(), createRenderPipeline: vi.fn(), needsRenderUpdate: () => false, getRenderCacheKey: () => 'pass' };
     const pipelines = new Pipelines(pipelineBackend, {}, { createProgram: vi.fn(), destroyProgram: vi.fn() });
     for (const state of [...batched, ...single]) pipelines.getForRender({ material: { name: 'parked' }, getNodeBuilderState: () => state });

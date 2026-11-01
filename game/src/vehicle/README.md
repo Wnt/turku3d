@@ -10,7 +10,11 @@ entry, and skip wheel updates while asleep. Only the nearest `QUALITY[tier].park
 draft cars within 120 m (mobile 24, low 40, medium 60, high 80) have bodies
 (`world/parkedVehicles.ts`); a closer car takes a body only when it is 15% and 4 m nearer,
 rolling cars keep theirs, and bodies leave beyond 170 m. Cars without a body are drawn at
-their last physical pose or draft slot; claimed multiplayer slots are left to the shared renderer.
+their last physical pose or draft slot, tilted with the ground as the generator measured it
+(`pitch`, `roll`); claimed multiplayer slots are left to the shared renderer. A slot holds its car
+only while its generator draw (`occ`) is below its class's occupancy at the shared clock's night
+level (`world/parkedOccupancy.ts`: the centre empties at night, residential streets fill up), so
+every client shows the same cars; an emptied slot loses its visual and, once at rest, its body.
 Each recolourable Kenney body model is one InstancedMesh: a per-instance paint redraws only the
 generator's baked paint swatch (`actors/parkedPaint.ts`), so glass, tyres and lamps keep the GLB
 texture. Other models keep one batch per GLB. Entering a car removes its instance and adds a

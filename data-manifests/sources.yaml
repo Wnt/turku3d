@@ -48,6 +48,7 @@ wfs:
     - {name: "GIS:Viheralueet", version: "1.0.0", role: "green areas"}
     - {name: "GIS:Polkupyoraparkki", version: "1.0.0", role: "bike parking"}
     - {name: "GIS:Pysakointiautomaatit", version: "1.0.0", role: "parking meters"}
+    - {name: "GIS:Lupapysakointipaikat", version: "1.0.0", role: "permit parking kerb lines with payment zone"}
     - {name: "GIS:Follariasemat", version: "1.0.0", role: "city bike stations"}
     - {name: "bldg:Building_LOD2", version: "1.1.0", role: "CityGML LoD2 building solids (roofs vs lidar median +0.8 cm)"}
     - {name: "bldg:Building_LOD3", version: "1.1.0", role: "CityGML LoD3 (finer roofs, no facade detail)"}

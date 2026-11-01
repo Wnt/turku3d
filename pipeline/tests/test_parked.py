@@ -60,7 +60,7 @@ def test_parallel_lane_clearance_and_yaw():
         assert shape.bounds[2] - shape.bounds[0] > shape.bounds[3] - shape.bounds[1]
 
 
-def test_four_models_dimensions_and_layer_roundtrip(tmp_path):
+def test_model_dimensions_and_layer_roundtrip(tmp_path):
     cars = []
     for i, name in enumerate(MODELS):
         pos, idx, normals, uv = model(name)
@@ -92,7 +92,7 @@ def test_four_models_dimensions_and_layer_roundtrip(tmp_path):
             primitives.extend(read_collision(root / name).primitives)
         else:
             read_visual(root / name)
-    assert len(primitives) == 4  # edge-crossing object appears exactly once
+    assert len(primitives) == len(MODELS)  # edge-crossing object appears exactly once
     assert all(p["kind"] == "box" and p["material"] == 28 for p in primitives)
     for p in primitives:
         assert p["center"][1] - p["half_extents"][1] == 5
@@ -138,7 +138,7 @@ def test_published_boxes_stop_player_and_vehicle_shapes(tmp_path):
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert report["pass"] is True
-    assert report["boxes"] == 4 and report["shapeSweeps"] == 8
+    assert report["boxes"] == len(MODELS) and report["shapeSweeps"] == 2 * len(MODELS)
 
 
 def test_cars_are_placed_per_tile_and_never_cross_a_seam(tmp_path, monkeypatch):

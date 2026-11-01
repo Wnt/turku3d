@@ -4,6 +4,7 @@ import { collisionTileAt, type V3 } from '../core/origin';
 import type { PhysicsClient } from '../physics/client';
 import type { Quat, VehicleState } from '../physics/protocol';
 import type { Manifest, ParkedVehicle } from './manifest';
+import { slotShown } from './parkedOccupancy';
 
 /** Physics chassis pose: centre position and rotation, as the worker reports them. */
 export interface ParkedPose { pos: V3; rot: Quat }
@@ -20,10 +21,21 @@ const SYNC_MS = 1000, SATURATED_SYNC_MS = 250;
 
 const chassisLift = (car: ParkedVehicle) => car.model === 'truck' ? 1 : .75;
 
+/** Chassis rotation of a draft slot: heading (chassis +X forward), then the ground's pitch (nose up,
+ * about the chassis' right +Z) and roll (leaning right, about +X) the generator measured. */
+export function slotRotation(car: Pick<ParkedVehicle, 'yaw' | 'pitch' | 'roll'>): Quat {
+  const y = (car.yaw - Math.PI / 2) / 2, p = (car.pitch ?? 0) / 2, r = (car.roll ?? 0) / 2;
+  const sy = Math.sin(y), cy = Math.cos(y), sp = Math.sin(p), cp = Math.cos(p), sr = Math.sin(r), cr = Math.cos(r);
+  // (0, sy, 0, cy) * (0, 0, sp, cp) * (sr, 0, 0, cr)
+  const qx = sy * sp, qy = sy * cp, qz = cy * sp, qw = cy * cp;
+  return { x: qw * sr + qx * cr, y: qy * cr + qz * sr, z: qz * cr - qy * sr, w: qw * cr - qx * sr };
+}
+
 /** Drafts supply identities; only the nearest `cap` collision-backed cars within 120 m become
  * physics actors (trucks are rare and exempt; their visual exists only with a body). The rest
  * stay visual at their last physical pose, or at their draft slot. Borrowed cars retain their
- * appearance and identity when their source tile leaves. */
+ * appearance and identity when their source tile leaves. A slot whose occupancy draw is above the
+ * hour's occupancy (world/parkedOccupancy.ts) is empty: no visual, and no body once it rests. */
 export class ParkedVehicles {
   private spawned = new Map<string, ParkedVehicle>();
   private borrowed = new Map<string, ParkedVehicle>();
@@ -37,6 +49,7 @@ export class ParkedVehicles {
   private busy = false;
   private saturated = false;
   private last = -Infinity;
+  private night = 0;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
     private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
@@ -66,16 +79,23 @@ export class ParkedVehicles {
    *  now on it is managed like a spawned parked car: kept near the player, rested and respawned beyond. */
   adopt(id: string, car: ParkedVehicle) { this.spawned.set(id, car); this.last = -Infinity; }
 
-  /** Where a draft car without a physics state is drawn; null when another owner renders it. */
+  /** Night level of the shared clock (parkedNight); it decides which slots hold cars. */
+  setNight(level: number) { this.night = level; }
+
+  /** Where a draft car without a physics state is drawn; null when another owner renders it or the
+   * slot is empty at this hour. */
   restingPose(car: ParkedVehicle): ParkedPose | null {
     const id = car.object_id;
-    if (this.shared.has(id) || this.borrowed.has(id)) return null;
+    if (this.shared.has(id) || this.borrowed.has(id) || !slotShown(car, this.night)) return null;
     const rest = this.rest.get(id);
     if (rest) return rest;
+    return this.slot(car);
+  }
+
+  private slot(car: ParkedVehicle): ParkedPose {
     let slot = this.slots.get(car);
     if (!slot) {
-      const half = (car.yaw - Math.PI / 2) / 2;
-      slot = { pos: { x: car.x, y: car.y + chassisLift(car), z: car.z }, rot: { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) } };
+      slot = { pos: { x: car.x, y: car.y + chassisLift(car), z: car.z }, rot: slotRotation(car) };
       this.slots.set(car, slot);
     }
     return slot;
@@ -111,7 +131,8 @@ export class ParkedVehicles {
       };
       for (const [id, car] of this.spawned) {
         if (this.owned.has(id) || this.borrowed.has(id)) continue;
-        if (cars.has(id) && distance(id, car) < DESPAWN_RADIUS) continue;
+        const rolling = (states.get(id)?.speed ?? 0) >= RESTING_SPEED;
+        if (cars.has(id) && distance(id, car) < DESPAWN_RADIUS && (rolling || slotShown(car, this.night))) continue;
         this.despawn(id, states);
       }
       for (const id of this.rest.keys()) if (!cars.has(id)) this.rest.delete(id);
@@ -119,6 +140,7 @@ export class ParkedVehicles {
       const candidates: { id: string; car: ParkedVehicle; d: number }[] = [];
       for (const [id, car] of cars) {
         if (this.shared.has(id) || this.spawned.has(id) || states.has(id) || this.borrowed.has(id)) continue;
+        if (!slotShown(car, this.night)) continue;
         const d = distance(id, car);
         if (d <= SPAWN_RADIUS && this.supported(id, car)) candidates.push({ id, car, d });
       }
@@ -155,10 +177,10 @@ export class ParkedVehicles {
   }
 
   private spawn(id: string, car: ParkedVehicle) {
-    const truck = car.model === 'truck', rest = this.rest.get(id);
+    const truck = car.model === 'truck', pose = this.rest.get(id) ?? this.slot(car);
     const spec = { id, parked: true, kind: truck ? 'truck' as const : 'car' as const,
-      ...(truck ? {} : { halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), ...(rest ? { rot: rest.rot } : {}) };
-    this.physics.spawnVehicle(rest?.pos ?? { x: car.x, y: car.y + chassisLift(car), z: car.z }, car.yaw - Math.PI / 2, spec);
+      ...(truck ? {} : { halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), rot: pose.rot };
+    this.physics.spawnVehicle(pose.pos, car.yaw - Math.PI / 2, spec);
     this.spawned.set(id, car);
   }
 

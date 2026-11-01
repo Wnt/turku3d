@@ -24,9 +24,11 @@ and shared model/paint GLBs as `manifest.vehicle_models`, omitting the static ca
 and boxes from shipped tiles so each car can move without duplicate collision.
 `clear_front_m` / `clear_rear_m` count the other parked cars of the same tile.
 
-Four CC0 Kenney Car Kit 3.1 models are bundled as authored OBJ geometry: sedan,
-hatchback, SUV and van. Dimensions are normalized to real passenger-vehicle sizes;
-six seeded paint colours retain the original tyres, glass, lamps and trim.
+Six CC0 Kenney Car Kit 3.1 models are bundled as authored OBJ geometry: sedan,
+hatchback, SUV, van, sports saloon and large SUV, drawn in the `MIX` shares. Dimensions are
+normalized to real passenger-vehicle sizes; six seeded paint colours retain the original
+tyres, glass, lamps and trim. Each body's paint swatch column is listed in `palette` and
+copied in the client's `actors/parkedPaint.ts` (a unit test compares the two).
 The source palette is embedded in each visual object. Material 28 is the existing
 solid street-furniture metal material, so both the character and driven vehicle collide with it.
 
@@ -66,7 +68,8 @@ the envelope, the placement code or any input layer manifest changes.
 Original license: `assets/LICENSE.txt`. Archive:
 `https://kenney.nl/media/pages/assets/car-kit/1a312ec241-1775131960/kenney_car-kit.zip`
 SHA-256: `fac7dacac5c7874348cf19729af3ef205f3d366493edaf0a827d93f4fdf3d0c4`.
-Files copied verbatim from `Models/OBJ format/{sedan,hatchback-sports,suv,van}.obj`
+Files copied verbatim from
+`Models/OBJ format/{sedan,hatchback-sports,suv,van,sedan-sports,suv-luxury}.obj`
 and `Models/OBJ format/Textures/colormap.png`. The OBJ loader reads authored normals,
 UVs and triangulates polygon faces; no external MTL lookup is needed. No paid tools.
 

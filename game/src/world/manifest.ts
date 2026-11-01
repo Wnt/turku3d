@@ -2,7 +2,12 @@
 import { E0, N0, COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 
 export interface ManifestEntry { url: string; sha256: string; bytes: number; tris: number; h: [number, number]; prims?: number; flags?: number; level?: number }
-export interface ParkedVehicle { object_id: string; model: string; color: string; x: number; y: number; z: number; yaw: number; width: number; height: number; length: number; clear_front_m: number; clear_rear_m: number }
+/** A draft parking slot and its car. `pitch` (nose up) and `roll` (leaning right) follow the ground, in
+ * radians. `zone` is the slot class and `occ` its occupancy draw (0..1), which world/parkedOccupancy.ts
+ * compares with the class's occupancy at the shared clock; `priority` 0 marks an inferred kerb. Older
+ * drafts omit these fields: their cars stand level and always show. */
+export interface ParkedVehicle { object_id: string; model: string; color: string; x: number; y: number; z: number; yaw: number; width: number; height: number; length: number; clear_front_m: number; clear_rear_m: number;
+  pitch?: number; roll?: number; zone?: string; occ?: number; priority?: number }
 export interface Manifest {
   format: string; version: number; built: string; code: string;
   origin_en: [number, number, number]; crs: string;

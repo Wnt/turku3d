@@ -83,6 +83,7 @@ WFS_LAYERS: tuple[WfsLayer, ...] = (
     _k("GIS:Viheralueet", "green areas"),
     _k("GIS:Polkupyoraparkki", "bike parking"),
     _k("GIS:Pysakointiautomaatit", "parking meters"),
+    _k("GIS:Lupapysakointipaikat", "permit parking kerb lines with payment zone"),
     _k("GIS:Follariasemat", "city bike stations"),
     # CityGML 2.0
     _c("bldg:Building_LOD2", "CityGML LoD2 building solids (roofs vs lidar median +0.8 cm)"),

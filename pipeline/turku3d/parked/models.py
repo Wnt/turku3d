@@ -1,4 +1,4 @@
-"""Load the four bundled Kenney CC0 OBJ models, retaining their palette UVs."""
+"""Load the six bundled Kenney CC0 OBJ car bodies, retaining their palette UVs."""
 
 import io
 from functools import cache
@@ -14,6 +14,17 @@ MODELS = {
     "hatchback-sports": (1.80, 1.46, 4.15),
     "suv": (1.96, 1.78, 4.70),
     "van": (1.98, 2.05, 5.00),
+    "sedan-sports": (1.84, 1.36, 4.60),
+    "suv-luxury": (1.98, 1.72, 4.95),
+}
+# Share of each body among parked cars.
+MIX = {
+    "sedan": 0.20,
+    "hatchback-sports": 0.18,
+    "suv": 0.17,
+    "van": 0.10,
+    "sedan-sports": 0.17,
+    "suv-luxury": 0.18,
 }
 COLORS = {
     "silver": (165, 174, 181),
@@ -60,7 +71,14 @@ def palette(name, color):
     image = Image.open(ASSETS / "colormap.png").convert("RGB")
     a = np.asarray(image).copy()
     # Authored paint swatch; leave glass, tyres, lamps and trim pixels untouched.
-    column = {"sedan": 6, "suv": 3, "hatchback-sports": 3, "van": 7}[name]
+    column = {
+        "sedan": 6,
+        "suv": 3,
+        "hatchback-sports": 3,
+        "van": 7,
+        "sedan-sports": 6,
+        "suv-luxury": 4,
+    }[name]
     shade = np.linspace(1.0, 0.78, 128)[:, None, None]
     a[128:256, column * 64 : (column + 1) * 64] = np.asarray(COLORS[color])[None, None, :] * shade
     stream = io.BytesIO()

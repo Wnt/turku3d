@@ -8,6 +8,7 @@ import { ParkedVehicles } from './world/parkedVehicles';
 import { TrafficClient } from './traffic/client';
 import { TRAFFIC_CAPS } from './traffic/constants';
 import { TRAFFIC_VOICES } from './audio/mix';
+import { parkedNight } from './world/parkedOccupancy';
 // Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
 // Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
 import * as THREE from 'three/webgpu';
@@ -557,6 +558,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
     if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
     coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel);
+    parkedVehicles.setNight(parkedNight(world.sharedNow()));
     parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());

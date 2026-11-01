@@ -14,7 +14,8 @@ export const PAINT_COLORS: Readonly<Record<string, readonly [number, number, num
   silver: [165, 174, 181], white: [224, 228, 225], charcoal: [54, 61, 69],
   blue: [38, 78, 126], red: [138, 38, 39], beige: [154, 143, 118],
 };
-export const PAINT_COLUMNS: Readonly<Record<string, number>> = { sedan: 6, suv: 3, 'hatchback-sports': 3, van: 7 };
+export const PAINT_COLUMNS: Readonly<Record<string, number>> = { sedan: 6, suv: 3, 'hatchback-sports': 3, van: 7,
+  'sedan-sports': 6, 'suv-luxury': 4 };
 export const PAINT_SWATCH = { atlas: 512, column: 64, firstRow: 128, rows: 128, darkest: 0.78 } as const;
 const { atlas: ATLAS, column: COLUMN, firstRow: FIRST_ROW, rows: ROWS, darkest: DARKEST } = PAINT_SWATCH;
 

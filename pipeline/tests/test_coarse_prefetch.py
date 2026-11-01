@@ -16,6 +16,7 @@ from turku3d.coarse import prefetch as P
 from turku3d.coarse import service as S
 from turku3d.coarse.service import Builder, serve
 from turku3d.coarse.sources import (
+    OPTIONAL_WFS_LAYERS,
     WFS_LAYERS,
     NoCoverage,
     Sources,
@@ -96,9 +97,10 @@ def put_wfs(block: C.LazTile):
         slug = name.replace(":", "_")
         (adir / f"{slug}.parquet").write_bytes(b"pq" * 40)
         (adir / f"{slug}.summary.json").write_text(json.dumps({"status": "ok", "bbox_en": bbox}))
-    (adir / "kanta_Korkeuspiste.summary.json").write_text(
-        json.dumps({"status": "empty", "bbox_en": bbox})
-    )
+    for name in OPTIONAL_WFS_LAYERS:
+        (adir / f"{name.replace(':', '_')}.summary.json").write_text(
+            json.dumps({"status": "empty", "bbox_en": bbox})
+        )
 
 
 def put_osm(block: C.LazTile):
