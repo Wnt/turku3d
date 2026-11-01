@@ -21,11 +21,16 @@ interface Delivery { orderId: string; addressId: string; payout: number; tip: nu
 interface MultiplayerState {
   rounds: RoundState;
   vehicles: Map<string, SharedVehicle>; vehicleSources: Set<string>; serverTime: number;
+  /** Road-graph hashes all reporting players share, for the traffic gate (traffic/gate.ts); null until the server
+   *  answers this connection's report (older servers never do: multiplayer traffic then spawns nothing). */
+  roads: Map<string, string> | null;
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
 }
 
 const SESSION_KEY = 'turku3d.mp.session.v1';
+/** The server accepts at most this many tiles per road-hash report (server/roads.js). */
+const ROAD_TILES = 64;
 const RATE_MS = 55; // under the server's 20 total messages/s token rate, including deliveries
 const STATIONARY_MS = 1000;
 
@@ -44,7 +49,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
 export class MultiplayerClient extends EventTarget {
   readonly url: string;
   readonly httpUrl: string;
-  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
+  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, roads: null, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
   private serverOffset = 0;
   serverNow() { return performance.now() + this.serverOffset; }
   /** Server-issued token shared with the mission-progress snapshot for this tab. */
@@ -147,6 +152,17 @@ export class MultiplayerClient extends EventTarget {
 
   holdSeat(id: string | null) { this.heldSeat = id; }
 
+  private roadsReported = '';
+  /** Reports this client's resident tiles' road hashes when they change (and after every welcome). */
+  reportRoads(tiles: ReadonlyMap<string, string>, revision: number) {
+    const key = `${this.sessionEpoch}|${revision}`;
+    if (!this.state.connected || key === this.roadsReported) return;
+    this.roadsReported = key;
+    this.queue({ type: 'roads', tiles: Object.fromEntries([...tiles].sort().slice(0, ROAD_TILES)) });
+  }
+  /** Counts welcomes, so each connection reports its tiles again. */
+  private sessionEpoch = 0;
+
   private queue(message: object) {
     if (this.pendingMessages.length >= 256) return;
     this.pendingMessages.push(message);
@@ -208,6 +224,7 @@ export class MultiplayerClient extends EventTarget {
           this.vehicleRequests.clear(); this.expiredAcquires.clear();
         }
         this.state.vehicles.clear();
+        this.state.roads = null; this.sessionEpoch++;
         this.applyVehicles(msg.vehicles as VehicleDelta);
         this.state.you = msg.you as MultiplayerState['you'];
         this.state.hour = msg.hour as Hour;
@@ -229,6 +246,10 @@ export class MultiplayerClient extends EventTarget {
         this.state.countdown = null; this.changed(); break;
       case 'round_result': this.dispatchEvent(new CustomEvent('roundResult', { detail: msg.result })); break;
       case 'vehicles': this.applyVehicles(msg as unknown as VehicleDelta); break;
+      case 'roads': if (msg.agreed && typeof msg.agreed === 'object') {
+        this.state.roads = new Map(Object.entries(msg.agreed as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
+        this.dispatchEvent(new Event('roads'));
+      } break;
       case 'vehicle_result': {
         const pending = this.vehicleRequests.get(String(msg.request));
         const expired = this.expiredAcquires.delete(String(msg.request));

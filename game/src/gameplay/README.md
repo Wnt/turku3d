@@ -276,4 +276,13 @@ edge polyline (including its endpoints); null means no surveyed elevation. `pars
 `mergeRoadGraphs` preserve them as `RoadEdge.heights`, and `StreetRouter` returns optional
 `WorldPoint.y` on snaps and route vertices. Existing X/Z-only graph assets remain valid.
 
+Draft tiles now carry roads.json v2 ([spec](../../../docs/specs/roads-json-v2.md)): heights on every
+edge, and per edge a stable `id`, its `span` on the logical edge, `lanes` (`fwd`, `bwd`, `width`), `kmh`,
+`carDensity`, `footDensity`, `eflags`, `setbacks` and `events` (signals, crossings, give-way, stop, with
+`RoadGraph.controllers` for signal groups); `RoadGraph.nodeFlags` marks junctions, signals, crossings
+and seams. `mergeRoadGraphs` is canonical: the same parts in any order give identical node and edge
+indices, and pieces of one logical edge re-join across tile seams; v1 parts get fallback ids and 1+1
+lanes. `laneOffset` / `lanePolyline` give right-hand lane centres. Verify with
+`npm --prefix game test -- tests/unit/roadGraph-v2.test.ts tests/unit/router.test.ts`.
+
 Mission speech helpers live in `missions/speech.ts`; `lineSeconds` remains re-exported from `missions.ts`. The dispatcher keeps 30 seconds of silence after the queued order announcement before repeating its address. Verify the delay with `npm --prefix game test -- tests/unit/missions.test.ts tests/unit/orders.test.ts` (synthetic state-machine fixtures).

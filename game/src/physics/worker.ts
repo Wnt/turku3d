@@ -47,7 +47,9 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
   const state: PhysicsState = { type: 'state', seq, revision, actorsDelta: true, removedVehicles: vehicleDelta.removed, removedPoles: poleDelta.removed, substeps, tick: pw.tick, remainder: pw.remainder,
     previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, coverageBlock: pw.coverageBlock,
     stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(),
-    vehicles: vehicleDelta.updates, poles: poleDelta.updates, publishedAt: performance.timeOrigin + performance.now() };
+    vehicles: vehicleDelta.updates, poles: poleDelta.updates, publishedAt: performance.timeOrigin + performance.now(),
+    ...(pw.traffic ? { traffic: pw.traffic.publish(), trafficEvents: pw.traffic.pending(acknowledged, revision), trafficStats: pw.traffic.stats,
+      trafficTime: pw.traffic.time } : {}) };
   if (stateMailbox) stateMailbox.write(state);
   else if (!statePending) { statePending = true; post(state); }
 }
@@ -62,6 +64,10 @@ function schedule() {
       nextWake = now + DT * 1000;
       const running = !!input?.running && performance.timeOrigin + now - input.at < 500;
       const dt = clock.advance(now, running);
+      if (pw?.traffic) {
+        pw.traffic.setView(input?.view ?? null);
+        pw.trafficTime = pw.traffic.clock(performance.timeOrigin + now, running);
+      }
       if (input && dt > 0) {
         snapshot(++stateSeq, dt, { ...input.character, jump: input.jump !== jump }, input.vehicle);
         jump = input.jump;
@@ -109,7 +115,11 @@ async function handle(msg: ToWorker) {
     case 'remotes': pw.setRemotes(msg.bodies); break;
     case 'poles': pw.setPoles(msg.add, msg.remove); break;
     case 'breakPole': pw.breakPole(msg.id); break;
+    case 'traffic': pw.trafficSim().configure(msg.config); break;
+    case 'trafficTiles': pw.trafficSim().setTiles(msg.add, msg.remove); break;
+    case 'trafficClaim': pw.traffic?.claim(msg.handle); break;
     case 'step': {
+      if (pw.traffic) pw.trafficTime = pw.traffic.clock(performance.timeOrigin + performance.now(), true);
       snapshot(msg.seq, msg.dt, msg.character, msg.vehicle);
       break;
     }

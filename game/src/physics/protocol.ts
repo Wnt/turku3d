@@ -36,8 +36,19 @@ export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; br
 
 export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number }
 
+/** Ambient traffic (physics/traffic.ts). A tile's road graph as CoarseTiles holds it, with its agreed hash. */
+export interface TrafficTile { tile: string; hash: string; bounds: [number, number, number, number]; roads: unknown }
+/** `enabled`: tiles whose lanes may carry cars (null: all); `claims`: slot keys other clients claimed. */
+export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[] }
+/** A car the player touched or entered became the dynamic vehicle `id` (a ParkedVehicle-like record). */
+export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; model: string; color: string;
+  size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
+/** Camera for the population ring: position, unit horizontal forward and horizontal half field of view. */
+export interface TrafficView { x: number; z: number; fx: number; fz: number; halfFov: number }
+export interface TrafficStats { active: number; bodies: number; lanes: number; tiles: number; stepMs: number; stepMax: number; activationMs: number; claims: number }
+
 /** Jump is an edge counter, so a pulse survives several render frames between worker reads. */
-export interface LiveInput { character: CharacterInput; vehicle: VehicleInput | null; running: boolean; jump: number; at: number; acknowledged: number }
+export interface LiveInput { character: CharacterInput; vehicle: VehicleInput | null; running: boolean; jump: number; at: number; acknowledged: number; view?: TrafficView }
 export type PhysicsState = Extract<FromWorker, { type: 'state' }>;
 
 export type ToWorker =
@@ -64,6 +75,10 @@ export type ToWorker =
   | { type: 'remotes'; bodies: RemoteBody[] }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }
+  | { type: 'traffic'; config: Partial<TrafficConfig> }
+  | { type: 'trafficTiles'; add: TrafficTile[]; remove: string[] }
+  /** Claim an ambient car for entering it; answered by its claim event (with `handle`) in the state. */
+  | { type: 'trafficClaim'; handle: number }
   /** Advance by dt seconds of real time (worker runs fixed 60 Hz substeps, max 5 per message). */
   | { type: 'step'; seq: number; dt: number; character: CharacterInput; vehicle: VehicleInput | null }
   | { type: 'cameraCast'; id: number; origin: V3; dir: V3; distance: number }
@@ -76,7 +91,9 @@ export type FromWorker =
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
-  | { type: 'state'; coverageBlock?: { actor: string; recover: boolean } | null; publishedAt?: number; revision?: number; actorsDelta?: boolean; removedVehicles?: string[]; removedPoles?: string[]; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[] }
+  | { type: 'state'; coverageBlock?: { actor: string; recover: boolean } | null; publishedAt?: number; revision?: number; actorsDelta?: boolean; removedVehicles?: string[]; removedPoles?: string[]; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[];
+      /** Drawn ambient cars, physics/traffic.ts TRAFFIC_STRIDE numbers each; claim events until acknowledged. */
+      traffic?: number[]; trafficEvents?: TrafficClaimEvent[]; trafficStats?: TrafficStats; trafficTime?: number }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hit: RayHit | null }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }

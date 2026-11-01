@@ -117,6 +117,60 @@ size for the manual allocation diagnostic. Initial actor discovery can be a larg
 one-time snapshot; subsequent packets contain only actors that changed.
 
 
+## Ambient traffic
+
+Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared time and each tile's own
+`roads.json`, so every client computes the same cars without sending any of them.
+
+- `traffic/roads.ts` is the one adapter to the road data: it reads a tile through `gameplay/roadGraph.ts`
+  (roads.json revision 2 from G3: stable ids, lanes, widths, limits, car density, heights, setbacks, SEAM
+  flags, signal controllers) and keeps car edges with car density ≥ 3. A v1 tile gets the reader's fallback
+  ids and 1+1 lanes, widths and limits by class; its heights are sampled from collision in the worker, at most
+  24 rays per physics step, following a lane under bridges from its previous sample.
+- `traffic/tileNetwork.ts` builds a tile's lanes from that tile alone: stretches between junctions, seams and
+  dead ends, lanes offset by the v2 divider rule and stopped at the junction setback, in-lanes matched one to
+  one to out-lanes (straight on, then right, then left, by hash). Slot n of lane L enters it at
+  `phase(L) + n·H` (H = 6 s on every lane). A car waits at its stop line until the next lane's own slot grid,
+  so phases lock across junctions and chains never merge: consecutive cars keep the headway. Junction
+  out-lanes split the headway into two windows by approach axis (crossing streams take turns; a signal
+  controller seeds its junctions alike), and each junction's fastest straight-on movement waits zero (a green
+  wave). Seam crossings take a phase that is a continuous function of the crossing point, which both tiles
+  compute from their own copy. A wait never exceeds H − 1.5 s; the rest is driven slower.
+- `traffic/network.ts` links seams between resident tiles and evaluates a car's pose in closed form: the
+  timetable (drive, wait, cross) smoothed by a 1.4 s box filter, which keeps cruising exact, turns stops into
+  braking and pulling away, and preserves the spacing of a chain. A car's identity in a tile is its chain's
+  origin lane and slot there (`<tile>:<lane>:<slot>`); its model and paint come from that key.
+- `physics/traffic.ts` runs in the worker: a 5 Hz population ring around the camera (created in view only
+  90–200 m out, out of view from 40 m; removed beyond 300 m in view and 85 m out of view), the cap from
+  `?traffic=` or the quality tier, poses every substep, and permanent kinematic Rapier bodies on cars within
+  70 m of the player. A contact hook lets them push the driven car and pile up behind a claimed car but pass
+  parked cars. The driven car's contact, a pedestrian in a car's braking path or the player entering a car
+  (`trafficClaim`) claims it: the worker turns it into an ordinary dynamic vehicle `tr:<key>` with its speed.
+  Automatic claims (pedestrians, pile-ups) are limited to six a minute; beyond that a car pushes the
+  character aside. `ClaimSet` follows each claimed slot across seams, so its continuation stays gone.
+- The main thread (`traffic/client.ts`) feeds the worker the drawn draft tiles' road graphs and copies the
+  published poses, moved on by their velocity to the frame, into the parked cars' per-body InstancedMeshes
+  after their parked instances (`ParkedCarVisuals.setTraffic`; capacity reserved at load): no draw, material
+  or pipeline is added. A claim becomes a vehicle record that parked cars, saves and the vehicle registry
+  already handle. The nearest eight cars drive pooled engine voices; the street bed follows the count within
+  150 m.
+
+Multiplayer: the clock is the server's; `net/client.ts` reports each resident tile's road hash
+(`traffic/gate.ts`, including the algorithm version) and the server answers with the hashes every reporting
+player shares (`server/roads.js`). A multiplayer tile carries cars only when its local hash is the agreed one;
+before the answer, or against an older server, it spawns nothing. A claimed car registers with source
+`tr:<key>`, and every client drops that slot. The ring is per client: positions agree, but which cars a
+client draws near the edge of its ring may differ.
+
+`window.__game.traffic.snapshot()` gives the cap, the drawn count, `moving_cars` (engine x, z, the
+`--spawner-state` format of `scripts/dev/richness_scorecard.py`), worker cost per substep and main-thread
+cost per frame.
+
+```sh
+npm --prefix game test -- --run tests/unit/traffic.test.ts tests/unit/audio.test.ts tests/unit/parked-paint.test.ts
+node --test server/tests/roads.test.js
+```
+
 ## Bounded collision coverage holds
 
 Before each runtime substep, `world.ts` checks the character capsule and every car's
