@@ -22,8 +22,8 @@ const groups = (membership: number, filter: number) => ((membership & 0xffff) <<
 export const TRAFFIC_STRIDE = 12;
 /** Height samples along a lane (m). */
 const SAMPLE_STEP = 4;
-/** Lanes whose surface is sampled per physics step at most (raycasts are the expensive part). */
-const SAMPLE_LANES_PER_STEP = 2;
+/** Surface samples (downward rays) per physics step at most: a long lane is sampled over several steps. */
+const SAMPLES_PER_STEP = 24;
 /** Cars claimed without the player's car touching them (stopping for a pedestrian, a pile-up behind a claimed
  *  car) per minute, at most. Each claim is a registry vehicle in multiplayer (eight per player). */
 const AUTO_CLAIMS_PER_MINUTE = 6;
@@ -66,6 +66,7 @@ export class TrafficSim {
   readonly claims = new ClaimSet(this.network);
   private heights = new Map<Lane, { ys: Float32Array; retry: number }>();
   private sampleQueue: Lane[] = [];
+  private sampling: { lane: Lane; out: Float32Array; i: number; previous: number | null } | null = null;
   private view: View | null = null;
   private lastActivation = -Infinity;
   private lastView: View | null = null;
@@ -95,7 +96,7 @@ export class TrafficSim {
         console.warn(`[traffic] ${t.tile}: ${(error as Error).message}`);
       }
     }
-    this.heights.clear(); this.sampleQueue = [];
+    this.heights.clear(); this.sampleQueue = []; this.sampling = null;
     this.claims.reset();
     this.stats.tiles = this.network.tiles.size;
     this.stats.lanes = [...this.network.tiles.values()].reduce((n, t) => n + t.lanes.length, 0);
@@ -139,7 +140,7 @@ export class TrafficSim {
       this.activate(t); this.lastActivation = t;
       this.stats.activationMs = performance.now() - a0;
     }
-    for (let i = 0; i < SAMPLE_LANES_PER_STEP && this.sampleQueue.length; i++) this.sample(this.sampleQueue.shift()!);
+    this.sampleSome(SAMPLES_PER_STEP);
     const player = this.host.player();
     let bodies = 0;
     for (const car of this.active.values()) {
@@ -351,23 +352,29 @@ export class TrafficSim {
     return Number.isFinite(y) ? y : Number.isFinite(a) ? a : Number.isFinite(b) ? b : null;
   };
 
-  /** Samples a lane's road surface, following it under bridges by searching near the previous sample. */
-  private sample(lane: Lane) {
-    const count = Math.max(2, Math.ceil(lane.length / SAMPLE_STEP) + 1);
-    const out = new Float32Array(count).fill(NaN);
-    let previous: number | null = null;
-    for (let i = 0; i < count; i++) {
-      const s = Math.min(lane.length, i * SAMPLE_STEP);
-      const p = pointAlong(lane, s);
-      let y: number | null = null;
-      if (this.host.resident(p.x, p.z)) {
-        y = previous !== null ? this.host.ground(p.x, previous + 3, p.z, 8) : null;
-        y ??= this.host.ground(p.x, 400, p.z, 500);
+  /** Samples queued lanes' road surface, `budget` points this step, following a lane under bridges by searching
+   *  near its previous sample. A lane's heights apply once it is complete. */
+  private sampleSome(budget: number) {
+    while (budget > 0) {
+      if (!this.sampling) {
+        const lane = this.sampleQueue.shift();
+        if (!lane) return;
+        const count = Math.max(2, Math.ceil(lane.length / SAMPLE_STEP) + 1);
+        this.sampling = { lane, out: new Float32Array(count).fill(NaN), i: 0, previous: null };
       }
-      if (y !== null) { out[i] = y; previous = y; }
+      const job = this.sampling;
+      for (; job.i < job.out.length && budget > 0; job.i++, budget--) {
+        const p = pointAlong(job.lane, Math.min(job.lane.length, job.i * SAMPLE_STEP));
+        if (!this.host.resident(p.x, p.z)) continue;
+        let y = job.previous !== null ? this.host.ground(p.x, job.previous + 3, p.z, 8) : null;
+        y ??= this.host.ground(p.x, 400, p.z, 500);
+        if (y !== null) { job.out[job.i] = y; job.previous = y; }
+      }
+      if (job.i < job.out.length) return;
+      // A lane with unresident samples is sampled again later, once its collision arrives.
+      this.heights.set(job.lane, { ys: job.out, retry: job.out.some(v => !Number.isFinite(v)) ? this.time + 2 : Infinity });
+      this.sampling = null;
     }
-    // A lane with unresident samples is sampled again later, once its collision arrives.
-    this.heights.set(lane, { ys: out, retry: out.some(v => !Number.isFinite(v)) ? this.time + 2 : Infinity });
   }
 }
 
