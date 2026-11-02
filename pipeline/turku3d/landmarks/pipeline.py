@@ -16,6 +16,7 @@ def main():
 
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, default=C.data_root() / "research/landmarks")
+    p.add_argument("--ranked", type=Path, help="Resume an already enriched and measured city inventory")
     p.add_argument("--cache-root", type=Path, action="append", default=[])
     p.add_argument("--limit", type=int, default=10000)
     p.add_argument("--descriptions", type=Path, default=C.data_root() / "landmark-descriptions")
@@ -27,18 +28,19 @@ def main():
     )
     a = p.parse_args()
     a.root.mkdir(parents=True, exist_ok=True)
-    ranked = a.root / "ranked.json"
+    ranked = a.ranked or a.root / "ranked.json"
 
     def run(module, args):
         subprocess.run([sys.executable, "-m", module.__name__, *map(str, args)], check=True)
 
-    run(ranking, ["--out", ranked])
-    run(enrichment, ["--ranked", ranked, "--pageviews"])
-    if a.cache_root:
-        run(
-            measure,
-            ["--ranked", ranked, *[v for root in a.cache_root for v in ["--cache-root", root]]],
-        )
+    if not a.ranked:
+        run(ranking, ["--out", ranked])
+        run(enrichment, ["--ranked", ranked, "--pageviews"])
+        if a.cache_root:
+            run(
+                measure,
+                ["--ranked", ranked, *[v for root in a.cache_root for v in ["--cache-root", root]]],
+            )
     reference_args = [
         "--ranked",
         ranked,
