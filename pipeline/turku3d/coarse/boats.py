@@ -225,6 +225,17 @@ def produce(tile, records):
         outline = boat["outline"]
         if not outline.intersects(shapely.box(*tile.bbox.as_tuple())):
             continue
+        if boat["kind"] == "pier":
+            # Mapped floating docks are low pontoons, not ship cabins and restaurant decks.
+            key = "pier:" + boat["id"]
+            water, deck = boat["water"], boat["deck"]
+            parts = [extrusion(key, outline, water - 0.3, deck - 0.16, "hull"),
+                     extrusion(key, outline, deck - 0.16, deck, "wood", "bridge_deck")]
+            for part in combine(parts, key):
+                clipped = clip_mesh(part, tile.bbox)
+                if clipped is not None:
+                    meshes.append(clipped)
+            continue
         key = "boat:" + boat["id"]
         deck = boat["deck"]
         water = boat["water"]
@@ -283,7 +294,9 @@ def visuals(tile, meshes):
             color=(1, 1, 1, 1),
             roughness=0.25 if m.metadata["surface"] == "glass" else 0.8,
             extras=dict(
-                layer="boats", object_id=m.object_id, material_key="boat_" + m.metadata["surface"]
+                layer="structures" if m.object_id.startswith("pier:") else "boats",
+                object_id=m.object_id,
+                material_key=("pier_" if m.object_id.startswith("pier:") else "boat_") + m.metadata["surface"]
             ),
         )
         for m in meshes
@@ -306,8 +319,10 @@ def stats(tile, records, meshes):
                 appearance=b["appearance"],
             )
             for b in records
-            if b["owner"] == tile.id
+            if b["owner"] == tile.id and b["kind"] == "ship"
         ],
+        piers=[dict(id=b["id"], deck_m=b["deck"], water_m=b["water"])
+               for b in records if b["owner"] == tile.id and b["kind"] == "pier"],
         triangles=sum(len(m.indices) for m in meshes),
     )
 
