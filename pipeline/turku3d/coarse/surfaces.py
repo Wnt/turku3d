@@ -16,6 +16,7 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh, vertex_normals
+from . import ground_finishes
 
 KEYS = (
     "asphalt_fresh",
@@ -26,6 +27,7 @@ KEYS = (
     "grass",
     "gravel",
     "quay_stone",
+    *ground_finishes.FINISH_KEYS.values(),
 )
 BINDINGS = {
     "road": 1,
@@ -198,6 +200,8 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
     channels = np.full(len(materials), 4)
     for name, channel in BINDINGS.items():
         channels[materials == mat_id(name)] = channel
+    for material, name in ground_finishes.FINISH_KEYS.items():
+        channels[materials == material] = KEYS.index(name)
     meshes = []
     for channel in np.unique(channels[keep]):
         for projection in range(3):
@@ -297,6 +301,7 @@ def library(root: Path, base: Path, channels):
         str(base.resolve()),
         KEYS,
         *(inspect.getsource(f) for f in (library, fallback, neutral_asphalt)),
+        inspect.getsource(ground_finishes),
     ]
     if source:
         identity.extend(
@@ -320,9 +325,15 @@ def library(root: Path, base: Path, channels):
             continue
         with tempfile.TemporaryDirectory(dir=target) as tmp:
             stage = Path(tmp)
+            finish_maps = (
+                ground_finishes.maps(KEYS[channel])
+                if KEYS[channel] in ground_finishes.FINISH_KEYS.values() else None
+            )
             for slot in ("albedo", "normal", "orm"):
                 output = stage / f"{slot}.png"
-                if source:
+                if finish_maps is not None:
+                    Image.fromarray(finish_maps[slot]).save(output)
+                elif source:
                     subprocess.run(
                         [
                             "ktx",
@@ -357,7 +368,8 @@ def library(root: Path, base: Path, channels):
             (stage / "material.json").write_text(
                 json.dumps(
                     dict(
-                        uv_scale=[0.5, 0.5], source="own ground library" if source else "procedural"
+                        uv_scale=[0.5, 0.5],
+                        source="procedural" if finish_maps or not source else "own ground library",
                     )
                 )
             )
@@ -557,6 +569,18 @@ def split_boundaries(
     # Vertical bank faces have no terrain plane in x/z. Preserve them exactly;
     # trying to invert their projected basis used to fail the entire tile.
     boundary = boundary[shapely.area(footprints[boundary]) > 1e-12]
+    if not preserve_materials:
+        # Interior triangles need the same last-region-wins classification as
+        # cut pieces. A visual finish can differ from the physical input ids.
+        interior = np.flatnonzero((shapely.area(footprints) > 1e-12) & ~np.isin(np.arange(len(selected)), boundary))
+        qi, pi = shapely.STRtree(polygons).query(
+            shapely.points(triangles[interior][:, :, [0, 2]].mean(axis=1)), predicate="within"
+        )
+        winner = np.full(len(interior), -1, dtype=np.int64)
+        np.maximum.at(winner, qi, pi)
+        matched = np.flatnonzero(winner >= 0)
+        materials = materials.copy()
+        materials[selected[interior[matched]]] = np.asarray([m for _, m in regions], np.uint8)[winner[matched]]
     if not len(boundary):
         return positions, indices[keep], materials[keep], normals
     uncut = np.ones(len(selected), bool)

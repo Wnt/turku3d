@@ -21,7 +21,7 @@ NURSERY_HEIGHT, GROWTH, MAX_HEIGHT, UNKNOWN_HEIGHT = 4.0, 0.35, 22.0, 10.0
 
 
 def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) -> list:
-    """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer). Height grows with
+    """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer, species). Height grows with
     the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
     the OSM default of 10 m. A row on a carriageway (GIS:Katualueet Ajorata) is not drawn."""
     roads = []
@@ -55,5 +55,5 @@ def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) 
         conifer = str(row.get("Kasviryhma") or "").casefold().startswith("havu") or any(
             species.startswith(genus) for genus in CONIFERS
         )
-        trees.append((f"{REGISTER_TREE}{row['feature_key']}", point.x, point.y, height, conifer))
+        trees.append((f"{REGISTER_TREE}{row['feature_key']}", point.x, point.y, height, conifer, species))
     return trees
