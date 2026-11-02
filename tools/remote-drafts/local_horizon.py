@@ -60,6 +60,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, required=True)
     parser.add_argument('--source', required=True)
+    parser.add_argument('--preferred-source', help='Prepared native full tiles; retained sources fill remaining cells')
     parser.add_argument('--cache', required=True)
     parser.add_argument('--upstream', default='http://192.168.1.114:7835')
     parser.add_argument('--survey', action='store_true', help='Fill missing far tiles directly from cached survey inputs')
@@ -69,5 +70,5 @@ if __name__ == '__main__':
     if args.survey:
         from turku3d.coarse.horizon import SurveyScenery
         survey = SurveyScenery(args.regional)
-    scenery = Scenery(args.source, args.cache, survey=survey)
+    scenery = Scenery(args.source, args.cache, survey=survey, preferred=args.preferred_source)
     Server(('127.0.0.1', args.port), Handler).serve_forever()

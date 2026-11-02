@@ -9,6 +9,22 @@ from scenery import Scenery
 
 
 class SceneryTest(unittest.TestCase):
+    def test_prepared_native_full_precedes_retained_facades_without_building_tiles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp);old=base/'old';native=base/'native';tile='t0_3_-1'
+            for root,raw in ((old,b'old guessed facade'),(native,b'authored landmark')):
+                directory=root/tile;directory.mkdir(parents=True)
+                digest=hashlib.sha256(raw).hexdigest();(directory/'vis.glb').write_bytes(raw)
+                (directory/'last-full.json').write_text(json.dumps(dict(pass_kind='full',visual={tile:dict(url='vis.glb',sha256=digest)})))
+            cache=Scenery(old,base/'derived',preferred=native)
+            row=cache.catalogue([tile])['tiles'][0]
+            source=json.loads((cache.cache/f"{row['key']}.source.json").read_text())
+            self.assertEqual(cache._source(source),(native/tile/'vis.glb').resolve())
+            self.assertEqual(row['source_sha256'],hashlib.sha256(b'authored landmark').hexdigest())
+            (native/tile/'last-full.json').unlink()
+            self.assertNotEqual(cache.catalogue([tile])['tiles'][0]['key'],row['key'])
+            cache.pool.shutdown()
+
     def test_empty_coastal_cell_falls_back_in_worker_without_catalogue_io(self):
         from types import SimpleNamespace
         from turku3d.coarse.sources import NoCoverage

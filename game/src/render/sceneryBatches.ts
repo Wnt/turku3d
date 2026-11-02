@@ -2,9 +2,30 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
+import { interleaveProgram } from './facadeProgramAttributes';
 
 interface Source { mesh: THREE.Mesh; mask: number }
 interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh }
+
+/** Bound merged allocations below WebGPU's default 256 MiB buffer limit. Facade
+ * fields become one float buffer, so their source accessor sizes underestimate it. */
+export function sceneryBatchGroups(sources: Source[], byteLimit = 128 * 1024 * 1024): Source[][] {
+  const groups: Source[][] = [];
+  let group: Source[] = [], bytes = 0;
+  for (const source of sources) {
+    const geometry = source.mesh.geometry;
+    let size = (geometry.index?.count ?? 0) * 4;
+    for (const [name, attribute] of Object.entries(geometry.attributes)) {
+      const floats = name.startsWith('_kit_') || ['position', 'normal', 'tangent'].includes(name)
+        || (attribute as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute;
+      size += attribute.count * attribute.itemSize * (floats ? 4 : attribute.array.BYTES_PER_ELEMENT);
+    }
+    if (group.length && bytes + size > byteLimit) { groups.push(group); group = []; bytes = 0; }
+    group.push(source); bytes += size;
+  }
+  if (group.length) groups.push(group);
+  return groups;
+}
 
 /** Merge unchanged pigment geometry within kilometre cells; source models retain streaming ownership. */
 export class SceneryBatches {
@@ -31,7 +52,7 @@ export class SceneryBatches {
         const mesh = object as THREE.Mesh;
         if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)
           || mesh.material.transparent || !mesh.geometry.attributes.position
-          || !['ground','buildings','vegetation','regional'].includes(mesh.userData.layer)) return;
+          || !['ground','buildings','buildings-program','buildings-mapped','vegetation','regional'].includes(mesh.userData.layer)) return;
         const mask = this.masks.get(mesh) ?? mesh.layers.mask; this.masks.set(mesh, mask);
         const layout = Object.entries(mesh.geometry.attributes).map(([name,a]) =>
           `${name}:${a.itemSize}:${a.normalized}:${a.array.constructor.name}`).sort().join(';');
@@ -42,9 +63,12 @@ export class SceneryBatches {
     const next = new Map<string, Bucket>();
     for (const [key,sources] of groups) {
       sources.sort((a,b)=>a.mesh.uuid.localeCompare(b.mesh.uuid));
-      const signature = sources.map(s=>s.mesh.uuid+':'+s.mesh.geometry.uuid).join(',');
-      const previous = this.buckets.get(key);
-      next.set(key,previous?.signature === signature ? previous : {signature,sources});
+      for (const [part, chunk] of sceneryBatchGroups(sources).entries()) {
+        const chunkKey = `${key}:${part}`;
+        const signature = chunk.map(s=>s.mesh.uuid+':'+s.mesh.geometry.uuid).join(',');
+        const previous = this.buckets.get(chunkKey);
+        next.set(chunkKey, previous?.signature === signature ? previous : {signature,sources:chunk});
+      }
     }
     for (const [key,bucket] of this.buckets) if (next.get(key) !== bucket) this.release(bucket);
     this.buckets = next;
@@ -54,6 +78,12 @@ export class SceneryBatches {
     if (bucket) {
       const geometries = bucket.sources.map(s=>{
         const geometry = s.mesh.geometry.clone();
+        for (const [name,attribute] of Object.entries(geometry.attributes)) {
+          if (!(attribute as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) continue;
+          const values=new Float32Array(attribute.count*attribute.itemSize);
+          for(let i=0;i<attribute.count;i++)for(let c=0;c<attribute.itemSize;c++)values[i*attribute.itemSize+c]=attribute.getComponent(i,c);
+          geometry.setAttribute(name,new THREE.BufferAttribute(values,attribute.itemSize));
+        }
         // meshopt positions are normalized integers with a node dequantization transform.
         // World coordinates must be floats before applying it; integer writes clip the city.
         for (const name of ['position','normal','tangent']) {
@@ -69,6 +99,7 @@ export class SceneryBatches {
       const geometry = mergeGeometries(geometries);
       for (const temporary of geometries) temporary.dispose();
       if (!geometry) throw new Error('Incompatible scenery batch attributes');
+      interleaveProgram(geometry);
       geometry.computeBoundingBox(); geometry.computeBoundingSphere();
       const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
       mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
