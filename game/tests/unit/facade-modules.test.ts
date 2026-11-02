@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { addFacadeModules, prepareFacadeModules, rectangularOpenings } from '../../src/render/facadeModules';
+import { addFacadeModules, facadeModuleGeometry, prepareFacadeModules, rectangularOpenings } from '../../src/render/facadeModules';
 import { interleaveProgram } from '../../src/render/facadeProgramAttributes';
 
 function patch(kind = 1, clipped = false) {
@@ -16,6 +16,13 @@ function patch(kind = 1, clipped = false) {
   geometry.setIndex([0,2,1,0,3,2]);
   return geometry;
 }
+
+it('keeps every outward silhouette face while omitting only the wall-facing cap', () => {
+  const geometry=facadeModuleGeometry(),index=geometry.index!,normal=geometry.getAttribute('normal');
+  expect(index.count).toBe(30);
+  for(let i=0;i<index.count;i++)expect(normal.getZ(index.getX(i))).not.toBe(1);
+  expect(new Set(Array.from(index.array).map(i=>[normal.getX(i),normal.getY(i),normal.getZ(i)].join('/'))).size).toBe(5);
+});
 
 it('reads exact reviewed rectangles after program interleaving and excludes arches, doors and clipped patches', () => {
   const geometry=patch(); interleaveProgram(geometry);
