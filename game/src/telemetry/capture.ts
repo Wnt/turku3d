@@ -33,6 +33,7 @@ export class DriveCapture {
   private metaDirty = true;
   error: string | null = null;
   onChange?: () => void;
+  get jsSamplingAvailable() { return this.meta.jsProfiler?.available === true; }
   private tick = () => { this.previous?.(); if (this.active) this.frame(); };
   private hide = () => { void this.rollProfiler(false).finally(() => this.flush(true)); this.flush(true); };
   private show = () => { void this.profilerDrain.then(() => { if (this.active && !this.profiler) this.startProfiler(); }); };
@@ -190,9 +191,10 @@ export function captureControl(game: Host, parent: HTMLElement) {
     if (disposed) return;
     const error = recorder?.error || (lastState === 'error' ? lastRecorder?.error : null);
     marker.hidden = !recorder && lastState !== 'saving' && !error;
-    marker.textContent = error ? `${recorder ? '● REC · ' : ''}SAVE FAILED` : recorder ? '● REC' : 'SAVING…';
-    marker.style.color = error || !recorder ? '#ffd27a' : '#ff6868';
-    marker.title = error ? 'Open the pause menu to retry saving your drive.' : recorder?.id ?? lastRecorder?.id ?? '';
+    const noSamples = !!recorder && !recorder.jsSamplingAvailable;
+    marker.textContent = error ? `${recorder ? '● REC · ' : ''}SAVE FAILED` : recorder ? noSamples ? '● REC · NO JS SAMPLES' : '● REC' : 'SAVING…';
+    marker.style.color = error || noSamples || !recorder ? '#ffd27a' : '#ff6868';
+    marker.title = error ? 'Open the pause menu to retry saving your drive.' : noSamples ? 'JS sampling is unavailable. Frame and drive telemetry are still recording.' : recorder?.id ?? lastRecorder?.id ?? '';
     for (const listener of listeners) listener();
   };
   const save = (capture: DriveCapture) => {
@@ -207,7 +209,7 @@ export function captureControl(game: Host, parent: HTMLElement) {
     get enabled() { return !!recorder || (lastState !== 'saving' && lastState !== 'error'); },
     get detail() {
       if (recorder?.error) return 'Saving failed. Your drive is still buffered; switch Off to retry.';
-      if (recorder) return `Recording ${recorder.id}`;
+      if (recorder) return `Recording ${recorder.id}${recorder.jsSamplingAvailable ? '' : ' · JS sampling unavailable'}`;
       if (lastState === 'saving') return `Saving ${lastRecorder!.id}…`;
       if (lastState === 'error') return `Save failed for ${lastRecorder!.id}. Retry below; your drive is still buffered.`;
       if (lastState === 'saved') return `Saved as ${lastRecorder!.id}`;

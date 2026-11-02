@@ -74,6 +74,7 @@ DEPENDENCIES = {
         "../roads/__init__.py",
         "../roads/attributes.py",
         "../roads/tile_graph.py",
+        "../roads/access.py",
     ),
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
@@ -81,7 +82,7 @@ DEPENDENCIES = {
     "attachments": ("attachments.py", "retaining_survey.py", "retaining.py", "../lidar/cache.py", "../spatial.py"),
     "retaining": ("retaining_survey.py", "retaining.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
     "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
-    "barriers": ("fences.py", "../spatial.py"),
+    "barriers": ("fences.py", "fence_survey.py", "retaining_survey.py", "retaining.py", "../roads/access.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
     "vegetation_roads": ("tree_inputs.py", "../spatial.py"),
@@ -537,7 +538,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         if all(found for found, _ in wfs[3:5])
         else None,
         "trees": [osm, wfs[WFS_LAYERS.index("GIS:Puut")][1], wfs[1][1]] if osm else None,
-        "barriers": [osm] if osm else None,
+        "barriers": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
         "vegetation_roads": [wfs[1][1]] if wfs[1][0] else [],
@@ -659,8 +660,9 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         )
     if dataset == "barriers":
         from .fences import prepare as prepare_barriers
+        from .fence_survey import enrich
 
-        return prepare_barriers(tile, paths[0])
+        return enrich(tile, prepare_barriers(tile, paths[0]), paths[0], paths[1:]) if len(paths)>1 else prepare_barriers(tile, paths[0])
     if dataset == "forests":
         from .forests import read_areas
 
@@ -759,7 +761,6 @@ def gather(
             "vegetation_canopy",
             "forests",
             "vegetation_paths",
-            "vegetation_roads",
             "poles",
             "surfaces",
             "markings",

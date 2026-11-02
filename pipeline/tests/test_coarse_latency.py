@@ -257,7 +257,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         if dataset == "attachments":
             return [dict(building="solid", kind="terrace", height=2, bottom=0,
                          support=20, source="lidar")]
-        if dataset in ("water", "boats", "barriers", "retaining"):
+        if dataset in ("water", "boats", "barriers", "retaining", "vegetation_roads"):
             return []
         if dataset == "wfs":
             assert len(sources) == 3
@@ -285,6 +285,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "wfs",
         "roads",
         "barriers",
+        "vegetation_roads",
         "tunnels",
         "stairs",
         "street_profiles",

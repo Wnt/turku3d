@@ -17,7 +17,7 @@ function waveTexture() {
 
 /** Build just the surface graph so local water iterations can hot-replace it without reloading tiles. */
 export function riverSurface(material: THREE.NodeMaterial, env: Environment, deterministic: boolean,
-  reflection: ReturnType<typeof reflector> | null): () => void {
+  reflection: ReturnType<typeof reflector> | null, bodyColour = new THREE.Color(0.075, 0.062, 0.035)): () => void {
   const waves = waveTexture();
   const baseUV = reflection?.uvNode;
   let disposeSurface = () => waves.dispose();
@@ -43,14 +43,14 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   // Fine wave normals break the sun path into glints; a faint broad lobe retains the smaller unresolved ripples.
   const specular = pow(alignment, 240).mul(0.6).add(pow(alignment, 36).mul(0.018))
     .mul(uniform(env.sun.color)).mul(uniform('float').onRenderUpdate(() => env.sun.intensity));
-  // The Aura carries suspended clay: opaque warm olive-brown below the cool sky reflection.
-  const sediment = vec3(0.075, 0.062, 0.035).mul(daylight);
+  // Each body carries its measured water colour beneath the dynamic sky reflection.
+  const sediment = uniform(bodyColour).mul(daylight);
   material.colorNode = mix(sediment, reflected, fresnel).add(specular);
   // The loop's per-pose A/B driver swaps only this graph; streamed geometry stays resident.
   if (import.meta.hot) material.userData.setRiverSurface = (factory: typeof riverSurface) => {
     disposeSurface();
     if (reflection) reflection.uvNode = baseUV!;
-    disposeSurface = factory(material, env, deterministic, reflection);
+    disposeSurface = factory(material, env, deterministic, reflection, bodyColour);
     material.needsUpdate = true;
   };
   return () => { delete material.userData.setRiverSurface; disposeSurface(); };

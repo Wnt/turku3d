@@ -205,6 +205,11 @@ def read_osm(path, bbox):
 
     ways, points, crossings = [], [], []
     rows = spatial_frame(path, bbox.buffered(POINT_CONTEXT))
+    from .access import private_areas
+    import shapely
+
+    private = private_areas([(r.geometry_local, json.loads(r.tags or "{}"))
+                             for r in rows.itertuples() if r.geometry_local is not None]).buffer(1.0)
     for row in rows.itertuples():
         tags = json.loads(row.tags) if row.tags else {}
         geom = row.geometry_local
@@ -220,13 +225,20 @@ def read_osm(path, bbox):
         flags = way_flags(row.highway, tags)
         if not flags:
             continue
-        coords = [(x, z) for x, z, *_ in geom.coords]
-        if tags.get("oneway") == "-1":
-            coords = coords[::-1]
         # Clips without osm_type/osm_id (synthetic fixtures) still build; ids then use way 0.
         osm_id = getattr(row, "osm_id", None)
         way = int(osm_id) if getattr(row, "osm_type", "way") == "way" and osm_id is not None else 0
-        ways.append(Way(coords, flags, way, row.highway, tags))
+        # NPC walkers use FOOT-only ways. Leave vehicle graph geometry intact;
+        # players can enter private yards freely through their physical gates.
+        # One metre includes the walkers' 0.7 m keep-right offset and body width.
+        pieces = geom.difference(private) if flags & FOOT and not flags & CAR else geom
+        for piece in shapely.get_parts(pieces):
+            if piece.geom_type != "LineString" or piece.length < 0.1:
+                continue
+            coords = [(x, z) for x, z, *_ in piece.coords]
+            if tags.get("oneway") == "-1":
+                coords = coords[::-1]
+            ways.append(Way(coords, flags, way, row.highway, tags))
     return ways, points, crossings
 
 

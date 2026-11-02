@@ -30,6 +30,7 @@ DEFAULTS = {
     "handrail": 1.0,
     "bollard": 0.9,
     "gate": 1.6,
+    "railing": 1.1,
 }
 # prototype -> collision material, thickness and linear RGB colour
 STYLES = {
@@ -51,7 +52,7 @@ def style(tags):
         return "hedge"
     if kind == "bollard":
         return "bollard"
-    if kind in ("guard_rail", "handrail"):
+    if kind in ("guard_rail", "handrail", "railing"):
         return "rail"
     if kind in ("wall", "city_wall", "retaining_wall"):
         return "brick" if material == "brick" else "stone"
@@ -180,6 +181,7 @@ class Segment:
     length: float
     height: float
     yaw: float
+    width: float = 0.0
 
 
 def place(tile, records, streets, sample, water=(), tunnels=()):
@@ -213,6 +215,8 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
         if tags["barrier"] == "gate":
             continue
         kind, h = style(tags), height(tags)
+        if kind == "hedge" and "height" not in tags:
+            h = tags.get("_hedge_height", h)
         # A retaining edge is the bank face below grade, not a free-standing fence.
         # Only an explicit height/parapet tag justifies a barrier above the bank.
         if tags["barrier"] == "retaining_wall" and "height" not in tags:
@@ -236,7 +240,10 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
                         Segment(kind, point.x, sample(point.x, point.y), point.y, 0.22, h, 0)
                     )
             continue
-        for p, q in segments(geom, roads, openings, window, on_road=on_road):
+        hedge_openings = tags.get("_hedge_openings") if kind == "hedge" else None
+        cuts = openings if hedge_openings is None else openings.union(hedge_openings)
+        for p, q in segments(geom, roads, cuts, window,
+                             on_road=on_road or hedge_openings is not None):
             mid = (p + q) / 2
             if tags["barrier"] in ("wall", "city_wall") and "height" not in tags:
                 direction = (q - p) / np.linalg.norm(q - p)
@@ -245,6 +252,13 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
                     continue  # The retaining stage owns this below-grade wall.
             bottom = min(sample(*p), sample(*q), sample(*mid))
             top = max(sample(*p), sample(*q), sample(*mid)) + h
+            if "_lidar_base" in tags:
+                bottom = float(tags["_lidar_base"])
+                top = bottom+h
+            if kind == "hedge" and "height" not in tags and "_hedge_top" in tags:
+                top = tags["_hedge_top"]
+                if top <= bottom + .1:
+                    continue
             out.append(
                 Segment(
                     kind,
@@ -254,6 +268,7 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
                     float(np.linalg.norm(q - p)),
                     top - bottom,
                     -math.atan2(q[1] - p[1], q[0] - p[0]),
+                    tags.get("_hedge_width", 0.0) if kind == "hedge" else 0.0,
                 )
             )
     return out
@@ -270,7 +285,7 @@ def collision(batch, ct):
             Primitive.box(
                 mat_id(material),
                 center,
-                (s.length / 2, s.height / 2, thickness / 2),
+                (s.length / 2, s.height / 2, (s.width or thickness) / 2),
                 (0, math.sin(s.yaw / 2), 0, math.cos(s.yaw / 2)),
             )
         )
@@ -382,7 +397,7 @@ def write_instances(path, tile, batch):
             "TRANSLATION": append(
                 [[s.x - tile.origin[0], s.y, s.z - tile.origin[2]] for s in selected], "VEC3"
             ),
-            "SCALE": append([[s.length, s.height, STYLES[s.kind][1]] for s in selected], "VEC3"),
+            "SCALE": append([[s.length, s.height, (s.width or STYLES[s.kind][1])] for s in selected], "VEC3"),
             "ROTATION": append(
                 [[0, math.sin(s.yaw / 2), 0, math.cos(s.yaw / 2)] for s in selected], "VEC4"
             ),
@@ -405,11 +420,14 @@ def write_instances(path, tile, batch):
     Path(path).write_bytes(glb)
 
 
-def produce(tile, inputs, stage, layer_files, sample):
+def produce(tile, inputs, stage, layer_files, sample, barriers=None):
     import time
 
     started = time.perf_counter()
-    batch = place(tile, inputs.barriers, inputs.streets, sample, inputs.water, inputs.tunnels)
+    # Surveyed fences can stand on paved verges and sidewalk boundaries. Only
+    # functional carriageways exclude them; paving material is not access.
+    batch = place(tile, inputs.barriers if barriers is None else barriers,
+                  [(g, 0) for g in inputs.vegetation_roads], sample, inputs.water, inputs.tunnels)
     if batch:
         path = stage / "fences.vis.glb"
         write_instances(path, tile, batch)
