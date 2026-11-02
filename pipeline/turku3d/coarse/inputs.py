@@ -52,7 +52,7 @@ DEPENDENCIES = {
     ),
     "wfs": (
         "roofs.py",
-        "ground_finishes.py",
+        "street_materials.py",
         "../buildings/source_surfaces.py",
         "../ground/materials.py",
         "../spatial.py",
@@ -347,7 +347,7 @@ def prepare_wfs(
 ) -> dict:
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
-    from .ground_finishes import street_finish
+    from .street_materials import street_finish
 
     shells = buildings(bldg, tile, context=True) if bldg else []
     if shells and roof_paths:
