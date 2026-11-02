@@ -2,12 +2,14 @@ import './fleet-assets.fixture';
 import { expect,test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { createHash } from 'node:crypto';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
 import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import {fleetWheelLayout} from '../../src/actors/fleet/wheelLayouts';
 import { draftManifest } from '../../src/world/manifest';
-import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
+import { AUTHORED_ESTATE, flattenFleetAsset, loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 
 test('shipped Blender estate has finite ground-aligned LODs and preserves all lamp roles',async()=>{
   const triangles:number[]=[];
@@ -134,4 +136,28 @@ test('authored body and four centred hubs conserve every triangle at every LOD',
     expect(parts.wheels[0].pivot.x).toBeGreaterThan(parts.wheels[1].pivot.x);
     original.dispose();parts.body.dispose();
   }
+});
+
+
+test('lazy whole-car assembly preserves the shipped paint, glass, lamp and oriented triangle surfaces', async () => {
+  const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/assets/cars/octavia-combi-4/lod1.glb');
+  const expected = flattenFleetAsset(gltf.scene, 'body');
+  const actual = (await loadAuthoredFleet('octavia-combi-4', 1))!;
+  const triangles = (geometry: THREE.BufferGeometry) => {
+    const vertices = Array.from({ length: geometry.getAttribute('position').count }, (_, i) =>
+      ['position', 'normal', 'color', 'fleetSurface'].flatMap(name => {
+        const attr = geometry.getAttribute(name);
+        return Array.from({ length: attr.itemSize }, (_, k) => Math.round(attr.getComponent(i, k) * 1000)).join(',');
+      }).join('/'));
+    const result: string[] = [], index = geometry.index!;
+    for (let i = 0; i < index.count; i += 3) {
+      const corners = [vertices[index.getX(i)], vertices[index.getX(i + 1)], vertices[index.getX(i + 2)]];
+      // Cyclic rotations preserve winding; a reversed triangle is a different surface.
+      result.push([corners.join(';'), [corners[1], corners[2], corners[0]].join(';'),
+        [corners[2], corners[0], corners[1]].join(';')].sort()[0]);
+    }
+    return result.sort();
+  };
+  expect(triangles(actual)).toEqual(triangles(expected));
+  actual.dispose(); expected.dispose();
 });
