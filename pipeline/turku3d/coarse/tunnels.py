@@ -231,24 +231,21 @@ class Tunnels:
     openings: Openings = field(default_factory=Openings)
 
     def visuals(self, tile):
-        from .bridge_details import texture
+        from .bridge_materials import METRES, maps
 
         return [
             GlbMesh(
                 m.object_id,
                 m.positions - tile.origin,
                 m.indices,
-                uvs=m.uvs,
+                uvs=m.uvs / METRES,
                 color=(1, 0.92, 0.65, 1)
                 if m.metadata.get("lamp")
                 else (1, 1, 1, 1)
                 if m.metadata.get("vault") or m.metadata.get("portal")
                 else (0.22, 0.23, 0.24, 1),
-                image=texture("stone")
-                if m.metadata.get("vault")
-                else texture("concrete")
-                if m.metadata.get("portal")
-                else None,
+                **(maps("stone") if m.metadata.get("vault") else
+                   maps("concrete") if m.metadata.get("portal") else {}),
                 repeat=True,
                 emissive=(1, 0.85, 0.5) if m.metadata.get("lamp") else (0, 0, 0),
                 extras=dict(

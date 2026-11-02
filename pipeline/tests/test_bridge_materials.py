@@ -52,3 +52,18 @@ def test_material_only_changes_invalidate_visuals_but_not_collision():
     path = Path(material.__file__)
     assert path in packaging.producer_paths()
     assert path not in collision_key.paths()
+
+
+def test_stairs_and_quay_vaults_use_the_same_pbr_export():
+    from turku3d.coarse import stairs
+    from turku3d.coarse.tunnels import Tunnels
+    from turku3d.coarse.bridge_kit import tapered_post
+
+    mesh = tapered_post('stairs:test', [10, 5, 10], [1, 0], [(0, 1, 1), (1, 1, 1)])
+    tile = C.VisualTile(0, 0, 0)
+    stair = stairs.visuals(tile, [mesh])[0]
+    mesh.metadata['vault'] = True
+    vault = Tunnels(np.array([], bool), [mesh], [], [], 1).visuals(tile)[0]
+    for visual in (stair, vault):
+        assert visual.image and visual.normal_image and visual.orm_image
+        assert np.allclose(visual.uvs, mesh.uvs / material.METRES)

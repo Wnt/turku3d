@@ -320,15 +320,15 @@ def produce(tile, prepared, sample, decks=()):
 def visuals(tile, meshes):
     from turku3d.package.gltf import GlbMesh
 
-    from .bridge_details import texture
+    from .bridge_materials import METRES, maps
 
     return [
         GlbMesh(
             m.object_id,
             m.positions - tile.origin,
             m.indices,
-            uvs=m.uvs,
-            image=texture(m.metadata.get("surface", "concrete")),
+            uvs=m.uvs / METRES,
+            **maps(m.metadata.get("surface", "concrete")),
             repeat=True,
             color=(1, 1, 1, 1),
             extras=dict(
