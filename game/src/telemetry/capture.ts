@@ -35,8 +35,9 @@ export class DriveCapture {
     this.meta = { name: this.id, url: location.href, commit: import.meta.env.VITE_COMMIT ?? null,
       start: { performanceNow: performance.now(), wall: Date.now() }, replay: game.replay?.snapshot?.() ?? null,
       hour: game.dayClock?.hour ?? null, params: game.params, backend: game.backend, ua: navigator.userAgent, three: game.three,
+      clockMode: game.dayClock?.captureMode?.() ?? null,
       quality: game.params?.quality, pixelRatio: r.renderer.getPixelRatio(), viewport: [innerWidth, innerHeight],
-      gpu: (r.renderer.backend as Host)?.device?.adapterInfo ?? null, ...extra };
+      gpu: (() => { const info = (r.renderer.backend as Host)?.device?.adapterInfo; return info ? Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(k => [k, info[k] ?? null])) : null; })(), ...extra };
     this.mark(this.paused ? 'pause' : 'resume');
     window.__render!.afterFrame = this.tick;
     if (PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame')) {
@@ -125,7 +126,7 @@ export class DriveCapture {
     try {
       while (this.pending.length) {
         const body = this.pending.shift()!;
-        const response = await fetch(`/__capture/${this.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: body.length < 48000 }).catch(e => { this.pending.unshift(body); throw e; });
+        const response = await fetch(`/__capture/${this.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(e => { this.pending.unshift(body); throw e; });
         if (!response.ok) { this.pending.unshift(body); throw Error(`Capture storage: HTTP ${response.status}`); }
         this.error = null;
       }

@@ -118,6 +118,9 @@ export class DayClock {
   /** The view's hour now: `hour` is the last frame's, which a fast clock has already left. */
   private current() { return this.hourOf(this.mode, this.now()); }
 
+  /** Serializable scene clock for local drive capture. */
+  captureMode(): ClockMode { return { ...this.mode }; }
+
   /** Freeze a calendar instant with the astronomical sun (window.__render.setTime). */
   set(date: Date) { this.freeze({ kind: 'date', date }); }
   /** Freeze a clock hour on the cycle's sun path (window.__render.setHour). */
