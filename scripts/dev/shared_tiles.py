@@ -125,6 +125,16 @@ class Farm:
 
     def register(self, revision, alias=None, source_version=None):
         meta = self.revision(revision)
+        if alias is not None and not ALIAS.fullmatch(alias):
+            raise ValueError('invalid alias')
+        # Advancing a branch must not silently discard its surveyed source profile.
+        previous = self.aliases.get(alias)
+        if source_version is None and previous:
+            source_version = self.revision(previous).get('source_version')
+        if meta.get('source_revision'):
+            source_version = source_version or meta.get('source_version')
+            revision = meta['source_revision']
+            meta = self.revision(revision)
         if source_version is not None:
             if not re.fullmatch(r"[a-f0-9]{64}", source_version):
                 raise ValueError('invalid source version')
@@ -145,8 +155,6 @@ class Farm:
                                 'commit': meta.get('commit', source_revision), 'source_revision': source_revision,
                                 'generation': generation, 'source_version': source_version, 'data_root': str(data)})
             meta = self.revision(revision)
-        if alias is not None and not ALIAS.fullmatch(alias):
-            raise ValueError('invalid alias')
         with self.lock:
             if alias:
                 self.aliases[alias] = revision
@@ -219,6 +227,10 @@ class Farm:
         meta = self.revision(revision)
         generation = meta['generation']
         key = (generation, tile)
+        retired = read_json(self.root / 'retired.json', {})
+        reason = retired.get(meta.get('commit', revision)) or retired.get(revision)
+        if reason:
+            return 422, dict(state='revision-retired', revision=revision, error=reason)
         with self.lock:
             self.metrics['requests'] += 1
             root = self.output(generation)
