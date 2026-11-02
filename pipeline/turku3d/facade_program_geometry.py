@@ -69,6 +69,11 @@ def _paint_layers(vertices, wall, style):
         **style,
         "module": 42 + style["module"] // 6 if style["module"] < 42 else style["module"],
     }
+    # Observed upper-pane divisions/frame colours do not describe occluded
+    # storefronts or areas outside the measured rectangle. Preserve their
+    # generic pane treatment rather than leaking the reviewed upper pattern.
+    unreviewed = {**style, "unreviewed": True, "glazing": [0, 0, 0, -1],
+                  "glazing_phase": 0, "glazing_span": None, "frame": style["trim"]}
     # Retain sampled/AI layouts outside the observed rectangle, especially above shop strips.
     for bounds in [
         (0, x0, a[1], max(vertices[:, 1])),
@@ -81,7 +86,7 @@ def _paint_layers(vertices, wall, style):
             above_full_wall = (
                 bounds[2] == y1 and wall.get("observation", {}).get("scope") == "full-wall"
             )
-            yield *part, blank if above_full_wall else {**style, "unreviewed": True}, 0
+            yield *part, blank if above_full_wall else unreviewed, 0
     part = quad(x0, x1, y0, y1)
     if part:
         yield *part, blank, 0
@@ -107,7 +112,7 @@ def _paint_layers(vertices, wall, style):
         left, right = sorted([offset + x * sign, offset + (x + w) * sign])
         part = quad(max(x0, left), min(x1, right), max(y0, y0 + y), min(y1, y0 + y + h))
         if part:
-            yield *part, {**style, "unreviewed": True}, 2
+            yield *part, unreviewed, 2
     courses = wall["trim"].get("string_courses", {}).get("value")
     if isinstance(courses, list):
         for height in courses:

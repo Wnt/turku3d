@@ -95,6 +95,22 @@ def test_reversed_clipped_ribbon_keeps_original_pane_pitch_and_mirrors_split():
     assert [p["size"][0] for p in patches] == [20, 8]
     assert style["glazing"] == [5, 1, .7, 0]
 
+
+def test_excluded_and_unobserved_regions_do_not_inherit_reviewed_upper_panes():
+    wall = program()["walls"][0]
+    wall.update(measured_geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N],
+        p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2), measured_size=[23.3, 8])
+    wall["windows"]["rectangles_m"] = [[1, 4, 2, 2]]
+    wall["observation"].update(scope="partial", excluded_rectangles_m=[[0, 0, 23.3, 3]])
+    vertices = np.array([[0, 2, 0], [23.3, 2, 0], [23.3, 14, 0], [0, 14, 0]])
+    style = compile_wall(wall, 4)
+    style.update(glazing=[2, 1, .3, 0], glazing_phase=2, glazing_span=[0, 12], frame="#102030")
+    fallback = [r[2] for r in wall_parts(vertices, wall, style) if r[2].get("unreviewed")]
+    assert len(fallback) >= 2  # excluded lower shop strip and outside upper extent
+    assert all(p["glazing"] == [0, 0, 0, -1] and p["glazing_phase"] == 0
+               and p["glazing_span"] is None and p["frame"] == style["trim"] for p in fallback)
+    assert style["glazing"] == [2, 1, .3, 0] and style["frame"] == "#102030"
+
 def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     wall = program()["walls"][0]
     wall.update(
