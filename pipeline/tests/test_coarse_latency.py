@@ -216,6 +216,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "wfs",
         "roads",
         "trees",
+        "vegetation_canopy",
+        "vegetation_context",
         "barriers",
         "forests",
         "vegetation_paths",
@@ -238,6 +240,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     paths["roads"] = [source, lidar, spot]  # bridge elevations are structural in both passes
     monkeypatch.setattr(inputs, "_sources", lambda *_, **kw: paths)
     building = inputs.Building("solid", shapely.box(0, 0, 10, 10), 0, 10, "facade_plaster")
+    neighbour = inputs.Building("neighbour", shapely.box(248, 0, 258, 10), 0, 10, "facade_plaster")
     called = []
 
     def prepare(tile, dataset, sources):
@@ -252,7 +255,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return []
         if dataset == "wfs":
             assert len(sources) == 3
-            return {"buildings": [building], "streets": [], "water": []}
+            return {"buildings": [building], "wall_context": [neighbour], "streets": [], "water": [], "street_finishes": []}
         if dataset == "roads":
             assert sources == [source, lidar, spot]
             return {"bridge_ways": [{"id": "crossing"}]}
@@ -265,6 +268,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     monkeypatch.setattr(inputs, "_prepare_one", prepare)
     sources = SimpleNamespace(missing=lambda _, **kw: [], input_key=lambda _, **kw: "raw-key")
     result = inputs.gather(C.VisualTile(0, 0, 0), tmp_path, sources, first_pass=True)
+    assert [building.key for building in result.wall_context] == ["neighbour"]
+    assert result.vegetation_context == {}
     assert called == [
         "ground",
         "water",

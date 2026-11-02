@@ -73,11 +73,12 @@ DEPENDENCIES = {
     ),
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
-    "trees": ("tree_inputs.py", "../spatial.py"),
+    "trees": ("tree_inputs.py", "canopy_trees.py", "../spatial.py"),
     "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
+    "vegetation_context": ("canopy_context.py", "canopy_trees.py", "../spatial.py", "../roads/__init__.py"),
     "barriers": ("fences.py", "../spatial.py"),
-    "forests": ("forests.py", "../spatial.py"),
-    "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
+    "forests": ("forests.py", "canopy_trees.py", "../spatial.py"),
+    "vegetation_paths": ("forest_paths.py", "canopy_trees.py", "../spatial.py", "../roads/__init__.py"),
     "tunnels": (
         "road_top.py",
         "tunnels.py",
@@ -139,6 +140,9 @@ class Inputs:
     vegetation_paths: list | None = None
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    vegetation_ground: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    tree_context: list = ()
+    vegetation_context: dict = field(default_factory=dict)
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
@@ -386,7 +390,7 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=())
 
 
 def prepare_trees(
-    tile: C.VisualTile, osm: Path, register: Path | None = None, streets: Path | None = None
+    tile: C.VisualTile, osm: Path, register: Path | None = None, streets: Path | None = None, *, margin=0
 ) -> list:
     """Register trees (GIS:Puut), then the OSM ``natural=tree`` points not within TREE_DUPLICATE
     of one, in the tile: (id, x, z, height, conifer, species)."""
@@ -398,14 +402,15 @@ def prepare_trees(
 
     from .tree_inputs import TREE_DUPLICATE, register_trees
 
-    trees = register_trees(tile, register, streets) if register else []
+    bounds = tile.bbox.buffered(margin)
+    trees = register_trees(tile, register, streets, bounds=bounds) if register else []
     known = cKDTree(np.array([(t[1], t[2]) for t in trees])) if trees else None
-    for k, row in rows(osm, tile.bbox):
+    for k, row in rows(osm, bounds):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("natural") != "tree":
             continue
         point = row["geometry_local"]
-        if point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+        if point.geom_type != "Point" or not bounds.contains(point.x, point.y):
             continue
         if known is not None and known.query_ball_point((point.x, point.y), TREE_DUPLICATE):
             continue
@@ -488,6 +493,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     return {
         "ground": None if missing else laz,
         "vegetation_canopy": [] if first_pass else roofs.lidar_paths(tile),
+        "vegetation_context": [wfs[1][1], wfs[2][1], osm] if osm and wfs[1][0] and wfs[2][0] else None,
         "water": [wfs[2][1], osm] if wfs[2][0] else None,
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
         if osm and not missing
@@ -619,6 +625,9 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .fences import prepare as prepare_barriers
 
         return prepare_barriers(tile, paths[0])
+    if dataset == "vegetation_context":
+        from .canopy_context import prepare
+        return prepare(tile, *paths)
     if dataset == "forests":
         from .forests import read_areas
 
@@ -628,7 +637,8 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 
         return read_paths(tile, paths[0])
     if dataset == "trees":
-        return prepare_trees(tile, *paths)
+        from .canopy_trees import CONTEXT_HALO
+        return prepare_trees(tile, *paths, margin=CONTEXT_HALO)
     if dataset == "poles":
         from turku3d.props import read_sources
 
@@ -707,6 +717,7 @@ def gather(
             "kerb_parking",
             "trees",
             "vegetation_canopy",
+            "vegetation_context",
             "forests",
             "vegetation_paths",
             "poles",
@@ -803,6 +814,7 @@ def gather(
         provenance,
         seconds,
         sources.input_key(tile, first_pass=first_pass) or "",
+        wall_context=wfs.get("wall_context", []),
         gardens=values["gardens"] or {},
         boats=values["boats"],
         walkable=values["walkable"] or (),
@@ -816,8 +828,11 @@ def gather(
         forests=values["forests"] or (),
         vegetation_paths=values["vegetation_paths"] or [],
         canopy=ground.get("canopy", np.empty((0, 3))),
-        vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
-        trees=values["trees"] or (),
+        vegetation_canopy=values["vegetation_canopy"]["canopy"] if not first_pass else np.empty((0, 3)),
+        vegetation_ground=values["vegetation_canopy"]["ground"] if not first_pass else np.empty((0, 3)),
+        trees=[t for t in values["trees"] if tile.bbox.contains(t[1], t[2])] if values["trees"] else (),
+        tree_context=values["trees"] or (),
+        vegetation_context=values.get("vegetation_context") or {},
         tunnels=values["tunnels"] or (),
         stairs=values["stairs"] or ((), ()),
         poles=values["poles"] or (),

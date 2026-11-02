@@ -20,13 +20,14 @@ SURVEY_YEAR = 2026
 NURSERY_HEIGHT, GROWTH, MAX_HEIGHT, UNKNOWN_HEIGHT = 4.0, 0.35, 22.0, 10.0
 
 
-def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) -> list:
+def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None, *, bounds=None) -> list:
     """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer, species). Height grows with
     the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
     the OSM default of 10 m. A row on a carriageway (GIS:Katualueet Ajorata) is not drawn."""
+    bounds = bounds or tile.bbox
     roads = []
     if streets is not None:
-        frame = spatial_frame(streets, tile.bbox)
+        frame = spatial_frame(streets, bounds)
         if len(frame):
             roads = [
                 shapely.make_valid(shapely.force_2d(g))
@@ -35,9 +36,9 @@ def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) 
             ]
     carriageway = shapely.STRtree(roads) if roads else None
     trees = []
-    for row in spatial_frame(path, tile.bbox).to_dict("records"):
+    for row in spatial_frame(path, bounds).to_dict("records"):
         point = row["geometry_local"]
-        if point is None or point.geom_type != "Point" or not tile.bbox.contains(point.x, point.y):
+        if point is None or point.geom_type != "Point" or not bounds.contains(point.x, point.y):
             continue
         at = shapely.Point(point.x, point.y)
         if carriageway is not None and any(roads[i].covers(at) for i in carriageway.query(at)):

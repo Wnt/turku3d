@@ -61,9 +61,11 @@ def open_outline(geom):
 def read_areas(tile, path):
     from turku3d.spatial import rows
 
+    from .canopy_trees import CONTEXT_HALO
     window = shapely.box(*tile.bbox.as_tuple())
+    context_window = shapely.box(*tile.bbox.buffered(CONTEXT_HALO).as_tuple())
     result = []
-    for i, row in rows(path, tile.bbox.buffered(OPEN_MARGIN)):
+    for i, row in rows(path, tile.bbox.buffered(CONTEXT_HALO + OPEN_MARGIN)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         excluded = open_surface(tags)
         kind = next(
@@ -79,8 +81,8 @@ def read_areas(tile, path):
         geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if excluded:
             geom = open_outline(geom)
-            if not geom.is_empty and geom.intersects(window):
-                result.append((f"open:{i}", geom.intersection(window), "open", ""))
+            if not geom.is_empty and geom.intersects(context_window):
+                result.append((f"open:{i}", geom.intersection(context_window), "open", ""))
             continue
         if not geom.intersects(window):
             continue
@@ -149,11 +151,15 @@ def clears_path(tree, paths):
 
 def produce(tile, inputs, height_at, mapped, carried=None):
     """Reuse vegetation Tree/prototypes; only trees (never edge bushes) receive trunk collision."""
+    context = getattr(inputs, "vegetation_context", {})
+    buildings = [*inputs.buildings, *getattr(inputs, "wall_context", ())]
+    water = [*inputs.water, *context.get("water", ())]
+    streets = [*(g for g, _ in inputs.streets), *context.get("streets", ())]
     blocked = shapely.union_all(
         [
-            *inputs.water,
-            *(b.footprint.buffer(1) for b in inputs.buildings),
-            *(g.buffer(1) for g, _ in inputs.streets),
+            *water,
+            *(b.footprint.buffer(1) for b in buildings),
+            *(g.buffer(1) for g in streets),
         ]
     )
     # Car roads retain their existing centreline clearance. Foot/cycle paths use
@@ -161,8 +167,8 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     from turku3d.roads import CLASS_SHIFT
 
     roads = inputs.roads
-    lanes = []
-    if roads and roads.get("json"):
+    lanes = list(context.get("lanes", ()))
+    if not context and roads and roads.get("json"):
         graph = json.loads(roads["json"])
         nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
         for edge in graph["edges"]:
@@ -170,7 +176,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
                 continue
             coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
             lanes.append(shapely.LineString(coords).buffer(2))
-        blocked = shapely.union_all([blocked, *lanes])
+    blocked = shapely.union_all([blocked, *lanes])
     paths = path_corridors(inputs)
     blocked = shapely.union_all([blocked, paths])
     generated_blocked = shapely.union_all(
@@ -179,25 +185,23 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # Register trees are surveyed street and park trees: they stand in verges, tree grates and
     # squares, so only buildings, water and the car lanes block them (carriageway rows are dropped
     # in the prepared input), never the street-part areas around them.
-    surveyed = shapely.union_all([*inputs.water, *(b.footprint for b in inputs.buildings), *lanes])
-    trees = [
-        t
-        for t in mapped
-        if not (surveyed if t.object_id.startswith(REGISTER_TREE) else blocked).covers(
-            shapely.Point(t.x, t.z)
-        )
-        and clears_path(t, paths)
-    ][:TREE_CAP]
+    surveyed = shapely.union_all([*water, *(b.footprint for b in buildings), *lanes])
+    def eligible(tree):
+        mask = surveyed if tree.object_id.startswith(REGISTER_TREE) else blocked
+        return not mask.covers(shapely.Point(tree.x, tree.z)) and clears_path(tree, paths)
+
+    trees = [tree for tree in mapped if eligible(tree)][:TREE_CAP]
     # Ground key points usually contain no canopy. Use the full classified source,
     # reduced once per source hash and cached independently of the terrain material.
     from .canopy_trees import inventory
 
     measured_canopy = getattr(inputs, "vegetation_canopy", ())
     measured_blocked = shapely.union_all([
-        surveyed, paths, *(b.footprint.buffer(1) for b in inputs.buildings),
+        surveyed, paths, *(b.footprint.buffer(1) for b in buildings),
         *(g for _, g, kind, _ in inputs.forests if kind == "open"),
     ])
-    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths)[:TREE_CAP]
+    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths,
+                      getattr(inputs, "vegetation_ground", ()), getattr(inputs, "tree_context", ()), eligible=eligible)[:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:

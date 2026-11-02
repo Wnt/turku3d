@@ -26,7 +26,8 @@ def read_paths(tile, path):
     from turku3d.spatial import rows
 
     result = []
-    window = shapely.box(*tile.bbox.buffered(8).as_tuple())
+    from .canopy_trees import CONTEXT_HALO
+    window = shapely.box(*tile.bbox.buffered(CONTEXT_HALO).as_tuple())
     for _, row in rows(path, tile.bbox.buffered(30)):
         tags = json.loads(row["tags"] or "{}")
         flags = way_flags(tags.get("highway"), {**tags, "area": "no"})

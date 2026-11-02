@@ -55,6 +55,7 @@ PRODUCERS = (
     "road_top",
     "forests",
     "canopy_trees",
+    "canopy_context",
     "fences",
     "furniture",
     "tree_inputs",
