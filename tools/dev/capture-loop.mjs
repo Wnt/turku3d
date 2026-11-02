@@ -15,6 +15,20 @@ const refs = JSON.parse(fs.readFileSync(path.join(root, 'loops/refs.json')));
 const only = opt('--only', Object.keys(refs).join(',')).split(',');
 const times = opt('--at', '13:00,19:30,22:00').split(',');
 const timeout = Number(opt('--timeout', '300')) * 1000;
+// A second writer on one CDP page can dispose a fleet or change its pose mid-measurement.
+if(!args.includes('--status')&&!args.includes('--fleet-inspect')){
+  const dir=path.join(root,'loops/.capture-locks');fs.mkdirSync(dir,{recursive:true});
+  const lock=path.join(dir,new URL(cdp).host.replaceAll(':','-')+'.json');
+  try{
+    const owner=JSON.parse(fs.readFileSync(lock,'utf8'));
+    let alive=true;try{process.kill(owner.pid,0);}catch{alive=false;}
+    if(alive)throw Error(`CDP page is in use by capture PID ${owner.pid}`);
+    fs.unlinkSync(lock);
+  }catch(error){if(error.code!=='ENOENT'&&!String(error).includes('Unexpected end'))throw error;}
+  fs.writeFileSync(lock,JSON.stringify({pid:process.pid,out}),{flag:'wx'});
+  process.once('exit',()=>{try{if(JSON.parse(fs.readFileSync(lock,'utf8')).pid===process.pid)fs.unlinkSync(lock);}catch{}});
+  process.once('SIGTERM',()=>process.exit(143));
+}
 const pages = await fetch(`${cdp}/json/list`, { signal: AbortSignal.timeout(15000) }).then(r => r.json());
 const target = pages.find(p => p.type === 'page' && p.url.startsWith(base)) ?? pages.find(p => p.type === 'page' && p.url === 'about:blank');
 if (!target) throw new Error('No integration or blank page in the specified CDP browser');
@@ -65,8 +79,17 @@ const evaluate = async expression => {
 const delay = ms => new Promise(r => setTimeout(r, ms));
 fs.mkdirSync(out, { recursive: true });
 if(args.includes('--fleet-inspect')){
-  console.log(JSON.stringify(await evaluate(`window.fleetWorkshop.scene.children.map(o=>({name:o.name,type:o.type,count:o.count,visible:o.visible,pos:o.position.toArray()}))`)));
+  console.log(JSON.stringify(await evaluate(`(()=>{const qa=window.__game?.fleetQA;return {night:window.__game?.dayClock?.night,records:qa?.manifest.vehicles?.length,nearest:qa?.manifest.vehicles?.map(c=>({id:c.object_id,x:c.x,z:c.z,occ:c.occ,zone:c.zone,d:Math.hypot(c.x-window.__render.camera.position.x,c.z-window.__render.camera.position.z)})).sort((a,b)=>a.d-b.d).slice(0,4),batchCount:qa?.visuals.groups.size,cars:qa?.visuals.cars.length,first:qa?.manifest.vehicles?.[0],camera:window.__render?.camera.position.toArray(),fleet:qa?.visuals.snapshot(),objects:(window.fleetWorkshop?.scene??qa?.root)?.children.filter(o=>o.visible&&o.count).map(o=>({name:o.name,count:o.count})),groups:qa&&[...qa.visuals.groups.values()].filter(b=>b.mesh.count).map(b=>({name:b.mesh.name,count:b.count,mesh:b.mesh.count}))};})()`)));
   socket.close();process.exit(0);
+}
+if(args.includes('--fleet-street-bench-only')){
+  await send('Page.setWebLifecycleState',{state:'active'});
+  await send('Emulation.setFocusEmulationEnabled',{enabled:true});
+  // Detach a previously interrupted QA measurement before installing the new owner.
+  await evaluate('window.__render.afterFrame=undefined');
+  const bench=await evaluate(`import('/src/actors/fleet/qa.ts?capture='+Date.now()).then(async m=>{await m.installFleetQA();return window.__game.fleetQA.bench();})`);
+  fs.writeFileSync(path.join(out,'street-fleet-bench.json'),JSON.stringify(bench,null,1));
+  console.log(JSON.stringify(bench));await send('Page.setWebLifecycleState',{state:'frozen'});socket.close();process.exit(0);
 }
 // Vehicle motion fixtures use the production physics and visual classes, with identical
 // cached physical poses for the flattened baseline and articulated candidate.
@@ -311,6 +334,11 @@ try {
       const screenshot = await send('Page.captureScreenshot', { format: 'jpeg', quality: 92, captureBeyondViewport: false });
       await evaluate('window.__render.beforeFrame = () => false');
       fs.writeFileSync(path.join(out, file), Buffer.from(screenshot.data, 'base64'));
+      if(args.includes('--fleet-street-bench')){
+        const bench=await evaluate(`import('/src/actors/fleet/qa.ts?capture='+Date.now()).then(async m=>{await m.installFleetQA();return window.__game.fleetQA.bench();})`);
+        fs.writeFileSync(path.join(out,'street-fleet-bench.json'),JSON.stringify(bench,null,1));
+        console.log(JSON.stringify({streetFleetBench:bench}));
+      }
       const row = { file, time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
         notes: cam.notes, url, build: `${execFileSync('git', ['branch', '--show-current'], {encoding:'utf8'}).trim()}@${build}`, capture: {
           vegetation_ready:state.vegetationReady, canopy_mode:state.canopyMode, canopy_tiles:state.canopyTiles, nature_hash:state.natureHash, comparison_variant: opt('--variant', 'after'), comparison_baseline: opt('--comparison', 'same-build'), wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
