@@ -289,16 +289,17 @@ def build(
         tunnels.openings,
     )
     seconds.update(structure_seconds)
+    from .input_keys import producer_code
+
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
             Path(kerbs.__file__),
             surfaces.grid_height,
-            Path(__file__).with_name("inputs.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             *common,
-        ),
+        ) + producer_code("ground").hex(),
         [
             tile,
             inputs.kerbs,

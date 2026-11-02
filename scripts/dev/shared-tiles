@@ -68,8 +68,8 @@ def main():
             file.flush()
             subprocess.run(['scp', '-q', file.name, args.host + ':' + temp + '/revision.json'], check=True)
         subprocess.run(['ssh', args.host,
-                        'if test -e ' + q(target) + '; then rm -rf ' + q(temp) +
-                        '; else mv ' + q(temp) + ' ' + q(target) + '; fi'], check=True)
+                        'mv -T ' + q(temp) + ' ' + q(target) + ' 2>/dev/null || { test -f ' +
+                        q(target + '/revision.json') + ' && rm -rf ' + q(temp) + '; }'], check=True)
     body = json.dumps(dict(revision=revision, alias=args.alias)).encode()
     response = urlopen(Request(args.url + '/register', data=body,
                               headers={'Content-Type': 'application/json'}))
