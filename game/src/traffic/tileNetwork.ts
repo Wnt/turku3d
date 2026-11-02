@@ -291,15 +291,15 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       const [ax, az] = tangentAtEnd(a), [bx, bz] = tangentAtStart(b);
       const theta = Math.atan2(ax * bz - az * bx, ax * bx + az * bz);
       const uTurn = Math.abs(theta) > 2.6;
-      // Keep parallel straight movements parallel. A greedy hash-only match used to send the inside lane
-      // across the outside lane in the junction. Prepare turns from the appropriate side of the road.
+      // Parallel through lanes keep their ordinal across the junction instead of swapping sides.
+      if (Math.abs(theta) < 0.5 && a.laneCount === b.laneCount && a.k !== b.k) continue;
       let cost = Math.abs(theta) < 0.5 ? 0 : theta > 0 ? 0.35 : 0.5;
       if (uTurn) cost = deadEnd ? 0 : 4;
       else if (Math.abs(theta) > 2.0) cost = 1.5;
+      if (Math.abs(theta) >= 0.5 && !uTurn) {
+        cost += theta > 0 ? 3 * (a.laneCount - 1 - a.k) + 2 * (b.laneCount - 1 - b.k) : 3 * a.k + 2 * b.k;
+      }
       cost += MISMATCH * Math.abs(Math.log2(Math.max(1, a.flow) / Math.max(1, b.flow)));
-      if (!deadEnd && Math.abs(theta) > 0.5) cost += 5 * (theta > 0 ? a.laneCount - 1 - a.k : a.k);
-      if (Math.abs(theta) < 0.5) cost += 4 * Math.abs(a.k - b.k);
-      else cost += 2 * Math.abs((theta > 0 ? b.laneCount - 1 : 0) - b.k);
       pairs.push({ cost: cost + 0.8 * hash01('turn', tile, node, a.id, b.id), a, b });
     }
     pairs.sort((p, q) => p.cost - q.cost || cmp(p.a.id, q.a.id) || cmp(p.b.id, q.b.id));

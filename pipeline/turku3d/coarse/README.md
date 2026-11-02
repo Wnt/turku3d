@@ -542,7 +542,18 @@ describes the single opening and historical widening. Its internal historic stee
 structure is not replaced with invented river piers. Detail dimensions remain
 estimates; the city-lidar deck and OSM widths remain authoritative. Profiles use
 permanent Wikidata crossing identities and apply in every tile and draft pass.
-Other bridges retain their existing profiles. Photos and private references stay local.
+The reusable `bridge_kit` entrance module adds tapered stone shafts, stepped plinths,
+bronze collars and relief to crossings with an entrance profile. The full mapped longitudinal outline edges place them at any orientation,
+including skew abutments; each complete plinth must fit inside the deck footprint, and
+buildings suppress conflicting ornaments. Lower quay passages constrain the
+supports below the deck without removing pylons above it. Auransilta uses
+a 4.8 m estimated entrance height and a light multi-band railing grid, based on
+[MKFI's public-domain 2011 photograph](https://commons.wikimedia.org/wiki/File:Auransilta_Turku.JPG)
+and local street-level references. Granite and bronze textures are procedural; no
+reference image pixels ship. The exact same closed component meshes enter collision.
+`bridge_access` includes the kit in the bridge stage content hash; unrelated stages
+remain reusable. Other bridges retain their existing profiles. Photos and private
+references stay local.
 
 Bridge approaches join the same globally aligned ground triangles as the rendered and
 collision terrain. Nearest lidar keys can be metres above the bank TIN and must not
@@ -552,10 +563,10 @@ Tuomiokirkkosilta's outer concrete arches have open spandrels and vertical posts
 Browser-free crossing regression (production car, Rapier 0.21, hash-verified OCI COLs):
 
 ```sh
-node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings"
+node tools/validator/bin/bridge-crossing.mjs "$TURKU3D_WORK/reports/bridge-crossings"
 # Repeat against the frozen downloaded payloads, without network/build waits:
-node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
-node --test tools/validator/test/bridge-crossing.test.ts
+node tools/validator/bin/bridge-crossing.mjs "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
+node --experimental-transform-types --import ./tools/validator/src/ts-runtime.mjs --test tools/validator/test/bridge-crossing.test.ts
 ```
 
 The live command holds anonymous tile demand and requires full/current manifests;

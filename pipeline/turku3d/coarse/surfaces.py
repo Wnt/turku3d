@@ -16,7 +16,7 @@ from PIL import Image
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh, vertex_normals
-from . import ground_finishes
+from . import ground_finishes, street_materials
 
 KEYS = (
     "asphalt_fresh",
@@ -27,7 +27,7 @@ KEYS = (
     "grass",
     "gravel",
     "quay_stone",
-    *ground_finishes.FINISH_KEYS.values(),
+    *street_materials.FINISH_KEYS.values(),
 )
 BINDINGS = {
     "road": 1,
@@ -200,7 +200,7 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
     channels = np.full(len(materials), 4)
     for name, channel in BINDINGS.items():
         channels[materials == mat_id(name)] = channel
-    for material, name in ground_finishes.FINISH_KEYS.items():
+    for material, name in street_materials.FINISH_KEYS.items():
         channels[materials == material] = KEYS.index(name)
     meshes = []
     for channel in np.unique(channels[keep]):
@@ -327,7 +327,7 @@ def library(root: Path, base: Path, channels):
             stage = Path(tmp)
             finish_maps = (
                 ground_finishes.maps(KEYS[channel])
-                if KEYS[channel] in ground_finishes.FINISH_KEYS.values() else None
+                if KEYS[channel] in street_materials.FINISH_KEYS.values() else None
             )
             for slot in ("albedo", "normal", "orm"):
                 output = stage / f"{slot}.png"
