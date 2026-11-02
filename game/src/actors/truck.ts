@@ -4,6 +4,7 @@ import type { VehicleState } from '../physics/protocol';
 import { disposeDraw } from '../render/sharedMaterials';
 import { racerModel } from './prerunner/model';
 import { applyRaceWheels, createRaceRig } from './prerunner/rig';
+import { createRaceWheels } from './prerunner/wheels';
 
 /** Original KORPI 440 racer. Immutable shared meshes; per-actor wheel and suspension matrices. */
 export class TruckVisual {
@@ -20,14 +21,17 @@ export class TruckVisual {
   async load() {
     if (this.loaded) return;
     const body = new T.LOD(); body.name = 'korpi-body';
-    for (let lod = 0; lod < 3; lod++) body.addLevel(racerModel(lod).body.clone(true), [0, 35, 90][lod], .1);
+    for (let lod = 0; lod < 3; lod++) {
+      const model = racerModel(lod).body.clone(true);
+      model.getObjectByName('korpi-spare')?.removeFromParent();
+      body.addLevel(model, [0, 35, 90][lod], .1);
+    }
     this.root.add(body);
     for (let i = 0; i < TRUCK.wheels.length; i++) {
       const pivot = new T.Group(); pivot.name = `vehicle-wheel-${i}`;
-      const wheel = new T.LOD(); wheel.name = 'wheel-spin';
-      for (let lod = 0; lod < 3; lod++) wheel.addLevel(racerModel(lod).wheel.clone(true), [0, 35, 90][lod], .1);
-      pivot.add(wheel); this.root.add(pivot);
+      pivot.add(new T.Object3D()); this.root.add(pivot);
     }
+    this.root.add(createRaceWheels());
     // Tiny running-gear details disappear beyond 35m; wheel centres remain physical at every LOD.
     const suspension = new T.LOD(); suspension.name = 'korpi-running-gear';
     suspension.addLevel(createRaceRig(), 0); suspension.addLevel(new T.Group(), 35, .1);
