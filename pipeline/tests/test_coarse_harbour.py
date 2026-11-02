@@ -7,6 +7,12 @@ from turku3d import config as C
 from turku3d.coarse import boat_inputs, boats, harbour
 
 
+def test_ship_and_pier_shells_cannot_seed_land_terraces():
+    records = [dict(building=key) for key in ('house', 'ship', 'pier')]
+    vessels = [dict(building_keys=['ship']), dict(building_keys=['pier'])]
+    assert boat_inputs.separate_attachments(records, vessels) == [records[0]]
+
+
 def test_historic_ship_is_recognised_without_building_tag(tmp_path):
     import pyarrow as pa
     import pyarrow.parquet as pq
