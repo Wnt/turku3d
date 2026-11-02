@@ -7,7 +7,7 @@ import { Img, loadImage, resized, sample, drawSprite, drawPolyline, bezier, dila
 export const CELL = 512;
 /** Foliage atlas: 4 x 4 cells of 512 px. Card pivot (twig base) is the bottom centre of a cell. */
 export const FOLIAGE_CELLS = ['birch', 'linden', 'maple', 'oak', 'rowan', 'willow', 'spruce', 'pine',
-  'lilac', 'rose', 'hedge', 'juniper', 'grass', 'grass_wide', 'meadow', 'rosette'];
+  'lilac', 'rose', 'hedge', 'juniper', 'grass', 'lawn', 'meadow', 'rosette'];
 /** Bark column atlas: 8 slots of 512 x 512 (448 px content + 32 px wrap gutters each side). U wraps once around
  *  a branch inside the content; V repeats over the whole atlas height (1 m of bark per repeat). */
 export const BARK_SLOTS = ['birch', 'pine', 'spruce', 'oak', 'linden', 'maple', 'smooth', 'willow'];
@@ -130,7 +130,7 @@ function broadleafCard(leaves, seed, o) {
   const order = placements.map(pl => ({ ...pl, depth: pl.back ? r() * 0.45 : r() })).sort((a, b) => a.depth - b.depth);
   for (const pl of order) {
     const leaf = r.pick(leaves), len = o.leaf * r.range(0.78, 1.08) * (0.8 + 0.25 * pl.t);
-    const bright = (o.bright ?? 1) * (0.72 + 0.32 * pl.depth);
+    const bright = (o.bright ?? 1) * (0.5 + 0.58 * pl.depth);
     placeLeaf(img, leaf, pl.p, pl.angle, len, shadeLeaf(r, { bright, warm: r.range(-0.3, 0.6) * (o.warm ?? 0.3), sat: o.sat ?? 1, tint: o.tint }));
   }
   return img;
@@ -264,7 +264,7 @@ export async function foliageAtlas(src) {
     ['oak', 'LeafSet016', 0, {}], ['narrow', 'LeafSet013', 0, { minAspect: 2.5 }], ['lilac', 'LeafSet004', 0, {}],
     ['small', 'LeafSet024', 0, {}], ['privet', 'LeafSet002', 0, {}], ['sprig', 'LeafSet019', -90, { keep: 3 }],
     ['needle', 'PineNeedles001', 90, { minArea: 0.0008, keep: 20 }], ['blade', 'Foliage001', 0, { minArea: 0.001, keep: 9 }],
-    ['wide', 'Foliage008', 90, { minArea: 0.001, keep: 7 }], ['weed', 'Foliage003', 0, { minArea: 0.0008, keep: 6 }],
+    ['weed', 'Foliage003', 0, { minArea: 0.0008, keep: 6 }],
     ['blade2', 'Foliage006', 0, { minArea: 0.0008, keep: 8 }], ['dandelion', 'LeafSet020', 0, { minArea: 0.002 }],
   ]) set[name] = leafSprites(await leafSet(src, id), baseAngle, opts);
   const rowanLeaves = [0, 1, 2].map(k => compoundLeaf(set.narrow, 100 + k, { pairs: 6, leaflet: 64, spacing: 34, angle: 62 }));
@@ -272,11 +272,11 @@ export async function foliageAtlas(src) {
   // Seasonal look: Turku summer greens. Card targets are linear albedo luminance of opaque texels.
   const green = [0.36, 0.62, 0.20], needleGreen = [0.22, 0.42, 0.24], juniperGreen = [0.30, 0.46, 0.38];
   const cards = {
-    birch: calibrate(fit(broadleafCard(set.birch, 1, { fill: 130, leaf: 44, spacing: 14, spread: [35, 70], warm: 0.2, reach: 200, sides: [0.15, 0.27, 0.39, 0.51, 0.63, 0.75] })), 0.085, 1.05),
-    linden: calibrate(fit(broadleafCard(set.linden, 2, { fill: 85, leaf: 64, spacing: 21, spread: [40, 75], sides: [0.18, 0.32, 0.46, 0.6, 0.74] })), 0.075),
-    maple: calibrate(fit(broadleafCard(set.maple, 3, { fill: 55, leaf: 86, spacing: 30, spread: [40, 80], opposite: true, sides: [0.18, 0.34, 0.5, 0.66] })), 0.075),
-    oak: calibrate(fit(broadleafCard(set.oak, 4, { fill: 85, leaf: 70, spacing: 21, spread: [35, 70], warm: 0.1, sides: [0.18, 0.32, 0.46, 0.6, 0.74] })), 0.06, 0.9),
-    rowan: calibrate(fit(broadleafCard(rowanLeaves, 5, { fill: 22, leaf: 165, spacing: 42, spread: [40, 70], sides: [0.22, 0.42, 0.62] })), 0.07),
+    birch: calibrate(fit(broadleafCard(set.birch, 1, { fill: 130, leaf: 44, spacing: 14, spread: [35, 70], warm: 0.2, reach: 200, sides: [0.15, 0.27, 0.39, 0.51, 0.63, 0.75] })), 0.1, 1.2),
+    linden: calibrate(fit(broadleafCard(set.linden, 2, { fill: 85, leaf: 64, spacing: 21, spread: [40, 75], sides: [0.18, 0.32, 0.46, 0.6, 0.74] })), 0.095, 1.15),
+    maple: calibrate(fit(broadleafCard(set.maple, 3, { fill: 55, leaf: 86, spacing: 30, spread: [40, 80], opposite: true, sides: [0.18, 0.34, 0.5, 0.66] })), 0.095, 1.15),
+    oak: calibrate(fit(broadleafCard(set.oak, 4, { fill: 85, leaf: 70, spacing: 21, spread: [35, 70], warm: 0.1, sides: [0.18, 0.32, 0.46, 0.6, 0.74] })), 0.075, 1.05),
+    rowan: calibrate(fit(broadleafCard(rowanLeaves, 5, { fill: 22, leaf: 165, spacing: 42, spread: [40, 70], sides: [0.22, 0.42, 0.62] })), 0.09, 1.15),
     willow: calibrate(fit(broadleafCard(set.narrow, 6, { fill: 110, leaf: 80, spacing: 12, spread: [15, 35], reach: 60, sides: [0.2, 0.35, 0.5, 0.65, 0.8], tint: [0.55, 0.62, 0.35] })), 0.07, 0.8),
     spruce: calibrate(fit(coniferCard(set.sprig, 7, { sprig: 190, spacing: 26, spread: [40, 75], tint: needleGreen })), 0.035, 0.9),
     pine: calibrate(fit(pineCard(set.needle, 8, { needle: 150, tint: [0.30, 0.46, 0.26] })), 0.045, 0.9),
@@ -284,8 +284,8 @@ export async function foliageAtlas(src) {
     rose: calibrate(fit(broadleafCard(roseLeaves, 10, { fill: 24, leaf: 110, spacing: 34, spread: [35, 65], sides: [0.2, 0.38, 0.56, 0.72] })), 0.06),
     hedge: calibrate(fit(bushCard(set.privet, 11, { count: 120, sprig: 210 })), 0.06),
     juniper: calibrate(fit(coniferCard(set.sprig, 12, { sprig: 150, spacing: 20, spread: [20, 45], tint: juniperGreen, sat: 0.7 })), 0.05, 0.75),
-    grass: calibrate(fit(grassCard([...set.blade, ...set.blade2], 13, { count: 46, base: 70, fan: 0.42, len: [230, 470], tint: green })), 0.09),
-    grass_wide: calibrate(fit(grassCard(set.wide, 14, { count: 46, base: 70, fan: 0.55, len: [300, 520], dry: 0.2 })), 0.085),
+    grass: calibrate(fit(grassCard([...set.blade, ...set.blade2], 13, { count: 46, base: 70, fan: 0.42, len: [230, 470], tint: green })), 0.11, 1.15),
+    lawn: calibrate(fit(grassCard([...set.blade, ...set.blade2], 14, { count: 190, base: 330, fan: 0.12, len: [90, 230], dry: 0.06, tint: green })), 0.11, 1.15),
     meadow: calibrate(fit(grassCard([...set.weed, ...set.blade], 15, { count: 34, base: 110, fan: 0.35, len: [260, 500], flowers: 9, dry: 0.25 })), 0.085),
     rosette: calibrate(fit(rosetteCard(set.dandelion, 16, { count: 11, len: [150, 225], flowers: 1 }), true), 0.08),
   };

@@ -159,7 +159,7 @@ function thin(anchors, n, r) {
     if (!band.length) continue;
     const reach = Math.max(...band.map(a => Math.hypot(a.p[0], a.p[2]))) || 1;
     const quota = Math.round(n * band.length / anchors.length);
-    kept.push(...band.map(a => ({ a, s: r() * 0.5 + Math.hypot(a.p[0], a.p[2]) / reach })).sort((x, y) => y.s - x.s).slice(0, quota).map(x => x.a));
+    kept.push(...band.map(a => ({ a, s: r() + 0.45 * Math.hypot(a.p[0], a.p[2]) / reach })).sort((x, y) => y.s - x.s).slice(0, quota).map(x => x.a));
   }
   return kept;
 }
@@ -288,7 +288,7 @@ function card(mesh, cell, pivot, up, facing, size, fold, radialAt, ao, phase, sw
   const ids = pts.map(([x, y]) => {
     const bulge = fold && x === 0 ? 0.16 * w : 0;
     const p = V.add(V.add(V.add(pivot, V.mul(side, x * w)), V.mul(up, y * h)), V.mul(normal, bulge - (fold ? 0.05 * w : 0)));
-    const n = V.norm(V.add(V.mul(normal, 0.35), V.mul(radialAt(p), 0.65)));
+    const n = V.norm(V.add(V.mul(normal, 0.2), V.mul(radialAt(p), 0.8)));
     const shade = ao(p);
     return mesh.vertex(p, n, [uv.u0 + (uv.u1 - uv.u0) * (x + 0.5), uv.v1 + (uv.v0 - uv.v1) * y], [shade, shade, shade], [Math.min(1, sway), y, phase, 1]);
   });
@@ -301,7 +301,7 @@ export function meshTree(sk, sp, lod, seed) {
   const r = rng(seed + 1000 * lod), bark = new MeshBuilder(), leaves = new MeshBuilder();
   const { yc, hc, R } = sk.crown;
   const crownDepth = p => Math.min(1.4, Math.hypot(p[0] / R, (p[1] - yc) / hc, p[2] / R));
-  const ao = p => (0.26 + 0.74 * Math.min(1, Math.pow(crownDepth(p), 1.8))) * (0.82 + 0.18 * Math.min(1, Math.max(0, (p[1] - sk.crown.y0) / (2 * hc))));
+  const ao = p => (0.18 + 0.82 * Math.min(1, Math.pow(crownDepth(p), 2.2))) * (0.82 + 0.18 * Math.min(1, Math.max(0, (p[1] - sk.crown.y0) / (2 * hc))));
   const barkAo = p => p[1] < sk.crown.y0 ? 1 : 0.75 + 0.25 * Math.min(1, crownDepth(p));
   const radial = sk.conifer
     ? p => V.norm([p[0], (p[1] - yc) * 0.25 + 0.35 * R, p[2]])
@@ -343,20 +343,20 @@ export function meshTree(sk, sp, lod, seed) {
 
 // ---------------------------------------------------------------- species
 
-const tree = o => ({ kind: 'deciduous', segs: [10, 6, 3, 0], ...o });
+const tree = o => ({ kind: 'deciduous', segs: [10, 6, 3, 0], lod1Keep: 0.55, ...o });
 export const SPECIES = {
   birch: tree({ cell: 'birch', bark: 'birch', height: 15, radius: 3.2, trunk: 0.17, crownBase: 0.28, leader: 0.95, crownCentre: 0.5, shape: 0.6, lean: 0.015,
-    n1: 30, elev: [38, 62], ratio: 0.42, d2: 3.6, a2: 42, l2ratio: 0.55, l2max: 2.4, d3: 2.2, droop2: 0.55, droop3: 0.9, card: 1.35, cardSpacing: 0.4, cards: 620, cardUp: -0.35, cardAlong: 0.9, cardOut: 0.35 }),
+    n1: 30, elev: [38, 62], ratio: 0.42, d2: 3.6, a2: 42, l2ratio: 0.55, l2max: 2.4, d3: 2.2, droop2: 0.55, droop3: 0.9, card: 1.0, cardSpacing: 0.26, cards: 1150, cardUp: -0.35, cardAlong: 0.9, cardOut: 0.35 }),
   linden: tree({ cell: 'linden', bark: 'linden', height: 16, radius: 4.6, trunk: 0.3, crownBase: 0.22, leader: 0.9, crownCentre: 0.45, shape: 0.55, lean: 0.01,
-    n1: 30, elev: [28, 58], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 2.6, d3: 2.0, droop2: 0.12, card: 1.7, cardSpacing: 0.4, cards: 700 }),
+    n1: 30, elev: [28, 58], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 2.6, d3: 2.0, droop2: 0.12, card: 1.2, cardSpacing: 0.26, cards: 1350 }),
   maple: tree({ cell: 'maple', bark: 'maple', height: 14, radius: 4.8, trunk: 0.28, crownBase: 0.22, leader: 0.82, crownCentre: 0.46, shape: 0.45, lean: 0.02,
-    n1: 26, elev: [30, 55], ratio: 0.55, d2: 3.0, a2: 42, l2ratio: 0.55, l2max: 2.6, d3: 2.0, droop2: 0.1, card: 1.7, cardSpacing: 0.4, cards: 680 }),
+    n1: 26, elev: [30, 55], ratio: 0.55, d2: 3.0, a2: 42, l2ratio: 0.55, l2max: 2.6, d3: 2.0, droop2: 0.1, card: 1.25, cardSpacing: 0.26, cards: 1250 }),
   oak: tree({ cell: 'oak', bark: 'oak', height: 14, radius: 5.6, trunk: 0.38, crownBase: 0.25, leader: 0.72, crownCentre: 0.42, shape: 0.4, lean: 0.03,
-    n1: 22, elev: [12, 42], ratio: 0.62, d2: 3.0, a2: 50, l2ratio: 0.55, l2max: 2.8, d3: 2.2, noise: 0.35, droop1: 0.06, droop2: 0.08, card: 1.7, cardSpacing: 0.4, cards: 700 }),
+    n1: 22, elev: [12, 42], ratio: 0.62, d2: 3.0, a2: 50, l2ratio: 0.55, l2max: 2.8, d3: 2.2, noise: 0.35, droop1: 0.06, droop2: 0.08, card: 1.2, cardSpacing: 0.26, cards: 1350 }),
   rowan: tree({ cell: 'rowan', bark: 'smooth', height: 8, radius: 2.6, trunk: 0.13, crownBase: 0.3, leader: 0.88, crownCentre: 0.5, shape: 0.55, lean: 0.03,
-    n1: 18, elev: [40, 68], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 1.6, d3: 1.5, droop2: 0.15, card: 1.35, cardSpacing: 0.38, cards: 380 }),
+    n1: 18, elev: [40, 68], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 1.6, d3: 1.5, droop2: 0.15, card: 1.0, cardSpacing: 0.26, cards: 700 }),
   willow: tree({ cell: 'willow', bark: 'willow', height: 12, radius: 5.0, trunk: 0.38, crownBase: 0.22, leader: 0.7, crownCentre: 0.5, shape: 0.5, lean: 0.04,
-    n1: 22, elev: [45, 70], ratio: 0.55, d2: 2.6, a2: 25, l2ratio: 0.85, l2max: 4.5, d3: 1.2, up1: 0.04, droop1: 0.22, droop2: 1.6, droop3: 1.4, card: 1.6, cardSpacing: 0.42, cards: 600,
+    n1: 22, elev: [45, 70], ratio: 0.55, d2: 2.6, a2: 25, l2ratio: 0.85, l2max: 4.5, d3: 1.2, up1: 0.04, droop1: 0.22, droop2: 1.6, droop3: 1.4, card: 1.2, lod1Keep: 0.55, cardSpacing: 0.42, cards: 600,
     cardUp: -1.4, cardAlong: 1.0, cardOut: 0.15, cardAspect: 0.75, cardRoll: 1.3 }),
   pine: { kind: 'pine', cell: 'pine', bark: 'pine', height: 17, radius: 3.6, trunk: 0.24, crownBase: 0.58, whorl: 0.75, perWhorl: [3, 5], elev: [8, 38], ratio: 0.4,
     up1: 0.12, droop1: 0.04, noise: 0.18, d2: 1.6, l2ratio: 0.45, hang: 0.0, droop2: 0.05, card: 1.05, cards: 300, segs: [10, 5, 3, 0],
@@ -418,7 +418,7 @@ export function hedge(seed, lod) {
 /** Crossed-card clumps for grass and meadow, a flat rosette for ground cover. */
 export function clump(kind, seed) {
   const r = rng(seed), leaves = new MeshBuilder();
-  const spec = { grass: { cell: 'grass', w: 0.55, h: 0.42, planes: 3 }, grass_wide: { cell: 'grass_wide', w: 0.6, h: 0.5, planes: 3 },
+  const spec = { grass: { cell: 'grass', w: 0.55, h: 0.42, planes: 3 }, lawn: { cell: 'lawn', w: 1.0, h: 0.36, planes: 2, crop: 0.36 },
     meadow: { cell: 'meadow', w: 0.7, h: 0.75, planes: 3 }, rosette: { cell: 'rosette', w: 0.42, flat: true } }[kind];
   const uv = cellUV(spec.cell);
   if (spec.flat) {
@@ -437,7 +437,8 @@ export function clump(kind, seed) {
       // Grass lights mostly from above: bend normals up so both sides of the card read alike.
       const n = V.norm([Math.sin(a) * 0.25 * sx, 1, -Math.cos(a) * 0.25 * sx]);
       const shade = y ? 1 : 0.55;
-      ids.push(leaves.vertex(p, n, [sx < 0 ? uv.u0 : uv.u1, y ? uv.v0 : uv.v1], [shade, shade, shade], [0.15 * y, y, r(), 1]));
+      const top = uv.v1 + (uv.v0 - uv.v1) * (spec.crop ?? 1);
+      ids.push(leaves.vertex(p, n, [sx < 0 ? uv.u0 : uv.u1, y ? top : uv.v1], [shade, shade, shade], [0.15 * y, y, r(), 1]));
     }
     leaves.tri(ids[0], ids[1], ids[2]); leaves.tri(ids[1], ids[3], ids[2]);
   }

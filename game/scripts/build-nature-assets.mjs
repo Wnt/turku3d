@@ -108,9 +108,9 @@ for (const name of SHRUBS) for (let v = 0; v < VARIANTS; v++) {
   const h0 = hedge(131, 0), h1 = hedge(131, 1);
   assets.push({ name: 'hedge', kind: 'hedge', species: 'privet', height: h0.height, radius: 1, module: 2, lods: [{ leaves: h0.leaves }, { leaves: h1.leaves }] });
 }
-for (const kind of ['grass', 'grass_wide', 'meadow', 'rosette']) {
+for (const kind of ['grass', 'lawn', 'meadow', 'rosette']) {
   const c = clump(kind, 140 + kind.length);
-  assets.push({ name: kind === 'rosette' ? 'groundcover_rosette' : `grass_${kind === 'grass' ? 'clump' : kind === 'grass_wide' ? 'wide' : 'meadow'}`, kind: 'grass', height: c.height, radius: c.radius, lods: [{ leaves: c.leaves }] });
+  assets.push({ name: kind === 'rosette' ? 'groundcover_rosette' : `grass_${kind === 'grass' ? 'clump' : kind === 'lawn' ? 'lawn' : 'meadow'}`, kind: 'grass', height: c.height, radius: c.radius, lods: [{ leaves: c.leaves }] });
 }
 
 // ------------------------------------------------------------------ fence kit (modelled in Blender through MCP)

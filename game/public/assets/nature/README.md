@@ -18,21 +18,21 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | Asset | Species / kind | Height (m) | LOD 0 | LOD 1 | LOD 2 |
 |---|---|---|---|---|---|
 <!-- table:begin -->
-| `tree_birch` | birch | 17.35 | 3,804 | 1,618 | 8 |
-| `tree_birch_v2` | birch | 16.9 | 3,816 | 1,618 | 8 |
-| `tree_linden` | linden | 18.78 | 7,196 | 2,088 | 8 |
-| `tree_linden_v2` | linden | 18.67 | 7,184 | 2,082 | 8 |
-| `tree_maple` | maple | 18.21 | 6,536 | 1,982 | 8 |
-| `tree_maple_v2` | maple | 17.47 | 6,620 | 1,964 | 8 |
-| `tree_oak` | oak | 14.35 | 7,244 | 2,320 | 8 |
-| `tree_oak_v2` | oak | 15.26 | 7,144 | 2,324 | 8 |
-| `tree_rowan` | rowan | 11.12 | 2,364 | 978 | 8 |
-| `tree_rowan_v2` | rowan | 11.23 | 2,364 | 978 | 8 |
-| `tree_willow` | willow | 18.28 | 7,316 | 2,074 | 8 |
-| `tree_willow_v2` | willow | 16.47 | 7,244 | 2,080 | 8 |
-| `tree_pine` | pine | 19.01 | 2,386 | 994 | 8 |
-| `tree_pine_v2` | pine | 19.05 | 2,412 | 1,008 | 8 |
-| `tree_spruce` | spruce | 16.8 | 9,630 | 2,346 | 8 |
+| `tree_birch` | birch | 16.91 | 5,936 | 1,676 | 8 |
+| `tree_birch_v2` | birch | 16.9 | 5,948 | 1,626 | 8 |
+| `tree_linden` | linden | 18.47 | 9,796 | 2,238 | 8 |
+| `tree_linden_v2` | linden | 19.13 | 9,784 | 2,236 | 8 |
+| `tree_maple` | maple | 17.72 | 8,812 | 2,068 | 8 |
+| `tree_maple_v2` | maple | 16.81 | 8,896 | 1,958 | 8 |
+| `tree_oak` | oak | 13.87 | 9,848 | 2,408 | 8 |
+| `tree_oak_v2` | oak | 15.09 | 9,752 | 2,398 | 8 |
+| `tree_rowan` | rowan | 10.56 | 3,644 | 1,008 | 8 |
+| `tree_rowan_v2` | rowan | 11.27 | 3,648 | 996 | 8 |
+| `tree_willow` | willow | 18.28 | 7,316 | 1,570 | 8 |
+| `tree_willow_v2` | willow | 16.24 | 7,244 | 1,588 | 8 |
+| `tree_pine` | pine | 18.94 | 2,386 | 994 | 8 |
+| `tree_pine_v2` | pine | 19.22 | 2,412 | 1,008 | 8 |
+| `tree_spruce` | spruce | 17.37 | 9,630 | 2,346 | 8 |
 | `tree_spruce_v2` | spruce | 16.66 | 9,060 | 2,088 | 8 |
 | `shrub_lilac` | lilac | 4 | 988 | 502 | - |
 | `shrub_lilac_v2` | lilac | 3.87 | 964 | 490 | - |
@@ -42,7 +42,7 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | `shrub_juniper_v2` | juniper | 3.58 | 1,454 | 732 | - |
 | `hedge` | privet | 1.2 | 1,206 | 226 | - |
 | `grass_clump` | grass | 0.42 | 6 | - | - |
-| `grass_wide` | grass | 0.5 | 6 | - | - |
+| `grass_lawn` | grass | 0.36 | 4 | - | - |
 | `grass_meadow` | grass | 0.75 | 6 | - | - |
 | `groundcover_rosette` | grass | 0.05 | 2 | - | - |
 | `picket_fence` | fence | 1.1 | 294 | 64 | - |
@@ -53,8 +53,8 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | `granite_wall` | fence | 0.6 | 308 | 20 | - |
 <!-- table:end -->
 
-Shared textures (KTX2, embedded): foliage card atlas 2048² ETC1S (16 cards: eight trees, four shrubs, grass, wide
-grass, meadow, ground rosette), bark column atlas 4096×512 ETC1S with a 2048×256 UASTC normal map (8 barks),
+Shared textures (KTX2, embedded): foliage card atlas 2048² ETC1S (16 cards: eight trees, four shrubs, grass tuft,
+lawn band, meadow, ground rosette), bark column atlas 4096×512 ETC1S with a 2048×256 UASTC normal map (8 barks),
 impostor atlas 2048×1024 ETC1S (16 tree models × 3 side views + 1 top view, 128×256 cells) with a 1024×512 UASTC
 normal map, 512² wood and granite albedo/normal tiles and a 256² chain-link wire tile. Positions (14 bit) and
 normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them back to float geometry. Draws per tree: bark + leaves at LOD 0 and 1, one impostor draw at LOD 2.
@@ -101,7 +101,7 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
 | [ambientCG LeafSet019](https://ambientcg.com/view?id=LeafSet019) | spruce and juniper sprays | ambientCG | CC0 1.0 |
 | [ambientCG LeafSet020](https://ambientcg.com/view?id=LeafSet020) | dandelion rosette | ambientCG | CC0 1.0 |
 | [ambientCG PineNeedles001](https://ambientcg.com/view?id=PineNeedles001) | Scots pine needles | ambientCG | CC0 1.0 |
-| [ambientCG Foliage001](https://ambientcg.com/view?id=Foliage001), [Foliage006](https://ambientcg.com/view?id=Foliage006), [Foliage008](https://ambientcg.com/view?id=Foliage008), [Foliage003](https://ambientcg.com/view?id=Foliage003) | grass blades, weeds | ambientCG | CC0 1.0 |
+| [ambientCG Foliage001](https://ambientcg.com/view?id=Foliage001), [Foliage006](https://ambientcg.com/view?id=Foliage006), [Foliage003](https://ambientcg.com/view?id=Foliage003) | grass blades (clump and lawn cards), weeds | ambientCG | CC0 1.0 |
 | [ambientCG Bark009](https://ambientcg.com/view?id=Bark009), [Bark004](https://ambientcg.com/view?id=Bark004), [Bark002](https://ambientcg.com/view?id=Bark002), [Bark010](https://ambientcg.com/view?id=Bark010) | birch, spruce, maple, smooth (rowan/shrubs) bark | ambientCG | CC0 1.0 |
 | [ambientCG Granite003B](https://ambientcg.com/view?id=Granite003B) | granite wall | ambientCG | CC0 1.0 |
 | [ambientCG PaintedWood008A](https://ambientcg.com/view?id=PaintedWood008A) | painted fence wood (desaturated) | ambientCG | CC0 1.0 |
