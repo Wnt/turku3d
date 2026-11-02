@@ -2,7 +2,6 @@ import * as THREE from 'three/webgpu';
 import { modelTextures, textureUploads } from '../render/textureUploads';
 import type { PlayWorld } from '../play';
 import { worldLoad } from './loadProgress';
-import type { V3 } from '../core/origin';
 import { loading, loadBytes } from '../core/loading';
 
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
@@ -28,7 +27,7 @@ async function drainGpu(renderer: THREE.WebGPURenderer) {
 }
 
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
-export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<V3[]>) {
+export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<void>) {
   const { streamer, coarse, materials, renderer, scene, camera, env, renderFrame } = world;
   env.follow(new THREE.Vector3(focus.x, camera.position.y, focus.z));
   worldLoad.update({ phase: 'loading' });
@@ -56,60 +55,41 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   downloaded(`${lastCounts} · ${loadBytes(worldLoad.snapshot().bytesLoaded)}`);
   // Upload even offscreen textures and compile all currently visible model materials. The temporary culling
   // override includes meshes behind the camera; it never changes the distance-region request set.
-  const starts = await prepare?.() ?? [world.spawn];
-  const total = world.params.mobile ? 1 : starts.length * 6;
+  let stage = performance.now();
+  await prepare?.();
+  worldLoad.update({ timings: { ...worldLoad.snapshot().timings, groundPreparationMs: performance.now() - stage } });
+  const total = 1;
   worldLoad.update({ phase: 'compiling', compile: { done: 0, total } });
   const compiled = loading.begin('GPU texture upload and pipeline warmup');
+  stage = performance.now();
   const textures = modelTextures(scene);
+  worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureDiscoveryMs: performance.now() - stage } });
+  stage = performance.now();
   let uploaded = 0;
   await Promise.all([...textures].map(async texture => {
     await textureUploads(renderer).enqueue(texture);
     worldLoad.update({ textures: { loaded: ++uploaded, pending: textures.size - uploaded } });
   }));
+  worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureUploadMs: performance.now() - stage } });
   const culled = new Map<THREE.Object3D, boolean>();
-  // A mobile launch must not allocate vertex buffers and pipelines for the entire loaded world
-  // before its first visible frame. Other views use the normal renderer when the camera reaches them.
+  // One real pass warms the near ring, actors, MRT, shadows and reflections. View direction does
+  // not change those pipelines; distant city geometry is admitted by streaming after Ready.
+  // Mobile retains its smaller visible-only residency budget.
   if (!world.params.mobile) scene.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
-  const rotation = camera.quaternion.clone(), position = camera.position.clone();
-  const offset = position.clone().sub(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
   try {
-    // Real pass draws compile the same pipelines used by play, including offscreen meshes, reflections
-    // and CSM. compileAsync yields for every draw and repeats this work in several mismatched targets.
     const firstDraw = loading.begin('Initial shader and GPU warmup draw');
+    stage = performance.now();
     renderFrame();
     await drainGpu(renderer);
+    worldLoad.update({ timings: { ...worldLoad.snapshot().timings, pipelineWarmupMs: performance.now() - stage },
+      compile: { done: 1, total } });
     firstDraw();
-    if (world.params.mobile) worldLoad.update({ compile: { done: 1, total } });
-    for (const [object, value] of culled) object.frustumCulled = value;
-    culled.clear();
-    // Real draws warm the MRT, shadow, GTAO and temporal variants that compileAsync's default target cannot
-    // cover. Six views also exercise vegetation's view-dependent instance buffers before control is released.
-    const directions = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0], [0, 1, 0], [0, -1, 0]];
-    let done = 0;
-    for (const start of world.params.mobile ? [] : starts) {
-      camera.position.set(start.x, start.y, start.z).add(offset);
-      env.follow(new THREE.Vector3(start.x, start.y, start.z));
-      for (const direction of directions) {
-        camera.lookAt(camera.position.clone().add(new THREE.Vector3(...direction)));
-        camera.updateMatrixWorld();
-        renderFrame();
-        await drainGpu(renderer);
-        worldLoad.update({ compile: { done: ++done, total },
-          textures: { loaded: renderer.info.memory.textures, pending: 0 } });
-        loading.note(`GPU warmup ${done}/${total} directions · ${renderer.info.memory.textures} textures resident`);
-        await frame();
-      }
-    }
   } finally {
     for (const [object, value] of culled) object.frustumCulled = value;
-    camera.position.copy(position);
-    env.follow(new THREE.Vector3(world.spawn.x, world.spawn.y, world.spawn.z));
-    camera.quaternion.copy(rotation);
-    camera.updateMatrixWorld();
   }
   // Restore the initial view and flush temporal history from the warmup before showing the world.
   for (let i = 0; i < 8; i++) { renderFrame(); await frame(); }
   await drainGpu(renderer);
-  compiled(`${renderer.info.memory.textures} textures · ${total}/${total} directions`);
+  compiled(`${renderer.info.memory.textures} textures · ${total}/${total} views`);
   worldLoad.update({ phase: 'ready' });
 }

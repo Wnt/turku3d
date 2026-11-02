@@ -5,7 +5,7 @@ import type { PlayWorld } from '../../src/play';
 
 afterEach(() => vi.unstubAllGlobals());
 
-test('mobile startup uploads textures and warms the initial view without drawing the offscreen world', async () => {
+test.each([true, false])('startup uploads textures and uses one warmup view (mobile=%s)', async mobile => {
   vi.stubGlobal('PerformanceObserver', PerformanceObserver);
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => queueMicrotask(() => callback(0)));
   const { preloadWorld } = await import('../../src/world/preload');
@@ -17,7 +17,7 @@ test('mobile startup uploads textures and warms the initial view without drawing
   scene.add(mesh);
   let uploaded = false, draws = 0;
   const world = {
-    params: { mobile: true }, scene, camera, spawn: { x: 0, y: 0, z: 0 },
+    params: { mobile }, scene, camera, spawn: { x: 0, y: 0, z: 0 },
     env: { follow: vi.fn() }, loadingScreen: { update: vi.fn() },
     coarse: { update: vi.fn(), progressAt: () => ({ loaded: 5, total: 5, errors: [] }) },
     streamer: { update: vi.fn(), progressAt: () => ({ loaded: 25, total: 25, errors: [] }) },
@@ -25,14 +25,15 @@ test('mobile startup uploads textures and warms the initial view without drawing
       info: { memory: { textures: 1 } }, initTexture: () => { uploaded = true; } },
     renderFrame: () => {
       expect(uploaded).toBe(true);
-      expect(mesh.frustumCulled).toBe(true);
+      expect(mesh.frustumCulled).toBe(mobile || draws > 0);
       expect(camera.position.equals(position)).toBe(true);
       expect(camera.quaternion.equals(rotation)).toBe(true);
       draws++;
     },
   } as unknown as PlayWorld;
-  const prepare = vi.fn(async () => [{ x: 1000, y: 0, z: 1000 }]);
+  const prepare = vi.fn(async () => {});
   await preloadWorld(world, { x: 0, z: 0 }, prepare);
   expect(prepare).toHaveBeenCalledOnce();
-  expect(draws).toBeGreaterThan(0);
+  expect(draws).toBe(9);
+  expect(mesh.frustumCulled).toBe(true);
 });

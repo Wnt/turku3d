@@ -1,7 +1,7 @@
 import type { PlayWorld } from '../play';
 import type { SaveGame } from '../core/save';
 import type { SaveGameController } from '../gameplay/saveGame';
-import { startPoints, warmupStarts } from '../gameplay/startPoints';
+import { startPoints } from '../gameplay/startPoints';
 import { preloadWorld } from './preload';
 
 /** Retain nearby ground for all menu choices; the ordinary distance/velocity ring resumes on entry. */
@@ -13,10 +13,8 @@ export async function preloadStarts(world: PlayWorld, feet: { x: number; z: numb
   if (coarse) coarse.retainedStarts = starts;
   const releaseDrafts = coarse?.preload(starts, streamer.radius);
   await Promise.all([preloadWorld(world, feet, async () => {
-    const views = [];
-    for (const game of [null, ...games.filter(g => g !== null)]) views.push(await saves.prepare(game));
-    if (multiplayer) views.push(await saves.prepare(null, multiplayer));
-    return warmupStarts(views);
+    for (const game of [null, ...games.filter(g => g !== null)]) await saves.prepare(game);
+    if (multiplayer) await saves.prepare(null, multiplayer);
   }), ...audio]);
   let retained = true;
   return () => {
