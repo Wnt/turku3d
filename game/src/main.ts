@@ -273,11 +273,18 @@ async function runQa() {
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
     now: () => performance.now(),
-    busy: () => [...benchFetches.values()].some(start => performance.now() - start > 1500),
+    busy: () => {
+      const scenery = distantCity?.progress;
+      // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
+      return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
+        || scenery.loaded !== scenery.total)
+        || [...benchFetches.values()].some(start => performance.now() - start > 1500);
+    },
     // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
     signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
       (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
     info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
+      scenery: distantCity?.progress,
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
