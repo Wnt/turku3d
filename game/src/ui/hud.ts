@@ -44,5 +44,6 @@ export class Hud {
   private style() {
     this.el.classList.toggle('player-name', !this.visible);
     document.body.classList.toggle('debug-hud', this.visible);
+    this.el.dispatchEvent?.(new Event('turku3d-hud-layout', { bubbles: true }));
   }
 }
