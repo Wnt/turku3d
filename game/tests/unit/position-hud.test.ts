@@ -102,6 +102,43 @@ test('nearest bounds avoid raycasting distant meshes; hidden and throttled reado
   expect((hud as any).candidates).toHaveLength(0);
 });
 
+test('stationary targets reuse queries but motion, streaming, filters, freshness and copy invalidate them', async () => {
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  const tiles = new VisualTiles(), camera = new THREE.PerspectiveCamera();
+  const building = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+  building.position.z = -10; building.userData.building_id = 'office'; building.updateMatrixWorld();
+  tiles.models.add(building);
+  const query = vi.spyOn(building, 'traverseVisible');
+  let visibility = 0;
+  const hud = new PositionHud(camera, tiles, true, () => visibility);
+  for (const now of [0, 500, 1000, 1500]) hud.update(now, true);
+  expect(query).toHaveBeenCalledOnce();
+  expect(hud.element.textContent).toContain('Centre: office');
+  hud.update(2000, true); expect(query).toHaveBeenCalledTimes(2);
+  camera.position.x = .1;
+  hud.update(2500, true); expect(query).toHaveBeenCalledTimes(3);
+  camera.rotation.y = .005;
+  hud.update(3000, true); expect(query).toHaveBeenCalledTimes(4);
+  // A replacement can keep the same resident model count.
+  tiles.loadedModels++;
+  hud.update(3500, true); expect(query).toHaveBeenCalledTimes(5);
+  tiles.models.add(new THREE.Group());
+  hud.update(4000, true); expect(query).toHaveBeenCalledTimes(6);
+  visibility++;
+  hud.update(4500, true); expect(query).toHaveBeenCalledTimes(7);
+  building.visible = false;
+  hud.update(5000, true); expect(query).toHaveBeenCalledTimes(7);
+  hud.update(6500, true); expect(query).toHaveBeenCalledTimes(8);
+  expect(hud.element.textContent).not.toContain('Centre:');
+  building.visible = true;
+  await hud.copy();
+  expect(query).toHaveBeenCalledTimes(9);
+  expect(writeText.mock.calls[0][0]).toContain('Centre: office');
+});
+
 test('public sessions cannot show, toggle, copy or hide the character with photo shortcuts', async () => {
   vi.stubGlobal('document', { createElement: () => ({ hidden: false }), body: { append: () => {} } });
   const hud = new PositionHud(new THREE.PerspectiveCamera(), new VisualTiles(), false);

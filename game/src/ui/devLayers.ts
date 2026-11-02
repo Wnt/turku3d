@@ -42,6 +42,7 @@ interface Filtered { ranges: DevLayerRanges; release: () => void }
 /** Visual-only filters. Camera-layer masks preserve animation, LOD and gameplay visibility owners. */
 export class DevLayers {
   readonly element = Object.assign(document.createElement('section'), { id: 'dev-layers' });
+  filterRevision = 0;
   private tree = document.createElement('div');
   private status = document.createElement('div');
   private panel = document.createElement('div');
@@ -292,6 +293,7 @@ export class DevLayers {
         box.onchange = () => {
           if (paths.length > 1 || text === group) this.choices[group] = box.checked;
           for (const p of paths) this.choices[p] = box.checked;
+          this.filterRevision++;
           this.save(); this.dirty = true;
         };
         wrapper.append(box, document.createTextNode(text)); return wrapper;
