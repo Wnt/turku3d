@@ -11,11 +11,11 @@ const input = (v: Partial<{ throttle: number; brake: number; steer: number; hand
   ({ throttle: 0, brake: 0, steer: 0, handbrake: false, ...v });
 const groups = (GROUP.STATIC_SOLID << 16) | GROUP.VEHICLE;
 
-/** Flat 1.2 km by 600 m ground; an optional curb step at x = 0 or a 1 m high, 4 m long kicker ending at x = 0. */
+/** Flat 4 km by 4 km ground; an optional curb step at x = 0 or a 1 m high, 4 m long kicker ending at x = 0. */
 function world(feature: { curb?: number; kicker?: boolean } = {}) {
   const w = new R.World({ x: 0, y: -9.81, z: 0 });
   w.timestep = 1 / 60;
-  w.createCollider(R.ColliderDesc.cuboid(600, 0.5, 300).setTranslation(0, -0.5, 0).setCollisionGroups(groups));
+  w.createCollider(R.ColliderDesc.cuboid(2000, 0.5, 2000).setTranslation(0, -0.5, 0).setCollisionGroups(groups));
   const surfaces = new CurbQueries(R, w);
   if (feature.curb) {
     const c = w.createCollider(R.ColliderDesc.cuboid(40, feature.curb / 2, 300).setTranslation(40, feature.curb / 2, 0).setCollisionGroups(groups));
@@ -79,15 +79,15 @@ test('truck drivetrain: 40/60 torque split over all four wheels, handbrake on th
   w.free();
 });
 
-test('truck physics: high ride height, 0-100 km/h in about 6 s, 120 km/h top speed, upright at full lock', () => {
+test('truck physics: high ride height, 0-100 km/h in about 3 s, 120 km/h top speed, upright at full lock', () => {
   const car = drive('car', -500), truck = drive('truck', -500);
   const rest = truck.vehicle.state();
   expect(rest.pos.y - car.vehicle.state().pos.y).toBeGreaterThan(0.15);
   let t100 = 0;
   const top = truck.run(30, input({ throttle: 1 }), (s, t) => { if (!t100 && s.forwardSpeed * 3.6 >= 100) t100 = t; });
-  expect(t100).toBeGreaterThan(4.5);
-  expect(t100).toBeLessThan(8);
-  expect(Math.abs(top.forwardSpeed - TRUCK_TARGET_SPEED) / TRUCK_TARGET_SPEED).toBeLessThan(0.05);
+  expect(t100).toBeGreaterThan(2.8);
+  expect(t100).toBeLessThan(3.5);
+  expect(Math.abs(top.forwardSpeed - TRUCK_TARGET_SPEED) / TRUCK_TARGET_SPEED).toBeLessThan(0.02);
   let stop = NaN;
   truck.run(8, input({ brake: 1 }), s => { if (Number.isNaN(stop) && s.forwardSpeed < 0.3) stop = s.pos.x - top.pos.x; });
   expect(stop).toBeGreaterThan(20);
@@ -96,6 +96,7 @@ test('truck physics: high ride height, 0-100 km/h in about 6 s, 120 km/h top spe
   truck.run(5, input({ throttle: 1 }));
   truck.run(6, input({ throttle: 1, steer: 1 }), s => { worst = Math.max(worst, tilt(s.rot)); });
   expect(worst).toBeLessThan(10);
+  console.log(JSON.stringify({ t100, topKmh: top.forwardSpeed * 3.6, stop, maxTurnTilt: worst }));
   car.w.free(); truck.w.free();
 });
 
