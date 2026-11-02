@@ -118,11 +118,12 @@ export class PhysicsWorld {
 
   // ------------------------------------------------------------------ tiles
   async loadTile(id: string, buffer: ArrayBuffer): Promise<TileStats> {
-    if (this.tiles.has(id)) this.unloadTile(id);
     const t0 = performance.now();
     const col = await readCol(buffer);
     const colliders = this.buildTile(id, col);
     const stats: TileStats = { id, tris: col.indices.length / 3, prims: col.prims.length, bytes: buffer.byteLength, buildMs: +(performance.now() - t0).toFixed(2), colliders: colliders.length, curbTris: colliders.reduce((n, c) => n + this.curbQueries.triangleCount(c.handle), 0) };
+    // Worker messages are serialized: build the replacement completely before retiring valid support.
+    if (this.tiles.has(id)) this.unloadTile(id);
     this.tiles.set(id, { stats, colliders, cell: [col.tileI, col.tileJ] });
     this.residentCells.add(collisionTileId(col.tileI, col.tileJ));
     const [lo, hi] = heightRange(col);
@@ -147,37 +148,42 @@ export class PhysicsWorld {
     const byClass: Record<'solid' | 'query' | 'sensor', number[]> = { solid: [], query: [], sensor: [] };
     for (let t = 0; t < triCount; t++) byClass[materialClass(col.materials[t])].push(t);
     const fixEdges = (col.flags & COL_FLAG_FIX_INTERNAL_EDGES) !== 0;
-    for (const cls of ['solid', 'query', 'sensor'] as const) {
-      const tris = byClass[cls];
-      if (!tris.length) continue;
-      const idx = new Uint32Array(tris.length * 3);
-      const triMat = new Uint8Array(tris.length);
-      tris.forEach((t, k) => { idx[3 * k] = col.indices[3 * t]; idx[3 * k + 1] = col.indices[3 * t + 1]; idx[3 * k + 2] = col.indices[3 * t + 2]; triMat[k] = col.materials[t]; });
-      const flags = cls === 'solid' && fixEdges ? R.TriMeshFlags.FIX_INTERNAL_EDGES : undefined;
-      const desc = R.ColliderDesc.trimesh(col.positions, idx, flags).setTranslation(ox, oy, oz);
-      this.applyClass(desc, cls, 0.85);
-      const c = this.world.createCollider(desc);
-      this.colliderInfo.set(c.handle, { tile: id, triMat, mat: triMat[0], locator: new TriLocator(col.positions, idx, col.origin) });
-      const helper = addCurbMesh(R, this.curbQueries, c, col.positions, idx, triMat, col.origin);
-      if (helper) out.push(helper);
-      out.push(c);
+    try {
+      for (const cls of ['solid', 'query', 'sensor'] as const) {
+        const tris = byClass[cls];
+        if (!tris.length) continue;
+        const idx = new Uint32Array(tris.length * 3);
+        const triMat = new Uint8Array(tris.length);
+        tris.forEach((t, k) => { idx[3 * k] = col.indices[3 * t]; idx[3 * k + 1] = col.indices[3 * t + 1]; idx[3 * k + 2] = col.indices[3 * t + 2]; triMat[k] = col.materials[t]; });
+        const flags = cls === 'solid' && fixEdges ? R.TriMeshFlags.FIX_INTERNAL_EDGES : undefined;
+        const desc = R.ColliderDesc.trimesh(col.positions, idx, flags).setTranslation(ox, oy, oz);
+        this.applyClass(desc, cls, 0.85);
+        const c = this.world.createCollider(desc);
+        out.push(c);
+        this.colliderInfo.set(c.handle, { tile: id, triMat, mat: triMat[0], locator: new TriLocator(col.positions, idx, col.origin) });
+        const helper = addCurbMesh(R, this.curbQueries, c, col.positions, idx, triMat, col.origin);
+        if (helper) out.push(helper);
+      }
+      for (const p of col.prims) {
+        let desc: RAPIER_NS.ColliderDesc | null = null;
+        if (p.kind === 1) desc = R.ColliderDesc.cuboid(p.params[0], p.params[1], p.params[2]);
+        else if (p.kind === 2) desc = R.ColliderDesc.capsule(p.params[0], p.params[1]);
+        else if (p.kind === 3) desc = R.ColliderDesc.cylinder(p.params[0], p.params[1]);
+        if (!desc) { console.warn(`[physics] ${id}: unknown primitive kind ${p.kind}, skipped`); continue; }
+        desc.setTranslation(ox + p.center[0], oy + p.center[1], oz + p.center[2])
+          .setRotation({ x: p.rotation[0], y: p.rotation[1], z: p.rotation[2], w: p.rotation[3] });
+        this.applyClass(desc, materialClass(p.material), MATERIALS[p.material]?.friction ?? 0.8);
+        const c = this.world.createCollider(desc);
+        out.push(c);
+        this.colliderInfo.set(c.handle, { tile: id, triMat: null, mat: p.material, locator: null });
+        const helper = addCurbPrimitive(R, this.curbQueries, c, p.material);
+        if (helper) out.push(helper);
+      }
+      return out;
+    } catch (error) {
+      for (const c of out) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
+      throw error;
     }
-    for (const p of col.prims) {
-      let desc: RAPIER_NS.ColliderDesc | null = null;
-      if (p.kind === 1) desc = R.ColliderDesc.cuboid(p.params[0], p.params[1], p.params[2]);
-      else if (p.kind === 2) desc = R.ColliderDesc.capsule(p.params[0], p.params[1]);
-      else if (p.kind === 3) desc = R.ColliderDesc.cylinder(p.params[0], p.params[1]);
-      if (!desc) { console.warn(`[physics] ${id}: unknown primitive kind ${p.kind}, skipped`); continue; }
-      desc.setTranslation(ox + p.center[0], oy + p.center[1], oz + p.center[2])
-        .setRotation({ x: p.rotation[0], y: p.rotation[1], z: p.rotation[2], w: p.rotation[3] });
-      this.applyClass(desc, materialClass(p.material), MATERIALS[p.material]?.friction ?? 0.8);
-      const c = this.world.createCollider(desc);
-      this.colliderInfo.set(c.handle, { tile: id, triMat: null, mat: p.material, locator: null });
-      const helper = addCurbPrimitive(R, this.curbQueries, c, p.material);
-      if (helper) out.push(helper);
-      out.push(c);
-    }
-    return out;
   }
 
   private applyClass(desc: RAPIER_NS.ColliderDesc, cls: 'solid' | 'query' | 'sensor', friction: number) {

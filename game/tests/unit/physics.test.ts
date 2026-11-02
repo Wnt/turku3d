@@ -1,5 +1,5 @@
 // Node-side physics tests on the generated dev tiles (public/dev-tiles is committed; regenerate with npm run dev-tiles).
-import { describe, test, expect, beforeAll } from 'vitest';
+import { describe, test, expect, beforeAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import * as RAPIER from '@dimforge/rapier3d';
@@ -19,6 +19,37 @@ async function worldWith(ids: string[]) {
   pw.world.step(); // queries need one step after adding colliders
   return pw;
 }
+
+test.each(['decode', 'build'])('failed replacement %s preserves resident collision and leaves no partial colliders', async failure => {
+  const pw = await worldWith(['c_2_3']);
+  const origin = { x: 168, y: 50, z: 246 }, down = { x: 0, y: -1, z: 0 };
+  const stats = pw.tileStats(), totals = pw.totals(), count = pw.world.colliders.len();
+  const hit = pw.raycast(origin, down, 100);
+  let restore = () => {};
+  try {
+    if (failure === 'build') {
+      const create = pw.world.createCollider.bind(pw.world);
+      let calls = 0;
+      const spy = vi.spyOn(pw.world, 'createCollider').mockImplementation((...args) => {
+        if (++calls === 2) throw new Error('replacement build failure');
+        return create(...args);
+      });
+      restore = () => spy.mockRestore();
+    }
+    await expect(pw.loadTile('c_2_3', failure === 'decode' ? new ArrayBuffer(8) : load('c_2_3'))).rejects.toThrow();
+    restore();
+    expect(pw.tileStats()).toEqual(stats);
+    expect(pw.totals()).toEqual(totals);
+    expect(pw.world.colliders.len()).toBe(count);
+    pw.world.step();
+    expect(pw.raycast(origin, down, 100)?.point).toEqual(hit?.point);
+    // A later valid upgrade still swaps normally without accumulating old collider resources.
+    await pw.loadTile('c_2_3', load('c_2_3'));
+    expect(pw.world.colliders.len()).toBe(count);
+    pw.world.step();
+    expect(pw.raycast(origin, down, 100)?.point).toEqual(hit?.point);
+  } finally { restore(); pw.world.free(); }
+});
 function walk(pw: PhysicsWorld, vx: number, vz: number, seconds: number) {
   const n = Math.round(seconds / DT);
   for (let k = 0; k < n; k++) pw.fixedStep({ vx, vz, jump: false }, null);
