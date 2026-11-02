@@ -128,8 +128,10 @@ def main():
             return {'pose': pose, 'time': shot['time'], 't': datetime.now(timezone.utc).isoformat(),
                     'image_hash': image_hash(iteration / shot['file']), 'result': result}
         except Exception as exc:
-            return {'pose': pose, 'time': shot['time'], 'error': str(exc)}
+            return {'pose': pose, 'time': shot['time'], 'image_hash': image_hash(iteration / shot['file']),
+                    'error': str(exc)}
 
+    last_report = None
     while True:
         shots = read_json(iteration / 'shots.json', {}).get('shots', [])
         pending = [s for s in shots if valid(s) and (s['file'] not in scores or
@@ -150,9 +152,12 @@ def main():
                                     'building_association': 'pending', 'override': False})
                     scoreboard(args.root, judge.CATEGORIES)
                     print(shot['file'], json.dumps(scores[shot['file']]), flush=True)
-        scoreboard(args.root, judge.CATEGORIES)
-        if shots:
-            print('Contact sheet:', contact_sheet(args.root, iteration, refs), flush=True)
+        report_key = json.dumps([shots, scores], sort_keys=True)
+        if report_key != last_report:
+            scoreboard(args.root, judge.CATEGORIES)
+            if shots:
+                print('Contact sheet:', contact_sheet(args.root, iteration, refs), flush=True)
+            last_report = report_key
         if not args.watch or sum(valid(s) for s in shots) >= args.expected or args.report_only:
             break
         time.sleep(10)
