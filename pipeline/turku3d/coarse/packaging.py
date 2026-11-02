@@ -46,6 +46,7 @@ PRODUCERS = (
     "bridge_access",
     "bridge_details",
     "bridge_kit",
+    "bridge_materials",
     "bridge_join",
     "bridge_survey",
     "kerbs",

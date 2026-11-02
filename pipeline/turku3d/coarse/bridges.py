@@ -694,6 +694,8 @@ def produce(tile, grid_pos, inputs):
 
 
 def visual(decks, tile, stage, layer_files):
+    from .bridge_materials import METRES, maps
+
     meshes = [m for d in decks for m in d.meshes]
     if not meshes:
         return
@@ -705,8 +707,8 @@ def visual(decks, tile, stage, layer_files):
                 m.object_id,
                 m.positions - tile.origin,
                 m.indices,
-                uvs=m.uvs,
-                image=details.texture(m.metadata.get("surface", "concrete")),
+                uvs=m.uvs / METRES,
+                **maps(m.metadata.get("surface", "concrete")),
                 color=(1, 1, 1, 1),
                 repeat=True,
                 roughness=0.48 if m.metadata.get("surface") == "steel" else 0.92,

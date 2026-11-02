@@ -550,8 +550,11 @@ buildings suppress conflicting ornaments. Lower quay passages constrain the
 supports below the deck without removing pylons above it. Auransilta uses
 a 4.8 m estimated entrance height and a light multi-band railing grid, based on
 [MKFI's public-domain 2011 photograph](https://commons.wikimedia.org/wiki/File:Auransilta_Turku.JPG)
-and local street-level references. Granite and bronze textures are procedural; no
-reference image pixels ship. The exact same closed component meshes enter collision.
+and local street-level references. Bridge materials use procedural 512px/two-metre albedo, tangent normal and ORM maps.
+Stone has mineral grain and recessed courses; concrete has restrained formwork
+lines; painted steel remains dielectric, while bronze mixes patina and exposed
+metal. `bridge_materials.py` belongs to visual freshness only, so material tuning
+reuses deck geometry and collision. No reference image pixels ship. The exact same closed component meshes enter collision.
 `bridge_access` includes the kit in the bridge stage content hash; unrelated stages
 remain reusable. Photos and private references stay local.
 

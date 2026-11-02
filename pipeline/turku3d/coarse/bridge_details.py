@@ -1,11 +1,7 @@
 """OSM-driven bridge furniture and structural profiles, batched by surface material."""
 
-from functools import lru_cache
-from io import BytesIO
-
 import numpy as np
 import shapely
-from PIL import Image
 
 from turku3d.bridges.build import _box, _boxes
 from turku3d.structures.geometry import Faces, profile_wall
@@ -511,44 +507,6 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 )
             )
     return combine(meshes, key + ":furniture")
-
-
-@lru_cache(maxsize=16)
-def texture(surface):
-    """Small seamless procedural albedos, independent of all reference imagery."""
-    rng = np.random.default_rng(23)
-    y, x = np.mgrid[:128, :128]
-    palette = {
-        "asphalt": (65, 67, 69),
-        "concrete": (158, 156, 148),
-        "stone": (144, 140, 132),
-        "steel": (72, 80, 83),
-        "wood": (110, 91, 70),
-        "ballast": (107, 103, 95),
-        "paint": (224, 222, 206),
-        "rock": (127, 128, 122),
-        "granite": (158, 153, 137),
-        "bronze": (64, 91, 80),
-    }
-    noise = rng.normal(0, 4 if surface != "steel" else 1, (128, 128))
-    if surface == "granite":
-        noise += rng.normal(0, 8, (128, 128))
-        noise += 3 * np.cos(x * np.pi / 32) * np.cos(y * np.pi / 32)
-    elif surface == "stone":
-        noise -= 25 * ((y % 32 < 2) | ((x + (y // 32 % 2) * 32) % 64 < 2))
-    elif surface == "wood":
-        noise += 4 * np.sin(x * np.pi / 2) - 24 * (x % 32 < 2)
-    elif surface == "ballast":
-        noise += np.repeat(np.repeat(rng.normal(0, 14, (32, 32)), 4, 0), 4, 1)
-    elif surface == "rock":
-        noise += 9 * np.sin(x * np.pi / 32 + 2 * np.sin(y * np.pi / 64))
-        noise -= 28 * (np.abs(np.sin((x + y) * np.pi / 64)) < 0.06)
-    pixels = np.clip(np.array(palette[surface])[None, None, :] + noise[:, :, None], 0, 255).astype(
-        np.uint8
-    )
-    out = BytesIO()
-    Image.fromarray(pixels).save(out, format="PNG")
-    return out.getvalue()
 
 
 def surfaces(way, polygon, height_at):
