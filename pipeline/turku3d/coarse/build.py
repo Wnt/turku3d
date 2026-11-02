@@ -289,6 +289,20 @@ def build(
         tunnels.openings,
     )
     seconds.update(structure_seconds)
+    from . import attachments
+
+    attachment_meshes, attachment_openings = cache.run(
+        "attachments",
+        source_key(Path(attachments.__file__), Path(gardens.__file__),
+                   Path(__file__).with_name("geometry.py"), base / "structures/geometry.py"),
+        [tile, inputs.attachments],
+        lambda: attachments.produce(tile, inputs.attachments),
+    )
+    dry = stairs.cut_ground(dry, attachment_openings)
+    solid = stairs.cut_ground(solid, attachment_openings)
+    stair_meshes = [*stair_meshes, *attachment_meshes]
+    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
+    seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
     from . import street_profiles
 
     if inputs.retaining:
@@ -741,6 +755,7 @@ def build(
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
         stairs=stairs.stats(stair_meshes, inputs.stairs),
+        attachments=attachments.stats(tile, inputs.attachments),
         walkable=walkable.stats(tile, inputs.walkable),
         gardens=gardens.stats(tile, inputs.gardens),
         boats=boats.stats(tile, inputs.boats, boat_meshes),

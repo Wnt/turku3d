@@ -334,7 +334,8 @@ def visuals(tile, meshes):
                 layer="structures",
                 object_id=m.object_id,
                 material_key="draft_bridge_" + m.metadata.get("surface", "concrete"),
-                kind="retaining_wall" if m.object_id.startswith("retaining:") else "stairs",
+                kind=m.metadata.get("kind", "retaining_wall" if m.object_id.startswith("retaining:") else "stairs"),
+                **({"building": m.metadata["building"]} if "building" in m.metadata else {}),
             ),
         )
         for m in meshes
