@@ -346,9 +346,28 @@ spans 500–12,000 m so the four-kilometre city retains distinct distance layers
 city-lit sky horizon. Both interpolate through the timecycle independently of streaming radius. `atmosphere.ts`
 supports HMR without reloading the city.
 
+
 `Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
 local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck
 from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `0`) preserves the fair-sky defaults.
+
+Weather uses `render/weather/schedule.ts`: `weatherAt(sharedUtcMs, seed)` returns the same six-state summer front
+on every client without simulation history. Rain fades over two minutes and residual wetness dries over the next
+front. The developer time panel and `window.__dev.setWeather(name, seconds=8)` can select `clear`, `partly cloudy`,
+`overcast`, `light rain`, `heavy rain`, `fog`, or return to `live`; `window.__dev.weather.sample` exposes current values.
+Developer clock edits do not move the shared weather schedule.
+
+`weather/rain.ts` resolves two instanced draws after temporal AA, testing the scene depth and a nearby 32² roof
+height field. `exposure.worker.ts` builds per-model triangle buckets and queries the field off the render thread;
+distant scenery is excluded. Shader/material factories bind shared wetness uniforms once. Mineral surfaces get
+darker, smoother films; facade runoff is restrained. A two-metre worker height field supplies bounded spill
+depths and shelter. Centimetre-scale puddles still use a shared world-space material pattern below that resolution.
+Rain keeps its scene/depth bindings and roof cache through Vite HMR.
+
+The normal prepass packs mineral receiver eligibility into its existing alpha channel; normal RGB and velocity
+are unchanged. Medium/high puddles trace twenty projected samples and four crossing refinements at half resolution,
+then reconstruct with depth/normal/material checks before temporal AA. Dry weather skips the
+ray pass; the single pre-TAA composite remains. `weather-lab.html` is a small GPU correctness fixture; it is not city fidelity or FPS evidence.
 Lighting can pass its final linear fog colour as `setWeather(sample, fogColor)` to join the overcast horizon
 to distance haze. Without that argument, the keyed timecycle fog colour is used. Rain darkens the ceiling
 above the horizon while the horizon retains the effective fog colour.

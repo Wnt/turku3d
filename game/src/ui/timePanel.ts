@@ -1,3 +1,4 @@
+import { WEATHER_NAMES, type WeatherClock, type WeatherName } from '../render/weather/schedule';
 // Developer time panel (developer tools: localhost or ?dev=1). T or Developer → Time of day shows it: an hour slider
 // with a live readout, pause/resume, ×1/×10/×60/×600, quick times, ±1 h and ±10 min steps and the way back to the live
 // clock. Like ?time=, it is a local view: this browser's sky, sun, shadows, timecycle, lit windows and street lights,
@@ -84,11 +85,12 @@ export class TimePanel {
   private readonly speedButtons: [number, HTMLButtonElement][] = [];
   private readonly liveButton: HTMLButtonElement;
   private readonly keyed: [Action, HTMLElement][] = [];
+  private readonly weatherSelect = document.createElement('select');
   private shown = false;
   private dragging = false;
   private lastRefresh = -Infinity;
 
-  constructor(parent: HTMLElement, private readonly clock: DevClock) {
+  constructor(parent: HTMLElement, private readonly clock: DevClock, private readonly weather?: WeatherClock) {
     const el = this.element;
     el.setAttribute('role', 'region');
     el.setAttribute('aria-label', 'Time of day');
@@ -131,6 +133,19 @@ export class TimePanel {
       b.dataset.preset = p.id; presets.append(b);
     }
     el.append(header, slider, scale, run, steps, presets);
+    if (weather) {
+      const row = document.createElement('label'); row.className = 'time-row';
+      row.append(document.createTextNode('Weather '));
+      const select = this.weatherSelect;
+      select.setAttribute('aria-label', 'Weather');
+      for (const name of ['live', ...WEATHER_NAMES]) {
+        const option = document.createElement('option'); option.value = name;
+        option.textContent = name === 'live' ? 'Shared schedule' : name[0].toUpperCase() + name.slice(1);
+        select.append(option);
+      }
+      select.addEventListener('change', () => { weather.setWeather(select.value as WeatherName | 'live'); select.blur(); });
+      row.append(select); el.append(row);
+    }
     parent.append(el);
     try { this.shown = localStorage.getItem(STORAGE_KEY) === 'open'; } catch { /* Storage unavailable: starts closed. */ }
     void keyboardLayout().then(changed => { if (changed) this.labelKeys(); });
@@ -176,6 +191,7 @@ export class TimePanel {
     const t = performance.now();
     if (this.element.hidden || (!now && t - this.lastRefresh < REFRESH_MS)) return;
     this.lastRefresh = t;
+    if (this.weather) this.weatherSelect.value = this.weather.mode;
     const c = this.clock;
     this.readout.textContent = clockReadout(c);
     const minutes = Math.round(c.hour * 60) % 1440;
