@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CAR } from '../physics/constants';
+import { vehicleLamps } from '../vehicle/lamps';
 import type { VehicleState } from '../physics/protocol';
 
 // The asset library has one player sedan. Concurrent consumers share preparation;
@@ -80,6 +81,7 @@ export class CarVisual {
   update(s: VehicleState) {
     this.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);
+    vehicleLamps(this.root, 'car', s.lights ?? 0);
     s.wheels.forEach((w, i) => {
       const g = this.wheels[i];
       if (!g) return;

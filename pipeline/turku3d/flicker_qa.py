@@ -43,8 +43,8 @@ def analyze(data, images, threshold=8):
     interior = unstable & ~edges
     changes = []
     for previous, current in zip(data['frames'], data['frames'][1:]):
-        products_a = {p['id']:p for p in previous.get('products',[])}
-        products_b = {p['id']:p for p in current.get('products',[])}
+        products_a = {p['id']:p for p in previous.get('products',[]) if 'model' not in p or p['model']}
+        products_b = {p['id']:p for p in current.get('products',[]) if 'model' not in p or p['model']}
         mesh_a = {p['uuid']:p for p in previous.get('meshes',[])}
         mesh_b = {p['uuid']:p for p in current.get('meshes',[])}
         product_ids = [k for k in products_a.keys() | products_b.keys() if products_a.get(k)!=products_b.get(k)]
@@ -68,6 +68,19 @@ def analyze(data, images, threshold=8):
                   limitations=['heuristic labels; AA-off/depth inspection needed for causality',
                                'one-pixel motion envelope; parallax/animated shaders may remain',
                                'micro steps are not a substitute for the full driving route'])
+    if all('owners' in f for f in data['frames']):
+        report['surface_overlap_frames'] = sum(any(o['primary'] and o['scenery'] for o in f['owners']) for f in data['frames'])
+        report['full_pass_frames'] = sum(any(o.get('phase') == 'full' and o['primary'] for o in f['owners']) for f in data['frames'])
+        previous_phase, reversals = {}, []
+        for frame in data['frames']:
+            for owner in frame['owners']:
+                phase = owner.get('phase')
+                if phase not in ('preview', 'first', 'full'):
+                    continue
+                if previous_phase.get(owner['id']) == 'full' and phase != 'full':
+                    reversals.append(dict(frame=frame['file'], tile=owner['id'], phase=phase))
+                previous_phase[owner['id']] = phase
+        report['pass_reversals'] = reversals
     strength = np.maximum(instability, micro)
     return report, means['still'], strength
 

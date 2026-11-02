@@ -21,6 +21,19 @@ texture-free surface model first, so terrain and physics arrive together. Up to
 two detailed GLBs load concurrently and replace those surfaces after styling and
 GPU preparation. Existing facade results and textures remain on the detailed model.
 
+While full geometry is preparing, a prepared city-scenery model owns the tile's visuals;
+its collision preview stays hidden until that scenery is released. Full admission hides
+the scenery synchronously and keeps the existing collision/visual pair until preparation
+finishes. A retained full pass never downgrades to a producer's new first pass.
+
+First fragments include mapped tree placements (IDs, species, transforms and rotations).
+Cached city scenery advertises small content-keyed `trees_url` sidecars for the same
+placements, extracted without loading textures or rebuilding geometry. Nearby scenery
+waits for those placements and the shared nature library before it becomes visible.
+Both paths use `VegetationLod`: cells cull and pack instances, while each tree's own
+3D camera distance chooses full mesh, reduced mesh or impostor. Exhausting the full-mesh
+budget uses reduced meshes within the mesh range, preserving nearby trees.
+
 Motion from physics drives prediction, including 288 m/s dev flight. The scan runs
 at least four times per tile crossing. A bounded corridor prepares up to eight
 future tiles with four concurrent surface preparations. Remaining slots maintain a

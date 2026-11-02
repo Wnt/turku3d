@@ -1,4 +1,6 @@
 import { applyFleetWheels } from '../actors/fleet/wheels';
+import { vehicleLamps } from '../vehicle/lamps';
+import type { HornEmitter } from '../audio/mix';
 import type { TyreEffects } from '../vehicle/tyreEffects';
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
@@ -75,12 +77,14 @@ export class RemotePlayers {
   private readonly pizzaMaterial = new THREE.MeshStandardMaterial({ color: 0xd8b479, roughness: .9 });
   private readonly distantSource = distantCharacter();
   frameMs = 0;
+  readonly horns: HornEmitter[] = [];
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
     private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
       parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles) {
     const t0 = performance.now();
+    this.horns.length = 0;
     const selfId = client.state.you?.id;
     const players: (NetPlayer & { locallySimulated?: boolean })[] = client.state.connected
       ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
@@ -158,6 +162,11 @@ export class RemotePlayers {
       }
       if (!pose || !visible) continue;
       const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
+      if (pose.mode !== 'foot') {
+        const model = pose.mode === 'car' ? remote.car : pose.mode === 'truck' ? remote.truck : remote.scooter;
+        vehicleLamps(model, pose.mode, pose.lights ?? 0);
+        if (pose.horn && !p.locallySimulated && now - remote.receivedAt < 1500) this.horns.push({ id: p.id, kind: pose.mode, position: pos });
+      }
       remote.pizza.position.set(pos.x - Math.sin(pose.yaw) * .45, pos.y + 1, pos.z - Math.cos(pose.yaw) * .45);
       remote.pizza.rotation.y = pose.yaw;
       for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model.position.set(pos.x, pos.y, pos.z);

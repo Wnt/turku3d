@@ -4,21 +4,21 @@ import { helpHidden, recordHelp, type HelpProgress } from '../core/helpLearning'
 
 /** Device-specific prompts for the current control mode. */
 export function controlsHelp(input: Input, mode: 'foot' | 'car', flying: boolean, paused: boolean, lost: boolean) {
-  const photo = devToolsEnabled(location) ? ` · ${input.prompt('positionHud')} position · ${input.prompt('photoCharacter')} hide/show character · L copy position · T time of day` : '';
+  const photo = devToolsEnabled(location) ? ` · ${input.prompt('positionHud')} position · ${input.prompt('photoCharacter')} hide/show character · J copy position · T time of day` : '';
   return (paused ? `${input.prompt('pause')} Resume`
       : lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : mode === 'foot' && flying
       ? `Flying · ${input.prompt('moveY')} move · ${input.prompt('flyUp')} up · ${input.prompt('flyDown')} down · ${input.prompt('sprint')} fast · ${input.prompt('jump')} ${input.prompt('jump')} land · ${input.prompt('pause')} pause`
       : mode === 'foot'
       ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter vehicle · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
-      : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`) + photo;
+      : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('horn')} horn (hold) · ${input.prompt('lights')} lights · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`) + photo;
 }
 
 const GROUPS = {
   foot: { move: ['moveX', 'moveY'], look: ['lookX', 'lookY'], sprint: ['sprint'], jump: ['jump'],
     interact: ['interact'], camera: ['cameraReset'], map: ['map'], pause: ['pause'] },
   fly: { move: ['moveX', 'moveY'], up: ['flyUp'], down: ['flyDown'], fast: ['sprint'], land: ['jump'], pause: ['pause'] },
-  car: { throttle: ['throttle'], brake: ['brake'], steer: ['steer'], handbrake: ['handbrake'],
+  car: { horn: ['horn'], lights: ['lights'], throttle: ['throttle'], brake: ['brake'], steer: ['steer'], handbrake: ['handbrake'],
     interact: ['interact'], camera: ['cameraReset'], map: ['map'], pause: ['pause'] },
 } satisfies Record<string, Record<string, Action[]>>;
 type HelpMode = keyof typeof GROUPS;

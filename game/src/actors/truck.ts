@@ -1,5 +1,6 @@
 import * as T from 'three/webgpu';
 import { TRUCK } from '../physics/constants';
+import { vehicleLamps } from '../vehicle/lamps';
 import type { VehicleState } from '../physics/protocol';
 import { disposeDraw } from '../render/sharedMaterials';
 import { racerModel } from './prerunner/model';
@@ -55,6 +56,7 @@ export class TruckVisual {
     this.root.visible = this.loaded;
     this.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);
+    vehicleLamps(this.root, 'truck', s.lights ?? 0);
     applyRaceWheels(this.root, s.wheels);
   }
 }

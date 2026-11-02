@@ -63,7 +63,7 @@ const workshop={
       const samples:number[]=[],calls:number[]=[];let previous=performance.now();
       for(let i=0;i<180;i++){
         await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
-        const now=performance.now();if(i>=60){samples.push(now-previous);calls.push(renderer.info.render.calls);}previous=now;
+        const now=performance.now();if(i>=60){samples.push(now-previous);calls.push(renderer.info.render.drawCalls);}previous=now;
       }
       results.push({articulated,fps:1000/(samples.reduce((a,b)=>a+b,0)/samples.length),draws:Math.max(...calls),instances:112});
     }
@@ -113,7 +113,7 @@ const workshop={
       if(!meshes.length){const mesh=new THREE.Mesh(buildFleetGeometry(FLEET[0],0),fleetMaterial());paintActor(mesh,'blue');mesh.castShadow=true;mesh.receiveShadow=true;scene.add(mesh);meshes.push(mesh);}
       actor.visible=false;for(const child of scene.children)if(child.name.startsWith('wheels/'))child.visible=false;meshes[0].visible=true;const source=actor.userData.baselinePose??actor;meshes[0].position.copy(source.position);meshes[0].quaternion.copy(source.quaternion);meshes[0].scale.copy(source.scale);
     }
-    return {t:(index+1)/60,position:state.pos,wheels:state.wheels,draws:renderer.info.render.calls};
+    return {t:(index+1)/60,position:state.pos,wheels:state.wheels,draws:renderer.info.render.drawCalls};
   },
   models:FLEET.map(m=>({id:m.id,name:m.name,body:m.body})),
   show(index=0,lod:0|1|2=0,color='silver') {

@@ -1,3 +1,5 @@
+import { createHorn } from './horn';
+import type { HornEmitter } from './mix';
 import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
 import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
@@ -9,6 +11,8 @@ const CHANNELS: Channel[] = ['master', 'footsteps', 'vehicle', 'ambience', 'voic
 
 /** Owns all Web Audio nodes; gameplay only emits semantic events. No renderer dependency. */
 export class GameAudio {
+  private horns = new Map<string, { kind: HornEmitter['kind']; voice: ReturnType<typeof createHorn> }>();
+  private hornEmitters: HornEmitter[] = [];
   private context: AudioContext | null = null;
   private channels = new Map<Channel, GainNode>();
   private ducker: GainNode | null = null;
@@ -146,8 +150,9 @@ export class GameAudio {
           l.setOrientation(event.forward.x, event.forward.y, event.forward.z, event.up.x, event.up.y, event.up.z);
         }
       }
-      this.refreshLoops(); return;
+      this.refreshHorns(); this.refreshLoops(); return;
     }
+    if (event.type === 'horns') { this.hornEmitters = event.vehicles; this.refreshHorns(); return; }
     if (event.type === 'car') { this.car = event; this.refreshLoops(); return; }
     if (event.type === 'traffic') { this.traffic = event; this.refreshTraffic(); return; }
     if (event.type === 'crowd') { this.crowd = event.walkers; this.refreshLoops(); return; }
@@ -175,6 +180,23 @@ export class GameAudio {
   nextTrack() { this.music?.nextTrack(); }
   setMusicVolume(value: number) { this.musicVolume = clamp(value); this.music?.setVolume(this.musicMuted ? 0 : this.musicVolume); this.persist(); }
   setMusicMuted(value: boolean) { this.musicMuted = value; this.music?.setVolume(value ? 0 : this.musicVolume); this.persist(); }
+
+  private refreshHorns() {
+    const ctx = this.context, bus = this.channels.get('vehicle');
+    const audible = !this.paused && ctx?.state === 'running' ? this.hornEmitters : [];
+    const ids = new Set(audible.map(v => v.id));
+    for (const [id, entry] of this.horns) if (!ids.has(id)) { entry.voice.stop(); this.horns.delete(id); }
+    if (!ctx || !bus) return;
+    for (const emitter of audible) {
+      let entry = this.horns.get(emitter.id);
+      if (entry && entry.kind !== emitter.kind) { entry.voice.stop(); this.horns.delete(emitter.id); entry = undefined; }
+      if (!entry) {
+        entry = { kind: emitter.kind, voice: createHorn(ctx, bus, emitter.kind, emitter.position) };
+        this.horns.set(emitter.id, entry);
+      }
+      entry.voice.move(emitter.position);
+    }
+  }
 
   private applyVolumes() {
     for (const [name, node] of this.channels) this.param(node.gain, name === 'master' && this.muted ? 0 : this.volumes[name]);
@@ -295,6 +317,8 @@ export class GameAudio {
       volume: this.musicVolume, muted: this.musicMuted, playing: this.music?.snapshot() ?? null } }; }
 
   dispose() {
+    for (const entry of this.horns.values()) entry.voice.stop();
+    this.horns.clear(); this.hornEmitters = [];
     this.disposed = true;
     this.music?.dispose(); this.music = null;
     for (const voice of this.voices) { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); voice.panner?.disconnect(); }
