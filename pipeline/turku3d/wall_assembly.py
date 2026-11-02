@@ -409,7 +409,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
             assemble,
         )
     geometry_key = cache.metrics["wall_meshes"]["key"] if cache else None
-    neighbours = validate_neighbours(
+    validate_neighbours(
         wall_layers, shells, tile, out.parent, geometry_key=geometry_key, report_cache=cache
     )
 
@@ -424,7 +424,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
             source_key(
                 Path(__file__).with_name("layers.py"), Path(__file__).parent / "package/gltf.py"
             ),
-            [tile, neighbours["geometry_key"]],
+            [tile, wall_layers],
             stage,
             architecture,
         )
