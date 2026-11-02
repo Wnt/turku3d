@@ -90,6 +90,61 @@ const settle = async (s: CollisionStreamer, x: number, z: number, vx = 0, vz = 0
   for (let k = 0; k < 60 && (s.pending || s.update(x, z, true, vx, vz).length); k++) await new Promise(r => setTimeout(r, 0));
 };
 
+test.each([false, true])('an obsolete HTTP request cannot install or fail replacement collision (failed=%s)', async fail => {
+  const { manifest, physics } = fakes(1, 1);
+  const entries = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision;
+  entries.c_0_0.sha256 = 'old';
+  let finish!: (response: Response) => void, reject!: (error: Error) => void;
+  vi.mocked(fetch).mockReturnValueOnce(new Promise<Response>((yes, no) => { finish = yes; reject = no; }));
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  s.update(20, 20, true);
+  entries.c_0_0 = { ...entries.c_0_0, sha256: 'latest', url: 'latest.col' };
+  const bytes = Uint8Array.of(2, 3, 4, 5).buffer;
+  s.retain('c_0_0', entries.c_0_0, bytes);
+  s.refresh(['c_0_0']);
+  if (fail) reject(Object.assign(new Error('obsolete failure'), { permanent: true }));
+  else finish(new Response(new Uint8Array(4)));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(physics.loadTile).toHaveBeenCalledTimes(1);
+  expect(physics.loadTile).toHaveBeenCalledWith('c_0_0', bytes);
+  expect(s.progressAt(20, 20)).toEqual({ loaded: 1, total: 1, errors: [] });
+  expect(s.pending).toBe(0);
+  expect(physics.setTileLoading.mock.calls).toEqual([['c_0_0', true], ['c_0_0', false]]);
+});
+
+test.each([false, true])('worker acknowledgement follows a changed or removed manifest without orphan colliders (removed=%s)', async removed => {
+  const { manifest, physics } = fakes(1, 1);
+  const entries = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision;
+  entries.c_0_0.sha256 = 'old';
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  let acknowledge!: () => void;
+  physics.loadTile.mockImplementationOnce(async id => { await new Promise<void>(yes => { acknowledge = yes; }); physics.loaded.set(id, {}); });
+  s.retain('c_0_0', entries.c_0_0, new ArrayBuffer(4));
+  s.update(20, 20, true);
+  expect(s.pending).toBe(1);
+  const bytes = Uint8Array.of(2, 3, 4, 5).buffer;
+  if (removed) delete entries.c_0_0;
+  else {
+    entries.c_0_0 = { ...entries.c_0_0, sha256: 'latest', url: 'latest.col' };
+    s.retain('c_0_0', entries.c_0_0, bytes);
+    s.refresh(['c_0_0']);
+  }
+  acknowledge();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(fetch).not.toHaveBeenCalled();
+  expect(s.pending).toBe(0);
+  expect(physics.loaded.has('c_0_0')).toBe(!removed);
+  if (removed) expect(physics.unloadTile).toHaveBeenCalledWith('c_0_0');
+  else {
+    expect(physics.loadTile).toHaveBeenCalledTimes(2);
+    expect(physics.loadTile).toHaveBeenLastCalledWith('c_0_0', bytes);
+    s.refresh(['c_0_0']);
+    expect(physics.loadTile).toHaveBeenCalledTimes(2);
+  }
+  expect(physics.setTileLoading.mock.calls).toEqual([['c_0_0', true], ['c_0_0', false]]);
+});
+
 test('a moving player gets the collision along the next 8 s of travel loaded, and keeps it beyond the radius', async () => {
   const { manifest, physics } = fakes(40, 4);
   const s = new CollisionStreamer(manifest, physics as never, 100, 50);
