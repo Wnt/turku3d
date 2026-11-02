@@ -15,6 +15,8 @@ The complete 124-vertex CC0 eyebrow surfaces are appended after body simplificat
 near geometry and far indices. The shared animation texture stays below 34 MB.
 The civilian pose helper reduces lateral elbow flare and raises the gaze by eight degrees before VAT baking.
 Lower-body animation remains byte-identical; the helper never runs in the game.
+The swept crop is an original Blender lattice edit of the CC0 short02 hair, fitted separately to the two male recipes.
+Its source GLBs live in `source/`; a UV correspondence transfers only positions/normals after the original near/far topology is selected, preserving the accepted atlas and UVs. the local .blend and photo reference stay outside the repository.
 No reference photographs or GTA assets enter these files.
 
 ## Runtime and budget
@@ -48,8 +50,10 @@ mkdir -p "$HUMAN_SOURCE"
 node --input-type=module - <<'JS'
 import fs from 'node:fs';
 const wardrobe = JSON.parse(fs.readFileSync('src/world/walkers/wardrobe.json'));
-const parts = new Set(['base_body', ...wardrobe.families.flatMap(f => f.parts)]);
+const parts = new Set(['base_body', ...wardrobe.families.flatMap(f => [...f.parts, ...(f.hairSculpt ? [f.hairSculpt] : [])])]);
 for (const part of parts) {
+  const local = `public/assets/walkers/source/${part}.glb`;
+  if (fs.existsSync(local)) { fs.copyFileSync(local, `${process.env.HUMAN_SOURCE}/${part}.glb`); continue; }
   const url = `https://raw.githubusercontent.com/kblood/CharacterCreator/852e48f316b90a0937234886630e4fb4cdfd1f78/output/${part}.glb`;
   const response = await fetch(url);
   if (!response.ok) throw Error(`${part}: ${response.status}`);
