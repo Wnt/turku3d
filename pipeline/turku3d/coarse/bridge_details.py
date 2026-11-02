@@ -19,6 +19,8 @@ PROFILES = {
                       entrance_height=4.8, entrance_width=1.05, entrance_inset=1.2,
                       rail_pattern="heritage"),
     "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
+    "Q5408563": dict(structure="cable-stayed", body="steel", support="stone",
+                     thickness=.32, tower_height=5.6, tower_radius=.17),
 }
 
 
@@ -472,8 +474,9 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                         "steel",
                     )
                 )
-    from .bridge_kit import entrances
+    from .bridge_kit import entrances, stayed_span
 
+    meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec))
     # Lower quay passages constrain supports below the deck, not pylons above it.
     # Only same-level building obstacles can conflict with an entrance ornament.
     entrance_obstacles = obstacles if obstacles is not None else way.get("obstacles")

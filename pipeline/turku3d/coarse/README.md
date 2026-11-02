@@ -532,8 +532,8 @@ Private reference comparisons and their calibration caveats are described in the
 all reference renders and pairs stay outside the repository.
 ## Bridge appearance and profile audit
 
-Permanent crossing profiles supplement incomplete OSM material tags without changing
-the mapped outline or surveyed road heights. Auransilta retains its mapped beam
+Permanent crossing profiles supplement incomplete OSM material and structure tags
+without changing the mapped outline or surveyed road heights. Auransilta retains its mapped beam
 structure: steel deck/floor beams, stone supports and light painted railings, as
 shown in [Yle's bridge photographs](https://yle.fi/a/3-7357934). Tuomiokirkkosilta
 uses stone abutments and exposed concrete arch fascia along the outer deck edges;
@@ -543,7 +543,8 @@ structure is not replaced with invented river piers. Detail dimensions remain
 estimates; the city-lidar deck and OSM widths remain authoritative. Profiles use
 permanent Wikidata crossing identities and apply in every tile and draft pass.
 The reusable `bridge_kit` entrance module adds tapered stone shafts, stepped plinths,
-bronze collars and relief to crossings with an entrance profile. The full mapped longitudinal outline edges place them at any orientation,
+bronze collars and relief to crossings with an entrance profile. The full mapped
+longitudinal outline edges place them at any orientation,
 including skew abutments; each complete plinth must fit inside the deck footprint, and
 buildings suppress conflicting ornaments. Lower quay passages constrain the
 supports below the deck without removing pylons above it. Auransilta uses
@@ -552,8 +553,19 @@ a 4.8 m estimated entrance height and a light multi-band railing grid, based on
 and local street-level references. Granite and bronze textures are procedural; no
 reference image pixels ship. The exact same closed component meshes enter collision.
 `bridge_access` includes the kit in the bridge stage content hash; unrelated stages
-remain reusable. Other bridges retain their existing profiles. Photos and private
-references stay local.
+remain reusable. Photos and private references stay local.
+
+The generic cable-stayed type adds paired tubular towers, a header above head
+clearance, double stay rods and rounded masonry cutwaters. It uses measured pier
+stations where available and fifth-span estimates otherwise. Each local section
+is intersected with the mapped deck outline, so towers follow curved/skew decks
+and stay outside the walking corridor. Footings respect lower passage exclusions.
+Teatterisilta selects this type because its OSM beam tag omits the towers and rods
+visible in [the Commons riverbank reference](https://commons.wikimedia.org/wiki/File:Teatterisilta_Turku.JPG).
+Its 5.6 m towers and 32 cm deck thickness are photo estimates; the lidar deck
+profile and two measured support stations remain authoritative. Rounded footings
+have continuous perimeter UVs and planar cap UVs; their generated geometry is also
+used for collision. No bridge-specific coordinates or image pixels are embedded.
 
 Bridge approaches join the same globally aligned ground triangles as the rendered and
 collision terrain. Nearest lidar keys can be metres above the bank TIN and must not
