@@ -289,19 +289,43 @@ def build(
         tunnels.openings,
     )
     seconds.update(structure_seconds)
+    from . import street_profiles
+
+    dry_surface, solid_surface = cache.run(
+        "street_profiles",
+        source_key(Path(street_profiles.__file__), surfaces.split_boundaries,
+                   walkable.coordinates, street_profiles.Mesh.compact,
+                   surfaces.vertex_normals, *common),
+        [dry, solid, inputs.street_profiles],
+        lambda: (street_profiles.constrain(dry, inputs.street_profiles),
+                 street_profiles.constrain(solid, inputs.street_profiles)),
+    )
+    dry, solid = dry_surface.mesh, solid_surface.mesh
+    surface_sample = street_profiles.sampler(surface_sample, dry_surface)
+    seconds["street_profiles_geometry"] = cache.metrics["street_profiles"]["seconds"]
+    # The measured connected terrain replaces legacy raised strips in its area.
+    kerb_lines = inputs.kerbs
+    if kerb_lines is not None and inputs.street_profiles:
+        measured = shapely.union_all([p.buffer(.4) for p, _ in street_profiles.material_regions(dry)])
+        kerb_lines = kerb_lines.difference(measured)
+    from .input_keys import producer_code as input_producer_code
+
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
             Path(kerbs.__file__),
             surfaces.grid_height,
-            Path(__file__).with_name("inputs.py"),
+            street_profiles.sampler,
+            street_profiles.HeightQuery,
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             *common,
-        ),
+        ) + input_producer_code("ground").hex(),
         [
             tile,
-            inputs.kerbs,
+            kerb_lines,
+            inputs.street_profiles,
+            dry_surface,
             grid_pos[:, 1],
             water,
             [b.footprint for b in blds],
@@ -312,7 +336,7 @@ def build(
         ],
         lambda: kerbs.produce(
             tile,
-            inputs.kerbs,
+            kerb_lines,
             surface_sample,
             water,
             blds,
@@ -493,7 +517,8 @@ def build(
         dry.indices,
         visual_materials,
         dry_keep,
-        [*visual_regions, *inputs.streets, *inputs.street_finishes],
+        [*visual_regions, *inputs.streets, *inputs.street_finishes,
+         *street_profiles.material_regions(dry)],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
@@ -593,6 +618,15 @@ def build(
         _write(stage / "props.vis.glb", street["glb"])
         layer_files.append(stage / "props.vis.glb")
     from turku3d.facade_programs import source_paths as facade_program_sources
+    from turku3d.landmarks.descriptions import (
+        building_refs as landmark_refs,
+    )
+    from turku3d.landmarks.descriptions import (
+        parameter_hash as landmark_hash,
+    )
+    from turku3d.landmarks.descriptions import (
+        source_paths as landmark_sources,
+    )
 
     building_meshes = cache.run(
         "building_visual",
@@ -606,13 +640,14 @@ def build(
             base / "facade_kit.py",
             *palette_sources(),
             *facade_program_sources(),
+            *landmark_sources(),
             paint_partition,
             trapezoids,
             jpeg,
             ortho_uv,
             *common,
         ),
-        [tile, shells, wall_context, inputs.ortho, False, facade_params],
+        [tile, shells, wall_context, inputs.ortho, False, facade_params, landmark_hash(blds)],
         lambda: building_visual(tile, shells, inputs.ortho, False, wall_context),
     )
     from turku3d.wall_assembly import assemble_layers
@@ -692,6 +727,10 @@ def build(
             else None
         ),
         kerb_triangles=sum(len(m.indices) for m in kerb_meshes),
+        street_profiles=dict(
+            sections=len(inputs.street_profiles),
+            metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
+        ),
         stairs=stairs.stats(stair_meshes, inputs.stairs),
         walkable=walkable.stats(tile, inputs.walkable),
         gardens=gardens.stats(tile, inputs.gardens),
@@ -714,6 +753,8 @@ def build(
             dict(building=b.key, parts=len(b.roof_parts), evidence=b.height_evidence) for b in blds
         ],
         facade_params=facade_params,
+        landmark_buildings=landmark_refs(blds),
+        landmark_params=landmark_hash(blds),
         trees=len(trees),
         poles=len(poles),
         lights=street["lights"],

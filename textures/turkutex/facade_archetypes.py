@@ -441,7 +441,7 @@ def sample(building_id, attrs, geometry):
     v = lambda x: value(x, "rule sample")  # noqa: E731
     walls = []
     for g in geometry:
-        width, height = g["width_m"], g["height_m"]
+        width, height = g["width_m"], g.get("layout_height_m", g["height_m"])
         count = max(1, round(width / r["bay"])) if width >= 1.6 and not attrs.get("blank") else 0
         pitch = width / count if count else width
         ground = height / floors if floors else None

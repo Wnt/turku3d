@@ -3,6 +3,7 @@
 import json
 
 from turku3d.facade_kit import parameter_hash
+from turku3d.landmarks.descriptions import manifest_current
 
 from .build_health import error_kind
 from .sources import NoCoverage
@@ -35,6 +36,8 @@ def tile_current(self, tile: str, code: str | None = None) -> bool:
     if m.get("code") != code:
         return False
     if "building_keys" in m and m.get("facade_params") != parameter_hash(m["building_keys"]):
+        return False
+    if not manifest_current(m):
         return False
     try:
         key = (

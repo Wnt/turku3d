@@ -368,3 +368,6 @@ The normal prepass packs mineral receiver eligibility into its existing alpha ch
 are unchanged. Medium/high puddles trace twenty projected samples and four crossing refinements at half resolution,
 then reconstruct with depth/normal/material checks before temporal AA. Dry weather skips the
 ray pass; the single pre-TAA composite remains. `weather-lab.html` is a small GPU correctness fixture; it is not city fidelity or FPS evidence.
+Lighting can pass its final linear fog colour as `setWeather(sample, fogColor)` to join the overcast horizon
+to distance haze. Without that argument, the keyed timecycle fog colour is used. Rain darkens the ceiling
+above the horizon while the horizon retains the effective fog colour.

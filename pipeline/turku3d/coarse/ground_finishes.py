@@ -1,30 +1,12 @@
-"""Visual street finishes; collision retains the existing physical surface classes.
-
-The city distinguishes irregular fieldstone from sawn granite setts and explicitly
-records red asphalt. These ids are reserved for visual terrain only, never .col.
-Maps are original deterministic procedural surfaces, periodic over two metres.
-"""
+"""Original deterministic procedural street maps, periodic over two metres."""
 
 import numpy as np
 
-FIELDSTONE = 128
-RED_ASPHALT = 129
-FINISH_KEYS = {FIELDSTONE: "fieldstone", RED_ASPHALT: "asphalt_red"}
-
-
-def street_finish(surface):
-    value = surface.casefold() if isinstance(surface, str) else ""
-    if "kenttäkivi" in value:
-        return FIELDSTONE
-    if "asfalt" in value and "punai" in value:
-        return RED_ASPHALT
-    return None
-
-
-def maps(key, size=512):
+def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
-    from scipy.ndimage import gaussian_filter
+    from scipy.ndimage import gaussian_filter, distance_transform_edt
 
+    size = size or (1024 if key == "fieldstone" else 512)
     rng = np.random.default_rng(4817)
     grain = rng.normal(0, 1, (size, size))
     macro = gaussian_filter(grain, size / 32, mode="wrap")
@@ -37,13 +19,19 @@ def maps(key, size=512):
     elif key == "fieldstone":
         from scipy.spatial import cKDTree
 
-        # Jittered, staggered sites keep plausible 8–15 cm rounded stones,
-        # without the straight joints of concrete slabs or regular granite setts.
-        rows, cols = 19, 18
-        yy, xx = np.indices((rows, cols))
-        sites = np.c_[((xx + .5 + (yy % 2) * .5).ravel() / cols) % 1,
-                      (yy.ravel() + .5) / rows]
-        sites += rng.uniform(-.28, .28, sites.shape) / [cols, rows]
+        # Toroidal dart throwing gives mixed stone sizes without the diagonal
+        # rows of a jittered grid. Minimum spacing excludes tiny sliver stones.
+        sites = []
+        for _ in range(10000):
+            point = rng.random(2)
+            delta = abs(np.asarray(sites).reshape(-1, 2) - point)
+            delta = np.minimum(delta, 1 - delta)
+            if len(delta) and np.min(np.linalg.norm(delta, axis=1)) < .016:
+                continue
+            sites.append(point)
+            if len(sites) == 1100:
+                break
+        sites = np.asarray(sites)
         offsets = np.array([(x, y) for x in (-1, 0, 1) for y in (-1, 0, 1)])
         repeated = (sites[None] + offsets[:, None]).reshape(-1, 2)
         y, x = np.indices((size, size))
@@ -54,15 +42,26 @@ def maps(key, size=512):
         separation = np.linalg.norm(repeated[ids[:, 1]] - repeated[ids[:, 0]], axis=1)
         edge = ((distance[:, 1] ** 2 - distance[:, 0] ** 2)
                 / np.maximum(separation, 1e-6)).reshape(size, size)
-        edge = gaussian_filter(edge, .8, mode="wrap")
-        crown = np.tanh(np.maximum(edge - .0015, 0) / .015)
-        stone = rng.uniform(105, 160, len(sites))[nearest].reshape(size, size)
-        warmth = rng.uniform(-12, 12, len(sites))[nearest].reshape(size, size)
-        rock = np.stack([stone + warmth, stone, stone - warmth * .6], axis=-1)
-        dirt = np.array([101, 98, 86])
-        albedo = dirt + (rock - dirt) * crown[..., None] + grain[..., None] * 6 + macro[..., None] * 3
-        height = crown * .022 + gaussian_filter(grain, .8, mode="wrap") * .0008
-        ao = .82 + .18 * crown
+        # Open each cell by 12 mm, then restore 9 mm: round polygon corners and
+        # leave sandy joints. Tiling the mask gives true periodic distances.
+        core = edge >= .012
+        outside = distance_transform_edt(~np.tile(core, (3, 3)))[size:2*size, size:2*size] * (2 / size)
+        footprint = outside <= .009
+        inner = distance_transform_edt(np.tile(footprint, (3, 3)))[size:2*size, size:2*size] * (2 / size)
+        crown = np.tanh(inner / .009)
+        coverage = np.clip((.011 - outside) / .004, 0, 1)
+        # Finnish fieldstone mixes grey rock, pale granite, feldspar pink and
+        # occasional dark stones; sandy joints stay lighter than deep cavities.
+        palette = np.array([[85, 89, 86], [155, 154, 146], [121, 126, 122],
+                            [139, 122, 114], [139, 135, 119]])
+        colours = palette[rng.choice(len(palette), len(sites), p=[.08, .17, .60, .07, .08])]
+        colours = colours + rng.normal(0, 5, (len(sites), 1))
+        rock = colours[nearest].reshape(size, size, 3)
+        dirt = np.array([104, 104, 96])
+        albedo = dirt + (rock - dirt) * coverage[..., None] + grain[..., None] * 5 + macro[..., None] * 2
+        relief = rng.uniform(.006, .011, len(sites))[nearest].reshape(size, size)
+        height = crown * relief + gaussian_filter(grain, .8, mode="wrap") * .0008
+        ao = .9 + .1 * crown
         roughness = .94 - .13 * crown
     else:
         raise ValueError(f"Unknown ground finish: {key}")

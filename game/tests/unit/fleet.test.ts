@@ -1,0 +1,55 @@
+import { expect,test } from 'vitest';
+import * as THREE from 'three/webgpu';
+import { createHash } from 'node:crypto';
+import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
+import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
+import { ParkedCarVisuals } from '../../src/actors/car';
+import { draftManifest } from '../../src/world/manifest';
+
+test('56 distinct finite vehicle geometries have three decreasing LODs, ground contact and realistic dimensions',()=>{
+  const hashes=new Set<string>();
+  expect(FLEET.length).toBeGreaterThanOrEqual(50);
+  for(const model of FLEET) {
+    const counts=[];
+    for(const lod of [0,1,2] as const) {
+      const g=buildFleetGeometry(model,lod),p=g.getAttribute('position');counts.push((g.index?.count??p.count)/3);
+      expect(Array.from(p.array).every(Number.isFinite)).toBe(true);
+      expect(g.getAttribute('fleetSurface').count).toBe(p.count);
+      expect(g.boundingBox!.min.y).toBeGreaterThanOrEqual(-.01);
+      expect(g.boundingBox!.min.y).toBeLessThan(.06);
+      expect(g.boundingBox!.max.y).toBeGreaterThan(model.height-.1);
+      if(!lod)hashes.add(createHash('sha256').update(Buffer.from(p.array.buffer)).digest('hex'));
+      g.dispose();
+    }
+    expect(counts[0]).toBeGreaterThan(counts[1]);expect(counts[1]).toBeGreaterThan(counts[2]);expect(counts[0]).toBeLessThan(6000);
+  }
+  expect(hashes.size).toBe(FLEET.length);
+});
+
+test('parked and moving fleet use all models, share one material and switch distance LODs',async()=>{
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  manifest.vehicles=FLEET.map((m,i)=>({object_id:`test-${i}`,model:m.id,color:'silver',x:i%7,y:0,z:Math.floor(i/7),yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);const camera=new THREE.PerspectiveCamera(120,1,.1,500);camera.position.set(0,10,20);camera.lookAt(3,0,3);visuals.setView(camera);
+  const rest={restingPose:(c:NonNullable<typeof manifest.vehicles>[number])=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})};
+  visuals.update([],rest);expect(visuals.snapshot().models).toHaveLength(56);expect(visuals.snapshot().lods).toEqual([56,0,0]);
+  expect(new Set(scene.children.map(m=>(m as THREE.Mesh).material)).size).toBe(1);
+  camera.position.z=70;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,56,0]);
+  camera.position.z=200;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,0,56]);
+  visuals.takeOver('test-0');visuals.update([],rest);expect(visuals.snapshot().instances).toBe(55);
+});
+
+test('model assignment is stable and legacy families remain compatible',()=>{
+  for(const family of ['sedan','suv','van','hatchback-sports','sedan-sports'])for(let i=0;i<100;i++) {
+    const model=fleetModel(family,String(i));expect(model.family).toBe(family==='sedan-sports'?'sedan':family);expect(fleetModel(family,String(i))).toBe(model);
+  }
+});
+
+
+test('ordinary traffic reaches all 56 models without overpopulating pickups or old cars',()=>{
+  const models=new Set<string>();let pickups=0,old=0;
+  for(const family of ['sedan','suv','van','hatchback-sports'])for(let i=0;i<2000;i++){
+    const m=fleetModel(family,`tr:tile:lane:${i}`);models.add(m.id);pickups+=Number(m.body==='pickup');old+=Number(m.body==='classic');
+  }
+  expect(models.size).toBe(56);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
+  expect(old/2000).toBeGreaterThan(.07);expect(old/2000).toBeLessThan(.13);
+});

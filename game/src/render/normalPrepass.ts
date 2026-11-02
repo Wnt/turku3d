@@ -16,7 +16,7 @@ export class NormalPrepass {
     const material = source as THREE.MeshStandardNodeMaterial;
     const receiver = source.userData.weatherWetness ? 1 : 0;
     material.userData.weatherReceiver = receiver;
-    if (material.alphaTest > 0 || material.alphaMap || material.displacementMap || material.positionNode
+    if (!material.depthWrite || material.vertexNode || material.alphaTest > 0 || material.alphaMap || material.displacementMap || material.positionNode
       || material.depthNode || material.fragmentNode || material.alphaToCoverage || material.userData.vertexProgram) return null;
     const key = `${source.side}:${receiver}`;
     let normal = this.sides.get(key);
