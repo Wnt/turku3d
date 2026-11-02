@@ -800,6 +800,34 @@ class Farm:
             if self.free() >= target:
                 return True
         cache = self.root / 'cache'
+        # Map files are hard-linked into private products before the producer lock
+        # is released, so old shared entries can be evicted even while builds run.
+        map_candidates = []
+        for path in (cache / 'surface-maps').glob('*'):
+            if not re.fullmatch(r'[a-f0-9]{64}', path.name):
+                continue
+            try:
+                map_candidates.append((path.stat().st_mtime, path))
+            except FileNotFoundError:
+                continue
+        for _, path in sorted(map_candidates):
+            with path.with_suffix('.lock').open('a') as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                try:
+                    modified = path.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                if not path.is_dir() or time.time() - modified < self.grace_seconds:
+                    continue
+                size = sum(p.stat().st_size for p in path.iterdir() if p.is_file())
+                shutil.rmtree(path)
+                self.metrics['evicted_bytes'] += size
+                self.event('surface-maps-evicted', key=path.name, bytes=size)
+            if self.free() >= target:
+                return True
         wanted_tiles = {tile for _, tile in self.jobs}
         files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
                         if p.relative_to(cache).parts[1] not in wanted_tiles),
