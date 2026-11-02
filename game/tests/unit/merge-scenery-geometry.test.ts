@@ -50,7 +50,9 @@ test('direct batch buffers retain transformed meshopt vertices, normals, tangent
   expect(actual.attributes.color.array).toBeInstanceOf(Uint8Array);
   expect(actual.attributes.uv.array).toBeInstanceOf(Uint16Array);
   for (const [i,mesh] of meshes.entries()) expect(mesh.geometry.attributes.position.array).toEqual(originalPositions[i]);
-  expect(actual.boundingBox).toEqual(new THREE.Box3().setFromBufferAttribute(actual.attributes.position));
+  const position = actual.attributes.position;
+  if (!(position instanceof THREE.BufferAttribute)) throw Error('Merged positions must be a BufferAttribute');
+  expect(actual.boundingBox).toEqual(new THREE.Box3().setFromBufferAttribute(position));
   actual.dispose(); expected.dispose();
   for (const geometry of baked) geometry.dispose();
   for (const mesh of meshes) { mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); }
