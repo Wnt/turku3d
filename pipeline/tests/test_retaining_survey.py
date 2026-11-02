@@ -41,6 +41,12 @@ def test_continuous_grass_slope_does_not_become_a_wall():
     assert retaining_survey.measure(shapely.LineString([(0, 0), (20, 0)]), points) == []
 
 
+def test_tall_city_garden_retaining_walls_are_not_limited_to_quay_ledge_height():
+    result=records(step=4)
+    assert result
+    assert all(np.median(abs(np.diff(tags['_survey']['heights'],axis=1)))>3.9 for _,tags,_ in result)
+
+
 def test_measured_ledge_survives_water_and_broad_paving_masks_but_not_stairs():
     tile = VisualTile(0, 0, 0)
     survey = records()

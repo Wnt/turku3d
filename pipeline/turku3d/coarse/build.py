@@ -430,7 +430,8 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, inputs.retaining],
+        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
+         inputs.retaining, inputs.vegetation_roads],
         stage,
         barrier_stage,
     )
