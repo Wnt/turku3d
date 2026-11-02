@@ -249,3 +249,11 @@ This one-time migration requires the observed initial immutable acquisition iden
 to match. It binds its successful receipts to that recipe; failed/incomplete units
 have no successful receipt and are retried. Later resumes omit the adoption option.
 The running initial pass is left intact, so no paid transfer work is discarded.
+
+
+The staging host now has one `resume-after-prefetch.sh` continuation waiting on the
+initial process's kernel file lock. It runs the above retry automatically after
+that lock is released; no sleep/poll loop or tile build is started. Its ownership
+is `state/prefetch-resume.pid`, log `state/prefetch-resume.log`, and an exclusive
+`prefetch-resume.lock` prevents duplicate continuations. Do not also start a manual
+retry while this continuation is pending or running.
