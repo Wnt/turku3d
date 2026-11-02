@@ -63,3 +63,15 @@ def test_measured_register_crown_rechecks_visible_trunk_clearance():
                        [known], lambda x, z: 0, shapely.GeometryCollection(), paths)
     assert all(clears_path(tree, paths) for tree in result)
     assert all(tree.object_id != known.object_id for tree in result)
+
+
+def test_canopy_algorithm_changes_invalidate_visual_and_collision_generations(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import canopy_trees, collision_key, packaging
+
+    path = Path(canopy_trees.__file__)
+    read = Path.read_bytes
+    before = packaging.code_hash(), collision_key.code_hash()
+    monkeypatch.setattr(Path, 'read_bytes', lambda p: read(p) + b'\n# changed canopy algorithm\n' if p == path else read(p))
+    assert packaging.code_hash() != before[0]
+    assert collision_key.code_hash() != before[1]
