@@ -421,11 +421,7 @@ def test_prepared_wfs_ignores_texture_pixels_but_tracks_visual_material_assignme
         return data.replace(b'def maps(key, size=None):', b'def maps(key, size=256):') if path == source else data
     monkeypatch.setattr(Path, 'read_bytes', pixels)
     assert inputs._key([], 'wfs') == before
-    classification = Path(street_materials.__file__)
-    def assignment(path):
-        data = original(path)
-        return data.replace(b'FIELDSTONE = 128', b'FIELDSTONE = 130') if path == classification else data
-    monkeypatch.setattr(Path, 'read_bytes', assignment)
+    monkeypatch.setattr(street_materials, 'FIELDSTONE', 130)
     assert inputs._key([], 'wfs') != before
 
 
