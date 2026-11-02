@@ -1,3 +1,4 @@
+import type { WeatherClock } from './render/weather/schedule';
 import type * as THREE from 'three/webgpu';
 import type { V3 } from './core/origin';
 import type { CollisionStreamer } from './world/collisionStreaming';
@@ -42,6 +43,7 @@ export interface PlayWorld {
   prepareGraphics: (model: THREE.Object3D) => Promise<void>;
   /** The rendered clock: the shared cycle, or a local view (?time=, ?cycle=, the developer time panel). */
   dayClock: DayClock;
+  weather: WeatherClock;
   /** The shared clock; restoration only affects an unpinned developer clock. */
   clockTime: () => Date;
   /** The clock single-player traffic density follows (DayClock.trafficClock). */
