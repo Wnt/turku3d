@@ -1,3 +1,4 @@
+import { ackermann } from './wheelKinematics.ts';
 // Headless car implementation: no renderer, browser globals or input devices.
 import type * as Rapier from '@dimforge/rapier3d';
 export type RapierModule = typeof Rapier;
@@ -105,7 +106,8 @@ export class Vehicle {
     this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
     for (let i = 0; i < t.wheels.length; i++) {
       const steered = t.steered.includes(i), driven = t.driven.includes(i);
-      v.setWheelSteering(i, steered ? this.steering : 0);
+      v.setWheelSteering(i, steered ? ackermann(this.steering,
+        Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), t.wheels[i].z) : 0);
       v.setWheelEngineForce(i, h.engine * this.drive[i]);
       // The handbrake locks the driven rear wheels only.
       v.setWheelBrake(i, h.brake + (driven && !steered && h.handbrake ? t.brakeForce : 0));
