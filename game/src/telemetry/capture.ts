@@ -14,11 +14,13 @@ export class DriveCapture {
   private batch = 0;
   private pending: string[] = [];
   private sending = false;
+  private inFlight: string | null = null;
   private active = true;
   private previous = window.__render!.afterFrame;
   private observer?: PerformanceObserver;
   private resources?: PerformanceObserver;
   private profiler?: SelfProfiler;
+  private profilerDrain: Promise<void> = Promise.resolve();
   private profilerStart = 0;
   private profilerTimer?: ReturnType<typeof setTimeout>;
   private timer: ReturnType<typeof setInterval>;
@@ -31,6 +33,7 @@ export class DriveCapture {
   onChange?: () => void;
   private tick = () => { this.previous?.(); if (this.active) this.frame(); };
   private hide = () => { void this.rollProfiler(false).finally(() => this.flush(true)); this.flush(true); };
+  private show = () => { void this.profilerDrain.then(() => { if (this.active && !this.profiler) this.startProfiler(); }); };
   constructor(private game: Host, extra: Host = {}) {
     const r = window.__render!, s = game.state();
     this.paused = s.paused;
@@ -65,6 +68,7 @@ export class DriveCapture {
     this.startProfiler();
     this.timer = setInterval(() => this.flush(), 5000);
     addEventListener('pagehide', this.hide);
+    addEventListener('pageshow', this.show);
     this.flush();
   }
   mark(k: 'pause' | 'resume') { this.rows.marks.push({ k, t: performance.now() }); this.paused = k === 'pause'; }
@@ -105,15 +109,21 @@ export class DriveCapture {
       this.profilerTimer = setTimeout(() => { void this.rollProfiler(true); }, 15000);
     } catch (e) { this.meta.jsProfiler = { available: false, error: String(e) }; this.metaDirty = true; }
   }
-  private async rollProfiler(restart: boolean) {
+  private rollProfiler(restart: boolean): Promise<void> {
     clearTimeout(this.profilerTimer);
     const profiler = this.profiler, start = this.profilerStart;
     this.profiler = undefined;
-    if (!profiler) return;
-    try { const trace = await profiler.stop(); this.rows.js.push({ t: start, end: performance.now(), trace }); }
-    catch (e) { this.rows.marks.push({ k: 'profiler-error', t: performance.now(), error: String(e) }); }
-    if (restart && this.active) this.startProfiler();
-    this.flush();
+    if (!profiler) return this.profilerDrain;
+    const previous = this.profilerDrain;
+    const draining = (async () => {
+      try { const trace = await profiler.stop(); this.rows.js.push({ t: start, end: performance.now(), trace }); }
+      catch (e) { this.rows.marks.push({ k: 'profiler-error', t: performance.now(), error: String(e) }); }
+      if (restart && this.active) this.startProfiler();
+      this.flush();
+    })();
+    // Switching Off during a rollover must await its trace before reporting Saved.
+    this.profilerDrain = Promise.all([previous, draining]).then(() => {});
+    return this.profilerDrain;
   }
   flush(beacon = false) {
     const rows = this.rows; this.rows = empty();
@@ -129,8 +139,10 @@ export class DriveCapture {
     }
     if (Object.keys(chunk).length > 1) push();
     if (beacon) {
-      // The normal fetch pump owns any in-flight batch. Beacon transfers the queued tail on pagehide.
-      this.pending = this.pending.filter(body => !navigator.sendBeacon(`/__capture/${this.id}`, new Blob([body], { type: 'application/json' })));
+      // Navigation may cancel ordinary fetch. Re-submit its batch too; the server deduplicates by batch id.
+      const send = (body: string) => navigator.sendBeacon(`/__capture/${this.id}`, new Blob([body], { type: 'application/json' }));
+      if (this.inFlight) send(this.inFlight);
+      this.pending = this.pending.filter(body => !send(body));
     }
     this.onChange?.();
     void this.send();
@@ -140,17 +152,17 @@ export class DriveCapture {
     this.sending = true;
     try {
       while (this.pending.length) {
-        const body = this.pending.shift()!;
+        const body = this.pending.shift()!; this.inFlight = body;
         const response = await fetch(`/__capture/${this.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }).catch(e => { this.pending.unshift(body); throw e; });
         if (!response.ok) { this.pending.unshift(body); throw Error(`Capture storage: HTTP ${response.status}`); }
-        this.error = null;
+        this.inFlight = null; this.error = null;
       }
     } catch (e) { this.error = String(e); console.error(this.error); }
-    finally { this.sending = false; this.onChange?.(); }
+    finally { this.inFlight = null; this.sending = false; this.onChange?.(); }
   }
   async stop() {
     this.active = false; clearInterval(this.timer); clearTimeout(this.profilerTimer);
-    this.observer?.disconnect(); this.resources?.disconnect(); removeEventListener('pagehide', this.hide);
+    this.observer?.disconnect(); this.resources?.disconnect(); removeEventListener('pagehide', this.hide); removeEventListener('pageshow', this.show);
     if (window.__render?.afterFrame === this.tick) window.__render.afterFrame = this.previous;
     await this.rollProfiler(false); this.flush();
     while (this.sending) await new Promise(resolve => setTimeout(resolve, 25));

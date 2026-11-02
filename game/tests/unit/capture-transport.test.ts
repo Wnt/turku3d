@@ -65,3 +65,56 @@ test('failed final delivery stays visible and retry preserves the same capture b
     expect(changed).toHaveBeenCalled();
   } finally { unsubscribe(); control.dispose(); }
 });
+
+test('switching Off waits for a profiler rollover already in progress and saves its trace once', async () => {
+  let sampleBufferFull!: () => void, complete!: (trace: object) => void;
+  const profilerStop = new Promise<object>(resolve => { complete = resolve; });
+  class Profiler {
+    addEventListener(_type: string, listener: () => void) { sampleBufferFull = listener; }
+    stop() { return profilerStop; }
+  }
+  class Observer { static supportedEntryTypes: string[] = []; }
+  const render = { renderer: { getPixelRatio: () => 1, backend: {} }, afterFrame: undefined };
+  vi.stubGlobal('window', { __render: render, Profiler }); vi.stubGlobal('PerformanceObserver', Observer);
+  vi.stubGlobal('location', { href: 'http://localhost/' }); vi.stubGlobal('navigator', { userAgent: 'test' });
+  vi.stubGlobal('innerWidth', 800); vi.stubGlobal('innerHeight', 600);
+  vi.stubGlobal('addEventListener', vi.fn()); vi.stubGlobal('removeEventListener', vi.fn());
+  const fetch = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', fetch);
+  const recorder = new DriveCapture({ state: () => ({ paused: true }) });
+  sampleBufferFull();
+  let saved = false;
+  const stopped = recorder.stop().then(() => { saved = true; });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(saved).toBe(false);
+  } finally {
+    complete({ resources: [], frames: [], stacks: [], samples: [{ timestamp: 1 }] });
+    await stopped;
+  }
+  const traces = fetch.mock.calls.flatMap(([, options]) => JSON.parse(options.body).js ?? []);
+  expect(traces).toHaveLength(1); expect(traces[0].trace.samples).toHaveLength(1);
+  expect(render.afterFrame).toBeUndefined();
+});
+
+test('page exit beacons the unacknowledged fetch batch as well as queued rows', async () => {
+  class Observer { static supportedEntryTypes: string[] = []; }
+  const render = { renderer: { getPixelRatio: () => 1, backend: {} }, afterFrame: undefined };
+  vi.stubGlobal('window', { __render: render }); vi.stubGlobal('PerformanceObserver', Observer);
+  vi.stubGlobal('location', { href: 'http://localhost/' });
+  vi.stubGlobal('innerWidth', 800); vi.stubGlobal('innerHeight', 600);
+  const addEventListener = vi.fn(); vi.stubGlobal('addEventListener', addEventListener); vi.stubGlobal('removeEventListener', vi.fn());
+  const beacon = vi.fn().mockReturnValue(true); vi.stubGlobal('navigator', { userAgent: 'test', sendBeacon: beacon });
+  let acknowledge!: (response: object) => void;
+  const fetch = vi.fn().mockImplementation(() => new Promise(resolve => { acknowledge = resolve; })); vi.stubGlobal('fetch', fetch);
+  const recorder = new DriveCapture({ state: () => ({ paused: true }) });
+  const body = fetch.mock.calls[0][1].body;
+  const hide = addEventListener.mock.calls.find(([type]) => type === 'pagehide')![1];
+  try {
+    hide();
+    const bodies = await Promise.all(beacon.mock.calls.map(async ([, blob]) => (blob as Blob).text()));
+    expect(bodies).toContain(body);
+    expect(JSON.parse(body).batch).toBe(0);
+  } finally {
+    acknowledge({ ok: true }); await recorder.stop();
+  }
+});
