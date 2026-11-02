@@ -306,29 +306,6 @@
       ]
     },
     {
-      "id": "harbour",
-      "title": "Aura waterfront · blue hour",
-      "hour": 20.1,
-      "weather": "clear",
-      "wind": 0.15,
-      "from": [
-        23457971,
-        6702928,
-        18,
-        228,
-        -8,
-        66
-      ],
-      "to": [
-        23457939,
-        6702899,
-        16,
-        228,
-        -6,
-        66
-      ]
-    },
-    {
       "id": "castle",
       "title": "Turku Castle · morning",
       "hour": 10.5,
@@ -359,6 +336,29 @@
           1,
           55
         ]
+      ]
+    },
+    {
+      "id": "harbour",
+      "title": "Aura waterfront · blue hour",
+      "hour": 20.1,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23457971,
+        6702928,
+        18,
+        228,
+        -8,
+        66
+      ],
+      "to": [
+        23457939,
+        6702899,
+        16,
+        228,
+        -6,
+        66
       ]
     },
     {
