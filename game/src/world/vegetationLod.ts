@@ -71,7 +71,6 @@ export class VegetationLod {
   private position = new THREE.Vector3();
   private treePosition = new THREE.Vector3();
   private visible: Bucket[] = [];
-  private remaining = [0, 0, 0];
   private library: NatureLibrary | null = null;
   private grass: GrassField | null = null;
   private readonly ready: Promise<void>;
@@ -279,8 +278,7 @@ export class VegetationLod {
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
-    const remaining = this.remaining;
-    remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = this.screenshotDistance ? Infinity : q.farInstances;
+    let near = q.nearInstances, far = this.screenshotDistance ? Infinity : q.farInstances;
     let barriers = q.barrierInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
@@ -299,10 +297,11 @@ export class VegetationLod {
         const distance=this.treePosition.distanceTo(this.position);
         if (distance>Math.max(q.far,this.screenshotDistance)) continue;
         const wanted=vegetationLevel(distance,q);
-        level=wanted===0 && remaining[0]>0 ? 0 : wanted<2 ? 1 : 2;
+        level=wanted===0 && near>0 ? 0 : wanted<2 ? 1 : 2;
         if (level>=bucket.draw.levels.length) continue;
-        if (level===2 && remaining[2]<=0) continue;
-        remaining[level]--;
+        if (level===2 && far<=0) continue;
+        if (level===0) near--;
+        if (level===2) far--;
         const selections=bucket.draw.selections[level], last=selections[selections.length-1];
         if (last?.bucket===bucket && last.offset+last.count===offset) last.count++;
         else selections.push({bucket,offset,count:1});

@@ -77,6 +77,9 @@ test('prepared scenery owns the first visual until full detail and preview retur
   scenery.setRadius(1000);scenery.update(125,125,500);await settle();
   const replacement=scene.children[0];
   delete entry.preview;
+  entry.cachedAt=1000;entry.model!.visible=false;
+  scenery.nearbyChanged('t0_0_0');expect(replacement.visible).toBe(true);
+  entry.cachedAt=undefined;entry.model!.visible=true;
   scenery.nearbyChanged('t0_0_0');
   expect(replacement.visible).toBe(false);
   scenery.update(125, 125, 1000); await settle();

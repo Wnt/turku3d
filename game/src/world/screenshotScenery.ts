@@ -23,7 +23,7 @@ export class ScreenshotScenery {
   }
   private detailed(id: string) {
     const entry = this.nearby.get(id);
-    return !!entry?.model && !entry.preview;
+    return !!entry?.model && !entry.preview && entry.cachedAt === undefined;
   }
 
   /** The prepared scenery owns visuals until the full model is ready; collision previews are a fallback. */
@@ -31,8 +31,9 @@ export class ScreenshotScenery {
     const model = this.entries.get(id)?.model;
     if (!model) return;
     const nearby = this.nearby.get(id);
-    model.visible = !nearby?.model || !!nearby.preview;
-    if (nearby?.preview && nearby.model) nearby.model.visible = false;
+    const active = !!nearby?.model && nearby.cachedAt === undefined;
+    model.visible = !active || !!nearby?.preview;
+    if (active && nearby?.preview && nearby.model) nearby.model.visible = false;
   }
 
   private release(id: string, e: Scenery) {

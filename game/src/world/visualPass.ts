@@ -8,6 +8,7 @@ export function acceptsVisualPass(current: 'first' | 'full' | undefined, incomin
 }
 
 export interface ComparisonEntry {
+  cachedAt?: number;
   model?: THREE.Object3D; pass?: 'first' | 'full'; comparison?: THREE.Object3D;
   comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
 }
@@ -59,7 +60,7 @@ export class VisualPassComparison {
       await this.host.style?.(model);
       this.style(model);
       await this.host.styled?.(model);
-      if (this.entries.get(id) !== e || this.pass !== pass || !e.model) return;
+      if (this.entries.get(id) !== e || this.pass !== pass || !e.model || e.cachedAt !== undefined) return;
       this.clear(e);
       e.comparison = model; e.comparisonMode = pass; e.model.visible = false;
       this.host.scene.add(model); this.host.trackModel?.(model, 'comparison'); model = null;
