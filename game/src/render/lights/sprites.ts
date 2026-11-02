@@ -3,7 +3,7 @@
 // resolve (render/post.ts), so jitter and history rejection never flicker or smear it. The pass has no depth
 // buffer: each fragment compares itself with the scene's resolved depth, so walls hide lamps behind them.
 import * as THREE from 'three/webgpu';
-import { attribute, cameraFar, cameraNear, cameraViewMatrix, clamp, dot, exp, float, length, max, pass,
+import { attribute, cameraFar, cameraNear, cameraViewMatrix, clamp, dot, exp, float, length, max, mix, pass,
   perspectiveDepthToViewZ, positionGeometry, screenUV, select, smoothstep, texture, uniform, varying, vec4 } from 'three/tsl';
 import { isPrecompiling } from '../compileModel';
 import type { SpriteLight } from './lampField';
@@ -23,9 +23,10 @@ export const SPRITE = {
 } as const;
 
 /** Mirror of the vertex stage: corona diameter in output pixels. `focal` is P[1][1] * drawing-buffer height / 2. */
-export function spritePixels(radius: number, depth: number, focal: number) {
+export function spritePixels(radius: number, depth: number, focal: number, profile = coronaProfile(), height = 1080) {
   const physical = 2 * radius * focal / Math.max(depth, 1e-3);
-  return Math.min(SPRITE.maxPx, Math.max(SPRITE.minPx, physical));
+  const cap = Math.max(SPRITE.minPx, profile[0] * (1 + (height / 1080 - 1) * profile[3]));
+  return Math.min(cap, Math.max(SPRITE.minPx, physical));
 }
 
 const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -33,6 +34,11 @@ const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math
 /** Mirror of the vertex stage: brightness factor of one sprite (night level, day weight, near and load fades). */
 export function spriteLevel(night: number, day: number, distance: number, age: number) {
   return Math.max(night, day) * smooth(SPRITE.nearStart, SPRITE.nearEnd, distance) * Math.min(1, Math.max(0, age / SPRITE.fadeIn));
+}
+
+/** Outdoor lamp heads need a compact corona; other sprite sources retain their original response. */
+export function coronaProfile(headRadius?: number): readonly number[] {
+  return headRadius === undefined ? [SPRITE.maxPx, 0.18, SPRITE.pull, 0] : [24, 0.06, Math.min(0.25, Math.max(0.06, headRadius * 1.5)), 1];
 }
 
 export class LightSprites {
@@ -49,6 +55,7 @@ export class LightSprites {
   private readonly sceneDepth = texture(new THREE.DepthTexture(1, 1));
   private readonly centres: THREE.InstancedBufferAttribute;
   private readonly colors: THREE.InstancedBufferAttribute;
+  private readonly profiles: THREE.InstancedBufferAttribute;
   private readonly births: THREE.InstancedBufferAttribute;
   private groups = new Map<string, readonly SpriteLight[]>();
   private born = new Map<string, Map<string, number>>();
@@ -65,10 +72,12 @@ export class LightSprites {
     this.centres = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4);
     this.colors = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4);
     this.births = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity), 1);
-    for (const a of [this.centres, this.colors, this.births]) a.setUsage(THREE.DynamicDrawUsage);
+    this.profiles = new THREE.InstancedBufferAttribute(new Float32Array(this.capacity * 4), 4);
+    for (const a of [this.centres, this.colors, this.births, this.profiles]) a.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('lightCentre', this.centres);
     geometry.setAttribute('lightColor', this.colors);
     geometry.setAttribute('lightBorn', this.births);
+    geometry.setAttribute('lightProfile', this.profiles);
     // Always at least one (zero-radius) instance: the draw and its pipeline exist from the first frame.
     geometry.instanceCount = 1;
     this.mesh = new THREE.Mesh(geometry, this.material());
@@ -84,14 +93,17 @@ export class LightSprites {
     material.blending = THREE.AdditiveBlending; material.side = THREE.DoubleSide;
     material.fog = false; material.lights = false;
     const centre = attribute('lightCentre', 'vec4'), tint = attribute('lightColor', 'vec4'), born = attribute('lightBorn', 'float');
+    const profile = attribute('lightProfile', 'vec4');
     const corner = positionGeometry.xy;
     const view = cameraViewMatrix.mul(vec4(centre.xyz, 1)).xyz;
     const distance = length(view);
-    const pulled = view.mul(max(distance.sub(SPRITE.pull), distance.mul(0.5)).div(max(distance, 1e-3)));
+    const pulled = view.mul(max(distance.sub(profile.z), distance.mul(0.5)).div(max(distance, 1e-3)));
     const depth = pulled.z.negate();
     // Unjittered projection (TRAA's view offset applies only inside the pipeline render).
     const clip = this.projection.mul(vec4(pulled, 1));
-    const pixels = clamp(centre.w.mul(2).mul(this.focal).div(max(depth, 1e-3)), SPRITE.minPx, SPRITE.maxPx);
+    // Street cap is angularly stable across drawing-buffer sizes (24 px at 1080p).
+    const pixelCap = max(SPRITE.minPx, profile.x.mul(mix(float(1), this.viewport.y.div(1080), profile.w)));
+    const pixels = clamp(centre.w.mul(2).mul(this.focal).div(max(depth, 1e-3)), SPRITE.minPx, pixelCap);
     const level = max(this.night, tint.w)
       .mul(smoothstep(SPRITE.nearStart, SPRITE.nearEnd, distance))
       .mul(clamp(this.now.sub(born).div(SPRITE.fadeIn), 0, 1));
@@ -103,10 +115,11 @@ export class LightSprites {
     // A small hot core in a wide soft halo, smoothly zero at the quad edge: tone mapping keeps the core white
     // without flattening the whole corona into a disc.
     const edge = clamp(float(1).sub(r2), 0, 1);
-    const shape = exp(r2.mul(-30)).add(exp(r2.mul(-4.5)).mul(0.18)).mul(edge).mul(edge);
+    const shape = exp(r2.mul(-30)).add(exp(r2.mul(-4.5)).mul(varying(profile.y, 'vLightHalo'))).mul(edge).mul(edge);
     const own = varying(depth, 'vLightDepth');
     const sceneZ = perspectiveDepthToViewZ(this.sceneDepth.sample(screenUV).x, cameraNear, cameraFar).negate();
-    const unoccluded = smoothstep(own.sub(0.3), own.add(0.3), sceneZ);
+    const feather = varying(mix(float(0.3), clamp(profile.z.mul(0.5), 0.03, 0.12), profile.w), 'vLightFeather');
+    const unoccluded = smoothstep(own.sub(feather), own.add(feather), sceneZ);
     material.fragmentNode = vec4(varying(tint.rgb.mul(level), 'vLightTint').mul(shape).mul(unoccluded), 1);
     return material;
   }
@@ -161,11 +174,12 @@ export class LightSprites {
       c.set([light.x, light.y, light.z, light.radius], i * 4);
       k.set([light.r, light.g, light.b, light.day], i * 4);
       b[i] = born;
+      (this.profiles.array as Float32Array).set(coronaProfile(light.headRadius), i * 4);
     });
     if (!all.length) { c.fill(0, 0, 4); k.fill(0, 0, 4); }
     this.count = all.length;
     this.mesh.geometry.instanceCount = Math.max(1, all.length);
-    for (const [attribute, size] of [[this.centres, 4], [this.colors, 4], [this.births, 1]] as const) {
+    for (const [attribute, size] of [[this.centres, 4], [this.colors, 4], [this.births, 1], [this.profiles, 4]] as const) {
       attribute.clearUpdateRanges();
       attribute.addUpdateRange(0, Math.max(1, all.length) * size);
       attribute.needsUpdate = true;

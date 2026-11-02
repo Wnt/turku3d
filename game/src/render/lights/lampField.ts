@@ -21,7 +21,7 @@ export interface Lamp {
 export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall';
 
 /** Corona record. Colour is linear HDR. `day` 1 keeps a light on in daylight (tunnels), 0 follows the night level. */
-export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number }
+export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number; headRadius?: number }
 
 /** Lights the generator builds as geometry rather than listing them. */
 const LIGHT_TYPES = {

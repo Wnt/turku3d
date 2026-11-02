@@ -47,7 +47,7 @@ function segment(mesh:T.InstancedMesh,index:number,a:T.Vector3,b:T.Vector3,radiu
 }
 export function createRaceRig(){
   templates();const m=racerMaterials(),root=new T.Group();root.name='korpi-suspension';
-  root.add(instanced('korpi-links',cylinder,m.frame,24),instanced('korpi-dampers',cylinder,m.shaft,60),instanced('korpi-fittings',cylinder,m.orange,32),instanced('korpi-springs',spring,springMaterial,4),instanced('korpi-calipers',caliper,m.orange,4));
+  root.add(instanced('korpi-links',cylinder,m.alloy,24),instanced('korpi-dampers',cylinder,m.shaft,60),instanced('korpi-fittings',cylinder,m.orange,32),instanced('korpi-springs',spring,springMaterial,4),instanced('korpi-calipers',caliper,m.orange,4));
   return root;
 }
 
