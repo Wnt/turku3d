@@ -51,7 +51,11 @@ def producer_code(dataset):
     constants = ({"ground": (inputs.CELLS, inputs.POINT_MARGIN), "ortho": (inputs.ORTHO_PX,)}).get(
         dataset, ()
     )
-    h = hashlib.sha256(Path(__file__).read_bytes())
+    # Registering a helper for one dataset must not invalidate every other dataset.
+    # Hash the identity algorithm, then only the selected producer definitions below.
+    own = definitions(Path(__file__).read_bytes())
+    h = hashlib.sha256(ast.dump(own['producer_code'], include_attributes=False).encode())
+    h.update(ast.dump(own['definitions'], include_attributes=False).encode())
     h.update(Path(C.__file__).read_bytes())
     h.update(repr(constants).encode())
     for node in selected:

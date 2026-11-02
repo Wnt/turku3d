@@ -38,7 +38,7 @@ def publish(base, root, downloads):
     additions = {}
     hashes = {}
     for directory in downloads:
-        for source in sorted((directory / 'raw').rglob('*')):
+        for source in sorted(p for name in ('raw', 'supplements') for p in (directory / name).rglob('*')):
             if (not source.is_file() or source.name.startswith(".")
                     or source.name in ("MANIFEST.jsonl", "SHA256SUMS")):
                 continue

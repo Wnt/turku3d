@@ -3,10 +3,10 @@
 | File | Source | Licence | Notes |
 |---|---|---|---|
 | `character/player.glb` | MakeHuman assets exported by [Kasper Olesen / CharacterCreator](https://github.com/kblood/CharacterCreator/tree/852e48f316b90a0937234886630e4fb4cdfd1f78/output), plus Quaternius *Universal Animation Library [Standard]* | **CC0 1.0** | Textured autumn player; offline skin retarget to UAL, KTX2 and meshopt. [Licence, provenance and exact rebuild](character/README.md). |
-| `walkers/walkers.bin` | The same CharacterCreator MakeHuman exports (three outfits) on the Quaternius UAL rig | **CC0 1.0** | Ambient walker bodies baked to a vertex animation texture with `scripts/bake-walkers.mjs`; [provenance and rebuild](walkers/README.md). |
+| `walkers/walkers.bin`, `walkers/wardrobe.png` | Pinned CharacterCreator MakeHuman body, clothing, hair and textures; Quaternius UAL rig; original Turku3D parametric bags/caps | **CC0 1.0** source assets; original accessory geometry | 96 anatomical/wardrobe recipes, shared texture atlas and two mesh LODs. [Provenance and reproducible build](walkers/README.md). |
+| Runtime Finnish fleet (`src/actors/fleet/`) | Original parametric geometry and surface details authored for Turku3D | Project-owned | 56 fictional models, three LODs, shared materials; no external vehicle geometry, logos or reference pixels. [Implementation and provenance](../../src/actors/fleet/README.md). |
 | `car/sedan.glb` | Kenney, *Car Kit 3.1*, `Models/GLB format/sedan.glb` + its `Textures/colormap.png` from [Car Kit](https://kenney.nl/assets/car-kit) | **CC0 1.0** ([original license](car/KENNEY-LICENSE.txt)) | Embedded palette with `scripts/prepare-car.mjs`; body/wheel transforms adapted at runtime to the physics dimensions. Separate authored wheel meshes follow suspension, steering and rotation. |
 | `vehicles/scooter.glb` | "Scooter" by MiniPoly, [poly.pizza/m/3vLV1QtLFP](https://poly.pizza/m/3vLV1QtLFP) | **CC BY 3.0** ([licence](https://creativecommons.org/licenses/by/3.0/)) | Attribution: "Scooter" by MiniPoly, CC BY 3.0, modified for Turku3D. Baked to the physics frame and matte material with `scripts/prepare-scooter.mjs`; [source, hashes and rebuild](vehicles/README.md). |
-| `vehicles/truck.glb` | Kenney, *Car Kit 3.1*, `Models/GLB format/truck.glb` + its `Textures/colormap.png` from [Car Kit](https://kenney.nl/assets/car-kit) | **CC0 1.0** ([original license](car/KENNEY-LICENSE.txt)) | The trophy truck: palette embedded, window panes removed and the body repainted orange with `scripts/prepare-truck.mjs`; lifted, stretched, big tyres and the cage at runtime (`src/actors/truck.ts`); [source, hashes and rebuild](vehicles/README.md). |
 | `nature/nature.glb` | Generated for this project by `scripts/build-nature-assets.mjs` (trees, shrubs, hedge, grass, ground cover, impostors) and modelled in Blender through Blender MCP (fence kit). Texture inputs: [ambientCG](https://ambientcg.com) LeafSet002/004/005/010/013/016/019/020/023/024, PineNeedles001, Foliage001/003/006, Bark002/004/009/010, Granite003B (ambientCG, Lennart Demes); [Poly Haven](https://polyhaven.com) pine_bark (Dimitrios Savva), jolcham_oak_bark_01 (Charlotte Baglioni), bark_brown_02 (Rob Tuytel), bark_willow (Dario Barresi, Dimitrios Savva) | **CC0 1.0** inputs; generated geometry and compositions project-owned | Leaf, needle and grass cards composed from cut-out leaf scans; barks recalibrated, birch bark redrawn; impostors baked from our meshes; KTX2 and meshopt. [Sources, hashes, changes and rebuild](nature/README.md). |
 | `ui/*.webp` | Generated for this project with the Codex image runner (`gpt-6-astra`), 2026-10-27; `bg_intro.webp` uses the built-in image model with `bg_pizzeria.webp` as a style reference; `icon_scooter.webp` and `icon_truck.webp` are hand-drawn (`textures/ui-art/icon_scooter.svg`, `icon_truck.svg`) | Project-owned | Shop and intro backgrounds and icons; prompts, job ids and the rebuild in [`src/ui/README.md`](../../src/ui/README.md). Not third-party. |
 
@@ -31,3 +31,10 @@ UAL source archive: https://opengameart.org/sites/default/files/universal_animat
 Archive SHA-256: `18ff1a7215f4852b320203e8aaf02a1578b5c8eef9027fbaedfcedc7b85a3ac2`.
 The pinned trimmed input is recoverable from commit `2d75e2c56c2db4a011f4197fe16f4367c494e0be`;
 the old mannequin is no longer shipped.
+
+## KORPI 440 fictional off-road racer
+
+Original parametric geometry and painted artwork in `src/actors/prerunner/` (2026).
+Copyright 2026 Jonni Madekivi; MIT, as the repository. No downloaded vehicle mesh,
+commercial-game asset, photograph, badge or sponsor artwork is included. Local KOH
+photographic references stay outside the repository under `data/research/prerunner/`.
