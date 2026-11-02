@@ -10,6 +10,8 @@ const PANELS = '#dev-layers, #time-panel';
 /** Developer panel toggles and shortcuts, which work while focus is inside a panel. */
 const PANEL_ACTIONS: readonly Action[] = ['layerPanel', 'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3',
   'timeSpeed4', 'timeHourBack', 'timeHourForward', 'timeMinutesBack', 'timeMinutesForward', 'timeLive'];
+const NO_KEYS: ReadonlySet<string> = new Set();
+const NO_TAPS: Readonly<Actions> = Object.freeze(emptyActions());
 
 /** The only browser input owner. Gameplay sees actions, never keys or device indices. */
 export class Input {
@@ -117,7 +119,7 @@ export class Input {
     this.time += dt;
     const pads = this.focused ? Array.from(navigator.getGamepads?.() ?? []).filter((p): p is Gamepad => !!p && p.connected && p.mapping === 'standard') : [];
     const active = pads.find(p => {
-      const a = mapActions(p, new Set(), this.bindings);
+      const a = mapActions(p, NO_KEYS, this.bindings);
       return ACTIONS.some(k => Math.abs(a[k]) > 0.01);
     });
     this.pad = active ?? pads.find(p => p.index === this.pad?.index) ?? pads[0] ?? null;
@@ -128,7 +130,7 @@ export class Input {
     const touch = this.touch.sample();
     if (this.touch.active) this.source = 'touch';
     for (const a of ACTIONS) if (Math.abs(touch.actions[a]) > Math.abs(next[a])) next[a] = touch.actions[a];
-    const taps = mapActions(null, this.tapped, this.bindings);
+    const taps = this.tapped.size ? mapActions(null, this.tapped, this.bindings) : NO_TAPS;
     this.tapped.clear();
     this.edges.clear();
     this.activity.clear();

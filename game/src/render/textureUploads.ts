@@ -1,18 +1,27 @@
-import type * as THREE from 'three/webgpu';
+import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
 import { shareModelTextures } from '../world/sharedAssets';
 
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
-export function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
+export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set<THREE.Texture> {
+  let frustum: THREE.Frustum | undefined;
+  if (camera) {
+    scene.updateWorldMatrix(true, true);
+    camera.updateWorldMatrix(true, false);
+    frustum = new THREE.Frustum().setFromProjectionMatrix(
+      new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
+      camera.coordinateSystem, camera.reversedDepth);
+  }
   const textures = new Set<THREE.Texture>();
   const visited = new Set<THREE.Material>();
   const nodes = new Set<Node>();
   const pending: Node[] = [];
-  scene.traverse(object => {
+  const visit = (object: THREE.Object3D) => {
     const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh) return;
+    if (!mesh.isMesh || (camera && (!mesh.layers.test(camera.layers)
+      || (mesh.frustumCulled && !frustum!.intersectsObject(mesh))))) return;
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
       if (visited.has(material)) continue;
       visited.add(material);
@@ -21,7 +30,8 @@ export function modelTextures(scene: THREE.Object3D): Set<THREE.Texture> {
         else if (value?.isNode) pending.push(value as Node);
       }
     }
-  });
+  };
+  if (camera) scene.traverseVisible(visit); else scene.traverse(visit);
   // TSL is a shared graph, not a tree. Node.traverse revisits every path through
   // common expressions (exponential for ground shaders), even across material slots.
   while (pending.length) {

@@ -590,8 +590,10 @@ test('one bundle feeds worker validation and collider reuse while model decoding
     checkCollision: async buffer => { checks++; structuredClone(buffer, { transfer: [buffer] }); await validation; },
     retainCollision: (_id, _entry, buffer) => retained.push(buffer),
   });
-  coarse.preload([{ x: 30, z: 30 }], 0);
-  coarse.update(30, 30, 0);
+  const releaseStartup = coarse.preload([{ x: 30, z: 30 }], 0);
+  const scenery = vi.spyOn(coarse.screenshotScenery, 'update');
+  coarse.update(30, 30, 0, undefined, false);
+  expect(scenery).not.toHaveBeenCalled();
   await vi.waitFor(() => expect(checks).toBe(16));
   expect(decoded).toBe(true);
   expect(scene.children).toHaveLength(0);
@@ -602,6 +604,12 @@ test('one bundle feeds worker validation and collider reuse while model decoding
   expect(retained).toHaveLength(16);
   expect(retained.every(buffer => buffer.byteLength === 4)).toBe(true);
   expect(fetched.filter(url => url.endsWith('.col'))).toEqual([`http://localhost/coarse/t0_0_0/${bundleUrl}`]);
+  coarse.update(30, 30, 1);
+  expect(scenery).toHaveBeenCalledOnce();
+  // A multiplayer welcome arriving after the solo menu must be able to stream its remote start.
+  expect(coarse.progressAt(800, 800).loaded).toBe(1);
+  releaseStartup();
+  expect(coarse.progressAt(800, 800).loaded).toBe(0);
 });
 
 test('developer pass comparison swaps only visuals and cancels stale loads', async () => {

@@ -118,3 +118,21 @@ test('page exit beacons the unacknowledged fetch batch as well as queued rows', 
     acknowledge({ ok: true }); await recorder.stop();
   }
 });
+
+test('viewport stats follow renderer resize while start metadata retains its original size', async () => {
+  let width = 800, height = 600;
+  class Observer { static supportedEntryTypes: string[] = []; }
+  const render = { afterFrame: undefined as (() => void) | undefined,
+    renderer: { info: { frame: 1, memory: {} }, getPixelRatio: () => 1, backend: {}, getSize: (out: any) => out.set(width, height) },
+    camera: { position: { toArray: () => [1, 2, 3] }, quaternion: { toArray: () => [0, 0, 0, 1] }, fov: 60 }, perf: {} };
+  vi.stubGlobal('window', { __render: render }); vi.stubGlobal('PerformanceObserver', Observer);
+  vi.stubGlobal('location', { href: 'http://localhost/' }); vi.stubGlobal('navigator', { userAgent: 'test' });
+  vi.stubGlobal('innerWidth', 1280); vi.stubGlobal('innerHeight', 720);
+  vi.stubGlobal('addEventListener', vi.fn()); vi.stubGlobal('removeEventListener', vi.fn());
+  const fetch = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', fetch);
+  const recorder = new DriveCapture({ state: () => ({ paused: false, feet: [0, 0, 0], vel: [0, 0, 0] }) });
+  width = 1600; height = 900; render.afterFrame!(); await recorder.stop();
+  const batches = fetch.mock.calls.map(([, options]) => JSON.parse(options.body));
+  expect(batches.find(batch => batch.meta).meta.viewport).toEqual([800, 600]);
+  expect(batches.flatMap(batch => batch.stats ?? [])[0].viewport).toEqual([1600, 900]);
+});

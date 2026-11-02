@@ -1,4 +1,5 @@
 import { localFeature } from '../core/localOnly';
+import { Vector2 } from 'three/webgpu';
 
 // The recorder boundary also supports the QA replay host, which exposes the same state shape as play.
 type Host = Record<string, any>;
@@ -24,6 +25,7 @@ export class DriveCapture {
   private profilerStart = 0;
   private profilerTimer?: ReturnType<typeof setTimeout>;
   private timer: ReturnType<typeof setInterval>;
+  private viewport = new Vector2();
   private lastPose = -Infinity;
   private lastStat = -Infinity;
   private paused: boolean;
@@ -41,7 +43,7 @@ export class DriveCapture {
       start: { performanceNow: performance.now(), wall: Date.now() }, replay: game.replay?.snapshot?.() ?? null,
       hour: game.dayClock?.hour ?? null, params: game.params, backend: game.backend, ua: navigator.userAgent, three: game.three,
       clockMode: game.dayClock?.captureMode?.() ?? null,
-      quality: game.params?.quality, pixelRatio: r.renderer.getPixelRatio(), viewport: [innerWidth, innerHeight],
+      quality: game.params?.quality, pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport(),
       gpu: (() => { const info = (r.renderer.backend as Host)?.device?.adapterInfo; return info ? Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(k => [k, info[k] ?? null])) : null; })(), ...extra };
     this.mark(this.paused ? 'pause' : 'resume');
     window.__render!.afterFrame = this.tick;
@@ -71,6 +73,9 @@ export class DriveCapture {
     addEventListener('pageshow', this.show);
     this.flush();
   }
+  private renderViewport() {
+    return window.__render!.renderer.getSize?.(this.viewport).toArray() ?? [innerWidth, innerHeight];
+  }
   mark(k: 'pause' | 'resume') { this.rows.marks.push({ k, t: performance.now() }); this.paused = k === 'pause'; }
   private frame() {
     const r = window.__render!, perf = r.perf, cam = r.camera, t = performance.now(), g = this.game;
@@ -94,7 +99,7 @@ export class DriveCapture {
       this.rows.stats.push({ t: R(t, 1), heap: (performance as any).memory?.usedJSHeapSize ?? null, geometries: m.geometries, textures: m.textures,
         visModels: s.visModels, visTris: s.visTris, tilesSettled: s.tilesSettled, frameEma: R(s.frameMs, 2),
         coarse: coarse?.entries ? [...coarse.entries.values()].reduce((o: Host, e: any) => (o[e.state] = (o[e.state] ?? 0) + 1, o), {}) : null,
-        pixelRatio: r.renderer.getPixelRatio(), viewport: this.meta.viewport });
+        pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport() });
     }
   }
   private startProfiler() {
