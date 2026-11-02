@@ -25,6 +25,10 @@ Time edits also reposition the directional sun around its existing target, so a 
 same lighting and shadow direction as the visible sky without requiring another camera move.
 Daylight PMREM omits the solar disc, avoiding a second unshadowed source of sunlight in rough reflections.
 The visible disc is unchanged; the bake blends to the established twilight behaviour between 12° and 6°.
+`Environment.setWeather()` derives sun, diffuse fill, exposure and fog from the clear timecycle sample on every
+change. Clear/broken cloud preserve that sample exactly; overcast shifts direct light into diffuse fill. Night
+light levels stay calibrated while fog can shorten visibility. Sky weather is forwarded to the atmosphere hook;
+the weather controller schedules IBL refreshes rather than baking on every render frame.
 `renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
 4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
 re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,
