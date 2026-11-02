@@ -141,12 +141,14 @@ export class Environment {
   /** Shared weather changes uniforms without accumulating multipliers or changing the light set. */
   setWeather(sample: Readonly<WeatherSample>) {
     this.weather = sample;
-    this.atmosphere.setWeather(sample);
     const state = `${sample.overcast},${sample.rain},${sample.fog},${sample.cloudCover},${sample.wind}`;
-    if (state === this.weatherState) return;
-    this.weatherState = state;
-    this.applyLighting();
-    this.iblDirty = true;
+    if (state !== this.weatherState) {
+      this.weatherState = state;
+      this.applyLighting();
+      this.iblDirty = true;
+    }
+    // Pass the final fog colour after modulation, including on a fixed QA sun/time.
+    this.atmosphere.setWeather(sample, this.scene.fog?.color);
   }
 
   private applyLighting() {
