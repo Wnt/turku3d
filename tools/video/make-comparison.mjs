@@ -70,6 +70,16 @@ try{
  await prepareIntegration();
  fs.writeFileSync(path.join(out,'builds.json'),JSON.stringify({pipeline:git(repo,'rev-parse','HEAD'),production,integration:ref,alias,left,right,created:new Date().toISOString()},null,2));
  const capture=[path.join(repo,'tools/video/comparison-capture.mjs'),'--left',left,'--right',right,'--shots',shots,'--out',out,'--revision',ref];
+ if(args.includes('--reuse-production')) {
+  const config=JSON.parse(fs.readFileSync(shots));
+  for(const shot of config.shots) {
+   const file=path.join(out,'clips',`${shot.id}-left.json`), r=JSON.parse(fs.readFileSync(file));
+   if(r.frames!==240||r.width!==960||r.height!==1080||JSON.stringify(r.shot)!==JSON.stringify(shot)||r.errors.length)
+    throw Error(`Production clip cannot be reused: ${shot.id}`);
+   if(!fs.existsSync(file.replace(/json$/,'mp4')))throw Error(`Missing production clip: ${shot.id}`);
+  }
+  capture.push('--side','right');
+ }
  if(!args.includes('--skip-preview'))await run('node',[...capture,'--preview','--right-tiles','http://127.0.0.1:5966']);
  // The real resident window can exceed the minimum safety ring. Rebuild every observed detailed tile too.
  const preview=path.join(out,'preview');if(fs.existsSync(preview))for(const name of fs.readdirSync(preview).filter(n=>n.endsWith('-right.json'))){const r=JSON.parse(fs.readFileSync(path.join(preview,name)));tiles.push(...r.resident.filter(r=>!r.preview).map(r=>r.id));}

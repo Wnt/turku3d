@@ -28,17 +28,18 @@ const browserTurnStarted=Date.now();
 const iso=shot=>`${shot.date??"2026-09-08"}T${String(Math.floor(shot.hour)).padStart(2,'0')}:${String(Math.round(shot.hour%1*60)).padStart(2,'0')}:00+03:00`;
 const log=m=>console.log(new Date().toISOString(),m);
 async function setup(side,shot){
- const p=await ctx.newPage();pages[side]=p;await p.setViewportSize({width,height});
+ const p=(cdpURL?ctx.pages().find(p=>p.url().startsWith(urls[side])):null)??await ctx.newPage();pages[side]=p;await p.setViewportSize({width,height});
  if(side===1&&opt('--right-tiles',''))await p.route('**/coarse/**',async route=>{
   const target=new URL(route.request().url());const base=new URL(opt('--right-tiles'));target.protocol=base.protocol;target.host=base.host;
   const response=await route.fetch({url:target.href,timeout:120000});await route.fulfill({response});
  });
  p.on('pageerror',e=>failures[side].push(e.message));
+ p.on('console',m=>{if(side===1&&m.type()==='error')failures[side].push(m.text());});
  p.on('request',r=>{if(/\.(glb|ktx2|col|png|jpg)(\?|$)/.test(r.url()))inflight[side].add(r);});
  p.on('requestfinished',r=>inflight[side].delete(r));p.on('requestfailed',r=>{inflight[side].delete(r);if(!r.failure()?.errorText.includes('ABORTED'))failures[side].push(r.url()+': '+r.failure()?.errorText);});
  p.on('response',async r=>{if(/\/t0_[^/]+\/manifest.json/.test(r.url())){const j=await r.json().catch(()=>null);if(j?.visual)records[side].set(j.tile,j);}});
  sessions[side]=await ctx.newCDPSession(p);
- const url=new URL(urls[side]);Object.entries({cam:shot.from.join(','),time:iso(shot),hud:0,quality:'high',motion:1,traffic:0,walkers:0}).forEach(([k,v])=>url.searchParams.set(k,v));
+ const url=new URL(urls[side]);Object.entries({cam:shot.from.join(','),time:iso(shot),hud:0,quality:'high',motion:1,traffic:side===1?Number(opt('--traffic','40')):0,walkers:side===1?Number(opt('--walkers','100')):0}).forEach(([k,v])=>url.searchParams.set(k,v));
  log(`loading ${side?'new':'production'} ${url}`);await p.goto(url.href,{waitUntil:'domcontentloaded',timeout:120000});
  await p.waitForFunction(()=>!!window.__qaMove,null,{timeout:300000});
  await p.addStyleTag({content:'body > :not(canvas){display:none!important}html,body,canvas{cursor:none!important}'});
@@ -62,7 +63,7 @@ async function setup(side,shot){
 async function settle(side,shot,u){
  const p=pages[side];
  await p.evaluate(({pose,time,weather,coverage,side})=>{
-  const v=window.__video;v.locked=false;performance.now=v.nativeNow;window.__game.clock.simSeconds=0;
+  const v=window.__video;v.locked=false;performance.now=v.nativeNow;if(side===0)window.__game.clock.simSeconds=0;
   const c=window.__videoCoarse;
   if(side===0&&c.preload)c.preload(coverage.map(id=>{const [,i,j]=id.split('_').map(Number);return{x:i*250+125,z:j*250+125};}),0);
   // The initial camera can leave collision-only lookahead meshes outside this route.
@@ -76,7 +77,7 @@ async function settle(side,shot,u){
   state=await p.evaluate(()=>({ready:window.__qaReady,error:window.__qaError,
    tiles:[...window.__videoCoarse.entries].map(([id,e])=>({id,pass:e.pass,hash:e.visualHash,model:!!e.model,preview:!!e.preview,state:e.state,stale:e.stale})),
    vegetation:window.__game.vegetation?.pending?.size??0,scenery:window.__game.scenery?.progress}));
-  if(state.error?.startsWith('timeout: tiles did not settle')){await p.evaluate(pose=>{window.__game.clock.simSeconds=0;window.__qaMove(pose);},poseAt(shot,u));}
+  if(state.error?.startsWith('timeout: tiles did not settle')){await p.evaluate(pose=>{window.__qaMove(pose);},poseAt(shot,u));}
   else if(state.error)throw Error(`${shot.id} side ${side}: ${state.error}`);
   const wanted=tilesForShot({...shot,from:Object.values(poseAt(shot,u)),to:Object.values(poseAt(shot,u))});
   const full=wanted.every(id=>state.tiles.some(e=>e.id===id&&e.model&&e.pass==='full'&&!e.preview&&(preview||side===0||!e.stale)));
@@ -121,7 +122,7 @@ async function frame(side,shot,u,frame){
  return pages[side].evaluate(({pose,frame,fps,mode,distance,speed,side})=>new Promise((resolve,reject)=>{
   const v=window.__video,r=window.__render,g=window.__game;
   v.locked=true;v.time=v.baseNow+10000+(frame+60)*1000/fps;if(side===0)performance.now=()=>v.time;
-  if(g.dayClock.sharedNow)g.dayClock.sharedNow=()=>v.baseDate+(frame+60)*1000/fps;
+  if(side===0&&g.dayClock.sharedNow)g.dayClock.sharedNow=()=>v.baseDate+(frame+60)*1000/fps;
   window.__dev?.rainEffects?.setPhaseSeconds?.((frame+60)/fps);
   window.__qaMove(pose);
   v.updateParked?.();
@@ -135,8 +136,8 @@ async function frame(side,shot,u,frame){
    }
   }
   const timer=setTimeout(()=>reject(Error('Frame submission timeout')),30000);
-  r.beforeFrame=()=>{g.clock.simSeconds=(frame+60)/fps-1/fps;return true;};
-  r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);resolve({pose,simSeconds:g.clock.simSeconds,frames:g.clock.frames,coverage:side===1?window.__videoCoarse.viewStatus(r.camera.position.x,r.camera.position.z):undefined});};
+  r.beforeFrame=()=>{if(side===1)g.replay.seek((frame+60)/fps);else g.clock.simSeconds=(frame+60)/fps-1/fps;return true;};
+  r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);resolve({pose,simSeconds:g.clock.simSeconds,frames:g.clock.frames,population:side===1?g.population.snapshot():undefined,coverage:side===1?window.__videoCoarse.viewStatus(r.camera.position.x,r.camera.position.z):undefined});};
  }),{pose,frame,fps:config.fps,mode:shot.mode,distance,speed,side});
 }
 try{
@@ -156,6 +157,10 @@ try{
    for(const u of [1,0])await settle(side,shot,u);
    const parked=await installParked(pages[side],shot);
    const actors=await installActor(side,shot);
+   if(side===1)await pages[side].evaluate(async epochMs=>{
+    if(!window.__game.replay||!window.__game.population)throw Error('New side requires game-owned replay/NPC simulation');
+    await window.__game.replay.reset({epochMs,seed:20261102});
+   },Date.parse(iso(shot)));
    const middle=Math.floor(config.duration*config.fps/2),midpoint=middle/(Math.round(config.duration*config.fps)-1);
    for(let k=-32;k<0;k++)await frame(side,shot,still?midpoint:0,still?middle+k:k);
    const resident=await pages[side].evaluate(()=>[...window.__videoCoarse.entries].filter(([,e])=>e.model&&!e.preview).map(([id,e])=>({id,hash:e.visualHash,pass:e.pass,preview:!!e.preview})));
@@ -177,6 +182,7 @@ try{
     let state=await frame(side,shot,u,index);
     if(side===1&&!state.coverage.ready){await settle(side,shot,u);state=await frame(side,shot,u,index);}
     if(side===1&&!state.coverage.ready)throw Error(`${name}: frame ${f} has incomplete world coverage`);
+    if(side===1&&!state.population.ready)throw Error(`${name}: frame ${f} has incomplete NPC ground sampling`);
     const png=await sessions[side].send('Page.captureScreenshot',{format:'jpeg',quality:97,captureBeyondViewport:false});
     const bytes=Buffer.from(png.data,'base64');
     if(preview||f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${name}-${still?'still':preview?f:'sample'}.jpg`),bytes);
