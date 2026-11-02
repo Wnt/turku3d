@@ -315,7 +315,9 @@ def describe(reference, directory, output, model="gpt-6-astra"):
     d["reference_hashes"] = [r["sha256"] for r in reference["images"]]
     d["evidence_hash"] = evidence_hash(reference)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+    temporary = output.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+    temporary.replace(output)
     return d
 
 

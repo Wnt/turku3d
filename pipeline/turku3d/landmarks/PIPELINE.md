@@ -25,7 +25,9 @@ runner writes only dimensional/material parameters and observations. Missing
 images produce a retryable error, never a fabricated description. No paid API or
 new key is used. Descriptions are stored in `data/landmark-descriptions/`, keyed by
 stable building ID or OSM identity. Reviewed parameter-only descriptions can also
-be committed under `descriptions/`.
+be committed under `descriptions/`. Reviewed repository parameters take precedence
+over automatic estimates; explicit work-directory parameters take precedence over
+both for development. Automatic estimates require verified reference identity.
 
 `appearance.wall_meshes` returns `None` for an ordinary building, allowing the
 facades module to handle it. Landmark materials bypass generic residential-window

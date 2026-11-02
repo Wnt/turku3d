@@ -51,19 +51,26 @@ def manifest_current(manifest):
 
 def resolve(building):
     key = str(building.facade_key)
-    # Reviewed local measurements override distributed parameters without erasing them.
+    # Automatically estimated parameters seed new landmarks. Reviewed distributed
+    # parameters win until a deliberate local development override is supplied.
     osm = getattr(building, "attributes", {}).get("osm_id", "").replace("/", "_")
     paths = [
-        ROOT / f"{key}.json",
         C.data_root() / "landmark-descriptions" / f"{osm}.json",
         C.data_root() / "landmark-descriptions" / f"{key}.json",
+        ROOT / f"{key}.json",
         C.work_root() / "landmark-descriptions" / f"{osm}.json",
         C.work_root() / "landmark-descriptions" / f"{key}.json",
     ]
     result = None
     for path in paths:
         if path.is_file():
-            result = json.loads(path.read_text())
+            candidate = json.loads(path.read_text())
+            if path.parent == C.data_root() / "landmark-descriptions" and (
+                candidate.get("reference_match") != "verified"
+                or candidate.get("reference_confidence", 0) < 0.5
+            ):
+                continue
+            result = candidate
     if result is not None:
         if (
             result.get("building_id")
