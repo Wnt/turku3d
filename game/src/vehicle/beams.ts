@@ -38,7 +38,7 @@ export class VehicleBeams {
       light.decay = mode === 2 ? 1.1 : 1.8;
       light.distance = range;
       light.userData.mode = mode; light.userData.depths = this.depths[i];
-      light.intensity = mode && night > .001 ? 200 * night * (scooter ? .5 : 1) : 0;
+      light.intensity = mode && night > .001 ? (mode === 2 ? 150 : 140) * night * (scooter ? .5 : 1) : 0;
     });
     if (!mode || night < .001 || this.querying || now < this.nextQuery) return;
     this.nextQuery = now + 100; this.querying = true;
