@@ -44,8 +44,9 @@ export interface Lane {
   /** Stable 8-hex id within the tile. */
   id: string;
   index: number;
-  /** Lane number within its direction (0 = kerb side). */
+  /** Lane number within its direction (0 = centre/divider side). */
   k: number;
+  laneCount: number;
   /** x,z pairs in travel order, offset from the centreline and trimmed at junctions. */
   points: Float64Array;
   cum: Float64Array;
@@ -228,7 +229,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
         const n = points.length / 2;
         const start = endOf(startNode, points[2] - points[0], points[3] - points[1]);
         const end = endOf(endNode, points[2 * n - 2] - points[2 * n - 4], points[2 * n - 1] - points[2 * n - 3]);
-        const lane: Lane = { tile, id, index: lanes.length, k, points, cum, length, ys: trimmedYs, speed: s.speed, flow: s.flow,
+        const lane: Lane = { tile, id, index: lanes.length, k, laneCount: m, points, cum, length, ys: trimmedYs, speed: s.speed, flow: s.flow,
           vEff: s.speed, tau: length / s.speed, start, end, phase: 0, next: null, connector: null, wait: 0, delta: 0, prev: null,
           seamNext: null, seamPrev: null, origin: null as unknown as Lane, shift: 0, cycle: 0, anchor: NO_ANCHOR, bbox: bboxOf(points) };
         lanes.push(lane);
@@ -254,9 +255,14 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       const [ax, az] = tangentAtEnd(a), [bx, bz] = tangentAtStart(b);
       const theta = Math.atan2(ax * bz - az * bx, ax * bx + az * bz);
       const uTurn = Math.abs(theta) > 2.6;
+      // Parallel through lanes keep their ordinal across the junction instead of swapping sides.
+      if (Math.abs(theta) < 0.5 && a.laneCount === b.laneCount && a.k !== b.k) continue;
       let cost = Math.abs(theta) < 0.5 ? 0 : theta > 0 ? 0.35 : 0.5;
       if (uTurn) cost = deadEnd ? 0 : 4;
       else if (Math.abs(theta) > 2.0) cost = 1.5;
+      if (Math.abs(theta) >= 0.5 && !uTurn) {
+        cost += theta > 0 ? 3 * (a.laneCount - 1 - a.k) + 2 * (b.laneCount - 1 - b.k) : 3 * a.k + 2 * b.k;
+      }
       cost += MISMATCH * Math.abs(Math.log2(Math.max(1, a.flow) / Math.max(1, b.flow)));
       pairs.push({ cost: cost + 0.8 * hash01('turn', tile, node, a.id, b.id), a, b });
     }
