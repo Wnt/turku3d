@@ -1,4 +1,5 @@
 import type { WebGPURenderer } from 'three/webgpu';
+import { installGpuPassTimestamps, type GpuPass, type GpuPassTimes } from './gpuPasses';
 
 // TypeScript 7's DOM library includes WebGPU interfaces but omits these browser constant namespaces.
 declare const GPUBufferUsage: Readonly<{ QUERY_RESOLVE: number; COPY_SRC: number; COPY_DST: number; MAP_READ: number; STORAGE: number }>;
@@ -14,7 +15,9 @@ interface TimerExtension { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number }
 interface Slot {
   query?: GPUQuerySet; resolve?: GPUBuffer; read?: GPUBuffer; glQuery?: WebGLQuery;
   pending: Promise<void> | null;
+  passes: GpuPass[]; overflow: boolean;
 }
+const PASS_LIMIT = 128, QUERY_COUNT = 2 + PASS_LIMIT * 2;
 
 /** Whole-frame GPU interval. Independent readback slots prevent reusing queries still in flight.
  * WebGPU markers also include command-copy work and GPU idle gaps between this frame's submissions.
@@ -32,9 +35,11 @@ export class GpuFrameTimer {
   private markerPipeline?: GPUComputePipeline;
   private markerBindings?: GPUBindGroup;
   private disjointEpoch = 0;
+  private releasePassHooks?: () => void;
   skipped = 0;
+  passSkipped = 0;
 
-  constructor(renderer: WebGPURenderer, private accept: (frame: number, ms: number) => void) {
+  constructor(renderer: WebGPURenderer, private accept: (frame: number, ms: number, passes?: GpuPassTimes) => void) {
     const backend = renderer.backend as unknown as TimerBackend;
     // Request the timestamp feature through renderer.init(), then own whole-frame queries here.
     backend.trackTimestamp = false;
@@ -48,6 +53,14 @@ export class GpuFrameTimer {
       } });
       this.markerBindings = this.device.createBindGroup({ layout: this.markerPipeline.getBindGroupLayout(0),
         entries: [{ binding: 0, resource: { buffer: this.markerBuffer } }] });
+      this.releasePassHooks = installGpuPassTimestamps(renderer, name => {
+        const slot = this.active;
+        if (!slot) return undefined;
+        if (slot.passes.length >= PASS_LIMIT) { slot.overflow = true; return undefined; }
+        const index = 2 + slot.passes.length * 2;
+        slot.passes.push(name);
+        return { querySet: slot.query!, beginningOfPassWriteIndex: index, endOfPassWriteIndex: index + 1 };
+      });
     }
     else if (backend.gl) {
       this.gl = backend.gl;
@@ -56,6 +69,7 @@ export class GpuFrameTimer {
   }
 
   get status() { return this.error ?? (this.device || this.extension ? 'timestamp-query' : 'unsupported'); }
+  get passStatus() { return this.error ?? (this.releasePassHooks ? 'timestamp-query' : 'unsupported'); }
 
   private marker(encoder: GPUCommandEncoder, timestampWrites: GPUComputePassTimestampWrites) {
     const pass = encoder.beginComputePass({ timestampWrites });
@@ -67,13 +81,13 @@ export class GpuFrameTimer {
     const free = this.slots.find(s => s.pending === null);
     if (free) return free;
     // An unlocked benchmark can submit its complete short route before Chrome delivers readbacks.
-    // Grow lazily; the bounded worst case uses 68 KiB of GPU resolve/readback buffers.
+    // Grow lazily; frame-owned pass queries/readbacks remain bounded (about 1.1 MiB).
     if (this.slots.length >= 256) { this.skipped++; return null; }
-    const slot: Slot = { pending: null };
+    const slot: Slot = { pending: null, passes: [], overflow: false };
     if (this.device) {
-      slot.query = this.device.createQuerySet({ type: 'timestamp', count: 2 });
-      slot.resolve = this.device.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
-      slot.read = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+      slot.query = this.device.createQuerySet({ type: 'timestamp', count: QUERY_COUNT });
+      slot.resolve = this.device.createBuffer({ size: Math.ceil(QUERY_COUNT * 8 / 256) * 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC });
+      slot.read = this.device.createBuffer({ size: QUERY_COUNT * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     } else if (this.gl && this.extension) slot.glQuery = this.gl.createQuery()!;
     this.slots.push(slot);
     return slot;
@@ -84,6 +98,7 @@ export class GpuFrameTimer {
     this.active = this.slot();
     this.activeFrame = frame;
     if (!this.active) return;
+    this.active.passes = []; this.active.overflow = false;
     if (this.device) {
       const encoder = this.device.createCommandEncoder({ label: 'frame-timer-start' });
       this.marker(encoder, { querySet: this.active.query!, beginningOfPassWriteIndex: 0 });
@@ -96,15 +111,25 @@ export class GpuFrameTimer {
     this.active = null;
     if (!slot) return;
     let measurement: Promise<number | null>;
+    let passTimes: GpuPassTimes | undefined;
     if (this.device) {
       const encoder = this.device.createCommandEncoder({ label: 'frame-timer-end' });
       this.marker(encoder, { querySet: slot.query!, endOfPassWriteIndex: 1 });
-      encoder.resolveQuerySet(slot.query!, 0, 2, slot.resolve!, 0);
-      encoder.copyBufferToBuffer(slot.resolve!, 0, slot.read!, 0, 16);
+      const count = 2 + slot.passes.length * 2;
+      encoder.resolveQuerySet(slot.query!, 0, count, slot.resolve!, 0);
+      encoder.copyBufferToBuffer(slot.resolve!, 0, slot.read!, 0, count * 8);
       this.device.queue.submit([encoder.finish()]);
       measurement = slot.read!.mapAsync(GPUMapMode.READ).then(() => {
         const values = new BigUint64Array(slot.read!.getMappedRange());
         const ms = Number(values[1] - values[0]) / 1e6;
+        if (this.releasePassHooks && !slot.overflow) {
+          passTimes = {};
+          for (const [i, name] of slot.passes.entries()) {
+            const start = values[2 + i * 2], end = values[3 + i * 2];
+            if (end < start) { passTimes = undefined; this.passSkipped++; break; }
+            passTimes[name] = (passTimes[name] ?? 0) + Number(end - start) / 1e6;
+          }
+        } else if (slot.overflow) this.passSkipped++;
         slot.read!.unmap();
         return ms;
       });
@@ -128,7 +153,7 @@ export class GpuFrameTimer {
       });
     }
     slot.pending = measurement.then(ms => {
-      if (ms !== null && Number.isFinite(ms) && ms >= 0) this.accept(frame, ms);
+      if (ms !== null && Number.isFinite(ms) && ms >= 0) this.accept(frame, ms, passTimes);
     }).catch((error: unknown) => { this.error = String(error); }).finally(() => { slot.pending = null; });
   }
 
@@ -156,6 +181,7 @@ export class GpuFrameTimer {
   }
 
   async dispose() {
+    this.releasePassHooks?.();
     await this.flush();
     for (const slot of this.slots) {
       slot.query?.destroy(); slot.resolve?.destroy(); slot.read?.destroy();
