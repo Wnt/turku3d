@@ -93,6 +93,8 @@ DEPENDENCIES = {
     "boats": ("boat_inputs.py", "garden_inputs.py", "roofs.py", "../spatial.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
+    "street_profiles": ("street_survey.py", "../spatial.py",
+                        "../ground/curbs.py", "../ground/points.py", "../ground/inputs.py"),
     "appearance": ("register.py", "../spatial.py"),
     "register": ("register.py",),
     "poles": (
@@ -143,6 +145,7 @@ class Inputs:
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
     street_finishes: list = ()  # city visual finishes; never collision material ids
+    street_profiles: list = ()  # lidar-fitted connected road/kerb/sidewalk geometry
     register: dict = field(default_factory=dict)
     kerb_parking: dict = field(default_factory=dict)  # sign posts, stops, permit lines for kerb bays
     tunnels: list = ()  # OSM full tunnel ways, with tags
@@ -479,7 +482,7 @@ def _save(path: Path, key: str, value) -> None:
 
 def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
-    from . import bridge_survey
+    from . import bridge_survey, street_survey
 
     laz, missing = sources.lidar_paths(tile)
     ortho = None if first_pass else sources.ortho_source(tile)
@@ -521,6 +524,10 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
+        # The quick preview does not wait for dense survey fitting; full tiles
+        # refine both the visible terrain and collision from the same profile.
+        "street_profiles": ([wfs[1][1], *street_survey.source_paths(tile)]
+                            if not first_pass and wfs[1][1] else []),
         "appearance": [
             osm,
             wfs[0][1],
@@ -585,6 +592,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .kerbs import prepare as prepare_kerbs
 
         return prepare_kerbs(tile, paths[0])
+    if dataset == "street_profiles":
+        from .street_survey import prepare as prepare_profiles
+
+        return prepare_profiles(tile, paths[0], paths[1:]) if paths else []
     if dataset == "markings":
         from .surfaces import mapped_paint
 
@@ -713,6 +724,7 @@ def gather(
             "surfaces",
             "markings",
             "kerbs",
+            "street_profiles",
             "appearance",
             "register",
             "ortho",
@@ -811,6 +823,7 @@ def gather(
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),
         street_finishes=wfs["street_finishes"],
+        street_profiles=values["street_profiles"] or (),
         register=values["register"],
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),
