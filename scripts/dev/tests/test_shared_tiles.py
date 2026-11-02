@@ -135,6 +135,14 @@ class FarmTests(unittest.TestCase):
         self.assertFalse((farm.output(GEN) / 't0_0_0/ready.json').exists())
         self.assertEqual(farm.metrics['failed'], 1)
 
+    def test_retired_generator_is_not_requeued_by_old_clients(self):
+        farm = self.farm()
+        farm_module.atomic_json(self.root / 'retired.json', {REV: 'manifest serialization fixed in next commit'})
+        status, result = farm.request(REV, 't0_0_0')
+        self.assertEqual(status, 422)
+        self.assertEqual(result['state'], 'revision-retired')
+        self.assertFalse(farm.jobs)
+
     def test_disk_eviction_preserves_alias_and_running_generations(self):
         free = [100 * farm_module.GIB]
         farm = self.farm(free=lambda: free[0])
@@ -239,6 +247,23 @@ class FarmTests(unittest.TestCase):
         farm.make_room(27 * farm_module.GIB)
         self.assertFalse(farm.output(GEN).exists())
         self.assertTrue((self.root / 'revisions' / REV / 'revision.json').exists())
+
+    def test_client_revision_retains_source_overlay_and_finished_product(self):
+        farm = self.farm()
+        source = 'e' * 64
+        farm_module.atomic_json(self.root / 'sources/versions' / source / 'source-version.json',
+                                dict(version=source, files={}))
+        first = farm.register(REV, 'integration', source)
+        farm.request(first['revision'], 't0_0_0')
+        self.wait(farm)
+        farm_module.atomic_json(self.root / 'revisions' / REV2 / 'revision.json',
+                                dict(revision=REV2, generation=GEN))
+        advanced = farm.register(REV2, 'integration')
+        self.assertEqual(advanced['source_version'], source)
+        self.assertEqual(advanced['generation'], first['generation'])
+        self.assertEqual(farm.request(advanced['revision'], 't0_0_0')[0], 200)
+        self.assertEqual(farm.metrics['builds'], 1)
+        self.assertEqual(farm.register(advanced['revision'], 'integration'), advanced)
 
     def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
         release = threading.Event()

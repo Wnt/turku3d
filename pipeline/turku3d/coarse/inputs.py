@@ -53,6 +53,7 @@ DEPENDENCIES = {
     ),
     "wfs": (
         "roofs.py",
+        "street_materials.py",
         "../buildings/source_surfaces.py",
         "../ground/materials.py",
         "../spatial.py",
@@ -347,7 +348,7 @@ def prepare_wfs(
 ) -> dict:
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
-    from .ground_finishes import street_finish
+    from .street_materials import street_finish
 
     shells = buildings(bldg, tile, context=True) if bldg else []
     if shells and roof_paths:
@@ -535,10 +536,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
-        # The quick preview does not wait for dense survey fitting; full tiles
-        # refine both the visible terrain and collision from the same profile.
-        "street_profiles": ([wfs[1][1], *street_survey.source_paths(tile)]
-                            if not first_pass and wfs[1][1] else []),
+        # Profiles change physical terrain, so both passes share the same fit.
+        "street_profiles": [wfs[1][1], *street_survey.source_paths(tile)] if wfs[1][1] else [],
         "appearance": [
             osm,
             wfs[0][1],
@@ -739,7 +738,6 @@ def gather(
             "surfaces",
             "markings",
             "kerbs",
-            "street_profiles",
             "appearance",
             "register",
             "ortho",

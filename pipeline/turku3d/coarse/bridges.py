@@ -665,6 +665,7 @@ def produce(tile, grid_pos, inputs):
                 sample_ground,
                 [*blocked, obstacles.buffer(0.6)],
                 footprint_poly,
+                obstacles=obstacles.buffer(0.6),
             )
         )
         # Blend only the approaches into the ground. The entire span below stays traversable.
