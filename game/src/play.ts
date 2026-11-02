@@ -25,7 +25,7 @@ import { deadlineProgress, musicMuffle, musicScene } from './audio/music/playSta
 import { GameplayAudio } from './audio/gameplay';
 import { Haptics } from './input/haptics';
 import { VoicePlayer } from './audio/voice';
-import { ControlsHelp, controlsHelp } from './ui/controlsHelp';
+import { ControlsHelp } from './ui/controlsHelp';
 import { loading } from './core/loading';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
@@ -122,7 +122,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const introDialog = new IntroDialog(document.body, voice);
   if (!hot?.audio) audio.setMusicState('menu');
   const hud = new Hud(hudEl);
-  const helpLearning = new ControlsHelp();
+  const helpLearning = new ControlsHelp(document.getElementById('help')!);
   if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
@@ -631,9 +631,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     });
     input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden'
       : menuOpen || missions.shop || pauseMenu.open ? 'menu' : paused ? 'paused' : recovery.lost ? 'lost' : mode);
-    const help = document.getElementById('help')!;
-    help.hidden = startScreen.active || helpLearning.hidden(mode, !!fly?.active);
-    help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
+    helpLearning.render(input, mode, !!fly?.active, paused, !!recovery.lost, !startScreen.active, now);
     world.loadingScreen.update(!startScreen.active, coarse?.status);
     perf.end();
     window.__render?.afterFrame?.();

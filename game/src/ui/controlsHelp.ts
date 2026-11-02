@@ -22,14 +22,20 @@ const GROUPS = {
     interact: ['interact'], camera: ['cameraReset'], map: ['map'], pause: ['pause'] },
 } satisfies Record<string, Record<string, Action[]>>;
 type HelpMode = keyof typeof GROUPS;
+const PROMPTS = Object.fromEntries(Object.entries(GROUPS).map(([mode, groups]) =>
+  [mode, { keys: Object.keys(groups), groups: Object.entries(groups) }])) as
+  Record<HelpMode, { keys: string[]; groups: [string, Action[]][] }>;
+const NO_PRESSES: readonly string[] = [];
 const STORAGE_KEY = 'turku3d.controls-help.v1';
 
 /** Per-mode browser memory. Menus/paused time do not spend the minute; held buttons do not count as new uses. */
 export class ControlsHelp {
   private progress: Partial<Record<HelpMode, HelpProgress>> = {};
-  private last: { time: number; mode: HelpMode } | null = null;
+  private lastMode: HelpMode | null = null;
+  private lastTime = 0;
   private stored = '';
-  constructor() {
+  private rendered: { source: Input['source']; mode: 'foot' | 'car'; flying: boolean; paused: boolean; lost: boolean; at: number } | null = null;
+  constructor(private element: HTMLElement) {
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
       for (const mode of Object.keys(GROUPS) as HelpMode[]) {
@@ -44,23 +50,38 @@ export class ControlsHelp {
 
   update(input: Input, mode: 'foot' | 'car', flying: boolean, active: boolean, now: number) {
     const current: HelpMode = mode === 'car' ? 'car' : flying ? 'fly' : 'foot';
-    const groups: Record<string, Action[]> = GROUPS[current];
-    const row = this.progress[current] ?? { counts: {}, elapsedMs: 0 };
-    const hidden = helpHidden(row, Object.keys(groups));
-    if (active && !hidden) {
-      const elapsed = this.last?.mode === current ? now - this.last.time : 0;
-      const pressed = Object.entries(groups).filter(([, actions]) => actions.some(a => input.activity.has(a))).map(([key]) => key);
+    const { keys, groups } = PROMPTS[current];
+    const row = this.progress[current] ??= { counts: {}, elapsedMs: 0 };
+    if (helpHidden(row, keys)) { this.lastMode = null; return; }
+    if (active) {
+      const elapsed = this.lastMode === current ? now - this.lastTime : 0;
+      const pressed = input.activity.size ? groups.filter(([, actions]) => actions.some(a => input.activity.has(a))).map(([key]) => key) : NO_PRESSES;
       if (elapsed > 0 || pressed.length) {
-        this.progress[current] = recordHelp(row, pressed, elapsed);
-        this.persist();
+        const next = this.progress[current] = recordHelp(row, pressed, elapsed);
+        if (next.counts !== row.counts || Math.floor(next.elapsedMs / 1000) !== Math.floor(row.elapsedMs / 1000)) this.persist();
       }
     }
-    this.last = active ? { time: now, mode: current } : null;
+    this.lastMode = active ? current : null;
+    this.lastTime = now;
   }
 
   hidden(mode: 'foot' | 'car', flying: boolean) {
     const current = mode === 'car' ? 'car' : flying ? 'fly' : 'foot';
-    return helpHidden(this.progress[current] ?? { counts: {}, elapsedMs: 0 }, Object.keys(GROUPS[current]));
+    const row = this.progress[current];
+    return row ? helpHidden(row, PROMPTS[current].keys) : false;
+  }
+
+  /** State changes update immediately; a periodic refresh also covers in-place binding edits. */
+  render(input: Input, mode: 'foot' | 'car', flying: boolean, paused: boolean, lost: boolean, playing: boolean, now: number) {
+    const hidden = !playing || this.hidden(mode, flying);
+    if (this.element.hidden !== hidden) this.element.hidden = hidden;
+    if (hidden) return;
+    const previous = this.rendered;
+    if (previous && previous.source === input.source && previous.mode === mode && previous.flying === flying
+      && previous.paused === paused && previous.lost === lost && now - previous.at < 1000) return;
+    this.rendered = { source: input.source, mode, flying, paused, lost, at: now };
+    const text = controlsHelp(input, mode, flying, paused, lost);
+    if (this.element.textContent !== text) this.element.textContent = text;
   }
 
   private persist() {
