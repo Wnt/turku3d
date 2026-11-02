@@ -91,7 +91,7 @@ addEventListener('resize', resize);
 // The chase camera swings back behind the car once it drives.
 function openingView(state: ReturnType<InstanceType<typeof Vehicle>['state']>) {
   chase.update(0, state, 0, 0, true);
-  chase.yaw = 2.44; chase.pitch = -0.36;
+  chase.yaw = 0.70; chase.pitch = -0.3;
   chase.update(0, state, 0, 0, false);
 }
 
