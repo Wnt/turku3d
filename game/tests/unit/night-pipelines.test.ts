@@ -103,9 +103,9 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
     }));
   };
   /** The generated programs a first build of each material produces. */
-  const shaders = () => {
+  const shaders = (only?: readonly string[]) => {
     lightSet();
-    return Object.fromEntries(meshes.map(mesh => {
+    return Object.fromEntries(meshes.filter(mesh => !only || only.includes(mesh.name)).map(mesh => {
       const material = mesh.material as THREE.NodeMaterial;
       const builder = nodes._createNodeBuilder({ object: mesh, material, scene, camera, lightsNode, clippingContext: null }, material);
       builder.build();
@@ -326,4 +326,23 @@ test('cascades freeze only in play while the sun is dark, and resume at dawn', (
   at(19.5);
   env.updateShadows(true);
   expect(env.shadowsFrozen).toBe(false); expect(cascades.every(l => l.shadow.autoUpdate)).toBe(true);
+});
+
+// Compile the actual cloud/solar graph rather than a duplicate scalar implementation.
+test('separated solar occlusion keeps one atmosphere evaluation and three cloud samples in every mode', () => {
+  const { env, at, keys, shaders } = world(false, 'medium');
+  try {
+    at(13);
+    const first = shaders(['sky']).sky;
+    expect((first.fragment.match(/\btextureSample(?:Level|Bias|Grad)?\s*\(/g) ?? []).length).toBe(3);
+    expect((first.fragment.match(/\bexp\s*\(/g) ?? []).length).toBe(1);
+    const cache = keys().sky;
+    for (const disc of [0, .5, 1]) {
+      env.sky.showSunDisc.value = disc;
+      expect(keys().sky).toEqual(cache);
+      expect(shaders(['sky']).sky).toEqual(first);
+    }
+    at(22);
+    expect(shaders(['sky']).sky).toEqual(first);
+  } finally { env.dispose(); }
 });

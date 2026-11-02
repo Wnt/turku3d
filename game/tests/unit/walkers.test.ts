@@ -241,7 +241,8 @@ test('the committed VAT asset fits the budget', () => {
   expect(asset.variants).toHaveLength(12);
   expect(new Set(HUMAN_MODELS.map(m => m.id)).size).toBe(96);
   expect(new Set(HUMAN_MODELS.map(m => [m.family, m.height, ...m.shape].join())).size).toBe(96);
-  expect(asset.vat.data.byteLength).toBeLessThanOrEqual(32_000_000);
+  // Complete source brows add 124 vertices per family; the accepted body/VAT remains intact.
+  expect(asset.vat.data.byteLength).toBeLessThanOrEqual(34_000_000);
   expect(asset.fps).toBe(30);
   for (const v of asset.variants) {
     expect(v.walk.frames).toBe(40); expect(v.idle.frames).toBe(75); // the whole UAL loops at 30 fps
