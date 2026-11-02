@@ -25,6 +25,7 @@ for (const node of doc.getRoot().listNodes()) {
   for (const prim of node.getMesh().listPrimitives()) metadata.push({
     name: node.getName(), ...node.getExtras(), material: prim.getMaterial()?.getName(),
     material_extras: prim.getMaterial()?.getExtras(),
+    vertex_program: prim.listSemantics().some(key => key.startsWith('_KIT_')) ? 'facade-kit' : null,
   });
 }
 process.stdout.write(JSON.stringify(snapshot(doc).map((draw, i) => ({ ...draw, metadata: metadata[i] }))));
