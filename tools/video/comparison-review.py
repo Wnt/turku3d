@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image,ImageDraw
 p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--captures-only',action='store_true');a=p.parse_args();out=Path(a.out);video=out/'turku3d-before-after.mp4';review=out/'review';review.mkdir(exist_ok=True)
 receipts=[]
+npc_audit=[]
 for left in sorted((out/'clips').glob('*-left.json')):
  l=json.loads(left.read_text());r=json.loads(Path(str(left).replace('-left.json','-right.json')).read_text())
  assert l['frames']==r['frames']==240,(left,'frame count')
@@ -13,11 +14,25 @@ for left in sorted((out/'clips').glob('*-left.json')):
  assert len(right_frames)==240,(left,'missing frame coverage')
  assert all(x['pose']==right_frames[x['frame']]['pose'] for x in l['motion']),(left,'mismatched camera')
  assert all(x['coverage']['ready'] and x['coverage']['scenery']['ready'] for x in r['motion']),(left,'incomplete world')
+ assert all(x.get('population',{}).get('ready') for x in r['motion']),(left,'missing NPC readiness')
+ assert all(abs(x['simSeconds']-(x['frame']+60)/r['fps'])<1e-9 for x in r['motion']),(left,'non-exact simulation clock')
+ maxima={'traffic':0.,'people':0.}; moving={'traffic':set(),'people':set()}
+ for a,b in zip(r['motion'],r['motion'][1:]):
+  for kind,limit in [('traffic',.5),('people',.075)]:
+   previous={v['id']:v for v in a['population'][kind]}
+   for v in b['population'][kind]:
+    if v['id'] not in previous:continue
+    step=math.dist([v[k] for k in ['x','y','z']],[previous[v['id']][k] for k in ['x','y','z']])
+    maxima[kind]=max(maxima[kind],step)
+    assert step<=limit,(left,'actor teleport',kind,v['id'],b['frame'],step)
+    if step>1e-5:moving[kind].add(v['id'])
+ npc_audit.append({'shot':r['shot']['id'],'max_frame_step_m':maxima,'moving_actors':{k:len(v) for k,v in moving.items()}})
  assert all(not t['stale'] and t['pass']=='full' and t['revision']==r['sourceRevision'] for t in r['manifests']),(left,'stale new tiles')
  assert r['scenery']['progress']['ready'],(left,'incomplete far source')
  assert not r['errors'],(left,'page errors',r['errors'])
  receipts.append(left.name)
 assert len(receipts)==15,receipts
+(out/'npc-motion-audit.json').write_text(json.dumps(npc_audit,indent=2))
 if a.captures_only:
  print(json.dumps({'paired_clips':len(receipts),'new_frames_with_complete_coverage':len(receipts)*240,'fresh_manifests':True}));raise SystemExit(0)
 probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=width,height,avg_frame_rate,nb_read_frames,duration','-of','json',str(video)]))['streams'][0]

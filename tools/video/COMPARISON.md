@@ -1,6 +1,51 @@
 # Production / Gen 2 comparison
 
-Re-create the 60-second, 1920×1080, 60 fps film with this exact command:
+The November 2 urgent delivery is the 60-second, 1920×1080, 60 fps file
+`~/turku3d/video/2026-11-02/turku3d-before-after.mp4`. Its fifteen audited production
+clips were reused unchanged from `viewdist-final/clips/`. All fifteen new-side clips
+were recaptured with explicit `traffic=1` and `walkers=1`; these are population caps,
+so this cut permits one moving traffic vehicle and one walker, in addition to parked
+vehicles and the scripted walk/drive actors. The normal capture defaults remain 40/100.
+
+The new client came from the viewdist working tree at `bcf3a650` plus the game-owned
+NPC replay, ground-contact and walker-continuity changes committed after delivery.
+Near/far data stayed pinned to `101925fa` / `viewdist-101925fa`; the client revision is
+not the tile revision. `viewdist-final/urgent-source.json` and the saved working-tree
+patch record this distinction. The last six clips used three disjoint shot files and
+separate guard owners/profiles, sharing the same Vite/proxy servers. No post-capture
+review, contact sheet or NPC judge was run, by Jonni's urgent 21:15 instruction.
+The earlier contact sheet does not describe this delivery.
+
+Recompose this delivered cut from its preserved clips, without browsers or recapture:
+
+```sh
+cd ~/turku3d/wt/loops/viewdist/repo
+bash pipeline/env/run.sh python tools/video/comparison-compose.py \
+  --out ~/turku3d/video/2026-11-02/viewdist-final \
+  --shots tools/video/comparison-shots.json
+cp ~/turku3d/video/2026-11-02/viewdist-final/turku3d-before-after.mp4 \
+  ~/turku3d/video/2026-11-02/turku3d-before-after.mp4
+```
+
+For right-only recapture, start the pinned tile proxy on5966 and this client on5962,
+then run (existing production clips remain untouched):
+
+```sh
+TURKU3D_CAPTURE_OWNER=viewdist node tools/video/comparison-capture.mjs \
+  --side right --left http://127.0.0.1:5960/ --right http://127.0.0.1:5962/ \
+  --shots tools/video/comparison-shots.json \
+  --out ~/turku3d/video/2026-11-02/viewdist-final \
+  --revision 101925fab6ccd6054248d4cc8b17c55bb1cec65d \
+  --traffic 1 --walkers 1 --skip-preview
+```
+
+`TURKU3D_CAPTURE_PROFILE` and `TURKU3D_CAPTURE_CDP_PORT` select a separate browser
+profile and port when concurrent workers have been authorized. Each worker must
+use a disjoint shot file, unique guard owner and profile. The urgent run used
+`viewdist`, `viewdist-2`, `viewdist-3`, ports5963/5967/5968, with all profiles under
+`~/turku3d/loops/viewdist/`.
+
+For the ordinary full preparation, capture and review workflow, use:
 
 ```sh
 cd ~/turku3d/wt/loops/viewdist/repo
@@ -14,7 +59,8 @@ TURKU3D_CAPTURE_OWNER=viewdist node tools/video/make-comparison.mjs \
 The delivered cut is `~/turku3d/video/2026-11-02/turku3d-before-after.mp4`.
 The previous 16:24 cut is preserved beside it as
 `turku3d-before-after-1624.mp4`; the earlier14:39 cut is also retained.
-`builds.json` records the exact production/integration commits and tile alias.
+`builds.json` records the prepared production/integration commits and tile alias;
+`urgent-source.json` takes precedence for the delivered new client.
 Re-running selects the integration commit current at that time. Choose a new
 `--out` directory to preserve the delivered cut and its capture receipts.
 
@@ -45,7 +91,14 @@ vehicle wheels turn with the scripted route distance.
 QA mode omits parked vehicles, so capture restores each build's native parked-car
 renderer using that side's streamed vehicle records. Gen 2 retains its occupancy
 rules and resting-slot transforms; production retains its nearby-body range.
-No parking positions are invented. Trucks and moving ambient traffic are omitted.
+No parking positions are invented. Trucks are omitted. By default the new side enables the high-tier
+NPC caps (`traffic=40`, `walkers=100`; these switches are counts, not booleans).
+Camera mode runs the game's TrafficFlow solver, articulated fleet wheels and dusk/night
+lamps, plus its ordinary pedestrian population and materials (including the removed glow).
+The game-owned replay clock advances all NPC motion at exact frame times with seed20261102;
+loading and screenshot latency do not advance it. Each new-side receipt includes actor poses.
+The fifteen audited production clips are reused unchanged; pass `--reuse-production`
+when re-running into their output directory. Their camera paths must match the new cut.
 
 The command registers the integration commit as `<owner>-<sha>`, requests every
 path tile plus a one-tile ring, and adds any extra detailed resident tiles observed

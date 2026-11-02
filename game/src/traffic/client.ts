@@ -18,6 +18,7 @@ import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STR
 import { enabledTiles, roadHash } from './gate';
 import { hash32 } from './hash';
 import { TrafficSignals } from './signals';
+import { populationFocus } from '../world/populationFocus';
 
 const STRIDE = TRAFFIC_STRIDE;
 const SYNC_MS = 250;
@@ -94,7 +95,8 @@ export class TrafficClient {
     if (now >= this.nextSync) { this.nextSync = now + SYNC_MS; this.syncTiles(); this.syncConfig(); }
     const forward = camera.getWorldDirection(scratch);
     const length = Math.hypot(forward.x, forward.z) || 1;
-    this.physics.trafficView = { x: camera.position.x, z: camera.position.z, fx: forward.x / length, fz: forward.z / length,
+    const graphs = this.source ? [...this.source.entries.values()].flatMap(e => e.roads ? [e.roads] : []) : [];
+    this.physics.trafficView = { ...populationFocus(camera.position, forward, graphs), fx: forward.x / length, fz: forward.z / length,
       halfFov: Math.atan(Math.tan((camera.fov * Math.PI) / 360) * camera.aspect) };
     if (!state) return;
     this.stats = state.trafficStats ?? null;
