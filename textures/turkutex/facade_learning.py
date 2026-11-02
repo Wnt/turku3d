@@ -298,7 +298,7 @@ def apply(program, model):
     v = lambda x: value(x, "learned reading distribution; sampled layout prior")  # noqa: E731
     floors = program["storeys"]["value"]
     for wall in program["walls"]:
-        width, height = wall["width_m"], wall["height_m"]
+        width, height = wall["width_m"], wall.get("layout_height_m", wall["height_m"])
         count = (
             max(1, round(width / max(1, p.get("bay_m", 3))))
             if width >= 1.6 and not attrs.get("blank")
