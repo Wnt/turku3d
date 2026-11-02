@@ -26,6 +26,11 @@ def payloads(manifest):
     return result
 
 
+def source_selection(manifest):
+    return {kind:[str(path).split('/raw/',1)[-1] if path else None for path in paths]
+            for kind,paths in manifest.get('sources',{}).items()}
+
+
 def compare(before,after):
     result={}
     for tile in sorted(before.keys()|after.keys()):
@@ -42,6 +47,9 @@ def compare(before,after):
             producer_before=ma.get('code'),producer_after=mb.get('code'),
             same_farm_generation=a['ready']['generation']==b['ready']['generation'],
             generation_before=a['ready']['generation'],generation_after=b['ready']['generation'],
+            changed_source_selection={kind:[source_selection(ma).get(kind),source_selection(mb).get(kind)]
+                for kind in source_selection(ma).keys()|source_selection(mb).keys()
+                if source_selection(ma).get(kind)!=source_selection(mb).get(kind)},
             changed_input_keys=changed['input-cache'],changed_stage_keys=changed['stage-times'],
             all_payload_hashes_equal=pa.keys()==pb.keys() and all(pa[k]['sha256']==pb[k]['sha256'] for k in pa),
             changed_payloads=[dict(key=k,before=pa.get(k),after=pb.get(k)) for k in sorted(pa.keys()|pb.keys()) if pa.get(k)!=pb.get(k)],
