@@ -6,7 +6,8 @@ approves resizing. Do not run the old hold, push-to-OCI, snapshot, or production
 
 Current host: `root@185.20.139.132`, root `/root/turku3d-bulk-gen2` (300 GB MaxIOPS).
 Mac state: `~/turku3d/loops/bulkgen2`. This run is **staging, not READY**: acquisition is
-running; the farm-compatible bulk runner, proof builds, comparison and pull are next.
+running. The farm-compatible runner and verified pull tools are implemented and tested
+offline; real proof builds and their cross-host comparison remain.
 
 ## Plan and provenance
 
@@ -125,11 +126,134 @@ and SHA verification; run with:
 /root/turku3d-bulk-gen2/run.sh python /root/turku3d-bulk-gen2/test_prefetch.py
 ```
 
-Next: finish and audit coverage, finalize source identity/supplements, adapt the
-farm's generation/tile build and validation path, prove 2–3 tiles on one worker,
-compare farm payloads and input identities, and document an atomic pull. Estimate
+Next: finish and audit coverage, freeze source identity/supplements, prove 2–3
+tiles on one worker, and compare farm payloads and input identities across hosts. Estimate
 64-core time only from those Gen 2 builds, discounting 13–43% CPU steal. The raw
 source footprint will leave limited headroom on 300 GB: bound stage caches and
 pull/validate completed products before reclaiming their host copies. Never trim
 an active tile's stages or any unacknowledged finished product. No city build or
 READY-to-resize message has been issued yet.
+
+
+## Freeze, prove and pull
+
+The new tools are staged at `ROOT/ops/`. The acquisition already running still uses
+its original root-level script; do not overwrite or restart it merely to update tools.
+After it finishes, use the newer prefetch script for any retries. Receipts now include
+an acquisition-recipe hash: changing a source requirement invalidates old receipts,
+while renderer/geometry-only edits leave source acquisition reusable. The initial
+run's unchanged pinned recipe was recorded in `state/acquisition.json` while it ran.
+
+On UpCloud, after reviewing the completed coverage (no builds before this):
+
+```sh
+ROOT=/root/turku3d-bulk-gen2
+"$ROOT/run.sh" python "$ROOT/ops/freeze.py" "$ROOT"
+"$ROOT/run.sh" python "$ROOT/ops/bulk.py" "$ROOT"   --tiles t0_0_0 t0_1_0 t0_-1_0 --workers 1
+```
+
+`freeze.py` makes VRT references relative with atomic replacements, then hard-links
+all input files into `farm/sources/versions/<content-hash>`. It carries per-file byte
+counts/SHA-256 values, preserving known download checksums and hashing relocated
+wrappers/authored data. This does not duplicate the 183 GB lidar. Subsequent atomic
+source updates cannot alter the retained profile. `state/sources.json` reports the
+logical size by group and the acquisition identity.
+
+`bulk.py` imports the selected revision's actual `shared_tiles.Farm`: the same build
+command, generation/source binding, cache mounts, collision and GLB validation, and
+atomic `ready.json` publication as the LAN farm. Completed or acknowledged tiles
+resume without rebuilding. Products go to `farm/products/<generation>/<tile>`.
+The batch holds the source lock and refuses unprefetched tiles or a changed fetch
+recipe. `state/bulk-result.json` includes CPU/wall seconds, CPU steal, peak child RSS,
+stage/cache metrics and failures. SIGTERM stops admission and finishes owned active
+workers. Only this dedicated host gets a higher thread-pool limit; LAN limits stay
+unchanged.
+
+The existing farm cache eviction runs under pressure: per-key locks protect stage
+entries, active jobs pin their inputs, and raw-derived caches are reclaimed only
+when all workers have finished reading them. The default 25 GiB floor and 1 GiB
+reservation per active worker stop admission before the disk fills. Exit 75 means
+pull/acknowledge finished output (or finish an interrupted batch), then resume.
+No unacknowledged tile is deleted.
+
+A provisional command for the eventual **64-vCPU plan**, after Jonni approves resize
+and the coordinator selects the revision, is below. Worker count/reservation must
+be finalized from the real proofs and remaining disk space; this has not been run:
+
+```sh
+ROOT=/root/turku3d-bulk-gen2
+"$ROOT/run.sh" python "$ROOT/ops/bulk.py" "$ROOT"   --walk "$ROOT/state/walk.json" --workers 48 --reserve-gib 1
+```
+
+48 workers reserve 73 GiB including the floor. If space is tighter, lower concurrency
+or pull output; never lower the 25 GiB floor. Merely selecting a 64-core plan does not
+make 64 concurrent scratch-heavy builders safe on this disk.
+
+Run the pull on **osgallery-dev**, initially into the owned proof farm. Copy only
+`transfer.py` there from the Mac. Read VERSION from the host's `state/sources.json`:
+
+```sh
+python3 /home/wnt/turku3d-local/loops/bulkgen2/transfer.py   --root /home/wnt/turku3d-local/loops/bulkgen2/farm   --sources VERSION   --link-dest /home/wnt/turku3d-local/combined/data
+python3 /home/wnt/turku3d-local/loops/bulkgen2/transfer.py   --root /home/wnt/turku3d-local/loops/bulkgen2/farm   --tiles t0_0_0 t0_1_0 t0_-1_0
+```
+
+Sources move host → osgallery-dev; rsync checksum/link-dest can reuse identical local
+files. The source manifest is then verified against **every received SHA-256**.
+Space admission reserves 25 GiB and an active transfer stops at a 26 GiB warning
+floor, retaining partial downloads. Source verification receipts are required before
+products are published. No source download writes `combined/data/raw`.
+
+The product pull copies shared objects first, validates the entire manifest/GLB
+reference graph using the producer's farm validator, and atomically installs each
+tile under the farm's generation/tile lock. It refuses to overwrite a differing
+existing farm product. The producer receives a durable acknowledgement containing
+the verified manifest hash. Adding `--prune` removes only the corresponding host
+tile after rechecking that hash and generation under its own tile lock. This is the
+streaming disk strategy for the full round; raw sources and shared assets remain.
+
+After the owned proof farm has passed comparison, the same tool can target
+`/home/wnt/turku3d-local/loops/tiles/farm`; use the owned frozen profile as `--link-dest`
+to avoid duplicating its bytes. It installs farm-native revision metadata and ready
+products, without advancing the integration alias or touching production.
+
+Nine offline checks now pass: baseline registry immutability and independent locks;
+source snapshot immutability and checksum rejection; portable VRTs retaining prior
+hard links; recipe invalidation; actual farm scheduling/resume with synthetic payloads;
+prefetch/build exclusion; corrupt shared payload rejection; and acknowledgement-bound
+pruning. These checks do **not** substitute for the outstanding real tile proofs.
+
+```sh
+/root/turku3d-bulk-gen2/run.sh python /root/turku3d-bulk-gen2/ops/test_ops.py
+/root/turku3d-bulk-gen2/run.sh python /root/turku3d-bulk-gen2/ops/test_prefetch.py
+```
+
+
+### Coastal imagery gaps
+
+The first acquisition pass exposed `NoCoverage` at the first blank quadrant of some
+500 m coastal blocks. The revised wrapper scopes the unchanged pipeline fetcher to
+each of the four quadrants, so a blank first quadrant cannot hide imagery for the
+other three. It records typed coverage gaps separately from network/parse failures.
+Only tiles whose current generator requires the absent imagery are excluded from
+full builds; their regional terrain remains available. Coverage gaps are recorded
+per tile with the provider error, and are retried after the fetcher's empty-image TTL.
+
+After the initial process exits, the first retry command is:
+
+```sh
+ROOT=/root/turku3d-bulk-gen2
+"$ROOT/run.sh" python "$ROOT/ops/prefetch.py" "$ROOT/state"   --workers 3 --adopt-initial-receipts
+```
+
+This one-time migration requires the observed initial immutable acquisition identity
+to match. It binds its successful receipts to that recipe; failed/incomplete units
+have no successful receipt and are retried. Later resumes omit the adoption option.
+The running initial pass is left intact, so no paid transfer work is discarded.
+
+
+The staging host now has one `resume-after-prefetch.sh` continuation waiting on the
+initial process's kernel file lock. It runs the above retry automatically after
+that lock is released; no sleep/poll loop or tile build is started. Its ownership
+is `state/prefetch-resume.pid`, log `state/prefetch-resume.log`, and an exclusive
+`prefetch-resume.lock` prevents duplicate continuations. Do not also start a manual
+retry while this continuation is pending or running.

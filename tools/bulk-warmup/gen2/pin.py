@@ -53,7 +53,7 @@ if repo.is_dir() and not repo.is_symlink():
 tmp=root/'.repo-next';tmp.unlink(missing_ok=True)
 tmp.symlink_to(root/'farm/revisions'/commit/'repo');tmp.replace(repo)
 (root/'state/revision.json').write_bytes((root/'farm/revisions'/commit/'revision.json').read_bytes())
-(root/'state/COMMIT').write_text(commit+'\\n')
+(root/'state/COMMIT').write_text(commit+chr(10))
 '''
 subprocess.run(['ssh',a.host,'python3 -c '+q(activate)+' '+q(a.root)+' '+q(commit)],check=True)
 print(json.dumps(meta))
