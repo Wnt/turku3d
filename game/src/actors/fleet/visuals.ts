@@ -8,18 +8,20 @@ import { paintActor, paintInstances } from '../parkedPaint';
 import { FLEET, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry, buildFleetWheel } from './geometry';
 import { AUTHORED_ESTATE, loadAuthoredFleet } from './authored';
+import { AUTHORED_BY_ID } from './registry';
 import { addFleetWheels, applyFleetWheels } from './wheels';
 import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
-import { fleetMaterial, fleetNight } from './material';
+import { fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
-interface Batch { mesh: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
+interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
 interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
+const embeddedWheels=(id:string)=>id===AUTHORED_ESTATE||AUTHORED_BY_ID.has(id);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
 /** Rim detail and tyre radius determine the wheel design, independently of body/paint. */
 export const fleetWheelDesign=(model:FleetModel,lod:number)=>`${lod}/${model.wheel.toFixed(3)}/${lod===0?model.face%3:0}`;
@@ -77,7 +79,7 @@ export class ParkedCarVisuals {
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:0|1;count:number}>();
-    for(const model of models)if(model.id!==AUTHORED_ESTATE)for(const lod of [0,1] as const){
+    for(const model of models)if(!embeddedWheels(model.id))for(const lod of [0,1] as const){
       const key=fleetWheelDesign(model,lod),plan=plans.get(key);
       if(plan)plan.count+=counts.get(model.id)??0;
       else plans.set(key,{model,lod,count:counts.get(model.id)??0});
@@ -101,17 +103,22 @@ export class ParkedCarVisuals {
         if(!this.geometries.has(key)) {
           const authored=await loadAuthoredFleet(model.id,lod);
           if(authored)this.geometries.set(key,authored);
+          const glass=await loadAuthoredFleet(model.id,lod,'glass');
+          if(glass)this.geometries.set(`${key}/glass`,glass);
         }
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
         mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
-        const batch={mesh,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true}; replacements.push([key,batch]);
+        const glassGeometry=this.geometries.get(`${key}/glass`);
+        const glass=glassGeometry?new THREE.InstancedMesh(glassGeometry,fleetGlassMaterial(),capacity):undefined;
+        if(glass){glass.name=`parked-glass/${key}`;glass.instanceMatrix=mesh.instanceMatrix;glass.count=0;glass.receiveShadow=true;mesh.add(glass);}
+        const batch={mesh,glass,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true}; replacements.push([key,batch]);
         await this.prepare(mesh);
       }
-    } catch(error) { for(const [,b] of [...replacements,...wheelReplacements])b.mesh.dispose(); throw error; }
+    } catch(error) { for(const [,b] of replacements){b.glass?.dispose();b.mesh.dispose();} for(const [,b] of wheelReplacements)b.mesh.dispose(); throw error; }
     // Keep every old draw until ALL replacement materials and passes are ready.
     for(const [key,batch] of replacements) {
-      const old=this.groups.get(key); if(old) {old.mesh.removeFromParent();old.mesh.dispose();}
+      const old=this.groups.get(key); if(old) {old.mesh.removeFromParent();old.glass?.dispose();old.mesh.dispose();}
       this.groups.set(key,batch); this.scene.add(batch.mesh);
     }
     for(const [key,batch] of wheelReplacements){
@@ -124,8 +131,10 @@ export class ParkedCarVisuals {
     this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
   }
   private actor(model:FleetModel,color:string,name:string) {
-    const articulated=model.id!==AUTHORED_ESTATE;
+    const articulated=!embeddedWheels(model.id);
     const actor=new THREE.Mesh(this.geometry(model,0),fleetMaterial()); paintActor(actor,color);
+    const glass=this.geometries.get(`${model.id}/0/glass`);
+    if(glass){const window=new THREE.Mesh(glass,fleetGlassMaterial());window.receiveShadow=true;actor.add(window);}
     if(articulated)addFleetWheels(actor,model,side=>{
       const wheelKey=`${model.id}/wheel/${side}`;
       if(!this.geometries.has(wheelKey))this.geometries.set(wheelKey,buildFleetWheel(model,0,side));
@@ -141,14 +150,15 @@ export class ParkedCarVisuals {
   }
   requestRemoteModel(key:string) {
     const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
-    if(model.id!==AUTHORED_ESTATE||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
-    this.remoteRequests.set(geometryKey,loadAuthoredFleet(model.id,0).then(geometry=>{
+    if((model.id!==AUTHORED_ESTATE&&!AUTHORED_BY_ID.has(model.id))||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
+    this.remoteRequests.set(geometryKey,Promise.all([loadAuthoredFleet(model.id,0),loadAuthoredFleet(model.id,0,'glass')]).then(([geometry,glass])=>{
       if(geometry)this.geometries.set(geometryKey,geometry);
+      if(glass)this.geometries.set(`${geometryKey}/glass`,glass);
     }).catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
   }
   remoteModel(key:string):THREE.Mesh|null {
     const [id,color]=key.split('/'), model=fleetModel(id,key);
-    if(model.id===AUTHORED_ESTATE&&!this.geometries.has(`${model.id}/0`))return null;
+    if((model.id===AUTHORED_ESTATE||AUTHORED_BY_ID.has(model.id))&&!this.geometries.has(`${model.id}/0`))return null;
     return this.actor(model,color??'silver',`remote/${key}`);
   }
   private transform(draw:Draw) {
@@ -170,7 +180,7 @@ export class ParkedCarVisuals {
     let changed=false;
     for(let i=0;i<16;i++)if(array[offset+i]!==Math.fround(matrix.elements[i])){changed=true;break;}
     if(changed){group.mesh.setMatrixAt(group.count,matrix);group.dirty=true;}
-    const wheelBatch=draw.model.id===AUTHORED_ESTATE?undefined:this.wheelGroups.get(fleetWheelDesign(draw.model,lod));
+    const wheelBatch=embeddedWheels(draw.model.id)?undefined:this.wheelGroups.get(fleetWheelDesign(draw.model,lod));
     for(let i=0;i<4&&wheelBatch;i++){
       const side=i%2?-1:1,wheel=wheelBatch.mesh,index=wheelBatch.count++;
       if(index>=wheel.instanceMatrix.count)throw Error('Wheel design batch capacity exceeded');
@@ -222,10 +232,11 @@ export class ParkedCarVisuals {
     for(const b of this.groups.values()) {
       const changedCount=b.mesh.count!==b.count;
       b.mesh.count=b.count;b.mesh.visible=b.count>0;
+      if(b.glass)b.glass.count=b.count;
       if(!b.count)continue;
       b.paints.length=b.count;b.lamps.length=b.count;b.indicators.length=b.count;b.brakes.length=b.count;paintInstances(b.mesh,b.paints);fleetLamps(b.mesh,b.lamps,b.indicators,b.brakes);
       if(b.dirty)b.mesh.instanceMatrix.needsUpdate=true;
-      if(b.dirty||changedCount)b.mesh.computeBoundingSphere();
+      if(b.dirty||changedCount){b.mesh.computeBoundingSphere();b.glass?.computeBoundingSphere();}
     }
     for(const b of this.wheelGroups.values()){
       const changedCount=b.mesh.count!==b.count;
@@ -242,7 +253,8 @@ export class ParkedCarVisuals {
     }
   }
   dispose() {
-    for(const b of [...this.groups.values(),...this.wheelGroups.values()]){b.mesh.removeFromParent();b.mesh.dispose();}
+    for(const b of this.groups.values()){b.mesh.removeFromParent();b.glass?.dispose();b.mesh.dispose();}
+    for(const b of this.wheelGroups.values()){b.mesh.removeFromParent();b.mesh.dispose();}
     for(const actor of this.dynamic.values())actor.removeFromParent();
     this.groups.clear();this.wheelGroups.clear();this.dynamic.clear();this.definitions.clear();this.wheelMotion.clear();
     for(const geometry of this.geometries.values())geometry.dispose();this.geometries.clear();
@@ -250,9 +262,9 @@ export class ParkedCarVisuals {
   snapshot() {
     const active=[...this.groups.values()].filter(b=>b.count),wheels=[...this.wheelGroups.values()].filter(b=>b.count);
     const triangles=(mesh:THREE.Mesh)=>(mesh.geometry.index?.count??mesh.geometry.getAttribute('position').count)/3;
-    return {catalogue:FLEET.length,models:[...new Set(active.map(b=>b.model.id))],instances:active.reduce((s,b)=>s+b.count,0),draws:active.length+wheels.length,
+    return {catalogue:FLEET.length,models:[...new Set(active.map(b=>b.model.id))],instances:active.reduce((s,b)=>s+b.count,0),draws:active.reduce((s,b)=>s+1+Number(!!b.glass),0)+wheels.length,
       lods:[0,1,2].map(lod=>active.filter(b=>b.lod===lod).reduce((s,b)=>s+b.count,0)),
-      triangles:active.reduce((s,b)=>s+triangles(b.mesh)*b.count,0)+wheels.reduce((s,b)=>s+triangles(b.mesh)*b.count,0)};
+      triangles:active.reduce((s,b)=>s+(triangles(b.mesh)+(b.glass?triangles(b.glass):0))*b.count,0)+wheels.reduce((s,b)=>s+triangles(b.mesh)*b.count,0)};
   }
   inspect(id:string,camera:THREE.Camera) {
     const actor=this.dynamic.get(id);if(!actor)return null;

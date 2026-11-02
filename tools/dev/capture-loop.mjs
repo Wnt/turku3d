@@ -259,6 +259,40 @@ if (opt('--navigate', '')) {
   const started=Date.now();
   while (!await evaluate('!!window.__game?.ready') && Date.now()-started<timeout) await delay(1000);
 }
+// Interleaved measurements tolerate other loops sharing the Mac; record load and residency explicitly.
+if (args.includes('--vehicle-perf')) {
+  const rows=[],startedAt=new Date().toISOString(),loadBefore=os.loadavg();
+  try {
+    await send('Page.setWebLifecycleState',{state:'active'});
+    await send('Emulation.setFocusEmulationEnabled',{enabled:true});
+    await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
+    await evaluate(`(() => {const c=window.__game.coarse;let release;const gate=new Promise(r=>release=r);
+      window.__carLightStreamingHold={update:c.update,prepare:c.prepareModel,release};
+      const prepare=c.prepareModel;c.update=()=>{};c.prepareModel=async function(...args){await gate;return prepare.apply(this,args)};})()`);
+    for(let round=0;round<3;round++)for(const mode of [0,2]) {
+      const row=await evaluate(`(async()=>{
+        const g=window.__game,r=window.__render;g.vehicleSignals.lights=${mode};r.setHour(22);
+        g.resolution.scale=1;g.resolution.update=()=>1;r.renderer.setPixelRatio(1);r.renderer.setSize(1280,720);
+        const residency=()=>JSON.stringify([...g.coarse.entries].filter(([id,e])=>e.model).map(([id,e])=>[id,e.visualHash]).sort((a,b)=>a[0].localeCompare(b[0])));
+        await new Promise(resolve=>setTimeout(resolve,350));const before=residency();r.perf.reset();
+        const samples=[];let last=performance.now(),frames=0;
+        await new Promise((resolve,reject)=>{const previous=r.afterFrame,timer=setTimeout(()=>{r.afterFrame=previous;reject(new Error('measurement timeout'))},20000);
+          r.afterFrame=()=>{previous?.();const now=performance.now();if(frames++>5)samples.push(now-last);last=now;
+            if(samples.length===60){r.afterFrame=previous;clearTimeout(timer);resolve();}};});
+        await r.perf.flush();const mean=samples.reduce((a,b)=>a+b,0)/samples.length;
+        return {round:${round},lights:${mode},pose:g.state().vehicle.pos,camera:r.camera.position.toArray(),hour:g.dayClock.hour,quality:g.params.quality,meanMs:mean,fps:1000/mean,perf:r.perf.snapshot(),residency:before,residencyStable:before===residency()};
+      })()`);
+      rows.push(row);console.log(JSON.stringify({round,mode,ms:row.meanMs,fps:row.fps,gpuMs:row.perf.gpuMs.p50}));
+    }
+    fs.writeFileSync(path.join(out,'frame-times-interleaved.json'),JSON.stringify({startedAt,finishedAt:new Date().toISOString(),loadBefore,loadAfter:os.loadavg(),uptimeSeconds:os.uptime(),rows},null,2)+'\n');
+  } finally {
+    await evaluate(`(() => {const h=window.__carLightStreamingHold;if(!h)return;
+      Object.assign(window.__game.coarse,{update:h.update,prepareModel:h.prepare});h.release();delete window.__carLightStreamingHold;})()`).catch(()=>{});
+    await send('Page.setWebLifecycleState',{state:'frozen'});socket.close();
+  }
+  process.exit(0);
+}
+
 // Same-pose car-light stills plus paired frame-delivery measurements, through the shared transport.
 if (args.includes('--vehicle-stills')) {
   try {
@@ -267,7 +301,7 @@ if (args.includes('--vehicle-stills')) {
     await send('Page.bringToFront');
     await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
     const measurements=[];
-    for(const scale of [.5,1]) for(const mode of [0,2]) {
+    for(const scale of args.includes('--stills-only')?[]:[.5,1]) for(const mode of [0,2]) {
       const row=await evaluate(`(async()=>{
         const g=window.__game,r=window.__render;g.vehicleSignals.lights=${mode};
         g.resolution.scale=${scale};g.resolution.update=()=>${scale};r.renderer.setPixelRatio(${scale});
@@ -281,7 +315,7 @@ if (args.includes('--vehicle-stills')) {
       })()`);
       measurements.push(row);console.log(JSON.stringify({scale,mode,meanMs:row.meanMs,fps:row.fps}));
     }
-    fs.writeFileSync(path.join(out,'frame-times.json'),JSON.stringify(measurements,null,2)+'\n');
+    if(measurements.length) fs.writeFileSync(path.join(out,'frame-times.json'),JSON.stringify(measurements,null,2)+'\n');
     const shots=[];
     for(const [hour,mode,label] of [[22,0,'night-off'],[22,1,'night-driving'],[22,2,'night-long'],[13,1,'day-driving']]) {
       const state=await evaluate(`(async()=>{const g=window.__game,r=window.__render;
@@ -363,24 +397,38 @@ if (args.includes('--inspect')) {
   console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,play:g?.state?((s)=>({mode:s.mode,paused:s.paused,start:s.startScreen,loading:s.loading}))(g.state()):null,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress,sceneryJobs:[...(g?.scenery?.entries??[])].filter(([,e])=>e.busy||e.error).map(([id,e])=>({id,busy:e.busy,error:e.error,model:!!e.model,treesReady:e.treesReady}))};})()`)));
   socket.close(); process.exit(0);
 }
-if (args.includes('--perf')) {
+if (args.includes('--perf') || args.includes('--perf-pair')) {
   try {
     await send('Page.setWebLifecycleState',{state:'active'});
     await send('Emulation.setFocusEmulationEnabled',{enabled:true});
     await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
-    const result=await evaluate(`new Promise(resolve=>{
+    const paired=args.includes('--perf-pair'),samples=[];
+    const rounds=paired?Math.max(3,Number(opt('--perf-rounds','3')))*2:1;
+    for(let round=0;round<rounds;round++) {
+      const phase=paired?(round%2?'after':'before'):'single';
+      if(paired)await evaluate(fs.readFileSync(opt(phase==='before'?'--setup-file':'--compare-setup-file',''),'utf8'));
+      const load=execFileSync('uptime',{encoding:'utf8'}).trim();
+      const result=await evaluate(`new Promise(resolve=>{
       const r=window.__render,g=window.__game,frames=[],count=${Number(opt('--perf-frames','240'))};
       let previous,warm=120;r.beforeFrame=()=>true;
       r.afterFrame=()=>{const now=performance.now();
         if(warm>0){if(!--warm){r.perf.reset();previous=now;}return;}
         if(previous!==undefined)frames.push({interval:now-previous,cpu:r.perf.lastCpu,draws:r.renderer.info.render.drawCalls});previous=now;
         if(frames.length<count)return;r.beforeFrame=()=>false;r.afterFrame=undefined;
-        resolve({pose:window.__qaPose,hour:g.dayClock.hour,quality:g.params.quality,aa:g.params.aa,frames,perf:r.perf.snapshot()});};
+        resolve({pose:window.__qaPose,hour:g.dayClock.hour,quality:g.params.quality,aa:g.params.aa,frames,perf:r.perf.snapshot(),
+          tiles:[...g.lights.source.entries].filter(([,e])=>e.model?.parent===g.lights.source.host.scene).map(([id,e])=>[id,e.visualHash??e.preview?.visual?.[id]?.sha256]).sort()});};
     })`);
     const mean=key=>result.frames.reduce((sum,f)=>sum+f[key],0)/result.frames.length;
     result.meanMs=mean('interval');result.fps=1000/result.meanMs;result.meanCpuMs=mean('cpu');result.meanDraws=mean('draws');
-    fs.writeFileSync(path.join(out,'perf.json'),JSON.stringify(result,null,1));
-    console.log(JSON.stringify({meanMs:result.meanMs,fps:result.fps,cpu:result.meanCpuMs,draws:result.meanDraws,perf:result.perf}));
+    result.phase=phase;result.round=round;result.uptime=load;
+    if(JSON.stringify(result.perf.resolution)!=='[1280,720]')throw new Error('Perf viewport changed');
+    samples.push(result);
+    fs.writeFileSync(path.join(out,paired?`perf-${round}-${phase}.json`:'perf.json'),JSON.stringify(result,null,1));
+    console.log(JSON.stringify({phase,round,meanMs:result.meanMs,fps:result.fps,cpu:result.meanCpuMs,draws:result.meanDraws,gpuMs:result.perf.gpuMs,load}));
+    }
+    if(paired)fs.writeFileSync(path.join(out,'perf-pair.json'),JSON.stringify({samples,
+      residencyStable:samples.every(s=>JSON.stringify(s.tiles)===JSON.stringify(samples[0].tiles)),
+      interpretation:'Shared host; differences below about10% are noise. Absolute FPS needs a quiet-period check.'},null,1));
   } finally {
     await evaluate('if(window.__render){window.__render.beforeFrame=()=>false;window.__render.afterFrame=undefined;}');
     socket.close();

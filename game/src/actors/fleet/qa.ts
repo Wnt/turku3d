@@ -8,11 +8,11 @@ import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import {FLEET_BY_ID} from './catalog';
 import {buildFleetGeometry} from './geometry';
 
-export async function installFleetQA(Visuals=ParkedCarVisuals) {
+export async function installFleetQA(Visuals=ParkedCarVisuals, manifestOverride?: Manifest) {
   const game=window.__game as Record<string,any>;
   if(!game?.lights?.source?.host)throw new Error('Load a fixed street camera first');
   game.fleetQA?.dispose();
-  const host=game.lights.source.host, manifest=host.manifest as Manifest;
+  const host=game.lights.source.host, manifest=(manifestOverride ?? host.manifest) as Manifest;
   const root=new THREE.Group();root.name='fleet-qa';host.scene.add(root);
   const visuals=new Visuals(root);
   const rest={restingPose:(car:ParkedVehicle)=>slotShown(car,game.dayClock.night)?{pos:{x:car.x,y:car.y+.75,z:car.z},rot:slotRotation(car)}:null};

@@ -89,6 +89,19 @@ describe('vegetation LOD', () => {
     lod.dispose();
   });
 
+  it('includes camera height and keeps screenshot range out of near-detail selection', () => {
+    const {model,mesh}=tile(1,'tree_detailed_fall',()=>new THREE.Vector3(0,0,-20));
+    const scene=new THREE.Scene();scene.add(model);
+    const lod=new VegetationLod('medium',library);lod.screenshotDistance=4000;lod.add(model);
+    const camera=new THREE.PerspectiveCamera(65,1,.1,5000);
+    for(const [height,level]of [[120,1],[400,2]]) {
+      camera.position.set(0,height,0);camera.lookAt(0,0,-20);lod.update(camera);
+      const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&b.material!==library.materials.bark);
+      expect(foliage).toHaveLength(1);expect(foliage[0].userData.level).toBe(level);
+    }
+    lod.dispose();
+  });
+
   it('culls cells, packs one draw per library part and LOD, and releases generated resources', () => {
     const { model, mesh } = tile();
     const scene = new THREE.Scene(); scene.add(model);
