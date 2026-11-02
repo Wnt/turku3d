@@ -199,6 +199,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   });
   /** On foot again at `at` (null: wherever the character is placed next). */
   const leaveCar = (at: V3 | null) => {
+    const leaving = physics.latest?.vehicles.find(v => v.id === drivenId);
+    if (leaving) leaving.horn = false;
     if (multiplayerPlaying) sharedVehicles?.release(drivenId);
     mode = 'foot';
     physics.driveVehicle(null);
@@ -323,9 +325,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const framePacer = new FramePacer(params.mobile ? 30 : 0);
   Object.assign(window.__game!, { framePacer });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
+    if (document.hidden) {
+      vehicleSignals.update(false, false, false); audio.emit({ type: 'horns', vehicles: [] });
+      physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
+    }
   }, { signal: listeners.signal });
   renderer.setAnimationLoop(() => {
+    if (window.__render?.beforeFrame?.() === false) return;
     const now = performance.now();
     if (document.hidden || !framePacer.ready(now)) return;
     clock.frames++;
@@ -415,7 +421,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       }
     }
 
-    vehicleSignals.update(mode === 'car' && !paused && !menuOpen && !startScreen.active, input.consume('lights'), input.actions.horn > .5);
+    vehicleSignals.update(mode === 'car' && !paused && !menuOpen && !introOpen && !rounds.blocking && !startScreen.active, input.consume('lights'), input.actions.horn > .5);
+    // The worker freezes while paused; transmit the live release even without another physics step.
+    if (mode === 'car' && vs) { vs.lights = vehicleSignals.lights; vs.horn = vehicleSignals.horn; }
     let charIn: CharacterInput = { vx: 0, vz: 0, jump: false };
     let carIn: VehicleInput | null = null;
     if (mode === 'foot') {
@@ -487,6 +495,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000);
+    if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
       if (st.character && st.character.enabled) {
@@ -622,6 +631,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
     world.loadingScreen.update(!startScreen.active, coarse?.status);
     perf.end();
+    window.__render?.afterFrame?.();
   });
 
   return {

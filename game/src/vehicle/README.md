@@ -231,8 +231,8 @@ materials; the generated fleet keeps its existing `fleetSurface` vertex lamp tag
 Driving lamps glow in daylight; dusk/night adds a warm, soft asymmetric 40 m dipped pool (raised on the
 right-hand verge). Long beams use a brighter, higher, wider 145 m cone with HDR lens emission for the
 existing bloom pass. Both follow the shared night factor/exposure and use normal PBR direct lighting,
-including the road's existing weather roughness. A 10 Hz five-ray fan per lamp conservatively shortens beams
-at collision geometry; it is a bounded occlusion approximation, not per-pixel shadows. There are no volumetric
+including the road's existing weather roughness. A 10 Hz five-ray fan per lamp conservatively masks each angular segment
+at collision geometry; the lights share one packed uniform buffer and skip the fragment loop when inactive; it is a bounded occlusion approximation, not per-pixel shadows. There are no volumetric
 beam meshes. Cars keep their last selected lights after exit; horns stop immediately.
 
 Focused contract evidence: `npm --prefix game test -- tests/unit/vehicle-signals.test.ts
