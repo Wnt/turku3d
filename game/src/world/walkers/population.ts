@@ -2,6 +2,7 @@
 // seconds (its cycle n) at a hashed point of the cell's FOOT pieces and walks a hashed route through the network.
 // Existence, route and position are pure functions of (network, UTC ms): clients sharing the epoch clock and the
 // resident tiles see the same walkers without any network traffic. Rendering (ring, caps, fades) is local.
+import { HUMAN_MODELS } from './appearance';
 import { CYCLE_EPOCH, cycleHour } from '../../core/dayCycle';
 import { CELL_M, cellKey, hash32, pointAt, unit, type Cell, type WalkNetwork } from './network';
 
@@ -17,7 +18,7 @@ export const WALKER = {
   birthIdle: 2.5, junctionPause: 0.12, pause: [2, 6] as const,
   /** Keep-right offset from the way's centreline, tapered to zero at junctions and dead ends. */
   keepRight: [0.35, 0.7] as const, taper: 1.5,
-  variants: 3,
+  variants: HUMAN_MODELS.length,
 };
 /** The farthest a walker can be from its birth point. */
 export const MAX_TRAVEL = WALKER.life[1] * WALKER.speed[1];
@@ -57,6 +58,7 @@ export interface Walker {
   /** Identity of this life (slot and cycle); the next life of the slot is another walker. */
   id: number;
   slot: number;
+  /** Stable catalogue identity; the renderer maps it to a shared wardrobe mesh and anatomical profile. */
   variant: number;
   /** Height scale; tint indices are derived from `id` by the renderer. */
   scale: number;
@@ -158,7 +160,7 @@ export class Population {
       if (leg.taper1) side *= Math.min(1, (length - walked) / WALKER.taper);
     } else side = 0;
     return {
-      id, slot, variant: hash32(id, 8) % WALKER.variants, scale: 0.94 + 0.12 * unit(hash32(id, 9)),
+      id, slot, variant: hash32(id, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(id, 8) % WALKER.variants].height,
       x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz), chain: leg.chain, s,
       moving: !leg.idle, distance: leg.d0 + walked, idleTime: leg.idle ? elapsed : 0,
       fade: Math.max(0, Math.min(1, age / WALKER.fade, (life - age) / WALKER.fade)), age, cell, life, born,
