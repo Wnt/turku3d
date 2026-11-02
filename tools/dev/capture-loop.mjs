@@ -71,6 +71,17 @@ const save = () => {
     device_scale_factor: 1, shots: [...shots.values()] }, null, 1) + '\n');
   fs.renameSync(`${index}.tmp`, index);
 };
+if (opt('--eval-file', '')) {
+  try {
+    await send('Page.setWebLifecycleState', { state: 'active' });
+    await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    console.log(JSON.stringify(await evaluate(fs.readFileSync(opt('--eval-file'), 'utf8'))));
+  } finally {
+    await send('Page.setWebLifecycleState', { state: 'frozen' });
+    socket.close();
+  }
+  process.exit(0);
+}
 if (args.includes('--inspect')) {
   console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress};})()`)));
   socket.close(); process.exit(0);
