@@ -5,7 +5,9 @@ export type Binding =
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
   'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
-  'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown'] as const;
+  'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown',
+  'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3', 'timeSpeed4', 'timeHourBack', 'timeHourForward',
+  'timeMinutesBack', 'timeMinutesForward', 'timeLive'] as const;
 export type Action = typeof ACTIONS[number];
 export type Actions = Record<Action, number>;
 export type Bindings = Record<Action, Binding[]>;
@@ -39,6 +41,12 @@ export const DEFAULT_BINDINGS: Bindings = {
   // Developer fly mode (gameplay/flyMode.ts, localhost only): rise with jump or RT, sink with B, LT or Q.
   flyUp: [button(2), button(7), key('Space')],
   flyDown: [button(1), button(6), key('KeyQ')],
+  // Developer time panel (ui/timePanel.ts, developer tools only): T shows it; the rest act while it shows. Brackets are
+  // the two keys right of P (Å and ¨ on a Finnish keyboard). The gamepad uses Developer → Time of day in the pause menu.
+  timePanel: [key('KeyT')], timePause: [key('Digit0')],
+  timeSpeed1: [key('Digit1')], timeSpeed2: [key('Digit2')], timeSpeed3: [key('Digit3')], timeSpeed4: [key('Digit4')],
+  timeHourBack: [key('BracketLeft')], timeHourForward: [key('BracketRight')],
+  timeMinutesBack: [key('Comma')], timeMinutesForward: [key('Period')], timeLive: [key('KeyB')],
 };
 export const emptyActions = (): Actions => Object.fromEntries(ACTIONS.map(a => [a, 0])) as Actions;
 interface Curve { deadZone: number; exponent: number }

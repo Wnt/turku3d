@@ -72,11 +72,14 @@ const save = () => {
 try {
   await send('Network.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1200, deviceScaleFactor: 1, mobile: false });
-  for (const [n, cam] of cameras.entries()) {
+  const ordered = [...cameras.entries()].sort((a, b) =>
+    Number(b[1].id.startsWith('pano-')) - Number(a[1].id.startsWith('pano-')));
+  for (const [n, cam] of ordered) {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
       const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.png`;
       if (valid(shots.get(file))) continue;
+      await send('Page.setWebLifecycleState', { state: 'active' });
       failures.length = 0;
       const started = Date.now(), [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
       console.log(`Starting ${file}`);
@@ -93,6 +96,7 @@ try {
       const wanted = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
       let state;
       let throttled = false;
+      let settleRetries = 0;
       while (Date.now() - started < timeout) {
         if (!throttled) throttled = await evaluate(`(() => {
           if (!window.__render) return false;
@@ -112,6 +116,14 @@ try {
           return {ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
             info:window.__qaInfo,night:g?.dayClock?.night};
         })()`);
+        if (state.error?.startsWith('timeout: tiles did not settle')) {
+          // Keep already downloaded/compiled tiles while the capture's overall deadline permits a retry.
+          // Full-pass and asset checks still apply; an incomplete view never becomes a valid baseline.
+          console.log(`Retrying settle for ${file} with resident tiles`);
+          settleRetries++;
+          await evaluate(`window.__qaMove(${JSON.stringify(pose)})`);
+          continue;
+        }
         if (state.error) throw new Error(`${cam.id}@${at}: ${state.error}`);
         if (state.ready && state.tiles.every(t => t.full) && !assets.size && Date.now() - lastAsset > 2000) break;
         await delay(1000);
@@ -120,12 +132,14 @@ try {
       await evaluate(`document.querySelectorAll('body > *:not(canvas)').forEach(e => e.style.setProperty('display','none','important'));`);
       const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       await evaluate('window.__render.beforeFrame = () => false');
+      await send('Page.setWebLifecycleState', { state: 'frozen' });
       fs.writeFileSync(path.join(out, file), Buffer.from(screenshot.data, 'base64'));
       const row = { file, time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
         notes: cam.notes, url, build: `local/loop-integration@${build}`, capture: {
           wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
           incomplete_tiles: state.tiles.filter(t => !t.full).map(t => t.id), failed_assets_final: [...new Set(failures)],
           tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
+          settle_retries: settleRetries,
           vis_tris: state.qa?.visTris, load_ms: state.qa?.loadMs, night_level: state.night } };
       shots.set(file, row); save();
       console.log(JSON.stringify({file,valid:valid(row),seconds:row.capture.wall_s}));
@@ -133,5 +147,7 @@ try {
     }
   }
 } finally {
+  // Freeze even when tile settling, screenshotting, or evaluation fails.
+  await send('Page.setWebLifecycleState', { state: 'frozen' }).catch(error => console.error(error.message));
   socket.close();
 }

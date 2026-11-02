@@ -14,7 +14,9 @@ their last physical pose or draft slot, tilted with the ground as the generator 
 (`pitch`, `roll`); claimed multiplayer slots are left to the shared renderer. A slot holds its car
 only while its generator draw (`occ`) is below its class's occupancy at the shared clock's night
 level (`world/parkedOccupancy.ts`: the centre empties at night, residential streets fill up), so
-every client shows the same cars; an emptied slot loses its visual and, once at rest, its body.
+every client shows the same cars; an emptied slot loses its visual and, once at rest, its body. In single
+player the night level follows this browser's view clock instead (`?time=`, the developer time panel), so a
+scrubbed or fast-run time shows its own parked cars.
 Each recolourable Kenney body model is one InstancedMesh: a per-instance paint redraws only the
 generator's baked paint swatch (`actors/parkedPaint.ts`), so glass, tyres and lamps keep the GLB
 texture. Other models keep one batch per GLB. Entering a car removes its instance and adds a

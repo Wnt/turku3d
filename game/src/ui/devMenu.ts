@@ -1,9 +1,11 @@
 // Developer pages of the pause menu (localhost, or ?dev=1 anywhere including Pages, core/localOnly.ts devToolsEnabled): money, fly mode,
 // spawning the trophy truck, teleport and the time of day. The pages are MenuPages like the save pages (menu.ts); what a pick does to the
 // running game is in DevHooks (play.ts).
-import { DAY_PHASES, type DayPhase } from '../core/dayCycle';
+import { formatClock } from '../core/dayCycle';
+import { CLOCK_SPEEDS } from '../render/dayClock';
 import { PLACES, parsePlace, type Place } from '../gameplay/content/places';
 import type { MenuHost, MenuItem, MenuPage } from './menu';
+import { TIME_KEYS, TIME_PRESETS, clockReadout, keyLabel, type DevClock } from './timePanel';
 
 const DEV_MONEY_STEPS = [1000, 10_000] as const;
 
@@ -20,14 +22,17 @@ export interface DevHooks {
   built(E: number, N: number): boolean;
   /** Asks for the "E,N[,heading]" text (window.prompt); null when cancelled. */
   ask(question: string): string | null;
-  setTime(phase: DayPhase): void;
+  /** The day clock the Time of day page drives: a local view, like ?time= (ui/timePanel.ts). */
+  clock: DevClock;
+  /** Whether the time panel shows, and showing or hiding it. */
+  timePanel(): boolean;
+  toggleTimePanel(): void;
   nextTrack(): void;
   /** Puts the trophy truck on the ground in front of the camera, without buying it. */
   spawnTruck(): void;
 }
 
 const euros = (n: number) => `${n.toLocaleString('en-US').replace(/,/g, ' ')} €`;
-const PHASE_LABELS: Record<DayPhase, string> = { dawn: 'Dawn', noon: 'Noon', dusk: 'Dusk', night: 'Night' };
 
 export class DevMenuFlow {
   /** `back` returns the pause menu root. */
@@ -71,12 +76,23 @@ export class DevMenuFlow {
     ] };
   }
 
-  /** Dawn, noon, dusk and night on the game clock's day. */
-  time(): MenuPage {
+  /** The time panel's controls as menu rows, for the gamepad: the panel itself, pause/resume, the next speed, ±1 h and
+   *  ±10 min, the quick times and back to the live clock. A pick stays on its row; the status line is the readout. */
+  time(select?: string): MenuPage {
     const back = () => this.host.show(this.root());
-    return { id: 'dev-time', title: 'Time of day', text: null, back, items: [
-      ...DAY_PHASES.map((phase): MenuItem => ({ id: `time-${phase}`, label: PHASE_LABELS[phase], detail: null, enabled: true,
-        run: () => { this.dev.setTime(phase); this.host.show(this.root(`${PHASE_LABELS[phase]}.`)); } })),
+    const c = this.dev.clock;
+    const row = (id: string, label: string, detail: string | null, act: () => void, enabled = true): MenuItem =>
+      ({ id, label, detail, enabled, run: () => { act(); this.host.show(this.time(id)); } });
+    const next = CLOCK_SPEEDS[(CLOCK_SPEEDS.indexOf(c.rate as typeof CLOCK_SPEEDS[number]) + 1) % CLOCK_SPEEDS.length];
+    const step = (action: 'timeHourBack' | 'timeHourForward' | 'timeMinutesBack' | 'timeMinutesForward') =>
+      row(`time-${action.slice(4).toLowerCase()}`, TIME_KEYS[action].label, keyLabel(action), () => TIME_KEYS[action].run(c));
+    return { id: 'dev-time', title: 'Time of day', text: clockReadout(c), back, select, items: [
+      row('time-panel', this.dev.timePanel() ? 'Hide time panel' : 'Show time panel', keyLabel('timePanel'), () => this.dev.toggleTimePanel()),
+      row('time-pause', c.running ? 'Pause clock' : `Resume clock ×${c.speed}`, keyLabel('timePause'), () => TIME_KEYS.timePause.run(c)),
+      row('time-speed', `Run at ×${next}`, `×1 · ×10 · ×60 · ×600 (keys ${CLOCK_SPEEDS.map((_, i) => i + 1).join(' ')})`, () => c.resume(next)),
+      step('timeHourBack'), step('timeHourForward'), step('timeMinutesBack'), step('timeMinutesForward'),
+      ...TIME_PRESETS.map(p => row(`time-${p.id}`, p.label, p.label === formatClock(p.hour) ? null : formatClock(p.hour), () => c.seek(p.hour))),
+      row('time-live', 'Back to live clock', keyLabel('timeLive'), () => c.goLive(), c.local),
       { id: 'back', label: 'Back', detail: null, enabled: true, run: back },
     ] };
   }

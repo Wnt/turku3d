@@ -11,8 +11,9 @@ import { Environment } from '../../src/render/environment';
 import { MaterialStyler } from '../../src/render/materials';
 import { facadeKitMaterial, tintDraft } from '../../src/render/facadeKit';
 import { QUALITY, type QualityTier } from '../../src/render/quality';
-import { cycleAt } from '../../src/core/dayCycle';
+import { CYCLE_EPOCH, cycleAt } from '../../src/core/dayCycle';
 import { LampPools } from '../../src/render/lights/pools';
+import { DayClock } from '../../src/render/dayClock';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -171,6 +172,46 @@ test.each([false, true])('lamp pools moving the slots along a street keep every 
   pools.update(600, 0, 1, 0, env.nightFactor, 41_000);
   expect(env.lamps.point.every(l => l.intensity === 0)).toBe(true);
   expect(keys()).toEqual(day);
+});
+
+test.each([false, true])('the developer clock scrubbing 13:00 → 22:00 → 04:00 and running ×600 keeps every key and program (WebGL=%s)', webgl => {
+  const { env, keys, shaders } = world(webgl, 'medium');
+  // Play refreshes the sky IBL into one reused PMREM target (Environment.updateIBL); the fixed CubeUV texture stands in.
+  let refreshes = 0;
+  env.updateIBL = () => { refreshes++; };
+  const time = { now: CYCLE_EPOCH + 10 * 60_000 };
+  const clock = new DayClock(env, undefined, false, () => time.now);
+  const pools = new LampPools(env.lamps.point);
+  pools.setLamps(Array.from({ length: 12 }, (_, i) => ({ key: `l${i}`, x: i * 25, y: 5, z: 4, r: 1, g: 0.8, b: 0.58, intensity: 20 })));
+  let frame = 0;
+  const frames = (n: number, check: () => void) => {
+    for (let i = 0; i < n; i++, frame++) {
+      time.now += 1000 / 60;
+      clock.update();
+      env.updateShadows(true);
+      pools.update(frame * 0.2, 0, 1, 0, env.nightFactor, time.now);
+      if (frame % 20 === 0) check();
+    }
+  };
+  clock.seek(13);
+  frames(1, () => {});
+  const programs = shaders();
+  const day = keys();
+  const same = () => expect(keys(), clock.snapshot().hour.toFixed(2)).toEqual(day);
+  // A drag 13:00 → 22:00 → 04:00 (through midnight), one input event per frame, five clock minutes each.
+  for (let m = 13 * 60; m <= (24 + 4) * 60; m += 5) { clock.seek(m / 60); frames(1, same); }
+  expect(env.sun.intensity).toBe(0); expect(env.nightFactor).toBe(1); expect(env.shadowsFrozen).toBe(true);
+  expect(env.lamps.point.some(l => l.intensity > 0)).toBe(true);
+  // ×600 from 04:00 for 36 s: six clock hours through dawn into the morning.
+  clock.resume(600);
+  frames(36 * 60, same);
+  expect(clock.hour).toBeCloseTo(10, 1);
+  expect(env.sun.intensity).toBeGreaterThan(3); expect(env.nightFactor).toBe(0); expect(env.shadowsFrozen).toBe(false);
+  expect(env.lamps.point.every(l => l.intensity === 0)).toBe(true);
+  expect(keys()).toEqual(day);
+  expect(shaders()).toEqual(programs);
+  // The scrub refreshed the IBL at most every 150 ms (not per input), the run each degree of twilight.
+  expect(refreshes).toBeGreaterThan(20); expect(refreshes).toBeLessThan(250);
 });
 
 test('batched roof ranges get no window light; batches with wall ranges do', () => {

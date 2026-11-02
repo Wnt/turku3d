@@ -91,3 +91,12 @@ test('the night level comes from the shared cycle alone: day, then dusk, full ni
   expect(dusk[0]).toBeLessThan(0.05);
   expect(dusk[40]).toBeGreaterThan(0.95);
 });
+
+test('single player\'s view clock (?time=, the developer time panel) sets the night level; without one the shared cycle does', () => {
+  const day = CYCLE_EPOCH + 10 * 60_000;
+  expect(parkedNight(day)).toBe(0);
+  expect(parkedNight(day, () => 22)).toBe(1);
+  expect(parkedNight(day, () => 13)).toBe(0);
+  expect(parkedNight(day, () => 20.5)).toBeGreaterThan(0.5);
+  expect(parkedNight(CYCLE_EPOCH + 26 * 60_000, () => 13)).toBe(0);
+});

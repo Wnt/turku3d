@@ -106,6 +106,13 @@ Chrome on macOS exposes Xbox Elite Series 2 as **Xbox Wireless Controller**, sta
 | Reset car upright | — | — | R |
 | Return to solid ground (only when off the map or in the river; also automatic after 5 s) | Y | Y | R (touch: Reset) |
 | Toggle debug HUD | — | — | F3 / H |
+| Developer time panel (developer tools: localhost or `?dev=1`) | Menu → Developer → Time of day | same | T |
+
+With the time panel open (developer tools only): **0** pause/resume, **1 2 3 4** run at ×1 / ×10 / ×60 / ×600 (clock
+time per real time), **[ ]** −1 h / +1 h (the two keys right of P; Å ¨ on a Finnish keyboard), **, .** −10 min /
++10 min, **B** back to the live clock. The panel's slider sets 00:00–24:00 to the minute and its quick buttons go to
+dawn 06:30, 09:00, 13:00, golden hour 19:30, blue hour 20:30, 22:00 and 04:00. The gamepad has the same controls as
+rows of the pause menu's Developer → Time of day page. See [ui/README.md](src/ui/README.md#time-panel).
 
 Full stick = 3.6 m/s jog; sprint = 6 m/s; keyboard slow walk = 1.5 m/s. Input magnitude is preserved after a radial dead zone (left 0.16, right 0.12) and power response curves (1.35 / 1.6). Acceleration and deceleration are smoothed. Jump is a press edge, retained across worker latency and frames without a physics tick. Holding jump does not auto-jump on landing. Blur clears held input. Dual-rumble is feature-detected and used on landing and curb strikes; unsupported actuators fail silently. Trigger rumble is not required.
 
@@ -146,9 +153,9 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `tiles=<url>` | Override the scene tileset (also overrides `scene=dev`). Default: `../tiles/tileset.json`, resolving to sibling `tiles/` on Pages and `/tiles/` on local servers. |
 | `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
 | `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
-| `time=HH:MM` | Freeze a local view of the play cycle at that clock hour (sun path, timecycle, lit windows), e.g. `13:00`, `19:30`, `22:00`. |
+| `time=HH:MM` | Freeze a local view of the play cycle at that clock hour (sun path, timecycle, lit windows, street lights; single-player traffic and walker density), e.g. `13:00`, `19:30`, `22:00`. The developer time panel can move or run it from there. |
 | `time=<ISO-8601>` | Freeze a calendar instant with the astronomical sun (NOAA formula, Turku lat/lon) under the same timecycle. QA default: `2026-10-15T14:00:00+03:00`. |
-| `cycle=<minutes>` | Local length of the play cycle (default 30, the shared cycle; other values only change this browser's view). |
+| `cycle=<minutes>` | Local length of the play cycle (default 30, the shared cycle; other values only change this browser's view, which the time panel's Live button returns to). |
 | `aa=off\|taa\|fxaa` | AA diagnostic; default `taa`, or `fxaa` for mobile quality. `off` and `fxaa` disable temporal jitter/history and AO temporal sampling; ID passes always bypass AA. |
 | `quality=mobile\|low\|medium\|high` | Phones/tablets default to mobile; desktops and fixed-camera QA default to medium. Mobile uses one smaller CSM cascade and sky reflections, without GTAO or bloom. Phones/tablets pace play at 30 FPS and cap output at 720p regardless of the input device. See [render budgets](src/render/README.md). |
 | `colRadius=<m>` | Collision streaming radius (default 200, must be > 0). Tiles unload beyond radius + 50 m. Candidate tiles come from the i/j grid window around the player, not a scan of the whole manifest. |
@@ -156,7 +163,7 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `lights=<0..1>` (or `lights`) | Fix the street-light night level ([render/lights](src/render/lights/index.ts)): `lights` or `lights=1` shows lamp heads and light coronas at any hour, `0` keeps them off. Without it the level follows the timecycle's night factor. |
 | `walkers=N` | Ambient walker cap override, 0–200 (0 disables them). Default per quality: mobile 0, low 10, medium 30, high 50. See [walkers](src/world/walkers/README.md). |
 | `traffic=<0..200>` | Moving ambient-car cap ([traffic](src/physics/README.md#ambient-traffic)); default by quality: mobile 10, low 15, medium 30, high 40. `0` turns ambient traffic off. |
-| `trafficDensity=<0..4>` | Multiplies every street's ambient traffic flow (default 1 on every quality tier; the cap above still bounds what is drawn). Single-player traffic follows `time=`/the developer clock; multiplayer follows the shared cycle. |
+| `trafficDensity=<0..4>` | Multiplies every street's ambient traffic flow (default 1 on every quality tier; the cap above still bounds what is drawn). Single-player traffic follows `time=`/the developer time panel; multiplayer follows the shared cycle. |
 | `cam=...` | Visual QA camera, see below. |
 
 ## Visual QA render contract (D8)
@@ -320,9 +327,9 @@ by default; override `GROUND_QA_PORT` outside the W1-10 sandbox).
 
 Public live/Pages builds set `VITE_PUBLIC_RELEASE=1` at build time. Their start menu offers Multiplayer only; local dev and ordinary `npm run build` keep all start options. This is a build target, not a runtime URL option. A public `make game-build` also writes a local production companion to `$TURKU3D_WORK/build/check-game`. The integrator uses that companion for the existing New game gameplay checks (`E2E_GAME_DIST`), while live and Pages publish `build/game`. Both variants are cached and carried together; manual Pages builds also select the public target.
 
-The play clock is a 30-minute cycle: 20 min of day (07:00–19:00), 4 min of dusk (to 21:30), 4 min of night (to 04:30) and 2 min of dawn, shown on 8 September 2027 Europe/Helsinki. Phase is `(UTC milliseconds - 2027-09-08T04:00:00Z) mod 1800000`, and the server's welcome time aligns it, so every client sees the same time, sun, night factor and lit windows without extra server state. The sun follows a fixed synthetic path (declination 6°, solar noon 13:15) decoupled from the calendar, so it stays below −12° for about four real minutes per cycle. `?time=HH:MM`, `?time=ISO` and QA cameras freeze a local view; saves never change the live cycle or an explicit URL time. The developer menu's dawn/noon/dusk/night entries freeze 06:30, 13:15, 19:45 and 23:30. F3 diagnostics are available in releases.
+The play clock is a 30-minute cycle: 20 min of day (07:00–19:00), 4 min of dusk (to 21:30), 4 min of night (to 04:30) and 2 min of dawn, shown on 8 September 2027 Europe/Helsinki. Phase is `(UTC milliseconds - 2027-09-08T04:00:00Z) mod 1800000`, and the server's welcome time aligns it, so every client sees the same time, sun, night factor and lit windows without extra server state. The sun follows a fixed synthetic path (declination 6°, solar noon 13:15) decoupled from the calendar, so it stays below −12° for about four real minutes per cycle. `?time=HH:MM`, `?time=ISO` and QA cameras freeze a local view; saves never change the live cycle or an explicit URL time. The developer time panel (T; Developer → Time of day for the gamepad) scrubs, pauses, steps or runs a local view at ×1–×600 and returns to the live clock; while any local view is shown the city clock carries a **Local time** badge with the live time beside it. In multiplayer a local view changes only this browser's sky, lighting, lights and lit windows; traffic, walkers and the rest of the shared world keep the live cycle. F3 diagnostics are available in releases.
 
-Sun direction and the timecycle (`src/render/timecycle.json`) update each frame. Sky IBL is reused for 30 s by day, refreshed per degree of sun movement around sunset and sunrise, and every two minutes in deep night. While the sun has no intensity the shadow cascades are not re-rendered. `window.__game.dayClock.snapshot()` reports hour, segment, night factor, shadow freeze and measured CPU and IBL update cost.
+Sun direction and the timecycle (`src/render/timecycle.json`) update each frame. Sky IBL is reused for 30 s by day, refreshed per degree of sun movement around sunset and sunrise, and every two minutes in deep night; a clock running faster than the shared cycle (×600, `?cycle=`) shortens those intervals in proportion (at least 250 ms apart), and a scrub refreshes it at most every 150 ms. While the sun has no intensity the shadow cascades are not re-rendered. `window.__game.dayClock.snapshot()` reports hour, mode (`cycle`, `hour`, `run`, `date`), whether the view is local, the run rate, segment, night factor, shadow freeze and measured CPU and IBL update cost.
 
 Controls help learns foot, fly and car separately. It disappears after one active minute in that mode or two uses of at least 75% of the shown controls, and remembers learned modes per browser. Switching to an unlearned mode shows its prompts.
 
