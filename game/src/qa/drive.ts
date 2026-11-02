@@ -6,6 +6,7 @@ import { CarVisual } from '../actors/car';
 import type { LightState } from '../vehicle/signals';
 import { CAR } from '../physics/constants';
 import { BENCH_SETTLE_MS } from './bench';
+import type { ClockMode } from '../render/dayClock';
 
 export interface DrivePose {
   t: number; paused: boolean; mode: string; id: string | null; E: number; N: number; H: number;
@@ -58,6 +59,24 @@ export async function loadDrive(id: string, segment = 1) {
   return { id, segment, meta, settings, ...selected };
 }
 export type LoadedDrive = Awaited<ReturnType<typeof loadDrive>>;
+/** Start the scene at the captured timeline, including when the source was itself a replay. */
+export function driveEpoch(drive: Pick<LoadedDrive, 'meta' | 'start'>): number {
+  const elapsedMs = drive.start - drive.meta.start.performanceNow;
+  return drive.meta.replay?.epochMs != null
+    ? drive.meta.replay.epochMs + (drive.meta.replay.seconds ?? 0) * 1000 + elapsedMs
+    : drive.meta.start.wall + elapsedMs;
+}
+
+export function driveClockMode(meta: Record<string, any>): ClockMode {
+  const mode = meta.clockMode;
+  if (mode) return mode.kind === 'date' ? { ...mode, date: new Date(mode.date) } : { ...mode };
+  if (meta.params?.timeGiven) {
+    return meta.params.hour != null ? { kind: 'hour', hour: meta.hour }
+      : { kind: 'date', date: new Date(meta.params.time) };
+  }
+  return { kind: 'cycle', periodMs: (meta.params?.cycleMinutes ?? 30) * 60_000 };
+}
+
 export function driveQaPose(pose: DrivePose) {
   const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().fromArray(pose.cam, 3), 'YXZ');
   return { E: E0 + pose.cam[0], N: N0 - pose.cam[2], H: pose.cam[1], yawDeg: -e.y * 180 / Math.PI,

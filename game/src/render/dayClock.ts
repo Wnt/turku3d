@@ -121,6 +121,13 @@ export class DayClock {
   /** Serializable scene clock for local drive capture. */
   captureMode(): ClockMode { return { ...this.mode }; }
 
+  /** Rewind the QA/replay timeline without carrying future lighting or clock history into the next run. */
+  resetTimeline(mode: ClockMode = this.mode) {
+    this.mode = mode.kind === 'date' ? { ...mode, date: new Date(mode.date) } : { ...mode };
+    this.history = [{ from: -Infinity, mode: this.mode }];
+    this.apply(); this.refreshIBL(this.now());
+  }
+
   /** Freeze a calendar instant with the astronomical sun (window.__render.setTime). */
   set(date: Date) { this.freeze({ kind: 'date', date }); }
   /** Freeze a clock hour on the cycle's sun path (window.__render.setHour). */
