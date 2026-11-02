@@ -10,6 +10,11 @@ import { CarVisual } from '../actors/car';
 import { ScooterVisual } from '../actors/scooter';
 import { TruckVisual } from '../actors/truck';
 import type { VehicleState } from '../physics/protocol';
+import { VehicleSignals, LIGHT_LABELS } from '../vehicle/signals';
+import { VehicleBeams } from '../vehicle/beams';
+import { GameAudio } from '../audio';
+import { nightUniforms } from '../render/nightLights';
+import { fleetNight } from '../actors/fleet/material';
 import { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { draftManifest } from '../world/manifest';
 import { Input } from '../input';
@@ -43,7 +48,20 @@ block.position.set(STEP.x, STEP.y, STEP.z); block.receiveShadow = true; block.ca
 const camera = new THREE.PerspectiveCamera(43, 16 / 9, 0.1, 400);
 // The open test floor has nothing to collide with, so the chase camera keeps its full distance.
 const chase = new ChaseCamera(camera, { cameraCast: async (_origin, _dir, distance) => distance });
-const input = new Input(renderer.domElement);
+const audio = new GameAudio(); void audio.preload();
+const input = new Input(renderer.domElement, () => { void audio.unlock(); });
+const signals = new VehicleSignals();
+// Open floor: nothing blocks the beams.
+const beams = new VehicleBeams(scene, { raycast: async () => null });
+const hemi = scene.children.find(o => (o as THREE.HemisphereLight).isHemisphereLight) as THREE.HemisphereLight;
+let night = false;
+function setNight(on: boolean) {
+  night = on; nightUniforms.night.value = on ? 1 : 0; fleetNight.value = on ? 1 : 0;
+  hemi.intensity = on ? 0.08 : 2; sun.intensity = on ? 0.05 : 3; scene.environmentIntensity = on ? 0.05 : 1;
+  scene.background = new THREE.Color(on ? '#10151b' : '#858e95');
+}
+addEventListener('keydown', e => { if (e.code === 'KeyN' && !e.repeat) setNight(!night); });
+const status = document.getElementById('status')!;
 
 type Entry = { kind: 'fleet'; model: (typeof FLEET)[number] } | { kind: 'car' | 'scooter' | 'truck'; name: string };
 const authored = new Set(AUTHORED_MODELS.map(m => m.id));
@@ -110,7 +128,7 @@ async function activate(index: number) {
   for (let i = 0; i < 60; i++) { vehicle.step(1 / 60, null); world.step(); }
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
-  resize(); openingView(vehicle.state()); followSun(vehicle.state().pos);
+  resize(); openingView(vehicle.state()); followSun(vehicle.state().pos); signals.enter();
   active = { index, world, vehicle, visual }; pending = -1;
 }
 
@@ -147,6 +165,9 @@ for (const v of views) observer.observe(v.view);
 const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
 addEventListener('keydown', e => { if (DRIVE_KEYS.has(e.code)) e.preventDefault(); });
 
+const listenerForward = new THREE.Vector3();
+// Test hook: the active vehicle's state and the input the game would read.
+Object.assign(window, { vehicleGallery: { state: () => active?.vehicle.state(), actions: () => input.actions, source: () => input.source } });
 let last = performance.now(), carry = 0;
 renderer.setAnimationLoop(() => {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -154,11 +175,17 @@ renderer.setAnimationLoop(() => {
   if (!active) return;
   const a = input.actions;
   if (input.consume('vehicleReset')) { active.vehicle.reset(START, 0); openingView(active.vehicle.state()); }
-  const drive = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5 };
+  signals.update(true, input.consume('lights'), a.horn > 0.5);
+  const drive = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5, lights: signals.lights, horn: signals.horn };
   for (carry += dt; carry >= 1 / 60; carry -= 1 / 60) { active.vehicle.step(1 / 60, drive); active.world.step(); }
-  const state = { ...active.vehicle.state(), id: 'drive' };
+  const state = { ...active.vehicle.state(), id: 'drive', lights: signals.lights, horn: signals.horn };
   chase.update(dt, state, input.lookX, input.lookY, input.consume('cameraReset'));
   followSun(state.pos);
   active.visual.update(state, dt);
+  beams.update(state, now);
+  camera.getWorldDirection(listenerForward);
+  audio.emit({ type: 'listener', position: camera.position, forward: listenerForward, up: camera.up, paused: false });
+  audio.emit({ type: 'horns', vehicles: signals.horn ? [{ id: 'gallery', kind: active.vehicle.kind, position: state.pos }] : [] });
+  status.textContent = `${LIGHT_LABELS[signals.lights]}${signals.horn ? ' · horn' : ''}${night ? ' · night' : ''} · input: ${input.source}`;
   renderer.render(scene, camera);
 });
