@@ -1,10 +1,10 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import { AnalyticSky } from '../../src/render/analyticSky';
 import { NormalPrepass } from '../../src/render/normalPrepass';
 
 test('the actual analytic sky retains its far-plane vertex shader and disabled depth writes', () => {
-  const pre = new NormalPrepass(), sky = new SkyMesh();
+  const pre = new NormalPrepass(), sky = new AnalyticSky();
   try {
     expect(sky.material.vertexNode).toBeTruthy();
     expect(sky.material.depthWrite).toBe(false);

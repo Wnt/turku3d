@@ -1,6 +1,6 @@
 // Analytic Rayleigh/Mie sky, PMREM sky IBL, street-scale CSM and the timecycle-driven day/night look.
 import * as THREE from 'three/webgpu';
-import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import { AnalyticSky } from './analyticSky';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { Atmosphere } from './atmosphere';
 import { sunPosition, sunVector } from '../core/sun';
@@ -18,7 +18,7 @@ const DEEP_NIGHT = -12;
 const liveEnvironments = new Set<Environment>();
 
 export class Environment {
-  readonly sky = new SkyMesh();
+  readonly sky = new AnalyticSky();
   readonly sun = new THREE.DirectionalLight(0xfff2e0, 3);
   /** Artificial ambient (cool sky, warm street bounce). Always present; intensity 0 by day. */
   readonly hemisphere = new THREE.HemisphereLight(0xffffff, 0xffffff, 0);
@@ -45,7 +45,6 @@ export class Environment {
   private iblElevation = Number.NaN;
   private state = '';
   atmosphere: Atmosphere;
-  private readonly clearSky: THREE.Node<'vec4'>;
 
   /** Reused sky PMREM; mobile water samples it without rendering the city a second time. */
   get environmentMap() { return this.environmentTarget?.texture ?? null; }
@@ -58,7 +57,6 @@ export class Environment {
     this.sky.scale.setScalar(4500);
     this.sky.turbidity.value = 2.5;
     this.sky.rayleigh.value = 1.5;
-    this.clearSky = this.sky.material.colorNode as THREE.Node<'vec4'>;
     this.atmosphere = new Atmosphere(this.sky);
     liveEnvironments.add(this);
     // Mesh.clone shares the sky material/uniforms; keep one IBL source mesh across time edits.
@@ -224,7 +222,6 @@ export class Environment {
   reloadAtmosphere(AtmosphereClass: typeof Atmosphere) {
     const seconds = this.atmosphere.seconds;
     this.atmosphere.dispose();
-    this.sky.material.colorNode = this.clearSky;
     this.atmosphere = new AtmosphereClass(this.sky);
     this.atmosphere.setTime(seconds);
     this.atmosphere.setSun(this.sunElevation, this.sunAzimuth, this.sample);

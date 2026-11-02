@@ -126,7 +126,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
   const traffic = new TrafficClient(physics, parkedVisuals, parkedVehicles, manifest, params.traffic ?? TRAFFIC_CAPS[params.quality],
-    params.trafficDensity, world.trafficClock);
+    params.trafficDensity, world.trafficClock, root);
   traffic.attach(coarse);
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
   const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,
@@ -488,6 +488,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         grounded = st.character.grounded; groundMat = st.character.groundMaterial;
       }
       traffic.update(now, camera, st);
+      traffic.updatePedestrians(now, () => walkers.trafficObstacles());
       audio.emit({ type: 'traffic', ...traffic.audible(camera.position, TRAFFIC_VOICES) });
       parkedVisuals.setView(camera, world.dayClock.night);
       parkedVisuals.update(st.vehicles, parkedVehicles);
