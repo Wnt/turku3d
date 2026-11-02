@@ -56,22 +56,47 @@ def file_lock(path):
         yield
 
 
+def process_ticks(pid):
+    try:
+        return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def process_alive(pid, ticks=None):
+    try:
+        stat = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+        return stat[0] != 'Z' and (ticks is None or stat[19] == ticks)
+    except (OSError, IndexError):
+        return False
+
+
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
-                 reserve_gib=2, execute=None, free=None):
+                 reserve_gib=2, grace_seconds=900, execute=None, free=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers, self.queue_limit = workers, queue_limit
         self.floor, self.reserve = floor_gib * GIB, reserve_gib * GIB
+        self.grace_seconds = grace_seconds
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
         self.lock = threading.RLock()
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
+        self.dispatched, self.queue_info, self.demands = set(), {}, {}
+        self.turns, self.closing, self.last_saved = {}, False, 0.0
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
         self.aliases = read_json(self.root / 'aliases.json', {})
+        for row in read_json(self.root / 'pending.json', []):
+            key = (row['generation'], row['tile'])
+            if not (self.output(key[0]) / key[1] / 'ready.json').exists():
+                self.jobs[key] = row['revision']
+                self.queue_info[key] = row
+        with self.lock:
+            self.pump()
 
     def event(self, kind, **row):
         with self.lock:
@@ -86,8 +111,28 @@ class Farm:
             raise KeyError('revision is not registered')
         return meta
 
-    def register(self, revision, alias=None):
+    def register(self, revision, alias=None, source_version=None):
         meta = self.revision(revision)
+        if source_version is not None:
+            if not re.fullmatch(r"[a-f0-9]{64}", source_version):
+                raise ValueError('invalid source version')
+            data = self.root / 'sources' / 'versions' / source_version
+            provenance = read_json(data / 'source-version.json', {})
+            if provenance.get('version') != source_version:
+                raise ValueError('source overlay is not published')
+            source_revision = revision
+            revision = hashlib.sha256((source_revision + ':' + source_version).encode()).hexdigest()
+            generation = hashlib.sha256((meta['generation'] + ':' + source_version).encode()).hexdigest()
+            destination = self.root / 'revisions' / revision
+            with self.lock:
+                if not destination.exists():
+                    destination.mkdir()
+                    (destination / 'repo').symlink_to(self.root / 'revisions' / source_revision / 'repo',
+                                                    target_is_directory=True)
+                    atomic_json(destination / 'revision.json', {**meta, 'revision': revision,
+                                'commit': meta.get('commit', source_revision), 'source_revision': source_revision,
+                                'generation': generation, 'source_version': source_version, 'data_root': str(data)})
+            meta = self.revision(revision)
         if alias is not None and not ALIAS.fullmatch(alias):
             raise ValueError('invalid alias')
         with self.lock:
@@ -96,7 +141,8 @@ class Farm:
                 atomic_json(self.root / 'aliases.json', self.aliases)
                 self.version += 1
         self.event('register', revision=revision, alias=alias, generation=meta['generation'])
-        return dict(revision=revision, generation=meta['generation'], alias=alias)
+        return dict(revision=revision, commit=meta.get('commit', revision),
+                    generation=meta['generation'], source_version=meta.get('source_version'), alias=alias)
 
     def resolve(self, selector):
         with self.lock:
@@ -107,13 +153,16 @@ class Farm:
 
     def status(self):
         with self.lock:
-            return dict(state='ready', version=self.version, aliases=self.aliases.copy(),
-                        workers=self.workers, queued=len(self.jobs) - len(self.active),
-                        building=[k[1] for k in self.active], metrics=self.metrics.copy(),
+            return dict(state='ready', api_version=2, version=self.version, aliases=self.aliases.copy(),
+                        workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
+                        building=[k[1] for k in self.dispatched],
+                        queue=[dict(revision=self.jobs[k], tile=k[1], priority=self.priority(k)[:2],
+                                    age=round(time.time()-self.queue_info[k]['requested']))
+                               for k in sorted(self.jobs, key=self.priority) if k not in self.dispatched], metrics=self.metrics.copy(),
                         free_gib=round(self.free() / GIB, 2), floor_gib=self.floor / GIB,
                         failures=list(self.failures.values())[-10:])
 
-    def request(self, revision, tile):
+    def request(self, revision, tile, distance=None):
         if not TILE.fullmatch(tile):
             raise ValueError('invalid tile')
         meta = self.revision(revision)
@@ -129,6 +178,10 @@ class Farm:
                 self.metrics['hits'] += 1
                 return 200, dict(state='built', revision=revision, generation=generation)
             if key in self.jobs:
+                info = self.queue_info[key]
+                info.update(seen=time.time(), distance=distance or 0)
+                info['explicit'] = info.get('explicit', False) or distance is None
+                self.save_queue()
                 self.metrics['joined'] += 1
                 return 202, dict(state='building' if key in self.active else 'queued',
                                  revision=revision, generation=generation)
@@ -141,9 +194,63 @@ class Farm:
             if not self.make_room(self.floor + self.reserve * (len(self.active) + 1)):
                 return 507, dict(state='disk-pressure', free_gib=self.free() / GIB)
             self.jobs[key] = revision
-            self.pool.submit(self.build, revision, tile, generation)
+            self.queue_info[key] = dict(revision=revision, generation=generation, tile=tile,
+                                       requested=time.time(), seen=time.time(), distance=distance or 0,
+                                       explicit=distance is None)
+            self.save_queue(force=True)
+            self.pump()
             self.event('queued', revision=revision, tile=tile, generation=generation)
             return 202, dict(state='queued', revision=revision, generation=generation)
+
+    def save_queue(self, force=False):
+        if force or time.monotonic() - self.last_saved > 2:
+            atomic_json(self.root / 'pending.json', list(self.queue_info.values()))
+            self.last_saved = time.monotonic()
+
+    def priority(self, key):
+        info = self.queue_info[key]
+        if info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
+            return (-1, 0, 0, info['requested'])  # Adopt existing work before starting anything new.
+        category, distance = (0 if info.get('explicit') else 3), info.get('distance', 0)
+        for (generation, _client), demand in self.demands.items():
+            if generation == key[0] and time.time() - demand['seen'] < 120 and key[1] in demand['tiles']:
+                category = min(category, demand['tiles'][key[1]])
+        return (category, self.turns.get(key[0], 0), distance, info['requested'])
+
+    def demand(self, revision, client, tiles, urgent, visible):
+        generation = self.revision(revision)['generation']
+        with self.lock:
+            self.demands[(generation, client[:128])] = dict(seen=time.time(),
+                tiles={tile: 0 if tile in urgent else 1 if tile in visible else 2 for tile in tiles})
+            self.demands = {k:v for k,v in self.demands.items() if time.time() - v['seen'] < 120}
+            self.pump()
+        return self.status()
+
+    def pump(self):
+        if self.closing:
+            return
+        for key in list(self.jobs):
+            info = self.queue_info[key]
+            if (key not in self.dispatched and not info.get('explicit') and not info.get('pid')
+                    and time.time() - info['seen'] > 180 and self.priority(key)[0] == 3):
+                self.event('dropped', revision=self.jobs[key], tile=key[1], reason='no recent demand')
+                self.jobs.pop(key)
+                self.queue_info.pop(key)
+        while len(self.dispatched) < self.workers:
+            pending = set(self.jobs) - self.dispatched
+            if not pending:
+                break
+            key = min(pending, key=self.priority)
+            self.dispatched.add(key)
+            self.turns[key[0]] = self.turns.get(key[0], 0) + 1
+            self.pool.submit(self.build, self.jobs[key], key[1], key[0])
+        self.save_queue(force=True)
+
+    def close(self):
+        with self.lock:
+            self.closing = True
+            self.save_queue(force=True)
+        self.pool.shutdown(wait=True)
 
     def build(self, revision, tile, generation):
         key = (generation, tile)
@@ -193,6 +300,9 @@ class Farm:
             with self.lock:
                 self.active.discard(key)
                 self.jobs.pop(key, None)
+                self.queue_info.pop(key, None)
+                self.dispatched.discard(key)
+                self.pump()
 
     @staticmethod
     def validate(root, tile, manifest):
@@ -231,6 +341,17 @@ class Farm:
         return len(checked)
 
     def run_build(self, revision, tile, root):
+        info = self.queue_info[(root.name, tile)]
+        if info.get('pid'):
+            deadline = time.monotonic() + 1800
+            while process_alive(info['pid'], info.get('start_ticks')):
+                if time.monotonic() > deadline:
+                    raise RuntimeError('adopted build exceeded timeout')
+                time.sleep(1)
+            report = read_json(root / tile / 'stage-times.json', {})
+            if report.get('_build', {}).get('status') != 'complete':
+                raise RuntimeError('adopted generator did not complete; retry will resume cached stages')
+            return dict(returncode=0, adopted=True)
         repo = self.root / 'revisions' / revision / 'repo'
         env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
                    TURKU3D_WORK=str(root / 'work'))
@@ -241,12 +362,18 @@ class Farm:
             (root / '.compiled-textures').symlink_to(textures, target_is_directory=True)
         except FileExistsError:
             pass
+        meta = self.revision(revision)
+        if meta.get('data_root'):
+            env['TURKU3D_DATA'] = meta['data_root']
         logs = self.root / 'logs'
         logs.mkdir(exist_ok=True)
         with (logs / f'{revision}-{tile}.log').open('a') as log:
             proc = subprocess.Popen([str(self.runner), 'python', '-m', 'turku3d.coarse', 'build',
                                      tile, '--out', str(root / tile)], cwd=repo, env=env,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            with self.lock:
+                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid))
+                self.save_queue(force=True)
             deadline = time.monotonic() + 1800
             while proc.poll() is None:
                 reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
@@ -276,11 +403,16 @@ class Farm:
         if self.free() >= target:
             return True
         pinned = {g for g, _ in self.jobs}
-        pinned.update(self.revision(rev)['generation'] for rev in self.aliases.values())
+        revisions = set(self.aliases.values()) | set(self.jobs.values())
+        pinned.update(self.revision(rev)['generation'] for rev in revisions)
+        for rev in list(revisions):
+            source = self.revision(rev).get('source_revision')
+            if source:
+                revisions.add(source)
         products = self.root / 'products'
         candidates = sorted(products.glob('*'), key=lambda p: p.stat().st_mtime)
         for path in candidates:
-            if path.name in pinned:
+            if path.name in pinned or time.time() - path.stat().st_mtime < self.grace_seconds:
                 continue
             size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
             shutil.rmtree(path)
@@ -290,7 +422,7 @@ class Farm:
             # protect every revision still in use; registration can upload an old one again.
             for snapshot in (self.root / 'revisions').iterdir():
                 meta = read_json(snapshot / 'revision.json', {})
-                if meta.get('generation') == path.name:
+                if meta.get('generation') == path.name and snapshot.name not in revisions:
                     shutil.rmtree(snapshot)
             if self.free() >= target:
                 return True
@@ -331,7 +463,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 4096:
                 raise ValueError('invalid body size')
             body = json.loads(self.rfile.read(size))
-            self.json(200, self.server.farm.register(body['revision'], body.get('alias')))
+            self.json(200, self.server.farm.register(body['revision'], body.get('alias'), body.get('source_version')))
         except (ValueError, KeyError) as error:
             self.json(400, dict(error=str(error)))
 
@@ -363,10 +495,18 @@ class Handler(BaseHTTPRequestHandler):
         revision = farm.resolve(parts[1])
         meta = farm.revision(revision)
         rel = parts[3:]
+        if rel[0] == 'demand':
+            query = parse_qs(url.query)
+            def tiles(name):
+                return [t for t in query.get(name, [''])[0].split(',')[:128] if TILE.fullmatch(t)]
+            farm.demand(revision, query.get('client', ['anonymous'])[0], tiles('tiles'),
+                        set(tiles('urgent')), set(tiles('visible')))
         if rel[0] in ('status', 'health', 'want', 'demand'):
             return self.json(200, {**farm.status(), 'revision': revision, 'generation': meta['generation']})
         if TILE.fullmatch(rel[0]) and rel[1:] in (['manifest.json'], ['collision.json']):
-            status, value = farm.request(revision, rel[0])
+            query = parse_qs(url.query)
+            distance = max(0, min(100000, float(query['d'][0]))) if 'd' in query else None
+            status, value = farm.request(revision, rel[0], distance)
             if status != 200:
                 return self.json(status, value)
             manifest = read_json(farm.output(meta['generation']) / rel[0] / 'manifest.json')
@@ -389,6 +529,7 @@ class Handler(BaseHTTPRequestHandler):
         if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
             return self.json(404, dict(error='payload not public'))
         with path.open('rb') as source:
+            root.touch()  # Keep a grace lease for old in-flight payloads after aliases move.
             self.send_response(200)
             self.send_header('Content-Type', mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
             self.send_header('Content-Length', str(os.fstat(source.fileno()).st_size))

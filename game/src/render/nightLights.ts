@@ -65,8 +65,11 @@ export function windowEmission(facade: U32, column: Node<'float'>, storey: Node<
   return tint.mul(level.mul(glass).mul(lit).mul(nightUniforms.night).mul(w.intensity));
 }
 
-/** Kit glazing in the shared atlas: panes are authored at roughness 0.08 and metalness 0, frames at 0.6 and every
- *  wall material at 0.5 or above, so roughness alone separates glass on every kit version. */
+/** Legacy generated panes have roughness .08. Glass-family backing is .12, so
+ * the old .2–.5 threshold incorrectly lit whole backing panels. Current facade
+ * programs use their explicit opening/frame mask instead of this fallback. */
+export const kitGlassMask = (roughness: Node<'float'>) => float(1).sub(smoothstep(0.09, 0.115, roughness));
+// Generated facade artwork authors its detected glazing at .12, unlike kit panes.
 export const glassMask = (roughness: Node<'float'>) => float(1).sub(smoothstep(0.2, 0.5, roughness));
 
 /** World-space wall frame for facades without per-wall attributes (v1 kit, non-kit walls). */
