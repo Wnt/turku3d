@@ -480,3 +480,32 @@ def test_building_layer_uses_mesh_content_not_upstream_producer_key(tmp_path):
                                                        'object_id': 'wall', 'material_key': 'plaster'})
         assemble_layers(tile, [], [mesh], [], out, stage, cache)
         assert cache.metrics['building_layer']['cached'] == (producer == 'two')
+
+
+def test_wall_export_reuses_identical_validated_meshes_but_tracks_geometry(tmp_path, monkeypatch):
+    from turku3d import config as C
+    from turku3d.package.gltf import GlbMesh
+    from turku3d import wall_surfaces
+    from turku3d.wall_assembly import assemble_layers
+    tile = C.VisualTile(0, 0, 0)
+    cache = StageCache(tmp_path / '.stages' / tile.id)
+    out = tmp_path / tile.id
+    stage = out / '.stage'
+    stage.mkdir(parents=True)
+    state = {'key': 'neighbours-one', 'shift': 0}
+    def validate(meshes, *args, **kwargs):
+        for mesh in meshes:
+            mesh.positions = mesh.positions + np.array([state['shift'], 0, 0])
+        return {'geometry_key': state['key']}
+    monkeypatch.setattr(wall_surfaces, 'validate_neighbours', validate)
+    outputs = []
+    for neighbour_key, shift, hit in [('one', 0, False), ('two', 0, True), ('three', 1, False)]:
+        state.update(key=neighbour_key, shift=shift)
+        mesh = GlbMesh('wall', np.array([[0., 0, 0], [10, 0, 0], [0, 10, 0]]),
+                       np.array([[0, 1, 2]]), extras={'building_id': 'building', 'layer': 'buildings',
+                                                       'object_id': 'wall', 'material_key': 'plaster'})
+        assemble_layers(tile, [], [mesh], [], out, stage, cache)
+        assert cache.metrics['wall_visual']['cached'] is hit
+        outputs.append((stage / 'architecture.vis.glb').read_bytes())
+    assert outputs[0] == outputs[1]
+    assert outputs[1] != outputs[2]
