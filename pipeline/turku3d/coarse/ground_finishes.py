@@ -77,7 +77,7 @@ def maps(key, size=None):
         colours = colours + rng.normal(0, 5, (len(sites), 1))
         rock = colours[nearest].reshape(size, size, 3)
         dirt = np.array([104, 104, 96])
-        albedo = dirt + (rock - dirt) * coverage[..., None] + grain[..., None] * 5 + macro[..., None] * 2
+        albedo = dirt + (rock - dirt) * coverage[..., None] + grain[..., None] * 5.01 + macro[..., None] * 2
         relief = rng.uniform(.006, .011, len(sites))[nearest].reshape(size, size)
         height = crown * relief + gaussian_filter(grain, .8, mode="wrap") * .0008
         ao = .9 + .1 * crown
