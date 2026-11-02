@@ -120,7 +120,7 @@ try {
           const tiles = ${JSON.stringify(wanted)}.map(id => { const e = g?.lights?.source?.entries.get(id);
             return {id, pass:e?.pass, full:e?.state === 'draft' && e?.pass === 'full' && !e?.preview && !!e?.model}; });
           return {ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
-            hour:g?.dayClock?.hour, pose:window.__qaPose,
+            azimuth:env?.sunAzimuth, clock:g?.dayClock?.snapshot(), hour:g?.dayClock?.hour, pose:window.__qaPose,
             info:window.__qaInfo,night:g?.dayClock?.night};
         })()`);
         if (state.pose && state.hour !== undefined && (Math.abs(state.hour - (h + m / 60)) > 0.01 ||
@@ -152,6 +152,7 @@ try {
           wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
           incomplete_tiles: state.tiles.filter(t => !t.full).map(t => t.id), failed_assets_final: [...new Set(failures)],
           tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
+          sun_azimuth_deg: state.azimuth, clock: state.clock,
           settle_retries: settleRetries,
           effective_hour: state.hour, effective_pose: state.pose,
           vis_tris: state.qa?.visTris, load_ms: state.qa?.loadMs, night_level: state.night } };
