@@ -12,7 +12,8 @@ export const MAX_SNAP_M = 80;
 export class StreetRouter implements Router {
   /** Travel mode for route(): main.ts keeps it equal to the player's current mode. */
   mode: TravelMode = 'foot';
-  private readonly grid = new Map<string, Array<[edge: number, segment: number]>>();
+  /** Flat edge/segment pairs avoid a retained array object for every segment in every cell. */
+  private readonly grid = new Map<string, number[]>();
   graph!: RoadGraph;
 
   constructor(graph: RoadGraph) { this.setGraph(graph); }
@@ -23,13 +24,14 @@ export class StreetRouter implements Router {
     this.grid.clear();
     graph.edges.forEach((edge, e) => {
       for (let i = 0; i + 1 < edge.cumulative.length; i++) {
-        const [x0, z0, x1, z1] = edge.points.subarray(2 * i, 2 * i + 4);
+        const p = 2 * i, points = edge.points;
+        const x0 = points[p], z0 = points[p + 1], x1 = points[p + 2], z1 = points[p + 3];
         for (let cx = Math.floor(Math.min(x0, x1) / CELL); cx <= Math.floor(Math.max(x0, x1) / CELL); cx++) {
           for (let cz = Math.floor(Math.min(z0, z1) / CELL); cz <= Math.floor(Math.max(z0, z1) / CELL); cz++) {
             const key = `${cx},${cz}`;
             const list = this.grid.get(key) ?? [];
             if (!list.length) this.grid.set(key, list);
-            list.push([e, i]);
+            list.push(e, i);
           }
         }
       }
@@ -44,10 +46,14 @@ export class StreetRouter implements Router {
     const cx = Math.floor(p.x / CELL), cz = Math.floor(p.z / CELL);
     for (let i = cx - r; i <= cx + r; i++) {
       for (let j = cz - r; j <= cz + r; j++) {
-        for (const [e, s] of this.grid.get(`${i},${j}`) ?? []) {
+        const segments = this.grid.get(`${i},${j}`);
+        if (!segments) continue;
+        for (let k = 0; k < segments.length; k += 2) {
+          const e = segments[k], s = segments[k + 1];
           const edge = this.graph.edges[e];
           if (!(edge.flags & bit)) continue;
-          const [x0, z0, x1, z1] = edge.points.subarray(2 * s, 2 * s + 4);
+          const p0 = 2 * s, points = edge.points;
+          const x0 = points[p0], z0 = points[p0 + 1], x1 = points[p0 + 2], z1 = points[p0 + 3];
           const dx = x1 - x0, dz = z1 - z0, len2 = dx * dx + dz * dz;
           const t = len2 > 0 ? Math.min(1, Math.max(0, ((p.x - x0) * dx + (p.z - z0) * dz) / len2)) : 0;
           const x = x0 + t * dx, z = z0 + t * dz, distance = Math.hypot(p.x - x, p.z - z);
