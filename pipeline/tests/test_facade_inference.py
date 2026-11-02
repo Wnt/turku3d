@@ -55,6 +55,106 @@ def test_learned_cladding_uses_its_material_palette(monkeypatch):
     assert wall["wall"]["colour"]["value"] != sample(b.key, {})
 
 
+def test_roof_fragments_clip_one_floor_grid_instead_of_rescaling_windows(monkeypatch):
+    from turku3d import facade_programs as fp, facade_learning
+
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    monkeypatch.setattr(facade_learning, "apply", lambda p: p)
+    b = SimpleNamespace(key="fragments", facade_key="fragments", base=0, top=12,
+                        footprint=shapely.box(0, 0, 24, 5),
+                        attributes=dict(levels=3, levels_source="register"))
+    # Adjacent pieces of one original wall have different eave/occlusion cuts.
+    vertices = np.array([[0, 0, 0], [12, 0, 0], [12, 12, 0], [0, 12, 0],
+                         [12, 0, 0], [24, 0, 0], [24, 9, 0], [12, 9, 0]], float)
+    p = fp.resolve(b, vertices, {})
+    a, c = [fp.compile_wall(w, 3) for w in p["walls"]]
+    assert a["ground"] == c["ground"]
+    assert a["upper"] == c["upper"]
+    assert a["opening"] == c["opening"]
+    assert a["size"][1] == 12 and c["size"][1] == 9
+    assert a["origin"][0] - c["origin"][0] == 12
+
+
+def test_description_does_not_squeeze_a_window_into_a_narrow_roof_strip():
+    from turku3d.facade_programs import describe
+    from turkutex.facade_archetypes import sample
+    from turku3d.facade_kit import renderer
+
+    p = sample("narrow", dict(levels=3), [dict(width_m=0.5, height_m=12)])
+    d = renderer().register_description("test", "test", {}, 30, 12)
+    d["window_columns"] = 1
+    describe(p, d, 30)
+    assert p["walls"][0]["bays"]["count"] == 0
+    assert compile_wall(p["walls"][0], 3)["module"] >= 42
+
+
+def test_passage_solids_share_original_base_frontage_and_floor_grid(monkeypatch):
+    from turku3d.coarse.stored_facades import facade_layouts
+    from turku3d import facade_programs as fp, facade_learning
+
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    monkeypatch.setattr(facade_learning, "apply", lambda p: p)
+    def part(x0, x1, base, top):
+        b = SimpleNamespace(key="passage", facade_key="passage", base=base, top=12,
+                            footprint=shapely.box(x0, 0, x1, 5),
+                            attributes=dict(levels=3, levels_source="register"))
+        wall = np.array([[x0, base, 0], [x1, base, 0], [x1, top, 0], [x0, top, 0]], float)
+        return b, (None, None, None, None, wall, None, None)
+    solids = [part(0, 10, 0, 12), part(10, 12, 4, 10), part(12, 24, 0, 12)]
+    owner, height = facade_layouts(solids)["passage"]
+    assert owner.base == 0 and height == 12
+    assert owner.footprint.area == 120
+    styles = []
+    for _, shell in solids:
+        p = fp.resolve(owner, shell[4], {}, layout_height=height)
+        styles.append(fp.compile_wall(p["walls"][0], 3))
+    assert len({(s["bay"], s["ground"], s["upper"], tuple(s["opening"])) for s in styles}) == 1
+    assert [s["origin"][0] for s in styles] == [0, -10, -12]
+
+
+def test_learned_rules_keep_shared_floor_and_window_dimensions(monkeypatch):
+    from turkutex import facade_learning
+    from turkutex.facade_learned_layout import expand
+    from turkutex.facade_archetypes import sample
+
+    prediction = dict(bay_m=3, ground="windows", ground_scale=1.2,
+                      top_scale=1.0, window_width=.5, window_height=.5)
+    monkeypatch.setattr(facade_learning, "predict", lambda *a, **k: prediction)
+    for multiplicity in (1, 2):
+        prediction["windows_per_bay"] = multiplicity
+        p = sample("learned-fragments", dict(levels=3), [
+            dict(width_m=12, height_m=h, layout_height_m=12) for h in (12, 9)])
+        facade_learning.apply(p, {})
+        for wall in p["walls"]:
+            expand(wall, 3, dict(p0=[0, 0], p1=[12, 0], base_h=0))
+        a, b = [compile_wall(w, 3) for w in p["walls"]]
+        assert a["ground"] == b["ground"] and a["upper"] == b["upper"]
+        assert a["opening"] == b["opening"]
+        assert p["walls"][0]["windows"]["rectangles_m"] == p["walls"][1]["windows"]["rectangles_m"]
+
+
+def test_subdividing_a_shorter_wall_does_not_change_building_floor_height(monkeypatch):
+    from turku3d import facade_programs as fp, facade_learning
+
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    monkeypatch.setattr(facade_learning, "apply", lambda p: p)
+    b = SimpleNamespace(key="span", facade_key="span", base=0, top=12,
+                        footprint=shapely.box(0, 0, 24, 5),
+                        attributes=dict(levels=3, levels_source="register"))
+    tall = [[0, 0, 0], [24, 0, 0], [24, 12, 0], [0, 12, 0]]
+    layouts = []
+    for cuts in ([24, 12], [24, 20, 16, 12]):
+        points = list(tall)
+        for a, c in zip(cuts[:-1], cuts[1:]):
+            points.extend([[a, 0, 5], [c, 0, 5], [c, 9, 5], [a, 9, 5]])
+        p = fp.resolve(b, np.array(points, float), {})
+        layouts.append({w["layout_height_m"] for w in p["walls"]})
+    assert layouts == [{12}, {12}]
+
+
 def test_supported_leaves_and_explicit_negatives_do_not_erase_richer_fields():
     prior = dict(
         wall=dict(material=dict(value="stone", support=0.4)),
