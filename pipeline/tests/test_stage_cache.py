@@ -384,6 +384,10 @@ def test_shared_source_hashes_reuse_across_revisions_and_detect_same_size_edits(
     assert identities({'source': source}) == first
     assert len(calls) == 1
     stat = source.stat()
+    # ext4 ctime advances at the kernel tick; exercise a distinct change time
+    # rather than asking stat-based memoization to detect an invisible mutation.
+    import time
+    time.sleep(.02)
     source.write_bytes(b'two')
     os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     assert identities({'source': source}) != first

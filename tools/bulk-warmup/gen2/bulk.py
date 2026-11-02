@@ -14,10 +14,12 @@ import os
 from pathlib import Path
 import resource
 import signal
+import subprocess
 import sys
 import threading
 import time
 from recipe import acquisition_recipe
+from runtime import Monitor, admission_cap, memory, ordered, target_workers, worker_limit
 
 
 def read(path,default=None):
@@ -37,12 +39,19 @@ def main():
     select.add_argument('--tiles',nargs='+')
     select.add_argument('--walk',type=Path)
     p.add_argument('--workers',type=int,default=1)
-    p.add_argument('--reserve-gib',type=float,default=1)
+    p.add_argument('--reserve-gib',type=float,default=.5)
+    p.add_argument('--worker-memory-gib',type=float,default=3)
+    p.add_argument('--report-dir',type=Path,help='separate proof reports while an earlier generation is being pulled')
+    p.add_argument('--control',type=Path,help='atomically replace JSON {workers:N} to adjust live admission')
     p.add_argument('--floor-gib',type=float,default=25)
     a=p.parse_args();root=a.root.resolve();state=root/'state'
-    if not 1<=a.workers<=min(64,os.cpu_count() or 1):raise ValueError('workers exceed this host CPU plan')
-    available=int(next(l.split()[1] for l in Path('/proc/meminfo').read_text().splitlines() if l.startswith('MemAvailable:')))*1024
-    if available<a.workers*1.25*2**30:raise RuntimeError('insufficient available memory for requested workers')
+    reports=a.report_dir or state;reports.mkdir(parents=True,exist_ok=True)
+    maximum=worker_limit()
+    if not 1<=a.workers<=maximum:raise ValueError('workers exceed this host oversubscription cap')
+    if a.reserve_gib<=0 or a.worker_memory_gib<=0:raise ValueError('reservations must be positive')
+    if not admission_cap(a.workers,a.worker_memory_gib,*memory()):
+        raise RuntimeError('insufficient available memory for one build')
+    control=a.control or reports/'workers.json'
     sys.path.insert(0,str(root/'repo/scripts/dev'))
     import shared_tiles as shared
     with ExitStack() as stack:
@@ -65,12 +74,13 @@ def main():
         planned=read(state/'walk.json')
         if hashlib.sha256((state/'walk.json').read_bytes()).hexdigest()!=sources['walk_sha256'] or not set(selected)<=set(planned):
             raise RuntimeError('selection is outside the frozen acquisition plan')
-        wanted=deque(tile for tile in selected if tile not in outside)
+        order,timings=ordered([tile for tile in selected if tile not in outside],reports/'bulk-progress.jsonl')
+        wanted=deque(order if a.walk else [tile for tile in selected if tile not in outside])
         changed=threading.Event();stopping=threading.Event()
         def stop(*_):stopping.set();changed.set()
         signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
         # Dedicated bulk host only: leave the LAN daemon's 12-worker limit untouched.
-        shared.MAX_WORKERS=a.workers
+        shared.MAX_WORKERS=maximum
         class BulkFarm(shared.Farm):
             def build(self,*args):
                 try:return super().build(*args)
@@ -78,7 +88,7 @@ def main():
             def event(self,kind,**row):
                 super().event(kind,**row)
                 if kind in ('built','failed'):
-                    with (state/'bulk-progress.jsonl').open('a') as log:
+                    with (reports/'bulk-progress.jsonl').open('a') as log:
                         log.write(json.dumps(dict(event=kind,at=time.time(),**row))+'\n')
                 changed.set()
         # Reject unrelated recoverable work before the Farm constructor can resume it.
@@ -86,19 +96,41 @@ def main():
         pending=read(root/'farm/pending.json',[])
         if any(r['revision']!=expected_revision for r in pending):
             raise RuntimeError('another source revision has pending jobs; finish that explicit run first')
-        farm=BulkFarm(root/'farm',root/'run.sh',workers=a.workers,queue_limit=a.workers,
+        farm=BulkFarm(root/'farm',root/'run.sh',workers=0,queue_limit=maximum,
                       floor_gib=a.floor_gib,reserve_gib=a.reserve_gib,grace_seconds=60)
         registered=farm.register(commit,alias='bulkgen2',source_version=sources['version'])
         revision,generation=registered['revision'],registered['generation']
-        shared.atomic_json(state/'build.json',{**registered,'selected':selected,'workers':a.workers})
+        descriptor={**registered,'selected':selected,'workers':a.workers}
+        shared.atomic_json(reports/'build.json',descriptor)
+        shared.atomic_json(reports/'builds'/generation/'build.json',descriptor)
+        # An old live-control file must never raise the new proof's worker count.
+        shared.atomic_json(control,{'workers':a.workers})
+        target=a.workers;monitor=Monitor(reports);last_control_error=None
+        # A city run serially warms all ground channels and representative texture
+        # encodes before opening the worker floodgate. Proof selections are serial.
+        if a.walk:
+            warm=root/'repo/tools/bulk-warmup/gen2/warm.py'
+            env=dict(os.environ,REPO=str(root/'repo'),TURKU3D_DATA=farm.revision(revision)['data_root'],
+                     TURKU3D_WORK=str(root/'farm/products'/generation/'work'),
+                     TURKU3D_SHARED_CACHE=str(root/'farm/cache'))
+            farm.mount_supplements(Path(env['TURKU3D_DATA']),Path(env['TURKU3D_WORK']))
+            subprocess.run([str(root/'run.sh'),'python',str(warm),str(root/'farm/products'/generation)],env=env,check=True)
+
         started=time.monotonic();before=resource.getrusage(resource.RUSAGE_CHILDREN);ticks0=cpu_ticks()
         failed=[];already=[];pressure=False
         try:
             while wanted or farm.jobs:
                 changed.clear()
                 if stopping.is_set():break
-                with farm.lock:count=len(farm.jobs)
-                while wanted and count<a.workers:
+                target,error=target_workers(control,target,maximum)
+                if error and error!=last_control_error:farm.event('control-rejected',error=error)
+                last_control_error=error
+                cap=admission_cap(target,a.worker_memory_gib,*memory())
+                with farm.lock:
+                    farm.workers=cap;farm.queue_limit=maximum;farm.pump();count=len(farm.jobs)
+                monitor.record(target_workers=target,admission_cap=cap,active=count,remaining=len(wanted),
+                               free_gib=round(farm.free()/2**30,3))
+                while wanted and count<cap:
                     tile=wanted[0]
                     ack=read(root/'farm/exported'/generation/(tile+'.json'))
                     if ack and ack.get('generation')==generation and ack.get('verified'):
@@ -121,19 +153,20 @@ def main():
                     with farm.lock:count=len(farm.jobs)
                 with farm.lock:active=len(farm.jobs)
                 if pressure and not active:break  # Pull/acknowledge outputs, then resume.
-                if active:changed.wait(30)
+                if active or (wanted and not cap):changed.wait(5)
+
             farm.close()  # Finish owned active workers; queued work is persisted on signals.
         finally:
             farm.close()
         after=resource.getrusage(resource.RUSAGE_CHILDREN);ticks1=cpu_ticks()
         failed.extend(farm.failures.values())
-        report=dict(**registered,workers=a.workers,wall_seconds=round(time.monotonic()-started,3),
+        report=dict(**registered,workers=a.workers,final_target_workers=target,wall_seconds=round(time.monotonic()-started,3),
                     cpu_seconds=round(after.ru_utime+after.ru_stime-before.ru_utime-before.ru_stime,3),
                     cpu_steal_fraction=(ticks1[1]-ticks0[1])/max(1,ticks1[0]-ticks0[0]),
                     peak_child_rss_kib=after.ru_maxrss,metrics=farm.metrics,already_complete=len(already),
                     remaining=list(wanted),outside_coverage=len(set(selected)&outside),failures=failed,
                     disk_pressure=pressure,interrupted=stopping.is_set())
-        shared.atomic_json(state/'bulk-result.json',report)
+        shared.atomic_json(reports/'bulk-result.json',report)
         print(json.dumps(report))
         return 75 if pressure or stopping.is_set() else 1 if failed else 0
 

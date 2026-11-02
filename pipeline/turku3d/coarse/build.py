@@ -659,8 +659,9 @@ def build(
     surface_channels = surfaces.channels(ground_meshes)
     seconds["visual_geometry"] = time.perf_counter() - t
     t_library = time.perf_counter()
-    surface_library = library or default_library()
-    surface_library = surfaces.library(out.parent, surface_library, surface_channels)
+    with cache.measure("surface_library"):
+        surface_library = library or default_library()
+        surface_library = surfaces.library(out.parent, surface_library, surface_channels)
     seconds["surface_library"] = time.perf_counter() - t_library
     t_package = time.perf_counter()
     with cache.measure("package"):

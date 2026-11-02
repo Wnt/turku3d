@@ -6,6 +6,8 @@ import inspect
 import json
 import os
 from pathlib import Path
+
+from turku3d import profiling
 import shutil
 import subprocess
 import tempfile
@@ -113,7 +115,7 @@ def library(root: Path, base: Path, channels):
     for channel, digest in keys.items():
         destination = target / ('draft_' + KEYS[channel])
         with (cache / f'{digest}.lock').open('a') as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            profiling.flock(lock, fcntl.LOCK_EX, "surface")
             if destination.is_dir():
                 continue
             maps = cache / digest
