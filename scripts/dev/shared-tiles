@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Publish a committed local revision to the shared LAN tile farm (never git push/deploy).
+
+Usage: scripts/dev/shared-tiles register --alias ground [--ref HEAD]
+       scripts/dev/shared-tiles status
+       scripts/dev/shared-tiles build --version ground t0_0_0 t0_-1_0
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import tempfile
+from urllib.request import Request, urlopen
+
+
+def command(*args, **kwargs):
+    return subprocess.check_output(args, **kwargs).decode().strip()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host', default='osgallery-dev')
+    parser.add_argument('--url', default='http://192.168.1.114:7950')
+    parser.add_argument('--root', default='/home/wnt/turku3d-local/loops/tiles/farm')
+    sub = parser.add_subparsers(dest='action', required=True)
+    register = sub.add_parser('register')
+    register.add_argument('--ref', default='HEAD')
+    register.add_argument('--alias')
+    sub.add_parser('status')
+    build = sub.add_parser('build')
+    build.add_argument('--version', required=True)
+    build.add_argument('tiles', nargs='+')
+    args = parser.parse_args()
+    if args.action == 'status':
+        print(urlopen(args.url + '/health').read().decode())
+        return
+    if args.action == 'build':
+        for tile in args.tiles:
+            response = urlopen(f'{args.url}/v/{args.version}/coarse/{tile}/manifest.json')
+            print(json.dumps(dict(tile=tile, status=response.status, body=json.load(response))))
+        return
+    revision = command('git', 'rev-parse', args.ref + '^{commit}')
+    # Renderer-only commits share completed tiles. Every generator/data/library source remains
+    # in this conservative identity; fine-grained invalidation is performed by stage keys.
+    paths = ['pipeline/turku3d', 'pipeline/env/package-lock.json', 'textures', 'data-manifests',
+             'docs/specs', 'game/public/basis', 'server/spawns.json']
+    tree = command('git', 'ls-tree', '-r', revision, '--', *paths)
+    generation = hashlib.sha256(tree.encode()).hexdigest()
+    metadata = dict(revision=revision, generation=generation,
+                    branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'))
+    target = args.root + '/revisions/' + revision
+    q = shlex.quote
+    # Immutable snapshots are atomically installed; failed uploads are never registered.
+    exists = subprocess.run(['ssh', args.host, 'test -f ' + q(target + '/revision.json')]).returncode == 0
+    if not exists:
+        temp = target + '.upload-' + str(os.getpid())
+        subprocess.run(['ssh', args.host, 'mkdir -p ' + q(temp + '/repo')], check=True)
+        archive = subprocess.Popen(['git', 'archive', revision], stdout=subprocess.PIPE)
+        unpack = subprocess.run(['ssh', args.host, 'tar -x -C ' + q(temp + '/repo')], stdin=archive.stdout)
+        archive.stdout.close()
+        if archive.wait() or unpack.returncode:
+            raise RuntimeError('snapshot upload failed')
+        with tempfile.NamedTemporaryFile('w') as file:
+            json.dump(metadata, file)
+            file.flush()
+            subprocess.run(['scp', '-q', file.name, args.host + ':' + temp + '/revision.json'], check=True)
+        subprocess.run(['ssh', args.host,
+                        'if test -e ' + q(target) + '; then rm -rf ' + q(temp) +
+                        '; else mv ' + q(temp) + ' ' + q(target) + '; fi'], check=True)
+    body = json.dumps(dict(revision=revision, alias=args.alias)).encode()
+    response = urlopen(Request(args.url + '/register', data=body,
+                              headers={'Content-Type': 'application/json'}))
+    print(response.read().decode())
+    print(f'Tile endpoint: {args.url}/v/{args.alias or revision}/coarse/')
+
+
+if __name__ == '__main__':
+    main()

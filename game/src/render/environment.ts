@@ -10,6 +10,8 @@ import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
 import { litFraction, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
+import { WEATHER_PRESETS, type WeatherSample } from './weather/schedule';
+import { weatherLighting } from './weather/lighting';
 
 /** Below this the sky is dark enough that IBL only needs a slow refresh. */
 const DEEP_NIGHT = -12;
@@ -31,6 +33,9 @@ export class Environment {
   /** Clock hour and timecycle sample of the applied state. */
   hour = 12;
   sample: TimecycleSample = timecycle(90);
+  private baseSample = this.sample;
+  private weather: Readonly<WeatherSample> = WEATHER_PRESETS.clear;
+  private weatherState = '0,0,0,0.06,0.15';
   /** True while sun intensity is 0 and the cascades are not re-rendered. */
   shadowsFrozen = false;
   private pmrem: THREE.PMREMGenerator;
@@ -124,7 +129,29 @@ export class Environment {
     // Keep the shadow-casting light aligned with the sky at the existing focus.
     this.follow(this.sun.target.position);
     this.sky.sunPosition.value.copy(this.sunDir);
-    const s = this.sample = timecycle(elevation);
+    this.baseSample = timecycle(elevation);
+    this.applyLighting();
+    this.atmosphere.setSun(elevation, azimuth, this.sample);
+    nightUniforms.night.value = this.sample.night;
+    nightUniforms.hour.value = hour;
+    nightUniforms.litFraction.value = litFraction(hour);
+    this.iblDirty = true;
+  }
+
+  /** Shared weather changes uniforms without accumulating multipliers or changing the light set. */
+  setWeather(sample: Readonly<WeatherSample>) {
+    this.weather = sample;
+    // The sky loop supplies this hook independently; the structural bridge can be removed once merged.
+    (this.atmosphere as Atmosphere & { setWeather?: (weather: Readonly<WeatherSample>) => void }).setWeather?.(sample);
+    const state = `${sample.overcast},${sample.rain},${sample.fog},${sample.cloudCover},${sample.wind}`;
+    if (state === this.weatherState) return;
+    this.weatherState = state;
+    this.applyLighting();
+    this.iblDirty = true;
+  }
+
+  private applyLighting() {
+    const s = this.sample = weatherLighting(this.baseSample, this.weather);
     // The sun stays visible and shadowed at night with zero intensity: toggling a light recompiles every material.
     this.sun.intensity = s.sunIntensity;
     this.sun.color.setRGB(...s.sunColor);
@@ -134,12 +161,7 @@ export class Environment {
     this.scene.environmentIntensity = s.environmentIntensity;
     this.renderer.toneMappingExposure = s.exposure;
     if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setRGB(...s.fogColor);
-    this.atmosphere.setSun(elevation, azimuth, s);
     this.applyFog();
-    nightUniforms.night.value = s.night;
-    nightUniforms.hour.value = hour;
-    nightUniforms.litFraction.value = litFraction(hour);
-    this.iblDirty = true;
   }
 
   private applyFog() {
@@ -199,6 +221,7 @@ export class Environment {
     this.atmosphere = new AtmosphereClass(this.sky);
     this.atmosphere.setTime(seconds);
     this.atmosphere.setSun(this.sunElevation, this.sunAzimuth, this.sample);
+    this.setWeather(this.weather);
     this.iblDirty = true;
     this.updateIBL();
   }
