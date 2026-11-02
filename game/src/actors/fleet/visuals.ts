@@ -9,6 +9,7 @@ import { FLEET, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry, buildFleetWheel } from './geometry';
 import { AUTHORED_ESTATE, loadAuthoredFleet } from './authored';
 import { addFleetWheels, applyFleetWheels } from './wheels';
+import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetMaterial, fleetNight } from './material';
@@ -208,6 +209,7 @@ export class ParkedCarVisuals {
     }
     for(const [id,actor] of this.dynamic) {
       const state=byId.get(id);actor.visible=!!state;if(!state)continue;
+      vehicleLamps(actor, 'car', state.lights ?? 0);
       actor.matrix.copy(this.transform({id,...this.definitions.get(id)!,pos:state.pos,rot:state.rot}));
       actor.matrix.decompose(actor.position,actor.quaternion,actor.scale);
       applyFleetWheels(actor,state.wheels);

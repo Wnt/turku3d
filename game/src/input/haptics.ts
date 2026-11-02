@@ -159,6 +159,7 @@ export class Haptics {
     const input = frame.input;
     const throttle = input ? Math.abs(input.throttle) + ((v?.forwardSpeed ?? 0) < 0 ? input.brake : 0) : 0;
     const engine = v ? engineRumble(v.kind ?? 'car', throttle, v.forwardSpeed) : null;
+    const continuous = frame.input?.horn ? { strong: .08, weak: Math.max(.15, engine?.weak ?? 0) } : engine;
     const power = (r: Rumble) => r.strong + r.weak;
     const next = this.pending.reduce<{ cause: RumbleCause; rumble: Rumble } | null>(
       (best, row) => !best || power(row.rumble) > power(best.rumble) ? row : best, null);
@@ -172,8 +173,8 @@ export class Haptics {
       this.counts[next.cause]++;
       this.log.push({ time: now, cause: next.cause, ...r });
       if (this.log.length > LOG_SIZE) this.log.shift();
-    } else if (engine && now >= this.until && now - this.engineAt >= ENGINE_REFRESH_MS) {
-      this.play({ duration: ENGINE_PULSE_MS, ...engine });
+    } else if (continuous && now >= this.until && now - this.engineAt >= ENGINE_REFRESH_MS) {
+      this.play({ duration: ENGINE_PULSE_MS, ...continuous });
       this.engineAt = now;
       this.counts.engine++;
     }

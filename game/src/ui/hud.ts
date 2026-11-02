@@ -1,8 +1,10 @@
 // Debug HUD: backend, fps / frame ms, resident visual tris, collision MB, player E/N/H (EPSG:3877 + N2000).
+import { LIGHT_LABELS, type LightState } from '../vehicle/signals';
 import { PUBLIC_RELEASE } from '../core/release';
 import type { PerformanceMonitor } from '../render/performance';
 
 interface HudData {
+  lights?: LightState;
   playerName?: string;
   backend: string; fps: number; frameMs: number; physMs: number;
   visTris: number; visModels: number;
@@ -31,7 +33,7 @@ export class Hud {
       `visual   ${(d.visTris / 1000).toFixed(1)}k tris resident in ${d.visModels} tile(s)\n` +
       `collision ${d.colTiles} tiles  ${(d.colTris / 1000).toFixed(1)}k tris  ${d.colMB.toFixed(2)} MB .col  ~${d.colWasmMB.toFixed(1)} MB wasm\n` +
       `EPSG:3877 E ${d.E.toFixed(2)}  N ${d.N.toFixed(2)}  H ${d.H.toFixed(2)} (N2000)  hdg ${d.heading.toFixed(0)}°\n` +
-      `${d.mode}  ${d.speed.toFixed(1)} m/s  ground ${d.ground}  ${d.tile}` + (d.draft ? `\n${d.draft}` : '');
+      `${d.mode}${d.mode === 'car' ? `  ◉ ${LIGHT_LABELS[d.lights ?? 0]}` : ''}  ${d.speed.toFixed(1)} m/s  ground ${d.ground}  ${d.tile}` + (d.draft ? `\n${d.draft}` : '');
   }
   toggle() { this.visible = !this.visible; this.lastUpdate = -Infinity; this.style(); }
   private style() {

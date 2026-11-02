@@ -211,3 +211,29 @@ Affected quick checks: `npm --prefix game test -- tests/unit/tyre-effects.test.t
 `npm --prefix game run typecheck`. The focused tests cover actual Rapier contact/material and handbrake signals,
 surface filtering, sloped/connected/broken strips, bounded recycling, smoke lifetime/density and shared audio slip.
 In-game appearance and driving are checked by Jonni.
+
+## Horn and road lights
+
+While driving, hold **G / L3** for the positional horn (truck: lower/louder pair; scooter: single beep).
+Press **L / D-pad up** to cycle **off → driving lights → long beams → off**. Entry always selects driving
+lights. Menus consume the light press without changing the vehicle; pause/menu/blur releases the horn.
+Copy camera position moved to **J**. Signals travel as absolute `lights: 0|1|2` and `horn: boolean`
+through worker snapshots and the multiplayer pose sanitizer. Remote cars render lamps and positional horns;
+only the locally driven vehicle allocates projected beams (two shadowless spotlights).
+
+GLB pipeline convention: name separate lens nodes **lamp-front-left**, **lamp-front-right**,
+**lamp-tail-left**, **lamp-tail-right**, or give their materials those names. Single `lamp-front` / `lamp-tail`
+works for a scooter. The vehicle frame is **+X forward, +Y up, +Z right**, measured from the chassis centre.
+Materials must expose emissive colour/intensity; each actor clones only its lens materials. Current atlas-only
+sedan and scooter receive small attached lens meshes. KORPI uses its existing `led-optics` and `tail-lens`
+materials; the generated fleet keeps its existing `fleetSurface` vertex lamp tags and per-object lamp uniform.
+
+Driving lamps glow in daylight; dusk/night adds a warm, soft asymmetric 40 m dipped pool (raised on the
+right-hand verge). Long beams use a brighter, higher, wider 145 m cone with HDR lens emission for the
+existing bloom pass. Both follow the shared night factor/exposure and use normal PBR direct lighting,
+including the road's existing weather roughness. A 10 Hz five-ray fan per lamp conservatively shortens beams
+at collision geometry; it is a bounded occlusion approximation, not per-pixel shadows. There are no volumetric
+beam meshes. Cars keep their last selected lights after exit; horns stop immediately.
+
+Focused contract evidence: `npm --prefix game test -- tests/unit/vehicle-signals.test.ts
+ tests/unit/shared-vehicles.test.ts tests/unit/input.test.ts tests/unit/haptics.test.ts`.
