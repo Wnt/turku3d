@@ -260,31 +260,30 @@ def produce(tile, prepared, sample, decks=()):
         if faces.indices:
             from .bridge_details import appearance, combine, handrail
 
-            parts = [appearance(faces.mesh(f"stairs:{key}", "curb"), "concrete")]
-            if bridge_access:
-                parts[0].metadata["collision"] = False
-                ramp = Faces()
-                slope = np.interp(distances, knots, levels)
-                ramp.quads(
-                    np.stack(
-                        [
-                            points(left[:-1], slope[:-1]),
-                            points(left[1:], slope[1:]),
-                            points(right[1:], slope[1:]),
-                            points(right[:-1], slope[:-1]),
-                        ],
-                        axis=1,
-                    )
+            parts = [appearance(faces.mesh(f"stairs:{key}", "stair_tread_helper"), "concrete")]
+            # Capsules walk the continuous slope; feet query the exact visible treads.
+            ramp = Faces()
+            slope = np.interp(distances, knots, levels)
+            ramp.quads(
+                np.stack(
+                    [
+                        points(left[:-1], slope[:-1]),
+                        points(left[1:], slope[1:]),
+                        points(right[1:], slope[1:]),
+                        points(right[:-1], slope[:-1]),
+                    ],
+                    axis=1,
                 )
-                if apron_collision.indices:
-                    ramp.triangles(
-                        np.asarray(apron_collision.positions),
-                        np.asarray(apron_collision.indices),
-                        np.asarray(apron_collision.uvs),
-                    )
-                parts.append(
-                    appearance(ramp.mesh(f"stairs:{key}:walk", "curb", visual=False), "concrete")
+            )
+            if apron_collision.indices:
+                ramp.triangles(
+                    np.asarray(apron_collision.positions),
+                    np.asarray(apron_collision.indices),
+                    np.asarray(apron_collision.uvs),
                 )
+            parts.append(
+                appearance(ramp.mesh(f"stairs:{key}:walk", "stair_slope", visual=False), "concrete")
+            )
             if body.indices:
                 parts.append(
                     appearance(
@@ -305,10 +304,6 @@ def produce(tile, prepared, sample, decks=()):
                             (station, np.interp(distances, knots, levels)),
                         )
                     )
-            if not bridge_access:
-                # Retain the exact existing tread collision for ordinary stairs.
-                for part in parts:
-                    part.material = "curb"
             for part in combine(parts, f"stairs:{key}"):
                 mesh = clip_mesh(part, tile.bbox)
                 if mesh is not None:
