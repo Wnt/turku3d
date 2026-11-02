@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest';
 import * as T from 'three/webgpu';
+import * as R from '@dimforge/rapier3d';
+import { PhysicsWorld } from '../../src/physics/world';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { GameLighting } from '../../src/render/lighting';
@@ -39,4 +41,24 @@ test('named lens materials are independent for each actor and off means no emiss
   expect((source.children[0] as T.Mesh).material).not.toBe((remote.children[0] as T.Mesh).material);
   expect(((source.children[0] as T.Mesh).material as T.MeshStandardMaterial).emissiveIntensity).toBe(12);
   expect(((remote.children[0] as T.Mesh).material as T.MeshStandardMaterial).emissiveIntensity).toBe(0);
+});
+
+test('a long fleet chassis does not extinguish its beams, while the wall ahead still masks them', async () => {
+  const world = new PhysicsWorld(R), scene = new T.Scene();
+  world.spawnVehicle({ x: 0, y: .75, z: 0 }, 0, { id: 'van', halfExt: { x: 3, y: .3, z: 1 } });
+  world.driveVehicle('van');
+  world.world.createCollider(R.ColliderDesc.cuboid(.1, 5, 20).setTranslation(12, 4, 0));
+  world.world.step();
+  const beam = new VehicleBeams(scene, { raycast: async (origin, dir, max, filter) => world.raycast(origin, dir, max, filter) });
+  try {
+    nightUniforms.night.value = 1;
+    const state = { ...world.vehicleState()!, lights: 2 as const };
+    beam.update(state, 0);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    beam.update(state, 50);
+    const depths = beam.lights[0].userData.depths as number[];
+    expect(depths).toHaveLength(9);
+    expect(depths[4]).toBeCloseTo(9.77, 1);
+    expect(depths.every(d => d > 9 && d < 12)).toBe(true);
+  } finally { beam.dispose(); world.world.free(); nightUniforms.night.value = 0; }
 });
