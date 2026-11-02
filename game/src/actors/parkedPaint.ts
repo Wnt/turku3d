@@ -36,17 +36,22 @@ export function paintInstances(mesh: THREE.InstancedMesh, colors: readonly strin
 
 export function paintActor(mesh: THREE.Mesh, color: string) {
   actorPaints.set(mesh, new THREE.Vector3(...paintOf(color)));
+  mesh.userData.fleetPaint=color;
 }
 
 export function instancePaintOf(mesh: THREE.Object3D) { return instancePaints.get(mesh); }
-export function actorPaintOf(mesh: THREE.Object3D) { return actorPaints.get(mesh); }
+export function actorPaintOf(mesh: THREE.Object3D) {
+  let paint=actorPaints.get(mesh);
+  if(!paint&&typeof mesh.userData.fleetPaint==='string'){paint=new THREE.Vector3(...paintOf(mesh.userData.fleetPaint));actorPaints.set(mesh,paint);}
+  return paint;
+}
 
 // Node graphs build per object: an instanced batch binds its own paint buffer, a standalone draw
 // its object uniform. Neither the count nor the paints enter the shader text.
 export const paintNode = Fn((builder: NodeBuilder) => {
   const instances = instancePaints.get(builder.object);
   if (instances) return instancedBufferAttribute(instances, 'vec3');
-  if (!actorPaints.has(builder.object)) throw new Error(`parked paint missing for ${builder.object.name}`);
-  return uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => actorPaints.get(object!));
+  if (!actorPaintOf(builder.object)) throw new Error(`parked paint missing for ${builder.object.name}`);
+  return uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => actorPaintOf(object!));
 }) as unknown as () => Node<'vec3'>;
 

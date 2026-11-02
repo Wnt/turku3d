@@ -33,7 +33,7 @@ test('resting, claimed, driven and remote fleet cars preserve pose and paint',as
   expect(actorPaintOf(remote)!.toArray()).toEqual([...paintOf('beige')]);
 });
 
-test.each([false,true])('all fleet models, LODs and capacities share one instanced program (velocity=%s)',async motion=>{
+test.each([false,true])('all fleet models, LODs and capacities share two fixed instanced programs (velocity=%s)',async motion=>{
   const renderer=new GameRenderer({canvas:{width:1,height:1,style:{}} as HTMLCanvasElement});
   renderer.hasFeature=()=>false;Object.assign(renderer.backend,{capabilities:{getUniformBufferLimit:()=>65536}});
   if(motion){renderer.setRenderTarget(new THREE.RenderTarget());renderer.setMRT(mrt({output:normalView,velocity}));}
@@ -50,12 +50,12 @@ test.each([false,true])('all fleet models, LODs and capacities share one instanc
   const meshes=scene.children as THREE.InstancedMesh[],batched=meshes.map(program);
   const singles=['fleet-hatch-0','fleet-van-6'].map(m=>program(visuals.remoteModel(`${m}/red`)!));
   const variants=(states:{vertexShader:string;fragmentShader:string}[])=>new Set(states.map(s=>s.vertexShader+s.fragmentShader)).size;
-  expect(variants(batched)).toBe(1);expect(variants(singles)).toBe(1);
+  expect(variants(batched)).toBe(2);expect(variants(singles)).toBe(1);
   meshes.forEach((mesh,i)=>expect(batched[i].generated).toContain(instancePaintOf(mesh)));
   expect(batched[0].fragmentShader).toContain('sRGBTransferEOTF');
   expect(batched[0].vertexShader).not.toMatch(/array<mat4x4<f32>,\s*\d+>/);
   const pipelineBackend={createProgram:vi.fn(),createRenderPipeline:vi.fn(),needsRenderUpdate:()=>false,getRenderCacheKey:()=> 'pass'};
   const pipelines=new Pipelines(pipelineBackend,{}, {createProgram:vi.fn(),destroyProgram:vi.fn()});
   for(const state of [...batched,...singles])pipelines.getForRender({material:{name:'fleet'},getNodeBuilderState:()=>state});
-  expect(pipelineBackend.createRenderPipeline).toHaveBeenCalledTimes(2);pipelines.dispose();
+  expect(pipelineBackend.createRenderPipeline).toHaveBeenCalledTimes(3);pipelines.dispose();
 });

@@ -6,6 +6,7 @@ import type { Quat, VehicleState } from '../physics/protocol';
 import type { Manifest, ParkedVehicle } from './manifest';
 import { slotShown } from './parkedOccupancy';
 import { prerunnerPresent } from './prerunnerSchedule';
+import { fleetChassis } from '../actors/fleet/pose';
 
 /** Physics chassis pose: centre position and rotation, as the worker reports them. */
 export interface ParkedPose { pos: V3; rot: Quat }
@@ -54,10 +55,11 @@ export class ParkedVehicles {
   private sharedUtcMs: number | undefined;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
-    private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
+    private visuals: Pick<ParkedCarVisuals, 'load'> & Partial<Pick<ParkedCarVisuals,'resetRound'>>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
     private readonly cap = 60) {}
 
   resetRound() {
+    this.visuals.resetRound?.();
     for (const id of new Set([...this.spawned.keys(), ...this.borrowed.keys()])) this.physics.removeVehicle(id);
     this.spawned.clear(); this.borrowed.clear(); this.rest.clear(); this.shared.clear(); this.owned.clear();
     this.sharedKey = ''; this.last = -Infinity; this.saturated = false;
@@ -102,7 +104,8 @@ export class ParkedVehicles {
   private slot(car: ParkedVehicle): ParkedPose {
     let slot = this.slots.get(car);
     if (!slot) {
-      slot = { pos: { x: car.x, y: car.y + chassisLift(car), z: car.z }, rot: slotRotation(car) };
+      const rot=slotRotation(car);
+      slot = {pos:car.model==='truck'?{x:car.x,y:car.y+chassisLift(car),z:car.z}:fleetChassis(car,rot),rot};
       this.slots.set(car, slot);
     }
     return slot;

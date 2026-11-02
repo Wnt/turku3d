@@ -9,11 +9,11 @@ const METAL: Surface = [0, .29, .8, 0], TRIM: Surface = [0, .62, .08, 0];
 const WHITE: V = [1, 1, 1], DARK: V = [.018, .023, .029], WINDOW: V = [.016, .030, .041];
 /** A compact merged mesh with per-vertex surface properties: every part uses one shared node material. */
 class Builder {
-  flip=false;
+  flip=false; smooth=false; smoothing:number[]=[];
   positions: number[] = []; colors: number[] = []; surfaces: number[] = [];
   tri(a: V, b: V, c: V, color: V = WHITE, surface = PAINT) {
     this.positions.push(...a, ...(this.flip?c:b), ...(this.flip?b:c));
-    for (let i = 0; i < 3; i++) { this.colors.push(...color); this.surfaces.push(...surface); }
+    for (let i = 0; i < 3; i++) { this.colors.push(...color); this.surfaces.push(...surface); this.smoothing.push(this.smooth&&surface===PAINT?1:0); }
   }
   quad(a: V, b: V, c: V, d: V, color: V = WHITE, surface = PAINT) { this.tri(a,b,c,color,surface); this.tri(a,c,d,color,surface); }
   box(x: number, y: number, z: number, w: number, h: number, d: number, color: V = WHITE, surface = PAINT) {
@@ -38,8 +38,19 @@ class Builder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.positions,3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.colors,3));
     g.setAttribute('fleetSurface', new THREE.Float32BufferAttribute(this.surfaces,4));
+    g.setAttribute('fleetSmooth',new THREE.Float32BufferAttribute(this.smoothing,1));
     const indexed=mergeVertices(g,1e-5);g.dispose();
-    indexed.computeVertexNormals(); indexed.computeBoundingBox(); indexed.computeBoundingSphere(); return indexed;
+    indexed.computeVertexNormals();
+    // Body bands deliberately have different vertex colours. Smooth their shared shell
+    // normals before discarding the authoring group, rather than creasing at each colour.
+    const p=indexed.getAttribute('position'),normals=indexed.getAttribute('normal'),smooth=indexed.getAttribute('fleetSmooth');
+    const sums=new Map<string,THREE.Vector3>(),keys=new Map<number,string>();
+    for(let i=0;i<p.count;i++)if(smooth.getX(i)){
+      const key=[p.getX(i),p.getY(i),p.getZ(i)].map(v=>Math.round(v*1e5)).join('/');keys.set(i,key);
+      let sum=sums.get(key);if(!sum){sum=new THREE.Vector3();sums.set(key,sum);}sum.add(new THREE.Vector3().fromBufferAttribute(normals,i));
+    }
+    for(const [i,key] of keys){const normal=sums.get(key)!.clone().normalize();normals.setXYZ(i,normal.x,normal.y,normal.z);}
+    indexed.deleteAttribute('fleetSmooth');indexed.computeBoundingBox();indexed.computeBoundingSphere();return indexed;
   }
 }
 function wheel(b: Builder, x: number, y: number, z: number, r: number, side: number, face: number, lod: number) {
@@ -53,7 +64,7 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
       b.quad(point(x+xa,ra,a),point(x+xb,rb,a),point(x+xb,rb,c),point(x+xa,ra,c),DARK,RUBBER);
     }
     for (const s of [-1,1]) {
-      b.flip=s<0;
+      b.flip=s>0;
       const outside=x+s*w/2, lip=x+s*(w/2+.018);
       if(lod===2){b.tri([outside,y,z],point(outside,r,a),point(outside,r,c),[.04,.045,.05],RUBBER);continue;}
       b.quad(point(outside,r*.93,a),point(lip,r*.85,a),point(lip,r*.85,c),point(outside,r*.93,c),DARK,RUBBER);
@@ -65,6 +76,7 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
   }
   b.flip=false;
   if (lod < 2) {
+    b.flip=side>0;
     const outside=x+side*(w/2+.010), spokes=lod===1?5:face%3===0?5:face%3===1?10:7;
     for(let i=0;i<spokes;i++) {
       const a=i/spokes*Math.PI*2, d=.10;
@@ -72,15 +84,17 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
     }
     b.rod([outside-.008,y,z],[outside+.008,y,z],rim*.23,[.32,.35,.38],METAL,8);
   }
+  b.flip=false;
 }
 /** +Z forward, tyre bottoms at Y=0. No imported geometry, logos or photo textures. */
-export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeometry {
+export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true): THREE.BufferGeometry {
   const b = new Builder(), L=m.length, W=m.width/2, H=m.height, belt=m.belt, r=m.wheel;
   const front=m.wheelbase/2, rear=-m.wheelbase/2, low=.25+(r-.315), arch=r+.055;
   const n=lod===0?28:lod===1?10:2;
   const zf=L*m.hood, zr=L*m.rear;
   const classic=m.body==='classic', commercial=m.body==='van';
-  const widthAt=(z:number)=>W*((classic||commercial?.95:.86)+(classic||commercial?.05:.14)*Math.sin(Math.PI*(z/L+.5)));
+  const corner=classic?.045:commercial?.055:[.09,.075,.115,.065,.10,.085,.055][m.face];
+  const widthAt=(z:number)=>W*(1-corner*Math.pow(Math.abs(2*z/L),classic?8:commercial?10:4+m.face%3));
   const topAt=(z:number)=>belt-(z>zf?(classic?.10:commercial?.14:.23)*Math.pow((z-zf)/(L/2-zf),1.15)
     :z<zr?(m.body==='sedan'||classic?.16:.07)*Math.pow((zr-z)/(L/2+zr),1.2):0);
   const bottomAt=(z:number)=>Math.max(low,...[front,rear].map(wz=>Math.abs(z-wz)<arch ? r+Math.sqrt(arch*arch-(z-wz)**2) : low));
@@ -89,13 +103,14 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
   const archSteps=lod===0?12:lod===1?8:4;
   for(const axle of [front,rear])for(let i=0;i<=archSteps;i++)stations.push(axle+Math.cos(i/archSteps*Math.PI)*arch);
   const zs=[...new Set(stations.filter(z=>z>=-L/2&&z<=L/2))].sort((a,b)=>a-b);
+  b.smooth=true;
   for(let i=0;i<zs.length-1;i++) {
     const z0=zs[i],z1=zs[i+1],x0=widthAt(z0),x1=widthAt(z1),y0=topAt(z0),y1=topAt(z1),a0=bottomAt(z0),a1=bottomAt(z1);
     for(const s of [-1,1]) {
       b.flip=s>0;
       const bx0=x0*(a0>low+.01?1:.91),bx1=x1*(a1>low+.01?1:.91);
       const mid0=Math.max(a0,y0-.25),mid1=Math.max(a1,y1-.25);
-      b.quad([s*bx0,a0,z0],[s*bx1,a1,z1],[s*x1,mid1,z1],[s*x0,mid0,z0],[.86,.87,.88],PAINT);
+      b.quad([s*bx0,a0,z0],[s*bx1,a1,z1],[s*x1,mid1,z1],[s*x0,mid0,z0],[.86-m.age*.08,.87-m.age*.09,.88-m.age*.11],PAINT);
       b.quad([s*x0,mid0,z0],[s*x1,mid1,z1],[s*x1*.98,y1-.06,z1],[s*x0*.98,y0-.06,z0],[.95,.96,.97],PAINT);
       b.quad([s*x0*.98,y0-.06,z0],[s*x1*.98,y1-.06,z1],[s*x1*.90,y1,z1],[s*x0*.90,y0,z0],WHITE,PAINT);
       if(lod<2 && (a0>low || a1>low)) b.quad([s*x0,a0,z0],[s*x0*.91,a0,z0],[s*x1*.91,a1,z1],[s*x1,a1,z1],DARK,TRIM);
@@ -105,12 +120,13 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
   for(const s of [-1,1]) {
     b.flip=s<0;
     const z=s*L/2,w=widthAt(z),y=topAt(z);
-    b.quad([-w*.91,low,z],[w*.91,low,z],[w,y-.25,z],[-w,y-.25,z],[.86,.87,.88],PAINT);
+    b.quad([-w*.91,low,z],[w*.91,low,z],[w,y-.25,z],[-w,y-.25,z],[.86-m.age*.08,.87-m.age*.09,.88-m.age*.11],PAINT);
     b.quad([-w,y-.25,z],[w,y-.25,z],[w*.98,y-.06,z],[-w*.98,y-.06,z],[.95,.96,.97],PAINT);
     b.quad([-w*.98,y-.06,z],[w*.98,y-.06,z],[w*.90,y,z],[-w*.90,y,z],WHITE,PAINT);
     b.tri([-w*.90,y,z],[w*.90,y,z],[0,y+.025,z],WHITE,PAINT);
   }
   b.flip=false;
+  b.smooth=false;
   const rf=zf-(commercial?.28:classic?.39:.62), rr=zr+(m.body==='sedan'||classic?.52:commercial?.16:.32);
   const roofW=W*m.taper, baseW=W*.90, baseY=topAt(zf), rearY=topAt(zr);
   const roofAt=(z:number)=>H-.045*Math.pow(2*(z-rr)/(rf-rr)-1,2);
@@ -163,6 +179,28 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
         b.quad(sidePoint(pane[i]),sidePoint(pane[j]),sidePoint(inner[j],.024),sidePoint(inner[i],.024),DARK,TRIM);
       }
       for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(inner,[]))b.tri(sidePoint(inner[a],.024),sidePoint(inner[c],.024),sidePoint(inner[d],.024),WINDOW,GLASS);
+      if(lod===0){
+        // Opaque glass keeps sorting and draw cost fixed. Subdued seat silhouettes lie on
+        // the inner pane and share its reflection response, clipped to the actual opening.
+        const clip=(subject:THREE.Vector2[])=>{
+          let result=subject;
+          for(let e=0;e<inner.length;e++){
+            const a=inner[e],c=inner[(e+1)%inner.length],distance=(p:THREE.Vector2)=>(c.x-a.x)*(p.y-a.y)-(c.y-a.y)*(p.x-a.x);
+            const input=result;result=[];
+            for(let i=0;i<input.length;i++){
+              const p=input[i],q=input[(i+1)%input.length],dp=distance(p),dq=distance(q);
+              if(dp>=0)result.push(p);
+              if((dp>=0)!==(dq>=0))result.push(p.clone().lerp(q,dp/(dp-dq)));
+            }
+          }
+          return result;
+        };
+        for(const z of [mid+.16,quarter+.18]){
+          const top=Math.min(roofEdge-.11,baseY+.25),bottom=baseY+.10;
+          const silhouette=clip([new THREE.Vector2(z-.075,bottom),new THREE.Vector2(z+.075,bottom),new THREE.Vector2(z+.075,top),new THREE.Vector2(z-.075,top)]);
+          for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(silhouette,[]))b.tri(sidePoint(silhouette[a],.023),sidePoint(silhouette[c],.023),sidePoint(silhouette[d],.023),[.007,.012,.016],GLASS);
+        }
+      }
     }
     // The B pillar is a flat painted/black frame, bounded by the adjacent openings.
     if(m.body!=='van')b.quad(sidePoint(new THREE.Vector2(mid-.047,baseY+.025),-.002),sidePoint(new THREE.Vector2(mid+.047,baseY+.025),-.002),
@@ -174,9 +212,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
       if(lod===0)for(const z of [mid+.13,Math.max(zr+.3,mid-.6)]) b.box(s*(widthAt(z)+.012),belt-.12,z,.025,.035,.15,[.45,.47,.48],METAL);
       b.box(s*(W+.035),belt+.10,zf-.10,.15,.10,.21,WHITE,PAINT);
       b.box(s*(W+.04),belt+.10,zf-.211,.12,.075,.009,[.28,.36,.42],GLASS);
-      // Lower panels carry restrained road grime; no random bright rust on the modern fleet.
-      const dirt=.68-m.age*.15;
-      b.box(s*(W*.94),low+.045,0,.014,.065,L*.40,[dirt,dirt*.97,dirt*.91],[1,.82,.03,0]);
+
     }
   }
   b.flip=false;
@@ -191,7 +227,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
     b.box(0,belt-.08,-L*.32,W*1.75,.12,L*.28,[.035,.04,.045],RUBBER);
     for(const s of [-1,1]) b.box(s*W*.91,belt+.065,-L*.32,.12,.20,L*.31,WHITE,PAINT);
   }
-  for(const s of [-1,1]) for(const z of [front,rear]) wheel(b,s*(W-.075),r,z,r,s,m.face,lod);
+  if(includeWheels)for(const s of [-1,1]) for(const z of [front,rear]) wheel(b,s*(W-.075),r,z,r,s,m.face,lod);
   // Body-specific lamp signatures, grille, bumpers and fictional Finnish-style plates.
   for(const end of [-1,1]) {
     b.flip=end<0;
@@ -256,4 +292,9 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
     b.box(-.12,1.28,z,.19,.045,.10,DARK,TRIM);
   }
   const geometry=b.geometry(); geometry.name=`${m.id}/lod${lod}`; return geometry;
+}
+
+/** A wheel centred on its local X axle, shared by driven/remote rigs. */
+export function buildFleetWheel(m:FleetModel,side:-1|1,lod:0|1|2=0){
+  const b=new Builder();wheel(b,0,0,0,m.wheel,side,m.face,lod);return b.geometry();
 }

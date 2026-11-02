@@ -17,9 +17,14 @@ export function fleetLamps(mesh:THREE.InstancedMesh,values:readonly number[]) {
   if(last>=0){attribute.addUpdateRange(first,last-first+1);attribute.needsUpdate=true;}
 }
 export function fleetActorLamps(mesh:THREE.Mesh,powered=true,indicator:-1|0|1=0,braking=false){
-  let value=actors.get(mesh);if(!value){value=new THREE.Vector4();actors.set(mesh,value);}value.set(...lampState(powered,indicator,braking));
+  let value=actors.get(mesh);if(!value){value=new THREE.Vector4();actors.set(mesh,value);}value.set(...lampState(powered,indicator,braking));mesh.userData.fleetLamps=value.toArray();
+}
+function actorState(object:THREE.Object3D){
+  let state=actors.get(object);
+  if(!state&&Array.isArray(object.userData.fleetLamps)){state=new THREE.Vector4().fromArray(object.userData.fleetLamps);actors.set(object,state);}
+  return state??DEFAULT_STATE;
 }
 export const fleetLampNode=Fn((builder:NodeBuilder)=>{
   const attribute=states.get(builder.object);
-  return attribute?instancedBufferAttribute(attribute,'vec4'):uniform(new THREE.Vector4(1,0,0,0)).onObjectUpdate(({object})=>actors.get(object!)??DEFAULT_STATE);
+  return attribute?instancedBufferAttribute(attribute,'vec4'):uniform(new THREE.Vector4(1,0,0,0)).onObjectUpdate(({object})=>actorState(object!));
 }) as unknown as ()=>Node<'vec4'>;

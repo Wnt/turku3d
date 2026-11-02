@@ -11,6 +11,7 @@ import type { CarVisual, ParkedCarVisuals } from '../actors/car';
 import type { ScooterVisual } from '../actors/scooter';
 import type { TruckVisual } from '../actors/truck';
 import { applyRaceWheels } from '../actors/prerunner/rig';
+import { fleetOrigin } from '../actors/fleet/pose';
 import type { MultiplayerClient, NetPlayer, NetPose } from './client';
 import { vehicleRotation } from './orientation';
 import { vehiclePose } from './sharedVehicles';
@@ -163,7 +164,7 @@ export class RemotePlayers {
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
       remote.car.quaternion.copy(vehicleRotation(pose, remote.vehicleKey !== 'player'));
-      if (remote.vehicleKey !== 'player') remote.car.position.y -= 0.75;
+      if (remote.vehicleKey !== 'player'){const at=fleetOrigin(pos,remote.car.quaternion);remote.car.position.set(at.x,at.y,at.z);}
       remote.scooter.quaternion.copy(vehicleRotation(pose, false));
       remote.truck.quaternion.copy(vehicleRotation(pose, false));
       if (pose.mode === 'truck' && pose.wheels) applyRaceWheels(remote.truck, pose.wheels);

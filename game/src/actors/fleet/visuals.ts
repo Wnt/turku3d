@@ -2,7 +2,8 @@ import * as THREE from 'three/webgpu';
 import type { VehicleState, Quat } from '../../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
-import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
+import { TRAFFIC_MODELS } from '../../traffic/constants';
+import { fleetOrigin } from './pose';
 import { paintActor, paintInstances } from '../parkedPaint';
 import { FLEET, fleetAppearance, baseFleetId, type FleetModel } from './catalog';
 import { buildFleetGeometry } from './geometry';
@@ -70,7 +71,7 @@ export class ParkedCarVisuals {
         const key=`${model.id}/${lod}`, required=(counts.get(model.id)??0)+this.reserve;
         if((this.groups.get(key)?.mesh.instanceMatrix.count??0)>=required) continue;
         const capacity=Math.max(16,2**Math.ceil(Math.log2(Math.max(1,required))));
-        const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
+        const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(lod),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
         mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
         const batch={mesh,model,lod,paints:[],lamps:[],count:0,dirty:true,slots:[],versions:[],first:Infinity,last:-1}; replacements.push([key,batch]);
@@ -98,13 +99,19 @@ export class ParkedCarVisuals {
     const actor=this.actor(def.model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);
     this.cars=this.cars.filter(c=>c.object_id!==id);
   }
+  release(id:string){
+    const actor=this.dynamic.get(id);if(!actor)return;
+    actor.removeFromParent();this.dynamic.delete(id);this.transforms.delete(id);
+    const car=this.definitions.get(id)?.size;if(car&&!this.cars.some(c=>c.object_id===id))this.cars.push(car);
+  }
+  resetRound(){for(const id of this.dynamic.keys())this.release(id);}
   requestRemoteModel(_key:string) { /* The code-authored fleet is resident; no network asset request. */ }
   remoteModel(key:string):THREE.Mesh|null {
     const [model,color]=key.split('/');
     try{return this.actor(fleetAppearance(model,key),color??'silver',`remote/${key}`);}catch{return null;}
   }
   private transform(draw:Draw) {
-    this.position.set(draw.pos.x,draw.pos.y-CHASSIS_LIFT,draw.pos.z);
+    const origin=fleetOrigin(draw.pos,draw.rot);this.position.set(origin.x,origin.y,origin.z);
     this.rotation.set(draw.rot.x,draw.rot.y,draw.rot.z,draw.rot.w).multiply(AXIS);
     // Existing slot/collider dimensions bound replacement vehicles; accessories are visual only.
     this.scale.set(1,1,1);

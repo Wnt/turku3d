@@ -2,6 +2,7 @@
  * await import('/src/actors/fleet/qa.ts').then(m => m.installFleetQA()) */
 import * as THREE from 'three/webgpu';
 import { ParkedCarVisuals } from './visuals';
+import { fleetChassis } from './pose';
 import { slotRotation } from '../../world/parkedVehicles';
 import { slotShown } from '../../world/parkedOccupancy';
 import type { Manifest, ParkedVehicle } from '../../world/manifest';
@@ -13,7 +14,7 @@ export async function installFleetQA(Visuals=ParkedCarVisuals) {
   const host=game.lights.source.host, manifest=host.manifest as Manifest;
   const root=new THREE.Group();root.name='fleet-qa';host.scene.add(root);
   const visuals=new Visuals(root);
-  const rest={restingPose:(car:ParkedVehicle)=>slotShown(car,game.dayClock.night)?{pos:{x:car.x,y:car.y+.75,z:car.z},rot:slotRotation(car)}:null};
+  const rest={restingPose:(car:ParkedVehicle)=>slotShown(car,game.dayClock.night)?{pos:fleetChassis(car,slotRotation(car)),rot:slotRotation(car)}:null};
   await visuals.load(manifest);
   const previous=window.__render!.afterFrame;
   const tick=()=>{previous?.();visuals.setView?.(window.__render!.camera,game.dayClock.night);visuals.update([],rest);};

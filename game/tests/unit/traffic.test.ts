@@ -375,7 +375,7 @@ describe('population ring', () => {
 });
 
 describe('rendering', () => {
-  test.each([false, true])('0 to 40 moving cars reuse resident fleet LOD batches and one program or pipeline (velocity=%s)', async motion => {
+  test.each([false, true])('0 to 40 moving cars reuse resident fleet LOD batches and two fixed material pipelines (velocity=%s)', async motion => {
     const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
     renderer.hasFeature = () => false;
     Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
@@ -426,12 +426,12 @@ describe('rendering', () => {
         }
         for (const mesh of meshes) { const s = program(mesh); states.push(s.vertexShader + s.fragmentShader); }
       }
-      expect(new Set(states).size).toBe(1);
+      expect(new Set(states).size).toBe(2);
       const pipelineBackend = { createProgram: vi.fn(), createRenderPipeline: vi.fn(), needsRenderUpdate: () => false, getRenderCacheKey: () => 'pass' };
       const pipelines = new Pipelines(pipelineBackend, {}, { createProgram: vi.fn(), destroyProgram: vi.fn() });
       const all = meshes.map(program);
       for (const state of all) pipelines.getForRender({ material: { name: 'parked' }, getNodeBuilderState: () => state });
-      expect(pipelineBackend.createRenderPipeline).toHaveBeenCalledTimes(1);
+      expect(pipelineBackend.createRenderPipeline).toHaveBeenCalledTimes(2);
       pipelines.dispose();
     } finally { load.mockRestore(); }
   });
