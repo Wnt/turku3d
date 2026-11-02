@@ -51,11 +51,11 @@ test('parked and moving fleet use all models, share one material and switch dist
   manifest.vehicles=FLEET.map((m,i)=>({object_id:`test-${i}`,model:m.id,color:'silver',x:i%7,y:0,z:Math.floor(i/7),yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
   await visuals.load(manifest);const camera=new THREE.PerspectiveCamera(120,1,.1,500);camera.position.set(0,10,20);camera.lookAt(3,0,3);visuals.setView(camera);
   const rest={restingPose:(c:NonNullable<typeof manifest.vehicles>[number])=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})};
-  visuals.update([],rest);expect(visuals.snapshot().models).toHaveLength(56);expect(visuals.snapshot().lods).toEqual([56,0,0]);
+  visuals.update([],rest);expect(visuals.snapshot().models).toHaveLength(FLEET.length);expect(visuals.snapshot().lods).toEqual([FLEET.length,0,0]);
   expect(new Set(scene.children.map(m=>(m as THREE.Mesh).material)).size).toBe(1);
-  camera.position.z=70;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,56,0]);
-  camera.position.z=200;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,0,56]);
-  visuals.takeOver('test-0');visuals.update([],rest);expect(visuals.snapshot().instances).toBe(55);
+  camera.position.z=70;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,FLEET.length,0]);
+  camera.position.z=200;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,0,FLEET.length]);
+  visuals.takeOver('test-0');visuals.update([],rest);expect(visuals.snapshot().instances).toBe(FLEET.length-1);
 });
 
 test('model assignment is stable and legacy families remain compatible',()=>{
@@ -70,6 +70,28 @@ test('ordinary traffic reaches all 56 models without overpopulating pickups or o
   for(const family of ['sedan','suv','van','hatchback-sports'])for(let i=0;i<2000;i++){
     const m=fleetModel(family,`tr:tile:lane:${i}`);models.add(m.id);pickups+=Number(m.body==='pickup');old+=Number(m.body==='classic');
   }
-  expect(models.size).toBe(56);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
+  expect(models.size).toBe(FLEET.length);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
   expect(old/2000).toBeGreaterThan(.07);expect(old/2000).toBeLessThan(.13);
+});
+
+
+test('registered authored car keeps glazing and lamps without duplicate procedural wheels',async()=>{
+  const id='octavia-combi-4',model=fleetModel(id,id);
+  const body=(await loadAuthoredFleet(id,0))!,glass=(await loadAuthoredFleet(id,0,'glass'))!;
+  expect(glass).not.toBeNull();
+  const surface=body.getAttribute('fleetSurface');
+  const roles=new Set(Array.from({length:surface.count},(_,i)=>surface.getW(i)));
+  expect(roles.has(1)).toBe(true);expect(roles.has(4)).toBe(true);
+  const opacity=glass.getAttribute('fleetSurface');
+  expect(Array.from({length:opacity.count},(_,i)=>opacity.getW(i)).every(a=>a>0&&a<1)).toBe(true);
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  manifest.vehicles=[{object_id:'authored',model:id,color:'silver',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}];
+  await visuals.load(manifest);visuals.update([]);
+  expect(scene.children.some(m=>m.name.startsWith('wheels/'))).toBe(false);
+  const batch=scene.children.find(m=>m.name===`parked/${id}/0`) as THREE.InstancedMesh;
+  const glazing=batch.children[0] as THREE.InstancedMesh;
+  expect(glazing.instanceMatrix).toBe(batch.instanceMatrix);
+  visuals.takeOver('authored');
+  expect(scene.children.find(m=>m.name==='driven/authored')!.children).toHaveLength(1);
+  visuals.dispose();body.dispose();glass.dispose();
 });
