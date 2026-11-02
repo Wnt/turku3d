@@ -20,3 +20,14 @@ test('camera and car interpolate recorded time and shortest arc quaternion', () 
  const mid = interpolateDrive(a, b, 50);
  expect(mid.cam).toEqual([50, 2, 3, 0, 0, 0, 1, 70]); expect(mid.car![0]).toBe(50); expect(mid.feet[0]).toBe(50);
 });
+
+test('replaying a replay uses its source scene epoch, not the wall time of the later recording', async () => {
+ const { driveEpoch, driveClockMode } = await import('../../src/qa/drive');
+ const meta = { start: { wall: 900000, performanceNow: 1000 }, replay: { epochMs: 100000, seconds: 12 },
+   clockMode: { kind: 'date', date: '2026-10-15T11:00:00.000Z' } };
+ expect(driveEpoch({ meta, start: 4000 })).toBe(115000);
+ expect(driveEpoch({ meta: { ...meta, replay: null }, start: 4000 })).toBe(903000);
+ expect(driveClockMode(meta)).toEqual({ kind: 'date', date: new Date(meta.clockMode.date) });
+ expect(driveClockMode({ params: { timeGiven: false, cycleMinutes: 30 } })).toEqual({ kind: 'cycle', periodMs: 1800000 });
+ expect(driveClockMode({ params: { timeGiven: true, hour: 14 }, hour: 14.5 })).toEqual({ kind: 'hour', hour: 14.5 });
+});

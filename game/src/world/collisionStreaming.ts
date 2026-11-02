@@ -29,6 +29,7 @@ export class CollisionStreamer {
   private lastCheck = -Infinity;
   private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
   private installed = new Map<string, string>();
+  private refreshes = new Set<string>();
   retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) {
     this.prepared.set(id, { entry, buffer });
     this.lastCheck = -Infinity; // Newly published ground must reach the worker before the next edge.
@@ -89,6 +90,7 @@ export class CollisionStreamer {
       const ij = parseCollisionId(id);
       if (ij && !keep.has(id) && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) this.physics.unloadTile(id);
     }
+    this.pumpRefreshes();
     const started: string[] = [];
     // Keep unloading while requests are in flight, but only search/sort when a slot is available.
     if (this.loading.size < this.maxConcurrent) {
@@ -184,6 +186,7 @@ export class CollisionStreamer {
       this.loading.delete(id);
       this.lastCheck = -Infinity; // Refill freed slots next frame; polling must not cap throughput.
       this.physics.setTileLoading(id, false);
+      this.pumpRefreshes();
     }
   }
   /** A new tile release changed these entries: loaded ones are fetched again and replace their colliders in one
@@ -195,6 +198,19 @@ export class CollisionStreamer {
       if (!this.physics.loaded.has(id) || this.loading.has(id) || !this.manifest.collision[id]) continue;
       const hash = this.manifest.collision[id].sha256;
       if (hash && this.installed.get(id) === hash) continue;
+      this.refreshes.add(id);
+    }
+    this.pumpRefreshes();
+  }
+
+  /** Replacements share the ordinary streaming slots, including when sixteen cells change together. */
+  private pumpRefreshes() {
+    for (const id of this.refreshes) {
+      if (this.loading.size >= this.maxConcurrent) break;
+      this.refreshes.delete(id);
+      const entry = this.manifest.collision[id];
+      if (!entry || !this.physics.loaded.has(id) || this.loading.has(id)
+        || entry.sha256 && this.installed.get(id) === entry.sha256) continue;
       this.loading.add(id);
       void this.fetchAndLoad(id);
     }
@@ -203,7 +219,7 @@ export class CollisionStreamer {
   supports(x: number, z: number, radius = 0.32): boolean {
     return collisionCovers(this.physics.loaded, x, z, x, z, radius);
   }
-  get pending(): number { return this.loading.size; }
+  get pending(): number { return this.loading.size + this.refreshes.size; }
   /** Ids within radius that are not loaded yet (ignores failed ones). */
   missingNear(x: number, z: number, r: number): string[] {
     return this.near(x, z, r).map((t) => t.id).filter((id) => !this.physics.loaded.has(id) && !this.failed.has(id));

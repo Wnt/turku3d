@@ -1,4 +1,4 @@
-import { DriveBench, loadDrive, driveQaPose, type LoadedDrive } from './qa/drive';
+import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
 import { weatherUniforms } from './render/weather/surfaces';
@@ -127,10 +127,9 @@ const camera = new THREE.PerspectiveCamera(60, driveViewport ? driveViewport[0] 
 camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
 /** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
-const clockMode: ClockMode = initialDrive ? (initialDrive.meta.clockMode ?? (initialDrive.meta.params?.timeGiven ? (initialDrive.meta.params.hour !== null ? { kind: 'hour', hour: initialDrive.meta.hour } : { kind: 'date', date: new Date(initialDrive.meta.params.time) }) : { kind: 'cycle', periodMs: (initialDrive.meta.params?.cycleMinutes ?? 30) * 60000 })) : params.hour !== null ? { kind: 'hour', hour: params.hour }
+const clockMode: ClockMode = initialDrive ? driveClockMode(initialDrive.meta) : params.hour !== null ? { kind: 'hour', hour: params.hour }
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
-const clock = new FrameClock(initialDrive ? initialDrive.meta.start.wall + initialDrive.start - initialDrive.meta.start.performanceNow : params.time.getTime());
-if (initialDrive && clockMode.kind === 'date') clockMode.date = new Date(clockMode.date);
+const clock = new FrameClock(initialDrive ? driveEpoch(initialDrive) : params.time.getTime());
 const dayClock = new DayClock(env, clockMode, !params.qa, () => params.qa ? clock.utcMs : Date.now());
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
@@ -347,12 +346,14 @@ async function runQa() {
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
   window.__game!.population = population;
+  let replaySeed = 20261102;
   window.__game!.replay = {
-    reset: async ({ epochMs, seed = 20261102 }: { epochMs: number; seed?: number }) => {
-      clock.reset(epochMs); await population?.prepare(epochMs, seed);
+    reset: async ({ epochMs, seed = 20261102, mode }: { epochMs: number; seed?: number; mode?: ClockMode }) => {
+      clock.reset(epochMs); dayClock.resetTimeline(mode); replaySeed = seed;
+      await population?.prepare(epochMs, seed);
     },
     seek: (seconds: number) => clock.seek(seconds),
-    snapshot: () => ({ seconds: clock.simSeconds, epochMs: clock.epochMs, seed: 20261102, population: population?.snapshot() }),
+    snapshot: () => ({ seconds: clock.simSeconds, epochMs: clock.epochMs, seed: replaySeed, population: population?.snapshot() }),
   };
   window.__qaPose = { E: q.E, N: q.N, H: q.H, yaw: q.yawDeg, pitch: q.pitchDeg, roll: q.rollDeg, fov: q.fovDeg };
   window.__qaProject = (E: number, N: number, H: number) => {
@@ -461,9 +462,8 @@ async function runQa() {
       return !p.total || p.loaded !== p.total || !coarse.detailedAt(camera.position.x, camera.position.z) || !!materials?.ground?.pending || [...benchFetches.values()].some(start => performance.now() - start > 1500) || !!distantCity && !distantCity.progress.ready;
     },
     reset: async drive => {
-      const elapsed = (drive.start - drive.meta.start.performanceNow) / 1000;
-      const epochMs = drive.meta.replay?.epochMs != null ? drive.meta.replay.epochMs + ((drive.meta.replay.seconds ?? 0) + elapsed) * 1000 : drive.meta.start.wall + elapsed * 1000;
-      await (window.__game!.replay as any).reset({ epochMs, seed: drive.meta.replay?.seed ?? 20261102 });
+      await (window.__game!.replay as any).reset({ epochMs: driveEpoch(drive), seed: drive.meta.replay?.seed ?? 20261102,
+        mode: driveClockMode(drive.meta) });
     },
     seek: seconds => clock.seek(seconds),
   }) : null;
