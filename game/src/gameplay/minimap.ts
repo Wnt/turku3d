@@ -12,6 +12,7 @@ import { COLLISION_TILE } from '../core/origin';
 /** Marker colour per target kind, shared with the world zones (zones.ts). */
 export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
 const SIZE = 240;
+const UPDATE_MS = 50;
 const SPAN_M = { foot: 200, car: 320, expanded: 650 };
 
 interface MinimapView {
@@ -60,6 +61,7 @@ export class Minimap {
   private cssSize = 0;
   private area: PlayableArea | null = null;
   private remotes: readonly { id: string; nick: string; x: number; z: number }[] = [];
+  private lastUpdate = -Infinity;
 
   constructor(parent: HTMLElement, private graph: RoadGraph, router: Router) {
     this.routes = new RouteTracker(router);
@@ -96,8 +98,8 @@ export class Minimap {
   /** Shades everything outside the built area and outlines its edge. */
   setArea(area: PlayableArea) { this.area = area; this.dirty = true; }
   setRemotes(players: readonly { id: string; nick: string; x: number; z: number }[]) {
+    if (players.length || this.remotes.length) this.dirty = true;
     this.remotes = players;
-    if (players.length) this.dirty = true;
   }
 
   toggleExpanded() {
@@ -106,8 +108,12 @@ export class Minimap {
     this.dirty = true;
   }
 
-  /** Call every frame; redraws only when the view, state or size changed. */
+  /** Call every frame; sample the live view at 20 Hz and draw only when it changed. */
   update(view: MinimapView) {
+    if (this.element.hidden || document.hidden) return;
+    const now = performance.now();
+    if (now - this.lastUpdate < UPDATE_MS) return;
+    this.lastUpdate = now;
     const target = this.state.targets.find(t => t.id === this.state.activeTargetId) ?? null;
     if (this.routes.update(view.position, target, view.mode)) this.dirty = true;
     // On a phone in landscape (390 px tall) the corner map shrinks so the HUD above it stays readable.

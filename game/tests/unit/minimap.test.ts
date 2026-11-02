@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
-import { REROUTE_M, RouteTracker, compassDeg, formatMoney, formatTimer, project } from '../../src/gameplay/minimap';
+import { REROUTE_M, Minimap, RouteTracker, compassDeg, formatMoney, formatTimer, project } from '../../src/gameplay/minimap';
+import { EMPTY_ROAD_GRAPH } from '../../src/gameplay/roadGraph';
 import type { RouteTarget, Router, WorldPoint } from '../../src/gameplay/contract';
 
 test('route progresses without replanning and recomputes for target or mode changes', () => {
@@ -98,4 +99,35 @@ test('nearby return streets do not make progress jump over an untravelled loop',
   expect(tracker.route?.[0]).toEqual({ x: 6, z: 0 });
   expect(tracker.length).toBe(214);
   expect(route).toHaveBeenCalledTimes(1);
+});
+
+test('minimap samples the latest moving view, stays idle while hidden and clears departed markers', () => {
+  const element = (): any => ({ hidden: false, style: {}, classList: { toggle() {} }, append() {}, getContext: () => ({}) });
+  const document = { hidden: false, createElement: element };
+  vi.stubGlobal('document', document);
+  vi.stubGlobal('innerWidth', 1600); vi.stubGlobal('innerHeight', 800); vi.stubGlobal('devicePixelRatio', 2);
+  const clock = vi.spyOn(performance, 'now'); clock.mockReturnValue(0);
+  try {
+    const map = new Minimap(element(), EMPTY_ROAD_GRAPH, { route: () => null, distance: () => 0 });
+    const draw = vi.spyOn(map as any, 'draw').mockImplementation(() => {});
+    const routes = vi.spyOn(map.routes, 'update');
+    const view = (x: number) => ({ position: { x, z: 0 }, headingDeg: 0, facingDeg: 0, mode: 'car' as const, nearEdge: false });
+    map.update(view(0));
+    for (const t of [10, 20]) { clock.mockReturnValue(t); map.update(view(t)); }
+    expect(draw).toHaveBeenCalledOnce();
+    clock.mockReturnValue(50); map.update(view(50));
+    expect(draw.mock.calls.at(-1)![0]).toEqual(view(50));
+    document.hidden = true; clock.mockReturnValue(100); map.update(view(100));
+    document.hidden = false; map.element.hidden = true; clock.mockReturnValue(150); map.update(view(150));
+    expect(routes).toHaveBeenCalledTimes(2);
+    map.element.hidden = false; clock.mockReturnValue(200); map.update(view(200));
+    expect(draw).toHaveBeenCalledTimes(3);
+    map.setRemotes([{ id: 'other', nick: 'Other', x: 205, z: 0 }]);
+    clock.mockReturnValue(250); map.update(view(200));
+    map.setRemotes([]);
+    clock.mockReturnValue(300); map.update(view(200));
+    expect(draw).toHaveBeenCalledTimes(5);
+    clock.mockReturnValue(350); map.update(view(200));
+    expect(draw).toHaveBeenCalledTimes(5);
+  } finally { clock.mockRestore(); vi.unstubAllGlobals(); }
 });
