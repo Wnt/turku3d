@@ -87,9 +87,12 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   } finally {
     for (const [object, value] of culled) object.frustumCulled = value;
   }
-  // Restore the initial view and flush temporal history from the warmup before showing the world.
-  for (let i = 0; i < 8; i++) { renderFrame(); await frame(); }
+  // The camera never leaves its initial pose. Two history frames are enough before the live menu
+  // loop continues convergence; the old eight-frame flush was needed after panorama camera jumps.
+  stage = performance.now();
+  for (let i = 0; i < 2; i++) { renderFrame(); await frame(); }
   await drainGpu(renderer);
+  worldLoad.update({ timings: { ...worldLoad.snapshot().timings, temporalWarmupMs: performance.now() - stage } });
   compiled(`${renderer.info.memory.textures} textures · ${total}/${total} views`);
   worldLoad.update({ phase: 'ready' });
 }

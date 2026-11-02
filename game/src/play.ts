@@ -258,7 +258,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayerRunId = crypto.randomUUID();
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
-        if (at) { multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
+        // A late welcome can point outside the solo preload ring; let safe placement stream that area.
+        if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);

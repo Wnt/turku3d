@@ -291,6 +291,11 @@ def build(
     seconds.update(structure_seconds)
     from . import street_profiles
 
+    if inputs.retaining:
+        # Props and vegetation must sample the same reconstructed apron as collision.
+        surface_sample = street_profiles.sampler(surface_sample, street_profiles.ProfiledSurface(
+            dry, shapely.union_all([g.buffer(2.5) for g, _, _ in inputs.retaining])
+        ))
     dry_surface, solid_surface = cache.run(
         "street_profiles",
         source_key(Path(street_profiles.__file__), surfaces.split_boundaries,
@@ -377,6 +382,7 @@ def build(
                 inputs.forests,
                 inputs.vegetation_paths,
                 inputs.vegetation_roads,
+                inputs.retaining,
                 inputs.trees,
                 shells,
                 carried_mask,
@@ -410,7 +416,7 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos],
+        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, inputs.retaining],
         stage,
         barrier_stage,
     )

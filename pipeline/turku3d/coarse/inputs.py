@@ -46,6 +46,7 @@ DEPENDENCIES = {
     "water": ("water.py", "../spatial.py", "../ground/mesh.py"),
     "walkable": (
         "walkable.py",
+        "retaining_survey.py",
         "underpasses.py",
         "bridge_details.py",
         "tunnels.py",
@@ -77,6 +78,7 @@ DEPENDENCIES = {
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
     "trees": ("tree_inputs.py", "../spatial.py"),
+    "retaining": ("retaining_survey.py", "retaining.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
     "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
@@ -161,6 +163,7 @@ class Inputs:
     boats: list = ()
     wall_context: list = ()  # neighbouring complete buildings for deterministic wall ownership
     walkable: list = ()  # canonical lidar-fitted river paths and embankment cross sections
+    retaining: list = ()  # raw-lidar two-sided WFS retaining tops, before path blending
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -511,6 +514,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
         if osm and not missing
         else [],
+        "retaining": [sources.wfs_source("kanta:Rakenne", tile)[1], *bridge_survey.source_paths(tile)],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
         "boats": [osm, wfs[0][1], wfs[2][1]] if osm and all(f for f, _ in wfs[:3]) else [],
         "ortho": [ortho] if ortho else None,
@@ -577,6 +581,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .walkable import prepare as prepare_walkable
 
         return prepare_walkable(tile, paths[0], paths[1], paths[2:]) if paths else []
+    if dataset == "retaining":
+        from .retaining_survey import prepare as prepare_retaining
+
+        return prepare_retaining(tile, paths[0], paths[1:]) if paths else []
     if dataset == "gardens":
         from .garden_inputs import prepare as prepare_gardens
 
@@ -845,6 +853,7 @@ def gather(
         gardens=values["gardens"] or {},
         boats=values["boats"],
         walkable=values["walkable"] or (),
+        retaining=values.get("retaining") or (),
         kerbs=values["kerbs"],
         kerb_parking=values.get("kerb_parking") or {},
         markings=values["markings"] or (),

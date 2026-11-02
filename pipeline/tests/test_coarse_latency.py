@@ -210,6 +210,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "ground",
         "water",
         "walkable",
+        "retaining",
         "gardens",
         "boats",
         "ortho",
@@ -252,7 +253,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return ["fitted-street-kerb"]
         if dataset == "gardens":
             return {}
-        if dataset in ("water", "boats", "barriers"):
+        if dataset in ("water", "boats", "barriers", "retaining"):
             return []
         if dataset == "wfs":
             assert len(sources) == 3
@@ -273,6 +274,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "ground",
         "water",
         "walkable",
+        "retaining",
         "gardens",
         "boats",
         "wfs",
