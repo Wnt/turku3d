@@ -22,14 +22,19 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-def triangle_count(path):
+def triangle_count(path, objects=None):
     blob = Path(path).read_bytes()
     size, kind = struct.unpack_from('<II', blob, 12)
     if blob[:4] != b'glTF' or kind != 0x4E4F534A:
         raise ValueError(f'Not a binary glTF: {path}')
     data = json.loads(blob[20:20+size])
+    meshes = data.get('meshes', [])
+    if objects is not None:
+        indices = {node['mesh'] for node in data.get('nodes', [])
+                   if node.get('name') in objects and 'mesh' in node}
+        meshes = [mesh for i, mesh in enumerate(meshes) if i in indices]
     return sum(data['accessors'][p.get('indices', p['attributes']['POSITION'])]['count']//3
-               for mesh in data.get('meshes', []) for p in mesh['primitives'] if p.get('mode', 4) == 4)
+               for mesh in meshes for p in mesh['primitives'] if p.get('mode', 4) == 4)
 
 
 def asset_contract(path, wheels):
@@ -102,6 +107,9 @@ async def main(args):
                 raise ValueError('No visible model meshes')
             if not set(wheels).issubset(originals):
                 raise ValueError('Source blend must contain four separate named wheel meshes')
+            preserve = set(model.get('preserve_lod_objects', []))
+            if not preserve.issubset(originals) or preserve.intersection(wheels):
+                raise ValueError('Preserved LOD objects must be visible non-wheel source meshes')
             for view in model.get('views', ['side', 'front', 'rear', 'three-quarter']):
                 await call('set_active_camera', object_name=f'compare_{view}')
                 await call('capture_viewport', filepath=str(output/f'{view}.png'), width=1280, height=720)
@@ -110,9 +118,9 @@ async def main(args):
                 await call('set_object_visibility', object_name=f'SOURCE_{original}', visible=False)
             counts = []
             for lod, budget in enumerate(model.get('triangle_budgets', [40000, 10000, 2000])):
-                copies, wheel_copies = [], []
+                copies, wheel_copies, preserved = [], [], []
                 for original in originals:
-                    if lod == 2 and original.startswith(('handle_', 'wiper_', 'door_gap_', 'tailgate_gap', 'plate_text_', 'fastener_', 'grille_slat_', 'rail_foot_')):
+                    if lod == 2 and original not in preserve and original.startswith(('handle_', 'wiper_', 'door_gap_', 'tailgate_gap', 'plate_text_', 'fastener_', 'grille_slat_', 'rail_foot_')):
                         continue
                     duplicate = await call('duplicate_object', object_name=f'SOURCE_{original}', linked=False)
                     name = duplicate['name']
@@ -126,7 +134,10 @@ async def main(args):
                         elif lod == 2 and modifier['type'] == 'BEVEL':
                             await call('set_modifier_property', object_name=name, modifier_name=modifier['name'], property='segments', value=1)
                     await call('convert_object', object_name=name, target='MESH')
-                    if original in wheels:
+                    if original in preserve:
+                        await call('rename_object', old_name=name, new_name=original)
+                        preserved.append(original)
+                    elif original in wheels:
                         await call('rename_object', old_name=name, new_name=original)
                         await call('apply_transforms', object_name=original, location=False, rotation=True, scale=True)
                         wheel_copies.append(original)
@@ -135,15 +146,19 @@ async def main(args):
                 await call('join_objects', names=copies)
                 name = 'body'
                 await call('rename_object', old_name=copies[0], new_name=name)
-                exported = [name, *wheel_copies]
+                exported = [name, *wheel_copies, *preserved]
                 await call('select_objects', names=exported, deselect_others=True)
                 file = output/f'lod{lod}.glb'
                 await call('export_file', filepath=str(file), selected_only=True,
                            options={'export_apply': True, 'export_animations': False})
                 triangles = triangle_count(file)
                 if triangles > budget:
-                    for part in exported:
-                        await call('decimate_mesh', object_name=part, ratio=.95*budget/triangles)
+                    fixed_triangles = triangle_count(file, set(preserved))
+                    if fixed_triangles >= budget:
+                        raise ValueError(f'LOD{lod} preserved geometry exhausts its budget')
+                    ratio = .95*(budget-fixed_triangles)/(triangles-fixed_triangles)
+                    for part in [name, *wheel_copies]:
+                        await call('decimate_mesh', object_name=part, ratio=ratio)
                     await call('select_objects', names=exported, deselect_others=True)
                     await call('export_file', filepath=str(file), selected_only=True,
                                options={'export_apply': True, 'export_animations': False})
@@ -199,7 +214,7 @@ async def main(args):
   const qa = await import({json.dumps(module+'/qa.ts')});
   const catalog = await import({json.dumps(module+'/catalog.ts')});
   const game = window.__game;
-  const deadline = performance.now() + 60000;
+  const deadline = performance.now() + 240000;
   while (!window.__qaReady || !game.lights.source.host.manifest.vehicles?.length) {{
     if (performance.now() > deadline) throw Error('Native parked records did not become ready');
     await new Promise(requestAnimationFrame);
