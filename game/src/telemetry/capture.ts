@@ -28,6 +28,7 @@ export class DriveCapture {
   private meta: Host;
   private metaDirty = true;
   error: string | null = null;
+  onChange?: () => void;
   private tick = () => { this.previous?.(); if (this.active) this.frame(); };
   private hide = () => { void this.rollProfiler(false).finally(() => this.flush(true)); this.flush(true); };
   constructor(private game: Host, extra: Host = {}) {
@@ -131,6 +132,7 @@ export class DriveCapture {
       // The normal fetch pump owns any in-flight batch. Beacon transfers the queued tail on pagehide.
       this.pending = this.pending.filter(body => !navigator.sendBeacon(`/__capture/${this.id}`, new Blob([body], { type: 'application/json' })));
     }
+    this.onChange?.();
     void this.send();
   }
   private async send() {
@@ -144,7 +146,7 @@ export class DriveCapture {
         this.error = null;
       }
     } catch (e) { this.error = String(e); console.error(this.error); }
-    finally { this.sending = false; }
+    finally { this.sending = false; this.onChange?.(); }
   }
   async stop() {
     this.active = false; clearInterval(this.timer); clearTimeout(this.profilerTimer);
@@ -158,23 +160,63 @@ export class DriveCapture {
 }
 
 export function captureControl(game: Host, parent: HTMLElement) {
-  const marker = document.createElement('span'); marker.id = 'capture-rec'; marker.textContent = '● REC';
-  marker.style.cssText = 'position:fixed;right:18px;top:14px;color:#ff6868;font:600 13px monospace;z-index:10;pointer-events:none';
+  const marker = document.createElement('span'); marker.id = 'capture-rec';
+  marker.setAttribute('role', 'status'); marker.setAttribute('aria-live', 'polite');
+  marker.style.cssText = 'position:fixed;right:18px;top:14px;font:600 13px monospace;z-index:10;pointer-events:none';
   marker.hidden = true; parent.append(marker);
   let recorder: DriveCapture | null = null;
   let lastRecorder: DriveCapture | null = null;
+  let lastState: 'saving' | 'saved' | 'error' | null = null;
+  let disposed = false;
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    if (disposed) return;
+    const error = recorder?.error || (lastState === 'error' ? lastRecorder?.error : null);
+    marker.hidden = !recorder && lastState !== 'saving' && !error;
+    marker.textContent = error ? `${recorder ? '● REC · ' : ''}SAVE FAILED` : recorder ? '● REC' : 'SAVING…';
+    marker.style.color = error || !recorder ? '#ffd27a' : '#ff6868';
+    marker.title = error ? 'Open the pause menu to retry saving your drive.' : recorder?.id ?? lastRecorder?.id ?? '';
+    for (const listener of listeners) listener();
+  };
+  const save = (capture: DriveCapture) => {
+    lastState = 'saving'; changed();
+    void capture.stop().then(() => { lastState = 'saved'; changed(); })
+      .catch(error => { lastState = 'error'; console.error(error); changed(); });
+  };
   const control = {
     get recorder() { return recorder; },
     get on() { return !!recorder; },
     get lastRecorder() { return lastRecorder; },
+    get enabled() { return !!recorder || (lastState !== 'saving' && lastState !== 'error'); },
+    get detail() {
+      if (recorder?.error) return 'Saving failed. Your drive is still buffered; switch Off to retry.';
+      if (recorder) return `Recording ${recorder.id}`;
+      if (lastState === 'saving') return `Saving ${lastRecorder!.id}…`;
+      if (lastState === 'error') return `Save failed for ${lastRecorder!.id}. Retry below; your drive is still buffered.`;
+      if (lastState === 'saved') return `Saved as ${lastRecorder!.id}`;
+      return 'Save drive and profiling data on this computer';
+    },
+    get retry(): (() => void) | undefined {
+      return lastState === 'error' ? () => save(lastRecorder!) : undefined;
+    },
+    subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     toggle() {
-      if (recorder) { lastRecorder = recorder; void recorder.stop().catch(console.error); recorder = null; }
-      else recorder = new DriveCapture(game);
-      marker.hidden = !recorder;
+      if (!control.enabled) return;
+      if (recorder) {
+        lastRecorder = recorder; recorder = null;
+        save(lastRecorder);
+      } else {
+        recorder = new DriveCapture(game); recorder.onChange = changed;
+        changed();
+      }
       try { sessionStorage.setItem(KEY, recorder ? '1' : '0'); } catch {}
     },
     mark(k: 'pause' | 'resume') { recorder?.mark(k); },
-    dispose() { if (recorder) void recorder.stop().catch(console.error); marker.remove(); },
+    dispose() {
+      disposed = true; listeners.clear();
+      if (recorder) void recorder.stop().catch(console.error);
+      marker.remove();
+    },
   };
   try { if (sessionStorage.getItem(KEY) === '1') control.toggle(); } catch {}
   return control;
