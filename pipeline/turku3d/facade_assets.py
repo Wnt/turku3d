@@ -119,10 +119,24 @@ def building(key):
 
 
 def best_description(candidates):
+    # A single wide view can be dominated by an occluding neighbour. Prefer the
+    # material corroborated by independent reference facades before using width
+    # as a tie-breaker. Building-level guesses do not vote against observations.
+    measured = [m for m in candidates if m["fast_description"].get("source") in ("reference", "astra")]
+    votes = {}
+    seen = set()
+    for m in measured:
+        identity = m.get("facade_id", id(m))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        material = m["fast_description"]["description"].get("material")
+        votes[material] = votes.get(material, 0) + 1
     return max(
         candidates,
         key=lambda m: (
             m["fast_description"].get("source") in ("reference", "astra"),
+            votes.get(m["fast_description"]["description"].get("material"), 0),
             m["width_m"],
         ),
     )
