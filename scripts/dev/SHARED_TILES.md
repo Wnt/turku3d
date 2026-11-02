@@ -1,7 +1,7 @@
 # Shared local tile farm
 
 The LAN service at `http://192.168.1.114:7950` builds committed local revisions on demand.
-It never publishes to production. The server uses four workers (maximum four), a bounded
+It never publishes to production. The server uses eight workers (maximum twelve; `POST /limits {"workers": N}` changes it live), a bounded
 128-tile queue, and a shared content-addressed stage/input cache. Urgent camera tiles lead, then visible tiles, explicit CLI requests and background demand;
 revisions share turns within each category.
 Queued speculative requests expire after three minutes without requests or live demand. Identical requests join
@@ -49,7 +49,7 @@ Service owner (tiles) starts the daemon with:
 ```sh
 python3 scripts/dev/shared_tiles.py --host 192.168.1.114 --port 7950 \
   --root /home/wnt/turku3d-local/loops/tiles/farm \
-  --runner /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh --workers 4
+  --runner /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh --workers 8
 ```
 
 Source inputs remain read-only at `~/turku3d-local/combined/data`; missing source data is
