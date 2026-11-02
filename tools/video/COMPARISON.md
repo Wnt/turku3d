@@ -80,6 +80,8 @@ This writes `edit/market-hall-still.png`. Compare two versions at the same shot;
 retain its capture receipts as evidence that the scene and camera are unchanged.
 Use `--still title` or `--still end` to review a card. The opening uses both matched
 dawn frames with equal background shading and introduces the comparison explicitly.
+The closing card shares that framing and treatment, with concise copy, the weather
+caveat, date, and source attribution retained.
 
 Render one transition from existing captures without rebuilding the whole film:
 
