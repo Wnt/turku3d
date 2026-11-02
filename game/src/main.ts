@@ -1,3 +1,6 @@
+import { WeatherClock, type WeatherName } from './render/weather/schedule';
+import { Rain } from './render/weather/rain';
+import { weatherUniforms } from './render/weather/surfaces';
 import { collisionPreview } from './world/collisionPreview';
 // Turku3D game skeleton entry. Modes:
 //   play (default): third-person player + car, physics worker, collision streaming, debug HUD
@@ -51,10 +54,11 @@ declare global {
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
+      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
       landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
-      perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
+      perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void };
   }
 }
@@ -106,11 +110,21 @@ const env = new Environment(scene, renderer, params.quality);
 const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params.hour }
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
 const dayClock = new DayClock(env, clockMode, !params.qa);
+const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
+let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
+window.__dev = { landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
+  pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
+  setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
 if (!idPass) env.updateIBL();
 const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights, env.lamps.point);
-const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, lights?.sprites);
+const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Camera, depth: THREE.Texture) => {
+  const weatherLayer = rain!.overlay(r, c, depth), lightLayer = lights?.sprites.overlay(r, c, depth);
+  return { color: lightLayer ? weatherLayer.color.add(lightLayer.color) : weatherLayer.color,
+    resource: { dispose() { weatherLayer.resource.dispose(); lightLayer?.resource.dispose(); } } };
+} } : lights?.sprites;
+let post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
+window.__render = { camera, environment: env, renderer, perf, post, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
@@ -122,9 +136,11 @@ let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
+tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
   furniture?.remove(model);
+  rain?.exposure.remove(model);
   retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
 });
 let graphicsReady = Promise.resolve();
@@ -144,6 +160,29 @@ const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
+let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
+function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
+  if (idPass) return;
+  const now = performance.now();
+  if (now - lastWeatherIBL < 2500) return;
+  if (Math.abs(sample.cloudCover - lastWeatherCover) < .04 && Math.abs(sample.overcast - lastWeatherOvercast) < .04) return;
+  lastWeatherIBL = now; lastWeatherCover = sample.cloudCover; lastWeatherOvercast = sample.overcast;
+  env.updateIBL();
+}
+if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
+  if (!next || idPass) return;
+  const previous = post;
+  post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+  window.__render!.post = post;
+  retireAfterFrame(renderer, () => previous?.dispose());
+});
+if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
+  if (!next || !rain) return;
+  const previous = rain; previous.dispose(true);
+  const replacement = new next.Rain(scene, params.quality === 'low' ? 2500 : 6000, previous.exposure, previous.scene, previous.sceneDepth.value as THREE.DepthTexture);
+  replacement.setPhaseSeconds(previous.fixedPhaseSeconds);
+  rain = replacement;
+});
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
@@ -151,6 +190,13 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  const weatherSample = weather.update();
+  env.setWeather(weatherSample);
+  weatherUniforms.wetness.value = weatherSample.wetness;
+  weatherUniforms.rain.value = weatherSample.rain;
+  weatherUniforms.seconds.value = (dayClock.sharedNow() / 1000) % 4096;
+  rain?.update(camera, weatherSample, dayClock.sharedNow() / 1000, env.nightFactor);
+  refreshWeatherIBL(weatherSample);
   distantCity?.follow(camera);
   // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
   const sharedSeconds = dayClock.sharedNow() / 1000;
@@ -245,7 +291,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => retireAfterFrame(renderer, release),
-    style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
+    style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   lights?.attach(coarse);
@@ -306,13 +352,15 @@ async function runQa() {
       // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
       return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
         || scenery.loaded !== scenery.total)
-        || [...benchFetches.values()].some(start => performance.now() - start > 1500);
+        || [...benchFetches.values()].some(start => performance.now() - start > 1500)
+        || !!rain && weather.sample.wetness > .0001 && !rain.exposure.settled;
     },
     // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
     signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
       (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
     info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
       scenery: distantCity?.progress,
+      weather: weather.sample, rainExposure: rain?.exposure.progress,
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
@@ -345,6 +393,8 @@ async function runQa() {
     perf.reset();
   };
   window.__dev = {
+    get rainEffects() { return rain; },
+    setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
     landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
@@ -435,7 +485,7 @@ async function runPlay() {
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
-    loadingScreen, dayClock, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
+    loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
     trafficClock: () => dayClock.trafficClock(),
     setClock: date => dayClock.restore(date),
     spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
