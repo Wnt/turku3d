@@ -16,7 +16,15 @@ args = parser.parse_args()
 scenery = Scenery(args.source, args.cache)
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
     def _send(self, status, data, mime, cache='no-cache'):
+        try:
+            self._write_response(status, data, mime, cache)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Camera moves cancel obsolete requests; do not block serving on traceback output.
+
+    def _write_response(self, status, data, mime, cache):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(data)))
@@ -52,4 +60,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-http.server.ThreadingHTTPServer(('127.0.0.1', args.port), Handler).serve_forever()
+class Server(http.server.ThreadingHTTPServer):
+    request_queue_size = 128
+
+Server(('127.0.0.1', args.port), Handler).serve_forever()
