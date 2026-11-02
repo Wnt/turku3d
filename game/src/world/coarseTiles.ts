@@ -124,7 +124,7 @@ export class CoarseTiles {
     // Optional distant derivatives must not put collision/nearby streaming into outage backoff.
     this.screenshotScenery = new ScreenshotScenery(host, this.entries,
       url => this.fetch(new URL(url, this.page).href, { signal: AbortSignal.timeout(30_000) }), url => this.load(url),
-      model => tintDraft(model, this.host.renderer, this.materials), (model, id) => this.dispose(model, id), this.root, this.page);
+      model => tintDraft(model, this.host.renderer, this.materials), (model, id) => this.dispose(model, id), this.root, this.page, this.materials);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
     if (this.badge) Object.assign(this.badge.style, { padding: '3px 10px', borderRadius: '4px', background: 'rgba(20,24,32,0.72)', color: '#ffd98a',
@@ -312,6 +312,15 @@ export class CoarseTiles {
    *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
   detailedAt(x: number, z: number) {
     return this.wantedStarts(x, z).every(id => { const e = this.entries.get(id); return e?.state !== 'draft' || !e.preview; });
+  }
+  /** Strict render coverage for tools and diagnostics; unlike startup, failed tiles are never skipped. */
+  viewStatus(x: number, z: number) {
+    const near = this.wantedStarts(x, z).map(id => {
+      const e = this.entries.get(id);
+      return { id, hash: e?.visualHash, ready: !!e?.model && !e.preview && e.pass === 'full' && !e.stale };
+    });
+    const scenery = this.screenshotScenery.progress;
+    return { ready: near.every(e => e.ready) && scenery.ready, near, scenery };
   }
   private skipped = new Set<string>();
 

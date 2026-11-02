@@ -4,13 +4,15 @@ import { CoarseTiles } from '../../src/world/coarseTiles';
 import type { Manifest } from '../../src/world/manifest';
 
 test('cached screenshot scenery fills free slots between normal one-second world scans', async () => {
-  const rows = Array.from({ length: 40 }, (_, i) => ({ tile: `t0_${-6 + Math.floor(i / 4)}_${i % 4}`,
-    key: `t0_${-6 + Math.floor(i / 4)}_${i % 4}`, h: [0, 107], source_sha256: 'base' }));
   const loadModel = vi.fn(async () => new THREE.Group());
   const fetch = vi.fn(async (url: string) => {
     const pathname = new URL(url).pathname;
     if (pathname.endsWith('/health')) return new Response(JSON.stringify({ state: 'idle' }));
-    if (pathname.endsWith('/scenery')) return new Response(JSON.stringify({ tiles: rows, missing: [] }));
+    if (pathname.endsWith('/scenery')) {
+      const rows = new URL(url).searchParams.get('tiles')!.split(',').map(tile=>
+        ({tile,key:tile,h:[0,107],source_sha256:'base'}));
+      return new Response(JSON.stringify({ tiles: rows, missing: [] }));
+    }
     if (pathname.includes('/scenery/')) {
       const tile = pathname.split('/').at(-1)!.replace('.json', '');
       return new Response(JSON.stringify({ coarse: true, tile, pass_kind: 'full',

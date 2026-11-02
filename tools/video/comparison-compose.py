@@ -40,9 +40,14 @@ def card(end=False,still=False):
  text(d,(96,708),'15 matched journeys · 60 fps' if end else '15 places. One shared camera.',34)
  if end:
   text(d,(1020,708),'Production: clear weather\nNew build: weather presets',27,fill='#d5e1df')
-  text(d,(96,934),'City of Turku · CC BY 4.0',22,fill='#bdcfce')
-  text(d,(96,974),'© OpenStreetMap contributors · ODbL',22,fill='#bdcfce')
-  text(d,(1440,974),date_long,22,fill='#bdcfce')
+  text(d,(96,850),'City of Turku · CC BY 4.0 / © OpenStreetMap contributors · ODbL',20,fill='#bdcfce')
+  text(d,(96,882),'Copernicus DEM · EU / Airbus / DLR · ESA WorldCover 2021 · CC BY 4.0',20,fill='#bdcfce')
+  text(d,(96,912),'Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium',18,fill='#bdcfce')
+  text(d,(96,948),'Produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018',16,fill='#bdcfce')
+  text(d,(96,974),'provided under COPERNICUS by the European Union and ESA; all rights reserved.',16,fill='#bdcfce')
+  text(d,(96,1012),'The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability',14,fill='#bdcfce')
+  text(d,(96,1034),'for any use of the Copernicus WorldDEM-30.',14,fill='#bdcfce')
+  text(d,(1440,850),date_long,22,fill='#bdcfce')
  p=edit/('end.png' if end else 'title.png');im.save(p)
  dest=edit/(('end' if end else 'title')+('-still.png' if still else '.mp4'));duration=c['endSeconds'] if end else c['titleSeconds']
  frame_args=['-frames:v',1] if still else ['-frames:v',round(duration*fps),*encode()]

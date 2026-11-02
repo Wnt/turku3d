@@ -12,7 +12,8 @@ UV-triangle coverage: the entire proposed window must lie on surviving wall.
 Arches and partial reviewed openings retain their existing treatment.
 
 The shared box family has five instances per window: four frame members and a
-sill, totalling 60 triangles and 380 bytes of instance transforms/colours. Frame
+sill, totalling 50 triangles and 380 bytes of instance transforms/colours. The
+wall-facing cap is omitted from each member. Frame
 width (up to 55 mm) and sill projection are bounded appearance priors, rather
 than survey measurements. Pools occupy 32 m spatial cells; detail disappears
 110 m from the cell centre. Pool geometry and untextured PBR materials are

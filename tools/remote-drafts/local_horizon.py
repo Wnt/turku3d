@@ -7,13 +7,6 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from scenery import Scenery, serve
 
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--port', type=int, required=True)
-parser.add_argument('--source', required=True)
-parser.add_argument('--cache', required=True)
-parser.add_argument('--upstream', default='http://192.168.1.114:7835')
-args = parser.parse_args()
-scenery = Scenery(args.source, args.cache)
 
 class Handler(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
@@ -63,4 +56,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 class Server(http.server.ThreadingHTTPServer):
     request_queue_size = 128
 
-Server(('127.0.0.1', args.port), Handler).serve_forever()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--port', type=int, required=True)
+    parser.add_argument('--source', required=True)
+    parser.add_argument('--cache', required=True)
+    parser.add_argument('--upstream', default='http://192.168.1.114:7835')
+    parser.add_argument('--survey', action='store_true', help='Fill missing far tiles directly from cached survey inputs')
+    parser.add_argument('--regional', help='Immutable public regional.npz terrain grid')
+    args = parser.parse_args()
+    survey = None
+    if args.survey:
+        from turku3d.coarse.horizon import SurveyScenery
+        survey = SurveyScenery(args.regional)
+    scenery = Scenery(args.source, args.cache, survey=survey)
+    Server(('127.0.0.1', args.port), Handler).serve_forever()

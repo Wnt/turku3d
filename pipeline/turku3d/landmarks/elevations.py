@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .procedural import arch, maps, wall_surface
+from .openings import panelled_door
 
 
 def select(vertices, elevations):
@@ -74,6 +75,9 @@ def texture(description_json, elevation_json):
         colour = tuple(opening.get("colour", [91, 63, 44] if door else [65, 70, 67]))
         arch(paint, inner, colour, pointed, w / 2 * sy)
         arch(bump, inner, -.06, pointed, w / 2 * sy)
+        if door and opening.get("style") == "panelled_glazed":
+            panelled_door(paint, bump, inner, opening, sx, sy)
+            continue
         # Clip mullions to the opening: no bars protrude through the arch crown.
         mask = Image.new("L", (nx, ny)); mask_paint = ImageDraw.Draw(mask)
         arch(mask_paint, inner, 255, pointed, w / 2 * sy)

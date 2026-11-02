@@ -6,7 +6,7 @@ import os from 'node:os';
 import {createHash} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 
-export function publishedProxy({upstream='http://127.0.0.1:5195',cacheDir=path.join(os.homedir(),'turku3d/loops/video/published-cache')}={}) {
+export function publishedProxy({upstream='http://127.0.0.1:5195',cacheDir=path.join(os.homedir(),`turku3d/loops/${process.env.TURKU3D_CAPTURE_OWNER??'video'}/published-cache`)}={}) {
  const pending=new Map();
  async function request(url,method,headers) {
   for(let attempt=0;attempt<3;attempt++) {

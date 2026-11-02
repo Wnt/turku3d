@@ -341,3 +341,30 @@ Use gzip level 1 and zstd fastest: per-transfer default gzip CPU pushed native
 isolated level-1 runs measured 1.189–1.203 seconds with identical decoded bytes.
 The public TLS/tunnel connection already negotiates HTTP/2; the loopback upstream
 is HTTP/1.1 and does not need public HTTP/2 server push or a protocol change.
+
+
+## Local continuous horizon (Gen 2)
+
+`local_horizon.py --survey --regional /absolute/path/regional.npz` combines
+retained authored tiles, source-built 250 m/1 km scenery and 4 km regional terrain.
+The client keeps regional terrain in all directions to 15 km, independently of
+a four-kilometre all-direction city reserve, refined into authored cells within
+the viewed two kilometres. Equal-material cells batch into kilometre groups.
+A 250 m coverage mask removes regional ground only
+where real detailed/scenery meshes are resident. Collision previews yield to these
+surfaces. Catalogue completeness is exposed in `scenery.progress.ready`; tools
+must reject missing or partial coverage and can record `scenery.snapshot()`.
+
+Prepare the attributed outer terrain once, outside raw data and Git:
+
+```sh
+bash pipeline/env/run.sh python tools/remote-drafts/prepare-regional.py --out /owned/regional
+```
+
+This reads public Copernicus DEM/ESA WorldCover COG windows (no account or key),
+resamples a 40×40 km region centred on the world origin and records its content
+hash and source URLs. It uses terrain heights and land-cover classes, not imagery.
+The client masks this lower-resolution DSM under local survey geometry; beyond
+the city it is intentionally terrain rather than street-level buildings.
+Keep `regional.npz` immutable during a service lifetime. `sources.json` carries
+provenance; required notices are in `game/public/assets/LICENSES.md`.

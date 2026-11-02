@@ -16,7 +16,7 @@ const only = opt('--only', Object.keys(refs).join(',')).split(',');
 const times = opt('--at', '13:00,19:30,22:00').split(',');
 const timeout = Number(opt('--timeout', '300')) * 1000;
 // A second writer on one CDP page can dispose a fleet or change its pose mid-measurement.
-if(!args.includes('--status')&&!args.includes('--fleet-inspect')){
+if(!args.includes('--status')&&!args.includes('--fleet-inspect')&&!args.includes('--inspect')){
   const dir=path.join(root,'loops/.capture-locks');fs.mkdirSync(dir,{recursive:true});
   const lock=path.join(dir,new URL(cdp).host.replaceAll(':','-')+'.json');
   try{
@@ -28,6 +28,11 @@ if(!args.includes('--status')&&!args.includes('--fleet-inspect')){
   fs.writeFileSync(lock,JSON.stringify({pid:process.pid,out}),{flag:'wx'});
   process.once('exit',()=>{try{if(JSON.parse(fs.readFileSync(lock,'utf8')).pid===process.pid)fs.unlinkSync(lock);}catch{}});
   process.once('SIGTERM',()=>process.exit(143));
+}
+if(args.includes('--compare-perf')) {
+  const {capturePair}=await import('./capture-pair.mjs');
+  await capturePair({cdp,before:opt('--before'),after:base,out,cameras:cameras.filter(c=>only.includes(c.id)),timeout});
+  process.exit(0);
 }
 const pages = await fetch(`${cdp}/json/list`, { signal: AbortSignal.timeout(15000) }).then(r => r.json());
 const target = pages.find(p => p.type === 'page' && p.url.startsWith(base)) ?? pages.find(p => p.type === 'page' && p.url === 'about:blank');
@@ -132,8 +137,8 @@ const index = path.join(out, 'shots.json');
 const previous = fs.existsSync(index) ? JSON.parse(fs.readFileSync(index)) : { shots: [] };
 const shots = new Map(previous.shots.map(s => [s.file, s]));
 const build = execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
-const scenerySettled = s => !s || (!s.cataloguePending && !s.pending && !s.errors && s.loaded === s.total);
-const valid = s => s?.capture.vegetation_ready !== false && s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
+const scenerySettled = s => !s || (s.ready ?? (!s.cataloguePending && !s.pending && !s.errors && s.loaded === s.total));
+const valid = s => s?.capture.lamps_pending !== true && s?.capture.vegetation_ready !== false && s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
   && !s.capture.failed_assets_final.length && scenerySettled(s.capture.scenery);
 const save = () => {
   fs.writeFileSync(`${index}.tmp`, JSON.stringify({ generated: new Date().toISOString(), viewport: '1280x720',
@@ -257,7 +262,7 @@ if (opt('--navigate', '')) {
   await send('Page.navigate', {url:opt('--navigate')});
   await delay(1500);
   const started=Date.now();
-  while (!await evaluate('!!window.__game?.ready') && Date.now()-started<timeout) await delay(1000);
+  while (!await evaluate('!!window.__game?.ready || !!window.__qaMove') && Date.now()-started<timeout) await delay(1000);
 }
 // Interleaved measurements tolerate other loops sharing the Mac; record load and residency explicitly.
 if (args.includes('--vehicle-perf')) {
@@ -294,6 +299,10 @@ if (args.includes('--vehicle-perf')) {
 }
 
 // Same-pose car-light stills plus paired frame-delivery measurements, through the shared transport.
+if(args.includes('--fly-tour')) {
+  const {captureFlight}=await import('./capture-flight.mjs');
+  await captureFlight({send,evaluate,delay,out,timeout});socket.close();process.exit(0);
+}
 if (args.includes('--vehicle-stills')) {
   try {
     await send('Page.setWebLifecycleState',{state:'active'});
@@ -393,8 +402,13 @@ if (opt('--eval-file', '')) {
   }
   process.exit(0);
 }
+if (opt('--snapshot', '')) {
+  const shot = await send('Page.captureScreenshot', {format:'jpeg', quality:92, captureBeyondViewport:false});
+  fs.writeFileSync(opt('--snapshot'), Buffer.from(shot.data,'base64'));
+  socket.close(); process.exit(0);
+}
 if (args.includes('--inspect')) {
-  console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,play:g?.state?((s)=>({mode:s.mode,paused:s.paused,start:s.startScreen,loading:s.loading}))(g.state()):null,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress,sceneryJobs:[...(g?.scenery?.entries??[])].filter(([,e])=>e.busy||e.error).map(([id,e])=>({id,busy:e.busy,error:e.error,model:!!e.model,treesReady:e.treesReady}))};})()`)));
+  console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,play:g?.state?((s)=>({mode:s.mode,paused:s.paused,start:s.startScreen,loading:s.loading}))(g.state()):null,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model,preview:!!e.preview,refreshing:e.refreshing,error:e.error})),scenery:g?.scenery?.progress,sceneryPending:g?.scenery?.wanted.filter(id=>!g.scenery.entries.get(id)?.complete).map(id=>({id,key:g.scenery.sources.get(id)?.key,busy:g.scenery.entries.get(id)?.busy,next:g.scenery.entries.get(id)?.next,error:g.scenery.entries.get(id)?.error})),sceneryJobs:[...(g?.scenery?.entries??[])].filter(([,e])=>e.busy||e.error).map(([id,e])=>({id,busy:e.busy,error:e.error,model:!!e.model,treesReady:e.treesReady}))};})()`)));
   socket.close(); process.exit(0);
 }
 if (args.includes('--perf') || args.includes('--perf-pair')) {
@@ -460,7 +474,9 @@ try {
       const url = `${base}?cam=${cam.cam}&time=${at}&quality=${opt('--quality', 'high')}&aa=${opt('--aa', 'taa')}&hud=0&traffic=0&walkers=0`;
       if (await evaluate(`!!window.__qaMove && window.__game.params.aa===${JSON.stringify(opt('--aa','taa'))} && window.__game.params.quality===${JSON.stringify(opt('--quality','high'))}`)) {
         await evaluate(`window.__render.beforeFrame = undefined; window.__game.clock.simSeconds = 0;
-          window.__render.setHour(${h + m / 60}); window.__qaMove(${JSON.stringify(pose)});`);
+          window.__render.setHour(${h + m / 60});
+          if (!window.__qaPose || Object.entries(${JSON.stringify(pose)}).some(([key,value])=>Math.abs(window.__qaPose[key]-value)>.001))
+            window.__qaMove(${JSON.stringify(pose)});`);
       } else {
         await send('Page.navigate', { url });
       }
@@ -493,7 +509,7 @@ try {
           const vegetationReady = !!g?.vegetation?.library && !g.vegetation.pending.size && !g.vegetation.disposed;
           return {vegetationReady,canopyMode:window.__canopyCompare?.mode??'before',canopyTiles:window.__canopyCompare?.tiles,natureHash:g?.vegetation?.library?.manifest?.glb?.sha256,ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
             azimuth:env?.sunAzimuth, clock:g?.dayClock?.snapshot(), hour:g?.dayClock?.hour, pose:window.__qaPose,
-            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress};
+            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress,lamps:g?.lights?.snapshot()};
         })()`);
         if (state.pose && state.hour !== undefined && (Math.abs(state.hour - (h + m / 60)) > 0.01 ||
           ['E', 'N', 'H', 'yaw', 'pitch', 'fov'].some(key => Math.abs(state.pose[key] - pose[key]) > 0.001))) {
@@ -511,9 +527,22 @@ try {
           continue;
         }
         if (state.error) throw new Error(`${cam.id}@${at}: ${state.error}`);
-        if (compared && state.vegetationReady && state.ready && state.tiles.every(t => t.full) && scenerySettled(state.scenery)
+        if (compared && state.vegetationReady && !state.lamps?.pending && state.ready && state.tiles.every(t => t.full) && scenerySettled(state.scenery)
           && !assets.size && Date.now() - lastAsset > 2000) break;
         await delay(1000);
+      }
+      let performanceSample;
+      if (args.includes('--measure')) {
+        performanceSample = await evaluate(`new Promise(resolve => {
+          const r=window.__render, times=[], calls=[], triangles=[];
+          let previous=performance.now(); r.beforeFrame=undefined;
+          r.afterFrame=()=>{const now=performance.now();times.push(now-previous);previous=now;
+            calls.push(r.renderer.info.render.drawCalls);triangles.push(r.renderer.info.render.triangles);
+            if(times.length>=240){r.afterFrame=undefined;r.beforeFrame=()=>false;
+              const ms=times.slice(30).sort((a,b)=>a-b),mean=ms.reduce((a,b)=>a+b,0)/ms.length;
+              resolve({frames:ms.length,meanMs:mean,fps:1000/mean,p50:ms[Math.floor(ms.length*.5)],
+                p95:ms[Math.floor(ms.length*.95)],calls:Math.max(...calls.slice(30)),triangles:Math.max(...triangles.slice(30))});}};
+        })`);
       }
       await delay(2000);
       if(args.includes('--fleet-still')){
@@ -529,11 +558,12 @@ try {
         fs.writeFileSync(path.join(out,'street-fleet-bench.json'),JSON.stringify(bench,null,1));
         console.log(JSON.stringify({streetFleetBench:bench}));
       }
-      const row = { file, time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
+      const row = { file, performance:performanceSample, time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
         notes: cam.notes, url, build: `${execFileSync('git', ['branch', '--show-current'], {encoding:'utf8'}).trim()}@${build}`, capture: {
           vegetation_ready:state.vegetationReady, canopy_mode:state.canopyMode, canopy_tiles:state.canopyTiles, nature_hash:state.natureHash, comparison_variant: opt('--variant', 'after'), comparison_baseline: opt('--comparison', 'same-build'), wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
           incomplete_tiles: state.tiles.filter(t => !t.full).map(t => t.id), failed_assets_final: [...new Set(failures)],
-          tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
+          lamps_pending:state.lamps?.pending, lamps:state.lamps?.lamps,
+          resident: await evaluate(`[...window.__game.lights.source.entries].filter(([,e])=>e.model).map(([id,e])=>({id,hash:e.visualHash,preview:!!e.preview,visible:e.model.visible,pass:e.pass}))`), tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
           sun_azimuth_deg: state.azimuth, clock: state.clock,
           settle_retries: settleRetries,
           effective_hour: state.hour, effective_pose: state.pose,
@@ -548,6 +578,9 @@ try {
         await evaluate(`new Promise(resolve=>{const r=window.__render,previous=r.afterFrame;let frames=0;
           r.beforeFrame=()=>true;r.afterFrame=()=>{previous?.();if(++frames<32)return;
             r.afterFrame=previous;r.beforeFrame=()=>false;resolve(true);};})`);
+        const afterLamps = await evaluate('window.__game?.lights?.snapshot()');
+        if (afterLamps?.pending || afterLamps?.lamps !== state.lamps?.lamps)
+          throw new Error('Lamp data changed during A/B; retake after lamp scanning settles');
         const after=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
         const afterFile=file.replace('.jpg','-after.jpg');
         fs.writeFileSync(path.join(out,afterFile),Buffer.from(after.data,'base64'));
