@@ -7,7 +7,8 @@ import { LampField, type Lamp, type LampSource } from '../../src/render/lights/l
 import { CORONA_RADIUS, decodeTileLights, lightsSignature, owns, tileBounds, type TileLightsField } from '../../src/render/lights/tileLights';
 import { scanTileNow, mergeHeads } from '../../src/render/lights/tileScan';
 import { LampPosts, POST_FADE, POST_SHAPE, postFade } from '../../src/render/lights/lampPosts';
-import { LightSprites, SPRITE, spriteLevel, spritePixels } from '../../src/render/lights/sprites';
+import { StreetLights } from '../../src/render/lights';
+import { LightSprites, SPRITE, coronaProfile, spriteLevel, spritePixels } from '../../src/render/lights/sprites';
 import { nightLevel } from '../../src/render/lights/night';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { parseParams } from '../../src/core/params';
@@ -129,6 +130,37 @@ describe('tile light list', () => {
 });
 
 describe('sprites and fades', () => {
+  test('only street heads receive a compact halo and head-relative depth pull', () => {
+    expect(coronaProfile()).toEqual([48, 0.18, 0.8, 0]);
+    expect(coronaProfile(0.1)[0]).toBe(24);
+    expect(coronaProfile(0.1)[1]).toBe(0.06);
+    expect(coronaProfile(0.1)[2]).toBeCloseTo(0.15);
+    expect(coronaProfile(0)[2]).toBe(0.06);
+    expect(coronaProfile(10)[2]).toBe(0.25);
+    const sprites = new LightSprites('mobile', () => 10);
+    sprites.setGroup('mixed', [
+      { x: 0, y: 5, z: -20, radius: 1.2, r: 1, g: 1, b: 1, day: 0, headRadius: 0.1 },
+      { x: 2, y: 5, z: -20, radius: 1.2, r: 1, g: 1, b: 1, day: 0 },
+    ]);
+    sprites.update(new THREE.PerspectiveCamera(), new THREE.Vector2(1280, 720), 1);
+    const profile = sprites.mesh.geometry.getAttribute('lightProfile');
+    expect([profile.getX(0), profile.getW(0), profile.getX(1), profile.getW(1)]).toEqual([24, 1, 48, 0]);
+    sprites.dispose();
+  });
+  test('street sizing follows drawing-buffer height while other sources keep the original clamp', () => {
+    for (const [height, cap] of [[720, 16], [1080, 24], [2160, 48]]) {
+      expect(spritePixels(1.2, 2, height, coronaProfile(0.1), height)).toBe(cap);
+      expect(spritePixels(1.2, 2, height, coronaProfile(), height)).toBe(48);
+    }
+    const lights = new StreetLights(new THREE.Scene(), 'mobile');
+    const lamps = decodeTileLights(FIXTURE);
+    lights.field.onTile?.('t0_0_0', lamps, null);
+    lights.sprites.update(new THREE.PerspectiveCamera(), new THREE.Vector2(1280, 720), 1);
+    const profiles = lights.sprites.mesh.geometry.getAttribute('lightProfile');
+    expect(lamps.map((_, i) => profiles.getX(i))).toEqual([24, 24, 24, 48]);
+    lights.dispose();
+  });
+
   test('corona size is clamped to 2..48 output pixels', () => {
     const focal = 1.7320508 * 725 / 2;
     expect(spritePixels(0.85, 30, focal)).toBeCloseTo(2 * 0.85 * focal / 30, 6);

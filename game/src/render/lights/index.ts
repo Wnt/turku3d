@@ -42,7 +42,7 @@ export class StreetLights {
     this.field.onTile = (id, lamps, footprint) => {
       if (lamps) this.tiles.set(id, lamps); else this.tiles.delete(id);
       if (footprint) this.footprints.set(id, footprint); else this.footprints.delete(id);
-      this.sprites.setGroup(`tile:${id}`, lamps?.map(l => l.light) ?? null);
+      this.sprites.setGroup(`tile:${id}`, lamps?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
       this.postsDirty = true;
     };
   }
