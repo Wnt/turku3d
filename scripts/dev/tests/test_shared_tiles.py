@@ -188,6 +188,39 @@ class FarmTests(unittest.TestCase):
             release.set()
         self.wait(farm)
 
+    def test_surface_map_eviction_preserves_locked_builds_and_private_hardlinks(self):
+        import fcntl
+        import os
+        farm = self.farm()
+        shared = self.root / 'cache/surface-maps'
+        first, busy = shared / ('a' * 64), shared / ('b' * 64)
+        for root in (first, busy):
+            root.mkdir(parents=True)
+            (root / 'albedo.png').write_bytes(b'pixels')
+        private = self.root / 'private.png'
+        os.link(first / 'albedo.png', private)
+        with busy.with_suffix('.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            farm.free = lambda: 0
+            farm.make_room(farm_module.GIB)
+        self.assertFalse(first.exists())
+        self.assertTrue(busy.exists())
+        self.assertEqual(private.read_bytes(), b'pixels')
+
+    def test_surface_map_eviction_ignores_disappearing_publication_temporaries(self):
+        from unittest.mock import patch
+        farm = self.farm()
+        temporary = self.root / 'cache/surface-maps/.maps-publishing'
+        temporary.mkdir(parents=True)
+        original = Path.stat
+        def raced_stat(path, *args, **kwargs):
+            if path == temporary:
+                raise FileNotFoundError('producer removed temporary after atomic publication')
+            return original(path, *args, **kwargs)
+        farm.free = lambda: 0
+        with patch.object(Path, 'stat', raced_stat):
+            self.assertFalse(farm.make_room(farm_module.GIB))
+
     def test_explicit_candidate_precedes_background_from_another_revision(self):
         entered, release = threading.Event(), threading.Event()
         calls = []
