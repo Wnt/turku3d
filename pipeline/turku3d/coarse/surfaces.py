@@ -191,7 +191,7 @@ def slope_fallback(positions, indices, materials):
     return result
 
 
-def visuals(tile, positions, indices, materials, keep, normals=None):
+def visuals(tile, positions, indices, materials, keep, normals=None, colours=None):
     """Same terrain triangles/normals as collision; metric UVs on steep banks too."""
     normal = vertex_normals(positions, indices) if normals is None else normals
     triangles = positions[indices]
@@ -202,6 +202,8 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
         channels[materials == mat_id(name)] = channel
     for material, name in street_materials.FINISH_KEYS.items():
         channels[materials == material] = KEYS.index(name)
+    from .ground_weathering import ASPHALT_REPAIR
+    channels[materials == ASPHALT_REPAIR] = 0
     meshes = []
     for channel in np.unique(channels[keep]):
         for projection in range(3):
@@ -226,6 +228,7 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
                     normals=normal[ids],
                     uvs=uv,
                     color=(1, 1, 1, 1),
+                    colors=colours[ids] if colours is not None else None,
                     extras=dict(
                         layer="ground",
                         object_id=f"ground_{tile.id}_{key}_{projection}",
@@ -445,6 +448,7 @@ def paint_visual(tile, positions, indices, materials, keep, polygons, decks=()):
         return None
     selected = keep & np.isin(
         materials, [mat_id(k) for k in ("road", "crossing", "cycleway", "bridge_deck")]
+        + [130]  # visual-only asphalt repair retains road paint
     )
     triangles = positions[indices[selected]]
     on_deck = materials[selected] == mat_id("bridge_deck")

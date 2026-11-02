@@ -9,6 +9,7 @@ from .packaging import producer_paths
 
 VISUAL_ONLY = {
     "ground_finishes.py",
+    "ground_weathering.py",
     "street_materials.py",
     "packaging.py",
     "facade_assets.py",

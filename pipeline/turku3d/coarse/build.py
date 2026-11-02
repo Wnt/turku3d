@@ -528,6 +528,19 @@ def build(
         lambda: surfaces.split_boundaries(*surface_args),
     )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
+    from . import ground_weathering
+
+    weathered = cache.run(
+        "ground_weathering",
+        source_key(Path(ground_weathering.__file__), surfaces.split_boundaries,
+                   walkable.coordinates, street_profiles.HeightQuery,
+                   base / "package/gltf.py", *common),
+        [surface_pos, surface_idx, surface_ids, inputs.street_profiles],
+        lambda: ground_weathering.surface(surface_pos, surface_idx, surface_ids,
+                                           inputs.street_profiles),
+    )
+    surface_pos, surface_idx, surface_ids, surface_normals, surface_colours, drains = weathered
+    seconds["ground_weathering"] = cache.metrics["ground_weathering"]["seconds"]
     visual_args = (
         tile,
         surface_pos,
@@ -535,15 +548,17 @@ def build(
         surface_ids,
         np.ones(len(surface_idx), bool),
         surface_normals,
+        surface_colours,
     )
     # City/OSM surface classes select metre-scale PBR materials. The ortho remains
     # classifier input only: its parked cars and baked shadows are not albedo.
     ground_meshes = cache.run(
         "ground_visual",
-        source_key(surfaces.visuals, base / "package/gltf.py", *common),
+        source_key(surfaces.visuals, Path(ground_weathering.__file__), base / "package/gltf.py", *common),
         [visual_args, surfaces.KEYS, surfaces.BINDINGS],
         lambda: surfaces.visuals(*visual_args),
     )
+    ground_meshes.extend(ground_weathering.grates(tile, surface_pos, surface_idx, surface_ids, drains))
     from turku3d.roads import paint as road_paint
 
     paint_args = (

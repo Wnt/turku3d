@@ -40,6 +40,7 @@ PRODUCERS = (
     "sources",
     "surfaces",
     "ground_finishes",
+    "ground_weathering",
     "street_materials",
     "street_profiles",
     "street_survey",
