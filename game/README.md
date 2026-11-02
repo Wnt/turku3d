@@ -128,6 +128,8 @@ The [CC0 autumn player](public/assets/character/README.md) uses a textured MakeH
 
 CC0 Quaternius UAL Standard is extended with `Walk_Formal_Loop` for the slower stair gait. The inspected Standard archive contains no stair up/down clips; stair direction states use procedural swing clearance plus IK. Walk/jog/sprint gait phases stay synchronized while blending. Source, archive hash and retained clips are recorded in `public/assets/LICENSES.md`.
 
+Locomotion travel is measured from the shipped shoe vertices (`scripts/measure-strides.mjs`) and bound to the player GLB hash in `actors/locomotion.ts`. Running uses shorter procedural strides and less source hip bounce. IK preserves animated heel/toe rotation, holds the sole support during stance, and samples the shoe corners against terrain; generated stairs provide query-only treads above a continuous capsule slope. Tight walking turns still need earlier trailing-foot release.
+
 ```bash
 # From the repository root; no real tiles, controller, network or API keys needed.
 make game-test                         # synthetic unit tests, normally <2 s
@@ -246,7 +248,7 @@ All coordinates are engine world-local metres: `x = E − 23459500`, `y = H`, `z
 - `unloadTile {id}` → `tileUnloaded`.
 - `spawnCharacter`, `setCharacterEnabled`, `spawnVehicle`, `resetVehicle`.
 - `step {seq, dt, character{vx,vz,jump}, vehicle{throttle,steer,brake,handbrake}|null}` → `state {character, previousCharacter, tick, remainder, vehicle, substeps, stepMs}`. The worker runs fixed 60 Hz substeps (at most 5), and the client keeps a single step in flight.
-- `raycast {id, origin, dir, maxToi, filter: solid|query|all|foot}` → `raycastResult {hit{toi, point, normal, material, tile}}`.
+- `raycast {id, rays:[{origin, dir, maxToi, filter: solid|query|all|foot}]}` → `raycastResult {hits:[{toi, point, normal, material, tile}|null]}`. The client batches same-turn calls; its public `raycast()` still resolves one hit.
 - `stats {id}` → `statsResult {tiles[], tris, colBytes, estWasmBytes}`.
 - Ambient traffic: `trafficTiles {add[{tile, hash, bounds, roads}], remove[]}`, `traffic {config}` (cap, clock offset, shared, enabled tiles, remote claims) and `trafficClaim {handle}`. Live input carries the camera `view`; `state` adds `traffic` (12 numbers per drawn car), `trafficEvents` (claims, repeated until acknowledged), `trafficStats` and `trafficTime`. See [ambient traffic](src/physics/README.md#ambient-traffic).
 
@@ -268,7 +270,7 @@ The car is a Rapier `DynamicRayCastVehicleController` with a 4.2 × 0.6 × 1.8 m
 - **Rapier 0.21 bug:** `castRayAndGetNormal(...).featureId` is always 0 for trimesh faces. A canary test covers this. Material lookup therefore uses `triLocator.ts`. `src/shared/col/rapierBuild.ts#hitMaterial` relies on `featureId`, so it returns the material of triangle 0.
 - Character and driven-car rendering interpolate 60 Hz physics states. The on-foot camera follows the character's rendered position directly; a second positional filter would introduce speed-dependent lag and catch-up jumps during flight or falling. Camera collision distance remains smoothed from an async worker raycast; driving uses a swept sphere.
 - There is no floating origin.
-- The character's walk, jog and sprint clip speeds (1.5, 3.6, 6.0 m/s) were tuned by eye.
+- Character movement speeds remain 1.5, 3.6 and 6.0 m/s; animation cadence follows the measured and procedurally shortened travel per cycle.
 
 ## Vehicle acceptance (W1-07)
 

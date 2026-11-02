@@ -192,7 +192,7 @@ def test_named_crossing_profiles_separate_steel_decks_from_stone_supports():
         [],
         shapely.box(0, -6.3, 46, 6.3),
     )
-    assert {m.metadata["surface"] for m in meshes} == {"stone", "steel", "paint"}
+    assert {m.metadata["surface"] for m in meshes} == {"stone", "steel", "paint", "granite", "bronze"}
     stone = [m for m in meshes if m.metadata["surface"] == "stone"]
     assert any(np.min(m.positions[:, 1]) < 0 for m in stone)
     # Structural detail cannot protrude into the surveyed driving surface.

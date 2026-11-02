@@ -34,14 +34,30 @@ def main():
     build = sub.add_parser('build')
     build.add_argument('--version', required=True)
     build.add_argument('tiles', nargs='+')
+    comparison = sub.add_parser('compare', help='compare completed stage/input keys; never queues builds')
+    comparison.add_argument('--before', required=True)
+    comparison.add_argument('--after', required=True)
+    comparison.add_argument('tiles', nargs='+')
     args = parser.parse_args()
     if args.action == 'status':
         print(urlopen(args.url + '/health').read().decode())
         return
+    if args.action == 'compare':
+        from shared_tile_report import compare, product
+        aliases = json.load(urlopen(args.url + '/health'))['aliases']
+        before, after = (aliases.get(ref, ref) for ref in (args.before, args.after))
+        for tile in args.tiles:
+            print(json.dumps(compare(product(args.url, before, tile), product(args.url, after, tile))))
+        return
     if args.action == 'build':
         for tile in args.tiles:
             response = urlopen(f'{args.url}/v/{args.version}/coarse/{tile}/manifest.json')
-            print(json.dumps(dict(tile=tile, status=response.status, body=json.load(response))))
+            value = json.load(response)
+            print(json.dumps(dict(tile=tile, status=response.status,
+                state='refreshing' if value.get('stale') else value.get('state', value.get('pass_kind')),
+                requested_revision=value.get('requested_revision', value.get('revision')),
+                served_revision=value.get('revision'), generation=value.get('generation'),
+                source_kind=value.get('source_kind'))))
         return
     if args.source_version and json.load(urlopen(args.url + '/health')).get('api_version', 1) < 2:
         raise RuntimeError('farm must be upgraded before registering source overlays')

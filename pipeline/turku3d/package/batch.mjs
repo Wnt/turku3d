@@ -23,7 +23,7 @@ export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, tra
       // bindProgram has compiled these source rows into the _KIT_* attributes.
       // Keeping them here repeats megabytes of build-only instructions in GLB JSON.
       if (prim.getAttribute('_KIT_EXTENT')) delete e.facade_kit_walls;
-      const key = JSON.stringify([materials.indexOf(prim.getMaterial()), prim.listSemantics().sort(), e.layer]);
+      const key = JSON.stringify([materials.indexOf(prim.getMaterial()), prim.listSemantics().sort(), e.layer, e.reflection_surface]);
       if (!groups.has(key)) groups.set(key, []);
       for (const part of primitiveChunks(prim, compactPrimitive)) {
         groups.get(key).push({ prim:part, extras:e });
@@ -53,6 +53,7 @@ export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, tra
     const first = entries[0].extras;
     const extras = entries.length === 1 ? first : {
       layer: first.layer, kind: first.kind, tile, material_key: first.material_key,
+      reflection_surface: first.reflection_surface,
       object_id: `${tile}/batch/${groups.size}/${scene.listChildren().length}`, objects,
     };
     scene.addChild(doc.createNode().setTranslation(origin).setExtras(extras)

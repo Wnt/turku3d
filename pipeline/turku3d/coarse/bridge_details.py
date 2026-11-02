@@ -15,8 +15,13 @@ PATHS = {"footway", "cycleway", "path", "steps", "pedestrian", "bridleway"}
 # Permanent crossing identities, not tile-specific meshes. Public photo sources and
 # the distinction between surveyed decks and estimated details are in the README.
 PROFILES = {
-    "Q11853512": dict(body="steel", support="stone", rail_surface="paint"),
+    "Q11853512": dict(body="steel", support="stone", rail_surface="paint",
+                      entrance_height=4.8, entrance_width=1.05, entrance_inset=1.2,
+                      rail_pattern="heritage"),
     "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
+    "Q5408563": dict(structure="cable-stayed", body="steel", support="stone",
+                     thickness=.32, tower_height=5.6, tower_radius=.17,
+                     tower_fractions=(.2, .8), pier_freeboard=1.0),
 }
 
 
@@ -79,6 +84,8 @@ def style(way):
         support=body,
         rail_surface="paint" if way.get("stair_access") and body == "concrete" else "steel",
         arch_edge=False,
+        floor_beam_spacing=2.0,
+        floor_beam_depth=.25,
     )
     result.update(PROFILES.get(tags.get("wikidata"), {}))
     return result
@@ -129,11 +136,15 @@ def tube(key, a, b, radius, surface="paint", material="railing", sides=6):
     ring = radius * (np.cos(angle)[:, None] * normal + np.sin(angle)[:, None] * other)
     bottom, top = a + ring, b + ring
     faces = Faces()
+    perimeter = 2 * np.pi * radius
     for i in range(sides):
         j = (i + 1) % sides
-        faces.face([bottom[i], bottom[j], top[j], top[i]])
-    faces.face(bottom[::-1])
-    faces.face(top)
+        faces.face([bottom[i], bottom[j], top[j], top[i]],
+                   [[i * perimeter / sides, 0], [(i + 1) * perimeter / sides, 0],
+                    [(i + 1) * perimeter / sides, length], [i * perimeter / sides, length]])
+    cap_uv = np.c_[ring @ normal, ring @ other]
+    faces.face(bottom[::-1], cap_uv[::-1])
+    faces.face(top, cap_uv)
     return appearance(faces.mesh(key, material), surface)
 
 
@@ -277,7 +288,7 @@ def railing_lines(ways):
     return result
 
 
-def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
+def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, obstacles=None):
     from .bridges import samples
 
     key = f"draft-bridge:{way['id']}"
@@ -319,7 +330,11 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                     )
                 )
             else:
-                for lift, depth in ((0.25, 0.05), (0.65, 0.04), (spec["rail_height"], 0.065)):
+                bands = ((0.25, 0.05), (0.65, 0.04), (spec["rail_height"], 0.065))
+                if spec.get("rail_pattern") == "heritage":
+                    bands = ((0.16, .035), (.42, .025), (.85, .025),
+                             (1.02, .025), (1.12, .025), (spec["rail_height"], .055))
+                for lift, depth in bands:
                     meshes.append(
                         wall(
                             key,
@@ -445,27 +460,16 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                 meshes.append(
                     wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"])
                 )
-    if spec["body"] == "steel" and spec["structure"] == "beam" and not way.get("landing"):
-        # Exposed transverse floor beams and edge stiffeners under steel decks.
-        # These remain below the surveyed road, with no extra road collision skin.
-        for station in np.arange(1.0, axis.length - 0.5, 2.0):
-            p = np.asarray(axis.interpolate(float(station)).coords[0])
-            line = np.array([p - normal * (width / 2 - 0.2), p + normal * (width / 2 - 0.2)])
-            top = height_at(line) - spec["thickness"]
-            meshes.append(wall(key, line, top - 0.25, top, 0.14, "steel"))
-            for edge in line:
-                y = float(height_at(np.array([edge]))[0])
-                meshes.append(
-                    appearance(
-                        _box(
-                            key,
-                            (edge[0], y - spec["thickness"] / 2, edge[1]),
-                            (0.06, spec["thickness"] / 2, 0.06),
-                            "wall",
-                        ),
-                        "steel",
-                    )
-                )
+    from .bridge_kit import deck_framing, entrances, stayed_span
+
+    meshes.extend(deck_framing(way, height_at, blocked, polygon, spec))
+    meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec,
+                              obstacles=[] if obstacles is None else [obstacles]))
+    # Lower quay passages constrain supports below the deck, not pylons above it.
+    # Only same-level building obstacles can conflict with an entrance ornament.
+    entrance_obstacles = obstacles if obstacles is not None else way.get("obstacles")
+    meshes.extend(entrances(way, height_at,
+                           [] if entrance_obstacles is None else [entrance_obstacles], spec))
     for point, tags in way.get("lamps", []):
         p = np.asarray(point)
         y = float(height_at(np.array([p]))[0])
@@ -523,9 +527,14 @@ def texture(surface):
         "ballast": (107, 103, 95),
         "paint": (224, 222, 206),
         "rock": (127, 128, 122),
+        "granite": (158, 153, 137),
+        "bronze": (64, 91, 80),
     }
     noise = rng.normal(0, 4 if surface != "steel" else 1, (128, 128))
-    if surface == "stone":
+    if surface == "granite":
+        noise += rng.normal(0, 8, (128, 128))
+        noise += 3 * np.cos(x * np.pi / 32) * np.cos(y * np.pi / 32)
+    elif surface == "stone":
         noise -= 25 * ((y % 32 < 2) | ((x + (y // 32 % 2) * 32) % 64 < 2))
     elif surface == "wood":
         noise += 4 * np.sin(x * np.pi / 2) - 24 * (x % 32 < 2)

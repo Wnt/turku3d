@@ -71,6 +71,20 @@ def test_misread_counts_are_replaced_by_plausible_ones():
     assert blank["storeys"] == 1 and blank["columns"] == 0
 
 
+def test_explicitly_blank_glass_backing_does_not_grow_phantom_window_frames():
+    d = description(material="glass", storeys=2, window_columns=0,
+                    ground_floor="plain", ground_openings=0, roof_line="none",
+                    plinth=False, features=[])
+    blank = fr.render(d, 3, 6.4, (120, 240), "blank-glass")
+    assert blank["layout"]["columns"] == 0
+    assert np.unique(blank["orm"][..., 1]).tolist() == [round(.12 * 255)]
+    assert np.unique(blank["normal"].reshape(-1, 3), axis=0).tolist() == [[128, 128, 255]]
+    glazed = fr.render({**d, "window_columns": 1, "ground_floor": "windows"},
+                       3, 6.4, (120, 240), "real-glass")
+    assert (glazed["orm"][..., 1] < 25).any()
+    assert (glazed["orm"][..., 1] > 100).any()
+
+
 def test_register_description_is_valid_and_stable():
     attrs = {"material_class": "wood", "era": "1850-1919", "levels": 2}
     first = fr.register_description("b9_3", "b9", attrs, 12.0, 6.5)

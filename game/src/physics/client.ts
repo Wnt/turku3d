@@ -14,6 +14,7 @@ const STARTUP_TIMEOUT_MS = 15_000;
 export class PhysicsClient {
   private worker!: Worker;
   private nextId = 1;
+  private rayQueue: { ray: Extract<ToWorker, { type: 'raycast' }>['rays'][number]; resolve: (hit: RayHit | null) => void }[] = [];
   private pending = new Map<number, (m: FromWorker) => void>();
   private tileWaiters = new Map<string, { resolve: (s: TileStats) => void; reject: (e: Error) => void }>();
 
@@ -186,10 +187,19 @@ export class PhysicsClient {
   }
 
   raycast(origin: V3, dir: V3, maxToi: number, filter: RayFilter = 'solid'): Promise<RayHit | null> {
-    const id = this.nextId++;
-    return new Promise((resolve) => {
-      this.pending.set(id, (m) => resolve(m.type === 'raycastResult' ? m.hit : null));
-      this.send({ type: 'raycast', id, origin, dir, maxToi, filter });
+    return new Promise(resolve => {
+      // Snapshot mutable vectors now, just as postMessage did for individual rays.
+      this.rayQueue.push({ ray: { origin: { ...origin }, dir: { ...dir }, maxToi, filter }, resolve });
+      if (this.rayQueue.length !== 1) return;
+      queueMicrotask(() => {
+        const batch = this.rayQueue.splice(0), id = this.nextId++;
+        this.pending.set(id, m => {
+          const hits = m.type === 'raycastResult' ? m.hits : [];
+          batch.forEach((entry, i) => entry.resolve(hits[i] ?? null));
+        });
+        // Foot corners and crowd ground probes share one worker turn and snapshot.
+        this.send({ type: 'raycast', id, rays: batch.map(entry => entry.ray) });
+      });
     });
   }
   stats(): Promise<Extract<FromWorker, { type: 'statsResult' }>> {

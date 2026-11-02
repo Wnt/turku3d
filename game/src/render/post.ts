@@ -1,7 +1,8 @@
+import { decodePrepassNormal } from './normalDecode';
 import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
-import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB, unpackRGBToNormal,
+import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB,
   builtinAOContext, context, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
@@ -61,7 +62,7 @@ export class PostProcessing {
     let ambient: ReturnType<typeof ao> | null = null;
     if (q.aoSamples > 0 && pre) {
       const depth = pre.getTextureNode('depth');
-      const normals = sample(uv => unpackRGBToNormal(pre.getTextureNode().sample(uv)));
+      const normals = sample(uv => decodePrepassNormal(pre.getTextureNode().sample(uv)));
       ambient = ao(depth, normals, camera);
       // r186 setup() replaces GTAO's fullscreen material graph for every surface that references it.
       // This effect belongs to one renderer/camera; retain its graph across streamed surface builders.

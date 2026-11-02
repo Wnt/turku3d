@@ -51,6 +51,7 @@ declare global {
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
+      landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
@@ -155,6 +156,7 @@ const renderFrame = () => {
   const sharedSeconds = dayClock.sharedNow() / 1000;
   env.atmosphere.setTime(params.qa ? 0 : sharedSeconds);
   riverClock.seconds = params.qa ? (params.motion ? clock.simSeconds : 0) : sharedSeconds;
+  vegetation?.setTime(riverClock.seconds);
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
@@ -343,6 +345,7 @@ async function runQa() {
     perf.reset();
   };
   window.__dev = {
+    landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },

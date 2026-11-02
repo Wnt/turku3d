@@ -58,8 +58,10 @@ def identities(narrow_samplers=False):
                         and call.func.attr in ('run', 'files') and len(call.args) >= 2):
                     continue
                 key = call.args[1]
-                if not (isinstance(key, ast.Call) and isinstance(key.func, ast.Name)
-                        and key.func.id == 'source_key'):
+                # Some stages append a prepared-input producer digest to their
+                # source key. Audit the complete expression, not just bare calls.
+                if not any(isinstance(part, ast.Call) and isinstance(part.func, ast.Name)
+                           and part.func.id == 'source_key' for part in ast.walk(key)):
                     continue
                 stage = call.args[0].value if isinstance(call.args[0], ast.Constant) else 'collision_*'
                 result[stage] = eval(compile(ast.Expression(key), str(path), 'eval'), env)
