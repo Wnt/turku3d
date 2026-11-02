@@ -418,7 +418,7 @@ export function hedge(seed, lod) {
 /** Crossed-card clumps for grass and meadow, a flat rosette for ground cover. */
 export function clump(kind, seed) {
   const r = rng(seed), leaves = new MeshBuilder();
-  const spec = { grass: { cell: 'grass', w: 0.55, h: 0.42, planes: 3 }, lawn: { cell: 'lawn', w: 1.0, h: 0.36, planes: 2, crop: 0.36 },
+  const spec = { grass: { cell: 'grass', w: 0.55, h: 0.42, planes: 3 }, lawn: { cell: 'lawn', w: 1.25, h: 0.36, planes: 3, crop: 0.36 },
     meadow: { cell: 'meadow', w: 0.7, h: 0.75, planes: 3 }, rosette: { cell: 'rosette', w: 0.42, flat: true } }[kind];
   const uv = cellUV(spec.cell);
   if (spec.flat) {

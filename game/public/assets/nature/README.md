@@ -42,7 +42,7 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | `shrub_juniper_v2` | juniper | 3.58 | 1,454 | 732 | - |
 | `hedge` | privet | 1.2 | 1,206 | 226 | - |
 | `grass_clump` | grass | 0.42 | 6 | - | - |
-| `grass_lawn` | grass | 0.36 | 4 | - | - |
+| `grass_lawn` | grass | 0.36 | 6 | - | - |
 | `grass_meadow` | grass | 0.75 | 6 | - | - |
 | `groundcover_rosette` | grass | 0.05 | 2 | - | - |
 | `picket_fence` | fence | 1.1 | 294 | 64 | - |

@@ -679,11 +679,11 @@
   "grass_lawn": {
    "kind": "grass",
    "height": 0.36,
-   "radius": 0.5,
+   "radius": 0.63,
    "lods": [
     {
-     "triangles": 4,
-     "vertices": 8,
+     "triangles": 6,
+     "vertices": 12,
      "draws": [
       "nature_leaves"
      ]
@@ -857,7 +857,7 @@
   "nature_foliage": {
    "width": 2048,
    "height": 2048,
-   "bytes": 753025,
+   "bytes": 746726,
    "format": "ETC1S"
   },
   "nature_bark": {
@@ -916,7 +916,7 @@
   }
  },
  "glb": {
-  "bytes": 7933668,
-  "sha256": "16831c50b6cb63fbeec051550b0d96e9400dbba004d8058b5f0b9c5cf7ac76f7"
+  "bytes": 7926948,
+  "sha256": "a412112a501952ad4a5039e1a50de1ce7882bb2b8fdb65174f658311e7eef15f"
  }
 }

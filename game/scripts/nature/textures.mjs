@@ -189,8 +189,11 @@ function pineCard(needles, seed, o) {
 function grassCard(blades, seed, o) {
   const r = rng(seed), img = new Img(S, S), list = [];
   for (let i = 0; i < o.count; i++) {
-    const x = S / 2 + r.range(-o.base, o.base);
-    list.push({ p: [x, S - 2], angle: (x - S / 2) / o.base * o.fan + r.range(-0.18, 0.18), len: r.range(o.len[0], o.len[1]), d: r(), blade: r.pick(blades) });
+    const x = S / 2 + r.range(-o.base, o.base), edge = Math.abs(x - S / 2) / o.base;
+    // A tapered card (lawn) thins out and shortens towards both ends, so overlapping cards blend without straight cuts.
+    if (o.taper && r() < edge * edge * o.taper) continue;
+    const len = r.range(o.len[0], o.len[1]) * (o.taper ? 1 - 0.55 * edge * edge : 1);
+    list.push({ p: [x, S - 2], angle: (x - S / 2) / o.base * o.fan + r.range(-0.18, 0.18), len, d: r(), blade: r.pick(blades) });
   }
   for (const pl of list.sort((a, b) => a.d - b.d)) {
     const dry = r() < (o.dry ?? 0.12);
@@ -285,7 +288,7 @@ export async function foliageAtlas(src) {
     hedge: calibrate(fit(bushCard(set.privet, 11, { count: 120, sprig: 210 })), 0.06),
     juniper: calibrate(fit(coniferCard(set.sprig, 12, { sprig: 150, spacing: 20, spread: [20, 45], tint: juniperGreen, sat: 0.7 })), 0.05, 0.75),
     grass: calibrate(fit(grassCard([...set.blade, ...set.blade2], 13, { count: 46, base: 70, fan: 0.42, len: [230, 470], tint: green })), 0.11, 1.15),
-    lawn: calibrate(fit(grassCard([...set.blade, ...set.blade2], 14, { count: 190, base: 330, fan: 0.12, len: [90, 230], dry: 0.06, tint: green })), 0.11, 1.15),
+    lawn: calibrate(fit(grassCard([...set.blade, ...set.blade2], 14, { count: 260, base: 360, fan: 0.12, len: [90, 230], dry: 0.06, tint: green, taper: 0.9 })), 0.11, 1.15),
     meadow: calibrate(fit(grassCard([...set.weed, ...set.blade], 15, { count: 34, base: 110, fan: 0.35, len: [260, 500], flowers: 9, dry: 0.25 })), 0.085),
     rosette: calibrate(fit(rosetteCard(set.dandelion, 16, { count: 11, len: [150, 225], flowers: 1 }), true), 0.08),
   };
