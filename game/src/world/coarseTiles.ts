@@ -146,13 +146,14 @@ export class CoarseTiles {
     if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }
-  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D) {
+  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, vegetation?: CoarseFragment['vegetation']) {
     const state = entry.state;
     let ready = false;
     try {
       await this.host.style?.(model);
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
       tintDraft(model, this.host.renderer, this.materials);
+      if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
       await this.host.styled?.(model);
       ready = this.entries.get(id) === entry && entry.state === state;
       return ready;
@@ -446,6 +447,8 @@ export class CoarseTiles {
       await validate();
       if (this.entries.get(id) !== e || e.state !== state) return;
       const model = await this.host.previewCollision(buffers);
+      try { if (fragment.vegetation) await this.host.prepareVegetation?.(model, fragment.vegetation); }
+      catch (error) { this.dispose(model); throw error; }
       if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
@@ -473,7 +476,7 @@ export class CoarseTiles {
       return;
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
-    if (!await this.prepareModel(id, e, model)) return;
+    if (!await this.prepareModel(id, e, model, fragment.vegetation)) return;
     recordFreshness(e, fragment);
     // Detach before attaching: scene hooks must never observe both passes.
     const old = e.model;

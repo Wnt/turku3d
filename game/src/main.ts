@@ -21,7 +21,8 @@ import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { renderPixelRatio } from './render/quality';
+import { QUALITY, renderPixelRatio } from './render/quality';
+import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
@@ -289,6 +290,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>) {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
+    vegetationDistance: QUALITY[params.quality].vegetation.mid,
+    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
     previewCollision: collisionPreview,
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),

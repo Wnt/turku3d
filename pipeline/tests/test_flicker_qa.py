@@ -32,3 +32,16 @@ def test_subpixel_edge_motion_is_excluded():
     r,_,_=analyze(d,im)
     assert r['micro_residual_pixels']==0
     assert r['unstable_pixels']==0
+
+
+def test_ownership_overlap_and_pass_reversal_are_separate_from_pending_metadata():
+    d, images = sequence()
+    for i, frame in enumerate(d['frames']):
+        frame['products'] = [dict(id='missing', model=None, state='pending' if i % 2 else 'failed')]
+        frame['owners'] = [dict(id='tile', phase='preview' if i < 4 else 'full' if i < 8 else 'first',
+                                primary=True, scenery=i < 4)]
+    report, _, _ = analyze(d, images)
+    assert report['classification'] == ['no_instability_above_threshold']
+    assert report['surface_overlap_frames'] == 4
+    assert report['full_pass_frames'] == 4
+    assert report['pass_reversals'] == [dict(frame=d['frames'][8]['file'],tile='tile',phase='first')]

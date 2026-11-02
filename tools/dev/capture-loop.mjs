@@ -171,7 +171,9 @@ async function captureFlicker(file, pose) {
         const state = await evaluate(`(async () => ({frame:window.__game.clock.frames,
           camera:window.__render.camera.position.toArray(),pose:window.__qaPose,hour:window.__game.dayClock.hour,
           meshes:await window.__dev.geometryState(),
-          products:[...window.__game.lights.source.entries].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,preview:e.preview??false}))}))()`);
+          products:[...window.__game.lights.source.entries].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,preview:!!e.preview,model:e.model?.uuid})),
+          owners:[...window.__game.lights.source.entries].map(([id,e])=>({id,phase:e.preview?'preview':e.pass,
+            primary:!!e.model?.visible,scenery:!!window.__game.scenery.entries.get(id)?.model?.visible}))}))()`);
         const png = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
         const name = `${group}-${String(frame).padStart(2, '0')}.png`;
         fs.writeFileSync(path.join(dir, name), Buffer.from(png.data, 'base64'));
@@ -214,11 +216,13 @@ if (args.includes('--stream-flicker')) {
       state = await evaluate(`(() => {const g=window.__game, c=g?.lights?.source; return {
         ready:!!window.__qaMove && !!g?.vegetation?.library && !g.vegetation.pending.size,
         previews:[...(c?.entries??[])].filter(([,e])=>e.model&&e.preview).map(([id])=>id),
-        scenery:g?.scenery?.progress};})()`);
-      if (state.ready && state.previews.length && state.scenery?.loaded >= Number(opt('--stream-loaded','40'))) break;
+        scenery:g?.scenery?.progress,required:${JSON.stringify(opt('--stream-required','').split(',').filter(Boolean))}.every(id=>{
+          const e=g?.scenery?.entries.get(id);return !!e?.model&&e.treesReady;})};})()`);
+      const settled = opt('--stream-loaded','40') === 'all' ? state.scenery?.loaded === state.scenery?.total && !state.scenery?.pending && !state.scenery?.cataloguePending : state.scenery?.loaded >= Number(opt('--stream-loaded','40'));
+      if (state.ready && state.previews.length && state.required && settled) break;
       await delay(500);
     } while (Date.now()-started < timeout);
-    if (!state.ready || !state.previews.length) throw new Error(`No streaming window: ${JSON.stringify(state)}`);
+    if (!state.ready || !state.previews.length || !state.required) throw new Error(`No streaming window: ${JSON.stringify(state)}`);
     if (opt('--setup-file','')) await evaluate(fs.readFileSync(opt('--setup-file'),'utf8'));
     await evaluate(`window.__render.beforeFrame=()=>false; document.querySelectorAll('body > *:not(canvas)').forEach(e=>e.style.setProperty('display','none','important'));`);
     const [E,N,H,yaw,pitch,fov] = cam.cam.split(',').map(Number);
@@ -226,6 +230,16 @@ if (args.includes('--stream-flicker')) {
     await captureFlicker(`${cam.id}.jpg`,{E,N,H,yaw,pitch,fov});
     const jpeg = await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
     fs.writeFileSync(path.join(out,`${cam.id}.jpg`),Buffer.from(jpeg.data,'base64'));
+    if (opt('--compare-setup-file','')) {
+      await evaluate(fs.readFileSync(opt('--compare-setup-file'),'utf8'));
+      await captureFlicker(`${cam.id}-after.jpg`,{E,N,H,yaw,pitch,fov});
+      const after = await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
+      fs.writeFileSync(path.join(out,`${cam.id}-after.jpg`),Buffer.from(after.data,'base64'));
+    }
+    if (args.includes('--arrival-flicker')) {
+      await send('Fetch.disable');
+      await captureFlicker(`${cam.id}-arrival.jpg`,{E,N,H,yaw,pitch,fov});
+    }
   } finally {
     await send('Fetch.disable');
     await send('Network.setCacheDisabled',{cacheDisabled:false});
@@ -340,14 +354,38 @@ if (opt('--eval-file', '')) {
       fs.writeFileSync(opt('--screenshot'),Buffer.from(shot.data,'base64'));
     }
   } finally {
-    if (!args.includes('--keep-active')) await send('Page.setWebLifecycleState', { state: 'frozen' });
+    if (!args.includes('--keep-active') && !args.includes('--leave-active')) await evaluate('if(window.__render)window.__render.beforeFrame=()=>false');
     socket.close();
   }
   process.exit(0);
 }
 if (args.includes('--inspect')) {
-  console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,play:g?.state?((s)=>({mode:s.mode,paused:s.paused,start:s.startScreen,loading:s.loading}))(g.state()):null,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress};})()`)));
+  console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,play:g?.state?((s)=>({mode:s.mode,paused:s.paused,start:s.startScreen,loading:s.loading}))(g.state()):null,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress,sceneryJobs:[...(g?.scenery?.entries??[])].filter(([,e])=>e.busy||e.error).map(([id,e])=>({id,busy:e.busy,error:e.error,model:!!e.model,treesReady:e.treesReady}))};})()`)));
   socket.close(); process.exit(0);
+}
+if (args.includes('--perf')) {
+  try {
+    await send('Page.setWebLifecycleState',{state:'active'});
+    await send('Emulation.setFocusEmulationEnabled',{enabled:true});
+    await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
+    const result=await evaluate(`new Promise(resolve=>{
+      const r=window.__render,g=window.__game,frames=[],count=${Number(opt('--perf-frames','240'))};
+      let previous,warm=120;r.beforeFrame=()=>true;
+      r.afterFrame=()=>{const now=performance.now();
+        if(warm>0){if(!--warm){r.perf.reset();previous=now;}return;}
+        if(previous!==undefined)frames.push({interval:now-previous,cpu:r.perf.lastCpu,draws:r.renderer.info.render.drawCalls});previous=now;
+        if(frames.length<count)return;r.beforeFrame=()=>false;r.afterFrame=undefined;
+        resolve({pose:window.__qaPose,hour:g.dayClock.hour,quality:g.params.quality,aa:g.params.aa,frames,perf:r.perf.snapshot()});};
+    })`);
+    const mean=key=>result.frames.reduce((sum,f)=>sum+f[key],0)/result.frames.length;
+    result.meanMs=mean('interval');result.fps=1000/result.meanMs;result.meanCpuMs=mean('cpu');result.meanDraws=mean('draws');
+    fs.writeFileSync(path.join(out,'perf.json'),JSON.stringify(result,null,1));
+    console.log(JSON.stringify({meanMs:result.meanMs,fps:result.fps,cpu:result.meanCpuMs,draws:result.meanDraws,perf:result.perf}));
+  } finally {
+    await evaluate('if(window.__render){window.__render.beforeFrame=()=>false;window.__render.afterFrame=undefined;}');
+    socket.close();
+  }
+  process.exit(0);
 }
 try {
   await send('Page.setWebLifecycleState', { state: 'active' });
@@ -372,7 +410,7 @@ try {
       const [h, m] = at.split(':').map(Number);
       const pose = { E, N, H, yaw, pitch, fov };
       const url = `${base}?cam=${cam.cam}&time=${at}&quality=${opt('--quality', 'high')}&aa=${opt('--aa', 'taa')}&hud=0&traffic=0&walkers=0`;
-      if (await evaluate('!!window.__qaMove')) {
+      if (await evaluate(`!!window.__qaMove && window.__game.params.aa===${JSON.stringify(opt('--aa','taa'))} && window.__game.params.quality===${JSON.stringify(opt('--quality','high'))}`)) {
         await evaluate(`window.__render.beforeFrame = undefined; window.__game.clock.simSeconds = 0;
           window.__render.setHour(${h + m / 60}); window.__qaMove(${JSON.stringify(pose)});`);
       } else {
@@ -453,10 +491,21 @@ try {
       console.log(JSON.stringify({file,valid:valid(row),seconds:row.capture.wall_s}));
       if (!valid(row)) throw new Error(`Incomplete capture: ${file}; resume after resolving missing tiles/assets`);
       await captureFlicker(file, pose);
+      if (opt('--compare-setup-file','')) {
+        await evaluate(fs.readFileSync(opt('--compare-setup-file'),'utf8'));
+        await evaluate(`new Promise(resolve=>{const r=window.__render,previous=r.afterFrame;let frames=0;
+          r.beforeFrame=()=>true;r.afterFrame=()=>{previous?.();if(++frames<32)return;
+            r.afterFrame=previous;r.beforeFrame=()=>false;resolve(true);};})`);
+        const after=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
+        const afterFile=file.replace('.jpg','-after.jpg');
+        fs.writeFileSync(path.join(out,afterFile),Buffer.from(after.data,'base64'));
+        shots.set(afterFile,{...row,file:afterFile,capture:{...row.capture,comparison_variant:'after'}});save();
+      }
     }
   }
 } finally {
   // Freeze even when tile settling, screenshotting, or evaluation fails.
-  await send('Page.setWebLifecycleState', { state: 'frozen' }).catch(error => console.error(error.message));
+  // Freeze draws, not the page: Vite's heartbeat must survive long judge/test work between poses.
+  await evaluate('if(window.__render)window.__render.beforeFrame=()=>false').catch(error=>console.error(error.message));
   socket.close();
 }

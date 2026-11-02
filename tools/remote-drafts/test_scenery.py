@@ -9,6 +9,25 @@ from scenery import Scenery
 
 
 class SceneryTest(unittest.TestCase):
+    def test_tree_sidecar_is_content_keyed_and_does_not_rebuild_or_change_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); folder=root/'t0_0_0';folder.mkdir()
+            source=folder/'vis.glb';source.write_bytes(b'unchanged authored GLB')
+            cache=Scenery(root,root/'cache');cache.cache.mkdir()
+            key='c'*64
+            (cache.cache/f'{key}.source.json').write_text(json.dumps(dict(tile=folder.name,source_url=source.name,
+                source_sha256=hashlib.sha256(source.read_bytes()).hexdigest())))
+            def extract(command,**kwargs):
+                self.assertTrue(command[1].endswith('scenery-trees.mjs'))
+                self.assertEqual(Path(command[2]),source.resolve())
+                Path(command[3]).write_text('{"version":1,"nodes":[]}')
+            with patch('scenery.subprocess.run',side_effect=extract) as run:
+                self.assertEqual(cache.trees(key),(200,dict(version=1,nodes=[])))
+                self.assertEqual(cache.trees(key)[0],200)
+                self.assertEqual(run.call_count,1)
+            self.assertEqual(source.read_bytes(),b'unchanged authored GLB')
+            cache.pool.shutdown()
+
     def test_linked_tiles_resolve_external_buffers_against_the_original_root(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); original = root / 'original' / 't0_0_0'; original.mkdir(parents=True)

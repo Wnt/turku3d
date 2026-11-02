@@ -499,6 +499,7 @@ def build(
             cache=cache,
             gardens=gardens.stats(tile, inputs.gardens),
             boats=boats.stats(tile, inputs.boats, boat_meshes),
+            trees=draft_trees(tile, grid_pos, inputs.trees, water, shells),
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
