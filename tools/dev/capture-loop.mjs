@@ -330,6 +330,10 @@ try {
         await delay(1000);
       }
       await delay(2000);
+      if(args.includes('--fleet-still')){
+        const fleet=await evaluate(`import('/src/actors/fleet/qa.ts?capture='+Date.now()).then(async m=>{await m.installFleetQA();window.__render.beforeFrame=undefined;await new Promise(resolve=>{let frames=0;const tick=()=>++frames>=60?resolve():requestAnimationFrame(tick);requestAnimationFrame(tick);});return window.__game.fleetQA.snapshot();})`);
+        fs.writeFileSync(path.join(out,'fleet-still.json'),JSON.stringify(fleet,null,1));
+      }
       await evaluate(`document.querySelectorAll('body > *:not(canvas)').forEach(e => e.style.setProperty('display','none','important'));`);
       const screenshot = await send('Page.captureScreenshot', { format: 'jpeg', quality: 92, captureBeyondViewport: false });
       await evaluate('window.__render.beforeFrame = () => false');
