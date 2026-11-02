@@ -1,4 +1,5 @@
 """Connected measured road, granite kerb and pavement geometry for visuals and collision."""
+from dataclasses import dataclass
 import numpy as np
 import shapely
 from turku3d.col.materials import mat_id
@@ -7,6 +8,12 @@ from .walkable import coordinates
 
 REACH = 1.5
 RAILS = (-REACH, -.015, .01, .025, .18, REACH)
+
+
+@dataclass
+class ProfiledSurface:
+    mesh: Mesh
+    affected: object  # Exact planar triangle footprint affected by grading.
 
 
 def regions(profiles):
@@ -115,7 +122,7 @@ def constrain(mesh, profiles):
     from .surfaces import split_boundaries
 
     if not profiles:
-        return mesh
+        return ProfiledSurface(mesh, shapely.GeometryCollection())
     bands = [p["line"].buffer(width, single_sided=True, join_style="mitre")
              for p in profiles for width in RAILS]
     cross = []
@@ -153,12 +160,14 @@ def constrain(mesh, profiles):
         fixed = np.isin(groups, groups[protected])
         graded[fixed] = p[fixed]
         support[fixed] = 0
+    changed = np.any(abs(graded[ix, 1] - p[ix, 1]) > 1e-10, axis=1) & planar
+    affected = shapely.union_all(shapely.polygons(p[ix[changed]][:, :, [0, 2]]))
     p = graded
     centre = p[ix].mean(axis=1)
     for polygon, material in regions(profiles):
         ids[terrain & planar & (support[ix].mean(axis=1) > .1)
             & shapely.contains_xy(polygon, centre[:, 0], centre[:, 2])] = material
-    return Mesh(p, ix, ids).compact()
+    return ProfiledSurface(Mesh(p, ix, ids).compact(), affected)
 
 
 def material_regions(mesh):
@@ -171,12 +180,12 @@ def material_regions(mesh):
     return [(region, mat_id("curb"))] if not region.is_empty else []
 
 
-def sampler(sample, mesh, profiles):
-    if not profiles:
+def sampler(sample, surface):
+    if surface.affected.is_empty:
         return sample
-    area = shapely.union_all([p.buffer(REACH) for p, _ in material_regions(mesh)])
+    area = surface.affected
     shapely.prepare(area)
-    query = HeightQuery(mesh)
+    query = HeightQuery(surface.mesh)
 
     def height(x, z):
         if shapely.intersects_xy(area, x, z):

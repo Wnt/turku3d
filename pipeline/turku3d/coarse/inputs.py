@@ -524,10 +524,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
-        # The quick preview does not wait for dense survey fitting; full tiles
-        # refine both the visible terrain and collision from the same profile.
-        "street_profiles": ([wfs[1][1], *street_survey.source_paths(tile)]
-                            if not first_pass and wfs[1][1] else []),
+        # Profiles change physical terrain, so both passes share the same fit.
+        "street_profiles": [wfs[1][1], *street_survey.source_paths(tile)] if wfs[1][1] else [],
         "appearance": [
             osm,
             wfs[0][1],
@@ -724,7 +722,6 @@ def gather(
             "surfaces",
             "markings",
             "kerbs",
-            "street_profiles",
             "appearance",
             "register",
             "ortho",
