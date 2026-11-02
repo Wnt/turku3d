@@ -80,6 +80,28 @@ test('resolves a hit index to its source building and preserves instance address
   expect(buildingTarget(hit)).toBe('second · Instance address');
 });
 
+test('nearest bounds avoid raycasting distant meshes; hidden and throttled readouts do no queries', () => {
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
+  const tiles = new VisualTiles(), camera = new THREE.PerspectiveCamera();
+  const far = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  far.position.z = -100; far.userData.building_id = 'far'; far.updateMatrixWorld();
+  const near = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  near.position.z = -10; near.userData.building_id = 'near'; near.updateMatrixWorld();
+  tiles.models.add(far); tiles.models.add(near);
+  const farQuery = vi.spyOn(far, 'raycast'), nearQuery = vi.spyOn(near, 'raycast');
+  const hud = new PositionHud(camera, tiles, true);
+  hud.update(0, true);
+  expect(hud.element.textContent).toContain('Centre: near');
+  expect(farQuery).not.toHaveBeenCalled();
+  expect(nearQuery).toHaveBeenCalledOnce();
+  hud.update(200, true); hud.update(600, false);
+  hud.visible = false; hud.update(1200, true);
+  expect(nearQuery).toHaveBeenCalledOnce();
+  expect((hud as any).hits).toHaveLength(0);
+  expect((hud as any).candidates).toHaveLength(0);
+});
+
 test('public sessions cannot show, toggle, copy or hide the character with photo shortcuts', async () => {
   vi.stubGlobal('document', { createElement: () => ({ hidden: false }), body: { append: () => {} } });
   const hud = new PositionHud(new THREE.PerspectiveCamera(), new VisualTiles(), false);

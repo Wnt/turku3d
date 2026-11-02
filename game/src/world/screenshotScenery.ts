@@ -66,6 +66,7 @@ export class ScreenshotScenery {
     if (!this.needsTrees(e,distance)) return;
     // A camera approaching a cached far tile must never expose its skyline cones up close.
     for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
+    this.batches.invalidate(model);
     if (!source.trees_url) return;
     const response = await this.request(new URL(source.trees_url,new URL(this.root,this.page)).href);
     if (response.status === 202) throw new TreePlacementsPending();
@@ -73,6 +74,7 @@ export class ScreenshotScenery {
     const data = await response.json() as TreePlacements;
     if (data.version !== 1 || !Array.isArray(data.nodes)) throw new Error('Tree placements pending');
     await this.host.prepareVegetation!(model,data);
+    this.batches.invalidate(model);
     if (this.entries.get(id) === e) e.treesReady = true;
   }
 

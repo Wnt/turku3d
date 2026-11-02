@@ -2,7 +2,7 @@ import type * as THREE from 'three/webgpu';
 
 /** Content identities survive differing relative paths; mutable URLs never enter these caches. */
 export function sharedAssetKey(url: string): string | undefined {
-  return /\/coarse\/shared\/([a-f0-9]{64}\.(?:ktx2|bin))(?:[?#].*)?$/.exec(url)?.[1];
+  return /\/coarse\/(?:_v\/[^/]+\/)?shared\/([a-f0-9]{64}\.(?:ktx2|bin))(?:[?#].*)?$/.exec(url)?.[1];
 }
 
 /** Bounded session reuse and in-flight deduplication. Rejected loads are retryable. */
