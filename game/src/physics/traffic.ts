@@ -16,6 +16,7 @@ import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS,
 import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
 import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
+import { vehicleLights } from '../traffic/lights';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
 import { ClaimSet } from '../traffic/claims';
@@ -264,12 +265,7 @@ export class TrafficSim {
       const p = car.pose;
       if (!Number.isFinite(p.y)) continue;
       const q = chassisRotation(p);
-      const motion = car.motion, turn = motion.route.connector?.turn ?? 0;
-      const preparing = motion.route.length - motion.s < Math.max(22, p.speed * 3);
-      const intent = motion.change?.direction ?? (motion.signal ? Math.sign(motion.signal.target.k - motion.lane.k)
-        : preparing && Math.abs(turn) > 0.5 ? Math.sign(turn) : 0);
-      const indicator = Math.floor(this.time * 3) % 2 === 0 ? intent : 0;
-      const braking = motion.previous.speed - motion.speed > 0.04 || motion.speed < 0.2;
+      const { indicator, braking } = vehicleLights(car.motion, this.time);
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
         round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed),
         hash32('appearance', car.key), indicator, braking ? 1 : 0, round(p.speed));

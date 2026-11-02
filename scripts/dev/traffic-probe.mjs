@@ -33,7 +33,7 @@ if (!modulePath) {
   }
   const flow = new TrafficFlow(network); flow.reset(start);
   const frames = [], collisions = [], t0 = performance.now();
-  let maxCars = 0, stopped = 0, pairs = 0;
+  let maxCars = 0, stopped = 0, pairs = 0, maxWait = 0, maxStopped = 0, peakStallCount = 0;
   for (let step = 1; step <= seconds * 10; step++) {
     const t = start + step / 10;
     flow.update(t);
@@ -41,6 +41,10 @@ if (!modulePath) {
       width: c.width, key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: c.route.id, s: c.s,
       waiting: c.waiting, stopped: c.stopped, blockedBy: c.blockedBy, reservation: c.reservation?.id }));
     maxCars = Math.max(maxCars, cars.length); stopped += cars.filter(c => c.speed < 0.2).length;
+    for (const car of cars) {
+      maxWait = Math.max(maxWait, car.waiting); maxStopped = Math.max(maxStopped, car.stopped);
+    }
+    peakStallCount = Math.max(peakStallCount, cars.filter(c => c.waiting > 90 || c.stopped > 90).length);
     // The renderer displays the whole checked interval, not just the fixed-step endpoint.
     for (const fraction of [0, 0.5, 1]) {
       const poses = [...flow.cars.values()].map(c => ({ ...interpolateFlowPose(c, fraction, () => 0),
@@ -72,7 +76,8 @@ if (!modulePath) {
   }
   const result = { seconds, tiles, fractions: [0, 0.5, 1], stats: flow.stats, wallMs: performance.now() - t0, maxCars,
     stoppedCarSeconds: stopped / 10, pairsChecked: pairs, overlaps: collisions.length, firstOverlaps: collisions.slice(0, 5),
-    maxWait: Math.max(0, ...drivers.map(c => c.waiting)), maxStopped: Math.max(0, ...drivers.map(c => c.stopped)),
+    maxWait, maxStopped, peakStallCount,
+    endMaxWait: Math.max(0, ...drivers.map(c => c.waiting)), endMaxStopped: Math.max(0, ...drivers.map(c => c.stopped)),
     stallCount: drivers.filter(c => c.waiting > 90 || c.stopped > 90).length,
     waitCycles: [...cycles.values()],
     stalls: drivers.filter(c => c.waiting > 90 || c.stopped > 90).map(c => ({ key: c.key,
