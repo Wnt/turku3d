@@ -26,6 +26,8 @@ export class Atmosphere {
   readonly cirrusStrength = uniform(0.15);
   readonly density = uniform(1);
   readonly overcast = uniform(0);
+  readonly weatherHorizon = uniform(new THREE.Color());
+  private readonly clearFog = new THREE.Color();
   readonly zenith = uniform(new THREE.Color());
   readonly horizon = uniform(new THREE.Color());
   readonly cloudLit = uniform(new THREE.Color());
@@ -71,7 +73,9 @@ export class Atmosphere {
       const sheet = mix(this.cloudShade, this.cloudLit, mix(field.r.mul(0.12).add(0.08), 0.14, horizonWeight))
         .add(night.mul(0.6));
       const grey = dot(sheet, vec3(0.2126, 0.7152, 0.0722));
-      const overcastSky = mix(sheet, vec3(grey), this.daylight.mul(0.75));
+      const sheetSky = mix(sheet, vec3(grey), this.daylight.mul(0.75))
+        .mul(mix(1, 0.72, smoothstep(0.85, 1, this.overcast)));
+      const overcastSky = mix(this.weatherHorizon, sheetSky, smoothstep(0.01, 0.2, view.y));
       const deck = smoothstep(0, 0.85, this.overcast);
       const skyColor = mix(fairSky, overcastSky, deck);
 
@@ -105,14 +109,17 @@ export class Atmosphere {
   }
 
   /** Structural subset of WeatherSample: the weather clock owns transitions, this hook never accumulates state. */
-  setWeather(sample: { cloudCover: number; overcast: number }) {
+  setWeather(sample: { cloudCover: number; overcast: number }, fogColor?: THREE.Color) {
     this.coverage.value = THREE.MathUtils.clamp(sample.cloudCover, 0, 1);
     this.overcast.value = THREE.MathUtils.clamp(sample.overcast, 0, 1);
+    this.weatherHorizon.value.copy(fogColor ?? this.clearFog);
   }
 
   setSun(elevation: number, azimuth: number, sample: TimecycleSample) {
     this.zenith.value.setRGB(...sample.skyZenith);
     this.horizon.value.setRGB(...sample.skyHorizon);
+    this.clearFog.setRGB(...sample.fogColor);
+    this.weatherHorizon.value.copy(this.clearFog);
     this.daylight.value = THREE.MathUtils.smoothstep(elevation, -10, -1);
     this.stars.value = 1 - THREE.MathUtils.smoothstep(elevation, -12, -5);
     const day = THREE.MathUtils.smoothstep(elevation, -4, 15);

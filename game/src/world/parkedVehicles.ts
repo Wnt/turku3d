@@ -5,6 +5,7 @@ import type { PhysicsClient } from '../physics/client';
 import type { Quat, VehicleState } from '../physics/protocol';
 import type { Manifest, ParkedVehicle } from './manifest';
 import { slotShown } from './parkedOccupancy';
+import { prerunnerPresent } from './prerunnerSchedule';
 
 /** Physics chassis pose: centre position and rotation, as the worker reports them. */
 export interface ParkedPose { pos: V3; rot: Quat }
@@ -50,6 +51,7 @@ export class ParkedVehicles {
   private saturated = false;
   private last = -Infinity;
   private night = 0;
+  private sharedUtcMs: number | undefined;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
     private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
@@ -80,13 +82,18 @@ export class ParkedVehicles {
   adopt(id: string, car: ParkedVehicle) { this.spawned.set(id, car); this.last = -Infinity; }
 
   /** Night level of the shared clock (parkedNight); it decides which slots hold cars. */
-  setNight(level: number) { this.night = level; }
+  setNight(level: number, sharedUtcMs?: number) { this.night = level; this.sharedUtcMs = sharedUtcMs; }
+
+  private shown(car: ParkedVehicle) {
+    return slotShown(car, this.night) && (car.model !== 'truck' || this.sharedUtcMs === undefined
+      || prerunnerPresent(car.object_id, this.sharedUtcMs));
+  }
 
   /** Where a draft car without a physics state is drawn; null when another owner renders it or the
    * slot is empty at this hour. */
   restingPose(car: ParkedVehicle): ParkedPose | null {
     const id = car.object_id;
-    if (this.shared.has(id) || this.borrowed.has(id) || !slotShown(car, this.night)) return null;
+    if (this.shared.has(id) || this.borrowed.has(id) || !this.shown(car)) return null;
     const rest = this.rest.get(id);
     if (rest) return rest;
     return this.slot(car);
@@ -132,7 +139,7 @@ export class ParkedVehicles {
       for (const [id, car] of this.spawned) {
         if (this.owned.has(id) || this.borrowed.has(id)) continue;
         const rolling = (states.get(id)?.speed ?? 0) >= RESTING_SPEED;
-        if (cars.has(id) && distance(id, car) < DESPAWN_RADIUS && (rolling || slotShown(car, this.night))) continue;
+        if (cars.has(id) && distance(id, car) < DESPAWN_RADIUS && (rolling || this.shown(car))) continue;
         this.despawn(id, states);
       }
       for (const id of this.rest.keys()) if (!cars.has(id)) this.rest.delete(id);
@@ -140,7 +147,7 @@ export class ParkedVehicles {
       const candidates: { id: string; car: ParkedVehicle; d: number }[] = [];
       for (const [id, car] of cars) {
         if (this.shared.has(id) || this.spawned.has(id) || states.has(id) || this.borrowed.has(id)) continue;
-        if (!slotShown(car, this.night)) continue;
+        if (!this.shown(car)) continue;
         const d = distance(id, car);
         if (d <= SPAWN_RADIUS && this.supported(id, car)) candidates.push({ id, car, d });
       }

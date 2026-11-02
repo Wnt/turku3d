@@ -123,10 +123,13 @@ def describe(program, description, source_width):
 
     d = description
     pitch = source_width / max(1, d["window_columns"])
+    # Descriptions are a building-wide rhythm, not a licence to stretch a single
+    # source bay over an unrelated long wall or squeeze it into a roof sliver.
+    pitch = min(4.8, max(1.5, pitch))
     features = d["features"]
     for w in program["walls"]:
-        width, height = w["width_m"], w["height_m"]
-        count = max(1, round(width / pitch)) if d["window_columns"] else 0
+        width, height = w["width_m"], w.get("layout_height_m", w["height_m"])
+        count = max(1, round(width / pitch)) if d["window_columns"] and width >= 1.4 else 0
         bay = width / max(count, 1)
         floors = program["storeys"]["value"]
         ground = height / floors if floors else height
@@ -165,13 +168,15 @@ def describe(program, description, source_width):
         w["balconies"] = v([])  # Existing generated balcony maps remain bound before this painter.
 
 
-def resolve(building, vertices, eaves):
+def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
     from turkutex.facade_archetypes import sample
 
     geometry = []
-    ring = np.asarray(building.footprint.exterior.coords)[:, :2]
-    edge_a, edge_b = ring[:-1], ring[1:]
+    polygons = getattr(building.footprint, "geoms", [building.footprint])
+    rings = [np.asarray(p.exterior.coords)[:, :2] for p in polygons]
+    edge_a = np.concatenate([ring[:-1] for ring in rings])
+    edge_b = np.concatenate([ring[1:] for ring in rings])
     vectors = edge_b - edge_a
     lengths = np.linalg.norm(vectors, axis=1)
     tangents = vectors / np.maximum(lengths[:, None], 1e-9)
@@ -193,6 +198,7 @@ def resolve(building, vertices, eaves):
             dict(
                 wall_id=f"{building.facade_key}:{index // 4}",
                 width_m=float(lengths[whole]) if whole is not None else width,
+                fragment_width_m=width,
                 uv_offset=float(along[whole]) if whole is not None else 0,
                 height_m=max(0.1, float(eaves.get(index, min(p[2:, 1])) - building.base)),
             )
@@ -205,6 +211,20 @@ def resolve(building, vertices, eaves):
         reading_fields,
         supported,
     )
+
+    # Roof/tunnel ownership splits a facade into fragments with different tops.
+    # Those tops clip the building's floor grid; they must not rescale that grid.
+    if layout_height is None:
+        heights = sorted((g["height_m"], g["fragment_width_m"]) for g in geometry)
+        half, accumulated = sum(w for _, w in heights) / 2, 0
+        layout_height = heights[-1][0]
+        for height, width in heights:
+            accumulated += width
+            if accumulated >= half:
+                layout_height = height
+                break
+    for g in geometry:
+        g["layout_height_m"] = layout_height
 
     record = evidence(building.facade_key)
     attrs = dict(building.attributes)
@@ -234,15 +254,7 @@ def resolve(building, vertices, eaves):
     levels = attrs.get("levels")
     visual_levels = None
     if not levels or attrs.get("levels_source") == "osm":
-        heights = sorted((g["height_m"], g["width_m"]) for g in geometry)
-        half = sum(w for _, w in heights) / 2
-        accumulated = 0
-        height = heights[-1][0]
-        for h, w in heights:
-            accumulated += w
-            if accumulated >= half:
-                height = h
-                break
+        height = layout_height
         if d and d.get("storeys") and 2.2 <= height / d["storeys"] <= 5.5:
             levels, visual_levels = d["storeys"], "existing facade description"
         elif levels and 2.2 <= height / levels <= 5.5:
@@ -352,7 +364,7 @@ HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2, "pointed-arch": 
 
 
 def compile_wall(wall, floors):
-    width, height = wall["width_m"], wall["height_m"]
+    width, height = wall["width_m"], wall.get("layout_height_m", wall["height_m"])
     material = field(wall["wall"], "material", "plaster")
     from turku3d.facade_inference import material as normalize_material
 
@@ -396,7 +408,7 @@ def compile_wall(wall, floors):
         base=field(wall["base"], "colour", field(wall["wall"], "colour", "#c5c8bd")),
         trim=field(wall["trim"], "colour", "#deded3"),
         plinth=False,
-        size=[width, height],
+        size=[width, wall["height_m"]],
         origin=[-wall.get("uv_offset", 0), wall.get("base_h", 0)],
         opening=[ww, wh, sill, dimension(wall["trim"], "window_surrounds", 0.04)],
         bands=[

@@ -43,8 +43,8 @@ export class GrassField {
     library.materials.grassRange.value.set(this.settings.range * 0.6, this.settings.range);
     for (const name of KINDS) {
       const asset = library.asset(name), cap = this.settings.instances;
-      const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16).setUsage(THREE.DynamicDrawUsage);
-      const colors = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3).setUsage(THREE.DynamicDrawUsage);
+      const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16);
+      const colors = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
       this.draws.push(asset.lods[0].parts.map(part => {
         const mesh = new THREE.InstancedMesh(part.geometry, library.materials.grass, cap);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
@@ -115,6 +115,8 @@ export class GrassField {
   update(camera: THREE.Camera) {
     const p = camera.getWorldPosition(this.position), range = this.settings.range, reach = Math.ceil(range / CELL);
     const cx = Math.floor(p.x / CELL), cz = Math.floor(p.z / CELL);
+    // Selection is cached by this cell, so membership and order must use its centre too.
+    const centreX = (cx + .5) * CELL, centreZ = (cz + .5) * CELL;
     // Cached tiles can keep a parent pointer while absent from the scene; only drawn tiles grow grass.
     const active = [...this.tiles].filter(([model]) => {
       for (let node: THREE.Object3D | null = model; node; node = node.parent) if (!node.visible) return false;
@@ -129,8 +131,9 @@ export class GrassField {
       for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) {
         const x = cx + dx, z = cz + dz, cell = tile.cells.get(`${x},${z}`);
         if (!cell) continue;
-        const distance = Math.hypot((x + .5) * CELL - p.x, (z + .5) * CELL - p.z);
-        if (distance > range + CELL * Math.SQRT1_2) continue;
+        const distance = Math.hypot((x + .5) * CELL - centreX, (z + .5) * CELL - centreZ);
+        // Include both cell half-diagonals: the camera and blades can each lie at a corner.
+        if (distance > range + CELL * Math.SQRT2) continue;
         candidates.push({ cell, distance, key: `${x},${z}:${tile.key}` });
       }
     }
@@ -151,7 +154,12 @@ export class GrassField {
       }
     }
     for (const [k, parts] of this.draws.entries()) {
-      parts[0].instanceMatrix.needsUpdate = true; parts[0].instanceColor!.needsUpdate = true;
+      if (counts[k]) {
+        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [parts[0].instanceColor!, 3]] as const) {
+          attribute.clearUpdateRanges(); attribute.addUpdateRange(0, counts[k] * width);
+          attribute.needsUpdate = true;
+        }
+      }
       for (const part of parts) { part.count = counts[k]; part.visible = counts[k] > 0; }
     }
   }
