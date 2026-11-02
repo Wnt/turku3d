@@ -37,6 +37,7 @@ Triangles per LOD; LOD 0 is drawn to 50 m, LOD 1 to 180 m and the impostor to 65
 | `board_fence` | fence | 1.65 | 264 | 28 | - |
 | `metal_railing` | fence | 1 | 256 | 80 | - |
 | `park_fence` | fence | 0.55 | 102 | 36 | - |
+| `chain_fence` | fence | 1.62 | 70 | 26 | - |
 | `granite_wall` | fence | 0.6 | 308 | 20 | - |
 <!-- table:end -->
 
@@ -63,12 +64,14 @@ granite albedo/normal tiles. Draws per tree: bark + leaves at LOD 0 and 1, one i
   (`scripts/nature/raster.mjs`, a CPU rasterizer).
 - **Hedge, grass, ground cover**: a 2 m hedge module with an opaque leafy core wrapped in cards; crossed-card grass
   and meadow clumps; a flat dandelion rosette.
-- **Fence kit** (picket fence, board fence, metal railing, park fence, granite kerb wall; 2 m modules with one post
-  each, LOD 0 + LOD 1): modelled in Blender 5.2 through the Blender MCP server (mcp-for-blender 2.2.6, MIT, add-on
-  pinned at `ahujasid/mcp-for-blender@992233bb`) by a headless Claude Code session whose only tools were the
-  `mcp__blender__*` tools. The build reads its export (`blender/fence-kit.glb`, SHA-256
-  `ebaa2608f13da3e54e5403e386412cee7444a165e5c232afac0a33e9ece6c0a0`) and binds the wood, metal and granite materials.
-  Paint colour is per instance.
+- **Fence kit** (picket fence, board fence, metal railing, park fence, galvanised chain-link fence, granite kerb wall;
+  2 m modules with one post each, LOD 0 + LOD 1): modelled in Blender 5.2 through the Blender MCP server
+  (mcp-for-blender 2.2.6, MIT, add-on pinned at `ahujasid/mcp-for-blender@992233bb`) by headless Claude Code sessions
+  whose only tools were the `mcp__blender__*` tools (`scripts/nature/fence-kit.prompt.md`, then
+  `chain-fence.prompt.md`, run with `scripts/nature/blender-mcp-session.sh`). The build reads the export
+  (`blender/fence-kit.glb`, SHA-256 `dad280d9056570104287bb33bc95d046a85a99dc7585eef8cfa64d218f35454b`) and binds the
+  wood, metal, granite and chain-link materials. Paint and steel colours are per instance; the chain-link wire is an
+  alpha-tested 256 px tile drawn by our code (5 cm diamonds).
 
 ## Sources (all CC0 1.0)
 

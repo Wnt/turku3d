@@ -105,7 +105,10 @@ export class VegetationLod {
       if (!mesh.isInstancedMesh || Array.isArray(mesh.material)) return;
       if (vegetationOwner(mesh)) { data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow }); return; }
       const key = materialKey(mesh, mesh.material);
-      if (key && fenceAsset(key, 1)) { fences.push({ mesh, key }); data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow }); }
+      const kit = key === null ? null : fenceAsset(key, 1);
+      if (kit === null) return;
+      data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow });
+      if (kit) fences.push({ mesh, key: key! });
     });
     if (this.grass) yield* this.grass.addSteps(model);
     if (!data.sources.length) return;

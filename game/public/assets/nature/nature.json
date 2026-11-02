@@ -488,6 +488,30 @@
     }
    ]
   },
+  "chain_fence": {
+   "kind": "fence",
+   "height": 1.62,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 70,
+     "vertices": 90,
+     "draws": [
+      "nature_metal",
+      "nature_chain"
+     ]
+    },
+    {
+     "triangles": 26,
+     "vertices": 52,
+     "draws": [
+      "nature_metal",
+      "nature_chain"
+     ]
+    }
+   ]
+  },
   "granite_wall": {
    "kind": "fence",
    "height": 0.6,
@@ -565,10 +589,16 @@
    "height": 512,
    "bytes": 292539,
    "format": "UASTC+zstd"
+  },
+  "nature_chain": {
+   "width": 256,
+   "height": 256,
+   "bytes": 13169,
+   "format": "ETC1S"
   }
  },
  "glb": {
-  "bytes": 6532792,
-  "sha256": "14b939429ea921582ad35cdba3c4df2e55ec5325cfa23143948212db9ee39c63"
+  "bytes": 6557332,
+  "sha256": "4ae4c6de6ae553bd86262666d05cb1e88eba335391982fb1001ca9952231a6f8"
  }
 }

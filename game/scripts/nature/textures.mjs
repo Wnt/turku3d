@@ -369,5 +369,22 @@ export async function propTiles(src) {
   const woodNormal = await resized(acg(src, 'PaintedWood008A', 'NormalGL', 'jpg', '1K-JPG'), 512, 512);
   const granite = calibrate(await resized(acg(src, 'Granite003B', 'Color', 'jpg', '1K-JPG'), 512, 512), 0.20, 0.8);
   const graniteNormal = await resized(acg(src, 'Granite003B', 'NormalGL', 'jpg', '1K-JPG'), 512, 512);
-  return { wood, woodNormal, granite, graniteNormal };
+  return { wood, woodNormal, granite, graniteNormal, chain: chainLink() };
+}
+
+/** Galvanised chain-link wire, tileable at 1 m (256 px): 5 cm diamonds of 3 mm wire, drawn by our code. */
+function chainLink(size = 256, cells = 20) {
+  const img = new Img(size, size), pitch = size / cells, wire = 1.15;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    // Distance to the two diagonal wire families of a diamond lattice (periodic in the tile).
+    const u = (x + 0.5) / pitch, v = (y + 0.5) / pitch;
+    const d1 = Math.abs(((u + v) % 1 + 1) % 1 - 0.5), d2 = Math.abs(((u - v) % 1 + 1) % 1 - 0.5);
+    const d = (0.5 - Math.max(d1, d2)) * pitch / Math.SQRT2;
+    const a = Math.max(0, Math.min(1, wire - d + 0.5));
+    // A round wire: brighter along its crest.
+    const crest = 0.8 + 0.2 * Math.max(0, 1 - d / wire);
+    const o = (y * size + x) * 4;
+    img.data[o] = 0.62 * crest; img.data[o + 1] = 0.64 * crest; img.data[o + 2] = 0.62 * crest; img.data[o + 3] = a;
+  }
+  return img;
 }

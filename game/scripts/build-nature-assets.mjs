@@ -118,9 +118,9 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
   for (const node of kit.getRoot().listNodes()) {
     const mesh = node.getMesh();
     if (!mesh) continue;
-    const m = node.getWorldMatrix(), builder = { wood: null, metal: null, granite: null };
+    const m = node.getWorldMatrix(), builder = { wood: null, metal: null, granite: null, chain: null };
     for (const prim of mesh.listPrimitives()) {
-      const material = { paint_wood: 'wood', painted_metal: 'metal', granite: 'granite' }[prim.getMaterial()?.getName()];
+      const material = { paint_wood: 'wood', painted_metal: 'metal', galvanised: 'metal', granite: 'granite', chain_mesh: 'chain' }[prim.getMaterial()?.getName()];
       if (!material) throw new Error(`fence kit: unknown material ${prim.getMaterial()?.getName()}`);
       const b = builder[material] ??= new MeshBuilder();
       const P = prim.getAttribute('POSITION'), N = prim.getAttribute('NORMAL'), T = prim.getAttribute('TEXCOORD_0'), I = prim.getIndices();
@@ -136,7 +136,7 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
     }
     byName.set(node.getName(), builder);
   }
-  for (const name of ['picket_fence', 'board_fence', 'metal_railing', 'park_fence', 'granite_wall']) {
+  for (const name of ['picket_fence', 'board_fence', 'metal_railing', 'park_fence', 'chain_fence', 'granite_wall']) {
     const lods = [0, 1].map(k => {
       const b = byName.get(`${name}_lod${k}`);
       if (!b) throw new Error(`fence kit: missing ${name}_lod${k}`);
@@ -152,7 +152,7 @@ await savePng(impostorAlbedo, path.join(previews, 'impostor-albedo.png'));
 await savePng(impostorNormal, path.join(previews, 'impostor-normal.png'), { alpha: false });
 await savePng(bark.albedo, path.join(previews, 'bark.png'), { alpha: false });
 await savePng(bark.normal, path.join(previews, 'bark-normal.png'), { alpha: false });
-for (const [name, img] of Object.entries(props)) await savePng(img, path.join(previews, `${name}.png`), { alpha: false });
+for (const [name, img] of Object.entries(props)) await savePng(img, path.join(previews, `${name}.png`), { alpha: name === 'chain' });
 
 // ------------------------------------------------------------------ KTX2
 async function ktx2(img, { srgb, normal = false, quality = 200 }) {
@@ -192,13 +192,16 @@ const tex = {
   woodNormal: await addTexture('nature_wood_normal', props.woodNormal, { srgb: false, normal: true }),
   granite: await addTexture('nature_granite', props.granite, { srgb: true }),
   graniteNormal: await addTexture('nature_granite_normal', props.graniteNormal, { srgb: false, normal: true }),
+  chain: await addTexture('nature_chain', props.chain, { srgb: true, quality: 255 }),
 };
 const materials = {
   bark: doc.createMaterial('nature_bark').setBaseColorTexture(tex.bark).setNormalTexture(tex.barkNormal).setRoughnessFactor(0.92).setMetallicFactor(0),
   leaves: doc.createMaterial('nature_leaves').setBaseColorTexture(tex.foliage).setAlphaMode('MASK').setAlphaCutoff(0.5).setDoubleSided(true).setRoughnessFactor(0.75).setMetallicFactor(0),
   impostor: doc.createMaterial('nature_impostor').setBaseColorTexture(tex.impostor).setNormalTexture(tex.impostorNormal).setAlphaMode('MASK').setAlphaCutoff(0.5).setDoubleSided(true).setRoughnessFactor(0.8).setMetallicFactor(0),
   wood: doc.createMaterial('nature_wood').setBaseColorTexture(tex.wood).setNormalTexture(tex.woodNormal).setRoughnessFactor(0.8).setMetallicFactor(0),
-  metal: doc.createMaterial('nature_metal').setBaseColorFactor([0.05, 0.06, 0.06, 1]).setRoughnessFactor(0.45).setMetallicFactor(0.6),
+  // Steel colour comes from the instance tint (black or green paint, galvanised grey).
+  metal: doc.createMaterial('nature_metal').setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(0.45).setMetallicFactor(0.6),
+  chain: doc.createMaterial('nature_chain').setBaseColorTexture(tex.chain).setAlphaMode('MASK').setAlphaCutoff(0.5).setDoubleSided(true).setRoughnessFactor(0.5).setMetallicFactor(0.7),
   granite: doc.createMaterial('nature_granite').setBaseColorTexture(tex.granite).setNormalTexture(tex.graniteNormal).setRoughnessFactor(0.85).setMetallicFactor(0),
 };
 const scene = doc.createScene('nature');
@@ -226,7 +229,7 @@ for (const asset of assets) {
     for (const [part, mb] of Object.entries(parts)) {
       if (!mb || !mb.triangles) continue;
       const material = part === 'bark' ? materials.bark : part === 'leaves' ? materials.leaves : part === 'impostor' ? materials.impostor
-        : part === 'wood' ? materials.wood : part === 'metal' ? materials.metal : materials.granite;
+        : part === 'wood' ? materials.wood : part === 'metal' ? materials.metal : part === 'chain' ? materials.chain : materials.granite;
       mesh.addPrimitive(primitive(mb, material));
       tris += mb.triangles; verts += mb.vertexCount; draws.push(material.getName());
     }

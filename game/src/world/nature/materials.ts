@@ -11,7 +11,7 @@ const imageWidth = (map: THREE.Texture) => (map.image as { width?: number } | nu
 export interface NatureLighting { sunDir: THREE.Vector3; sun: THREE.DirectionalLight }
 
 /** The glTF materials of nature.glb, by name; their textures feed the shared node materials. */
-export type NatureSources = Record<'nature_bark' | 'nature_leaves' | 'nature_impostor' | 'nature_wood' | 'nature_metal' | 'nature_granite', THREE.MeshStandardMaterial>;
+export type NatureSources = Record<'nature_bark' | 'nature_leaves' | 'nature_impostor' | 'nature_wood' | 'nature_metal' | 'nature_granite' | 'nature_chain', THREE.MeshStandardMaterial>;
 
 /**
  * One node material per surface type, shared by every species, tile and LOD: the pipeline count does not grow with
@@ -32,6 +32,7 @@ export class NatureMaterials {
   readonly wood: THREE.MeshStandardNodeMaterial;
   readonly metal: THREE.MeshStandardNodeMaterial;
   readonly granite: THREE.MeshStandardNodeMaterial;
+  readonly chain: THREE.MeshStandardNodeMaterial;
 
   constructor(sources: NatureSources, lighting: NatureLighting | null, deterministic: boolean) {
     const clock = deterministic ? float(0) : time;
@@ -96,15 +97,19 @@ export class NatureMaterials {
     this.wood = plain(sources.nature_wood, 'nature-wood');
     this.metal = plain(sources.nature_metal, 'nature-metal');
     this.granite = plain(sources.nature_granite, 'nature-granite');
+    // Chain-link wire: an alpha-tested tiling panel; the mip-scaled alpha keeps distant mesh from vanishing at once.
+    const chainMap = sources.nature_chain.map!, wire = texture(chainMap, uv());
+    this.chain = new THREE.MeshStandardNodeMaterial({ name: 'nature-chain', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.5, metalness: 0.7 });
+    this.chain.colorNode = vec4(wire.rgb, mipAlpha(wire.a, imageWidth(chainMap)));
   }
 
   /** The shared material for a glTF material name of nature.glb. */
   forSource(name: string): THREE.MeshStandardNodeMaterial {
     const material = ({ nature_bark: this.bark, nature_leaves: this.leaves, nature_impostor: this.impostor, nature_wood: this.wood,
-      nature_metal: this.metal, nature_granite: this.granite } as Record<string, THREE.MeshStandardNodeMaterial>)[name];
+      nature_metal: this.metal, nature_granite: this.granite, nature_chain: this.chain } as Record<string, THREE.MeshStandardNodeMaterial>)[name];
     if (!material) throw new Error(`nature.glb: unknown material ${name}`);
     return material;
   }
 
-  dispose() { for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite]) m.dispose(); }
+  dispose() { for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose(); }
 }

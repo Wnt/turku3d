@@ -13,7 +13,7 @@ import { PostProcessing } from '../render/post';
 import { QUALITY, parseQuality } from '../render/quality';
 import { loadNatureLibrary, type NatureAsset, type NatureLibrary } from '../world/nature/library';
 import { VegetationLod } from '../world/vegetationLod';
-import { hashId } from '../world/nature/species';
+import { fenceTint, hashId } from '../world/nature/species';
 
 const query = new URLSearchParams(location.search);
 let view = query.get('view') ?? 'asset';
@@ -39,7 +39,6 @@ controls.enableDamping = true;
 
 const panel = document.getElementById('panel')!, frame = document.getElementById('frame')!;
 const placed: THREE.InstancedMesh[] = [];
-const PAINT = [new THREE.Color(0.86, 0.85, 0.80), new THREE.Color(0.42, 0.09, 0.06), new THREE.Color(0.78, 0.62, 0.30), new THREE.Color(0.10, 0.22, 0.14)];
 
 /** One asset LOD at a position, as instanced draws like the game (instance tint buffer included). */
 function place(asset: NatureAsset, lod: number, x: number, z: number, rotation = 0, copies = 1, step = new THREE.Vector3()) {
@@ -48,7 +47,7 @@ function place(asset: NatureAsset, lod: number, x: number, z: number, rotation =
     const mesh = new THREE.InstancedMesh(part.geometry, part.material, copies);
     for (let i = 0; i < copies; i++) {
       mesh.setMatrixAt(i, new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z).addScaledVector(step, i), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotation), new THREE.Vector3(1, 1, 1)));
-      mesh.setColorAt(i, asset.kind === 'fence' && part.material === library.materials.wood ? PAINT[i % PAINT.length] : new THREE.Color(1, 1, 1));
+      mesh.setColorAt(i, asset.kind === 'fence' ? new THREE.Color(...fenceTint(asset.name, `viewer:${i}`)) : new THREE.Color(1, 1, 1));
     }
     mesh.castShadow = !(asset.kind === 'tree' && lod === asset.lods.length - 1);
     mesh.receiveShadow = true;
