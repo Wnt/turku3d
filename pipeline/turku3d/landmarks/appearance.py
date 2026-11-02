@@ -6,7 +6,7 @@ import numpy as np
 
 from turku3d.package.gltf import GlbMesh
 
-from .atlas import batch
+from .atlas import batch, merge
 from .descriptions import resolve
 from .procedural import maps, material_maps, roof_surface, wall_maps
 
@@ -90,6 +90,34 @@ def wall_meshes(building, walls, origin, description=None):
     d = description or resolve(building)
     if d is None or "wall" not in d.get("surfaces", ["wall", "roof"]):
         return None
+    if d.get("elevations"):
+        from .elevations import coordinates, select, texture
+
+        result = []
+        for index, vertices in enumerate(visible_walls(building, walls)):
+            row = select(vertices, d["elevations"])
+            if row is None:
+                albedo, normal, orm = material_maps(json.dumps(d, sort_keys=True), "wall")
+                direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
+                direction /= np.linalg.norm(direction)
+                uv = np.c_[vertices[:, [0, 2]] @ direction / 4, -vertices[:, 1] / 4]
+            else:
+                albedo, normal, orm = texture(json.dumps(d, sort_keys=True), json.dumps(row, sort_keys=True))
+                uv = coordinates(vertices, building.base, row)
+            result.append(GlbMesh(
+                f"landmark_{building.key}_{index}", vertices - origin,
+                np.array([[0, 3, 2], [0, 2, 1]], np.uint32),
+                uvs=uv, image=albedo,
+                normal_image=normal, orm_image=orm, repeat=row is None,
+                extras=dict(layer="buildings", building_id=building.facade_key,
+                            object_id=f"landmark_{building.key}_{index}",
+                            material_key="landmark_procedural", surface="wall",
+                            texture_uv="normalized", landmark_description=d["content_hash"]),
+            ))
+        groups = {}
+        for mesh in result:
+            groups.setdefault((mesh.image, mesh.repeat), []).append(mesh)
+        return batch([merge(group) for group in groups.values()])
     result = []
     for index, (vertices, band_kind) in enumerate(material_wall_parts(building, walls, d)):
         width = float(np.linalg.norm(vertices[1, [0, 2]] - vertices[0, [0, 2]]))
