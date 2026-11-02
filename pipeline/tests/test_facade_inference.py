@@ -287,7 +287,8 @@ def test_target_descriptors_are_wall_local_and_hashed(tmp_path, monkeypatch):
     assert program_hash("103295896N") != before
 
 
-def test_existing_uncalibrated_patch_is_a_wall_local_prior_not_discarded():
+@pytest.mark.parametrize("inherited_source", ["material palette", "existing description", "learned neighbour"])
+def test_existing_uncalibrated_patch_is_a_wall_local_prior_not_discarded(inherited_source):
     from turku3d.facade_inference import apply_prior
     from turkutex.facade_archetypes import sample
 
@@ -296,6 +297,9 @@ def test_existing_uncalibrated_patch_is_a_wall_local_prior_not_discarded():
         dict(levels=3, construction_year=1887),
         [dict(wall_id="test", width_m=20, height_m=12)],
     )["walls"][0]
+    # Generated descriptions currently carry support=1; this is not evidence
+    # that their building-wide colour is more reliable than this wall's reading.
+    wall["wall"]["colour"].update(source=inherited_source, support=1.0)
     own = dict(
         wall_id="own",
         wall=dict(colour=dict(value="#ac958b", support=0.65, source="reviewed wall patch")),

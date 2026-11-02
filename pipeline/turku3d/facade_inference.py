@@ -135,11 +135,13 @@ def apply_prior(wall, archetype, attrs, own, record):
         )
         wall["windows"]["surround_shape"] = v("pediment", "historicist style prior")
     local = record.get("walls", {}).get(own["wall_id"], {}) if own else {}
-    # These are low-resolution pigment estimates from this exact wall's reviewed
-    # patches, used only when that field has no calibrated observation.
+    # Same-wall reviewed patches outrank building-wide descriptions and donor
+    # palettes, whose inherited confidence does not make them measured pigment.
+    # Explicit local appearance records remain the highest-priority prior;
+    # calibrated observations are applied by the subsequent reading overlay.
     for section, key in (("wall", "colour"), ("trim", "colour")):
         item = local.get(section, {}).get(key)
-        if not supported(item) and own and not supported(wall[section].get(key)):
+        if not supported(item) and own:
             photographed = own.get(section, {}).get(key)
             if supported(photographed):
                 item = {
