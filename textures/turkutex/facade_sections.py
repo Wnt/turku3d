@@ -120,19 +120,21 @@ def sections(form, floors):
             kind = "opaque door"
         elif re.search(r"portal|arched.*entrance", text):
             kind = "arched portal"
-        elif re.search(r"\b(shop|retail|storefront)\b", text):
+        elif re.search(r"\b(shop|shopfront|retail|storefront)\b", text):
             kind = "shop"
         elif re.search(r"\b(window|windows|glazing|glazed)\b", text):
             kind = "window"
         elif re.search(r"\b(door|entrance)\b", text):
             kind = "door"
         # Separate structures are never collapsed onto the wall or made into windows.
-        if re.search(r"balcon|loggia|passage|colonnade|stair|veranda|projecting|recessed", text):
+        structure = bool(re.search(r"balcon|loggia|passage|colonnade|stair|veranda|projecting|recessed", text))
+        if structure:
             kind = None
             unsupported.append(f"section {index}: depth/structure retained")
         count = integer(
             section,
             (
+                "architectural_bays",
                 "whole_wall_bay_count",
                 "whole_bay_count",
                 "full_bay_count",
@@ -145,6 +147,11 @@ def sections(form, floors):
                 "count",
             ),
         )
+        multiplicity = integer(section, ("openings_per_bay",))
+        # Count architectural groups separately from their openings. A pair is
+        # narrower internally than the spacing between adjacent pilaster bays.
+        if kind is None and not structure and count and multiplicity and section.get("head"):
+            kind = "window"
         rows = integer(section, ("rows", "row_count", "floor_count", "whole_wall_row_count"))
         if bays:
             count = len(bays)
@@ -154,7 +161,8 @@ def sections(form, floors):
         elif rows is None and extent[3] <= 1 / max(1, floors or 3) + 0.01:
             rows = 1
         # Uncounted descriptions can supply a material, never an invented grid.
-        if count is None or rows is None:
+        invalid_group = "openings_per_bay" in section and (multiplicity is None or multiplicity > 8)
+        if count is None or rows is None or invalid_group:
             kind = None
         head = shape(section.get("head"))
         surround = shape(section.get("surround"), surround=True)
@@ -179,6 +187,8 @@ def sections(form, floors):
                     head=head,
                     surround=surround,
                     **({"bays": bays} if bays else {}),
+                    **({"opening_counts": [multiplicity] * count}
+                       if multiplicity and count and kind in ("window", "shop") else {}),
                 )
             )
         if not kind:
