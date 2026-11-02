@@ -306,16 +306,17 @@ def build(
     if kerb_lines is not None and inputs.street_profiles:
         measured = shapely.union_all([p.buffer(.4) for p, _ in street_profiles.material_regions(dry)])
         kerb_lines = kerb_lines.difference(measured)
+    from .input_keys import producer_code
+
     kerb_meshes = cache.run(
         "kerbs",
         source_key(
             Path(kerbs.__file__),
             surfaces.grid_height,
-            Path(__file__).with_name("inputs.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             *common,
-        ),
+        ) + producer_code("ground").hex(),
         [
             tile,
             kerb_lines,
