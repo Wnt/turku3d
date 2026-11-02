@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {chromium} from '../../game/node_modules/playwright-core/index.mjs';
@@ -14,6 +15,7 @@ const preview=args.includes('--preview'), width=preview?480:960,height=preview?5
 const selected=opt('--only','').split(',').filter(Boolean);
 const urls=[opt('--left','http://127.0.0.1:5960/'),opt('--right','http://localhost:5220/')];
 const cdpURL=opt('--cdp',''),sourceRevision=opt('--revision','');
+const captureCodeHash=createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).update(fs.readFileSync(new URL('./paths.mjs',import.meta.url))).digest('hex');
 const browser=cdpURL?await chromium.connectOverCDP(cdpURL):null;
 const ctx=browser?browser.contexts()[0]:await launch(width,height);
 await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[]}));
@@ -135,7 +137,7 @@ try{
   for(let side=0;side<2;side++){
    const name=`${shot.id}-${side?'right':'left'}`, file=path.join(dir,`${name}.mp4`),receipt=path.join(dir,`${name}.json`);
    const previous=fs.existsSync(receipt)?JSON.parse(fs.readFileSync(receipt)):null;
-   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&(preview||previous.sourceRevision===sourceRevision)&&!args.includes('--force')){log(`reuse ${name}`);continue;}
+   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&(preview||(previous.sourceRevision===sourceRevision&&previous.captureCodeHash===captureCodeHash&&previous.fps===config.fps&&previous.frames===Math.round(config.duration*config.fps)&&previous.url===urls[side]))&&!args.includes('--force')){log(`reuse ${name}`);continue;}
    lease('touch');for(let other=0;other<2;other++)if(pages[other]&&other!==side)await sessions[other].send('Page.setWebLifecycleState',{state:'frozen'});if(!pages[side])await setup(side,shot);
    for(let other=0;other<2;other++)if(pages[other])await sessions[other].send('Page.setWebLifecycleState',{state:other===side?'active':'frozen'});
    log(`settling ${name}`);
@@ -166,7 +168,7 @@ try{
     if(f%60===0||preview)motion.push({frame:f,...state});
    }
    if(encoder){encoder.stdin.end();if((await closed)[0])throw Error('ffmpeg capture failed');}
-   fs.writeFileSync(receipt,JSON.stringify({shot,sourceRevision,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
+   fs.writeFileSync(receipt,JSON.stringify({shot,sourceRevision,captureCodeHash,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
    log(`captured ${name}: ${count} frames`);await sessions[side].send('Page.setWebLifecycleState',{state:'frozen'});
   }
  }

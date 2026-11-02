@@ -363,24 +363,24 @@
     },
     {
       "id": "aura-night",
-      "title": "Aura river · summer night rain",
-      "hour": 23.3,
+      "title": "Aura river · white-night rain",
+      "hour": 22,
       "weather": "light rain",
       "wind": 0.38,
       "from": [
-        23459674.21,
-        6704241.83,
-        6.4,
-        62.9,
-        0,
+        23459705,
+        6704221,
+        8,
+        62,
+        2,
         60
       ],
       "to": [
-        23459691,
-        6704250.5,
-        6.4,
-        62.9,
-        0,
+        23459723,
+        6704231,
+        8,
+        62,
+        2,
         60
       ],
       "date": "2026-06-21"

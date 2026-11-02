@@ -57,7 +57,7 @@ recordings, photographs or samples are used. H.264 capture intermediates use CRF
 Outputs: `turku3d-before-after.mp4`, `contact-sheet.jpg`, `review.json`, build and
 tile receipts, `preview/`, `clips/`, and `edit/`. Inspect the contact sheet before
 sharing. `comparison-review.py` checks dimensions, frame count, duration and
-black intervals. Resume validates the shot, resolution and pinned source revision before reusing
+black intervals. Resume validates the shot, capture code, resolution, frame rate and pinned source revision before reusing
 a clip. Composition is rebuilt from the validated clips. Use a new output directory
 to preserve an earlier comparison.
 

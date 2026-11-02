@@ -44,7 +44,7 @@ async function waitFresh(tiles){
  }
 }
 try{
- fs.writeFileSync(path.join(out,'builds.json'),JSON.stringify({production,integration:ref,alias,left,right,created:new Date().toISOString()},null,2));
+ fs.writeFileSync(path.join(out,'builds.json'),JSON.stringify({pipeline:git(repo,'rev-parse','HEAD'),production,integration:ref,alias,left,right,created:new Date().toISOString()},null,2));
  fs.copyFileSync(shots,path.join(out,'shot-list.json'));
  log(`Registering ${alias}`);await run('scripts/dev/shared-tiles',['register','--alias',alias,'--ref',ref],integration);
  let tiles=allTiles(config);await requestTiles(tiles);fs.writeFileSync(path.join(out,'tiles.json'),JSON.stringify(tiles,null,2));
