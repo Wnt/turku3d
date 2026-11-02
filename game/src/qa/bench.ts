@@ -86,6 +86,7 @@ export class CameraBench {
   private signature = '';
   private settle = { ms: 0, timedOut: false, changes: 0, first: '', last: '', timeline: [] as [number, string][] };
   private frames = 0;
+  private measureStart = 0;
   private counting = false;
   private draws: Record<BenchPass, number> = { prepass: 0, beauty: 0, csm: 0, reflection: 0, post: 0 };
   private instances = 0;
@@ -156,6 +157,7 @@ export class CameraBench {
       this.phase = 'measure';
       this.frames = 0;
       this.host.perf.reset();
+      this.measureStart = this.host.now();
       this.pipelinesAtStart = this.host.pipelines();
       this.counting = true;
       return null;
@@ -163,6 +165,7 @@ export class CameraBench {
     if (this.phase !== 'measure' || ++this.frames < this.measure) return null;
     this.counting = false;
     this.phase = 'drain';
+    const measureMs = this.host.now() - this.measureStart;
     this.host.pause(true);
     try { await this.host.perf.flush(); } finally { this.host.pause(false); }
     const s = this.host.perf.snapshot();
@@ -174,6 +177,7 @@ export class CameraBench {
       settleSignature: { changes: this.settle.changes, first: this.settle.first, last: this.settle.last,
         afterMeasure: this.host.signature(), parts: 'geometries|textures|pipelines', timeline: this.settle.timeline },
       warmFrames: this.warm, frames: this.measure, windowFrames: s.windowFrames,
+      measureMs, fps: measureMs > 0 ? this.measure * 1000 / measureMs : null,
       submittedDraws: {
         total: per(Object.values(this.draws).reduce((a, b) => a + b, 0)),
         prepass: per(this.draws.prepass), beauty: per(this.draws.beauty), csm: per(this.draws.csm),
