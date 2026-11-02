@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { captureIdentity, residentTilesMatch } from './loop-capture-identity.mjs';
+import { captureIdentity, residentTilesMatch, waitForTileManifest } from './loop-capture-identity.mjs';
 
 test('capture identity invalidates evidence when source, assets, tiles or view changes', () => {
   const original = { build: 'a', nature: 'oak', tiles: { t0_0_0: 'old' }, pose: '1,2,3', time: '13:00', quality: 'high',
@@ -17,4 +17,33 @@ test('a full but stale resident model cannot validate a new manifest capture', (
   assert.equal(residentTilesMatch(tiles, { t0_0_0: 'new' }), false);
   assert.equal(residentTilesMatch(tiles, { t0_0_0: 'old' }), true);
   assert.equal(residentTilesMatch(tiles, { t0_0_0: 'old', t0_1_0: 'other' }), false);
+});
+
+test('a farm build and a first pass must finish before capture inputs are accepted', async () => {
+  const full = { pass_kind: 'full', visual: { t0_0_0: { sha256: 'ready' } } };
+  const replies = [new Response('{}', { status: 202 }),
+    new Response(JSON.stringify({ ...full, pass_kind: 'first' })), new Response(JSON.stringify(full))];
+  let waits = 0;
+  const result = await waitForTileManifest('http://local/tile', 't0_0_0', 1000,
+    async () => replies.shift(), async () => { waits++; });
+  assert.deepEqual(result, full);
+  assert.equal(waits, 2);
+});
+
+test('a failed farm build is surfaced without accepting a stale fallback', async () => {
+  await assert.rejects(waitForTileManifest('http://local/tile', 't0_0_0', 1000,
+    async () => new Response('{}', { status: 422 })), /HTTP 422/);
+});
+
+
+test('complete stale farm fallback waits for the requested revision before capture', async () => {
+  const full = { pass_kind: 'full', visual: { t0_0_0: { sha256: 'new' } }, revision: 'current' };
+  const fallback = { ...full, stale: true, revision: 'older', requested_revision: 'current',
+    visual: { t0_0_0: { sha256: 'old' } } };
+  const replies = [new Response(JSON.stringify(fallback)), new Response(JSON.stringify(full))];
+  let waits = 0;
+  const result = await waitForTileManifest('http://local/tile', 't0_0_0', 1000,
+    async () => replies.shift(), async () => { waits++; });
+  assert.equal(result.visual.t0_0_0.sha256, 'new');
+  assert.equal(waits, 1);
 });

@@ -47,6 +47,8 @@ export interface VehicleTuning {
   /** Suspension travel either side of the rest length (m). */
   suspensionTravel: number;
   maxSuspensionForce: number;
+  /** Additional tyre-force roll lever (Rapier internally retains only 10%). */
+  rollTransfer: number;
   /** Share of the engine force on driven steered (front) wheels; the rest goes to the driven rear wheels. */
   frontTorque: number;
   /** Scale of the curb strike's speed loss and lift impulse: long-travel suspension soaks a kerb up. */
@@ -77,6 +79,7 @@ export const CAR = {
   suspensionRelaxation: 5.5,
   suspensionTravel: 0.22,
   maxSuspensionForce: 18000,
+  rollTransfer: 0.55,
   frontTorque: 0,
   curbFeel: 1,
 } as const satisfies VehicleTuning;
@@ -107,6 +110,7 @@ export const SCOOTER = {
   suspensionRelaxation: 5.5,
   suspensionTravel: 0.22,
   maxSuspensionForce: 6000,
+  rollTransfer: 0,
   frontTorque: 0,
   curbFeel: 1,
 } as const satisfies VehicleTuning;
@@ -118,11 +122,11 @@ export const TRUCK = {
   halfExt: { x: 2.35, y: 0.4, z: 1.0 },
   mass: 2400,
   comDrop: 0.35,
-  wheelRadius: 0.46,
-  rest: 0.45,
+  wheelRadius: 0.54,
+  rest: 0.58,
   wheels: [
-    { x: 1.45, y: -0.15, z: -0.95 }, { x: 1.45, y: -0.15, z: 0.95 },
-    { x: -1.45, y: -0.15, z: -0.95 }, { x: -1.45, y: -0.15, z: 0.95 },
+    { x: 1.60, y: -0.15, z: -1.15 }, { x: 1.60, y: -0.15, z: 1.15 },
+    { x: -1.60, y: -0.15, z: -1.15 }, { x: -1.60, y: -0.15, z: 1.15 },
   ],
   steered: [0, 1],
   driven: [0, 1, 2, 3],
@@ -136,8 +140,9 @@ export const TRUCK = {
   suspensionStiffness: 20,
   suspensionCompression: 4.2,
   suspensionRelaxation: 5.6,
-  suspensionTravel: 0.25,
+  suspensionTravel: 0.36,
   maxSuspensionForce: 48000,
+  rollTransfer: 0.35,
   frontTorque: 0.4,
   curbFeel: 0.2,
 } as const satisfies VehicleTuning;

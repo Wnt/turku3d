@@ -24,13 +24,13 @@ export class SeatedVehicles {
   }
 
   load(base: string) {
-    return Promise.all([this.scooter.load(`${base}assets/vehicles/scooter.glb`), this.truck.load(`${base}assets/vehicles/truck.glb`)]);
+    return Promise.all([this.scooter.load(`${base}assets/vehicles/scooter.glb`), this.truck.load()]);
   }
 
   async addTruck(id: string) {
     if (this.byId[id]) return;
     const truck = new TruckVisual(this.root);
-    await truck.load(`${import.meta.env.BASE_URL}assets/vehicles/truck.glb`);
+    await truck.load();
     this.extraTrucks.set(id, truck);
     this.byId[id] = truck;
   }

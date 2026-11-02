@@ -12,6 +12,7 @@ HELPERS = {
     "ortho": ("read_ortho",),
     "wfs": ("Building", "_frame", "buildings", "prepare_wfs"),
     "roads": ("prepare_roads",),
+    "street_profiles": ("_frame",),
     "boats": ("Building", "_frame", "buildings"),
     "trees": ("prepare_trees",),
 }
@@ -50,9 +51,20 @@ def producer_code(dataset):
     constants = ({"ground": (inputs.CELLS, inputs.POINT_MARGIN), "ortho": (inputs.ORTHO_PX,)}).get(
         dataset, ()
     )
-    h = hashlib.sha256(Path(__file__).read_bytes())
+    # Registering a helper for one dataset must not invalidate every other dataset.
+    # Hash the identity algorithm, then only the selected producer definitions below.
+    own = definitions(Path(__file__).read_bytes())
+    h = hashlib.sha256(ast.dump(own['producer_code'], include_attributes=False).encode())
+    h.update(ast.dump(own['definitions'], include_attributes=False).encode())
     h.update(Path(C.__file__).read_bytes())
     h.update(repr(constants).encode())
     for node in selected:
         h.update(ast.dump(node, include_attributes=False).encode())
+    if dataset == 'wfs':
+        from . import ground_finishes
+
+        # WFS assigns visual material IDs; texture pixels do not affect surveyed shells.
+        finish = definitions(Path(ground_finishes.__file__).read_bytes())['street_finish']
+        h.update(ast.dump(finish, include_attributes=False).encode())
+        h.update(repr((ground_finishes.FIELDSTONE, ground_finishes.RED_ASPHALT)).encode())
     return h.digest()

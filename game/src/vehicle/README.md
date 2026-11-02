@@ -104,6 +104,11 @@ driven steered wheels; the rest on the driven rear wheels) and `curbFeel` (scale
 lift impulse). Car and scooter keep their former values (4.8 / 5.5 damping, 0.22 m travel, rear drive, feel 1).
 The handbrake acts on the driven rear wheels only.
 
+The following table records the original handling baseline. Gen 2 uses the original
+KORPI 440 visual with 0.54m tyres, 3.2m wheelbase, 2.3m track, 0.58m suspension rest
+and ±0.36m travel. Current tuning lives in `physics/constants.ts`; power and handling
+changes are measured separately from the original baseline below.
+
 | | Truck | Car |
 |---|---|---|
 | Mass | 2400 kg, centre of mass 0.35 m below the chassis box centre | 1200 kg |

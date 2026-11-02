@@ -3,7 +3,8 @@
 // 3/4 view, its LOD chain side by side, trees' far impostor next to the full mesh at 200 m, the texture sets as
 // swatches, and in-context game shots. Writes JPEGs and a self-contained index.html.
 //   node scripts/nature/gallery.mjs --base http://127.0.0.1:5730/ --out ~/turku3d/loops/assets-gallery
-//     [--context-before DIR] [--profile DIR] [--only tree_birch,...] [--no-context]
+//     [--context-before DIR] [--context-from DIR [--context-only-from]] [--context-note TEXT] [--note TEXT]
+//     [--profile DIR] [--only tree_birch,...] [--no-context]
 // Uses one automation Chrome (tools/dev/chrome-args.mjs) and closes it at the end. Browser slots on the shared Mac go
 // through ~/turku3d/tools/chrome-guard (acquire before launch, touch per capture, release after closing).
 import fs from 'node:fs';
@@ -35,15 +36,77 @@ const SOURCES = {
   tree_rowan: [ACG('LeafSet013'), ACG('Bark010')], tree_willow: [ACG('LeafSet013'), PH('bark_willow', 'Dario Barresi, Dimitrios Savva')],
   tree_pine: [ACG('PineNeedles001'), PH('pine_bark', 'Dimitrios Savva')], tree_spruce: [ACG('LeafSet019'), ACG('Bark004')],
   shrub_lilac: [ACG('LeafSet004'), ACG('Bark010')], shrub_rose: [ACG('LeafSet024'), ACG('Bark010')], shrub_juniper: [ACG('LeafSet019'), ACG('Bark004')],
-  hedge: [ACG('LeafSet002')], grass_clump: [ACG('Foliage001'), ACG('Foliage006')], grass_wide: [ACG('Foliage008')],
+  hedge: [ACG('LeafSet002')], grass_clump: [ACG('Foliage001'), ACG('Foliage006')], grass_lawn: [ACG('Foliage001'), ACG('Foliage006')],
   grass_meadow: [ACG('Foliage003'), ACG('Foliage001')], groundcover_rosette: [ACG('LeafSet020')],
-  picket_fence: [ACG('PaintedWood008A')], board_fence: [ACG('PaintedWood008A')], metal_railing: [], park_fence: [], granite_wall: [ACG('Granite003B')],
+  picket_fence: [], board_fence: [], metal_railing: [], park_fence: [], granite_wall: [ACG('Granite003B')],
 };
 const MADE = {
   tree: 'Procedural skeleton, tube bark, bent leaf cards (scripts/nature/trees.mjs); LOD 1 = whole canopy as flat cards; LOD 2 = baked 3+1-plane impostor',
   shrub: 'Procedural multi-stem shrub (scripts/nature/trees.mjs); LOD 1 = flat cards, fewer stems', hedge: '2 m module: opaque leafy core wrapped in cards',
-  grass: 'Crossed cards (rosette: one flat card) with our composed atlas cell', fence: '2 m module modelled in Blender 5.2 through Blender MCP (one post per module); LOD 1 simplified',
+  grass: 'Crossed cards (lawn: two wide low cards that overlap into a carpet; rosette: one flat card) with our composed atlas cell', fence: '2 m module modelled in Blender 5.2 through Blender MCP (one post per module); LOD 1 simplified',
 };
+
+// Texture sets as swatches (alpha shown over grey).
+const swatches = [];
+for (const [file, title, note] of [
+  ['foliage.png', 'Foliage card atlas', '2048² ETC1S + alpha: 16 cards (8 trees, 4 shrubs, grass tuft, lawn band, meadow, rosette) composed from CC0 leaf scans'],
+  ['bark.png', 'Bark column atlas', '4096×512 ETC1S: birch, Scots pine, spruce, oak, linden, maple, smooth, willow; 448 px columns with wrap gutters'],
+  ['bark-normal.png', 'Bark normals', '2048×256 UASTC (shipped at half the albedo resolution)'],
+  ['impostor-albedo.png', 'Impostor atlas', 'ETC1S + alpha: every tree model × (3 side views + top view), baked on the CPU from LOD 0'],
+  ['impostor-normal.png', 'Impostor normals', 'UASTC at half resolution, plane tangent space'],
+  ['wood.png', 'Painted wood', '512² ETC1S, drawn by our code (grain, knots, flaked paint); paint colour per instance'], ['woodNormal.png', 'Wood normal', '512² UASTC, from the drawn height field'],
+  ['granite.png', 'Granite', '512² ETC1S'], ['graniteNormal.png', 'Granite normal', '512² UASTC'], ['chain.png', 'Chain-link wire', '256² ETC1S + alpha, drawn by our code'],
+]) {
+  const src = path.join(previews, file);
+  if (!fs.existsSync(src)) continue;
+  const meta = await sharp(src).metadata(), wide = meta.width / meta.height > 3;
+  await sharp(src).resize(wide ? 2048 : 1024).flatten({ background: '#8a9aa8' }).jpeg({ quality: 88 }).toFile(path.join(out, 'img', file.replace('.png', '.jpg')));
+  swatches.push({ img: `img/${file.replace('.png', '.jpg')}`, title, note, wide });
+}
+
+
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const tris = a => a.lods.map((l, k) => `LOD${k} ${l.triangles.toLocaleString('en')}`).join(' · ');
+const card = (name, a) => {
+  // Assets not rendered in this run (--only) keep their images from an earlier run in the same folder.
+  const disk = file => fs.existsSync(path.join(out, 'img', file)) ? `img/${file}` : undefined;
+  const s = shots[name] ?? { lod0: disk(`${name}-lod0.jpg`), chain: disk(`${name}-lods.jpg`), farFull: disk(`${name}-far-lod0.jpg`), farImpostor: disk(`${name}-far-lod2.jpg`) };
+  const src = SOURCES[name] ?? [];
+  const imgs = [[s.lod0, 'LOD 0, eye height, 3/4 view'], [s.chain, 'LOD chain side by side'], [s.farFull, 'full mesh at 200 m'], [s.farImpostor, 'impostor at 200 m']]
+    .filter(([i]) => i).map(([i, c]) => `<figure><a href="${i}"><img src="${i}" loading="lazy" alt="${esc(name)} ${c}"></a><figcaption>${c}</figcaption></figure>`).join('');
+  return `<section class="card"><h3>${esc(name)} <span>${esc(a.species ?? a.kind)}</span></h3><div class="imgs">${imgs}</div>
+  <p><b>Triangles</b> ${tris(a)} · draws per LOD ${a.lods.map(l => l.draws.length).join('/')} · ${a.height} m tall${a.module ? ` · ${a.module} m module` : ` · radius ${a.radius} m`}</p>
+  <p><b>Made</b> ${esc(MADE[a.kind])}</p>
+  <p><b>Sources</b> ${src.length ? src.map(([t, u]) => `<a href="${u}">${esc(t)}</a>`).join(', ') + ' — CC0 1.0' : a.kind === 'fence' ? 'textures drawn by our code (wood, chain-link) or none (metal)' : 'no sourced texture'}; geometry project-owned (MIT)</p></section>`;
+};
+const groups = [['Trees', 'tree'], ['Shrubs and hedge', ['shrub', 'hedge']], ['Grass and ground cover', 'grass'], ['Fence kit', 'fence']];
+const textures = Object.entries(manifest.textures).map(([n, t]) => `<tr><td>${n}</td><td>${t.width}×${t.height}</td><td>${t.format}</td><td>${(t.bytes / 1024).toFixed(0)} KiB</td></tr>`).join('');
+/** The page from the shots so far; written after every asset so a partial gallery is viewable while rendering. */
+const writeIndex = done => fs.writeFileSync(path.join(out, 'index.html'), `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nature asset gallery</title><style>
+:root{--bg:#f4f5f2;--fg:#1d2320;--muted:#5d6661;--card:#fff;--line:#d9ddd6}
+@media (prefers-color-scheme:dark){:root{--bg:#141716;--fg:#e6ebe7;--muted:#9aa49e;--card:#1d2120;--line:#2e3532}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
+main{max-width:1500px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:8px 0}h2{margin:28px 0 10px;font-size:18px}h3{margin:0 0 8px;font-size:15px}h3 span{color:var(--muted);font-weight:400}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,640px),1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
+.imgs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+figure{margin:0}img{width:100%;display:block;border-radius:4px}figcaption{font-size:12px;color:var(--muted)}
+p{margin:6px 0}a{color:inherit}table{border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 10px 2px 0}
+.wide{grid-column:1/-1}.muted{color:var(--muted)}
+</style></head><body><main>
+<h1>Turku3D nature asset library</h1>
+${done ? '' : '<p><b>Rendering in progress: this page fills in as assets render; reload for more.</b></p>'}
+${opt('--note') ? `<p>${esc(opt('--note'))}</p>` : ''}
+<p class="muted">Branch <code>local/assets-nature</code> · nature.glb ${(manifest.glb.bytes / 1048576).toFixed(2)} MiB (KTX2 + meshopt) · rendered ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC with the game's renderer, shadows and post-processing at 13:00, wind off.
+All texture inputs are CC0 1.0 (ambientCG, Poly Haven); compositions, generated geometry and the Blender-MCP fence kit are project-owned. Sources and rebuild: <code>game/public/assets/nature/README.md</code>.</p>
+${groups.map(([title, kinds]) => `<h2>${title}</h2><div class="grid">${Object.entries(manifest.assets).filter(([, a]) => [].concat(kinds).includes(a.kind)).map(([n, a]) => card(n, a)).join('')}</div>`).join('\n')}
+<h2>Texture sets</h2><table>${textures}</table><div class="grid">${swatches.map(s => `<section class="card${s.wide ? ' wide' : ''}"><h3>${esc(s.title)}</h3><a href="${s.img}"><img src="${s.img}" loading="lazy" alt="${esc(s.title)}"></a><p class="muted">${esc(s.note)}</p></section>`).join('')}</div>
+<h2>In context</h2><p class="muted">${esc(opt('--context-note', "The game's fixed QA camera at 13:00, high quality. Before: the committed compare shots (Kenney prototype trees). After: this branch (species trees, grass patches, fence kit)."))}</p>
+<div class="grid">${(shots.context ?? []).map(c => `<section class="card wide"><h3>${esc(c.id)} <span>${esc(c.place)}</span></h3><div class="imgs">${c.before ? `<figure><a href="${c.before}"><img src="${c.before}" loading="lazy" alt="before"></a><figcaption>before</figcaption></figure>` : ''}<figure><a href="${c.after}"><img src="${c.after}" loading="lazy" alt="after"></a><figcaption>after${c.fresh ? ' (this build)' : ' (earlier shot of this branch)'}</figcaption></figure></div></section>`).join('')}</div>
+${errors.length ? `<p class="muted">Page errors while rendering: ${esc(errors.slice(0, 3).join(' | '))}</p>` : ''}
+</main></body></html>`);
 
 const guardTool = path.join(os.homedir(), 'turku3d/tools/chrome-guard/guard.py');
 const guard = command => fs.existsSync(guardTool) ? spawnSync('python3', [guardTool, command, 'assets-nature'], { stdio: 'inherit' }).status : 0;
@@ -88,91 +151,48 @@ try {
       entry.farImpostor = await shoot(`${name}-far-lod2.jpg`, { view: 'asset', asset: name, lod: '2', cam: far, fov });
     }
     console.log(name, Object.keys(entry).join(' '));
+    writeIndex(false);
   }
   // In context: the current branch in the game's fixed QA camera, next to the committed before shots.
   const cameras = JSON.parse(fs.readFileSync(path.join(before, 'cameras.json'), 'utf8')).cameras;
   shots.context = [];
+  // With --no-context, the in-context section keeps the previous run's entries.
+  const previous = path.join(out, 'context.json');
+  if (args.includes('--no-context') && fs.existsSync(previous)) shots.context = JSON.parse(fs.readFileSync(previous, 'utf8'));
   // --context-from DIR reuses capture.mjs shots (NN-<id>-1300.png) instead of rendering them here.
   const from = opt('--context-from');
   if (!args.includes('--no-context')) for (const id of ['park', 'river-promenade', 'centre-street', 'residential', 'overview-lowrise']) {
     const cam = cameras.find(c => c.id === id), n = String(cameras.indexOf(cam) + 1).padStart(2, '0');
     const after = path.join(out, 'img', `context-${id}-after.jpg`);
-    if (from) {
-      // Extra shots in the same folder (e.g. NN-<id>-1300-grass.png) are not looked up; one after shot per pose.
-      const shot = path.join(from, `${n}-${id}-1300.png`);
-      if (!fs.existsSync(shot)) continue;
+    // Fresh shot in the game unless --context-only-from; a pose that fails to load falls back to --context-from.
+    let fresh = false;
+    if (!args.includes('--context-only-from')) {
+      try {
+        guard('touch');
+        await page.goto(`${base}?cam=${cam.cam}&time=13:00&quality=high&hud=0&traffic=0&walkers=0`);
+        await page.waitForFunction(() => window.__qaReady || window.__qaError, null, { timeout: 240000 });
+        await page.waitForTimeout(8000);
+        await page.evaluate(() => document.querySelectorAll('.draft-status, #draft-status').forEach(e => e.remove()));
+        await page.screenshot({ path: after, type: 'jpeg', quality: 86, timeout: 120000 });
+        fresh = true;
+      } catch (error) { console.error('context', id, String(error).split('\n')[0]); }
+    }
+    if (!fresh) {
+      const shot = from && path.join(from, `${n}-${id}-1300.png`);
+      if (!shot || !fs.existsSync(shot)) continue;
       await sharp(shot).resize(1280).jpeg({ quality: 86 }).toFile(after);
-    } else {
-      guard('touch');
-      await page.goto(`${base}?cam=${cam.cam}&time=13:00&quality=high&hud=0&traffic=0&walkers=0`);
-      await page.waitForFunction(() => window.__qaReady || window.__qaError, null, { timeout: 240000 });
-      await page.waitForTimeout(8000);
-      await page.evaluate(() => document.querySelectorAll('.draft-status, #draft-status').forEach(e => e.remove()));
-      await page.screenshot({ path: after, type: 'jpeg', quality: 86, timeout: 120000 });
     }
     const old = path.join(before, `${n}-${id}-1300.png`);
     if (fs.existsSync(old)) await sharp(old).resize(1280).jpeg({ quality: 86 }).toFile(path.join(out, 'img', `context-${id}-before.jpg`));
-    shots.context.push({ id, place: cam.place, before: fs.existsSync(old) ? `img/context-${id}-before.jpg` : null, after: `img/context-${id}-after.jpg` });
-    console.log('context', id);
+    shots.context.push({ id, place: cam.place, fresh, before: fs.existsSync(old) ? `img/context-${id}-before.jpg` : null, after: `img/context-${id}-after.jpg` });
+    console.log('context', id, fresh ? 'fresh' : 'earlier shot');
+    writeIndex(false);
   }
+  fs.writeFileSync(previous, JSON.stringify(shots.context));
 } finally {
   await context.close();
   guard('release');
 }
 
-// Texture sets as swatches (alpha shown over grey).
-const swatches = [];
-for (const [file, title, note] of [
-  ['foliage.png', 'Foliage card atlas', '2048² ETC1S + alpha: 16 cards (8 trees, 4 shrubs, grass, wide grass, meadow, rosette) composed from CC0 leaf scans'],
-  ['bark.png', 'Bark column atlas', '4096×512 ETC1S: birch, Scots pine, spruce, oak, linden, maple, smooth, willow; 448 px columns with wrap gutters'],
-  ['bark-normal.png', 'Bark normals', '2048×256 UASTC (shipped at half the albedo resolution)'],
-  ['impostor-albedo.png', 'Impostor atlas', 'ETC1S + alpha: every tree model × (3 side views + top view), baked on the CPU from LOD 0'],
-  ['impostor-normal.png', 'Impostor normals', 'UASTC at half resolution, plane tangent space'],
-  ['wood.png', 'Painted wood', '512² ETC1S, desaturated; paint colour per instance'], ['woodNormal.png', 'Wood normal', '512² UASTC'],
-  ['granite.png', 'Granite', '512² ETC1S'], ['graniteNormal.png', 'Granite normal', '512² UASTC'], ['chain.png', 'Chain-link wire', '256² ETC1S + alpha, drawn by our code'],
-]) {
-  const src = path.join(previews, file);
-  if (!fs.existsSync(src)) continue;
-  const meta = await sharp(src).metadata(), wide = meta.width / meta.height > 3;
-  await sharp(src).resize(wide ? 2048 : 1024).flatten({ background: '#8a9aa8' }).jpeg({ quality: 88 }).toFile(path.join(out, 'img', file.replace('.png', '.jpg')));
-  swatches.push({ img: `img/${file.replace('.png', '.jpg')}`, title, note, wide });
-}
-
-const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-const tris = a => a.lods.map((l, k) => `LOD${k} ${l.triangles.toLocaleString('en')}`).join(' · ');
-const card = (name, a) => {
-  const s = shots[name] ?? {}, src = SOURCES[name] ?? [];
-  const imgs = [[s.lod0, 'LOD 0, eye height, 3/4 view'], [s.chain, 'LOD chain side by side'], [s.farFull, 'full mesh at 200 m'], [s.farImpostor, 'impostor at 200 m']]
-    .filter(([i]) => i).map(([i, c]) => `<figure><a href="${i}"><img src="${i}" loading="lazy" alt="${esc(name)} ${c}"></a><figcaption>${c}</figcaption></figure>`).join('');
-  return `<section class="card"><h3>${esc(name)} <span>${esc(a.species ?? a.kind)}</span></h3><div class="imgs">${imgs}</div>
-  <p><b>Triangles</b> ${tris(a)} · draws per LOD ${a.lods.map(l => l.draws.length).join('/')} · ${a.height} m tall${a.module ? ` · ${a.module} m module` : ` · radius ${a.radius} m`}</p>
-  <p><b>Made</b> ${esc(MADE[a.kind])}</p>
-  <p><b>Sources</b> ${src.length ? src.map(([t, u]) => `<a href="${u}">${esc(t)}</a>`).join(', ') + ' — CC0 1.0' : 'no texture (material colour)'}; geometry project-owned (MIT)</p></section>`;
-};
-const groups = [['Trees', 'tree'], ['Shrubs and hedge', ['shrub', 'hedge']], ['Grass and ground cover', 'grass'], ['Fence kit', 'fence']];
-const textures = Object.entries(manifest.textures).map(([n, t]) => `<tr><td>${n}</td><td>${t.width}×${t.height}</td><td>${t.format}</td><td>${(t.bytes / 1024).toFixed(0)} KiB</td></tr>`).join('');
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nature asset gallery</title><style>
-:root{--bg:#f4f5f2;--fg:#1d2320;--muted:#5d6661;--card:#fff;--line:#d9ddd6}
-@media (prefers-color-scheme:dark){:root{--bg:#141716;--fg:#e6ebe7;--muted:#9aa49e;--card:#1d2120;--line:#2e3532}}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif}
-main{max-width:1500px;margin:0 auto;padding:16px}
-h1{font-size:22px;margin:8px 0}h2{margin:28px 0 10px;font-size:18px}h3{margin:0 0 8px;font-size:15px}h3 span{color:var(--muted);font-weight:400}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,640px),1fr));gap:14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
-.imgs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
-figure{margin:0}img{width:100%;display:block;border-radius:4px}figcaption{font-size:12px;color:var(--muted)}
-p{margin:6px 0}a{color:inherit}table{border-collapse:collapse;font-variant-numeric:tabular-nums}td{padding:2px 10px 2px 0}
-.wide{grid-column:1/-1}.muted{color:var(--muted)}
-</style></head><body><main>
-<h1>Turku3D nature asset library</h1>
-<p class="muted">Branch <code>local/assets-nature</code> · nature.glb ${(manifest.glb.bytes / 1048576).toFixed(2)} MiB (KTX2 + meshopt) · rendered ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC with the game's renderer, shadows and post-processing at 13:00, wind off.
-All texture inputs are CC0 1.0 (ambientCG, Poly Haven); compositions, generated geometry and the Blender-MCP fence kit are project-owned. Sources and rebuild: <code>game/public/assets/nature/README.md</code>.</p>
-${groups.map(([title, kinds]) => `<h2>${title}</h2><div class="grid">${Object.entries(manifest.assets).filter(([, a]) => [].concat(kinds).includes(a.kind)).map(([n, a]) => card(n, a)).join('')}</div>`).join('\n')}
-<h2>Texture sets</h2><table>${textures}</table><div class="grid">${swatches.map(s => `<section class="card${s.wide ? ' wide' : ''}"><h3>${esc(s.title)}</h3><a href="${s.img}"><img src="${s.img}" loading="lazy" alt="${esc(s.title)}"></a><p class="muted">${esc(s.note)}</p></section>`).join('')}</div>
-<h2>In context</h2><p class="muted">${esc(opt('--context-note', "The game's fixed QA camera at 13:00, high quality. Before: the committed compare shots (Kenney prototype trees). After: this branch (species trees, grass patches, fence kit)."))}</p>
-<div class="grid">${(shots.context ?? []).map(c => `<section class="card wide"><h3>${esc(c.id)} <span>${esc(c.place)}</span></h3><div class="imgs">${c.before ? `<figure><a href="${c.before}"><img src="${c.before}" loading="lazy" alt="before"></a><figcaption>before</figcaption></figure>` : ''}<figure><a href="${c.after}"><img src="${c.after}" loading="lazy" alt="after"></a><figcaption>after</figcaption></figure></div></section>`).join('')}</div>
-${errors.length ? `<p class="muted">Page errors while rendering: ${esc(errors.slice(0, 3).join(' | '))}</p>` : ''}
-</main></body></html>`;
-fs.writeFileSync(path.join(out, 'index.html'), html);
+writeIndex(true);
 console.log(`gallery: ${path.join(out, 'index.html')}`);

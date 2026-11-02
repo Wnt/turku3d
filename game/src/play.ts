@@ -489,6 +489,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       }
       traffic.update(now, camera, st);
       audio.emit({ type: 'traffic', ...traffic.audible(camera.position, TRAFFIC_VOICES) });
+      parkedVisuals.setView(camera, world.dayClock.night);
       parkedVisuals.update(st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
@@ -563,7 +564,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
     if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
     coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel);
-    parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)));
+    parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)), world.sharedNow());
     parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
@@ -621,6 +622,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       remotePlayers.dispose();
       tyreEffects.dispose();
       walkers.dispose();
+      parkedVisuals.dispose();
       poles.dispose();
       scoreboard.dispose(); rounds.dispose();
       listeners.abort();

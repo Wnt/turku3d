@@ -18,22 +18,22 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | Asset | Species / kind | Height (m) | LOD 0 | LOD 1 | LOD 2 |
 |---|---|---|---|---|---|
 <!-- table:begin -->
-| `tree_birch` | birch | 17.35 | 3,804 | 1,618 | 8 |
-| `tree_birch_v2` | birch | 16.9 | 3,816 | 1,618 | 8 |
-| `tree_linden` | linden | 18.78 | 7,196 | 2,088 | 8 |
-| `tree_linden_v2` | linden | 18.67 | 7,184 | 2,082 | 8 |
-| `tree_maple` | maple | 18.21 | 6,536 | 1,982 | 8 |
-| `tree_maple_v2` | maple | 17.47 | 6,620 | 1,964 | 8 |
-| `tree_oak` | oak | 14.35 | 7,244 | 2,320 | 8 |
-| `tree_oak_v2` | oak | 15.26 | 7,144 | 2,324 | 8 |
-| `tree_rowan` | rowan | 11.12 | 2,364 | 978 | 8 |
-| `tree_rowan_v2` | rowan | 11.23 | 2,364 | 978 | 8 |
-| `tree_willow` | willow | 18.28 | 7,316 | 2,074 | 8 |
-| `tree_willow_v2` | willow | 16.47 | 7,244 | 2,080 | 8 |
-| `tree_pine` | pine | 19.01 | 2,386 | 994 | 8 |
-| `tree_pine_v2` | pine | 19.05 | 2,412 | 1,008 | 8 |
-| `tree_spruce` | spruce | 16.8 | 9,630 | 2,346 | 8 |
-| `tree_spruce_v2` | spruce | 16.66 | 9,060 | 2,088 | 8 |
+| `tree_birch` | birch | 16.91 | 5,936 | 1,676 | 8 |
+| `tree_birch_v2` | birch | 16.9 | 5,948 | 1,626 | 8 |
+| `tree_linden` | linden | 18.47 | 9,796 | 2,238 | 8 |
+| `tree_linden_v2` | linden | 19.13 | 9,784 | 2,236 | 8 |
+| `tree_maple` | maple | 17.72 | 8,812 | 2,068 | 8 |
+| `tree_maple_v2` | maple | 16.81 | 8,896 | 1,958 | 8 |
+| `tree_oak` | oak | 13.87 | 9,848 | 2,408 | 8 |
+| `tree_oak_v2` | oak | 15.09 | 9,752 | 2,398 | 8 |
+| `tree_rowan` | rowan | 10.56 | 3,644 | 1,008 | 8 |
+| `tree_rowan_v2` | rowan | 11.27 | 3,648 | 996 | 8 |
+| `tree_willow` | willow | 18.53 | 9,512 | 2,174 | 8 |
+| `tree_willow_v2` | willow | 16.82 | 9,440 | 2,186 | 8 |
+| `tree_pine` | pine | 19.37 | 3,910 | 1,228 | 8 |
+| `tree_pine_v2` | pine | 19.47 | 3,936 | 1,222 | 8 |
+| `tree_spruce` | spruce | 17.87 | 11,990 | 3,026 | 8 |
+| `tree_spruce_v2` | spruce | 17.33 | 11,424 | 2,816 | 8 |
 | `shrub_lilac` | lilac | 4 | 988 | 502 | - |
 | `shrub_lilac_v2` | lilac | 3.87 | 964 | 490 | - |
 | `shrub_rose` | rose | 1.76 | 660 | 330 | - |
@@ -42,7 +42,7 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | `shrub_juniper_v2` | juniper | 3.58 | 1,454 | 732 | - |
 | `hedge` | privet | 1.2 | 1,206 | 226 | - |
 | `grass_clump` | grass | 0.42 | 6 | - | - |
-| `grass_wide` | grass | 0.5 | 6 | - | - |
+| `grass_lawn` | grass | 0.36 | 6 | - | - |
 | `grass_meadow` | grass | 0.75 | 6 | - | - |
 | `groundcover_rosette` | grass | 0.05 | 2 | - | - |
 | `picket_fence` | fence | 1.1 | 294 | 64 | - |
@@ -53,8 +53,8 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | `granite_wall` | fence | 0.6 | 308 | 20 | - |
 <!-- table:end -->
 
-Shared textures (KTX2, embedded): foliage card atlas 2048² ETC1S (16 cards: eight trees, four shrubs, grass, wide
-grass, meadow, ground rosette), bark column atlas 4096×512 ETC1S with a 2048×256 UASTC normal map (8 barks),
+Shared textures (KTX2, embedded): foliage card atlas 2048² ETC1S (16 cards: eight trees, four shrubs, grass tuft,
+lawn band, meadow, ground rosette), bark column atlas 4096×512 ETC1S with a 2048×256 UASTC normal map (8 barks),
 impostor atlas 2048×1024 ETC1S (16 tree models × 3 side views + 1 top view, 128×256 cells) with a 1024×512 UASTC
 normal map, 512² wood and granite albedo/normal tiles and a 256² chain-link wire tile. Positions (14 bit) and
 normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them back to float geometry. Draws per tree: bark + leaves at LOD 0 and 1, one impostor draw at LOD 2.
@@ -84,7 +84,12 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
   `chain-fence.prompt.md`, run with `scripts/nature/blender-mcp-session.sh`). The build reads the export
   (`blender/fence-kit.glb`, SHA-256 `dad280d9056570104287bb33bc95d046a85a99dc7585eef8cfa64d218f35454b`) and binds the
   wood, metal, granite and chain-link materials. Paint and steel colours are per instance; the chain-link wire is an
-  alpha-tested 256 px tile drawn by our code (5 cm diamonds).
+  alpha-tested 256 px tile drawn by our code (5 cm diamonds). The painted wood (albedo and normal map: grain, knots,
+  flaked paint) is also drawn by our code: the ambientCG PaintedWood008A scan used before carried stencilled
+  lettering in its relief and was removed on 2026-11-02. Every remaining sourced set was then checked by eye at full
+  resolution (sources and the shipped foliage atlas, bark atlas and normals, granite) for lettering, logos, stamps
+  and rulers: Bark010 has initials carved into the bark, and the build clones clean bark over them in both maps
+  (`clonePatch` in `scripts/nature/textures.mjs`); nothing else was found.
 
 ## Sources (all CC0 1.0)
 
@@ -101,16 +106,15 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
 | [ambientCG LeafSet019](https://ambientcg.com/view?id=LeafSet019) | spruce and juniper sprays | ambientCG | CC0 1.0 |
 | [ambientCG LeafSet020](https://ambientcg.com/view?id=LeafSet020) | dandelion rosette | ambientCG | CC0 1.0 |
 | [ambientCG PineNeedles001](https://ambientcg.com/view?id=PineNeedles001) | Scots pine needles | ambientCG | CC0 1.0 |
-| [ambientCG Foliage001](https://ambientcg.com/view?id=Foliage001), [Foliage006](https://ambientcg.com/view?id=Foliage006), [Foliage008](https://ambientcg.com/view?id=Foliage008), [Foliage003](https://ambientcg.com/view?id=Foliage003) | grass blades, weeds | ambientCG | CC0 1.0 |
-| [ambientCG Bark009](https://ambientcg.com/view?id=Bark009), [Bark004](https://ambientcg.com/view?id=Bark004), [Bark002](https://ambientcg.com/view?id=Bark002), [Bark010](https://ambientcg.com/view?id=Bark010) | birch, spruce, maple, smooth (rowan/shrubs) bark | ambientCG | CC0 1.0 |
+| [ambientCG Foliage001](https://ambientcg.com/view?id=Foliage001), [Foliage006](https://ambientcg.com/view?id=Foliage006), [Foliage003](https://ambientcg.com/view?id=Foliage003) | grass blades (clump and lawn cards), weeds | ambientCG | CC0 1.0 |
+| [ambientCG Bark009](https://ambientcg.com/view?id=Bark009), [Bark004](https://ambientcg.com/view?id=Bark004), [Bark002](https://ambientcg.com/view?id=Bark002), [Bark010](https://ambientcg.com/view?id=Bark010) | birch, spruce, maple, smooth (rowan/shrubs) bark; Bark010's carved initials cloned out | ambientCG | CC0 1.0 |
 | [ambientCG Granite003B](https://ambientcg.com/view?id=Granite003B) | granite wall | ambientCG | CC0 1.0 |
-| [ambientCG PaintedWood008A](https://ambientcg.com/view?id=PaintedWood008A) | painted fence wood (desaturated) | ambientCG | CC0 1.0 |
 | [Poly Haven pine_bark](https://polyhaven.com/a/pine_bark) | Scots pine bark | Dimitrios Savva | [CC0 1.0](https://polyhaven.com/license) |
 | [Poly Haven jolcham_oak_bark_01](https://polyhaven.com/a/jolcham_oak_bark_01) | oak bark | Charlotte Baglioni | CC0 1.0 |
 | [Poly Haven bark_brown_02](https://polyhaven.com/a/bark_brown_02) | linden bark | Rob Tuytel | CC0 1.0 |
 | [Poly Haven bark_willow](https://polyhaven.com/a/bark_willow) | willow bark | Dario Barresi, Dimitrios Savva | CC0 1.0 |
 
-ambientCG archives are the 2K-PNG (leaves, foliage) and 1K-JPG (barks, granite, wood) downloads of 2026-11-02;
+ambientCG archives are the 2K-PNG (leaves, foliage) and 1K-JPG (barks, granite) downloads of 2026-11-02;
 Poly Haven files are the 1k JPG diffuse and OpenGL normal maps. Their SHA-256 hashes are pinned in
 `scripts/nature/fetch-sources.mjs`.
 
@@ -125,3 +129,7 @@ node scripts/build-nature-assets.mjs                       # writes nature.glb a
 ```
 
 The build is deterministic (seeded); previews of the atlases go to `~/turku3d/data/assets-src/nature/build/previews`.
+
+Both spruce variants expose their lower trunks and drooping branches with smaller, less horizontal foliage cards.
+Their matching reduced meshes and impostors are rebuilt together; measured world height and crown radius remain independent.
+Grass metadata uses the actual vertex height and radial extent, rounded outwards for conservative placement bounds.

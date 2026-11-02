@@ -146,6 +146,16 @@ def inputs(tmp_path):
     )
 
 
+def test_first_manifest_uses_serializable_generator_identity(tmp_path, inputs):
+    from turku3d.coarse.packaging import code_hash
+
+    out = tmp_path / "coarse" / TILE.id
+    result = build(TILE.id, out, inputs=inputs, first_pass=True)
+    assert result["code"] == code_hash()
+    assert json.loads((out / "first.json").read_text())["code"] == result["code"]
+    assert json.loads((out / "collision.json").read_text())["code"] == result["code"]
+
+
 def test_basic_visual_and_collision_publish_before_texture_work(tmp_path, inputs, monkeypatch):
     import importlib
 

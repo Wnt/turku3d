@@ -127,6 +127,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     from turku3d import config as C
     from turku3d.coarse import build as generator
     from turku3d.coarse.bridges import Deck
+    from turku3d.coarse.stages import deck_stage
 
     def sampler(points):
         return np.full(len(points), 7.25)
@@ -148,7 +149,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
         np.array([False]),
         SimpleNamespace(roads={}),
     )
-    result = cache.run("bridges", "v1", [], lambda: generator.deck_stage(*args))
+    result = cache.run("bridges", "v1", [], lambda: deck_stage(*args))
     assert result[3] == {"json": b"7.25"}
     assert result[1][0].height_at is None
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
@@ -363,3 +364,119 @@ def test_shared_prepared_inputs_do_not_delete_other_versions(tmp_path, monkeypat
     _save(second, 'two', [2])
     assert _load(first, 'one') == [1]
     assert _load(second, 'two') == [2]
+
+
+def test_shared_source_hashes_reuse_across_revisions_and_detect_same_size_edits(tmp_path, monkeypatch):
+    import hashlib
+    from turku3d.tile_layer import identities
+    source = tmp_path / 'source'
+    source.write_bytes(b'one')
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'first'))
+    calls = []
+    digest = hashlib.file_digest
+    def count(*args, **kwargs):
+        calls.append(1)
+        return digest(*args, **kwargs)
+    monkeypatch.setattr(hashlib, 'file_digest', count)
+    first = identities({'source': source})
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'second'))
+    assert identities({'source': source}) == first
+    assert len(calls) == 1
+    stat = source.stat()
+    source.write_bytes(b'two')
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert identities({'source': source}) != first
+    assert len(calls) == 2
+
+
+def test_ground_producer_identity_ignores_cache_telemetry_but_tracks_interpolation(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs
+    from turku3d.coarse.input_keys import producer_code
+    before = producer_code('ground')
+    original = Path.read_bytes
+    source = Path(inputs.__file__)
+    def telemetry(path):
+        data = original(path)
+        return data + b'\n# extra cache metrics\n' if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', telemetry)
+    assert producer_code('ground') == before
+    def geometry(path):
+        data = original(path)
+        return data.replace(b'h[missing] = points[nearest, 1]', b'h[missing] = points[nearest, 1] + 0.01') if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', geometry)
+    assert producer_code('ground') != before
+
+
+def test_prepared_wfs_ignores_texture_pixels_but_tracks_visual_material_assignment(tmp_path, monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs, ground_finishes
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    before = inputs._key([], 'wfs')
+    original = Path.read_bytes
+    source = Path(ground_finishes.__file__)
+    def pixels(path):
+        data = original(path)
+        return data.replace(b'def maps(key, size=None):', b'def maps(key, size=256):') if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', pixels)
+    assert inputs._key([], 'wfs') == before
+    monkeypatch.setattr(ground_finishes, 'FIELDSTONE', 130)
+    assert inputs._key([], 'wfs') != before
+
+
+def test_registering_unrelated_dataset_helper_preserves_existing_inputs(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import input_keys
+    before = input_keys.producer_code('ground')
+    original = Path.read_bytes
+    source = Path(input_keys.__file__)
+    def extra_helper(path):
+        data = original(path)
+        return data.replace(b'HELPERS = {', b'HELPERS = {"new_dataset": ("new_helper",),') if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', extra_helper)
+    assert input_keys.producer_code('ground') == before
+
+
+def test_shared_preparation_reads_published_result_after_waiting_for_another_version(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    import time
+    from turku3d.coarse.inputs import _input_lock, _load, _save, _ABSENT
+    target = tmp_path / 'shared/inputs/t0_0_0/wfs.same-key.pkl'
+    started = threading.Event()
+    prepared = []
+    def prepare():
+        with _input_lock(target):
+            value = _load(target, 'same-key')
+            if value is _ABSENT:
+                prepared.append(1)
+                started.set()
+                time.sleep(.03)
+                _save(target, 'same-key', {'buildings': [1, 2]})
+                value = _load(target, 'same-key')
+            return value
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(prepare)
+        assert started.wait(2)
+        second = pool.submit(prepare)
+        assert first.result() == second.result() == {'buildings': [1, 2]}
+    assert len(prepared) == 1
+
+
+def test_building_layer_uses_mesh_content_not_upstream_producer_key(tmp_path):
+    from turku3d import config as C
+    from turku3d.package.gltf import GlbMesh
+    from turku3d.wall_assembly import assemble_layers
+    tile = C.VisualTile(0, 0, 0)
+    cache = StageCache(tmp_path / '.stages' / tile.id)
+    out = tmp_path / tile.id
+    stage = out / '.stage'
+    stage.mkdir(parents=True)
+    for producer in ('one', 'two'):
+        cache.metrics['building_visual'] = {'key': producer}
+        mesh = GlbMesh('wall', np.array([[0., 0, 0], [10, 0, 0], [0, 10, 0]]),
+                       np.array([[0, 1, 2]]), extras={'building_id': 'building', 'layer': 'buildings',
+                                                       'object_id': 'wall', 'material_key': 'plaster'})
+        assemble_layers(tile, [], [mesh], [], out, stage, cache)
+        assert cache.metrics['building_layer']['cached'] == (producer == 'two')

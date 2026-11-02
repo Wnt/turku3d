@@ -50,7 +50,7 @@ test('truck tuning: heavy 4WD on big tyres and soft, strongly damped long-travel
   expect(TRUCK.driven).toEqual([0, 1, 2, 3]);
   expect(TRUCK.steered).toEqual([0, 1]);
   expect(TRUCK.frontTorque).toBeCloseTo(0.4);
-  expect(TRUCK.suspensionTravel).toBeCloseTo(0.25);
+  expect(TRUCK.suspensionTravel).toBeCloseTo(0.36);
   expect(TRUCK.mass).toBeGreaterThanOrEqual(2 * CAR.mass);
   expect(TRUCK.wheelRadius).toBeGreaterThan(CAR.wheelRadius * 1.3);
   // Spring rate per unit mass: softer. Damping ratio (4 c / (2 ω), ω = 2 √k for four wheels): higher.
