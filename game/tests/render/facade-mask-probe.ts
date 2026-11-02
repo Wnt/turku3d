@@ -1,11 +1,12 @@
 // Run in the existing dev page via CDP; this probe never launches a browser.
 import * as THREE from 'three/webgpu';
+import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { float, step, uv, vec2, vec3 } from 'three/tsl';
 import { facadeAttribute, interleaveProgram } from '../../src/render/facadeProgramAttributes';
 import { programLayout } from '../../src/render/facadeProgram';
 import { facadeKitMaterial } from '../../src/render/facadeKit';
 
-export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
+export async function probeFacadeMasks(renderer: THREE.WebGPURenderer, environment?: THREE.Texture | null) {
   const previous = renderer.getRenderTarget();
   const target = new THREE.RenderTarget(256, 256);
   const resources: { dispose(): void }[] = [];
@@ -70,6 +71,10 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
     interleaveProgram(geometry);
     const map = (bytes: number[]) => {
       const texture = new THREE.DataTexture(new Uint8Array(bytes), 1, 1);
+      // Production KTX2 atlases are filtered. DataTexture's nearest defaults
+      // omit a sampler in Three.js even though this material uses textureSampleGrad.
+      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.LinearFilter;
       texture.needsUpdate = true; resources.push(texture); return texture;
     };
     const source = new THREE.MeshStandardMaterial({ map: map([255, 255, 255, 0]),
@@ -80,7 +85,17 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
     material.toneMapped = false;
     resources.push(geometry, source, material);
     const scene = new THREE.Scene();
-    scene.add(new THREE.Mesh(geometry, material), new THREE.AmbientLight(0xffffff, 2));
+    scene.environment = environment ?? null;
+    scene.environmentIntensity = 0; // retain production IBL shader inputs, deterministic pixel colours
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = mesh.receiveShadow = true;
+    const sun = new THREE.DirectionalLight(0xffffff, .1);
+    sun.position.set(8, 4, 5); sun.target.position.set(8, 1, 0);
+    sun.castShadow = true; sun.shadow.mapSize.set(32, 32);
+    const csm = new CSMShadowNode(sun, { cascades: 3, maxFar: 10, lightMargin: 2 });
+    sun.shadow.shadowNode = csm;
+    resources.push(csm);
+    scene.add(mesh, new THREE.AmbientLight(0xffffff, 2), sun, sun.target);
     camera.left = 4; camera.right = 12; camera.top = 2; camera.bottom = 0; camera.updateProjectionMatrix();
     renderer.setRenderTarget(target);
     await renderer.compileAsync(scene, camera);
