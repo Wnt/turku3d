@@ -80,7 +80,11 @@ def produce(tile, records, sample, stairs=(), water=(), paving=()):
             centres, left, right = profile
             levels = (np.asarray(measured["heights"]).T if measured else
                       np.array([[sample(*p) for p in side] for side in (left, right)]))
-            outer_levels = np.asarray(measured["outer"]).T if measured else levels
+            # The new edge owns the discontinuity, but its aprons must meet the
+            # surrounding ground exactly. Extrapolating the near-edge plane all
+            # the way across a curved bank would leave a seam at the outer rail.
+            outer_levels = (np.array([[sample(*p) for p in side] for side in (left, right)])
+                            if measured else levels)
             for j, (p, q) in enumerate(zip(centres[:-1], centres[1:], strict=True)):
                 segment = shapely.LineString([p, q])
                 if not segment.intersects(window) or segment.length < 1e-7:
