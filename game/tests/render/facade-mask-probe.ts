@@ -2,12 +2,16 @@
 import * as THREE from 'three/webgpu';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { float, step, uv, vec2, vec3 } from 'three/tsl';
-import { facadeAttribute, interleaveProgram } from '../../src/render/facadeProgramAttributes';
+import { facadeAttribute, facadePaintAttributes, interleaveProgram } from '../../src/render/facadeProgramAttributes';
 import { programLayout } from '../../src/render/facadeProgram';
 import { facadeKitMaterial } from '../../src/render/facadeKit';
+import { nightUniforms } from '../../src/render/nightLights';
 
 export async function probeFacadeMasks(renderer: THREE.WebGPURenderer, environment?: THREE.Texture | null) {
+  if (!environment) throw new Error('Production facade probe requires the live IBL texture');
   const previous = renderer.getRenderTarget();
+  const previousNight = nightUniforms.night.value;
+  nightUniforms.night.value = 0;
   const target = new THREE.RenderTarget(256, 256);
   const resources: { dispose(): void }[] = [];
   const camera = new THREE.OrthographicCamera(0, 3, 4, 0, .1, 10);
@@ -62,6 +66,36 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer, environme
         if (expected ? value < 200 : value > 20) throw new Error(`${key}: mask ${value}, expected ${expected}`);
       }
     }
+    // Distinct channels and unequal heights detect packing/swizzle regressions.
+    const packedGeometry = new THREE.PlaneGeometry(4, 1);
+    packedGeometry.translate(2, .5, 0);
+    for (const [name, values] of Object.entries({ _kit_wall: [1, 0, 0], _kit_base: [0, 1, 0],
+      _kit_trim: [0, 0, 1], _kit_floors: [2, 4, 8], _kit_opening: [0, 0, 0, 0] })) {
+      packedGeometry.setAttribute(name, new THREE.Float32BufferAttribute(
+        Array.from({ length: 4 }, () => values).flat(), values.length));
+    }
+    interleaveProgram(packedGeometry);
+    const packed = facadePaintAttributes();
+    const packedMaterial = new THREE.MeshBasicNodeMaterial();
+    packedMaterial.colorNode = uv().x.lessThan(.25).select(packed.wall,
+      uv().x.lessThan(.5).select(packed.base, uv().x.lessThan(.75).select(packed.trim, packed.floors.div(8))));
+    packedMaterial.toneMapped = false;
+    resources.push(packedGeometry, packedMaterial);
+    const packedScene = new THREE.Scene();
+    packedScene.add(new THREE.Mesh(packedGeometry, packedMaterial));
+    camera.right = 4; camera.top = 1; camera.updateProjectionMatrix();
+    renderer.setRenderTarget(target);
+    await renderer.compileAsync(packedScene, camera);
+    renderer.render(packedScene, camera);
+    const packedPixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, 256, 256);
+    for (let field = 0; field < 4; field++) {
+      const index = (128 * 256 + 32 + field * 64) * 4;
+      const rgb = Array.from(packedPixels.slice(index, index + 3), Number);
+      const valid = field < 3 ? rgb.every((v, channel) => channel === field ? v > 235 : v < 20)
+        : rgb[0] > 0 && rgb[0] < rgb[1] && rgb[1] < rgb[2] && rgb[2] > 235;
+      results[`packed-field:${field}`] = Number(valid);
+      if (!valid) throw new Error(`packed-field:${field}: ${rgb}`);
+    }
     // Exercise the production material/attribute layout, including frame colour
     // and a clipped, reversed 22.47 m ribbon with its original pane phase.
     const geometry = new THREE.PlaneGeometry(8, 2);
@@ -87,11 +121,10 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer, environme
       normalMap: map([128, 128, 255, 255]), roughnessMap: map([255, 255, 0, 255]) });
     source.userData.facade_kit = { version: 5 };
     const material = facadeKitMaterial(source, renderer)!;
-    material.emissiveNode = vec3(0); // deterministic daylight, independent of current game clock
     material.toneMapped = false;
     resources.push(geometry, source, material);
     const scene = new THREE.Scene();
-    scene.environment = environment ?? null;
+    scene.environment = environment;
     scene.environmentIntensity = 0; // retain production IBL shader inputs, deterministic pixel colours
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = mesh.receiveShadow = true;
@@ -114,6 +147,7 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer, environme
     }
     return results;
   } finally {
+    nightUniforms.night.value = previousNight;
     renderer.setRenderTarget(previous);
     for (const resource of resources) resource.dispose();
     target.dispose();
