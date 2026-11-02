@@ -15,6 +15,7 @@ interface Params {
   qa: QaCam | null;
   /** ?bench=camera&id=<street camera>[&at=HH:MM]: the fixed-camera bench probe (qa/bench.ts); implies its QA pose. */
   bench: BenchPose | null;
+  drive: { capture: string; segment: number } | null;
   /** QA render pass: 'color' (default) or 'id' (flat unlit object ids, qa/README.md §2). */
   pass: 'color' | 'id';
   time: Date;
@@ -59,11 +60,19 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     qa = { E: cam[0], N: cam[1], H: cam[2], yawDeg: cam[3], pitchDeg: cam[4], fovDeg: cam[5], rollDeg: roll };
   }
   let bench: BenchPose | null = null;
+  let drive: Params['drive'] = null;
   if (p.has('bench')) {
-    if (p.get('bench') !== 'camera') throw new Error(`bad ?bench= (camera): ${p.get('bench')}`);
+    if (!['camera', 'drive'].includes(p.get('bench')!)) throw new Error(`bad ?bench= (camera|drive): ${p.get('bench')}`);
+    if (p.get('bench') === 'drive') {
+      const capture = p.get('capture') ?? '', segment = Number(p.get('segment') ?? 1);
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(capture)) throw Error('bad ?capture=');
+      if (!Number.isInteger(segment) || segment < 1) throw Error('bad ?segment= (integer >= 1)');
+      drive = { capture, segment };
+    } else {
     if (cam) throw new Error('?bench=camera takes its pose from ?id=, not ?cam=');
     bench = benchPose(p.get('id') ?? '', p.get('at'));
     qa = bench.qa;
+    }
   }
   const passStr = (p.get('pass') ?? 'color').toLowerCase();
   if (passStr !== 'color' && passStr !== 'id') throw new Error(`bad ?pass= (color|id): ${passStr}`);
@@ -96,6 +105,7 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     backendGiven: p.has('backend') || p.has('webgl'),
     qa,
     bench,
+    drive,
     pass: passStr,
     time,
     timeGiven: timeStr !== null || bench !== null,
