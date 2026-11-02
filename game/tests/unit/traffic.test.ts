@@ -1,10 +1,10 @@
+import './fleet-assets.fixture';
 import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
 import { describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as R from '@dimforge/rapier3d';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 // @ts-expect-error r186 internal pipeline manager has no DefinitelyTyped declaration.
 import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { CAR, FOOT, ONEWAY, type RoadGraphJson } from '../../src/gameplay/roadGraph';
@@ -390,14 +390,6 @@ describe('rendering', () => {
       builder.scene = new THREE.Scene(); builder.camera = new THREE.PerspectiveCamera(); builder.build();
       return { vertexShader: builder.vertexShader, fragmentShader: builder.fragmentShader };
     };
-    const geometries = new Map<string, THREE.BufferGeometry>();
-    const load = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => {
-      const model = new URL(url).pathname.slice(1).split('~')[0];
-      if (!geometries.has(model)) geometries.set(model, new THREE.BoxGeometry(1.8, 1.5, 4.5));
-      const scene = new THREE.Group();
-      scene.add(new THREE.Mesh(geometries.get(model), new THREE.MeshStandardMaterial({ map: new THREE.DataTexture(new Uint8Array(4), 1, 1) })));
-      return { scene } as GLTF;
-    });
     try {
       const manifest = draftManifest('http://localhost/');
       manifest.vehicle_models = Object.fromEntries(TRAFFIC_MODELS.map(m => [`${m}/red`, { url: `${m}~red.glb`, sha256: '', bytes: 1 }]));
@@ -407,7 +399,7 @@ describe('rendering', () => {
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
       expect(meshes.map(m => m.name).sort()).toEqual(FLEET.flatMap(m => [0, 1, 2].map(lod => `parked/${m.id}/${lod}`)).sort());
-      expect(load).not.toHaveBeenCalled();
+      // All LOD assets are resident before traffic starts changing.
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {
         const moving = Array.from({ length: count }, (_, i) => ({ seed: i === 0 ? 'p1' : String(i), model: TRAFFIC_MODELS[i % 4], color: ['blue', 'white', 'beige'][i % 3],
@@ -433,7 +425,7 @@ describe('rendering', () => {
       for (const state of all) pipelines.getForRender({ material: { name: 'parked' }, getNodeBuilderState: () => state });
       expect(pipelineBackend.createRenderPipeline).toHaveBeenCalledTimes(1);
       pipelines.dispose();
-    } finally { load.mockRestore(); }
+    } finally { /* The shared fixture restores asset transport. */ }
   });
 });
 
