@@ -124,11 +124,11 @@ async function activate(index: number) {
   world.createCollider(R.ColliderDesc.cuboid(STEP.hx, height / 2, STEP.hz).setTranslation(STEP.x, height / 2, STEP.z).setCollisionGroups(groups));
   block.scale.y = height / (STEP.hy * 2); block.position.y = height / 2;
   const kind = entry.kind === 'fleet' ? 'car' : entry.kind;
-  const start = kind === 'truck' ? { x: -1.0, y: 1.8, z: -3.75 } : START;
+  const start = kind === 'truck' ? { x: -1.0, y: 1.5, z: -3.75 } : START;
   const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind });
   const visual = await makeVisual(entry, index);
   if (pending !== index) { visual.dispose(); world.free(); return; }
-  for (let i = 0; i < 60; i++) { vehicle.step(1 / 60, null); world.step(); }
+  for (let i = 0; i < 240; i++) { vehicle.step(1 / 60, null); world.step(); } // settle (the soft truck bounces) before the opening view
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
   resize(); openingView(vehicle.state()); followSun(vehicle.state().pos); signals.enter();
