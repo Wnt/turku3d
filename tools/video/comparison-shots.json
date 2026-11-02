@@ -1,0 +1,358 @@
+{
+  "fps": 60,
+  "duration": 4,
+  "transition": 0.4,
+  "titleSeconds": 2.8,
+  "endSeconds": 3.6,
+  "season": "Existing vegetation; no season control exposed by either build",
+  "coordinates": "EPSG:3877 E,N; N2000 eye height; compass yaw, pitch up, vertical FOV",
+  "shots": [
+    {
+      "id": "aura-dawn",
+      "title": "Aura river · dawn",
+      "hour": 7.5,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23459665,
+        6704190,
+        15,
+        62,
+        -8,
+        60
+      ],
+      "to": [
+        23459705,
+        6704211,
+        13,
+        62,
+        -6,
+        60
+      ]
+    },
+    {
+      "id": "auransilta",
+      "title": "Auransilta · morning",
+      "hour": 9,
+      "weather": "partly cloudy",
+      "wind": 0.28,
+      "from": [
+        23459708,
+        6704230,
+        7,
+        61,
+        3,
+        60
+      ],
+      "to": [
+        23459733,
+        6704244,
+        7,
+        61,
+        3,
+        60
+      ]
+    },
+    {
+      "id": "riverboats",
+      "title": "Riverboats · golden hour",
+      "hour": 19,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23459705,
+        6704230,
+        6,
+        138,
+        -3,
+        60
+      ],
+      "to": [
+        23459725,
+        6704242,
+        6,
+        142,
+        -3,
+        60
+      ]
+    },
+    {
+      "id": "cathedral",
+      "title": "Tuomiokirkko · noon",
+      "hour": 13,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23460160,
+        6704656,
+        12,
+        70,
+        14,
+        66
+      ],
+      "to": [
+        23460174,
+        6704651,
+        12,
+        65,
+        15,
+        66
+      ]
+    },
+    {
+      "id": "academy",
+      "title": "Åbo Akademi · overcast",
+      "hour": 14,
+      "weather": "overcast",
+      "wind": 0.4,
+      "from": [
+        23460220,
+        6704540,
+        14,
+        90,
+        -3,
+        60
+      ],
+      "to": [
+        23460235,
+        6704548,
+        14,
+        90,
+        -3,
+        60
+      ]
+    },
+    {
+      "id": "library",
+      "title": "City library · afternoon",
+      "hour": 16,
+      "weather": "partly cloudy",
+      "wind": 0.28,
+      "from": [
+        23459931,
+        6704440,
+        11,
+        321,
+        -3,
+        60
+      ],
+      "to": [
+        23459913,
+        6704430,
+        11,
+        321,
+        -3,
+        60
+      ]
+    },
+    {
+      "id": "kauppatori",
+      "title": "Kauppatori · noon",
+      "hour": 13,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23459628,
+        6704527,
+        12,
+        28,
+        -5,
+        66
+      ],
+      "to": [
+        23459639,
+        6704545,
+        12,
+        28,
+        -5,
+        66
+      ]
+    },
+    {
+      "id": "market-hall",
+      "title": "Market hall · light rain",
+      "hour": 15,
+      "weather": "light rain",
+      "wind": 0.38,
+      "from": [
+        23459510,
+        6704420,
+        9,
+        116,
+        0,
+        60
+      ],
+      "to": [
+        23459525,
+        6704430,
+        9,
+        125,
+        0,
+        60
+      ]
+    },
+    {
+      "id": "street-walk",
+      "title": "Linnankatu · evening walk",
+      "mode": "walk",
+      "hour": 18,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23459497.59,
+        6704253.76,
+        7.5,
+        235,
+        -8,
+        60
+      ],
+      "to": [
+        23459492.68,
+        6704250.32,
+        7.5,
+        235,
+        -8,
+        60
+      ]
+    },
+    {
+      "id": "street-drive",
+      "title": "Eerikinkatu · city drive",
+      "mode": "drive",
+      "hour": 14,
+      "weather": "overcast",
+      "wind": 0.4,
+      "from": [
+        23459493,
+        6704408,
+        9.8,
+        56,
+        -12,
+        60
+      ],
+      "to": [
+        23459534.45,
+        6704435.96,
+        9.8,
+        56,
+        -12,
+        60
+      ]
+    },
+    {
+      "id": "martinsilta",
+      "title": "Martinsilta · golden hour",
+      "hour": 19.2,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23459170,
+        6703820,
+        12,
+        228,
+        -5,
+        60
+      ],
+      "to": [
+        23459145,
+        6703798,
+        10,
+        228,
+        -3,
+        60
+      ]
+    },
+    {
+      "id": "fori",
+      "title": "Föri · breezy afternoon",
+      "hour": 16,
+      "weather": "partly cloudy",
+      "wind": 0.28,
+      "from": [
+        23458695,
+        6703500,
+        13,
+        235,
+        -12,
+        60
+      ],
+      "to": [
+        23458670,
+        6703485,
+        12,
+        235,
+        -10,
+        60
+      ]
+    },
+    {
+      "id": "harbour",
+      "title": "Aura waterfront · blue hour",
+      "hour": 20.5,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23457971,
+        6702928,
+        9,
+        228,
+        -2,
+        60
+      ],
+      "to": [
+        23457939,
+        6702899,
+        9,
+        228,
+        -2,
+        60
+      ]
+    },
+    {
+      "id": "castle",
+      "title": "Turku Castle · sunset",
+      "hour": 19,
+      "weather": "clear",
+      "wind": 0.15,
+      "from": [
+        23457740,
+        6702860,
+        23,
+        270,
+        1,
+        66
+      ],
+      "to": [
+        23457730,
+        6702880,
+        23,
+        265,
+        1,
+        66
+      ]
+    },
+    {
+      "id": "aura-night",
+      "title": "Aura river · night rain",
+      "hour": 22,
+      "weather": "light rain",
+      "wind": 0.38,
+      "from": [
+        23459674.21,
+        6704241.83,
+        6.4,
+        62.9,
+        0,
+        60
+      ],
+      "to": [
+        23459691,
+        6704250.5,
+        6.4,
+        62.9,
+        0,
+        60
+      ]
+    }
+  ]
+}
