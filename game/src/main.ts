@@ -117,7 +117,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   dayClock.setHour(hour);
 } };
 let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
-let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary) : null;
+let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
@@ -186,8 +186,8 @@ window.__game.replaceVegetation = async (Renderer: typeof VegetationLod, replace
   if (!replacement || !vegetation) return;
   natureLibrary = replacement;
   const models = vegetation.loadedModels();
-  for (const model of models) vegetation.remove(model);
-  vegetation = new Renderer(params.quality, natureLibrary);
+  vegetation.dispose();
+  vegetation = new Renderer(params.quality, natureLibrary, scene);
   for (const model of models) await vegetation!.addAsync(model);
   window.__game!.vegetation = vegetation;
 };

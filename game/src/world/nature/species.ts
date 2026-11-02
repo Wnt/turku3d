@@ -57,6 +57,38 @@ export function natureTint(objectId: string, out: [number, number, number] = [1,
   return out;
 }
 
+/** Tile barrier prototypes (coarse fences.py, `draft_<style>` material keys) drawn with the fence kit. A chain-link
+ *  fence is two tile prototypes: its panel becomes the kit module and its posts are hidden (''). Brick walls and
+ *  bollards keep the tile's own geometry (null). */
+export function fenceAsset(materialKey: string, height: number): string | null {
+  const style = materialKey.replace(/^draft_/, '');
+  if (style === 'chain_panel') return 'chain_fence';
+  if (style === 'chain') return '';
+  if (style === 'wood') return height >= 1.3 ? 'board_fence' : 'picket_fence';
+  if (style === 'bars') return height < 0.8 ? 'park_fence' : 'metal_railing';
+  if (style === 'rail') return 'metal_railing';
+  if (style === 'stone') return 'granite_wall';
+  if (style === 'hedge') return 'hedge';
+  return null;
+}
+
+// Finnish fence paint: white, falu red, ochre and dark green on wood; near-black or dark green on steel.
+const WOOD_PAINT: [number, number, number, number][] = [[0.82, 0.81, 0.77, 0.5], [0.40, 0.085, 0.055, 0.25], [0.74, 0.55, 0.24, 0.1], [0.16, 0.24, 0.17, 0.15]];
+const METAL_PAINT: [number, number, number, number][] = [[0.05, 0.06, 0.06, 0.7], [0.03, 0.075, 0.05, 0.3]];
+const GALVANISED: [number, number, number] = [0.55, 0.57, 0.56];
+
+/** Per-segment paint (wood, metal) or a plain tint, stable for a segment position. */
+export function fenceTint(asset: string, key: string): [number, number, number] {
+  const unit = (hashId(key) % 10007) / 10007;
+  const palette = asset.endsWith('_fence') && asset !== 'park_fence' ? WOOD_PAINT : asset === 'metal_railing' || asset === 'park_fence' ? METAL_PAINT : null;
+  if (asset === 'chain_fence') return [...GALVANISED];
+  if (!palette) return asset === 'hedge' ? natureTint(key) : [1, 1, 1];
+  let acc = 0;
+  for (const [r, g, b, p] of palette) { acc += p; if (unit < acc) return [r, g, b]; }
+  const [r, g, b] = palette[palette.length - 1];
+  return [r, g, b];
+}
+
 /**
  * Library scale for a tile instance of measured height and crown radius: uniform by height, with the crown allowed
  * to widen or narrow by at most 30 %, so leaves and bark keep their proportions.
