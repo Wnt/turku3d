@@ -12,7 +12,8 @@ our compositions of the CC0 scans listed below.
 ## Assets
 
 Triangles per LOD; LOD 0 is drawn to 50 m, LOD 1 to 180 m and the impostor to 650 m at medium quality
-(`src/render/quality.ts`). Trees and shrubs cast their shadow with LOD 1. Fence modules are 2 m long.
+(`src/render/quality.ts`). Trees and shrubs cast their shadow with LOD 1. Every tree and shrub species has two
+seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inventory ID. Fence modules are 2 m long.
 
 | Asset | Species / kind | Height (m) | LOD 0 | LOD 1 | LOD 2 |
 |---|---|---|---|---|---|
@@ -54,8 +55,9 @@ Triangles per LOD; LOD 0 is drawn to 50 m, LOD 1 to 180 m and the impostor to 65
 
 Shared textures (KTX2, embedded): foliage card atlas 2048² ETC1S (16 cards: eight trees, four shrubs, grass, wide
 grass, meadow, ground rosette), bark column atlas 4096×512 ETC1S with a 2048×256 UASTC normal map (8 barks),
-impostor atlas 2048² ETC1S (8 species × 3 side views + 1 top view) with a 1024² UASTC normal map, and 512² wood and
-granite albedo/normal tiles. Draws per tree: bark + leaves at LOD 0 and 1, one impostor draw at LOD 2.
+impostor atlas 2048×1024 ETC1S (16 tree models × 3 side views + 1 top view, 128×256 cells) with a 1024×512 UASTC
+normal map, 512² wood and granite albedo/normal tiles and a 256² chain-link wire tile. Positions (14 bit) and
+normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them back to float geometry. Draws per tree: bark + leaves at LOD 0 and 1, one impostor draw at LOD 2.
 
 ## How it is made
 
