@@ -84,7 +84,10 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
   `chain-fence.prompt.md`, run with `scripts/nature/blender-mcp-session.sh`). The build reads the export
   (`blender/fence-kit.glb`, SHA-256 `dad280d9056570104287bb33bc95d046a85a99dc7585eef8cfa64d218f35454b`) and binds the
   wood, metal, granite and chain-link materials. Paint and steel colours are per instance; the chain-link wire is an
-  alpha-tested 256 px tile drawn by our code (5 cm diamonds).
+  alpha-tested 256 px tile drawn by our code (5 cm diamonds). The painted wood (albedo and normal map: grain, knots,
+  flaked paint) is also drawn by our code: the ambientCG PaintedWood008A scan used before carried stencilled
+  lettering in its relief and was removed on 2026-11-02. Every remaining sourced set was checked by eye at full
+  resolution, as shipped (foliage atlas, bark atlas and normals, granite), for lettering, logos, stamps and rulers.
 
 ## Sources (all CC0 1.0)
 
@@ -104,13 +107,12 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
 | [ambientCG Foliage001](https://ambientcg.com/view?id=Foliage001), [Foliage006](https://ambientcg.com/view?id=Foliage006), [Foliage003](https://ambientcg.com/view?id=Foliage003) | grass blades (clump and lawn cards), weeds | ambientCG | CC0 1.0 |
 | [ambientCG Bark009](https://ambientcg.com/view?id=Bark009), [Bark004](https://ambientcg.com/view?id=Bark004), [Bark002](https://ambientcg.com/view?id=Bark002), [Bark010](https://ambientcg.com/view?id=Bark010) | birch, spruce, maple, smooth (rowan/shrubs) bark | ambientCG | CC0 1.0 |
 | [ambientCG Granite003B](https://ambientcg.com/view?id=Granite003B) | granite wall | ambientCG | CC0 1.0 |
-| [ambientCG PaintedWood008A](https://ambientcg.com/view?id=PaintedWood008A) | painted fence wood (desaturated) | ambientCG | CC0 1.0 |
 | [Poly Haven pine_bark](https://polyhaven.com/a/pine_bark) | Scots pine bark | Dimitrios Savva | [CC0 1.0](https://polyhaven.com/license) |
 | [Poly Haven jolcham_oak_bark_01](https://polyhaven.com/a/jolcham_oak_bark_01) | oak bark | Charlotte Baglioni | CC0 1.0 |
 | [Poly Haven bark_brown_02](https://polyhaven.com/a/bark_brown_02) | linden bark | Rob Tuytel | CC0 1.0 |
 | [Poly Haven bark_willow](https://polyhaven.com/a/bark_willow) | willow bark | Dario Barresi, Dimitrios Savva | CC0 1.0 |
 
-ambientCG archives are the 2K-PNG (leaves, foliage) and 1K-JPG (barks, granite, wood) downloads of 2026-11-02;
+ambientCG archives are the 2K-PNG (leaves, foliage) and 1K-JPG (barks, granite) downloads of 2026-11-02;
 Poly Haven files are the 1k JPG diffuse and OpenGL normal maps. Their SHA-256 hashes are pinned in
 `scripts/nature/fetch-sources.mjs`.
 

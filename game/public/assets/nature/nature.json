@@ -863,19 +863,19 @@
   "nature_bark": {
    "width": 4096,
    "height": 512,
-   "bytes": 436506,
+   "bytes": 436743,
    "format": "ETC1S"
   },
   "nature_bark_normal": {
    "width": 2048,
    "height": 256,
-   "bytes": 553242,
+   "bytes": 553110,
    "format": "UASTC+zstd"
   },
   "nature_impostor": {
    "width": 2048,
    "height": 1024,
-   "bytes": 545087,
+   "bytes": 544654,
    "format": "ETC1S"
   },
   "nature_impostor_normal": {
@@ -887,13 +887,13 @@
   "nature_wood": {
    "width": 512,
    "height": 512,
-   "bytes": 59798,
+   "bytes": 27064,
    "format": "ETC1S"
   },
   "nature_wood_normal": {
    "width": 512,
    "height": 512,
-   "bytes": 286758,
+   "bytes": 157210,
    "format": "UASTC+zstd"
   },
   "nature_granite": {
@@ -916,7 +916,7 @@
   }
  },
  "glb": {
-  "bytes": 7606040,
-  "sha256": "670851a7851b2bc00921e7f4759f2fa668654c855fdde15e2bd0c3f2237cbd27"
+  "bytes": 7443424,
+  "sha256": "92c8fc04291cf083a035ac8bc19417cc59dff2174cf8e8ba4663a4f4e8e5dcae"
  }
 }

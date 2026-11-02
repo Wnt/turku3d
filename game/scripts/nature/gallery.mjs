@@ -38,7 +38,7 @@ const SOURCES = {
   shrub_lilac: [ACG('LeafSet004'), ACG('Bark010')], shrub_rose: [ACG('LeafSet024'), ACG('Bark010')], shrub_juniper: [ACG('LeafSet019'), ACG('Bark004')],
   hedge: [ACG('LeafSet002')], grass_clump: [ACG('Foliage001'), ACG('Foliage006')], grass_lawn: [ACG('Foliage001'), ACG('Foliage006')],
   grass_meadow: [ACG('Foliage003'), ACG('Foliage001')], groundcover_rosette: [ACG('LeafSet020')],
-  picket_fence: [ACG('PaintedWood008A')], board_fence: [ACG('PaintedWood008A')], metal_railing: [], park_fence: [], granite_wall: [ACG('Granite003B')],
+  picket_fence: [], board_fence: [], metal_railing: [], park_fence: [], granite_wall: [ACG('Granite003B')],
 };
 const MADE = {
   tree: 'Procedural skeleton, tube bark, bent leaf cards (scripts/nature/trees.mjs); LOD 1 = whole canopy as flat cards; LOD 2 = baked 3+1-plane impostor',
@@ -54,7 +54,7 @@ for (const [file, title, note] of [
   ['bark-normal.png', 'Bark normals', '2048×256 UASTC (shipped at half the albedo resolution)'],
   ['impostor-albedo.png', 'Impostor atlas', 'ETC1S + alpha: every tree model × (3 side views + top view), baked on the CPU from LOD 0'],
   ['impostor-normal.png', 'Impostor normals', 'UASTC at half resolution, plane tangent space'],
-  ['wood.png', 'Painted wood', '512² ETC1S, desaturated; paint colour per instance'], ['woodNormal.png', 'Wood normal', '512² UASTC'],
+  ['wood.png', 'Painted wood', '512² ETC1S, drawn by our code (grain, knots, flaked paint); paint colour per instance'], ['woodNormal.png', 'Wood normal', '512² UASTC, from the drawn height field'],
   ['granite.png', 'Granite', '512² ETC1S'], ['graniteNormal.png', 'Granite normal', '512² UASTC'], ['chain.png', 'Chain-link wire', '256² ETC1S + alpha, drawn by our code'],
 ]) {
   const src = path.join(previews, file);
@@ -68,13 +68,16 @@ for (const [file, title, note] of [
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const tris = a => a.lods.map((l, k) => `LOD${k} ${l.triangles.toLocaleString('en')}`).join(' · ');
 const card = (name, a) => {
-  const s = shots[name] ?? {}, src = SOURCES[name] ?? [];
+  // Assets not rendered in this run (--only) keep their images from an earlier run in the same folder.
+  const disk = file => fs.existsSync(path.join(out, 'img', file)) ? `img/${file}` : undefined;
+  const s = shots[name] ?? { lod0: disk(`${name}-lod0.jpg`), chain: disk(`${name}-lods.jpg`), farFull: disk(`${name}-far-lod0.jpg`), farImpostor: disk(`${name}-far-lod2.jpg`) };
+  const src = SOURCES[name] ?? [];
   const imgs = [[s.lod0, 'LOD 0, eye height, 3/4 view'], [s.chain, 'LOD chain side by side'], [s.farFull, 'full mesh at 200 m'], [s.farImpostor, 'impostor at 200 m']]
     .filter(([i]) => i).map(([i, c]) => `<figure><a href="${i}"><img src="${i}" loading="lazy" alt="${esc(name)} ${c}"></a><figcaption>${c}</figcaption></figure>`).join('');
   return `<section class="card"><h3>${esc(name)} <span>${esc(a.species ?? a.kind)}</span></h3><div class="imgs">${imgs}</div>
   <p><b>Triangles</b> ${tris(a)} · draws per LOD ${a.lods.map(l => l.draws.length).join('/')} · ${a.height} m tall${a.module ? ` · ${a.module} m module` : ` · radius ${a.radius} m`}</p>
   <p><b>Made</b> ${esc(MADE[a.kind])}</p>
-  <p><b>Sources</b> ${src.length ? src.map(([t, u]) => `<a href="${u}">${esc(t)}</a>`).join(', ') + ' — CC0 1.0' : 'no texture (material colour)'}; geometry project-owned (MIT)</p></section>`;
+  <p><b>Sources</b> ${src.length ? src.map(([t, u]) => `<a href="${u}">${esc(t)}</a>`).join(', ') + ' — CC0 1.0' : a.kind === 'fence' ? 'textures drawn by our code (wood, chain-link) or none (metal)' : 'no sourced texture'}; geometry project-owned (MIT)</p></section>`;
 };
 const groups = [['Trees', 'tree'], ['Shrubs and hedge', ['shrub', 'hedge']], ['Grass and ground cover', 'grass'], ['Fence kit', 'fence']];
 const textures = Object.entries(manifest.textures).map(([n, t]) => `<tr><td>${n}</td><td>${t.width}×${t.height}</td><td>${t.format}</td><td>${(t.bytes / 1024).toFixed(0)} KiB</td></tr>`).join('');
@@ -153,6 +156,9 @@ try {
   // In context: the current branch in the game's fixed QA camera, next to the committed before shots.
   const cameras = JSON.parse(fs.readFileSync(path.join(before, 'cameras.json'), 'utf8')).cameras;
   shots.context = [];
+  // With --no-context, the in-context section keeps the previous run's entries.
+  const previous = path.join(out, 'context.json');
+  if (args.includes('--no-context') && fs.existsSync(previous)) shots.context = JSON.parse(fs.readFileSync(previous, 'utf8'));
   // --context-from DIR reuses capture.mjs shots (NN-<id>-1300.png) instead of rendering them here.
   const from = opt('--context-from');
   if (!args.includes('--no-context')) for (const id of ['park', 'river-promenade', 'centre-street', 'residential', 'overview-lowrise']) {
@@ -182,6 +188,7 @@ try {
     console.log('context', id, fresh ? 'fresh' : 'earlier shot');
     writeIndex(false);
   }
+  fs.writeFileSync(previous, JSON.stringify(shots.context));
 } finally {
   await context.close();
   guard('release');

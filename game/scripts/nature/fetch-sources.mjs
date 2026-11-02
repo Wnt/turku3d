@@ -34,7 +34,6 @@ const AMBIENTCG = {
   'Bark009_1K-JPG': 'cda06f2bf1d92a5d51806ed9128a6adbf0022e9af8dda397dd2952d920fddb11',
   'Bark010_1K-JPG': '3cd7dbca3af9d09e549cef33a550782c2b9b7944ccdb4ed3d9e3c9f3e4cdeb82',
   'Granite003B_1K-JPG': '6087627a56bea42176f6053787674957a3b82898e72dfd2332ed2e9dcc4fcc5a',
-  'PaintedWood008A_1K-JPG': '1f6b84943a05c8c40e668ba4c82274bf6a55deae69264ea28139bcf38dac1921',
 };
 /** Poly Haven (https://polyhaven.com/a/ID), CC0 1.0: 1k diffuse and OpenGL normal maps. */
 const POLYHAVEN = {
