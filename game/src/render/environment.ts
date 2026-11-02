@@ -34,8 +34,8 @@ export class Environment {
   hour = 12;
   sample: TimecycleSample = timecycle(90);
   private baseSample = this.sample;
-  private weather: Readonly<WeatherSample> = WEATHER_PRESETS.clear;
-  private weatherState = '0,0,0,0.06,0.15';
+  private weather: Readonly<WeatherSample> = WEATHER_PRESETS['partly cloudy'];
+  private weatherState = '0,0,0,0.38,0.28';
   /** True while sun intensity is 0 and the cascades are not re-rendered. */
   shadowsFrozen = false;
   private pmrem: THREE.PMREMGenerator;
@@ -141,8 +141,7 @@ export class Environment {
   /** Shared weather changes uniforms without accumulating multipliers or changing the light set. */
   setWeather(sample: Readonly<WeatherSample>) {
     this.weather = sample;
-    // The sky loop supplies this hook independently; the structural bridge can be removed once merged.
-    (this.atmosphere as Atmosphere & { setWeather?: (weather: Readonly<WeatherSample>) => void }).setWeather?.(sample);
+    this.atmosphere.setWeather(sample);
     const state = `${sample.overcast},${sample.rain},${sample.fog},${sample.cloudCover},${sample.wind}`;
     if (state === this.weatherState) return;
     this.weatherState = state;

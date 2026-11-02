@@ -346,6 +346,7 @@ spans 500–12,000 m so the four-kilometre city retains distinct distance layers
 city-lit sky horizon. Both interpolate through the timecycle independently of streaming radius. `atmosphere.ts`
 supports HMR without reloading the city.
 
+
 `Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
 local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck
 from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `0`) preserves the fair-sky defaults.
