@@ -45,6 +45,7 @@ test('a quick reversal reattaches the same GPU-ready full visual before the next
   const entry=coarse.entries.get('t0_0_0')!,model=entry.model;
   coarse.update(10000,10000,1000);
   expect(entry.cachedAt).toBe(1000);expect(model!.parent).toBeNull();expect(model!.visible).toBe(false);
+  coarse.setVisualPass('auto');expect(model!.visible).toBe(false);
   coarse.update(125,125,1001);
   expect(entry.model).toBe(model);expect(entry.pass).toBe('full');expect(entry.visualHash).toBe('full:0');
   expect(entry.cachedAt).toBeUndefined();expect(model!.parent).toBe(scene);expect(model!.visible).toBe(true);

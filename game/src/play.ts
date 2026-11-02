@@ -598,7 +598,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     positionHud.update(now, !startScreen.active);
     devLayers.update();
     renderFrame();
-    window.__render?.afterFrame?.();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
         vehicle: mode === 'car' ? drivenId ?? 'player' : null }));
