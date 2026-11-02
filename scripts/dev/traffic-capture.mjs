@@ -8,6 +8,8 @@ const out = path.resolve(opt('--out', `${process.env.HOME}/turku3d/loops/traffic
 const mode = opt('--mode', 'flow'), start = Number(opt('--start', '60'));
 const offsets = opt('--samples', '0,3,6,9').split(',').map(Number);
 const cdp = opt('--cdp', 'http://127.0.0.1:5917');
+const pairFile = opt('--pair', null);
+const pair = pairFile ? JSON.parse(fs.readFileSync(pairFile, 'utf8')) : null;
 const pages = await fetch(`${cdp}/json/list`).then(r => r.json());
 const target = pages.find(t => t.type === 'page' && t.url.startsWith(opt('--base', 'http://127.0.0.1:5910')));
 if (!target) throw new Error('No traffic page in the specified CDP browser');
@@ -43,27 +45,44 @@ try {
     if (Date.now() > deadline) throw new Error('QA world did not initialize');
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
-  if (!await evaluate('!!window.__game?.trafficPreview')) {
-    await evaluate('(async()=>{const m=await import("/src/traffic/preview.ts");return m.startTrafficPreview()})()');
-  }
-  if (args.includes('--patch')) {
-    await evaluate(`(async()=>{const m=await import('/src/traffic/flow.ts?traffic=${Date.now()}');window.__game.trafficPreview.replace(m.TrafficFlow)})()`);
-  }
   if (args.includes('--pose')) {
     const [E, N, H, yaw, pitch, fov] = opt('--pose').split(',').map(Number);
     await evaluate(`window.__qaMove(${JSON.stringify({ E, N, H, yaw, pitch, fov })})`);
   }
-  const settle = Date.now() + 60000;
+  const settle = Date.now() + Number(opt('--settle', '120')) * 1000;
   while (!await evaluate('!!window.__qaReady')) {
     const error = await evaluate('window.__qaError ?? null');
     if (error) throw new Error(`QA error: ${error}`);
     if (Date.now() > settle) throw new Error('Camera did not settle');
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+  const wanted = await evaluate(`(() => {
+    const c=window.__render.camera.position, i=Math.floor(c.x/250),j=Math.floor(c.z/250);
+    return Array.from({length:9},(_,k)=>'t0_'+(i-1+k%3)+'_'+(j-1+Math.floor(k/3)));
+  })()`);
+  await evaluate(`(async()=>{
+    const old=window.__game.trafficPreview;
+    if(old && JSON.stringify(old.tileIds)!==JSON.stringify(${JSON.stringify(wanted)})) {
+      old.dispose(); delete window.__game.trafficPreview;
+    }
+    if(!window.__game.trafficPreview) {
+      const m=await import('/src/traffic/preview.ts');await m.startTrafficPreview();
+    }
+  })()`);
+  if (args.includes('--patch')) {
+    await evaluate(`(async()=>{const m=await import('/src/traffic/flow.ts?traffic=${Date.now()}');window.__game.trafficPreview.replace(m.TrafficFlow)})()`);
+  }
+  await evaluate('window.__game.trafficPreview.play(false);window.__game.trafficPreview.reset(0)');
   await evaluate(`window.__game.trafficPreview.play(false);window.__game.trafficPreview.setMode(${JSON.stringify(mode)});window.__game.trafficPreview.signals.root.visible=${mode === "flow"};`);
   for (const offset of offsets) {
     const time = start + offset;
     const snapshot = await evaluate(`window.__game.trafficPreview.seek(${time}); window.__game.trafficPreview.snapshot()`);
+    if (pair) {
+      const expected = pair.shots.find(s => Math.abs(s.snapshot.at - time) < 1e-6)?.snapshot;
+      const fields = ['roads', 'pose', 'hour', 'epoch', ...(args.includes('--same-state') ? ['stateHash'] : [])];
+      const mismatch = fields.filter(key => !expected || JSON.stringify(expected[key]) !== JSON.stringify(snapshot[key]));
+      if (mismatch.length) throw new Error(`Traffic pair mismatch at ${time}: ${mismatch.join(', ')}`);
+    }
     await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
     const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
     const file = `${mode}-${time.toFixed(1)}.png`;

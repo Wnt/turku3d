@@ -3,6 +3,7 @@ import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGrap
 import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, type FlowCar } from '../../src/traffic/flow';
 import { TrafficNetwork } from '../../src/traffic/network';
 import { trafficRoads } from '../../src/traffic/roads';
+import { vehicleLights } from '../../src/traffic/lights';
 import { LaneChangePlanner } from '../../src/traffic/laneChanges';
 import { buildTileTraffic, type Lane } from '../../src/traffic/tileNetwork';
 
@@ -154,6 +155,23 @@ describe('responsive traffic', () => {
     expect(car.change).toBeNull();
     expect(car.stopped).toBeLessThan(10);
     expect(flow.stats.laneChanges).toBe(1);
+  });
+
+  test('driver indicators blink on the shared clock and brake lamps follow deceleration and stops', () => {
+    const flow = new TrafficFlow(flowNetwork(), 0); flow.update(20);
+    const car = [...flow.cars.values()].find(c => c.route.connector)!;
+    car.change = null; car.signal = null; car.route.connector!.turn = 0.7;
+    car.s = car.route.length - 10; car.speed = 5; car.previous.speed = 5;
+    expect(vehicleLights(car, 20)).toEqual({ indicator: 1, braking: false });
+    expect(vehicleLights(car, 20.4)).toEqual({ indicator: 0, braking: false });
+    car.route.connector!.turn = -0.7;
+    expect(vehicleLights(car, 20)).toEqual({ indicator: -1, braking: false });
+    car.speed = 4;
+    expect(vehicleLights(car, 20).braking).toBe(true);
+    car.speed = 0; car.previous.speed = 0;
+    expect(vehicleLights(car, 20).braking).toBe(true);
+    car.s = 0; car.route.connector!.turn = 0;
+    expect(vehicleLights(car, 20).indicator).toBe(0);
   });
 
   test('claims remove simulation participants and interpolation stays between checked positions', () => {
