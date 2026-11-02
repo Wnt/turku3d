@@ -472,6 +472,46 @@ class FarmTests(unittest.TestCase):
         self.assertEqual(farm.metrics['builds'], 1)
         self.assertEqual(farm.register(advanced['revision'], 'integration'), advanced)
 
+    def test_http_reuses_connection_for_manifest_head_payload_and_rejects_unread_body(self):
+        from http.client import HTTPConnection
+        farm = self.farm()
+        farm.request(REV, 't0_0_0')
+        self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connection = HTTPConnection('127.0.0.1', server.server_port, timeout=2)
+        try:
+            connection.request('GET', f'/v/{REV}/coarse/t0_0_0/manifest.json')
+            manifest = json.loads(connection.getresponse().read())
+            sock = connection.sock
+            self.assertIsNotNone(sock)
+            url = manifest['visual']['t0_0_0']['url']
+            connection.request('HEAD', url)
+            response = connection.getresponse()
+            self.assertEqual(response.getheader('Content-Length'), '4')
+            self.assertEqual(response.read(), b'')
+            connection.request('GET', url)
+            self.assertEqual(connection.getresponse().read(), b'mesh')
+            self.assertIs(connection.sock, sock)
+            connection.request('POST', '/unknown', body=b'GET /health HTTP/1.1\r\n\r\n')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 404)
+            self.assertEqual(response.getheader('Connection'), 'close')
+            response.read()
+            self.assertIsNone(connection.sock)
+            connection.request('POST', '/limits', body=b'x', headers={'Content-Length': 'invalid'})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+            self.assertIsNone(connection.sock)
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
         release = threading.Event()
         def build(revision, tile, root):

@@ -21,6 +21,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import tempfile
@@ -806,6 +807,13 @@ class Farm:
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(30)
+        self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
     def log_message(self, *_):
         pass
 
@@ -816,6 +824,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(payload)))
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Access-Control-Allow-Origin', '*')
+        if self.close_connection:
+            self.send_header('Connection', 'close')
         if status in (202, 429):
             self.send_header('Retry-After', '2')
         self.end_headers()
@@ -825,9 +835,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             if self.path not in ('/register', '/limits', '/cancel', '/seed'):
+                self.close_connection = True  # Unread request body cannot become another request.
                 return self.json(404, dict(error='unknown endpoint'))
-            size = int(self.headers.get('Content-Length', '0'))
+            try:
+                size = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                self.close_connection = True
+                raise
+            if self.headers.get('Transfer-Encoding'):
+                self.close_connection = True
+                raise ValueError('Content-Length is required; transfer encoding is unsupported')
             if not 0 < size <= 4096:
+                self.close_connection = True
                 raise ValueError('invalid body size')
             body = json.loads(self.rfile.read(size))
             if self.path == '/seed':
