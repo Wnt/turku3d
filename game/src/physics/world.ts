@@ -383,7 +383,7 @@ export class PhysicsWorld {
   vehicleStates(): VehicleState[] {
     return [...this.vehicles].map(([id, vehicle]) => {
       const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
-      if (old && sleeping && old.sleeping) return old.state;
+      if (old && sleeping && old.sleeping && old.state.lights === vehicle.lights && old.state.horn === vehicle.horn) return old.state;
       const state = { id, ...vehicle.state() };
       this.vehicleSnapshots.set(id, { state, sleeping });
       return state;

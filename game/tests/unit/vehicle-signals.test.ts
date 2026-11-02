@@ -46,3 +46,18 @@ test('all physics vehicle classes default on entry and retain signals through se
     }
   } finally { world.world.free(); }
 });
+
+test('sleeping pose caches publish lamp changes and horn release without waking the chassis', () => {
+  const world = new PhysicsWorld(R);
+  try {
+    world.spawnVehicle({ x: 0, y: 1, z: 0 }, 0, { parked: true });
+    world.vehicleStates();
+    world.vehicle!.lights = 2; world.vehicle!.horn = true;
+    const on = world.vehicleStates()[0];
+    expect([on.lights, on.horn]).toEqual([2, true]);
+    expect(world.vehicleStates()[0]).toBe(on);
+    world.vehicle!.lights = 0; world.vehicle!.horn = false;
+    expect([world.vehicleStates()[0].lights, world.vehicleStates()[0].horn]).toEqual([0, false]);
+    expect(world.vehicle!.body.isSleeping()).toBe(true);
+  } finally { world.world.free(); }
+});
