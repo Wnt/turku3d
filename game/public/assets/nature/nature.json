@@ -857,7 +857,7 @@
   "nature_foliage": {
    "width": 2048,
    "height": 2048,
-   "bytes": 746151,
+   "bytes": 748008,
    "format": "ETC1S"
   },
   "nature_bark": {
@@ -916,7 +916,7 @@
   }
  },
  "glb": {
-  "bytes": 7926372,
-  "sha256": "170e5ccd85a3d905878c62eb78903ea353eec7d841df6510fdb1f4e38bc076a9"
+  "bytes": 7928228,
+  "sha256": "d4837e080fe8568f173a24898a07b1198c45e0d362ac4f0c3b41ef1068ba2f37"
  }
 }

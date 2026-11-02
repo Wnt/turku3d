@@ -193,7 +193,9 @@ function grassCard(blades, seed, o) {
     // A tapered card (lawn) thins out and shortens towards both ends, so overlapping cards blend without straight cuts.
     if (o.taper && r() < edge * edge * o.taper) continue;
     const len = r.range(o.len[0], o.len[1]) * (o.taper ? 1 - 0.55 * edge * edge : 1);
-    list.push({ p: [x, S - 2], angle: (x - S / 2) / o.base * o.fan + r.range(-0.18, 0.18), len, d: r(), blade: r.pick(blades) });
+    // Lawn blades start at staggered heights: no crisp straight base line where a card meets the ground.
+    const y = S - 2 - (o.taper ? r() * r() * 46 : 0);
+    list.push({ p: [x, y], angle: (x - S / 2) / o.base * o.fan + r.range(-0.18, 0.18), len, d: r(), blade: r.pick(blades) });
   }
   for (const pl of list.sort((a, b) => a.d - b.d)) {
     const dry = r() < (o.dry ?? 0.12);
