@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import threading
 import time
@@ -68,7 +69,7 @@ class Farm:
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
-                            stage_hits=0, stage_misses=0, evicted_bytes=0)
+                            stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
         self.aliases = read_json(self.root / 'aliases.json', {})
 
@@ -163,6 +164,9 @@ class Farm:
                     raise RuntimeError('build did not produce a full manifest')
                 self.validate(root, tile, manifest)
                 stages = read_json(root / tile / 'stage-times.json', {})
+                prepared = read_json(root / tile / 'input-cache.json', {})
+                input_hits = sum(s.get('cached') is True for s in prepared.values())
+                input_misses = sum(s.get('cached') is False for s in prepared.values())
                 hit = sum(s.get('cached') is True for s in stages.values())
                 miss = sum(s.get('cached') is False for s in stages.values())
                 seconds = round(time.monotonic() - started, 3)
@@ -172,10 +176,13 @@ class Farm:
                     self.metrics['builds'] += 1
                     self.metrics['stage_hits'] += hit
                     self.metrics['stage_misses'] += miss
+                    self.metrics['input_hits'] += input_hits
+                    self.metrics['input_misses'] += input_misses
                     self.failures.pop(key, None)
                     self.version += 1
                 self.event('built', revision=revision, generation=generation, tile=tile,
-                           seconds=seconds, stage_hits=hit, stage_misses=miss, stages=stages)
+                           seconds=seconds, stage_hits=hit, stage_misses=miss, stages=stages,
+                           input_hits=input_hits, input_misses=input_misses, prepared=prepared)
         except Exception as error:
             row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
             with self.lock:
@@ -189,23 +196,51 @@ class Farm:
 
     @staticmethod
     def validate(root, tile, manifest):
-        entries = [*manifest.get('visual', {}).values(), *manifest.get('collision', {}).values()]
+        entries = [*manifest.get('visual', {}).values(), *manifest.get('collision', {}).values(),
+                   *manifest.get('vehicle_models', {}).values()]
         if manifest.get('roads'):
             entries.append(manifest['roads'])
         if not entries or tile not in manifest.get('visual', {}) or len(manifest.get('collision', {})) != 16:
             raise RuntimeError('incomplete visual/collision pair')
+        checked = set()
+        def verify(path, size=None, digest=None):
+            path = path.resolve()
+            if not path.is_relative_to(root.resolve()) or not path.is_file():
+                raise RuntimeError('missing payload ' + str(path))
+            if path in checked:
+                return
+            if size is not None and path.stat().st_size != size:
+                raise RuntimeError('invalid payload size ' + str(path))
+            data = path.read_bytes()
+            named = HASHED.search(path.name)
+            digest = digest or (named[0] if named else None)
+            if digest and hashlib.sha256(data).hexdigest() != digest:
+                raise RuntimeError('payload hash mismatch ' + str(path))
+            checked.add(path)
+            if data[:4] == b'glTF':
+                length, kind = struct.unpack_from('<II', data, 12)
+                if kind != 0x4e4f534a:
+                    raise RuntimeError('GLB has no JSON chunk')
+                document = json.loads(data[20:20 + length])
+                for item in [*document.get('images', []), *document.get('buffers', [])]:
+                    uri = item.get('uri')
+                    if uri and not uri.startswith('data:'):
+                        verify(path.parent / uri)
         for entry in entries:
-            path = (root / tile / entry['url']).resolve()
-            if not path.is_relative_to(root.resolve()) or path.stat().st_size != entry['bytes']:
-                raise RuntimeError('invalid payload ' + entry['url'])
-            digest = entry.get('sha256')
-            if digest and hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-                raise RuntimeError('payload hash mismatch ' + entry['url'])
+            verify(root / tile / entry['url'], entry.get('bytes'), entry.get('sha256'))
+        return len(checked)
 
     def run_build(self, revision, tile, root):
         repo = self.root / 'revisions' / revision / 'repo'
         env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
                    TURKU3D_WORK=str(root / 'work'))
+        # Encoders already lock their content keys; share their results across revisions too.
+        textures = self.root / 'cache' / 'textures'
+        textures.mkdir(parents=True, exist_ok=True)
+        try:
+            (root / '.compiled-textures').symlink_to(textures, target_is_directory=True)
+        except FileExistsError:
+            pass
         logs = self.root / 'logs'
         logs.mkdir(exist_ok=True)
         with (logs / f'{revision}-{tile}.log').open('a') as log:
@@ -251,10 +286,18 @@ class Farm:
             shutil.rmtree(path)
             self.metrics['evicted_bytes'] += size
             self.event('evicted', generation=path.name, bytes=size)
+            # Source snapshots belong to evicted generations too. Alias/job pins above
+            # protect every revision still in use; registration can upload an old one again.
+            for snapshot in (self.root / 'revisions').iterdir():
+                meta = read_json(snapshot / 'revision.json', {})
+                if meta.get('generation') == path.name:
+                    shutil.rmtree(snapshot)
             if self.free() >= target:
                 return True
         if not self.jobs:
-            files = sorted((self.root / 'cache').rglob('*.pkl'), key=lambda p: p.stat().st_mtime)
+            files = sorted((p for p in (self.root / 'cache').rglob('*')
+                            if p.is_file() and p.suffix in ('.pkl', '.ktx2', '.png', '.rgb')),
+                           key=lambda p: p.stat().st_mtime)
             for path in files:
                 self.metrics['evicted_bytes'] += path.stat().st_size
                 path.unlink()
@@ -368,7 +411,8 @@ def main():
         farm = Farm(args.root, args.runner, workers=args.workers)
         server = ThreadingHTTPServer((args.host, args.port), Handler)
         server.farm = farm
-        farm.event('started', port=args.port, workers=args.workers)
+        (args.root / 'service.pid').write_text(str(os.getpid()) + '\n')
+        farm.event('started', port=args.port, workers=args.workers, pid=os.getpid())
         server.serve_forever()
 
 

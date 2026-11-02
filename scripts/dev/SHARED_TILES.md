@@ -46,16 +46,17 @@ python3 scripts/dev/shared_tiles.py --host 192.168.1.114 --port 7950 \
 
 Source inputs remain read-only at `~/turku3d-local/combined/data`; missing source data is
 reported as a failed build, never fetched into raw. Farm-owned outputs are under `farm/products`,
-source snapshots under `farm/revisions`, and intermediates under `farm/cache`. Per-tile locks
+source snapshots under `farm/revisions`, and intermediates under `farm/cache`. Raw-file hash
+memos use per-source locks; texture encodes also share a content-keyed cache across revisions. Per-tile locks
 serialize preparation across versions; distinct tiles run concurrently. Stage-key locks prevent
 duplicate stage work. The farm owns shared-cache eviction rather than a per-branch two-version cap.
 
 `farm/events.jsonl` logs queued/completed/failed jobs, wall time and every stage's cache status/time.
 `/health` reports requests, finished-product hits, coalesced requests, stage hits/misses, failures,
-active/queued jobs and free disk. Per-build stdout is in `farm/logs`.
+prepared-input hits/misses, active/queued jobs and free disk. Per-build stdout is in `farm/logs`.
 
 Admission reserves 2 GiB per active build above a 25 GiB floor. Eviction removes old unpinned
-products, then idle shared intermediate entries in LRU order. Current aliases and active jobs
+products and their source snapshots, then idle shared intermediate entries in LRU order. Current aliases and active jobs
 pin products; no other loop's output is removed. The worker monitor terminates only its own
 build group if free space falls below 25.5 GiB, or the 30-minute per-build timeout expires.
 
@@ -63,5 +64,7 @@ Checks:
 
 ```sh
 python3 -m unittest discover -s scripts/dev/tests -p test_shared_tiles.py
+node --test scripts/dev/shared-tile-proxy.test.mjs
+python3 scripts/dev/shared-tile-audit.py http://127.0.0.1:5795/coarse/ t0_0_0
 bash pipeline/env/run.sh python -m pytest pipeline/tests/test_stage_cache.py -k 'shared or stage_dag' -q
 ```

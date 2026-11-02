@@ -25,7 +25,6 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 from turku3d import config as C
@@ -52,57 +51,50 @@ def _tile(tile) -> C.VisualTile:
     return C.VisualTile.parse(tile) if isinstance(tile, str) else tile
 
 
-@lru_cache(maxsize=8)
-def _hash_index(path, size, modified):
-    return json.loads(Path(path).read_text())
-
-
 def fingerprints(paths: dict[str, Path]) -> dict[str, dict]:
-    """SHA-256 identities, memoized by path, size and mtime; raw files are immutable by contract.
+    """Content hashes with one memo and lock per source file, shared across farm revisions.
 
-    Per-tile builds ask for overlapping path sets, so the memo keeps every path it has seen."""
-    cache = C.cache_dir("inputs") / "hashes.json"
-    cache.parent.mkdir(parents=True, exist_ok=True)
-
-    def read():
-        try:
-            stat = cache.stat()
-            return _hash_index(str(cache), stat.st_size, stat.st_mtime_ns)
-        except FileNotFoundError:
-            return {}
-
-    def identity(path):
-        stat = path.stat()
-        return {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
-
-    def matches(old, current):
-        return "sha256" in old and all(old.get(k) == v for k, v in current.items())
-
-    memo = read()
-    states = {key: identity(path) for key, path in paths.items()}
-    missing = [
-        key for key, path in paths.items() if not matches(memo.get(str(path), {}), states[key])
-    ]
-    if missing:
-        # Workers may discover overlapping source areas together. Merge under a
-        # lock: replacing a stale whole index used to lose other workers' hashes
-        # and reread hundreds of MB on their next tile.
-        with cache.with_suffix(".lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            memo = dict(read())
-            for key in missing:
-                path = paths[key]
-                current = states[key]
-                if not matches(memo.get(str(path), {}), current):
-                    with path.open("rb") as stream:
-                        current["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
-                    memo[str(path)] = current
-            temporary = cache.with_name(f"{cache.name}.{os.getpid()}.tmp")
-            temporary.write_text(json.dumps(memo, indent=2) + "\n")
-            temporary.replace(cache)
+    A large lidar read never holds a city-wide index lock. File identity only memoizes
+    hashing: stage keys still use the SHA-256 of the actual bytes.
+    """
+    shared = os.environ.get("TURKU3D_SHARED_CACHE")
+    directory = (Path(shared) if shared else C.cache_dir("inputs")) / "fingerprints"
+    directory.mkdir(parents=True, exist_ok=True)
     result = {}
-    for key, path in paths.items():
-        result[key] = dict(memo[str(path)])
+    for key, source in paths.items():
+        path = source.resolve()
+        name = hashlib.sha256(str(path).encode()).hexdigest()
+        cache = directory / (name + ".json")
+
+        def identity():
+            stat = path.stat()
+            return dict(path=str(path), size=stat.st_size, mtime_ns=stat.st_mtime_ns,
+                        ctime_ns=stat.st_ctime_ns, inode=stat.st_ino)
+
+        def read():
+            try:
+                return json.loads(cache.read_text())
+            except (FileNotFoundError, ValueError):
+                return {}
+
+        def matches(value, state):
+            return "sha256" in value and all(value.get(k) == v for k, v in state.items())
+
+        state, value = identity(), read()
+        if not matches(value, state):
+            with cache.with_suffix(".lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                state, value = identity(), read()
+                if not matches(value, state):
+                    with path.open("rb") as stream:
+                        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                    if identity() != state:
+                        raise RuntimeError(f"source changed while hashing: {path}")
+                    value = {**state, "sha256": digest}
+                    temporary = cache.with_name(f"{name}.{os.getpid()}.tmp")
+                    temporary.write_text(json.dumps(value) + "\n")
+                    temporary.replace(cache)
+        result[key] = value
     return result
 
 

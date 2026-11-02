@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { captureIdentity, residentTilesMatch } from './loop-capture-identity.mjs';
+import { captureIdentity, residentTilesMatch, waitForTileManifest } from './loop-capture-identity.mjs';
 import { AssetTransfers } from './loop-capture-network.mjs';
 const args = process.argv.slice(2);
 const opt = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
@@ -98,17 +98,21 @@ try {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
       const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.png`;
+      // On-demand generation can take minutes. Keep the previous scene frozen during input preparation.
+      await send('Page.setWebLifecycleState', { state: 'frozen' });
       const [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
       const ci = Math.floor((E - 23459500) / 250), cj = Math.floor((6704500 - N) / 250);
       const wanted = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
       const expectedTiles = Object.fromEntries(await Promise.all(wanted.map(async id => {
-        const manifest = await readJson(new URL(`coarse/${id}/manifest.json`, base));
+        const manifest = await waitForTileManifest(new URL(`coarse/${id}/manifest.json`, base), id, timeout);
         return [id, manifest.visual[id].sha256];
       })));
       const inputs = { build, nature, tiles: expectedTiles, pose: cam.cam, time: at, quality: 'high', viewport: [1920, 1200, 1] };
       const old = shots.get(file);
       if (valid(old) && old.inputs?.scenery?.footprint && old.identity === captureIdentity({ ...inputs,
         scenery: await sceneryIdentity(old.inputs.scenery.footprint) })) continue;
+      await send('Page.setWebLifecycleState', { state: 'active' });
+      await send('Emulation.setFocusEmulationEnabled', { enabled: true });
       const guard = path.join(root, 'tools/chrome-guard/guard.py');
       if (fs.existsSync(guard)) {
         const touched = spawnSync('python3', [guard, 'touch', opt('--guard-owner', 'integrator')], { encoding: 'utf8' });
