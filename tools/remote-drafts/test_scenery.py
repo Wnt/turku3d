@@ -9,6 +9,27 @@ from scenery import Scenery
 
 
 class SceneryTest(unittest.TestCase):
+    def test_empty_coastal_cell_falls_back_in_worker_without_catalogue_io(self):
+        from types import SimpleNamespace
+        from turku3d.coarse.sources import NoCoverage
+        row = dict(tile='t0_-16_9',key='a'*64,kind='survey',source_sha256='source',h=[0,20],inputs=dict(ground=['sea.laz']))
+        regional = dict(key='regional',inputs=dict(regional='dem.npz'))
+        calls=[]
+        survey = SimpleNamespace(regional_row=lambda tile:regional)
+        with tempfile.TemporaryDirectory() as temp:
+            cache=Scenery(temp,survey=survey);cache.cache.mkdir()
+            (cache.cache/(row['key']+'.source.json')).write_text(json.dumps(row))
+            def build(source,target):
+                calls.append(source)
+                if source['key']==row['key']:raise NoCoverage('no sea returns')
+                target.write_bytes(b'ground');return dict(bytes=6,triangles=2)
+            survey.build=build
+            result=cache._build(row['key'])
+            self.assertEqual(result['scenery_stats']['fallback'],'regional')
+            self.assertEqual(len(calls),2)
+            self.assertTrue((cache.cache/f"lod.{row['key']}.glb").is_file())
+            cache.pool.shutdown()
+
     def test_tree_sidecar_is_content_keyed_and_does_not_rebuild_or_change_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp); folder=root/'t0_0_0';folder.mkdir()

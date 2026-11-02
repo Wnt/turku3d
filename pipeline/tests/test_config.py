@@ -56,11 +56,13 @@ def test_visual_tiles():
     assert VisualTile.at(-0.001, 0.0).id == "t0_-1_0"
     assert VisualTile.at(250.0, 0.0).id == "t0_1_0"  # half-open
     assert VisualTile(0, 3, -3).parent() == VisualTile(1, 1, -2)
-    assert VisualTile(3, 0, 0).parent() is None
+    assert VisualTile(3, 0, 0).parent() == VisualTile(4, 0, 0)
+    assert VisualTile(4, 0, 0).parent() is None
+    assert VisualTile(4, 0, 0).size == 4000
     kids = VisualTile(1, 1, -2).children()
     assert len(kids) == 4 and all(k.parent() == VisualTile(1, 1, -2) for k in kids)
     assert VisualTile(2, 0, 0).size == 1000.0
-    for bad in ("t4_0_0", "x0_0_0", "t0_0", "c_0_0"):
+    for bad in ("t5_0_0", "x0_0_0", "t0_0", "c_0_0"):
         with pytest.raises(ValueError):
             VisualTile.parse(bad)
 
