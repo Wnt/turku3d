@@ -129,7 +129,7 @@ async function activate(index: number) {
   const visual = await makeVisual(entry, index);
   if (pending !== index) { visual.dispose(); world.free(); return; }
   // Settle on the brakes (the soft truck bounces and would roll off the platform) before the opening view.
-  const hold = { throttle: 0, steer: 0, brake: 1, handbrake: true };
+  const hold = { throttle: 0, steer: 0, brake: 0, handbrake: true }; // brake at a standstill means reverse
   for (let i = 0; i < 240; i++) { vehicle.step(1 / 60, hold); world.step(); }
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
