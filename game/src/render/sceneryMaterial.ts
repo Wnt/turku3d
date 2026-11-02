@@ -7,11 +7,14 @@ import { interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
 
 const source = new THREE.MeshStandardMaterial({ name: 'distant-city-pigment', roughness: 1, metalness: 0 });
+// Node identity participates in the program key. Ground and plain shells have the
+// same pigment expression; share it without sharing their material lifetimes.
+const sceneryPigment = vertexColor().rgb;
 
 export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map?: THREE.Texture | null) {
   // colorNode owns the authored pigment; vertexColors=true would multiply it a second time.
   const material = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
-  material.colorNode = vertexColor().rgb;
+  material.colorNode = sceneryPigment;
   material.name = `distant-city-${layer}`;
   material.flatShading = true;
   if (layer === 'regional' && coverage) material.maskNode = texture(coverage, positionWorld.xz.div(250 * 256).add(.5)).r.lessThan(.5);
