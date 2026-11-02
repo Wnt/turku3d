@@ -1,6 +1,20 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { SceneryBatches } from '../../src/render/sceneryBatches';
+import { SceneryBatches, sceneryBatchGroups } from '../../src/render/sceneryBatches';
+
+test('bounds batches by expanded facade bytes and leaves an oversized source unmerged', () => {
+  const sources = [0,1,2,3].map(() => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Int16BufferAttribute([0,0,0,1,0,0,0,1,0],3));
+    geometry.setAttribute('_kit_opening', new THREE.Uint8BufferAttribute([1,2,3,4,5,6],2));
+    return {mesh:new THREE.Mesh(geometry),mask:1};
+  });
+  // Each source expands to 36 position + 24 program bytes, despite only 24 source bytes.
+  const groups = sceneryBatchGroups(sources,120);
+  expect(groups.map(g=>g.length)).toEqual([2,2]);
+  expect(groups.flat()).toEqual(sources);
+  expect(sceneryBatchGroups(sources,59).map(g=>g.length)).toEqual([1,1,1,1]);
+});
 
 test('cell batching preserves world vertices and restores sources before a streaming handoff', () => {
   const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();

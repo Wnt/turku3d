@@ -7,6 +7,26 @@ import { interleaveProgram } from './facadeProgramAttributes';
 interface Source { mesh: THREE.Mesh; mask: number }
 interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh }
 
+/** Bound merged allocations below WebGPU's default 256 MiB buffer limit. Facade
+ * fields become one float buffer, so their source accessor sizes underestimate it. */
+export function sceneryBatchGroups(sources: Source[], byteLimit = 128 * 1024 * 1024): Source[][] {
+  const groups: Source[][] = [];
+  let group: Source[] = [], bytes = 0;
+  for (const source of sources) {
+    const geometry = source.mesh.geometry;
+    let size = (geometry.index?.count ?? 0) * 4;
+    for (const [name, attribute] of Object.entries(geometry.attributes)) {
+      const floats = name.startsWith('_kit_') || ['position', 'normal', 'tangent'].includes(name)
+        || (attribute as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute;
+      size += attribute.count * attribute.itemSize * (floats ? 4 : attribute.array.BYTES_PER_ELEMENT);
+    }
+    if (group.length && bytes + size > byteLimit) { groups.push(group); group = []; bytes = 0; }
+    group.push(source); bytes += size;
+  }
+  if (group.length) groups.push(group);
+  return groups;
+}
+
 /** Merge unchanged pigment geometry within kilometre cells; source models retain streaming ownership. */
 export class SceneryBatches {
   private buckets = new Map<string, Bucket>();
@@ -43,9 +63,12 @@ export class SceneryBatches {
     const next = new Map<string, Bucket>();
     for (const [key,sources] of groups) {
       sources.sort((a,b)=>a.mesh.uuid.localeCompare(b.mesh.uuid));
-      const signature = sources.map(s=>s.mesh.uuid+':'+s.mesh.geometry.uuid).join(',');
-      const previous = this.buckets.get(key);
-      next.set(key,previous?.signature === signature ? previous : {signature,sources});
+      for (const [part, chunk] of sceneryBatchGroups(sources).entries()) {
+        const chunkKey = `${key}:${part}`;
+        const signature = chunk.map(s=>s.mesh.uuid+':'+s.mesh.geometry.uuid).join(',');
+        const previous = this.buckets.get(chunkKey);
+        next.set(chunkKey, previous?.signature === signature ? previous : {signature,sources:chunk});
+      }
     }
     for (const [key,bucket] of this.buckets) if (next.get(key) !== bucket) this.release(bucket);
     this.buckets = next;
