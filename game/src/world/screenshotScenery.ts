@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { SceneryFog } from './sceneryFog';
 import { styleScenery } from '../render/sceneryMaterial';
 import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
@@ -10,9 +11,12 @@ interface Scenery { model?: THREE.Object3D; hash?: string; complete?: boolean; b
 export class ScreenshotScenery {
   radius = 0;
   private readonly direction = new THREE.Vector3();
+  private readonly fog = new SceneryFog();
 
   /** Follow every rendered camera, including play and fixed QA poses. */
   follow(camera: THREE.PerspectiveCamera) {
+    this.fog.follow(camera, this.host.scene.fog);
+    for (const e of this.entries.values()) if (e.model) e.model.visible = this.fog.visible(e.model);
     camera.getWorldDirection(this.direction);
     this.direction.y = 0;
     this.direction.normalize();
