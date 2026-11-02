@@ -6,14 +6,7 @@ import { MAT } from '../shared/col/materials';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { sharedKtx } from '../world/loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-
-/** Ground-speed anchors (m/s) for blending the synchronized locomotion clips. */
-const LOCO = [
-  { clip: 'Idle_Loop', speed: 0 },
-  { clip: 'Walk_Loop', speed: 1.5 },
-  { clip: 'Jog_Fwd_Loop', speed: 3.6 },
-  { clip: 'Sprint_Loop', speed: 6.0 },
-] as const;
+import { LOCOMOTION as LOCO, locomotionFrequency, locomotionStrideScale, locomotionWeights, locomotionBodyHeight } from './locomotion';
 
 export const SPEED = { walk: 1.5, run: 3.6, sprint: 6.0 } as const;
 
@@ -90,16 +83,10 @@ export class PlayerVisual {
     this.locomotion = !grounded ? 'air' : stairs ? (vel.y > 0.05 ? 'stairUp' : vel.y < -0.05 ? 'stairDown' : 'stairIdle')
       : hs < 0.1 ? 'idle' : hs < 1.8 ? 'walk' : hs < 4.3 ? 'jog' : 'sprint';
     if (!this.mixer) return;
-    // piecewise-linear blend between neighbouring locomotion clips
-    const w = new Array(LOCO.length).fill(0);
-    if (hs <= LOCO[0].speed) w[0] = 1;
-    else if (hs >= LOCO[LOCO.length - 1].speed) w[LOCO.length - 1] = 1;
-    else for (let k = 0; k < LOCO.length - 1; k++) {
-      if (hs >= LOCO[k].speed && hs <= LOCO[k + 1].speed) { const t = (hs - LOCO[k].speed) / (LOCO[k + 1].speed - LOCO[k].speed); w[k] = 1 - t; w[k + 1] = t; }
-    }
+    const w = locomotionWeights(hs);
     this.airWeight += ((grounded ? 0 : 1) - this.airWeight) * Math.min(1, dt * 8);
     this.stairWeight += ((stairs && hs > 0.1 ? 1 : 0) - this.stairWeight) * (1 - Math.exp(-dt * 12));
-    this.phase = (this.phase + dt * hs / (stairs ? 1.1 : 1.8)) % 1;
+    this.phase = (this.phase + dt * locomotionFrequency(hs, w, this.stairWeight)) % 1;
     this.loco.forEach((a, k) => {
       a.setEffectiveWeight(w[k] * (1 - this.airWeight) * (1 - this.stairWeight));
       a.timeScale = k === 0 ? 1 : 0;
@@ -112,7 +99,9 @@ export class PlayerVisual {
     }
     this.air?.setEffectiveWeight(this.airWeight);
     this.mixer.update(dt);
-    this.ik?.update(dt, grounded, stairs);
+    const hipHeight = this.hips ? this.hips.getWorldPosition(new THREE.Vector3()).y - this.root.position.y : undefined;
+    this.ik?.update(dt, grounded, stairs, locomotionStrideScale(w, this.stairWeight),
+      hipHeight === undefined ? undefined : locomotionBodyHeight(hipHeight, w, this.stairWeight));
   }
 
   /** Seated on a two-wheeler: the UAL driving pose, hips placed on `seat` (its +Z faces forward). */
