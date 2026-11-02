@@ -85,6 +85,8 @@ export class VegetationLod {
 
   loadedModels() { return [...new Set([...this.models.keys(), ...this.pending.keys()])]; }
 
+  setTime(seconds: number) { this.library?.materials.setTime(seconds); }
+
   dispose() {
     this.disposed = true;
     for (const model of this.loadedModels()) this.remove(model);

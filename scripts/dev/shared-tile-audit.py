@@ -30,6 +30,15 @@ def audit(base, tile):
         if descriptor and descriptor.get('bytes', len(data)) != len(data):
             raise RuntimeError(f'length mismatch: {url}')
         fetched[url] = len(data)
+        if descriptor and descriptor.get('format') == 'sorted-col-v1':
+            offset = 0
+            for cell, entry in sorted(manifest['collision'].items()):
+                body = data[offset:offset + entry['bytes']]
+                if len(body) != entry['bytes'] or hashlib.sha256(body).hexdigest() != entry['sha256']:
+                    raise RuntimeError(f'collision bundle cell mismatch: {cell}')
+                offset += len(body)
+            if offset != len(data):
+                raise RuntimeError('collision bundle has trailing bytes')
         if data[:4] == b'glTF':
             size, kind = struct.unpack_from('<II', data, 12)
             if kind != 0x4e4f534a:
