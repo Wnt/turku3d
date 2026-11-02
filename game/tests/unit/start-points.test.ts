@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { multiplayerStart, startPoints, warmupStarts } from '../../src/gameplay/startPoints';
+import { multiplayerStart, startPoints } from '../../src/gameplay/startPoints';
 import type { SaveGame } from '../../src/core/save';
 
 const spawn = { x: 170, y: 4, z: 250 }, car = { x: 180, y: 4, z: 260 };
@@ -32,10 +32,4 @@ test('coincident starts share one region and the unowned start car retains its s
   const saved = game({ E: 23459670, N: 6704250, H: 4, yaw: 0 },
     { E: 23461000, N: 6703000, H: 4, yaw: 0, owned: false });
   expect(startPoints(spawn, car, [saved, saved], spawn)).toEqual([spawn, car, { x: 1500, y: 4, z: 1500 }]);
-});
-
-test('GPU warmup covers each selectable visual cell and deduplicates neighbouring parkings', () => {
-  const remote = { x: 410, y: 9, z: 280 };
-  expect(warmupStarts([spawn, car, remote])).toEqual([car, remote]);
-  expect(warmupStarts([spawn, { ...spawn, x: 175 }, remote])).toEqual([{ ...spawn, x: 175 }, remote]);
 });

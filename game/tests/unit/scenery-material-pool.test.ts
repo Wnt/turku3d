@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { styleScenery } from '../../src/render/sceneryMaterial';
+import { sceneryMaterial, styleScenery } from '../../src/render/sceneryMaterial';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { disposeModelResources } from '../../src/world/disposeModel';
 
@@ -34,4 +34,22 @@ test('plain far shells stay dark and texture atlases retain distinct samplers', 
   const atlas = new THREE.DataTexture(new Uint8Array([80,60,40,255]),1,1);
   const mapped = sceneryMaterial('buildings-mapped', undefined, atlas);
   expect(mapped.map).toBe(atlas); expect(mapped.emissiveNode).not.toBeNull();
+});
+
+test('plain scenery reuses program keys while coverage and atlas bindings stay distinct', () => {
+  const ground = sceneryMaterial('ground');
+  const shell = sceneryMaterial('buildings');
+  expect(ground).not.toBe(shell);
+  expect(ground.customProgramCacheKey()).toBe(shell.customProgramCacheKey());
+  const texture = () => new THREE.DataTexture(new Uint8Array([80, 60, 40, 255]), 1, 1);
+  const first = texture(), second = texture();
+  const masked = sceneryMaterial('regional', first);
+  const otherMask = sceneryMaterial('regional', second);
+  expect(masked.customProgramCacheKey()).not.toBe(ground.customProgramCacheKey());
+  expect(masked.customProgramCacheKey()).not.toBe(otherMask.customProgramCacheKey());
+  const mapped = sceneryMaterial('buildings-mapped', undefined, first);
+  const otherMap = sceneryMaterial('buildings-mapped', undefined, second);
+  expect(mapped.customProgramCacheKey()).not.toBe(otherMap.customProgramCacheKey());
+  for (const material of [ground, shell, masked, otherMask, mapped, otherMap]) material.dispose();
+  first.dispose(); second.dispose();
 });

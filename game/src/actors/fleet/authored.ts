@@ -66,9 +66,13 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const url = entry ? `${entry.assetBase}/lod${lod}.glb` : `/assets/cars/aava-estate/estate_lod${lod}.glb`;
     request = loader.loadAsync(url).then(gltf => {
-      const body = flattenFleetAsset(gltf.scene, 'body');
+      // Named hubs already bake every opaque triangle. Repeating the whole-car bake here
+      // expands and welds all of them a second time, even when callers only need split parts.
+      gltf.scene.updateMatrixWorld(true);
+      const transform = gltf.scene.matrixWorld.clone();
+      let body: THREE.BufferGeometry | undefined;
       const parts=splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAsset(root,'body',exclude))
-        ??(model===AUTHORED_ESTATE?splitEmbeddedFleetWheels(body,ESTATE_WHEELS):null);
+        ??(model===AUTHORED_ESTATE?splitEmbeddedFleetWheels(body=flattenFleetAsset(gltf.scene,'body'),ESTATE_WHEELS):null);
       if(!parts)throw Error(`Authored fleet lacks named wheel hubs: ${model}`);
       const layout=fleetWheelLayout(model)!;
       for(const wheel of parts.wheels){wheel.radius=layout.radius;wheel.width=layout.width;}
@@ -83,7 +87,16 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) { mesh.geometry.dispose(); for (const material of [mesh.material].flat()) material.dispose(); }
       });
-      return { body, glass, parts };
+      return { get body() {
+        if (!body) {
+          const wheels = parts.wheels.map(wheel => wheel.geometry.clone().translate(wheel.pivot.x,wheel.pivot.y,wheel.pivot.z));
+          body = mergeGeometries([parts.body,...wheels],false)!;
+          for (const wheel of wheels) wheel.dispose();
+          body.applyMatrix4(transform);
+          body.computeBoundingBox(); body.computeBoundingSphere();
+        }
+        return body;
+      }, glass, parts };
     }).catch(error => { pending.delete(key); throw error; });
     pending.set(key, request);
   }

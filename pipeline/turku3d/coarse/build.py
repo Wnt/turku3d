@@ -251,6 +251,9 @@ def build(
     )
     surface_sample = gardens.sampler(tile, surface_sample, inputs.gardens)
     surface_sample = walkable.sampler(surface_sample, inputs.walkable)
+    from . import attachments
+
+    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
     own_keys = {b.key for b in blds}
     wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
     shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
@@ -289,8 +292,24 @@ def build(
         tunnels.openings,
     )
     seconds.update(structure_seconds)
+    attachment_meshes, attachment_openings = cache.run(
+        "attachments",
+        source_key(Path(attachments.__file__), Path(gardens.__file__),
+                   Path(__file__).with_name("geometry.py"), base / "structures/geometry.py"),
+        [tile, inputs.attachments],
+        lambda: attachments.produce(tile, inputs.attachments),
+    )
+    dry = stairs.cut_ground(dry, attachment_openings)
+    solid = stairs.cut_ground(solid, attachment_openings)
+    stair_meshes = [*stair_meshes, *attachment_meshes]
+    seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
     from . import street_profiles
 
+    if inputs.retaining:
+        # Props and vegetation must sample the same reconstructed apron as collision.
+        surface_sample = street_profiles.sampler(surface_sample, street_profiles.ProfiledSurface(
+            dry, shapely.union_all([g.buffer(2.5) for g, _, _ in inputs.retaining])
+        ))
     dry_surface, solid_surface = cache.run(
         "street_profiles",
         source_key(Path(street_profiles.__file__), surfaces.split_boundaries,
@@ -301,7 +320,7 @@ def build(
                  street_profiles.constrain(solid, inputs.street_profiles)),
     )
     dry, solid = dry_surface.mesh, solid_surface.mesh
-    surface_sample = street_profiles.sampler(surface_sample, dry_surface)
+    surface_sample = attachments.sampler(street_profiles.sampler(surface_sample, dry_surface), inputs.attachments)
     seconds["street_profiles_geometry"] = cache.metrics["street_profiles"]["seconds"]
     # The measured connected terrain replaces legacy raised strips in its area.
     kerb_lines = inputs.kerbs
@@ -377,6 +396,7 @@ def build(
                 inputs.forests,
                 inputs.vegetation_paths,
                 inputs.vegetation_roads,
+                inputs.retaining,
                 inputs.trees,
                 shells,
                 carried_mask,
@@ -410,7 +430,7 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos],
+        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, inputs.retaining],
         stage,
         barrier_stage,
     )
@@ -735,6 +755,7 @@ def build(
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
         stairs=stairs.stats(stair_meshes, inputs.stairs),
+        attachments=attachments.stats(tile, inputs.attachments),
         walkable=walkable.stats(tile, inputs.walkable),
         gardens=gardens.stats(tile, inputs.gardens),
         boats=boats.stats(tile, inputs.boats, boat_meshes),

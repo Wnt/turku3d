@@ -80,7 +80,7 @@ export class CollisionStreamer {
     // Parent-tile residency bounds the immutable byte cache, including cells currently outside physics range.
     for (const [id, cached] of this.prepared) {
       const current = this.manifest.collision[id];
-      if (current?.url !== cached.entry.url || current?.sha256 !== cached.entry.sha256) this.prepared.delete(id);
+      if (!sameContent(current, cached.entry)) this.prepared.delete(id);
     }
     for (const id of this.installed.keys()) if (!this.physics.loaded.has(id) && !this.loading.has(id)) this.installed.delete(id);
     const ahead = this.ahead(x, z, vx, vz);

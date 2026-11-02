@@ -258,7 +258,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayerRunId = crypto.randomUUID();
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
-        if (at) { multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
+        // A late welcome can point outside the solo preload ring; let safe placement stream that area.
+        if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);
@@ -311,7 +312,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   };
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
   // The network handshake runs alongside world loading; a slow/offline room must not delay solo play.
-  const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload]);
+  const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
