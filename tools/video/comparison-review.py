@@ -12,6 +12,15 @@ frames=sorted(review.glob('frame-*.jpg'));sheet=Image.new('RGB',(480*5,300*math.
 for i,f in enumerate(frames):
  x,y=i%5*480,i//5*300;sheet.paste(Image.open(f),(x,y));d.text((x+10,y+276),f'{i*2:02d} seconds',fill='white')
 sheet.save(out/'contact-sheet.jpg',quality=92)
+receipts=[]
+for left in sorted((out/'clips').glob('*-left.json')):
+ l=json.loads(left.read_text());r=json.loads(Path(str(left).replace('-left.json','-right.json')).read_text())
+ assert l['frames']==r['frames']==240,(left,'frame count')
+ assert l['width']==r['width']==960 and l['height']==r['height']==1080
+ assert [x['pose'] for x in l['motion']]==[x['pose'] for x in r['motion']],(left,'mismatched camera')
+ assert all(not t['stale'] and t['pass']=='full' for t in r['manifests']),(left,'stale new tiles')
+ receipts.append(left.name)
+assert len(receipts)==15,receipts
 log=subprocess.run(['ffmpeg','-hide_banner','-i',str(video),'-vf','blackdetect=d=0.1:pix_th=0.05:pic_th=0.98','-an','-f','null','-'],capture_output=True,text=True,check=True).stderr
 black=[line for line in log.splitlines() if 'black_start:' in line]
 result={'video':str(video),'probe':probe,'black_intervals':black,'contact_sheet':str(out/'contact-sheet.jpg'),'manual_review_required':True}

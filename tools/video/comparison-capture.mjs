@@ -13,7 +13,7 @@ const out=path.resolve(opt('--out',path.join(os.homedir(),'turku3d/video/2026-11
 const preview=args.includes('--preview'), width=preview?480:960,height=preview?540:1080;
 const selected=opt('--only','').split(',').filter(Boolean);
 const urls=[opt('--left','http://127.0.0.1:5960/'),opt('--right','http://localhost:5220/')];
-const cdpURL=opt('--cdp','');
+const cdpURL=opt('--cdp',''),sourceRevision=opt('--revision','');
 const browser=cdpURL?await chromium.connectOverCDP(cdpURL):null;
 const ctx=browser?browser.contexts()[0]:await launch(width,height);
 await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[]}));
@@ -23,6 +23,10 @@ const iso=shot=>`2026-09-08T${String(Math.floor(shot.hour)).padStart(2,'0')}:${S
 const log=m=>console.log(new Date().toISOString(),m);
 async function setup(side,shot){
  const p=await ctx.newPage();pages[side]=p;await p.setViewportSize({width,height});
+ if(side===1&&opt('--right-tiles',''))await p.route('**/coarse/**',async route=>{
+  const target=new URL(route.request().url());const base=new URL(opt('--right-tiles'));target.protocol=base.protocol;target.host=base.host;
+  const response=await route.fetch({url:target.href,timeout:120000});await route.fulfill({response});
+ });
  p.on('pageerror',e=>failures[side].push(e.message));
  p.on('request',r=>{if(/\.(glb|ktx2|col|png|jpg)(\?|$)/.test(r.url()))inflight[side].add(r);});
  p.on('requestfinished',r=>inflight[side].delete(r));p.on('requestfailed',r=>{inflight[side].delete(r);if(!r.failure()?.errorText.includes('ABORTED'))failures[side].push(r.url()+': '+r.failure()?.errorText);});
@@ -43,7 +47,7 @@ async function setup(side,shot){
  await p.waitForFunction(()=>!!window.__videoCoarse,null,{timeout:30000});
  await p.evaluate(()=>{
   const c=window.__videoCoarse;
-  window.__video={nativeNow:performance.now.bind(performance),baseNow:performance.now(),baseDate:Date.now(),time:0,locked:false,update:c.update.bind(c),actor:null};
+  window.__video={nativeNow:performance.now.bind(performance),baseNow:performance.now(),baseDate:Date.UTC(2026,8,8,12),time:0,locked:false,update:c.update.bind(c),actor:null};
   c.update=(...a)=>{if(!window.__video.locked)return window.__video.update(...a);};
   window.__render.beforeFrame=()=>false;
  });
@@ -76,11 +80,14 @@ async function installActor(side,shot){
  return pages[side].evaluate(async shot=>{
   const v=window.__video;v.actor?.root?.removeFromParent();v.actor=null;
   if(!shot.mode)return null;
-  const THREE=await import('/node_modules/.vite/deps/three_webgpu.js');
+  const actorModule=await(await fetch('/src/actors/player.ts')).text();
+  const threeURL=actorModule.match(/import \* as THREE from ["']([^"']+)["']/)?.[1];
+  if(!threeURL)throw Error('Cannot locate the build’s Three.js module');
+  const THREE=await import(threeURL);
   const scene=window.__render.environment.scene;
   if(shot.mode==='walk'){
    const {PlayerVisual}=await import('/src/actors/player.ts');
-   const actor=new PlayerVisual(scene,()=>null);await actor.load('/assets/character/player.glb',window.__render.renderer);v.actor=actor;
+   const actor=new PlayerVisual(scene,async()=>null);await actor.load('/assets/character/player.glb',window.__render.renderer);v.actor=actor;
   }else{
    const {CarVisual}=await import('/src/actors/car.ts');const actor=new CarVisual(scene);await actor.load('/assets/car/sedan.glb');v.actor=actor;
   }
@@ -122,7 +129,8 @@ try{
  for(const shot of config.shots.filter(s=>!selected.length||selected.includes(s.id))){
   for(let side=0;side<2;side++){
    const name=`${shot.id}-${side?'right':'left'}`, file=path.join(dir,`${name}.mp4`),receipt=path.join(dir,`${name}.json`);
-   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&fs.existsSync(receipt)&&!args.includes('--force')){log(`reuse ${name}`);continue;}
+   const previous=fs.existsSync(receipt)?JSON.parse(fs.readFileSync(receipt)):null;
+   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&(preview||previous.sourceRevision===sourceRevision)&&!args.includes('--force')){log(`reuse ${name}`);continue;}
    lease('touch');for(let other=0;other<2;other++)if(pages[other]&&other!==side)await sessions[other].send('Page.setWebLifecycleState',{state:'frozen'});if(!pages[side])await setup(side,shot);
    for(let other=0;other<2;other++)if(pages[other])await sessions[other].send('Page.setWebLifecycleState',{state:other===side?'active':'frozen'});
    log(`settling ${name}`);
@@ -135,7 +143,7 @@ try{
    for(const tile of [...new Set([...tilesForShot(shot),...resident.map(r=>r.id)])]){
     // Read the exact endpoint actually used by this page; evidence includes both resident and served hashes.
     const manifest=await pages[side].evaluate(async id=>{const c=window.__videoCoarse;return await(await fetch(new URL(`${id}/manifest.json`,new URL(c.root,location.href)))).json();},tile);
-    if((side===1&&manifest.stale)||manifest.pass_kind!=='full'){
+    if((side===1&&(manifest.stale||(sourceRevision&&manifest.revision!==sourceRevision)))||manifest.pass_kind!=='full'){
      if(!preview)throw Error(`${name}: rejected ${tile}: stale=${manifest.stale} pass=${manifest.pass_kind}`);
     }
     if(side===1&&!preview&&!resident.some(r=>r.id===tile&&r.hash===manifest.visual?.[tile]?.sha256))throw Error(`${name}: resident hash mismatch ${tile}`);
@@ -153,7 +161,7 @@ try{
     if(f%60===0||preview)motion.push({frame:f,...state});
    }
    if(encoder){encoder.stdin.end();if((await closed)[0])throw Error('ffmpeg capture failed');}
-   fs.writeFileSync(receipt,JSON.stringify({shot,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
+   fs.writeFileSync(receipt,JSON.stringify({shot,sourceRevision,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
    log(`captured ${name}: ${count} frames`);await sessions[side].send('Page.setWebLifecycleState',{state:'frozen'});
   }
  }

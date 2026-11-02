@@ -3,10 +3,12 @@
 import argparse,json,subprocess
 from pathlib import Path
 import math,wave
+from datetime import datetime
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');a=P.parse_args()
 out=Path(a.out);c=json.loads(Path(a.shots).read_text());edit=out/'edit';edit.mkdir(exist_ok=True);fps=c['fps'];transition=c['transition'];W,H=1920,1080
+stamp=datetime.now();date_label=stamp.strftime('%d %b %Y').upper();date_long=stamp.strftime('%d %B %Y')
 font='/System/Library/Fonts/Supplemental/Arial.ttf';bold='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
 def run(args):subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y',*map(str,args)],check=True)
 def encode():return ['-an','-c:v','libx264','-crf','16','-preset','fast','-threads','3','-pix_fmt','yuv420p','-r',fps,'-video_track_timescale',15360]
@@ -19,7 +21,7 @@ def overlay(shot):
  # Quiet bottom typography, leaving the majority of the image unobscured.
  d.rectangle((0,973,W,H),fill=(7,17,24,205));d.rectangle((40,1000,46,1041),fill='#87cebd')
  text(d,(65,993),shot['title'],34,heavy=True)
- text(d,(W-545,1004),'MATCHED CAMERA  /  02 NOV 2026',21,fill='#bdcfce')
+ text(d,(W-545,1004),'MATCHED CAMERA  /  '+date_label,21,fill='#bdcfce')
  p=edit/(shot['id']+'-overlay.png');im.save(p);return p
 segments=[]
 for shot in c['shots']:
@@ -27,7 +29,6 @@ for shot in c['shots']:
  if a.preview:
   left=out/'preview'/(shot['id']+'-left-1.jpg');right=out/'preview'/(shot['id']+'-right-1.jpg')
   run(['-i',left,'-i',right,'-i',p,'-filter_complex','[0:v]scale=960:1080[l];[1:v]scale=960:1080[r];[l][r]hstack[s];[s][2:v]overlay','-frames:v',1,edit/(shot['id']+'-preview.jpg')]);continue
- if dest.exists():continue
  run(['-i',out/'clips'/(shot['id']+'-left.mp4'),'-i',out/'clips'/(shot['id']+'-right.mp4'),'-i',p,'-filter_complex','[0:v][1:v]hstack,eq=contrast=1.015:saturation=1.025[scene];[scene][2:v]overlay=format=auto,format=yuv420p[v]','-map','[v]','-t',c['duration'],*encode(),dest])
  print('Composed',shot['id'],flush=True)
 if a.preview:
@@ -43,7 +44,7 @@ def card(end=False):
  text(d,(144,300),'TURKU  /  GEN 2' if not end else 'THE CITY KEEPS EVOLVING',34,fill='#87cebd',heavy=True)
  text(d,(137,370),'A city in motion.' if not end else 'Same city. A new level of detail.',78,heavy=True)
  text(d,(145,510),'Production and the new integrated build' if not end else '15 matched journeys · frame-exact capture · 60 fps',34)
- text(d,(145,575),'15 places. One shared camera.' if not end else 'Local comparison · 02 November 2026',28,fill='#bdcfce')
+ text(d,(145,575),'15 places. One shared camera.' if not end else 'Local comparison · '+date_long,28,fill='#bdcfce')
  text(d,(145,680),'PRODUCTION  /  NEW BUILD' if not end else 'City of Turku · CC BY 4.0    /    © OpenStreetMap contributors · ODbL',24,fill='#bdcfce')
  if end:text(d,(145,725),'Weather shown on the new build; production uses its available clear setting.',23,fill='#bdcfce')
  p=edit/('end.png' if end else 'title.png');im.save(p);dest=p.with_suffix('.mp4');duration=c['endSeconds'] if end else c['titleSeconds']

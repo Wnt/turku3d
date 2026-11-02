@@ -40,8 +40,10 @@ try{
  log(`Registering ${alias}`);await run('scripts/dev/shared-tiles',['register','--alias',alias,'--ref',ref],integration);
  let tiles=allTiles(config);await requestTiles(tiles);fs.writeFileSync(path.join(out,'tiles.json'),JSON.stringify(tiles,null,2));
  if(left.includes(':5960'))await prepareProduction();
- const capture=[path.join(repo,'tools/video/comparison-capture.mjs'),'--left',left,'--right',right,'--shots',shots,'--out',out];
- if(!args.includes('--skip-preview'))await run('node',[...capture,'--preview']);
+ const tileProxy=path.join(state,'tile-service.json');fs.writeFileSync(tileProxy,JSON.stringify({...service,version:alias}));
+ await start('node',[path.join(repo,'scripts/dev/shared-tile-proxy.mjs'),'5966',tileProxy],repo,{},'http://127.0.0.1:5966/coarse/status');
+ const capture=[path.join(repo,'tools/video/comparison-capture.mjs'),'--left',left,'--right',right,'--shots',shots,'--out',out,'--revision',ref];
+ if(!args.includes('--skip-preview'))await run('node',[...capture,'--preview','--right-tiles','http://127.0.0.1:5966']);
  // The real resident window can exceed the minimum safety ring. Rebuild every observed detailed tile too.
  const preview=path.join(out,'preview');if(fs.existsSync(preview))for(const name of fs.readdirSync(preview).filter(n=>n.endsWith('-right.json'))){const r=JSON.parse(fs.readFileSync(path.join(preview,name)));tiles.push(...r.resident.map(r=>r.id));}
  tiles=[...new Set(tiles)].sort();fs.writeFileSync(path.join(out,'tiles.json'),JSON.stringify(tiles,null,2));await requestTiles(tiles);
