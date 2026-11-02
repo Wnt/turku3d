@@ -4,7 +4,7 @@
   "transition": 0.4,
   "titleSeconds": 2.8,
   "endSeconds": 3.6,
-  "season": "Existing vegetation; no season control exposed by either build",
+  "season": "Astronomical September lighting, plus a June white-night shot; existing vegetation (no foliage-season selector)",
   "coordinates": "EPSG:3877 E,N; N2000 eye height; compass yaw, pitch up, vertical FOV",
   "shots": [
     {
@@ -363,8 +363,8 @@
     },
     {
       "id": "aura-night",
-      "title": "Aura river · night rain",
-      "hour": 22,
+      "title": "Aura river · summer night rain",
+      "hour": 23.3,
       "weather": "light rain",
       "wind": 0.38,
       "from": [
@@ -382,7 +382,8 @@
         62.9,
         0,
         60
-      ]
+      ],
+      "date": "2026-06-21"
     }
   ]
 }
