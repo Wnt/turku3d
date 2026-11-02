@@ -65,20 +65,22 @@ test('stable residency never traverses sources again; invalidation discovers add
   };
   model.add(mesh(), mesh());
   const batches = new SceneryBatches(scene), entries: [string, THREE.Object3D][] = [['t0_0_0', model]];
-  batches.sync(entries);
+  batches.sync(entries,0);
   const traverse = model.traverseVisible.bind(model);
   let visits = 0;
   model.traverseVisible = callback => { visits++; traverse(callback); };
-  for (let i = 0; i < 10; i++) batches.sync(entries);
+  for (let i = 0; i < 10; i++) batches.sync(entries,0);
   expect(visits).toBe(0);
   const added = mesh(); model.add(added);
-  batches.invalidate(model); batches.sync(entries);
+  batches.invalidate(model); batches.sync(entries,10);
+  batches.sync(entries,110);
   expect(visits).toBe(1);
   expect(added.layers.mask).toBe(0);
   const merged = scene.children.find(c => c.name === 'distant-city-cell') as THREE.Mesh;
   expect(merged.geometry.index!.count).toBe(108);
   model.position.x = 50;
-  batches.invalidate(model); batches.sync(entries);
+  batches.invalidate(model); batches.sync(entries,120);
+  batches.sync(entries,220);
   const moved = scene.children.find(c => c.name === 'distant-city-cell') as THREE.Mesh;
   expect(moved.geometry.boundingBox!.min.x).toBe(49.5);
   batches.sync([]);
@@ -102,4 +104,56 @@ test('survey nodes merge across kilometre boundaries while fine nodes keep small
   for (const [,mesh] of fine) expect(mesh.layers.mask).toBe(1);
   batches.clear();
   for (const [,mesh] of coarse) expect(mesh.layers.mask).toBe(1);
+});
+
+
+test('streaming bursts coalesce, remain visible and cannot indefinitely defer a cell', () => {
+  const scene=new THREE.Scene(), material=new THREE.MeshStandardNodeMaterial();
+  const entries:[string,THREE.Object3D][]=[];
+  const batches=new SceneryBatches(scene);
+  const add = (i:number, tile=i) => {
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(),material);
+    mesh.userData.layer='buildings'; scene.add(mesh);
+    entries.push([`t0_${tile}_0`,mesh]); return mesh;
+  };
+  const a=add(0),b=add(1);
+  batches.sync(entries,0);
+  const initial=scene.children.find(c=>c.name==='distant-city-cell')!;
+  const c=add(2); batches.sync(entries,10);
+  expect(initial.parent).toBeNull(); expect(batches.pending).toBe(1);
+  for (const mesh of [a,b,c]) expect(mesh.layers.mask).toBe(1);
+  // Keep adding source geometry in the same kilometre cell before its quiet deadline.
+  for (const time of [90,170,250]) {
+    const child=new THREE.Mesh(new THREE.BoxGeometry(),material); child.userData.layer='buildings';
+    c.add(child); batches.invalidate(c); batches.sync(entries,time);
+    expect(batches.pending).toBe(1);
+    expect(scene.children.filter(mesh=>mesh.name==='distant-city-cell')).toHaveLength(0);
+  }
+  batches.sync(entries,260);
+  expect(batches.pending).toBe(0);
+  const merged=scene.children.find(mesh=>mesh.name==='distant-city-cell') as THREE.Mesh;
+  expect(merged.geometry.index!.count).toBe(6*36);
+  for (const mesh of [a,b,c]) expect(mesh.layers.mask).toBe(0);
+  batches.clear();
+});
+
+test('a changing cell does not block another ready cell and clearing cancels pending work', () => {
+  const scene=new THREE.Scene(), material=new THREE.MeshStandardNodeMaterial();
+  const entries:[string,THREE.Object3D][]=[];
+  const batches=new SceneryBatches(scene);
+  const add = (tile:number) => {
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(),material); mesh.userData.layer='ground';
+    scene.add(mesh); entries.push([`t0_${tile}_0`,mesh]); return mesh;
+  };
+  add(0);add(1);batches.sync(entries,0);
+  add(2);batches.sync(entries,10); // Existing cell waits until 110.
+  const distantA=add(4),distantB=add(5);
+  batches.sync(entries,20); // New cell is immediately eligible despite queue order.
+  expect(distantA.layers.mask).toBe(0);expect(distantB.layers.mask).toBe(0);
+  expect(batches.pending).toBe(1);
+  batches.clear();
+  expect(batches.pending).toBe(0);
+  batches.sync([],500);
+  expect(scene.children.filter(mesh=>mesh.name==='distant-city-cell')).toHaveLength(0);
+  for (const [,mesh] of entries) expect(mesh.layers.mask).toBe(1);
 });

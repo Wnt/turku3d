@@ -4,7 +4,7 @@ import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
 
 interface Source { mesh: THREE.Mesh; mask: number; revision?: number }
-interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh }
+interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; queuedAt: number; readyAt: number }
 interface ModelSources { model: THREE.Object3D; visible: boolean; groups: Map<string, Source[]> }
 
 /** Bound merged allocations below WebGPU's default 256 MiB buffer limit. Facade
@@ -50,7 +50,7 @@ export class SceneryBatches {
   }
   clear() { for (const bucket of this.buckets.values()) this.release(bucket); this.buckets.clear(); this.models.clear(); this.waiting = []; this.pending = 0; }
 
-  sync(models: Iterable<[string, THREE.Object3D]>) {
+  sync(models: Iterable<[string, THREE.Object3D]>, now = performance.now()) {
     // Residency/visibility changes are cheap to detect; unchanged models never traverse
     // their descendants or reformat attribute layouts in the animation loop.
     let changed = false;
@@ -84,11 +84,11 @@ export class SceneryBatches {
       this.invalid.delete(model);
     }
     for (const id of this.models.keys()) if (!seen.has(id)) { this.models.delete(id); changed = true; }
-    if (changed) this.reconcile();
-    this.buildNext();
+    if (changed) this.reconcile(now);
+    this.buildNext(now);
   }
 
-  private reconcile() {
+  private reconcile(now: number) {
     const groups = new Map<string, Source[]>();
     for (const model of this.models.values()) for (const [key, sources] of model.groups) {
       const group = groups.get(key) ?? []; group.push(...sources); groups.set(key, group);
@@ -100,7 +100,14 @@ export class SceneryBatches {
         const chunkKey = `${key}:${part}`;
         const signature = chunk.map(s=>s.mesh.uuid+':'+s.mesh.geometry.uuid+':'+s.revision).join(',');
         const previous = this.buckets.get(chunkKey);
-        next.set(chunkKey, previous?.signature === signature ? previous : {signature,sources:chunk});
+        if (previous?.signature === signature) next.set(chunkKey, previous);
+        else {
+          // A streaming burst otherwise recopies the growing cell after each tile.
+          // Wait for 100 ms of quiet, but never postpone eligibility beyond 250 ms.
+          const queuedAt = previous && !previous.mesh && previous.sources.length > 1 ? previous.queuedAt : now;
+          next.set(chunkKey, {signature, sources:chunk, queuedAt,
+            readyAt: previous ? Math.min(now + 100, queuedAt + 250) : now});
+        }
       }
     }
     for (const [key,bucket] of this.buckets) if (next.get(key) !== bucket) this.release(bucket);
@@ -108,9 +115,11 @@ export class SceneryBatches {
     this.waiting = [...next.values()].filter(b=>b.sources.length>1&&!b.mesh);
   }
 
-  private buildNext() {
-    // Admit one changed cell per frame. Until then its original meshes remain visible.
-    const bucket = this.waiting.shift();
+  private buildNext(now: number) {
+    // Admit one eligible cell per frame. Pending sources stay visible, and a
+    // frequently changing cell must not block ready cells later in the queue.
+    const index = this.waiting.findIndex(bucket => bucket.readyAt <= now);
+    const bucket = index < 0 ? undefined : this.waiting.splice(index,1)[0];
     if (bucket) {
       const geometry = mergeSceneryGeometry(bucket.sources.map(source => source.mesh));
       const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
