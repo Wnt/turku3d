@@ -62,12 +62,63 @@ def test_variant_base_clearance_allows_crown_overhang():
     assert not clears_path(replace(narrow, z=1.3), paths)
 
 
-def test_car_road_clearance_stays_at_two_metres():
+def test_car_road_without_survey_retains_centreline_fallback():
     data = inputs(flags=1 | 2 | (2 << 3))
     assert path_lines(data.roads) == []
     mapped = [Tree("roadside", 10, 2.1, "osm")]
     trees, _ = produce(C.VisualTile(0, 0, 0), data, lambda x, z: 0, mapped)
     assert trees == mapped
+
+
+@pytest.mark.parametrize("source", ["register", "osm", "lidar", "scatter", "row"])
+def test_all_tree_sources_clear_carriageways_and_preserve_medians(source, monkeypatch):
+    from test_canopy_trees import crowns
+
+    # Two carriageways with a planted median between them. Their outer edges
+    # are much farther from the centreline than the old two-metre exclusion.
+    roads = [shapely.box(0, 0, 250, 12), shapely.box(0, 20, 250, 32)]
+    data = replace(inputs(flags=1 | 2 | (2 << 3)), vegetation_roads=roads)
+    points = [(20, 9), (40, 12.1), (60, 16), (80, 36)]
+    mapped = []
+    if source in ("register", "osm"):
+        prefix = "puut:" if source == "register" else "osm:"
+        mapped = [Tree(prefix + str(x), x, z, source, crown_radius=3) for x, z in points]
+    elif source == "lidar":
+        data = replace(data, vegetation_canopy=crowns(*[(x, z, 17, 3) for x, z in points]))
+    elif source == "scatter":
+        data = replace(data, forests=[("park", shapely.box(0, 0, 100, 100), "park", "")])
+        monkeypatch.setattr("turku3d.coarse.forests.scatter", lambda *a, **kw: points)
+    else:
+        data = replace(data, forests=[("row", shapely.LineString([(20, 9), (80, 36)]),
+                                       "tree_row", "broadleaved")])
+    trees, _ = produce(C.VisualTile(0, 0, 0), data, lambda x, z: 0, mapped)
+    assert trees
+    footprint = shapely.union_all(roads)
+    assert all(clears_path(tree, footprint) for tree in trees)
+    if source != "row":
+        assert any(12 < tree.z < 20 for tree in trees)  # the real median row survives
+
+
+def test_carriageway_input_uses_function_not_paving_and_keeps_neighbour_edges(tmp_path):
+    import geopandas as gpd
+    from turku3d.coarse.inputs import _prepare_one
+
+    road = shapely.Polygon([(0, 0), (250, 0), (250, 32), (0, 32)],
+                           holes=[[(0.5, 12), (249, 12), (249, 20), (0.5, 20)]])
+    neighbour = shapely.box(250, 0, 260, 40)
+    frame = gpd.GeoDataFrame(
+        {"Katuosalaji": ["Ajorata", "Jalkakäytävä", "Välikaista", "Ajorata"],
+         "Pintamateriaali": ["Nupukivi", "Asfalttibetoni", "Asfalttibetoni", "Betonilaatta"]},
+        geometry=[road, shapely.box(0, 32, 250, 40), shapely.box(0.5, 12, 249, 20), neighbour],
+    )
+    frame["geometry_local"] = frame.geometry
+    path = tmp_path / "streets.parquet"
+    frame.to_parquet(path)
+    result = shapely.union_all(_prepare_one(C.VisualTile(0, 0, 0), "vegetation_roads", [path]))
+    assert result.covers(shapely.Point(20, 9))
+    assert result.covers(shapely.Point(251, 9))
+    assert not result.covers(shapely.Point(20, 16))
+    assert not result.covers(shapely.Point(20, 36))
 
 
 def test_forest_path_overrides_landcover_and_keeps_mapped_surface():

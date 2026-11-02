@@ -156,8 +156,8 @@ def produce(tile, inputs, height_at, mapped, carried=None):
             *(g.buffer(1) for g, _ in inputs.streets),
         ]
     )
-    # Car roads retain their existing centreline clearance. Foot/cycle paths use
-    # their actual footprint, shared with the visual path surface below.
+    # Retain centreline clearance as a fallback where the city has no carriageway
+    # survey. Foot/cycle paths use their actual mapped footprint.
     from turku3d.roads import CLASS_SHIFT
 
     roads = inputs.roads
@@ -171,14 +171,17 @@ def produce(tile, inputs, height_at, mapped, carried=None):
             coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
             lanes.append(shapely.LineString(coords).buffer(2))
         blocked = shapely.union_all([blocked, *lanes])
-    paths = path_corridors(inputs)
+    # Crown maxima are not surveyed trunks: an overhanging crown can peak over a
+    # driving lane, well outside the old 2 m centreline buffer. Every source must
+    # clear the complete carriageway, including its visible flared trunk base.
+    paths = shapely.union_all([path_corridors(inputs), *inputs.vegetation_roads])
     blocked = shapely.union_all([blocked, paths])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
     )
     # Register trees are surveyed street and park trees: they stand in verges, tree grates and
-    # squares, so only buildings, water and the car lanes block them (carriageway rows are dropped
-    # in the prepared input), never the street-part areas around them.
+    # squares, so only buildings, water and transport corridors block them,
+    # never the street-part areas around them.
     surveyed = shapely.union_all([*inputs.water, *(b.footprint for b in inputs.buildings), *lanes])
     trees = [
         t

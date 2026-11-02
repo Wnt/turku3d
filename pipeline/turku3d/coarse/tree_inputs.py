@@ -1,7 +1,6 @@
-"""Register trees (GIS:Puut) for the prepared ``trees`` input (``inputs.prepare_trees``).
+"""Surveyed trees (GIS:Puut) and functional carriageways for vegetation placement.
 
-This file is a dependency of that input only (``inputs.DEPENDENCIES``), so a change here
-re-prepares trees and nothing else.
+These have independent prepared inputs, without rebuilding terrain or building surveys.
 """
 
 from __future__ import annotations
@@ -20,19 +19,27 @@ SURVEY_YEAR = 2026
 NURSERY_HEIGHT, GROWTH, MAX_HEIGHT, UNKNOWN_HEIGHT = 4.0, 0.35, 22.0, 10.0
 
 
+def carriageways(tile: C.VisualTile, streets: Path) -> list:
+    """Functional carriageway footprints, retaining median holes and roadside tree strips.
+
+    Paving material cannot identify a driving lane: sidewalks may also be asphalt.
+    Include neighbouring polygons so flared trunks clear roads across tile edges.
+    """
+    frame = spatial_frame(streets, tile.bbox.buffered(8))
+    if not len(frame):
+        return []
+    return [
+        shapely.make_valid(shapely.force_2d(g))
+        for g, kind in zip(frame.geometry_local, frame["Katuosalaji"], strict=True)
+        if kind == "Ajorata" and g is not None
+    ]
+
+
 def register_trees(tile: C.VisualTile, path: Path, streets: Path | None = None) -> list:
     """GIS:Puut street and park trees in the tile: (id, x, z, height, conifer, species). Height grows with
     the planting year (nursery stock about 4 m, 0.35 m a year, at most 22 m); unknown years get
     the OSM default of 10 m. A row on a carriageway (GIS:Katualueet Ajorata) is not drawn."""
-    roads = []
-    if streets is not None:
-        frame = spatial_frame(streets, tile.bbox)
-        if len(frame):
-            roads = [
-                shapely.make_valid(shapely.force_2d(g))
-                for g, kind in zip(frame.geometry_local, frame["Katuosalaji"], strict=True)
-                if kind == "Ajorata" and g is not None
-            ]
+    roads = carriageways(tile, streets) if streets is not None else []
     carriageway = shapely.STRtree(roads) if roads else None
     trees = []
     for row in spatial_frame(path, tile.bbox).to_dict("records"):
