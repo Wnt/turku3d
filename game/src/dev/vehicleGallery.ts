@@ -76,7 +76,7 @@ async function activate(index: number) {
   for (let i = 0; i < 60; i++) { vehicle.step(1 / 60, null); world.step(); }
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
-  resize(); chase.update(0, vehicle.state(), 0, 0, true); followSun(vehicle.state().pos);
+  resize(); openingView(vehicle.state()); followSun(vehicle.state().pos);
   active = { index, world, vehicle, visuals }; pending = -1;
 }
 
@@ -86,6 +86,14 @@ function resize() {
   camera.aspect = view.clientWidth / Math.max(1, view.clientHeight); camera.updateProjectionMatrix();
 }
 addEventListener('resize', resize);
+
+// Opening view: front three-quarter from the car's left, looking slightly down onto the step (Jonni's framing).
+// The chase camera swings back behind the car once it drives.
+function openingView(state: ReturnType<InstanceType<typeof Vehicle>['state']>) {
+  chase.update(0, state, 0, 0, true);
+  chase.yaw = 2.44; chase.pitch = -0.36;
+  chase.update(0, state, 0, 0, false);
+}
 
 function followSun(pos: { x: number; z: number }) {
   sun.position.set(pos.x + 10, 15, pos.z + 8); sun.target.position.set(pos.x, 0, pos.z);
@@ -111,7 +119,7 @@ renderer.setAnimationLoop(() => {
   input.update(dt);
   if (!active) return;
   const a = input.actions;
-  if (input.consume('vehicleReset')) active.vehicle.reset(START, 0);
+  if (input.consume('vehicleReset')) { active.vehicle.reset(START, 0); openingView(active.vehicle.state()); }
   const drive = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5 };
   for (carry += dt; carry >= 1 / 60; carry -= 1 / 60) { active.vehicle.step(1 / 60, drive); active.world.step(); }
   const state = { ...active.vehicle.state(), id: 'drive' };
