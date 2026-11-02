@@ -4,6 +4,8 @@ Open the local pause menu and select **Performance capture: On**. The red REC ma
 
 Vite dev, Vite preview and `tools/dev/serve-dist.mjs` append capture files under `~/turku3d/captures/` (`TURKU3D_CAPTURES` overrides it). Their HTML responses allow JS Self-Profiling. Existing servers need a config reload/restart to pick up the middleware/header; do not restart someone else's server. Unsupported profiler APIs are recorded in `meta.jsProfiler`; frame/pose capture continues. `window.__game.capture.recorder` exposes the active recorder; `lastRecorder.error` and `lastRecorder.flush()` allow inspection/retry after Off. Keep the page open until final delivery completes. Stopping also waits for any profiler rollover already in progress before reporting Saved. Page exit re-sends unacknowledged batches using best-effort beacons; the server deduplicates retries. Beacons remain subject to Chrome's aggregate 64 KiB limit.
 
+Interrupted disk writes retain a temporary batch and the previous file lengths. The middleware repairs unfinished appends before the next read or write, including after Vite restarts. Committed retry receipts prevent duplicate rows. Temporary recovery data is removed after a successful commit.
+
 Core files match the coordinator recorder: `meta.json`, `frames.jsonl` (one array of frame rows per batch), and individual `poses.jsonl`, `stats.jsonl`, `loaf.jsonl`, `marks.jsonl` rows. Additional `js.jsonl` rows contain `{t,end,trace}` with native profiler resources/frames/stacks/samples. `network.jsonl` holds resource response timing/bytes (capture POSTs excluded; cross-origin sizes may be hidden by Resource Timing policy).
 
 ```sh

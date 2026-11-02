@@ -22,3 +22,41 @@ test('capture batches preserve reference files, retry idempotently, reject trave
     assert.equal((await fetch(`${base}/__capture/test/meta.json`)).status, 200);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await fs.rm(dir, { recursive: true }); }
 });
+
+for (const trigger of ['read', 'later batch']) test(`partial appends recover on ${trigger} after middleware restart, without losing prior or later rows`, async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'capture-recovery-'));
+  let server, base;
+  const start = async () => {
+    const middleware = captureMiddleware(root);
+    server = http.createServer((req, res) => middleware(req, res, () => { res.writeHead(404); res.end(); }));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  };
+  const close = async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); };
+  const post = batch => fetch(`${base}/__capture/recover`, { method: 'POST', body: JSON.stringify(batch) });
+  const batches = [0, 1, 2].map(n => ({ batch: n, poses: [{ t: n }], frames: [[n, n, 1, 2, n, 10, 20]], ...(n < 2 ? { meta: { version: n } } : {}) }));
+  const append = fs.appendFile;
+  let interrupted = false;
+  t.mock.method(fs, 'appendFile', async (file, data, ...options) => {
+    if (!interrupted && path.basename(file) === 'poses.jsonl' && data.includes('"t":1')) {
+      interrupted = true; await append(file, data.slice(0, 4), ...options); throw Error('simulated interrupted disk write');
+    }
+    return append(file, data, ...options);
+  });
+  try {
+    await start(); assert.equal((await post(batches[0])).status, 200);
+    assert.equal((await post(batches[1])).status, 500);
+    const directory = path.join(root, 'recover');
+    assert.equal((await fs.readFile(path.join(directory, 'poses.jsonl'), 'utf8')).endsWith('\n'), false);
+    await close(); await start();
+    if (trigger === 'read') assert.equal((await fetch(`${base}/__capture/recover/poses.jsonl`)).status, 200);
+    assert.equal((await post(batches[2])).status, 200);
+    // Retrying the interrupted batch after a later successful one must preserve that later data.
+    assert.equal((await post(batches[1])).status, 200);
+    const read = async file => (await fs.readFile(path.join(directory, file), 'utf8')).trim().split('\n').map(JSON.parse);
+    assert.deepEqual(await read('poses.jsonl'), batches.flatMap(batch => batch.poses));
+    assert.deepEqual(await read('frames.jsonl'), batches.map(batch => batch.frames));
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'meta.json'), 'utf8')), { version: 1 });
+    assert.equal((await fs.readdir(directory)).some(name => name.endsWith('.pending')), false);
+  } finally { await close(); await fs.rm(root, { recursive: true, force: true }); }
+});
