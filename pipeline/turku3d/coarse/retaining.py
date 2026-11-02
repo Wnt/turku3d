@@ -51,12 +51,12 @@ def _areas(geometry):
     return parts[0] if len(parts) == 1 else shapely.MultiPolygon(parts)
 
 
-def produce(tile, records, sample, stairs=(), water=()):
+def produce(tile, records, sample, stairs=(), water=(), paving=()):
     from .tunnels import _polygon_faces
 
     meshes, openings = [], []
-    stair_mask = shapely.union_all(stairs)
     shore = shapely.union_all(water).buffer(2.5)
+    wet = shapely.union_all(water)
     window = shapely.box(*tile.bbox.as_tuple()).buffer(3)
     claimed = shapely.Polygon()
     for index, (geom, tags, _) in enumerate(records):
@@ -64,21 +64,29 @@ def produce(tile, records, sample, stairs=(), water=()):
             continue
         if geom.geom_type not in ("LineString", "MultiLineString"):
             continue
+        measured = tags.get("_survey")
+        # Surveyed inner quay ledges may be beside water or overlap the generic
+        # path width. Flight openings remain authoritative, but those broad
+        # exclusion masks must not erase a measured wall/landing.
+        stair_mask = shapely.union_all([*stairs, *([] if measured else paving)])
         faces, ground, cuts = Faces(), Faces(), []
-        for line in shapely.get_parts(geom.difference(shore)):
+        for line in shapely.get_parts(geom if measured else geom.difference(shore)):
             if line.geom_type != "LineString" or line.is_empty:
                 continue
-            profile = sections(line)
+            profile = ((measured["centres"], measured["left"], measured["right"])
+                       if measured else sections(line))
             if profile is None:
                 continue
             centres, left, right = profile
-            levels = np.array([[sample(*p) for p in side] for side in (left, right)])
+            levels = (np.asarray(measured["heights"]).T if measured else
+                      np.array([[sample(*p) for p in side] for side in (left, right)]))
+            outer_levels = np.asarray(measured["outer"]).T if measured else levels
             for j, (p, q) in enumerate(zip(centres[:-1], centres[1:], strict=True)):
                 segment = shapely.LineString([p, q])
                 if not segment.intersects(window) or segment.length < 1e-7:
                     continue
                 local = levels[:, j : j + 2]
-                if abs(np.mean(local[1] - local[0])) < 0.6:
+                if abs(np.mean(local[1] - local[0])) < (0.3 if measured else 0.6):
                     continue
                 top, bottom = np.maximum(*local), np.minimum(*local)
                 remaining = segment.difference(stair_mask)
@@ -103,7 +111,7 @@ def produce(tile, records, sample, stairs=(), water=()):
                 for side, edge in enumerate((left, right)):
                     outer = edge[j : j + 2]
                     xz = np.array([p, q, outer[1], outer[0]])
-                    heights = local[side, [0, 1, 1, 0]]
+                    heights = np.r_[local[side], outer_levels[side, j:j+2][::-1]]
                     # Triangulate the original strip before clipping. Every new
                     # corner stays on its parent plane, including at a stair cut.
                     for ids in ([0, 1, 2], [0, 2, 3]):
@@ -112,6 +120,8 @@ def produce(tile, records, sample, stairs=(), water=()):
                         if polygon.area < 1e-8:
                             continue
                         polygon = _areas(polygon.difference(stair_mask))
+                        if measured and not wet.is_empty:
+                            polygon = _areas(polygon.difference(wet))
                         if not polygon.is_empty:
                             polygon = _areas(polygon.difference(claimed))
                         if polygon.is_empty:

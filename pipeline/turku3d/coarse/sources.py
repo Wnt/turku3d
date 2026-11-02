@@ -57,7 +57,7 @@ WFS_LAYERS = (
 )
 PERMIT_PARKING = "GIS:Lupapysakointipaikat"
 FURNITURE_WFS_LAYERS = WFS_LAYERS[6:]
-OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste", PERMIT_PARKING)
+OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste", "kanta:Rakenne", PERMIT_PARKING)
 BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 
@@ -458,6 +458,7 @@ class Sources:
             *(p for _, p in wfs if p),
             *(p for p in registers if p),
             *spot_sources(tile, self),
+            *([p] if (p := self.wfs_source("kanta:Rakenne", tile)[1]) else []),
             *([osm] if osm else []),
         ]
         from turku3d.tile_layer import identities

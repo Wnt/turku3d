@@ -412,7 +412,7 @@ def from_inputs(cache, tile, inputs, grid_pos, sample, dry, solid, sources, deck
         solid,
         neighbours,
         decks,
-        inputs.barriers,
+        [*inputs.retaining, *inputs.barriers],
         inputs.water,
         inputs.walkable,
     )
@@ -462,7 +462,7 @@ def stage(
         paving = [
             p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in walks
         ]
-        walls, wall_cuts = retaining.produce(tile, barriers, sample, [*flight_cuts, *paving], water)
+        walls, wall_cuts = retaining.produce(tile, barriers, sample, flight_cuts, water, paving)
         return [*walls, *flights], [*wall_cuts, *flight_cuts]
 
     meshes, openings = cache.run(

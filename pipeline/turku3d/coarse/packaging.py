@@ -55,6 +55,7 @@ PRODUCERS = (
     "stairs",
     "stair_survey",
     "retaining",
+    "retaining_survey",
     "tunnels",
     "openings",
     "portals",
