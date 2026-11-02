@@ -216,7 +216,7 @@ After the owned proof farm has passed comparison, the same tool can target
 to avoid duplicating its bytes. It installs farm-native revision metadata and ready
 products, without advancing the integration alias or touching production.
 
-Nine offline checks now pass: baseline registry immutability and independent locks;
+Ten offline checks now pass: baseline registry immutability and independent locks;
 source snapshot immutability and checksum rejection; portable VRTs retaining prior
 hard links; recipe invalidation; actual farm scheduling/resume with synthetic payloads;
 prefetch/build exclusion; corrupt shared payload rejection; and acknowledgement-bound
@@ -257,3 +257,32 @@ that lock is released; no sleep/poll loop or tile build is started. Its ownershi
 is `state/prefetch-resume.pid`, log `state/prefetch-resume.log`, and an exclusive
 `prefetch-resume.lock` prevents duplicate continuations. Do not also start a manual
 retry while this continuation is pending or running.
+
+
+### Small-plan OSM recovery and proof continuation
+
+The first pass exposed seven kernel OOM kills in concurrent `osmium extract`
+processes (1.0–1.5 GiB RSS each). The retry now takes one `osm-extract.lock` while
+clipping the cached Finland snapshot. WFS/lidar/imagery HTTP work remains parallel;
+no host resize is needed for this acquisition fix. The lock is regression-tested.
+
+`prove-after-prefetch.sh` is now waiting on the retry continuation's lock. It freezes
+sources only if complete coverage was published, then builds exactly `t0_0_0`,
+`t0_1_0`, `t0_-1_0` with **one worker**. Its PID/log are `state/proof.pid` and
+`state/proof.log`. Missing/failed coverage stops it before any build. It never starts
+a city-wide run. Do not launch a duplicate manual proof while it is pending.
+
+Reference metadata for those three tiles has been read from osgallery-dev's actual
+farm products under producer generation
+`f979f621e19dfb98dfe2015613967a194dd7b9fcbc9a1c052840dc14aa84de37`.
+That is the same producer as the staged code. The new frozen source profile adds a
+source-version binding, so its final farm generation identifier will differ. Keep
+this distinction explicit when comparing source keys and geometry/payload results.
+The references are saved on the Mac as `loops/bulkgen2/farm-reference.json`.
+
+Use `compare.py snapshot FARM GENERATION TILE...` on the producing host to capture
+small proof metadata, then `compare.py compare before.json after.json` on the Mac.
+It reports code identity, source/stage-key changes, payload hashes/bytes, visual
+triangle counts and collision-cell counts without requesting builds from the farm.
+
+Revision activation now also takes the acquisition/build/proof locks, so a final pin cannot race with source freezing or the queued proofs.
