@@ -56,10 +56,9 @@ recordings, photographs or samples are used. H.264 intermediates use CRF 16.
 Outputs: `turku3d-before-after.mp4`, `contact-sheet.jpg`, `review.json`, build and
 tile receipts, `preview/`, `clips/`, and `edit/`. Inspect the contact sheet before
 sharing. `comparison-review.py` checks dimensions, frame count, duration and
-black intervals. To recapture a changed shot, delete its two clip/receipt pairs;
-composition intermediates for that shot must also be removed. The default
-resume retains completed artifacts in the output directory, so use a new output
-directory when comparing a new revision.
+black intervals. Resume validates the shot, resolution and pinned source revision before reusing
+a clip. Composition is rebuilt from the validated clips. Use a new output directory
+to preserve an earlier comparison.
 
 Focused checks:
 
