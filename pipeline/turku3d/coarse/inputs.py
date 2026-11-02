@@ -73,6 +73,7 @@ DEPENDENCIES = {
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
     "trees": ("tree_inputs.py", "../spatial.py"),
+    "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
@@ -137,6 +138,7 @@ class Inputs:
     forests: list = ()
     vegetation_paths: list | None = None
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     ortho_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
@@ -380,7 +382,7 @@ def prepare_trees(
     tile: C.VisualTile, osm: Path, register: Path | None = None, streets: Path | None = None
 ) -> list:
     """Register trees (GIS:Puut), then the OSM ``natural=tree`` points not within TREE_DUPLICATE
-    of one, in the tile: (id, x, z, height, conifer)."""
+    of one, in the tile: (id, x, z, height, conifer, species)."""
     import json
 
     from scipy.spatial import cKDTree
@@ -390,7 +392,7 @@ def prepare_trees(
     from .tree_inputs import TREE_DUPLICATE, register_trees
 
     trees = register_trees(tile, register, streets) if register else []
-    known = cKDTree(np.array([(x, z) for _, x, z, _, _ in trees])) if trees else None
+    known = cKDTree(np.array([(t[1], t[2]) for t in trees])) if trees else None
     for k, row in rows(osm, tile.bbox):
         tags = json.loads(row["tags"]) if row["tags"] else {}
         if tags.get("natural") != "tree":
@@ -406,7 +408,8 @@ def prepare_trees(
             height = 10.0
         conifer = tags.get("leaf_type") == "needleleaved"
         trees.append(
-            (f"osm:{row.get('osm_id', k)}", point.x, point.y, min(max(height, 3.0), 35.0), conifer)
+            (f"osm:{row.get('osm_id', k)}", point.x, point.y, min(max(height, 3.0), 35.0),
+             conifer, tags.get("species") or tags.get("genus") or ("havupuu" if conifer else ""))
         )
     return trees
 
@@ -471,6 +474,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     osm = sources.osm_source(tile)
     return {
         "ground": None if missing else laz,
+        "vegetation_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "water": [wfs[2][1], osm] if wfs[2][0] else None,
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
         if osm and not missing
@@ -543,6 +547,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .garden_inputs import prepare as prepare_gardens
 
         return prepare_gardens(tile, paths[0], paths[2:], paths[1]) if paths else {}
+    if dataset == "vegetation_canopy":
+        from .canopy_trees import canopy_points
+
+        return canopy_points(tile, paths)
     if dataset == "ortho_canopy":
         from .ortho_cleanup import canopy_points
 
@@ -689,6 +697,7 @@ def gather(
             "kerb_parking",
             "ortho_canopy",
             "trees",
+            "vegetation_canopy",
             "forests",
             "vegetation_paths",
             "poles",
@@ -789,6 +798,7 @@ def gather(
         forests=values["forests"] or (),
         vegetation_paths=values["vegetation_paths"] or [],
         canopy=ground.get("canopy", np.empty((0, 3))),
+        vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
         ortho_canopy=values["ortho_canopy"] if not first_pass else np.empty((0, 3)),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
