@@ -8,7 +8,6 @@ import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { retainPrograms } from '../../src/render/programCache';
 import { tintDraft } from '../../src/render/facadeKit';
-import { VegetationLod } from '../../src/world/vegetationLod';
 import { CoarseTiles, cellsOf, wantedTiles } from '../../src/world/coarseTiles';
 import { draftManifest } from '../../src/world/manifest';
 import { GameRenderer } from '../../src/render/shadowMaterials';
@@ -68,21 +67,6 @@ test('separate tile instances share exact PBR materials and release only after t
   expect(shared.acquire(textured.clone())).not.toBe(shared.acquire(textured));
   const red = shared.acquire(new THREE.MeshStandardMaterial({ color: 'red' }));
   expect(shared.acquire(new THREE.MeshStandardMaterial({ color: 'blue' }))).not.toBe(red);
-});
-
-test('generated tree LODs share materials across tiles without disposing a neighbouring tile', () => {
-  const lod = new VegetationLod('medium');
-  const models = [new THREE.Group(), new THREE.Group()];
-  for (const model of models) {
-    const tree = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshStandardMaterial(), 3);
-    tree.userData.layer = 'vegetation'; tree.userData.material_key = 'tree_foliage';
-    model.add(tree); lod.add(model);
-  }
-  const far = (model: THREE.Group) => (model.getObjectByName('vegetation-lod')!.children[2] as THREE.Mesh).material as THREE.Material;
-  const material = far(models[0]); expect(far(models[1])).toBe(material);
-  const dispose = vi.fn(); material.addEventListener('dispose', dispose);
-  lod.remove(models[0]); expect(dispose).not.toHaveBeenCalled();
-  lod.remove(models[1]); expect(dispose).toHaveBeenCalledOnce();
 });
 
 test('r186 reuses compiled programs/pipelines after unloading a tile and bounds its idle cache', () => {

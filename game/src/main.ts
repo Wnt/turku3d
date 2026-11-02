@@ -19,6 +19,7 @@ import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
+import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
@@ -115,7 +116,8 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-const vegetation = idPass ? null : new VegetationLod(params.quality);
+let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
+let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary) : null;
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
@@ -176,7 +178,19 @@ addEventListener('resize', () => {
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
-  lights };
+  lights, vegetation };
+
+// Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
+// streamed tiles and physics worker alive throughout a visual iteration.
+window.__game.replaceVegetation = async (Renderer: typeof VegetationLod, replacement = natureLibrary) => {
+  if (!replacement || !vegetation) return;
+  natureLibrary = replacement;
+  const models = vegetation.loadedModels();
+  for (const model of models) vegetation.remove(model);
+  vegetation = new Renderer(params.quality, natureLibrary);
+  for (const model of models) await vegetation!.addAsync(model);
+  window.__game!.vegetation = vegetation;
+};
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
