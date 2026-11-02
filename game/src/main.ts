@@ -139,6 +139,7 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
+let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
@@ -146,6 +147,7 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  distantCity?.follow(camera);
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
@@ -218,6 +220,15 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   lights?.attach(coarse);
+  if (!idPass) {
+    distantCity = coarse.screenshotScenery;
+    distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
+    distantCity.follow(camera);
+    // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
+    env.sky.scale.setScalar(12000);
+    camera.far = 12000; camera.updateProjectionMatrix();
+    window.__game!.scenery = distantCity;
+  }
   return coarse;
 }
 
