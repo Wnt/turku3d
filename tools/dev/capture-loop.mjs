@@ -237,12 +237,55 @@ if (args.includes('--stream-flicker')) {
 // Play-mode evidence uses this same owned CDP session and screenshot transport.
 if (opt('--navigate', '')) {
   await send('Page.setWebLifecycleState', {state:'active'});
+  await send('Emulation.setFocusEmulationEnabled',{enabled:true});
+  await send('Page.bringToFront');
   await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
   await send('Page.navigate', {url:opt('--navigate')});
   await delay(1500);
   const started=Date.now();
   while (!await evaluate('!!window.__game?.ready') && Date.now()-started<timeout) await delay(1000);
 }
+// Same-pose car-light stills plus paired frame-delivery measurements, through the shared transport.
+if (args.includes('--vehicle-stills')) {
+  try {
+    await send('Page.setWebLifecycleState',{state:'active'});
+    await send('Emulation.setFocusEmulationEnabled',{enabled:true});
+    await send('Page.bringToFront');
+    await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
+    const measurements=[];
+    for(const scale of [.5,1]) for(const mode of [0,2]) {
+      const row=await evaluate(`(async()=>{
+        const g=window.__game,r=window.__render;g.vehicleSignals.lights=${mode};
+        g.resolution.scale=${scale};g.resolution.update=()=>${scale};r.renderer.setPixelRatio(${scale});
+        await new Promise(resolve=>setTimeout(resolve,800));r.perf.reset();
+        const samples=[];let last=performance.now(),frames=0;
+        await new Promise((resolve,reject)=>{const previous=r.afterFrame,timer=setTimeout(()=>{r.afterFrame=previous;reject(new Error('frame measurement timeout'))},20000);
+          r.afterFrame=()=>{previous?.();const now=performance.now();if(frames++>5)samples.push(now-last);last=now;
+            if(samples.length===90){r.afterFrame=previous;clearTimeout(timer);resolve();}};});
+        await r.perf.flush();const sorted=[...samples].sort((a,b)=>a-b),mean=samples.reduce((a,b)=>a+b,0)/samples.length;
+        return {scale:${scale},lights:${mode},meanMs:mean,fps:1000/mean,p50:sorted[45],p95:sorted[85],perf:r.perf.snapshot()};
+      })()`);
+      measurements.push(row);console.log(JSON.stringify({scale,mode,meanMs:row.meanMs,fps:row.fps}));
+    }
+    fs.writeFileSync(path.join(out,'frame-times.json'),JSON.stringify(measurements,null,2)+'\n');
+    const shots=[];
+    for(const [hour,mode,label] of [[22,0,'night-off'],[22,1,'night-driving'],[22,2,'night-long'],[13,1,'day-driving']]) {
+      const state=await evaluate(`(async()=>{const g=window.__game,r=window.__render;
+        g.vehicleSignals.lights=${mode};r.setHour(${hour});g.resolution.update=()=>1;g.resolution.scale=1;r.renderer.setPixelRatio(1);
+        document.querySelectorAll('body > *:not(canvas)').forEach(e=>e.style.setProperty('display','none','important'));
+        await new Promise(resolve=>setTimeout(resolve,1500));
+        return {hour:g.dayClock.hour,mode:${mode},vehicle:g.state().vehicle.pos,camera:r.camera.position.toArray(),quaternion:r.camera.quaternion.toArray(),
+          beams:g.vehicleBeams.lights.map(l=>({intensity:l.intensity,range:l.distance,decay:l.decay,depths:l.userData.depths})),
+          tiles:[...g.coarse.entries].filter(([id,e])=>e.model).map(([id,e])=>({id,hash:e.visualHash,pass:e.pass})),errors:g.errors};})()`);
+      const shot=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
+      fs.writeFileSync(path.join(out,label+'.jpg'),Buffer.from(shot.data,'base64'));shots.push({file:label+'.jpg',...state});
+    }
+    fs.writeFileSync(path.join(out,'vehicle-shots.json'),JSON.stringify(shots,null,2)+'\n');
+    console.log('Saved four 1280x720 stills and frame-times.json');
+  } finally {await send('Page.setWebLifecycleState',{state:'frozen'});socket.close();}
+  process.exit(0);
+}
+
 // Record a real-time, 1280x720 play-mode signal cycle in the existing browser (no second renderer).
 if (opt('--vehicle-video', '')) {
   try {
