@@ -411,6 +411,10 @@ def compile_wall(wall, floors):
         item = windows.get(name)
         return min(.95, max(0, item["value"])) if supported(item) and isinstance(item["value"], (int, float)) else default
 
+    span = field(windows, "pane_span_m") if supported(windows.get("pane_span_m")) else None
+    if not (isinstance(span, list) and len(span) == 2
+            and all(isinstance(x, (int, float)) and np.isfinite(x) for x in span) and span[1] > .1):
+        span = None
     return dict(
         module=module,
         trim_module=42 + MATERIALS.index(trim_material if trim_material in MATERIALS else material),
@@ -425,7 +429,8 @@ def compile_wall(wall, floors):
         else field(wall["trim"], "colour", "#deded3"),
         glazing=[pane_count(columns), pane_count(rows),
                  pane_fraction("pane_split_fraction", 0), pane_fraction("transom_fraction", -1)],
-        glazing_size=window_size,
+        glazing_span=span,
+        glazing_scope=field(windows, "pane_scope", "window"),
         plinth=False,
         size=[width, wall["height_m"]],
         origin=[-wall.get("uv_offset", 0), wall.get("base_h", 0)],

@@ -19,7 +19,8 @@ def prepare(program):
         form = wall.get("structure", {})
         if form.get("floors"):
             glazing = {k: copy.deepcopy(v) for k, v in wall.get("windows", {}).items()
-                       if k in ("divisions", "frame_colour", "pane_split_fraction", "transom_fraction")
+                       if k in ("divisions", "frame_colour", "pane_split_fraction", "transom_fraction",
+                                "pane_span_m", "pane_scope")
                        and supported(v)}
             # Recompile retained forms so old published arrays cannot bypass the
             # current per-row confidence policy. Never mutate the source files.

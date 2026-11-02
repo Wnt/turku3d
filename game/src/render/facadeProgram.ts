@@ -11,7 +11,7 @@ function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'f
 }
 
 export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: Node<'vec3'>, upper: Node<'float'>, selected: Node<'float'>,
-  pattern: Node<'vec4'> = vec4(0, 0, 0, -1)) {
+  pattern: Node<'vec4'> = vec4(0, 0, 0, -1), panePhase: Node<'float'> = float(0)) {
   const opening = facadeAttribute('_kit_opening', 'vec4');
   const detail = facadeAttribute('_kit_detail', 'vec4');
   const size = facadeAttribute('_kit_extent', 'vec4').zw;
@@ -67,7 +67,8 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const openingMetres = isPatch.select(metres,
     vec2(x.sub(.5).mul(layout.y).add(openingWidth.div(2)), openingY.sub(bottom).mul(unitHeight)));
   const glazing = metricGlazing(openingMetres, vec2(openingWidth, openingHeight),
-    top.sub(bottom).div(max(windowHeight, .001)), special.select(vec4(0, 0, 0, -1), pattern));
+    top.sub(bottom).div(max(windowHeight, .001)), special.select(vec4(0, 0, 0, -1), pattern),
+    special.select(float(0), panePhase));
   // A smooth backing material is not a window. Blank modules, plain ground
   // floors and pixels outside the true opening can never emit room light.
   const doorLeaf = door.and(isPatch.not()).or(isPatch.and(patchKind.equal(2)));

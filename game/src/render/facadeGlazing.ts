@@ -4,12 +4,13 @@ import { float, fract, fwidth, max, min, round, smoothstep, step, vec4 } from 't
 import type Node from 'three/src/nodes/core/Node.js';
 
 export function metricGlazing(metres: Node<'vec2'>, size: Node<'vec2'>, top: Node<'float'>,
-  pattern: Node<'vec4'> = vec4(0, 0, 0, -1)) {
-  const columns = pattern.x.greaterThan(0).select(pattern.x,
-    max(size.x.greaterThan(.8).select(float(2), float(1)), round(size.x.div(1.25))));
+  pattern: Node<'vec4'> = vec4(0, 0, 0, -1), phase: Node<'float'> = float(0)) {
+  const columns = pattern.x.lessThan(0).select(max(2, size.x.div(max(.01, pattern.x.negate())).ceil()),
+    pattern.x.greaterThan(0).select(pattern.x,
+      max(size.x.greaterThan(.8).select(float(2), float(1)), round(size.x.div(1.25)))));
   const rows = pattern.y.greaterThan(0).select(pattern.y, max(1, round(size.y.div(1.8))));
-  const pitchX = size.x.div(columns), pitchY = size.y.div(rows);
-  const x = metres.x.div(pitchX), y = metres.y.div(pitchY);
+  const pitchX = pattern.x.lessThan(0).select(pattern.x.negate(), size.x.div(columns)), pitchY = size.y.div(rows);
+  const x = metres.x.div(pitchX).add(phase), y = metres.y.div(pitchY);
   const edge = min(min(metres.x, size.x.sub(metres.x)), min(metres.y, top.mul(size.y).sub(metres.y)));
   const aa = max(.002, max(fwidth(metres.x), fwidth(metres.y)));
   const frameWidth = min(.065, size.x.mul(.12));

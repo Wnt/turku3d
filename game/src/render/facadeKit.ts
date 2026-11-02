@@ -26,7 +26,8 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const otherBay = bays.x.floor().notEqual(floors.z);
   const selected = (p.version ?? 1) >= 3 ? entrance.and(otherBay).and(upper.lessThan(1)).select(layout.x.sub(1), layout.x) : layout.x;
   const pattern = (p.version ?? 1) >= 5 ? facadeAttribute('_kit_glazing', 'vec4') : undefined;
-  const program = (p.version ?? 1) >= 4 ? programLayout(bays, metres, layout, upper, selected, pattern) : null;
+  const frameData = (p.version ?? 1) >= 5 ? facadeAttribute('_kit_frame', 'vec4') : null;
+  const program = (p.version ?? 1) >= 4 ? programLayout(bays, metres, layout, upper, selected, pattern, frameData?.w) : null;
   const module = program?.module ?? selected;
   const cell = vec2(module.mod(7), module.div(7).floor().mul(2)).add(vec2(0, float(1).sub(upper)));
   // Four-pixel wrapped gutters isolate modules from neighbouring atlas cells and mip levels.
@@ -50,7 +51,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const opening = program && paint ? program.inside.mul(float(1).sub(paint.band)) : float(0);
   // Physical frame bars stay centimetres wide even on a 20 m ribbon or a tall
   // lancet. The old 128 px window bitmap remains only on legacy kit versions.
-  const frameColour = (p.version ?? 1) >= 5 ? facadeAttribute('_kit_frame', 'vec3') : trim;
+  const frameColour = frameData?.rgb ?? trim;
   const glazingColour = program ? mix(frameColour.mul(.9),
     vec3(.016, .028, .04).mul(mix(.8, 1.35, program.rise)), program.glass) : albedo.mul(tint);
   material.colorNode = mix(facadeColour, glazingColour, opening);

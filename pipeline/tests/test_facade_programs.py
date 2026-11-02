@@ -69,13 +69,31 @@ def test_reviewed_pane_rhythm_does_not_stretch_onto_broad_shop_glazing():
     wall.update(measured_geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N],
         p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2), measured_size=[23.3, 4])
     wall["windows"]["rectangles_m"] = [[1, 1, 2, 2], [8, 1, 10, 2]]
+    wall["windows"]["opening_roles"] = ["window", "base"]
     vertices = np.array([[0, 2, 0], [23.3, 2, 0], [23.3, 13.5, 0], [0, 13.5, 0]])
     style = compile_wall(wall, 4)
-    style.update(glazing=[2, 1, 0, 0], glazing_size=[2, 2])
+    style.update(glazing=[2, 1, 0, 0])
     patches = [r[2] for r in wall_parts(vertices, wall, style)
                if r[2]["detail"][3] > 0 and r[2]["detail"][3] % 4 == 1]
     assert [p["glazing"] for p in patches] == [[2, 1, 0, 0], [0, 0, 0, -1]]
     assert style["glazing"] == [2, 1, 0, 0]
+
+
+def test_reversed_clipped_ribbon_keeps_original_pane_pitch_and_mirrors_split():
+    wall = program()["walls"][0]
+    wall.update(measured_geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N],
+        p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2), measured_size=[23.3, 8])
+    wall["windows"]["rectangles_m"] = [[1, 1, 20, 2], [7, 4, 8, 2]]
+    vertices = np.array([[23.3, 2, 0], [10, 2, 0], [10, 10, 0], [23.3, 10, 0]])
+    style = compile_wall(wall, 4)
+    style.update(glazing=[5, 1, .7, 0], glazing_span=[1, 20])
+    patches = [r[2] for r in wall_parts(vertices, wall, style)
+               if r[2]["detail"][3] > 0 and r[2]["detail"][3] % 4 == 1]
+    assert [p["glazing"][0] for p in patches] == [-4, -4]
+    assert [p["glazing"][2] for p in patches] == pytest.approx([.3, .3])
+    assert [p["glazing_phase"] for p in patches] == [-5, -3.5]
+    assert [p["size"][0] for p in patches] == [20, 8]
+    assert style["glazing"] == [5, 1, .7, 0]
 
 def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     wall = program()["walls"][0]

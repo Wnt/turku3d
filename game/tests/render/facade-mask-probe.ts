@@ -3,11 +3,12 @@ import * as THREE from 'three/webgpu';
 import { float, step, uv, vec2, vec3 } from 'three/tsl';
 import { facadeAttribute, interleaveProgram } from '../../src/render/facadeProgramAttributes';
 import { programLayout } from '../../src/render/facadeProgram';
+import { facadeKitMaterial } from '../../src/render/facadeKit';
 
 export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
   const previous = renderer.getRenderTarget();
   const target = new THREE.RenderTarget(256, 256);
-  const resources: (THREE.BufferGeometry | THREE.Material)[] = [];
+  const resources: { dispose(): void }[] = [];
   const camera = new THREE.OrthographicCamera(0, 3, 4, 0, .1, 10);
   camera.position.z = 5;
   const results: Record<string, number> = {};
@@ -53,6 +54,42 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
         results[key] = value;
         if (expected ? value < 200 : value > 20) throw new Error(`${key}: mask ${value}, expected ${expected}`);
       }
+    }
+    // Exercise the production material/attribute layout, including frame colour
+    // and a clipped, reversed 22.47 m ribbon with its original pane phase.
+    const geometry = new THREE.PlaneGeometry(8, 2);
+    geometry.translate(8, 1, 0);
+    const tex = geometry.getAttribute('uv');
+    for (let i = 0; i < tex.count; i++) tex.setXY(i, 4 + tex.getX(i) * 8, tex.getY(i) * 2);
+    const fields = { _kit_layout: [0, 22.47, 2], _kit_extent: [0, 0, 22.47, 2],
+      _kit_opening: [.98, .95, .02, 0], _kit_detail: [0, 0, 0, 1], _kit_floors: [.001, 2, 0],
+      _kit_bands: [0, 0, 0, 0], _kit_wall: [1, 1, 1], _kit_base: [1, 1, 1], _kit_trim: [1, 1, 1],
+      _kit_glazing: [-4.494, 1, .3, 0], _kit_frame: [.6, .6, .6, -5] };
+    for (const [field, values] of Object.entries(fields)) geometry.setAttribute(field,
+      new THREE.Float32BufferAttribute(Array.from({ length: tex.count }, () => values).flat(), values.length));
+    interleaveProgram(geometry);
+    const map = (bytes: number[]) => {
+      const texture = new THREE.DataTexture(new Uint8Array(bytes), 1, 1);
+      texture.needsUpdate = true; resources.push(texture); return texture;
+    };
+    const source = new THREE.MeshStandardMaterial({ map: map([255, 255, 255, 0]),
+      normalMap: map([128, 128, 255, 255]), roughnessMap: map([255, 255, 0, 255]) });
+    source.userData.facade_kit = { version: 5 };
+    const material = facadeKitMaterial(source, renderer)!;
+    material.emissiveNode = vec3(0); // deterministic daylight, independent of current game clock
+    material.toneMapped = false;
+    resources.push(geometry, source, material);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.Mesh(geometry, material), new THREE.AmbientLight(0xffffff, 2));
+    camera.left = 4; camera.right = 12; camera.top = 2; camera.bottom = 0; camera.updateProjectionMatrix();
+    renderer.setRenderTarget(target);
+    await renderer.compileAsync(scene, camera);
+    renderer.render(scene, camera);
+    const pixels = await renderer.readRenderTargetPixelsAsync(target, 0, 0, 256, 256);
+    for (const [x, frame] of [[4.05, false], [4.494, true], [5.1, false], [5.8422, true]] as const) {
+      const value = Number(pixels[(128 * 256 + Math.floor((x - 4) / 8 * 256)) * 4]);
+      results[`production-ribbon:${x}`] = value;
+      if (frame ? value < 100 : value > 90) throw new Error(`production-ribbon:${x}: unexpected ${value}`);
     }
     return results;
   } finally {

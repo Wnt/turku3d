@@ -3882,7 +3882,7 @@
               5,
               1
             ],
-            "source": "assistant direct crop review",
+            "source": "same-wall crop review: five structural groups, not a measured pane count; paired-pane approximation",
             "support": 0.6
           },
           "recess_m": {
@@ -3904,6 +3904,14 @@
             "value": 0.7,
             "source": "same-wall crop review: broad/narrow vertical pane pairs; approximate relative proportion",
             "support": 0.7
+          },
+          "pane_span_m": {
+            "value": [
+              1.901,
+              22.47
+            ],
+            "source": "retained upper ribbon extent; five structural groups used as qualitative glazing prior",
+            "support": 0.6
           }
         },
         "base": {
@@ -34764,9 +34772,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34782,9 +34792,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34800,9 +34812,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34818,9 +34832,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34836,9 +34852,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34854,9 +34872,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34872,9 +34892,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "top"
+              "role": "top",
+              "opening_class": "wide"
             }
           ],
           "material": null,
@@ -35237,6 +35259,11 @@
           "transom_fraction": {
             "value": 0,
             "source": "same-wall crop review: no horizontal transom in upper window panes",
+            "support": 0.8
+          },
+          "pane_scope": {
+            "value": "window",
+            "source": "paired panes observed in regular upper rows; lower ribbon/shop openings excluded",
             "support": 0.8
           }
         },

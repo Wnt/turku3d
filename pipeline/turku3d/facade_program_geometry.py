@@ -136,6 +136,7 @@ def _paint_layers(vertices, wall, style):
             surrounds[i]
             if i < len(surrounds) and surrounds[i] is not None
             else field(windows, "surround_shape"),
+            windows.get("opening_roles", [])[i] if i < len(windows.get("opening_roles", [])) else "window",
         )
         for i, r in enumerate(windows.get("rectangles_m", []))
     ]
@@ -150,6 +151,7 @@ def _paint_layers(vertices, wall, style):
             if i < len(base_shapes) and base_shapes[i] is not None
             else field(base, "head_shape", "flat"),
             base_surrounds[i] if i < len(base_surrounds) else None,
+            "base",
         )
         for i, r in enumerate(base.get("openings_m", []))
     ]
@@ -159,15 +161,16 @@ def _paint_layers(vertices, wall, style):
             3 if d.get("opaque") else 2,
             d.get("head_shape") or field(wall["doors"], "head_shape", "flat"),
             d.get("surround"),
+            "door",
         )
         for d in wall["doors"].get("candidates", [])
         if "rect_m" in d
     ]
     boxes += [
-        (n["rect_m"], 4, n.get("head_shape", "flat"), n.get("surround"))
+        (n["rect_m"], 4, n.get("head_shape", "flat"), n.get("surround"), "niche")
         for n in wall.get("niches", [])
     ]
-    for (x, y, w, h), kind, shape, surround in boxes:
+    for (x, y, w, h), kind, shape, surround, role in boxes:
         source_left, source_right = sorted([offset + x * sign, offset + (x + w) * sign])
         left, right = max(x0, source_left), min(x1, source_right)
         bottom, top = max(y0, y0 + y), min(y1, y0 + y + h)
@@ -176,15 +179,20 @@ def _paint_layers(vertices, wall, style):
             continue
         points, uv = part
         patch = copy.deepcopy(style)
-        # The reviewed pane pattern describes typical windows. A broad showroom
-        # opening on the same wall is not that window stretched across the base.
+        # Window observations cannot silently become shopfront observations.
         pattern = patch.get("glazing")
-        reference_width = style.get("glazing_size", [0, 0])[0]
-        if pattern and pattern[0] and reference_width > 0:
-            if w > reference_width * 2:
-                patch["glazing"] = [0, 0, 0, -1]
-            else:
-                pattern[0] = max(1, round(pattern[0] * w / reference_width))
+        if role != style.get("glazing_scope", "window"):
+            patch.update(glazing=[0, 0, 0, -1], frame=style["trim"])
+        elif pattern:
+            if sign < 0 and pattern[2] > 0:
+                pattern[2] = 1 - pattern[2]
+            span = style.get("glazing_span")
+            if span and pattern[0] > 0:
+                # A retained ribbon span anchors its group pitch across partial
+                # openings and reversed shell walls. Never infer this from size_m.
+                pitch = span[1] / pattern[0]
+                patch["glazing_phase"] = ((x - span[0]) if sign > 0 else -(x + w - span[0])) / pitch
+                pattern[0] = -pitch  # negative = fixed metric pitch; positive = pane count
         if kind == 3:
             patch.update(
                 module=48, wall="#55534e", base="#55534e", bands=[0, 0, 0, 0], detail=[0, 0, 0, 0]
@@ -291,7 +299,7 @@ def _paint_layers(vertices, wall, style):
             "detail": [0, 0, 0, 0],
             "relief_m": 0.06,
         }
-        for (x, y, w, h), _, _, _ in boxes:
+        for (x, y, w, h), *_ in boxes:
             ornaments = [(x, y + h + 0.18, w, thickness)]
             if ornament in ("medium", "high"):
                 ornaments.append((x + w * 0.2, y - 0.16, w * 0.6, thickness))

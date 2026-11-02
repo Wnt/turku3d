@@ -192,6 +192,7 @@ def compile_structure(row, form, register_floors, *, min_support=0.6):
         )
 
     windows, heads, surrounds, doors, excluded, balconies, niches = [], [], [], [], [], [], []
+    opening_roles = []
     material_bands = []
     for floor, reading in enumerate(rows):
         floor_height = heights[floor]
@@ -283,6 +284,8 @@ def compile_structure(row, form, register_floors, *, min_support=0.6):
                     )
                 else:
                     windows.append(box)
+                    opening_roles.append("base" if reading["role"] == "base" or kind == "shop"
+                                         else "ribbon" if reading.get("rhythm") == "ribbon" else "window")
                     heads.append(head)
                     surrounds.append(surround)
             if [floor, bay] in form["balconies"]:
@@ -324,6 +327,7 @@ def compile_structure(row, form, register_floors, *, min_support=0.6):
         ),
         windows=dict(
             rectangles_m=[] if ground_only else windows,
+            opening_roles=[] if ground_only else opening_roles,
             head_shapes=[] if ground_only else heads,
             surround_shapes=[] if ground_only else surrounds,
             head_shape=unknown(),
