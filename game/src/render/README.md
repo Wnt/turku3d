@@ -23,6 +23,8 @@ At elevations of 12° and above, sun intensity 4.0, IBL 0.08 and neutral hemisph
 street-level sun–shade separation; exposure stays 0.65. Dawn, dusk and night keep their own keyed values.
 Time edits also reposition the directional sun around its existing target, so a stationary QA camera gets the
 same lighting and shadow direction as the visible sky without requiring another camera move.
+Daylight PMREM omits the solar disc, avoiding a second unshadowed source of sunlight in rough reflections.
+The visible disc is unchanged; the bake blends to the established twilight behaviour between 12° and 6°.
 `renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
 4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
 re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,

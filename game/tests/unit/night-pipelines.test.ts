@@ -1,6 +1,6 @@
 // Day and night share every pipeline: real r186 CPU shader builders (no browser) generate identical programs and
 // cache keys at 13:00 and 23:30, and with idle or active light slots (docs/reports/perf-air-loop.md pattern).
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 // @ts-expect-error r186 internal node manager has no DefinitelyTyped declaration.
@@ -129,6 +129,33 @@ test('time edits move the shadow-casting sun with the sky while the camera stays
     expect(light.distanceTo(target)).toBeCloseTo(200, 10);
     expect(light.sub(target).normalize().distanceTo(env.sunDir), `${hour}:00`).toBeLessThan(1e-10);
   }
+});
+
+test('daylight IBL omits the solar disc and restores the visible sky even when a bake fails', () => {
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const env = new Environment(new THREE.Scene(), renderer, 'medium');
+  const target = new THREE.RenderTarget(1, 1);
+  const baked: { disc: number | boolean; brightness: number }[] = [];
+  const bake = vi.spyOn(THREE.PMREMGenerator.prototype, 'fromScene').mockImplementation(() => {
+    baked.push({ disc: env.sky.showSunDisc.value, brightness: env.atmosphere.skyBrightness.value });
+    return target;
+  });
+  try {
+    for (const [elevation, disc] of [[30, 0], [9, .5], [6, 1], [-12, 1]]) {
+      env.setSun(180, elevation, 12);
+      const brightness = env.atmosphere.skyBrightness.value;
+      env.updateIBL();
+      expect(baked.at(-1)).toEqual({ disc, brightness: 1 });
+      expect(env.sky.showSunDisc.value).toBe(1);
+      expect(env.atmosphere.skyBrightness.value).toBe(brightness);
+    }
+    env.setSun(180, 25, 13);
+    const brightness = env.atmosphere.skyBrightness.value;
+    bake.mockImplementationOnce(() => { throw new Error('bake failure'); });
+    expect(() => env.updateIBL()).toThrow('bake failure');
+    expect(env.sky.showSunDisc.value).toBe(1);
+    expect(env.atmosphere.skyBrightness.value).toBe(brightness);
+  } finally { bake.mockRestore(); env.dispose(); }
 });
 
 test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slots (WebGL=%s)', webgl => {
