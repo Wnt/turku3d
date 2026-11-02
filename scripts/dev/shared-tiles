@@ -34,9 +34,20 @@ def main():
     build = sub.add_parser('build')
     build.add_argument('--version', required=True)
     build.add_argument('tiles', nargs='+')
+    comparison = sub.add_parser('compare', help='compare completed stage/input keys; never queues builds')
+    comparison.add_argument('--before', required=True)
+    comparison.add_argument('--after', required=True)
+    comparison.add_argument('tiles', nargs='+')
     args = parser.parse_args()
     if args.action == 'status':
         print(urlopen(args.url + '/health').read().decode())
+        return
+    if args.action == 'compare':
+        from shared_tile_report import compare, product
+        aliases = json.load(urlopen(args.url + '/health'))['aliases']
+        before, after = (aliases.get(ref, ref) for ref in (args.before, args.after))
+        for tile in args.tiles:
+            print(json.dumps(compare(product(args.url, before, tile), product(args.url, after, tile))))
         return
     if args.action == 'build':
         for tile in args.tiles:
