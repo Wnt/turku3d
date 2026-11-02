@@ -64,6 +64,11 @@ export class DevLayers {
   private observed = new Set<THREE.Object3D>();
   private entries: { object: THREE.Object3D; path: string | null; paths?: (string | null)[] }[] = [];
   private lastPanelUpdate = -Infinity;
+  private readout: HTMLElement | null | undefined;
+  private readoutHidden = true;
+  private layoutObserver?: ResizeObserver;
+  private layoutDirty = true;
+  private invalidateLayout = () => { this.layoutDirty = true; };
   private added = (event: { child: THREE.Object3D }) => { this.observe(event.child); this.sceneDirty = true; };
   private removed = (event: { child: THREE.Object3D }) => {
     event.child.traverse(object => {
@@ -81,6 +86,8 @@ export class DevLayers {
     private setViewDistance?: (radius: number) => void, private camera?: THREE.PerspectiveCamera) {
     if (!this.enabled) return;
     this.observe(scene);
+    globalThis.addEventListener?.('resize', this.invalidateLayout);
+    document.addEventListener?.('turku3d-hud-layout', this.invalidateLayout);
     let pass: 'auto' | 'first' | 'full' = 'auto';
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
@@ -160,6 +167,22 @@ export class DevLayers {
 
   private save() {
     try { localStorage.setItem(KEY, JSON.stringify({ choices: this.choices, pass: this.select.value })); } catch { /* Session choices remain. */ }
+  }
+  private positionPanel() {
+    if (this.readout === undefined) {
+      this.readout = document.getElementById('position-hud');
+      if (this.readout && typeof ResizeObserver !== 'undefined') {
+        this.layoutObserver = new ResizeObserver(this.invalidateLayout);
+        this.layoutObserver.observe(this.readout);
+      }
+    }
+    const hidden = !this.readout || !!this.readout.hidden;
+    if (hidden !== this.readoutHidden) { this.readoutHidden = hidden; this.layoutDirty = true; }
+    if (!this.layoutDirty) return;
+    this.layoutDirty = false;
+    const top = this.readout && !hidden ? this.readout.getBoundingClientRect().bottom + 4 : 86;
+    const css = `${top}px`;
+    if (this.element.style.top !== css) this.element.style.top = css;
   }
   private allowed(path: string) {
     const [group] = path.split('/');
@@ -262,7 +285,8 @@ export class DevLayers {
       const view = this.sceneryView();
       if (view) scenery.setView(view, performance.now());
     }
-    if (!this.open && this.element.style.top) return;
+    this.positionPanel();
+    if (!this.open) return;
     const now = performance.now();
     if (now - this.lastPanelUpdate < 250 && !this.dirty) return;
     this.lastPanelUpdate = now;
@@ -274,9 +298,6 @@ export class DevLayers {
       scenery?.radius && progress ? `Scenery ${progress.loaded}/${progress.total} · ${progress.pending} awaiting full detail${progress.errors ? ` · ${progress.errors} retrying` : ''}` : '',
     ].filter(Boolean).join(' · ');
     if (this.open && this.dirty) this.renderTree();
-    const readout = document.getElementById('position-hud');
-    const bottom = readout && !readout.hidden ? readout.getBoundingClientRect().bottom + 4 : 86;
-    this.element.style.top = `${bottom}px`;
   }
   private renderTree() {
     this.dirty = false;
@@ -306,6 +327,9 @@ export class DevLayers {
   dispose() {
     this.coarse?.screenshotScenery.setRadius(0); this.setViewDistance?.(0);
     this.restore();
+    globalThis.removeEventListener?.('resize', this.invalidateLayout);
+    document.removeEventListener?.('turku3d-hud-layout', this.invalidateLayout);
+    this.layoutObserver?.disconnect(); this.readout = null;
     for (const object of this.observed) {
       object.removeEventListener('childadded', this.added);
       object.removeEventListener('childremoved', this.removed);

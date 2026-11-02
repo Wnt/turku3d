@@ -7,7 +7,7 @@ test('hidden diagnostics collect no data while nicknames update, and toggling sa
   vi.stubGlobal('document', { body: { classList: { toggle() {} } } });
   let text = '';
   const write = vi.fn((value: string) => { text = value; });
-  const element = { hidden: false, classList: { toggle() {} },
+  const element = { hidden: false, classList: { toggle() {} }, dispatchEvent: vi.fn((event: Event) => event.bubbles),
     get textContent() { return text; }, set textContent(value: string) { write(value); } };
   const snapshot = vi.fn(() => ({ cpuMs: {}, gpuMs: {}, frameMs: {}, gpuStatus: 'unsupported', drawCalls: 12, triangles: 90 }));
   let fps = 30;
@@ -36,4 +36,6 @@ test('hidden diagnostics collect no data while nicknames update, and toggling sa
   hud.toggle(); hud.update(315, 'New nickname', read);
   expect(read).toHaveBeenCalledTimes(2);
   expect(text).toBe('New nickname');
+  expect(element.dispatchEvent).toHaveBeenCalledTimes(3);
+  expect(element.dispatchEvent.mock.calls[2][0]).toMatchObject({ type: 'turku3d-hud-layout', bubbles: true });
 });
