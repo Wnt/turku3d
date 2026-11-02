@@ -3769,7 +3769,7 @@
           "register_height_conflict": false,
           "excluded_rectangles_m": [],
           "colour_space": "sRGB photo appearance; not calibrated albedo",
-          "notes": "Five visible ribbon bands, with a recessed balcony interrupting the second band. Pale horizontal spandrels, glass railing over retail arcade. Seven registered floors retained; crop top is incomplete. Five structural bays, not a reliable individual-window count.",
+          "notes": "Five visible ribbon bands, with a recessed balcony interrupting the second band. Pale horizontal spandrels, glass railing over retail arcade. Seven registered floors retained; crop top is incomplete. Five structural bays, not a reliable individual-window count. Lowest ribbon at 4.029 m is the fine-grid commercial strip above the arcade; its pane treatment remains separate from the broader upper residential ribbons.",
           "opening_extent": "observed only; omitted areas are unknown"
         },
         "split": {
@@ -3912,6 +3912,19 @@
             ],
             "source": "retained upper ribbon extent; five structural groups used as qualitative glazing prior",
             "support": 0.6
+          },
+          "opening_roles": [
+            "window",
+            "window",
+            "window",
+            "base",
+            "window",
+            "window"
+          ],
+          "pane_scope": {
+            "value": "window",
+            "source": "same-wall crop review: upper residential ribbons use broad/narrow pairs; lowest ribbon at 4.029 m has finer commercial glazing",
+            "support": 0.8
           }
         },
         "base": {
