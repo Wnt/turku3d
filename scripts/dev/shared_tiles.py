@@ -71,6 +71,17 @@ def process_alive(pid, ticks=None):
         return False
 
 
+def process_started(ticks):
+    """Recover a worker's wall-clock start when adopting it across daemon upgrades."""
+    try:
+        if ticks and int(ticks) > 0:
+            uptime = float(Path('/proc/uptime').read_text().split()[0])
+            return time.time() - uptime + int(ticks) / os.sysconf('SC_CLK_TCK')
+    except (OSError, ValueError):
+        pass
+    return None
+
+
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
                  reserve_gib=2, grace_seconds=900, execute=None, free=None):
@@ -89,6 +100,7 @@ class Farm:
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
+        self.started = time.time()
         self.aliases = read_json(self.root / 'aliases.json', {})
         for row in read_json(self.root / 'pending.json', []):
             key = (row['generation'], row['tile'])
@@ -188,8 +200,13 @@ class Farm:
     def status(self):
         with self.lock:
             return dict(state='ready', api_version=2, version=self.version, aliases=self.aliases.copy(),
+                        uptime_seconds=round(time.time() - self.started),
                         workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
                         building=[k[1] for k in self.dispatched],
+                        active=[dict(revision=self.jobs[k], generation=k[0], tile=k[1],
+                                     pid=self.queue_info[k].get('pid'),
+                                     seconds=round(time.time() - self.queue_info[k].get('build_started', time.time())))
+                                for k in sorted(self.dispatched)],
                         queue=[dict(revision=self.jobs[k], tile=k[1], priority=self.priority(k)[:2],
                                     age=round(time.time()-self.queue_info[k]['requested']))
                                for k in sorted(self.jobs, key=self.priority) if k not in self.dispatched], metrics=self.metrics.copy(),
@@ -244,8 +261,8 @@ class Farm:
     def priority(self, key):
         info = self.queue_info[key]
         if info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
-            return (-1, 0, 0, info['requested'])  # Adopt existing work before starting anything new.
-        category, distance = (0 if info.get('explicit') else 3), info.get('distance', 0)
+            return (-2, 0, 0, info['requested'])  # Adopt existing work before starting anything new.
+        category, distance = (1 if info.get('explicit') else 3), info.get('distance', 0)
         for (generation, _client), demand in self.demands.items():
             if generation == key[0] and time.time() - demand['seen'] < 120 and key[1] in demand['tiles']:
                 category = min(category, demand['tiles'][key[1]])
@@ -255,7 +272,7 @@ class Farm:
         generation = self.revision(revision)['generation']
         with self.lock:
             self.demands[(generation, client[:128])] = dict(seen=time.time(),
-                tiles={tile: 0 if tile in urgent else 1 if tile in visible else 2 for tile in tiles})
+                tiles={tile: -1 if tile in urgent else 0 if tile in visible else 2 for tile in tiles})
             self.demands = {k:v for k,v in self.demands.items() if time.time() - v['seen'] < 120}
             self.pump()
         return self.status()
@@ -276,6 +293,7 @@ class Farm:
                 break
             key = min(pending, key=self.priority)
             self.dispatched.add(key)
+            self.queue_info[key].setdefault('dispatched_at', time.time())
             if not self.queue_info[key].get('pid'):
                 self.turns[key[0]] = time.time()
             self.pool.submit(self.build, self.jobs[key], key[1], key[0])
@@ -330,9 +348,13 @@ class Farm:
                 input_misses = sum(s.get('cached') is False for s in prepared.values())
                 hit = sum(s.get('cached') is True for s in stages.values())
                 miss = sum(s.get('cached') is False for s in stages.values())
-                seconds = round(time.monotonic() - started, 3)
+                info = self.queue_info[key]
+                build_started = info.get('build_started') or process_started(info.get('start_ticks'))
+                seconds = round(time.time() - build_started if build_started else time.monotonic() - started, 3)
+                queue_seconds = round(max(0, info.get('dispatched_at', info['requested']) - info['requested']), 3)
                 atomic_json(root / tile / 'ready.json', dict(revision=revision, generation=generation,
-                            seconds=seconds, stage_hits=hit, stage_misses=miss, result=result))
+                            seconds=seconds, queue_seconds=queue_seconds,
+                            stage_hits=hit, stage_misses=miss, result=result))
                 with self.lock:
                     self.metrics['builds'] += 1
                     self.metrics['stage_hits'] += hit
@@ -342,7 +364,8 @@ class Farm:
                     self.failures.pop(key, None)
                     self.version += 1
                 self.event('built', revision=revision, generation=generation, tile=tile,
-                           seconds=seconds, stage_hits=hit, stage_misses=miss, stages=stages,
+                           seconds=seconds, queue_seconds=queue_seconds,
+                           stage_hits=hit, stage_misses=miss, stages=stages,
                            input_hits=input_hits, input_misses=input_misses, prepared=prepared)
         except Exception as error:
             row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
@@ -400,6 +423,7 @@ class Farm:
     def run_build(self, revision, tile, root):
         info = self.queue_info[(root.name, tile)]
         if info.get('pid'):
+            info.setdefault('build_started', process_started(info.get('start_ticks')) or time.time())
             deadline = time.monotonic() + 1800
             while process_alive(info['pid'], info.get('start_ticks')):
                 if time.monotonic() > deadline:
@@ -437,7 +461,7 @@ class Farm:
                                      tile, '--out', str(root / tile)], cwd=repo, env=env,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             with self.lock:
-                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid))
+                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid), build_started=time.time())
                 self.save_queue(force=True)
             deadline = time.monotonic() + 1800
             while proc.poll() is None:

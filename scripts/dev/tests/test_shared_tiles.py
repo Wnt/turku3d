@@ -175,6 +175,26 @@ class FarmTests(unittest.TestCase):
         self.assertEqual(farm.request(REV, 't0_0_0')[0], 200)
         self.assertEqual(farm.metrics['builds'], 1)
 
+    def test_live_camera_demand_precedes_old_explicit_requests(self):
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+        def build(revision, tile, root):
+            calls.append(tile)
+            if len(calls) == 1:
+                entered.set()
+                release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV, 't0_1_0')
+        farm.request(REV2, 't0_2_0', 300)
+        farm.request(REV2, 't0_3_0', 10)
+        farm.demand(REV2, 'camera', ['t0_2_0', 't0_3_0'], {'t0_3_0'}, {'t0_2_0'})
+        release.set()
+        self.wait(farm)
+        self.assertEqual(calls, ['t0_0_0', 't0_3_0', 't0_2_0', 't0_1_0'])
+
     def test_completed_orphan_is_adopted_without_running_a_second_generator(self):
         fake_build(REV, 't0_0_0', self.root / 'products' / GEN)
         farm_module.atomic_json(self.root / 'products' / GEN / 't0_0_0/stage-times.json',
