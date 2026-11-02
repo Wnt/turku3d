@@ -20,7 +20,7 @@ const RESTING_SPEED = 0.3;
 /** Re-rank faster while the cap leaves nearby cars visual, so the player cannot reach one first. */
 const SYNC_MS = 1000, SATURATED_SYNC_MS = 250;
 
-const chassisLift = (car: ParkedVehicle) => car.model === 'truck' ? 1 : .75;
+const chassisLift = (car: ParkedVehicle) => car.model === 'truck' ? 1.25 : .75;
 
 /** Chassis rotation of a draft slot: heading (chassis +X forward), then the ground's pitch (nose up,
  * about the chassis' right +Z) and roll (leaning right, about +X) the generator measured. */
