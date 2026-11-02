@@ -48,6 +48,8 @@ has no weather or wind selector and uses its existing clear sky/static water.
 The new side uses each named preset's existing wind value. Neither build exposes
 a foliage-season selector; existing vegetation is preserved. UI and cursors are hidden;
 labels, divider, title/end cards and credits are added only during editing.
+The labels state each side's actual weather and local hour. A graduated footer
+keeps foreground road detail visible beneath the segment title.
 The Föri segment shows the crossing area; the captured view has no distinct ferry
 model. Landmark geometry is whatever each pinned game build actually renders.
 
@@ -62,6 +64,17 @@ sharing. `comparison-review.py` checks dimensions, frame count, duration and
 black intervals. Resume validates the shot, capture code, resolution, frame rate and pinned source revision before reusing
 a clip. Composition is rebuilt from the validated clips. Use a new output directory
 to preserve an earlier comparison.
+
+For an editorial review at one unchanged camera pose, compose the saved full-size
+midpoint frames without opening a browser or encoding the film:
+
+```sh
+bash pipeline/env/run.sh python tools/video/comparison-compose.py \
+  --out ~/turku3d/video/2026-11-02 --still market-hall
+```
+
+This writes `edit/market-hall-still.png`. Compare two versions at the same shot;
+retain its capture receipts as evidence that the scene and camera are unchanged.
 
 Focused checks:
 
