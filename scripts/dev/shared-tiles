@@ -29,6 +29,7 @@ def main():
     register = sub.add_parser('register')
     register.add_argument('--ref', default='HEAD')
     register.add_argument('--alias')
+    register.add_argument('--source-version', help='immutable farm source overlay hash')
     sub.add_parser('status')
     build = sub.add_parser('build')
     build.add_argument('--version', required=True)
@@ -42,6 +43,8 @@ def main():
             response = urlopen(f'{args.url}/v/{args.version}/coarse/{tile}/manifest.json')
             print(json.dumps(dict(tile=tile, status=response.status, body=json.load(response))))
         return
+    if args.source_version and json.load(urlopen(args.url + '/health')).get('api_version', 1) < 2:
+        raise RuntimeError('farm must be upgraded before registering source overlays')
     revision = command('git', 'rev-parse', args.ref + '^{commit}')
     # Renderer-only commits share completed tiles. Every generator/data/library source remains
     # in this conservative identity; fine-grained invalidation is performed by stage keys.
@@ -70,11 +73,12 @@ def main():
         subprocess.run(['ssh', args.host,
                         'mv -T ' + q(temp) + ' ' + q(target) + ' 2>/dev/null || { test -f ' +
                         q(target + '/revision.json') + ' && rm -rf ' + q(temp) + '; }'], check=True)
-    body = json.dumps(dict(revision=revision, alias=args.alias)).encode()
+    body = json.dumps(dict(revision=revision, alias=args.alias, source_version=args.source_version)).encode()
     response = urlopen(Request(args.url + '/register', data=body,
                               headers={'Content-Type': 'application/json'}))
-    print(response.read().decode())
-    print(f'Tile endpoint: {args.url}/v/{args.alias or revision}/coarse/')
+    registered = json.load(response)
+    print(json.dumps(registered))
+    print(f"Tile endpoint: {args.url}/v/{args.alias or registered['revision']}/coarse/")
 
 
 if __name__ == '__main__':
