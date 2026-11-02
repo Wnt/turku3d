@@ -355,3 +355,11 @@ Current disk: 205 GiB used, 79 GiB free, including 4.1 GiB derived caches and 19
 proof products/shared assets. Complete city products will not fit alongside sources
 without continuous verified pull/pruning. Exit 75 preserves outputs and resumes once
 space is available. A final city disk forecast is pending payload-only measurement.
+
+The saved manifest provenance explains the original comparison more precisely:
+LAN proofs selected WFS `work-3x3`, while staged proofs select fully prefetched
+`coarse-23459500_6704500` / `coarse-23459000_6704500` blocks. Road inputs now include
+the complete neighbouring coarse spot-height blocks; t0_-1_0 also gains one
+classified-lidar neighbour absent from its old provenance. The same dated OSM clip
+is still selected. `compare.py` normalizes source paths relative to `raw/` and
+reports these selections, distinguishing actual source changes from host relocation.
