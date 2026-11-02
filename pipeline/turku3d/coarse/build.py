@@ -614,6 +614,11 @@ def build(
         layer_files.append(stage / "props.vis.glb")
     from turku3d.facade_programs import source_paths as facade_program_sources
 
+    from turku3d.landmarks.descriptions import (
+        source_paths as landmark_sources,
+        parameter_hash as landmark_hash,
+    )
+
     building_meshes = cache.run(
         "building_visual",
         source_key(
@@ -626,13 +631,14 @@ def build(
             base / "facade_kit.py",
             *palette_sources(),
             *facade_program_sources(),
+            *landmark_sources(),
             paint_partition,
             trapezoids,
             jpeg,
             ortho_uv,
             *common,
         ),
-        [tile, shells, wall_context, inputs.ortho, False, facade_params],
+        [tile, shells, wall_context, inputs.ortho, False, facade_params, landmark_hash(blds)],
         lambda: building_visual(tile, shells, inputs.ortho, False, wall_context),
     )
     from turku3d.wall_assembly import assemble_layers
