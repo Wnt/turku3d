@@ -38,7 +38,13 @@ def admission_cap(target,memory_gib,total,available):
     return min(target,capacity) if available>=floor+memory_gib*GIB else 0
 
 
-def ordered(tiles,progress):
+def memory_stalled(cap,active,remaining):
+    """No owned builder can release memory: exit resumably instead of idling forever."""
+    return cap==0 and active==0 and bool(remaining)
+
+
+def ordered(tiles,progress,classes=None,class_seconds=None):
+    classes=classes or {};class_seconds=class_seconds or {}
     timings={}
     if progress.exists():
         for line in progress.read_text().splitlines():
@@ -49,8 +55,9 @@ def ordered(tiles,progress):
         _,x,z=tile.split('_');radius=math.hypot(int(x)+.5,int(z)+.5)
         # Measured durations supersede the centre-density prior. Edge/water cells
         # naturally follow. This is an ordering hint, not a runtime estimate.
-        return timings.get(tile,210 if radius<8 else 130 if radius<24 else 60)
-    return sorted(tiles,key=lambda tile:(-estimate(tile),tile)),timings
+        prior=class_seconds.get(classes.get(tile,{}).get('kind'),210 if radius<8 else 130 if radius<24 else 60)
+        return timings.get(tile,prior)
+    return sorted(tiles,key=lambda tile:(-estimate(tile),sum(int(v)**2 for v in tile.split('_')[1:]),tile)),timings
 
 
 class Monitor:
@@ -69,3 +76,20 @@ class Monitor:
                    memory_available_gib=round(available/GIB,3))
         with (self.state/'utilization.jsonl').open('a') as log:log.write(json.dumps(row)+'\n')
         self.before=current;self.at=now
+
+
+def preserve_products(farm,evict,target):
+    """Bulk exports own retirement: cache pressure must never delete an old product."""
+    if farm.free()>=target:return True
+    previous=farm.aliases
+    retained=dict(previous)
+    for generation in (farm.root/'products').iterdir():
+        ready=next(generation.glob('t0_*/ready.json'),None)
+        if ready:
+            revision=json.loads(ready.read_text())['revision']
+            retained['bulk-retain-'+generation.name]=revision
+    # Farm calls this under its reentrant lock; no concurrent alias mutation can
+    # observe the temporary pins. Verified transfer --prune owns product removal.
+    farm.aliases=retained
+    try:return evict(target)
+    finally:farm.aliases=previous
