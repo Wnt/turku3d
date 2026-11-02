@@ -117,19 +117,49 @@ def matching_wall(vertices, program):
     return match[0]["wall"] if match else None
 
 
-def describe(program, description, source_width):
+def described_blank_walls(key, vertices, description):
+    """A zero count is evidence for its source wall, never a whole building."""
+    if (description.get("window_columns") or not description.get("wall_visible", True)
+            or description.get("problem")):
+        return set()
+    from turku3d.facade_assets import building
+    from turku3d.coarse.stored_facades import match_prepared, prepare_walls
+
+    sources = [f for f in building(key)["facades"]
+               if f["metadata"].get("facade_id") == description.get("facade_id")]
+    prepared = prepare_walls(sources)
+    result = set()
+    for index, points in enumerate(np.asarray(vertices).reshape(-1, 4, 3)):
+        matched = match_prepared(points, prepared, min_coverage=.95)
+        if not matched:
+            continue
+        source = matched[0]
+        base = source["base_height"]
+        height = source["metadata"].get("height_m", 0)
+        if points[:, 1].min() >= base - .25 and points[:, 1].max() <= base + height + .25:
+            result.add(index)
+    return result
+
+
+def describe(program, description, source_width, *, blank_walls=frozenset()):
     """Keep existing AI/kit results, adapting only the bay count to each real wall."""
     from turkutex.facade_program import value
 
     d = description
+    if not d.get("wall_visible", True):
+        return
     pitch = source_width / max(1, d["window_columns"])
     # Descriptions are a building-wide rhythm, not a licence to stretch a single
     # source bay over an unrelated long wall or squeeze it into a roof sliver.
     pitch = min(4.8, max(1.5, pitch))
     features = d["features"]
-    for w in program["walls"]:
+    for index, w in enumerate(program["walls"]):
         width, height = w["width_m"], w.get("layout_height_m", w["height_m"])
-        count = max(1, round(width / pitch)) if d["window_columns"] and width >= 1.4 else 0
+        has_windows = d["window_columns"] > 0
+        located_blank = index in blank_walls
+        count = (max(1, round(width / pitch)) if has_windows else w["bays"]["count"])
+        if located_blank or width < 1.4:
+            count = 0
         bay = width / max(count, 1)
         floors = program["storeys"]["value"]
         ground = height / floors if floors else height
@@ -138,24 +168,26 @@ def describe(program, description, source_width):
         upper = (height - ground) / (floors - 1) if floors and floors > 1 else ground
         v = lambda x: value(x, "existing description", 1)  # noqa: E731
         w["wall"].update(colour=v(d["wall_colour"]), material=v(d["material"]))
-        w["bays"].update(
-            count=count,
-            pitch_m=bay,
-            centers_m=[(i + 0.5) * bay for i in range(count)],
-            rhythm="regular",
-        )
-        w["windows"].update(
-            size_m=v([bay * max(0.1, d["window_width"]), upper * max(0.1, d["window_height"])]),
-            sill_fraction=v(0.21),
-            frame_colour=v(d["trim_colour"]),
-        )
+        if has_windows or located_blank or width < 1.4:
+            w["bays"].update(
+                count=count,
+                pitch_m=bay,
+                centers_m=[(i + 0.5) * bay for i in range(count)],
+                rhythm="regular",
+            )
+        if has_windows:
+            w["windows"].update(
+                size_m=v([bay * max(0.1, d["window_width"]), upper * max(0.1, d["window_height"])]),
+                sill_fraction=v(0.21),
+                frame_colour=v(d["trim_colour"]),
+            )
         w["split"]["base_height_m"] = v(ground)
         w["base"].update(
-            variant=v(d["ground_floor"]),
-            shopfront=v(d["ground_floor"] == "shops"),
             colour=v(d["wall_colour"]),
             plinth_height_m=v(0.6 if d["plinth"] else 0),
         )
+        if has_windows or located_blank:
+            w["base"].update(variant=v(d["ground_floor"]), shopfront=v(d["ground_floor"] == "shops"))
         w["trim"].update(
             colour=v(d["trim_colour"]),
             cornice=v(0.35 if d["roof_line"] == "cornice" else 0.08),
@@ -232,6 +264,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
         if supported(item):
             attrs[key] = item["value"]
     d = read_description(building.facade_key)
+    if d and not d.get("wall_visible", True):
+        d = None
     observed = measured(building.facade_key)
     family = building_material(attrs, record, observed, d)
     from turku3d.facade_inference import material as normalize_material
@@ -291,7 +325,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
 
     if d:
         row = description_row(building.facade_key) or {}
-        describe(program, d, row.get("width_m") or attrs["frontage_m"])
+        describe(program, d, row.get("width_m") or attrs["frontage_m"],
+                 blank_walls=described_blank_walls(building.facade_key, vertices, d))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
     for index, wall in enumerate(program["walls"]):
