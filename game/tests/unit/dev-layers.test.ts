@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { DevLayers, layerPath } from '../../src/ui/devLayers';
+import { DevLayerRanges } from '../../src/ui/devLayerRanges';
 
 function element(): any {
   return { append() {}, replaceChildren() {}, setAttribute() {}, querySelectorAll: () => [], style: {}, dataset: {}, remove() {} };
@@ -40,7 +41,7 @@ test('mixed ranges keep private buffers while filtering and release them when al
     panel.restore(); expect(mesh.geometry).toBe(original);
     panel.update();
     expect(mesh.geometry).toBe(filtered);
-    expect(((mesh as THREE.Mesh).material as THREE.Material[])[0]).toBe(materials[0]);
+    expect(mesh.material).toBe(materials);
     expect(materials[0].visible).toBe(false);
   }
   expect(dispose).not.toHaveBeenCalled();
@@ -51,6 +52,40 @@ test('mixed ranges keep private buffers while filtering and release them when al
   expect(dispose).toHaveBeenCalledOnce();
   expect(Array.isArray(mesh.material)).toBe(false);
   panel.dispose();
+});
+
+test('range buckets preserve clipped triangle order and material ownership without touching source indices', () => {
+  const geometry = new THREE.BoxGeometry();
+  geometry.clearGroups(); geometry.addGroup(0, 18, 0); geometry.addGroup(18, 18, 1);
+  geometry.setDrawRange(3, 27);
+  const source = Array.from(geometry.index!.array);
+  const materials = [new THREE.MeshStandardMaterial(), new THREE.MeshStandardMaterial()];
+  const mesh = new THREE.Mesh(geometry, materials);
+  const rows = [{ start: 0, count: 6 }, { start: 6, count: 6 }, { start: 12, count: 6 },
+    { start: 18, count: 6 }, { start: 24, count: 12 }];
+  const ranges = new DevLayerRanges(mesh, rows, ['roof', 'wall', 'roof', 'roof', 'wall']);
+  const expected = [...source.slice(3, 6), ...source.slice(12, 18), ...source.slice(6, 12),
+    ...source.slice(18, 24), ...source.slice(24, 30)];
+  expect(Array.from(ranges.geometry.index!.array)).toEqual(expected);
+  expect(ranges.geometry.groups.map(g => [g.start, g.count, g.materialIndex])).toEqual([
+    [0, 9, 0], [9, 6, 1], [15, 6, 2], [21, 6, 3],
+  ]);
+  expect(Array.from(geometry.index!.array)).toEqual(source);
+  ranges.apply(path => path !== 'roof');
+  expect((mesh.material as THREE.Material[]).map(m => m.visible)).toEqual([false, true, false, true]);
+  ranges.restore(); ranges.dispose();
+  expect(mesh.geometry).toBe(geometry);
+});
+
+test.each([65536, 65537])('nonindexed filtering preserves high vertex indices for %s vertices', count => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+  const ranges = new DevLayerRanges(mesh, [{ start: count - 3, count: 3 }], ['wall']);
+  expect(Array.from(ranges.geometry.index!.array)).toEqual([count - 3, count - 2, count - 1]);
+  expect(ranges.geometry.index!.array).toBeInstanceOf(count > 65536 ? Uint32Array : Uint16Array);
+  expect(geometry.index).toBeNull();
+  ranges.dispose();
 });
 
 test('closed default panel neither traverses nor clones mixed batch geometry', () => {
