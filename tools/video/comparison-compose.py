@@ -49,7 +49,7 @@ def card(end=False):
  if end:text(d,(145,725),'Weather shown on the new build; production uses its available clear setting.',23,fill='#bdcfce')
  p=edit/('end.png' if end else 'title.png');im.save(p);dest=p.with_suffix('.mp4');duration=c['endSeconds'] if end else c['titleSeconds']
  # The captured scene is deliberately softened behind the typography.
- run(['-loop','1','-i',out/'clips'/'aura-dawn-right-sample.jpg','-i',p,'-filter_complex','[0:v]scale=1920:2160,crop=1920:1080,gblur=sigma=24,eq=brightness=-0.24:saturation=0.55[bg];[bg][1:v]overlay=shortest=1,format=yuv420p[v]','-map','[v]','-t',duration,*encode(),dest]);return dest,duration
+ run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v]scale=1920:2160,crop=1920:1080,gblur=sigma=24,eq=brightness=-0.24:saturation=0.55[bg];[bg][1:v]overlay,format=yuv420p[v]','-map','[v]','-frames:v',round(duration*fps),*encode(),dest]);return dest,duration
 segments=[card(),*segments,card(True)]
 parts=[]
 for i,(clip,duration) in enumerate(segments):
