@@ -828,3 +828,9 @@ solid aprons back through the opening (including the Auransilta market passage).
 UVs, upper support and the shared visual/collision triangles. The selective OCI
 probe also walks collision segments through the actual source passage and audits
 existing cached openings without rebuilding unrelated tiles.
+
+Myllysilta's finished 2012 Commons riverbank photograph establishes two river
+piers below its shallow curved deck. The profile estimates third-span stations,
+0.8 m rounded ends and half-width shafts recessed beneath the cantilever. Local
+city outlines bound the shafts; nearby lidar pier stations and bases refine the
+fit. This increment preserves the existing surveyed deck and fascia geometry.
