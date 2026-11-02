@@ -32,7 +32,8 @@ export function summerFoliage(geometry: THREE.BufferGeometry, scale = 1.4) {
     const anchor = anchors.get(root(i));
     if (anchor) for (let k = 0; k < 3; k++) p.setComponent(i, k,
       anchor.sum.getComponent(k) + (original.position[i * 3 + k] - anchor.sum.getComponent(k)) * scale);
-    if (color && original.color) color.setXYZ(i, original.color[i * 3] * 0.72, original.color[i * 3 + 1] * 1.04, original.color[i * 3 + 2] * 0.58);
+    if (color && original.color) color.setXYZ(i, original.color[i * 3] * 0.72,
+      Math.min(1, original.color[i * 3 + 1] * 1.04), original.color[i * 3 + 2] * 0.58);
   }
   p.needsUpdate = true; if (color) color.needsUpdate = true;
   geometry.computeBoundingBox(); geometry.computeBoundingSphere();
