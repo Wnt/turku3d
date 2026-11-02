@@ -24,14 +24,20 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer, environme
       ['glass-backing', 47, 0, 4, 0, [[.35, .35, 0]]],
       ['plain-ground', 0, 1, 4, 0, [[.35, .35, 0]]],
       ['above-fragment', 0, 0, 1, 0, [[.35, .35, 0]]],
+      ['periodic-seams', 0, 0, 8.05, 0,
+        [[.494, .175, 0], [.498, .175, 0], [.175, .494, 0], [.175, .498, 0]]],
     ] as const) {
-      const geometry = new THREE.PlaneGeometry(3, 4);
-      geometry.translate(1.5, 2, 0);
+      // Offset internal bay/floor seams inside a two-pixel derivative quad.
+      const viewWidth = name === 'periodic-seams' ? 6.04 : 3;
+      const viewHeight = name === 'periodic-seams' ? 8.05 : 4;
+      camera.right = viewWidth; camera.top = viewHeight; camera.updateProjectionMatrix();
+      const geometry = new THREE.PlaneGeometry(viewWidth, viewHeight);
+      geometry.translate(viewWidth / 2, viewHeight / 2, 0);
       const tex = geometry.getAttribute('uv');
-      for (let i = 0; i < tex.count; i++) tex.setXY(i, tex.getX(i) * 3, tex.getY(i) * 4);
+      for (let i = 0; i < tex.count; i++) tex.setXY(i, tex.getX(i) * viewWidth, tex.getY(i) * viewHeight);
       const pattern = name === 'reviewed-pair' ? [2, 1, 0, 0]
         : name === 'reviewed-asymmetric' ? [1, 1, .7, 0] : [0, 0, 0, -1];
-      const fields = { _kit_layout: [module, 3, 4], _kit_extent: [0, 0, 3, height], _kit_glazing: pattern,
+      const fields = { _kit_layout: [module, 3, 4], _kit_extent: [0, 0, viewWidth, height], _kit_glazing: pattern,
         _kit_opening: [.5, .5, .2, 0], _kit_detail: [0, 0, detail, patch], _kit_floors: [4, 4, 0] };
       for (const [field, values] of Object.entries(fields)) geometry.setAttribute(field,
         new THREE.Float32BufferAttribute(Array.from({ length: tex.count }, () => values).flat(), values.length));

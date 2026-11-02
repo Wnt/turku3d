@@ -1,5 +1,5 @@
 // Program-sized windows reuse the kit's PBR cells; bands are painted in wall metres.
-import { float, floor, fract, max, min, mix, sqrt, step, vec2, vec4 } from 'three/tsl';
+import { float, floor, fract, fwidth, max, min, mix, sqrt, step, vec2, vec4 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { facadeAttribute, facadePaintAttributes } from './facadeProgramAttributes';
 import { metricGlazing } from './facadeGlazing';
@@ -68,7 +68,10 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
     vec2(x.sub(.5).mul(layout.y).add(openingWidth.div(2)), openingY.sub(bottom).mul(unitHeight)));
   const glazing = metricGlazing(openingMetres, vec2(openingWidth, openingHeight),
     top.sub(bottom).div(max(windowHeight, .001)), special.select(vec4(0, 0, 0, -1), pattern),
-    special.select(float(0), panePhase));
+    special.select(float(0), panePhase),
+    // Differentiate before fract. A bay/floor wrap otherwise looks several
+    // metres wide and admits glowing wall seams outside the actual openings.
+    max(fwidth(metres.x), fwidth(metres.y)));
   // A smooth backing material is not a window. Blank modules, plain ground
   // floors and pixels outside the true opening can never emit room light.
   const doorLeaf = door.and(isPatch.not()).or(isPatch.and(patchKind.equal(2)));
