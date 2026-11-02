@@ -489,7 +489,8 @@ export class CoarseTiles {
     if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
     const base = new URL(`${this.root}${id}/`, this.page);
     const roadsUrl = fragment.roads ? new URL(fragment.roads.url, base).href : undefined;
-    const roadsChanged = roadsUrl !== e.roadsUrl;
+    const roadsKey = roadsUrl && (/\.([a-f0-9]{64})\.json(?:[?#].*)?$/.exec(roadsUrl)?.[1] ?? roadsUrl);
+    const roadsChanged = roadsKey !== e.roadsKey;
     const changed = Object.entries(fragment.collision).filter(([cid, entry]) => !e.collision.has(cid) || entry.sha256 !== e.collision.get(cid)?.sha256);
     const buffers = new Map<string, ArrayBuffer>();
     const validate = async () => {
@@ -542,7 +543,7 @@ export class CoarseTiles {
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
       e.lights = fragment.lights ?? undefined;
-      if (roadsChanged) { e.roads = roads ?? undefined; e.roadsUrl = roadsUrl; this.onMapChange?.(); }
+      if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
       return;
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
@@ -559,7 +560,7 @@ export class CoarseTiles {
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
-    if (roadsChanged) { e.roads = roads ?? undefined; e.roadsUrl = roadsUrl; this.onMapChange?.(); }
+    if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
   }
 
@@ -668,7 +669,7 @@ export class CoarseTiles {
     e.collision.clear();
     e.lights = undefined;
     if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
-    e.roadsUrl = undefined; e.manifestHash = undefined;
+    e.roadsKey = undefined; e.manifestHash = undefined;
     if (e.state === 'draft') e.state = 'pending';
   }
 

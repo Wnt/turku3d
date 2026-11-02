@@ -10,10 +10,11 @@ import type { Manifest } from '../../src/world/manifest';
 const published = ['t0_0_0', 't0_1_0', 't0_0_1', 't0_1_1', 't1_0_0', 't1_1_0', 't1_0_-1'];
 
 test('unchanged resident manifests back off without roads parsing, map merges or collision rebuilds', async () => {
+  const roadFile = `roads.${'a'.repeat(64)}.json`;
   const id = 't0_0_0', roads = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz',
     bbox: [0, 0, 250, 250], nodes: [0, 0, 10, 0], edges: [[0, 1, 3, 10]] };
   const fragment = { coarse: true, tile: id, pass_kind: 'full', generation: 'one',
-    visual: { [id]: { url: 'vis.hash.glb', sha256: 'visual' } }, roads: { url: 'roads.hash.json', bytes: 100 },
+    visual: { [id]: { url: 'vis.hash.glb', sha256: 'visual' } }, roads: { url: `/coarse/_v/one/${roadFile}`, bytes: 100 },
     collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) };
   const requests: string[] = [];
   const checkCollision = vi.fn(async () => {}), refreshCollision = vi.fn(), loadModel = vi.fn(async () => new THREE.Group());
@@ -23,14 +24,14 @@ test('unchanged resident manifests back off without roads parsing, map merges or
     fetch: vi.fn(async (url: string) => {
       const path = new URL(url).pathname; requests.push(path);
       if (path.endsWith('.col')) return new Response(new Uint8Array(4));
-      return Response.json(path.endsWith('roads.hash.json') ? roads : path.endsWith('/want') ? {} : fragment);
+      return Response.json(path.endsWith(roadFile) ? roads : path.endsWith('/want') ? {} : fragment);
     }) as typeof fetch });
   const changed = vi.fn(); coarse.onMapChange = changed;
   coarse.preload([{ x: 30, z: 30 }], 0);
   const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
   for (let t = 0; t <= 60_000; t += 1000) { coarse.update(30, 30, t); await settle(); }
   expect(coarse.entries.get(id)?.state).toBe('draft');
-  expect(requests.filter(p => p.endsWith('roads.hash.json'))).toHaveLength(1);
+  expect(requests.filter(p => p.endsWith(roadFile))).toHaveLength(1);
   expect(requests.filter(p => p.endsWith('manifest.json')).length).toBeLessThanOrEqual(6);
   expect(checkCollision).toHaveBeenCalledTimes(16);
   expect(refreshCollision).not.toHaveBeenCalled();
@@ -38,9 +39,10 @@ test('unchanged resident manifests back off without roads parsing, map merges or
   expect(loadModel).toHaveBeenCalledTimes(1);
   // Freshness metadata may change while the immutable payloads remain resident.
   fragment.generation = 'two';
+  fragment.roads.url = `/coarse/_v/two/${roadFile}`;
   coarse.update(30, 30, 100_000); await settle();
   expect(coarse.entries.get(id)?.generation).toBe('two');
-  expect(requests.filter(p => p.endsWith('roads.hash.json'))).toHaveLength(1);
+  expect(requests.filter(p => p.endsWith(roadFile))).toHaveLength(1);
   expect(changed).toHaveBeenCalledTimes(1);
   expect(checkCollision).toHaveBeenCalledTimes(16);
 });

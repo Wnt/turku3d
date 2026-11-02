@@ -144,7 +144,7 @@ test('near scenery awaits known tree placements; approaching a cached far tile u
     const i=url.includes(keys[0])?0:1;
     return new Response(JSON.stringify({coarse:true,tile:ids[i],pass_kind:'full',visual:{[ids[i]]:{url:'scene.glb',sha256:ids[i]}}}));
   });
-  const view={x:125,y:5,z:125,dx:1,dz:0,halfAngle:1};
+  const view={x:125,y:5,z:125,dx:1,dz:0,halfAngle:1,focalPixels:1600};
   scenery.setRadius(4000,view);await settle();scenery.update(125,125,1000);await settle();
   expect(load).toHaveBeenCalledTimes(2);
   expect(host.prepareVegetation).toHaveBeenCalledTimes(1);
