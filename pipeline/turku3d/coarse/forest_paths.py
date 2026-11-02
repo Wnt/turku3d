@@ -101,26 +101,3 @@ def polygonal(geom):
         if g.geom_type in ("Polygon", "MultiPolygon") and g.area > 1e-4
     ]
     return shapely.union_all(parts) if parts else shapely.Polygon()
-
-
-def path_ground(tile, ortho, regions):
-    """Replace aerial forest-floor foliage over mapped paths with their ground material."""
-    from turku3d.col.materials import mat_id
-
-    from .surfaces import BINDINGS, fallback
-
-    if not regions:
-        return ortho
-    output = ortho.copy()
-    rows, cols = np.indices(ortho.shape[:2])
-    x = tile.origin[0] + (cols + 0.5) * tile.size / ortho.shape[1]
-    z = tile.origin[2] + (rows + 0.5) * tile.size / ortho.shape[0]
-    channels = {mat_id(key): channel for key, channel in BINDINGS.items()}
-    for geom, material in regions:
-        mask = shapely.intersects_xy(geom, x, z)
-        texture = fallback(channels[material])
-        # Match the existing ground fallback's world-anchored 128 px/metre sampling.
-        iy = np.floor(z[mask] * 128).astype(int) % texture.shape[0]
-        ix = np.floor(x[mask] * 128).astype(int) % texture.shape[1]
-        output[mask] = texture[iy, ix]
-    return output

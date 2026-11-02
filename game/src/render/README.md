@@ -12,8 +12,8 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
 
 `timecycle.json` is our own table, tuned by eye. Its light rows are keyed by **sun elevation** (so QA's calendar dates and
 the synthetic cycle share one table): sun colour/intensity (0 below −1°, the sun stays visible and shadowed),
-IBL intensity, hemisphere "artificial ambient" (0 by day), fog colour/range, exposure, bloom strength/threshold, the
-night factor and the twilight/night sky colours added below the horizon (a blue hour around −4°, then a city-lit night
+IBL intensity, hemisphere diffuse fill (neutral daylight; cool artificial ambient at night), fog colour/range,
+exposure, bloom strength/threshold, the night factor and the twilight/night sky colours added below the horizon (a blue hour around −4°, then a city-lit night
 horizon; black by day). The lit-window share is keyed by clock hour (15–60 %, peaking at 20:00, thinnest at 04:00).
 The night grade keeps lamps, windows and their pools in colour but lets dim light fall to the table's `mesopic`
 saturation (a luminance-keyed uniform in the final grade): autumn crowns and painted walls no longer glow in the dark.

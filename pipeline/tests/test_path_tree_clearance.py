@@ -99,18 +99,6 @@ def test_forest_path_overrides_landcover_and_keeps_mapped_surface():
     assert np.all(mats[centers[:, 2] > 1.25] == mat_id("grass"))
 
 
-def test_forest_path_albedo_clears_aerial_foliage_only_inside_corridor():
-    from turku3d.coarse.forest_paths import path_ground
-
-    tile = C.VisualTile(0, 0, 0)
-    ortho = np.full((250, 250, 3), [10, 40, 10], np.uint8)
-    regions = [(shapely.box(0, 0, 250, 2), mat_id("gravel"))]
-    result = path_ground(tile, ortho, regions)
-    assert not np.array_equal(result[:2], ortho[:2])
-    np.testing.assert_array_equal(result[2:], ortho[2:])
-    np.testing.assert_array_equal(path_ground(tile, ortho, []), ortho)
-
-
 def test_mapped_path_widths_preserve_dense_park_between_paths(tmp_path, monkeypatch):
     import producer_world as world
 

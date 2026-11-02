@@ -558,7 +558,6 @@ def test_inputs_are_prepared_once_and_again_when_a_raw_file_changes(raw, tmp_pat
             "ground",
             "water",
             "ortho",
-            "ortho_canopy",
             "wfs",
             "roads",
             "trees",
@@ -715,7 +714,7 @@ def test_a_tile_without_buildings_is_prepared_with_none(tmp_path):
     from turku3d.coarse.inputs import prepare_wfs
 
     tile = C.VisualTile(0, 1, 1)
-    assert prepare_wfs(tile, None, None, None) == {"buildings": [], "streets": [], "water": []}
+    assert prepare_wfs(tile, None, None, None) == {"buildings": [], "wall_context": [], "streets": [], "water": []}
     empty = tmp_path / "bldg.parquet"  # what the WFS cache writes for pages without features
     gpd.GeoDataFrame({"gml_id": []}, geometry=[]).to_parquet(empty)
     assert prepare_wfs(tile, empty, None, None)["buildings"] == []
