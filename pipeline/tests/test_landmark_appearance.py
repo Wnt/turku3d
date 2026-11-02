@@ -3,9 +3,18 @@ import struct
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from turku3d.landmarks.appearance import roof_mesh, wall_meshes
 from turku3d.landmarks.ranking import rank
 from turku3d.package.gltf import build_glb
+
+
+@pytest.fixture(autouse=True)
+def isolated_parameter_store(tmp_path, monkeypatch):
+    from turku3d import config as C
+
+    monkeypatch.setattr(C, "data_root", lambda: tmp_path / "data")
+    monkeypatch.setattr(C, "work_root", lambda: tmp_path / "work")
 
 
 def building(key="103371570S"):
@@ -80,3 +89,79 @@ def test_arch_survives_anisotropic_texture_density():
     arch(ImageDraw.Draw(image), (10, 5, 210, 55), (255, 255, 255), False, rise=20)
     assert image.getpixel((110, 6)) == (255, 255, 255)
     assert image.getpixel((10, 5)) == (0, 0, 0)
+
+
+def test_landmark_description_invalidates_only_its_own_tiles(tmp_path, monkeypatch):
+    from turku3d.landmarks import descriptions
+
+    monkeypatch.setattr(descriptions, "ROOT", tmp_path)
+    a = descriptions.fingerprint([["landmark-a", ""]])
+    b = descriptions.fingerprint([["landmark-b", ""]])
+    (tmp_path / "landmark-a.json").write_text(
+        json.dumps(dict(version=1, building_id="landmark-a", colour=[1, 2, 3]))
+    )
+    assert descriptions.fingerprint([["landmark-a", ""]]) != a
+    assert descriptions.fingerprint([["landmark-b", ""]]) == b
+    assert not descriptions.manifest_current(
+        dict(landmark_buildings=[["landmark-a", ""]], landmark_params=a)
+    )
+    assert descriptions.manifest_current(
+        dict(landmark_buildings=[["landmark-b", ""]], landmark_params=b)
+    )
+
+
+def test_narrow_tower_wall_keeps_copper_above_its_stage():
+    from turku3d.landmarks.appearance import material_wall_parts
+    from turku3d.landmarks.descriptions import resolve
+
+    b = building()
+    d = resolve(b)
+    wall = np.array([[0, 12, 0], [0.5, 12, 0], [0.5, 85, 0], [0, 85, 0]], float)
+    parts = list(material_wall_parts(b, wall, d))
+    assert {kind for _, kind in parts} == {"stone", "wall", "roof"}
+    assert all(
+        v[:, 1].min() >= b.base + d["tower"]["copper_start_m"] - 0.001
+        for v, kind in parts
+        if kind == "roof"
+    )
+
+
+def test_atlas_batches_all_pbr_maps_without_losing_geometry_or_bleeding_edges():
+    import io
+
+    from PIL import Image
+    from turku3d.landmarks.atlas import batch
+    from turku3d.landmarks.procedural import png
+    from turku3d.package.gltf import GlbMesh
+
+    meshes = []
+    for index, colour in enumerate(((230, 40, 10), (10, 40, 230))):
+        albedo = png(np.tile(colour, (32, 32, 1)))
+        normal = png(np.tile((128, 128, 255), (32, 32, 1)))
+        orm = png(np.tile((220, 180, index * 255), (32, 32, 1)))
+        meshes.append(
+            GlbMesh(
+                str(index),
+                np.array([[index, 0, 0], [index + 1, 0, 0], [index, 1, 0]]),
+                np.array([[0, 1, 2]]),
+                uvs=np.array([[0, 0], [1, 0], [0, 1]]),
+                image=albedo,
+                normal_image=normal,
+                orm_image=orm,
+            )
+        )
+    result = batch(meshes, size=128)
+    assert len(result) == 1
+    m = result[0]
+    assert np.array_equal(m.positions, np.concatenate([x.positions for x in meshes]))
+    assert np.array_equal(m.indices, [[0, 1, 2], [3, 4, 5]])
+    for data, expected in (
+        (m.image, [(230, 40, 10), (10, 40, 230)]),
+        (m.orm_image, [(220, 180, 0), (220, 180, 255)]),
+        (m.normal_image, [(128, 128, 255)] * 2),
+    ):
+        atlas = Image.open(io.BytesIO(data))
+        for i, colour in enumerate(expected):
+            x, y = (m.uvs[i * 3] * atlas.size).astype(int)
+            assert atlas.getpixel((x, y)) == colour
+            assert atlas.getpixel((x - 4, y - 4)) == colour

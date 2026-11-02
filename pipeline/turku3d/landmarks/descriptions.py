@@ -12,13 +12,34 @@ ROOT = Path(__file__).with_name("descriptions")
 def source_paths():
     return [
         Path(__file__).with_name(name)
-        for name in ("appearance.py", "descriptions.py", "procedural.py")
+        for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py")
     ]
 
 
-def parameter_hash(buildings):
-    values = [(str(b.facade_key), resolve(b)) for b in buildings]
+def building_refs(buildings):
+    return sorted(
+        [[str(b.facade_key), getattr(b, "attributes", {}).get("osm_id", "")] for b in buildings]
+    )
+
+
+def fingerprint(refs):
+    from types import SimpleNamespace
+
+    values = [
+        (key, resolve(SimpleNamespace(facade_key=key, attributes={"osm_id": osm})))
+        for key, osm in sorted(refs)
+    ]
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
+def parameter_hash(buildings):
+    return fingerprint(building_refs(buildings))
+
+
+def manifest_current(manifest):
+    return "landmark_buildings" not in manifest or manifest.get("landmark_params") == fingerprint(
+        manifest["landmark_buildings"]
+    )
 
 
 def resolve(building):
