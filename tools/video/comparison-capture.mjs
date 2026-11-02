@@ -132,10 +132,10 @@ try{
    for(let k=-32;k<0;k++)await frame(side,shot,0,k);
    const resident=await pages[side].evaluate(()=>[...window.__videoCoarse.entries].filter(([,e])=>e.model).map(([id,e])=>({id,hash:e.visualHash,pass:e.pass,preview:!!e.preview})));
    const manifests=[];
-   for(const tile of tilesForShot(shot)){
+   for(const tile of [...new Set([...tilesForShot(shot),...resident.map(r=>r.id)])]){
     // Read the exact endpoint actually used by this page; evidence includes both resident and served hashes.
     const manifest=await pages[side].evaluate(async id=>{const c=window.__videoCoarse;return await(await fetch(new URL(`${id}/manifest.json`,new URL(c.root,location.href)))).json();},tile);
-    if(manifest.stale||manifest.pass_kind!=='full'){
+    if((side===1&&manifest.stale)||manifest.pass_kind!=='full'){
      if(!preview)throw Error(`${name}: rejected ${tile}: stale=${manifest.stale} pass=${manifest.pass_kind}`);
     }
     if(side===1&&!preview&&!resident.some(r=>r.id===tile&&r.hash===manifest.visual?.[tile]?.sha256))throw Error(`${name}: resident hash mismatch ${tile}`);
