@@ -166,6 +166,22 @@ test('a catalogue without tree sidecars does not repoll geometry every frame or 
   expect(request.mock.calls.filter(([url])=>url.endsWith('.json'))).toHaveLength(1);
 });
 
+test('queued tree placements remain pending and retry promptly without claiming a source failure', async () => {
+  const {scenery,request,host}=setup();host.vegetationDistance=180;host.prepareVegetation=vi.fn(async()=>{});
+  const key='a'.repeat(64);let attempts=0;
+  request.mockImplementation(async url=>{
+    if(url.includes('/scenery?'))return new Response(JSON.stringify({tiles:[{tile:'t0_0_0',key,h:[0,20],source_sha256:'same',trees_url:`scenery/${key}.trees.json`}],missing:[]}));
+    if(url.endsWith('.trees.json'))return ++attempts===1?new Response('{"state":"preparing"}',{status:202}):new Response('{"version":1,"nodes":[]}');
+    return new Response(JSON.stringify({coarse:true,tile:'t0_0_0',pass_kind:'full',visual:{t0_0_0:{url:'scene.glb',sha256:'same'}}}));
+  });
+  scenery.setRadius(4000,{x:125,y:5,z:125,dx:1,dz:0,halfAngle:.5});await settle();
+  scenery.update(125,125,1000);await settle();
+  expect(scenery.progress.errors).toBe(0);expect(scenery.progress.pending).toBe(1);expect(scenery.progress.loaded).toBe(0);
+  scenery.update(125,125,2999);await settle();expect(attempts).toBe(1);
+  scenery.update(125,125,3001);await settle();
+  expect(attempts).toBe(2);expect(scenery.progress.loaded).toBe(1);expect(scenery.progress.errors).toBe(0);
+});
+
 test('a ready skyline retry completes before hundreds of untouched scenery tiles', async () => {
   const { scenery, request, load } = setup();
   const chimney = 't0_-6_5';

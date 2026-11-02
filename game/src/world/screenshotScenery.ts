@@ -6,6 +6,7 @@ import { sceneryTiles, skylinePriority, type SceneryView, type ScenerySource } f
 import type { TreePlacements } from './treePlacements';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
+class TreePlacementsPending extends Error {}
 
 /** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
@@ -52,6 +53,7 @@ export class ScreenshotScenery {
     for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
     if (!source.trees_url) return;
     const response = await this.request(new URL(source.trees_url,new URL(this.root,this.page)).href);
+    if (response.status === 202) throw new TreePlacementsPending();
     if (!response.ok) throw new Error(`Tree placements: HTTP ${response.status}`);
     const data = await response.json() as TreePlacements;
     if (data.version !== 1 || !Array.isArray(data.nodes)) throw new Error('Tree placements pending');
@@ -248,7 +250,7 @@ export class ScreenshotScenery {
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
       this.nearbyChanged(id);
-    } catch (error) { e.error = String(error); e.complete = false; }
+    } catch (error) { e.error = error instanceof TreePlacementsPending ? undefined : String(error); e.complete = false; }
     finally {
       if (model) this.dispose(model, id);
       if (source && this.sources.get(id)?.key !== source.key) { e.complete = false; e.next = this.clock; }
