@@ -26,6 +26,13 @@ export function natureFixture(): NatureLibrary {
     node(name, 0, 'tree', ['nature_bark', 'nature_leaves'], 15); node(name, 1, 'tree', ['nature_bark', 'nature_leaves'], 15); node(name, 2, 'tree', ['nature_impostor'], 15);
   }
   for (const name of SHRUBS) { node(name, 0, 'shrub', ['nature_bark', 'nature_leaves'], 2); node(name, 1, 'shrub', ['nature_leaves'], 2); }
-  node('picket_fence', 0, 'fence', ['nature_wood'], 1); node('metal_railing', 0, 'fence', ['nature_metal'], 1); node('granite_wall', 0, 'fence', ['nature_granite'], 1);
-  return natureLibraryFromScene(root, null, true);
+  for (const [name, part, height] of [['picket_fence', 'nature_wood', 1.1], ['board_fence', 'nature_wood', 1.65], ['metal_railing', 'nature_metal', 1],
+    ['park_fence', 'nature_metal', 0.55], ['granite_wall', 'nature_granite', 0.6]] as const) {
+    node(name, 0, 'fence', [part], height); node(name, 1, 'fence', [part], height);
+  }
+  node('hedge', 0, 'hedge', ['nature_leaves'], 1.2); node('hedge', 1, 'hedge', ['nature_leaves'], 1.2);
+  for (const name of ['grass_clump', 'grass_wide', 'grass_meadow', 'groundcover_rosette']) node(name, 0, 'grass', ['nature_leaves'], 0.5);
+  const library = natureLibraryFromScene(root, null, true);
+  for (const name of ['picket_fence', 'board_fence', 'metal_railing', 'park_fence', 'granite_wall', 'hedge']) library.asset(name).module = 2;
+  return library;
 }

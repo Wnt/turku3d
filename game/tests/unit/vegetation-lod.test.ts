@@ -190,3 +190,45 @@ it('plants willows only by the tile water', () => {
   expect(generated(dry.model, dry.mesh).some(b => b.userData.nature === 'tree_willow')).toBe(false);
   lod.remove(dry.model);
 });
+
+it('draws tile barriers with the fence kit in 2 m modules and stacked granite courses, without shadows', () => {
+  const scene = new THREE.Scene(), model = new THREE.Group(), lod = new VegetationLod('medium', library);
+  const barrier = (key: string, scale: THREE.Vector3, z: number) => {
+    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 1);
+    mesh.userData = { layer: 'structures', material_key: key };
+    mesh.setMatrixAt(0, new THREE.Matrix4().compose(new THREE.Vector3(0, 0, z), new THREE.Quaternion(), scale));
+    model.add(mesh);
+    return mesh;
+  };
+  const wood = barrier('draft_wood', new THREE.Vector3(6, 1, 0.12), -10);
+  const stone = barrier('draft_stone', new THREE.Vector3(4, 1.8, 0.3), -14);
+  const chain = barrier('draft_chain', new THREE.Vector3(4, 1.6, 0.08), -18);
+  scene.add(model); lod.add(model);
+  lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
+  expect(wood.visible).toBe(false); expect(stone.visible).toBe(false); expect(chain.visible).toBe(true);
+  const kit = generated(model, wood).filter(b => b !== stone && b !== chain);
+  const drawn = (name: string) => kit.filter(b => b.visible && b.userData.nature === name).reduce((n, b) => n + b.count, 0);
+  expect(drawn('picket_fence')).toBe(3);
+  expect(drawn('granite_wall')).toBe(6);
+  expect(kit.some(b => b.castShadow)).toBe(false);
+  lod.remove(model);
+  expect(wood.visible).toBe(true);
+});
+
+it('grows instanced grass on tile grass surfaces near the camera only', () => {
+  const scene = new THREE.Scene(), model = new THREE.Group();
+  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2).translate(0, 0, -20), new THREE.MeshStandardMaterial());
+  lawn.userData = { layer: 'ground', material_key: 'draft_grass' };
+  model.add(lawn); scene.add(model);
+  const lod = new VegetationLod('medium', library, scene), camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
+  lod.add(model); lod.update(camera);
+  const grass = scene.getObjectByName('nature-grass')!;
+  const count = () => grass.children.reduce((n, m) => n + ((m as THREE.InstancedMesh).visible ? (m as THREE.InstancedMesh).count : 0), 0);
+  // About 2.5 clumps per m² at medium quality.
+  expect(count()).toBeGreaterThan(1900);
+  expect(count()).toBeLessThan(2600);
+  camera.position.set(500, 0, 0); lod.update(camera);
+  expect(count()).toBe(0);
+  camera.position.set(0, 0, 0); lod.remove(model); lod.update(camera);
+  expect(count()).toBe(0);
+});

@@ -23,8 +23,11 @@ export class NatureMaterials {
   readonly windStrength = uniform(1);
   /** Unit vector in the XZ plane, the direction the wind blows towards. */
   readonly windDirection = uniform(new THREE.Vector2(0.8, 0.6));
+  /** Grass clumps fade out between these camera distances (m); GrassField sets them from the quality tier. */
+  readonly grassRange = uniform(new THREE.Vector2(20, 35));
   readonly bark: THREE.MeshStandardNodeMaterial;
   readonly leaves: THREE.MeshStandardNodeMaterial;
+  readonly grass: THREE.MeshStandardNodeMaterial;
   readonly impostor: THREE.MeshStandardNodeMaterial;
   readonly wood: THREE.MeshStandardNodeMaterial;
   readonly metal: THREE.MeshStandardNodeMaterial;
@@ -59,12 +62,19 @@ export class NatureMaterials {
     // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
     this.leaves.normalNode = normalViewGeometry;
     this.leaves.positionNode = wind(0.045);
+    // Ground grass: the leaf atlas and wind, dissolving through the alpha test between grassRange.x and .y metres.
+    this.grass = new THREE.MeshStandardNodeMaterial({ name: 'nature-grass', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0, vertexColors: true });
+    const fade = smoothstep(this.grassRange.y, this.grassRange.x, positionWorld.sub(cameraPosition).length());
+    this.grass.colorNode = vec4(leaf.rgb, mipAlpha(leaf.a, imageWidth(leafMap)).mul(fade));
+    this.grass.normalNode = normalViewGeometry;
+    this.grass.positionNode = wind(0.06);
     if (lighting) {
       // Sunlight through thin leaves when looking towards the sun.
       const sunDir = uniform(lighting.sunDir), sunColor = uniform(lighting.sun.color);
       const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity);
       const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 3);
       this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.22);
+      this.grass.emissiveNode = this.leaves.emissiveNode;
     }
 
     const imp = sources.nature_impostor;
@@ -96,5 +106,5 @@ export class NatureMaterials {
     return material;
   }
 
-  dispose() { for (const m of [this.bark, this.leaves, this.impostor, this.wood, this.metal, this.granite]) m.dispose(); }
+  dispose() { for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite]) m.dispose(); }
 }
