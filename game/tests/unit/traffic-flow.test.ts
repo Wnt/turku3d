@@ -3,6 +3,7 @@ import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGrap
 import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, type FlowCar } from '../../src/traffic/flow';
 import { TrafficNetwork } from '../../src/traffic/network';
 import { trafficRoads } from '../../src/traffic/roads';
+import { LaneChangePlanner } from '../../src/traffic/laneChanges';
 import { buildTileTraffic, type Lane } from '../../src/traffic/tileNetwork';
 
 export function intersection(signal = false, lanes = 1): RoadGraphJson {
@@ -126,6 +127,33 @@ describe('responsive traffic', () => {
     admission.byLane.clear();
     next.length = 3; next.end.kind = 'seam'; next.seamNext = null; next.next = null;
     expect(admission.mayEnter(car, heads, [], 30)).toBe(true);
+  });
+
+  test.each([29, 70])('a fast lane change with %s metres left cannot strand a car between lanes', remaining => {
+    const net = flowNetwork(intersection(false, 2)), flow = new TrafficFlow(net, 0);
+    flow.update(20);
+    const car = [...flow.cars.values()].find(c => c.lane.laneCount === 2 && c.lane.length > 60)!;
+    expect(car).toBeDefined();
+    const movements = (flow as unknown as { movements: Map<Lane, Lane[]> }).movements;
+    const planner = new LaneChangePlanner([...movements.keys()], movements);
+    const target = [...movements.keys()].find(l => l.carriageway === car.lane.carriageway && l.k !== car.lane.k)!;
+    const turn = target.k === 0 ? -1 : 1;
+    for (let n = 0; n < 1000; n++) {
+      car.key = `runway-${n}`;
+      if (planner.intent(car.lane, `${car.key}/${car.hops}`) === turn) break;
+    }
+    expect(planner.intent(car.lane, `${car.key}/${car.hops}`)).toBe(turn);
+    car.s = car.lane.length - remaining; car.speed = car.lane.speed;
+    car.reservation = null; car.change = null; car.changeCooldown = 0;
+    car.signal = { target, since: flow.tick - 20, reason: 'route' };
+    car.route = movements.get(car.lane)![0];
+    car.previous = { route: car.route, s: car.s, speed: car.speed, change: null };
+    flow.cars.clear(); flow.cars.set(car.key, car); net.density!.multiplier = 0;
+    flow.stats.laneChanges = 0;
+    flow.update(60);
+    expect(car.change).toBeNull();
+    expect(car.stopped).toBeLessThan(10);
+    expect(flow.stats.laneChanges).toBe(1);
   });
 
   test('claims remove simulation participants and interpolation stays between checked positions', () => {
