@@ -5,8 +5,9 @@ import { createHash } from 'node:crypto';
 import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
 import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
 import { ParkedCarVisuals } from '../../src/actors/car';
+import {fleetWheelLayout} from '../../src/actors/fleet/wheelLayouts';
 import { draftManifest } from '../../src/world/manifest';
-import { AUTHORED_ESTATE, loadAuthoredFleet } from '../../src/actors/fleet/authored';
+import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 
 test('shipped Blender estate has finite ground-aligned LODs and preserves all lamp roles',async()=>{
   const triangles:number[]=[];
@@ -87,11 +88,50 @@ test('registered authored car keeps glazing and lamps without duplicate procedur
   const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
   manifest.vehicles=[{object_id:'authored',model:id,color:'silver',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}];
   await visuals.load(manifest);visuals.update([]);
-  expect(scene.children.some(m=>m.name.startsWith('wheels/'))).toBe(false);
+  expect(scene.children.some(m=>m.name.startsWith('wheels/authored/'))).toBe(true);
   const batch=scene.children.find(m=>m.name===`parked/${id}/0`) as THREE.InstancedMesh;
   const glazing=batch.children[0] as THREE.InstancedMesh;
   expect(glazing.instanceMatrix).toBe(batch.instanceMatrix);
   visuals.takeOver('authored');
-  expect(scene.children.find(m=>m.name==='driven/authored')!.children).toHaveLength(1);
+  const actor=scene.children.find(m=>m.name==='driven/authored')!;
+  expect(actor.children).toHaveLength(5);
+  const layout=(await loadAuthoredFleetParts(id,0))!;
+  const state={id:'authored',pos:{x:0,y:.75,z:0},rot:{x:0,y:0,z:0,w:1},linvel:{x:0,y:0,z:0},speed:0,forwardSpeed:0,curbStrike:null,
+    wheels:layout.wheels.map((w,i)=>({pos:{x:w.pivot.z,y:w.pivot.y-.75,z:-w.pivot.x},steer:i<2?.3:0,rotation:1.2,contact:true,suspension:.2}))};
+  visuals.update([state]);
+  for(let i=0;i<4;i++){
+    const hub=actor.getObjectByName(`fleet-wheel-${i}`)!;
+    expect(hub.rotation.y).toBe(i<2?.3:0);
+    expect(hub.children[0].rotation.x).toBe(1.2);
+    expect(hub.position.y).toBeCloseTo(layout.wheels[i].pivot.y,5);
+  }
+  const remote=visuals.remoteModel(id+'/blue')!;
+  expect(remote.children.filter(c=>c.name.startsWith('fleet-wheel-'))).toHaveLength(4);
+  layout.body.dispose();layout.wheels.forEach(w=>w.geometry.dispose());
   visuals.dispose();body.dispose();glass.dispose();
+});
+
+
+test('authored body and four centred hubs conserve every triangle at every LOD',async()=>{
+  const triangles=(g:THREE.BufferGeometry)=>(g.index?.count??g.getAttribute('position').count)/3;
+  for(const id of [AUTHORED_ESTATE,'octavia-combi-4'])for(let lod=0;lod<3;lod++){
+    const original=(await loadAuthoredFleet(id,lod))!,parts=(await loadAuthoredFleetParts(id,lod))!;
+    expect(parts.wheels).toHaveLength(4);
+    expect(triangles(parts.body)+parts.wheels.reduce((n,w)=>n+triangles(w.geometry),0)).toBe(triangles(original));
+    for(const wheel of parts.wheels){
+      expect(wheel.geometry.getAttribute('fleetSurface')).toBeDefined();
+      // LOD decimation is asymmetric around the fixed hub; it must never move that pivot.
+      const pivot=fleetWheelLayout(id)!.pivots[wheel.name as 'wheel_FL'];
+      expect(wheel.pivot).toEqual({x:expect.closeTo(pivot[0],5),y:expect.closeTo(pivot[1],5),z:expect.closeTo(pivot[2],5)});
+      expect(wheel.radius).toBe(fleetWheelLayout(id)!.radius);
+      expect(Math.abs(wheel.geometry.boundingBox!.min.y)).toBeLessThanOrEqual(wheel.radius+.005);
+      expect(wheel.geometry.boundingBox!.max.y).toBeLessThanOrEqual(wheel.radius+.005);
+      expect(wheel.geometry.boundingBox!.max.y-wheel.geometry.boundingBox!.min.y).toBeGreaterThan(wheel.radius*1.8);
+      expect(wheel.pivot.y).toBeGreaterThan(.3);
+      wheel.geometry.dispose();
+    }
+    expect(parts.wheels[0].pivot.z).toBeGreaterThan(parts.wheels[2].pivot.z);
+    expect(parts.wheels[0].pivot.x).toBeGreaterThan(parts.wheels[1].pivot.x);
+    original.dispose();parts.body.dispose();
+  }
 });

@@ -50,3 +50,9 @@ budget. Packing still merges matching material roles into shared instanced draws
 Inspect all three LOD renders: a valid triangle count does not guarantee intact glass.
 Native street pairs wait up to 240 seconds for scene readiness before freezing
 parking records, preventing incomplete cold-load manifests from becoming baselines.
+
+Authored articulation: `authored.ts` retains full far meshes and caches separate near bodies,
+glass and four hub-centred wheel parts. Named pipeline hubs are preferred; the original
+estate uses explicit metadata and a lossless tyre/alloy triangle partition. `wheelLayouts.ts`
+shares native axle offsets and tyre dimensions with ground probes. Wheel design batches
+share identical baked geometry, while dynamic and remote cars use the same four parts.

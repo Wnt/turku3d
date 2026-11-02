@@ -64,3 +64,14 @@ test('parked cars cache four static-ground rays instead of querying each render 
   for(let i=0;i<120;i++)parked.restingPose(car);
   expect(queries).toBe(4);
 });
+
+
+test('unequal axle offsets and tracks probe the authored hubs and fit the root height on a slope',()=>{
+  const hubs=[{x:1.43,z:-.77},{x:1.43,z:.77},{x:-1.25,z:-.76},{x:-1.25,z:.76}];
+  const shape={wheelbase:2.68,track:1.53,radius:.33,hubs},at={x:0,y:10,z:0};
+  const probes=wheelGroundProbes(at,0,shape);
+  probes.forEach((p,i)=>{expect(p.x).toBe(hubs[i].x);expect(p.z).toBe(hubs[i].z);});
+  const pose=wheelGroundPose(at,0,shape,hubs.map(p=>10+p.x*.1+p.z*.05))!;
+  expect(pose.pos.y).toBeCloseTo(10.75,6);
+  expect(pose.rot.z).toBeGreaterThan(0);expect(pose.rot.x).toBeLessThan(0);
+});
