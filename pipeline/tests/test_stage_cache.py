@@ -127,6 +127,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     from turku3d import config as C
     from turku3d.coarse import build as generator
     from turku3d.coarse.bridges import Deck
+    from turku3d.coarse.stages import deck_stage
 
     def sampler(points):
         return np.full(len(points), 7.25)
@@ -148,7 +149,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
         np.array([False]),
         SimpleNamespace(roads={}),
     )
-    result = cache.run("bridges", "v1", [], lambda: generator.deck_stage(*args))
+    result = cache.run("bridges", "v1", [], lambda: deck_stage(*args))
     assert result[3] == {"json": b"7.25"}
     assert result[1][0].height_at is None
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
@@ -363,3 +364,27 @@ def test_shared_prepared_inputs_do_not_delete_other_versions(tmp_path, monkeypat
     _save(second, 'two', [2])
     assert _load(first, 'one') == [1]
     assert _load(second, 'two') == [2]
+
+
+def test_shared_source_hashes_reuse_across_revisions_and_detect_same_size_edits(tmp_path, monkeypatch):
+    import hashlib
+    from turku3d.tile_layer import identities
+    source = tmp_path / 'source'
+    source.write_bytes(b'one')
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'first'))
+    calls = []
+    digest = hashlib.file_digest
+    def count(*args, **kwargs):
+        calls.append(1)
+        return digest(*args, **kwargs)
+    monkeypatch.setattr(hashlib, 'file_digest', count)
+    first = identities({'source': source})
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'second'))
+    assert identities({'source': source}) == first
+    assert len(calls) == 1
+    stat = source.stat()
+    source.write_bytes(b'two')
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert identities({'source': source}) != first
+    assert len(calls) == 2
