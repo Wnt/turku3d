@@ -6,7 +6,9 @@ import type { Manifest } from '../world/manifest';
 import { draftsUrl } from '../net/config';
 import { parseAddressPool, type AddressJson, loadAddressPool } from './content/addresses';
 import { Minimap } from './minimap';
-import { loadRoadGraphJson, mergeRoadGraphs, type RoadGraphJson } from './roadGraph';
+import { loadRoadGraphJson, type RoadGraphJson } from './roadGraph';
+import { mergeRoadGraphsAsync } from './roadGraphAsync';
+import { readStreamingJson } from '../world/streamingJson';
 import { StreetRouter } from './router';
 import { PlayableArea } from './recovery';
 
@@ -20,6 +22,7 @@ class StreetMap {
   private published: RoadGraphJson | null;
   private sha: string | undefined;
   private chain = Promise.resolve();
+  private revision = 0;
   updates = 0;
 
   constructor(private readonly manifest: GameplayManifest, published: RoadGraphJson | null,
@@ -39,12 +42,15 @@ class StreetMap {
   update(drafts: readonly RoadGraphJson[]): Promise<void> {
     // A city graph is complete before tiles load; resident clipped fragments must never replace its topology.
     if (this.cityWide) return Promise.resolve();
+    const revision = ++this.revision;
     this.chain = this.chain.then(async () => {
+      if (revision !== this.revision) return;
       if (this.manifest.roads?.sha256 !== this.sha) {
         this.sha = this.manifest.roads?.sha256;
         this.published = await loadRoadGraphJson(this.manifest);
       }
-      const graph = mergeRoadGraphs([...this.published ? [this.published] : [], ...drafts]);
+      const graph = await mergeRoadGraphsAsync([...this.published ? [this.published] : [], ...drafts]);
+      if (revision !== this.revision) return;
       this.router.setGraph(graph);
       this.minimap.setGraph(graph);
       this.updates++;
@@ -61,12 +67,12 @@ export async function createGameplay(manifest: GameplayManifest, parent: HTMLEle
   const navigation = endpoint ? await fetch(new URL('navigation.json', new URL(endpoint, location.href))).then(async res => {
     if (res.status === 404 && isLocalHost(location.hostname)) return null; // Synthetic dev service.
     if (!res.ok) throw new Error(`navigation: HTTP ${res.status}`);
-    return await res.json() as { roads: RoadGraphJson; addresses: AddressJson };
+    return readStreamingJson<{ roads: RoadGraphJson; addresses: AddressJson }>(res);
   }) : null;
   const [published, addresses] = navigation
     ? [navigation.roads, parseAddressPool(navigation.addresses, () => true)]
     : await Promise.all([loadRoadGraphJson(manifest), loadAddressPool(manifest)]);
-  const graph = mergeRoadGraphs(published ? [published] : []);
+  const graph = await mergeRoadGraphsAsync(published ? [published] : []);
   const router = new StreetRouter(graph);
   const area = new PlayableArea(manifest.collision);
   const minimap = new Minimap(parent, graph, router);

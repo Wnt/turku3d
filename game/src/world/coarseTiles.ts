@@ -27,6 +27,7 @@ import type { ManifestEntry } from './manifest';
 import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
+import { parseStreamingJson, readStreamingJson } from './streamingJson';
 
 const POLL_MS = 1000;
 const RETURN_CACHE_TILES = 16;
@@ -248,7 +249,8 @@ export class CoarseTiles {
     for (const id of wanted) {
       const e = this.entry(id);
       if (due(e)) void this.poll(id, e, distToL0(id, x, z), true);
-      else if (e.state === 'draft' && !e.preview && !e.refreshing && (now >= e.nextPoll || (!e.retries && (e.version ?? -1) < this.version)))
+      else if (e.state === 'draft' && !e.preview && !e.refreshing && (now >= e.nextPoll
+        || (!e.retries && (e.pass !== 'full' || e.stale) && (e.version ?? -1) < this.version)))
         void this.refreshDraft(id, e, distToL0(id, x, z));
     }
     // Core requests always start first. This separate slot limits speculative preparation only.
@@ -449,14 +451,32 @@ export class CoarseTiles {
         return;
       }
       if (!res.ok || res.status === 202) return;
-      const fragment = await res.json() as CoarseFragment;
-      await this.applyFragment(id, e, fragment);
+      const { fragment, hash } = await this.readFragment(res, e);
+      if (fragment) {
+        await this.applyFragment(id, e, fragment);
+        e.manifestHash = hash;
+        e.unchangedPolls = 0;
+      } else e.unchangedPolls = (e.unchangedPolls ?? 0) + 1;
+      e.nextPoll = this.clock + Math.min(30_000, 2000 * 2 ** Math.min(e.unchangedPolls ?? 0, 4));
       e.retries = 0; this.outageFailures = 0;
     } catch (err) {
       if (err instanceof ServiceDown) this.down(err);
       else this.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
       e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1);
     } finally { e.refreshing = false; }
+  }
+
+  /** Hash the response bytes before parsing: freshness-only changes still reach recordFreshness. */
+  private async readFragment(res: Response, e: Entry): Promise<{ fragment: CoarseFragment | null; hash?: string }> {
+    // Service unit fixtures may expose JSON only. Production always uses the worker byte path.
+    if (typeof Worker === 'undefined') {
+      const fragment = await res.json() as CoarseFragment;
+      const hash = JSON.stringify(fragment);
+      return { fragment: hash === e.manifestHash && !e.preview ? null : fragment, hash };
+    }
+    const buffer = await res.arrayBuffer();
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buffer))].map(b => b.toString(16).padStart(2, '0')).join('');
+    return { fragment: hash === e.manifestHash && !e.preview ? null : await parseStreamingJson<CoarseFragment>(buffer), hash };
   }
 
   /** Commit a validated visual/collision pair together after model preparation. */
@@ -468,6 +488,8 @@ export class CoarseTiles {
     const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
     if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
     const base = new URL(`${this.root}${id}/`, this.page);
+    const roadsUrl = fragment.roads ? new URL(fragment.roads.url, base).href : undefined;
+    const roadsChanged = roadsUrl !== e.roadsUrl;
     const changed = Object.entries(fragment.collision).filter(([cid, entry]) => !e.collision.has(cid) || entry.sha256 !== e.collision.get(cid)?.sha256);
     const buffers = new Map<string, ArrayBuffer>();
     const validate = async () => {
@@ -506,8 +528,9 @@ export class CoarseTiles {
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
     const [validation, geometry, streets] = await Promise.allSettled([
       validate(), visualChanged ? this.load(new URL(fragment.visual[id].url, base).href) : Promise.resolve(null),
-      fragment.roads ? this.request(new URL(fragment.roads.url, base).href)
-        .then(r => r.ok ? r.json() as Promise<RoadGraphJson> : null) : Promise.resolve(null),
+      roadsChanged && roadsUrl ? this.request(roadsUrl)
+        .then(r => { if (!r.ok) throw new DraftRejected(`roads: HTTP ${r.status}`); return readStreamingJson<RoadGraphJson>(r); })
+        : Promise.resolve(e.roads ?? null),
     ]);
     const model = geometry.status === 'fulfilled' ? geometry.value : null;
     const failure = [validation, geometry, streets].find(result => result.status === 'rejected');
@@ -519,7 +542,7 @@ export class CoarseTiles {
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.takeVehicles(e, fragment, base);
       e.lights = fragment.lights ?? undefined;
-      if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
+      if (roadsChanged) { e.roads = roads ?? undefined; e.roadsUrl = roadsUrl; this.onMapChange?.(); }
       return;
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
@@ -536,7 +559,7 @@ export class CoarseTiles {
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
-    if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }
+    if (roadsChanged) { e.roads = roads ?? undefined; e.roadsUrl = roadsUrl; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
   }
 
@@ -566,17 +589,20 @@ export class CoarseTiles {
         e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;
         return;
       }
-      let fragment = await res.json() as CoarseFragment;
+      let { fragment, hash } = await this.readFragment(res, e);
+      if (!fragment) throw new DraftRejected(`${id}: missing initial fragment`);
       // A legacy collision-only response cannot expose invisible obstacles.
       if (!fragment.visual?.[id]) {
         res = await this.request(`${this.root}${id}/manifest.json${query}`);
         if (res.status === 202) { e.state = 'pending'; e.nextPoll = this.clock + 2000; return; }
         if (!res.ok) throw new DraftRejected(`${id}: no visible draft`);
-        fragment = await res.json() as CoarseFragment;
+        const full = await this.readFragment(res, e);
+        fragment = full.fragment; hash = full.hash;
       }
-      if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: no visible draft`);
+      if (!fragment?.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: no visible draft`);
       if (!load) { e.state = 'built'; e.nextPoll = 0; return; }
       await this.applyFragment(id, e, fragment);
+      e.manifestHash = hash;
       e.retries = 0; this.outageFailures = 0;
       e.nextPoll = this.clock + 2000;
     } catch (err) {
@@ -642,6 +668,7 @@ export class CoarseTiles {
     e.collision.clear();
     e.lights = undefined;
     if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
+    e.roadsUrl = undefined; e.manifestHash = undefined;
     if (e.state === 'draft') e.state = 'pending';
   }
 

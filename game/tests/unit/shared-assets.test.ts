@@ -7,6 +7,7 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 const url = `https://turku.lab.madekivi.fi/coarse/shared/${'a'.repeat(64)}.ktx2`;
 test('content keys, in-flight dedupe, retry and byte LRU', async () => {
   expect(sharedAssetKey(url)).toBe(`${'a'.repeat(64)}.ktx2`);
+  expect(sharedAssetKey(url.replace('/coarse/', '/coarse/_v/generation-one/'))).toBe(sharedAssetKey(url));
   expect(sharedAssetKey(url.replace('/shared/', '/tile/'))).toBeUndefined();
   const cache = new AssetCache<Uint8Array>(2, bytes => bytes.length);
   const load = vi.fn(async () => new Uint8Array(1));
@@ -24,7 +25,8 @@ test('shared KTX is fetched/transcoded once; glTF sampler mutations remain priva
   const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
   try {
     const loader = new LoadingKtx();
-    const textures = await Promise.all(Array.from({ length: 22 }, () => loader.loadAsync(url)));
+    const textures = await Promise.all(Array.from({ length: 22 }, (_, i) => loader.loadAsync(
+      i % 2 ? url.replace('/coarse/', '/coarse/_v/generation-one/') : url)));
     expect(load).toHaveBeenCalledTimes(1);
     expect(textures[0]).not.toBe(textures[1]);
     expect(textures[0].source).toBe(textures[1].source);
