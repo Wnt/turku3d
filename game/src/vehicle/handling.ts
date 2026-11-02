@@ -16,7 +16,11 @@ export function handling(input: VehicleInput | null, forwardSpeed: number, tunin
   }
   if (drive * forwardSpeed < -0.4) { brake = Math.abs(drive) * tuning.brakeForce; drive = 0; }
   const limit = drive < 0 ? tuning.reverseSpeed : tuning.topSpeed;
-  const engine = drive * tuning.engineForce * clamp((limit - speed) / 5, 0, 1);
+  // Low gear is force limited; higher road speed becomes power limited. Applying
+  // power across all driven wheels avoids multiplying output by the axle count.
+  const wheelForce = tuning.engineForce * clamp((limit - speed) / 5, 0, 1);
+  const powerForce = tuning.enginePower / (Math.max(1, speed) * tuning.driven.length);
+  const engine = drive * Math.min(wheelForce, powerForce);
   return {
     engine, brake,
     steer: -clamp(input?.steer ?? 0, -1, 1) * tuning.maxSteer / (1 + (speed / tuning.steerHalfSpeed) ** 2),

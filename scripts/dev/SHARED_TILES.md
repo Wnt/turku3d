@@ -64,6 +64,19 @@ duplicate stage work. The farm owns shared-cache eviction rather than a per-bran
 prepared-input hits/misses, active revision/PID/runtime, the ordered queue and free disk.
 Build receipts separate queue wait from generator runtime, including adopted workers. Per-build stdout is in `farm/logs`.
 
+Compare completed products without queuing work:
+
+```sh
+scripts/dev/shared-tiles compare --before OLD_REVISION --after NEW_REVISION t0_0_0
+```
+
+The report lists changed input/stage keys, hits, misses and their timings. An unchanged key
+that missed is listed separately: eviction or a cold cache can require recomputation without
+a producer change. Aliases are resolved once before reading. Missing full-product receipts
+fail the comparison; stale fallbacks are never used as comparison evidence.
+Metrics describe the original completed build. `same_product: true` means the two references
+share that existing product; the comparison itself performs no rebuilding.
+
 Admission reserves 2 GiB per active build above a 25 GiB floor. Eviction removes old unpinned
 products and their source snapshots, then old intermediate entries in LRU order. Requested areas and held content-key locks
 protect stage/input entries while other areas can be evicted during active builds. Current aliases and active jobs

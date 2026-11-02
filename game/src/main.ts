@@ -156,6 +156,7 @@ const renderFrame = () => {
   const sharedSeconds = dayClock.sharedNow() / 1000;
   env.atmosphere.setTime(params.qa ? 0 : sharedSeconds);
   riverClock.seconds = params.qa ? (params.motion ? clock.simSeconds : 0) : sharedSeconds;
+  vegetation?.setTime(riverClock.seconds);
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
