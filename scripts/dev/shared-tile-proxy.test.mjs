@@ -45,3 +45,35 @@ test('hot alias selection, immutable payload routing and scenery stay independen
     await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('recovers transient asset failures without retrying writes or retrying indefinitely', async () => {
+  let calls = 0, recover = true;
+  const upstream = http.createServer((request, response) => {
+    calls++;
+    if (recover && calls === 1) { request.socket.destroy(); return; }
+    if (recover && calls === 3) { response.end('complete texture'); return; }
+    response.writeHead(502); response.end('temporary upstream failure');
+  });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tile-proxy-test-'));
+  await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  const config = path.join(root, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({ service: `http://127.0.0.1:${upstream.address().port}`, version: 'fixture' }));
+  const proxy = createSharedTileProxy(config);
+  await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${proxy.address().port}/coarse`;
+  try {
+    const recovered = await fetch(`${base}/shared/map.ktx2`);
+    assert.equal(await recovered.text(), 'complete texture');
+    assert.equal(calls, 3);
+    recover = false; calls = 0;
+    assert.equal((await fetch(`${base}/shared/map.ktx2`)).status, 502);
+    assert.equal(calls, 4);
+    calls = 0;
+    assert.equal((await fetch(`${base}/want`, { method: 'POST', body: 'demand' })).status, 502);
+    assert.equal(calls, 1);
+  } finally {
+    proxy.closeAllConnections(); upstream.closeAllConnections();
+    await Promise.all([new Promise(resolve => proxy.close(resolve)), new Promise(resolve => upstream.close(resolve))]);
+    fs.rmSync(root, { recursive: true });
+  }
+});

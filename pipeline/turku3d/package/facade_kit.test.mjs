@@ -99,14 +99,16 @@ test('program walls retain their own metric grids and patch origins within one p
     .setArray(new Uint32Array([0,3,2,0,2,1,4,7,6,4,6,5])));
   const p = { start:0, count:4, module:1, bay:3.1, storey:2, ground:2, upper:2,
     wall:'#808080', trim:'#ffffff', base:'#333333', size:[18.6, 8], opening:[.41,.62,.2,.1],
-    bands:[.4,.3,.1,.2], detail:[.1,0,0,0] };
+    bands:[.4,.3,.1,.2], detail:[.1,0,0,0], glazing:[5,1,.7,0], frame:'#808080' };
   const patch = { ...p, start:4, module:0, bay:2, size:[2, 1.8], origin:[5, 7], detail:[0,0,0,1] };
   const e = { layer:'buildings', material_key:'facade_kit', building_id:'house', base_height:3,
     facade_kit:p, facade_kit_walls:[p,patch] };
   const material = doc.createMaterial();
   bindFacadeKit(doc, { facadeKit:{version:3,maps:{albedo:'a',normal:'n',orm:'o'}} }, material, prim, e,
     name => doc.createTexture(name));
-  assert.equal(material.getExtras().facade_kit.version, 4);
+  assert.equal(material.getExtras().facade_kit.version, 5);
+  assert.deepEqual(prim.getAttribute('_KIT_GLAZING').getElement(4, []), [5,1,Math.fround(.7),0]);
+  assert.ok(Math.abs(prim.getAttribute('_KIT_FRAME').getElement(4, [])[0] - .21586) < .00001);
   assert.deepEqual(prim.getAttribute('_KIT_EXTENT').getElement(0, []), [0,3,Math.fround(18.6),8]);
   assert.deepEqual(prim.getAttribute('_KIT_EXTENT').getElement(4, []), [5,7,2,Math.fround(1.8)]);
   assert.deepEqual(prim.getAttribute('_KIT_DETAIL').getElement(4, []), [0,0,0,1]);

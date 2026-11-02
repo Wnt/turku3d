@@ -71,6 +71,53 @@ const save = () => {
     device_scale_factor: 1, shots: [...shots.values()] }, null, 1) + '\n');
   fs.renameSync(`${index}.tmp`, index);
 };
+// Repeated still and micro-step poses share the normal capture's settle/asset gates.
+// One render at a time makes each PNG correspond to its recorded product/mesh state.
+async function captureFlicker(file, pose) {
+  const count = Number(opt('--flicker', '0'));
+  if (!count) return;
+  if (!Number.isInteger(count) || count < 4 || count > 64) throw new Error('--flicker must be 4..64');
+  const dir = path.join(out, file.replace(/\.jpg$/, '-flicker'));
+  fs.mkdirSync(dir, { recursive: true });
+  const step = Number(opt('--micro-step', '.005'));
+  if (!Number.isFinite(step) || step <= 0 || step > .05) throw new Error('--micro-step must be >0 and <=.05 metres');
+  const frames = [];
+  const original = await evaluate(`({position:window.__render.camera.position.toArray(),sim:window.__game.clock.simSeconds})`);
+  try {
+    for (const group of ['still', 'micro-left', 'micro-right']) {
+      const dx = group === 'still' ? 0 : group === 'micro-left' ? -step : step;
+      // Move on camera right in world space, without restarting tile settling.
+      await evaluate(`(() => {const c=window.__render.camera;
+        c.position.fromArray(${JSON.stringify(original.position)});
+        c.position.addScaledVector(new c.position.constructor(1,0,0).applyQuaternion(c.quaternion),${dx});
+        c.updateMatrixWorld();})()`);
+      for (let frame = -8; frame < count; frame++) {
+        await evaluate(`new Promise((resolve,reject) => {
+          const r=window.__render, g=window.__game, previous=r.afterFrame;
+          const timer=setTimeout(()=>{r.afterFrame=previous;r.beforeFrame=()=>false;reject(new Error('flicker frame timeout'));},15000);
+          r.afterFrame=()=>{previous?.();r.beforeFrame=()=>false;r.afterFrame=previous;clearTimeout(timer);resolve(true);};
+          g.clock.simSeconds=${original.sim}; r.beforeFrame=()=>true;
+        })`);
+        if (frame < 0) continue;
+        const state = await evaluate(`(async () => ({frame:window.__game.clock.frames,
+          camera:window.__render.camera.position.toArray(),pose:window.__qaPose,hour:window.__game.dayClock.hour,
+          meshes:await window.__dev.geometryState(),
+          products:[...window.__game.lights.source.entries].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,preview:e.preview??false}))}))()`);
+        const png = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+        const name = `${group}-${String(frame).padStart(2, '0')}.png`;
+        fs.writeFileSync(path.join(dir, name), Buffer.from(png.data, 'base64'));
+        frames.push({file:name, group, dx_m:dx, ...state});
+      }
+    }
+    if (failures.length || assets.size) throw new Error('Assets changed/failed during flicker capture; retake after settling');
+    fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify({pose, viewport:[1280,720], micro_step_m:step,
+      warmup_frames:8, frames, failed_assets:[...failures], classification:'heuristic; see flicker analyzer'}, null, 1));
+    console.log(`Flicker sequence: ${frames.length} PNGs at ${dir}`);
+  } finally {
+    await evaluate(`window.__render.camera.position.fromArray(${JSON.stringify(original.position)});
+      window.__render.camera.updateMatrixWorld();window.__render.beforeFrame=()=>false;`);
+  }
+}
 if (opt('--eval-file', '')) {
   try {
     await send('Page.setWebLifecycleState', { state: 'active' });
@@ -97,7 +144,7 @@ try {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
       const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.jpg`;
-      if (valid(shots.get(file))) continue;
+      if (valid(shots.get(file)) && !args.includes('--flicker')) continue;
       const guard = path.join(root, 'tools/chrome-guard/guard.py');
       if (fs.existsSync(guard)) {
         const touched = spawnSync('python3', [guard, 'touch', opt('--guard-owner', 'integrator')], { encoding: 'utf8' });
@@ -108,7 +155,7 @@ try {
       console.log(`Starting ${file}`);
       const [h, m] = at.split(':').map(Number);
       const pose = { E, N, H, yaw, pitch, fov };
-      const url = `${base}?cam=${cam.cam}&time=${at}&quality=high&hud=0&traffic=0&walkers=0`;
+      const url = `${base}?cam=${cam.cam}&time=${at}&quality=${opt('--quality', 'high')}&aa=${opt('--aa', 'taa')}&hud=0&traffic=0&walkers=0`;
       if (await evaluate('!!window.__qaMove')) {
         await evaluate(`window.__render.beforeFrame = undefined; window.__game.clock.simSeconds = 0;
           window.__render.setHour(${h + m / 60}); window.__qaMove(${JSON.stringify(pose)});`);
@@ -122,7 +169,7 @@ try {
       let throttled = false;
       let settleRetries = 0;
       while (Date.now() - started < timeout) {
-        if (!compared && await evaluate(`!!window.__game?.vegetation?.library && !window.__game.vegetation.pending.size && ${JSON.stringify(wanted)}.every(id => { const e=window.__game.lights.source.entries.get(id); return e?.model && e.pass==='full'; })`)) {
+        if (!compared && await evaluate(`!!window.__game?.vegetation?.library && !window.__game.vegetation.pending.size && ${JSON.stringify(wanted)}.every(id => { const e=window.__game.lights?.source?.entries.get(id); return e?.model && e.pass==='full'; })`)) {
           if (opt('--setup-file', '')) await evaluate(fs.readFileSync(opt('--setup-file'), 'utf8'));
           compared = true;
         }
@@ -184,6 +231,7 @@ try {
       shots.set(file, row); save();
       console.log(JSON.stringify({file,valid:valid(row),seconds:row.capture.wall_s}));
       if (!valid(row)) throw new Error(`Incomplete capture: ${file}; resume after resolving missing tiles/assets`);
+      await captureFlicker(file, pose);
     }
   }
 } finally {

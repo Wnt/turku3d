@@ -42,7 +42,7 @@ def details(wall, style, blank, boxes, quad, x0, x1, y0, y1, offset, sign):
             yield from strip(x - thickness * 0.8, height - 0.65, thickness * 1.6, 0.16)
     if field(prior, "balustrades", False):
         # A shallow inset below first-upper windows, never a projecting balcony.
-        for (x, y, w, _h), kind, _, _ in boxes:
+        for (x, y, w, _h), kind, *_ in boxes:
             if kind != 1 or not ground < y < ground * 1.5:
                 continue
             bottom, rail_h = max(ground, y - 0.65), 0.48
