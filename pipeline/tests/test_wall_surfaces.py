@@ -24,6 +24,27 @@ def mesh(points, identity="test"):
     )
 
 
+def test_narrow_wall_remnant_never_inherits_artificial_clipping_heights():
+    from turku3d.wall_surfaces import trapezoids
+
+    # Local wall-plane remainder with almost collinear subtraction boundaries.
+    polygon = shapely.Polygon([[0.0, -3.0879693031311035],
+        [-1.9894127177407677, -3.119332790374756], [0.0, 0.0],
+        [-0.00018195626569968864, -0.0002853013559980366],
+        [-0.00018195626569968864, -3.087972171707828],
+        [-0.00017466465876959372, -3.0879720567541944],
+        [-1.81448525885095e-05, -3.087969589188314],
+        [0.0, -3.0879680363433226]])
+    assert polygon.is_valid
+    pieces = list(trapezoids(polygon))
+    assert pieces
+    points = np.concatenate(pieces)
+    assert points[:, 1].min() >= polygon.bounds[1] - 1e-10
+    assert points[:, 1].max() <= polygon.bounds[3] + 1e-10
+    result = shapely.union_all([shapely.Polygon(p) for p in pieces])
+    assert result.symmetric_difference(polygon).area < 1e-8
+
+
 def test_build_guard_reports_wall_ids_and_near_parallel_triangle_overlap():
     first = mesh(quad(), "first-building")
     second = mesh(quad(z=0.004), "second-building")
