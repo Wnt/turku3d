@@ -47,7 +47,7 @@ export type TrafficClock = { kind: 'cycle'; periodMs: number } | { kind: 'hour';
 export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[];
   density: number; clock: TrafficClock }
 /** A car the player touched or entered became the dynamic vehicle `id` (a ParkedVehicle-like record). */
-export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; model: string; color: string;
+export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; seed?: string; model: string; color: string;
   size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
 /** Camera for the population ring: position, unit horizontal forward and horizontal half field of view. */
 export interface TrafficView { x: number; z: number; fx: number; fz: number; halfFov: number }

@@ -204,6 +204,7 @@ addEventListener('resize', () => {
 let frames = 0, windowStart = performance.now(), windowFrames = 0, fps = 0;
 const stats = { frames: 0, fps: 0, calls: 0, triangles: 0 };
 function loop() {
+  library.materials.setTime(clock.sharedNow() / 1000);
   controls.update();
   autoLod();
   env.follow(camera.position);

@@ -1,5 +1,6 @@
 """The farm's version, concurrency, publication and eviction contracts, without city data."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -24,9 +25,10 @@ def fake_build(_revision, tile, root):
     (directory / 'mesh.glb').write_bytes(b'mesh')
     (directory / 'ground.col').write_bytes(b'col')
     m = dict(coarse=True, tile=tile, pass_kind='full',
-             visual={tile: dict(url='mesh.glb', bytes=4)},
+             visual={tile: dict(url='mesh.glb', bytes=4, sha256=hashlib.sha256(b'mesh').hexdigest())},
              collision={f'c_{int(tile.split("_")[1])*4+x}_{int(tile.split("_")[2])*4+z}':
-                        dict(url='ground.col', bytes=3) for x in range(4) for z in range(4)})
+                        dict(url='ground.col', bytes=3, sha256=hashlib.sha256(b'col').hexdigest())
+                        for x in range(4) for z in range(4)})
     farm_module.atomic_json(directory / 'manifest.json', m)
     farm_module.atomic_json(directory / 'stage-times.json', dict(ground={'cached': True}, walls={'cached': False}))
     return {'returncode': 0}
@@ -281,6 +283,117 @@ class FarmTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'incomplete'):
             farm_module.Farm.validate_shards(directory)
 
+    def test_collision_delivery_bundles_preserve_bytes_and_do_not_write_accepted_sources(self):
+        import hashlib
+        farm = self.farm()
+        root = self.root / 'accepted'
+        tile = 't0_0_0'
+        directory = root / tile / 'col'
+        directory.mkdir(parents=True)
+        cells = {}
+        for x in range(4):
+            for z in range(4):
+                cell = f'c_{x}_{z}'
+                data = (cell + '-bytes').encode()
+                path = directory / (cell + '.col')
+                path.write_bytes(data)
+                cells[cell] = dict(url='col/' + path.name, bytes=len(data),
+                                   sha256=hashlib.sha256(data).hexdigest())
+        before = {p: p.stat().st_mtime_ns for p in directory.iterdir()}
+        manifest = dict(collision=cells)
+        descriptor = farm.collision_bundle(root, tile, manifest)
+        name = descriptor['url'].rsplit('/', 1)[-1]
+        body = (self.root / 'delivery/shared' / name).read_bytes()
+        self.assertEqual(body, b''.join((root / tile / cells[c]['url']).read_bytes() for c in sorted(cells)))
+        self.assertEqual(hashlib.sha256(body).hexdigest(), descriptor['sha256'])
+        self.assertEqual(before, {p: p.stat().st_mtime_ns for p in directory.iterdir()})
+        self.assertIs(farm.collision_bundle(root, tile, manifest), descriptor)
+        target = self.root / 'delivery/shared' / name
+        target.write_bytes(b'')
+        repaired = farm.collision_bundle(root, tile, manifest)
+        self.assertEqual(repaired, descriptor)
+        self.assertEqual(target.read_bytes(), body)
+        farm.bundles.clear()
+        target.write_bytes(b'bad persisted derivative')
+        self.assertEqual(farm.collision_bundle(root, tile, manifest), descriptor)
+        self.assertEqual(target.read_bytes(), body)
+        (directory / 'c_0_0.col').write_bytes(b'bad')
+        farm.bundles.clear()
+        with self.assertRaisesRegex(ValueError, 'source mismatch'):
+            farm.collision_bundle(root, tile, manifest)
+
+    def test_retained_bundle_uses_the_selected_generations_root(self):
+        farm = self.farm()
+        for generation, revision, built in ((GEN, REV, '2026-11-03'), (GEN2, REV2, '2026-11-02')):
+            root = farm.output(generation)
+            fake_build(revision, 't0_0_0', root)
+            manifest = farm_module.read_json(root / 't0_0_0/manifest.json')
+            manifest['built'] = built
+            farm_module.atomic_json(root / 't0_0_0/manifest.json', manifest)
+            farm_module.atomic_json(root / 't0_0_0/ready.json', dict(revision=revision, generation=generation))
+        manifest, prefix, provenance, root = farm.retained('t0_0_0')
+        self.assertEqual(provenance['revision'], REV)
+        self.assertEqual(root, farm.output(GEN))
+
+    def test_retained_manifest_renews_lease_before_payload_request(self):
+        import os
+        farm = self.farm(grace_seconds=900)
+        root = farm.output(GEN)
+        fake_build(REV, 't0_0_0', root)
+        farm_module.atomic_json(root / 't0_0_0/ready.json', dict(revision=REV, generation=GEN))
+        os.utime(root, (time.time() - 1800,) * 2)
+        self.assertIsNotNone(farm.retained('t0_0_0'))
+        farm.free = lambda: 0
+        self.assertFalse(farm.make_room(farm_module.GIB))
+        self.assertTrue((root / 't0_0_0/mesh.glb').exists())
+        self.assertLess(time.time() - root.stat().st_mtime, 2)
+
+    def test_bundle_lookup_and_payload_open_are_safe_during_eviction(self):
+        from unittest.mock import patch
+        import os
+        farm = self.farm(grace_seconds=900)
+        root, tile = self.root / 'accepted', 't0_0_0'
+        fake_build(REV, tile, root)
+        manifest = farm_module.read_json(root / tile / 'manifest.json')
+        descriptor = farm.collision_bundle(root, tile, manifest)
+        path = self.root / 'delivery/shared' / descriptor['url'].rsplit('/', 1)[-1]
+        os.utime(path, (time.time() - 1800,) * 2)
+        entered, release, eviction_started, evicted = (threading.Event() for _ in range(4))
+        original = Path.open
+        def gated_open(p, *args, **kwargs):
+            if p == path:
+                entered.set()
+                self.assertTrue(release.wait(2))
+            return original(p, *args, **kwargs)
+        def evict():
+            eviction_started.set()
+            farm.make_room(farm_module.GIB)
+            evicted.set()
+        farm.free = lambda: 0
+        with patch.object(Path, 'open', gated_open):
+            reader = threading.Thread(target=lambda: farm.collision_bundle(root, tile, manifest))
+            reader.start()
+            self.assertTrue(entered.wait(2))
+            collector = threading.Thread(target=evict)
+            collector.start()
+            self.assertTrue(eviction_started.wait(2))
+            try:
+                self.assertFalse(evicted.wait(.05))
+            finally:
+                release.set()
+                reader.join(2)
+                collector.join(2)
+        self.assertTrue(evicted.is_set())
+        self.assertEqual(path.read_bytes(), b'col' * 16)
+        # Once opened, streaming can finish even if a zero-grace pressure collector
+        # unlinks the pathname. Neither lease update nor streaming recreates it.
+        with farm.payload(self.root / 'delivery', ['shared', path.name]) as (_, stream):
+            farm.grace_seconds = 0
+            farm.make_room(farm_module.GIB)
+            self.assertFalse(path.exists())
+            self.assertEqual(stream.read(), b'col' * 16)
+        self.assertFalse(path.exists())
+
     def test_raw_intermediates_share_by_producer_and_adopt_complete_private_files(self):
         farm = self.farm()
         repo = self.root / 'revisions' / REV / 'repo'
@@ -308,6 +421,22 @@ class FarmTests(unittest.TestCase):
         roots = farm.intermediate_roots(repo)
         self.assertEqual(roots['vegetation'], old_roots['vegetation'])
         self.assertNotEqual(roots['coarse-roofs'], old_roots['coarse-roofs'])
+
+    def test_game_polling_counts_only_its_requested_generation(self):
+        entered, release = threading.Event(), threading.Event()
+        def build(revision, tile, root):
+            entered.set()
+            release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV2, 't0_1_0')
+        first, second = farm.version_status(REV), farm.version_status(REV2)
+        self.assertEqual((first['queued'], first['building']), (0, ['t0_0_0']))
+        self.assertEqual((second['queued'], second['building']), (1, []))
+        release.set()
+        self.wait(farm)
 
     def test_live_camera_demand_precedes_old_explicit_requests(self):
         entered, release = threading.Event(), threading.Event()
@@ -411,6 +540,46 @@ class FarmTests(unittest.TestCase):
         self.assertEqual(farm.metrics['builds'], 1)
         self.assertEqual(farm.register(advanced['revision'], 'integration'), advanced)
 
+    def test_http_reuses_connection_for_manifest_head_payload_and_rejects_unread_body(self):
+        from http.client import HTTPConnection
+        farm = self.farm()
+        farm.request(REV, 't0_0_0')
+        self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connection = HTTPConnection('127.0.0.1', server.server_port, timeout=2)
+        try:
+            connection.request('GET', f'/v/{REV}/coarse/t0_0_0/manifest.json')
+            manifest = json.loads(connection.getresponse().read())
+            sock = connection.sock
+            self.assertIsNotNone(sock)
+            url = manifest['visual']['t0_0_0']['url']
+            connection.request('HEAD', url)
+            response = connection.getresponse()
+            self.assertEqual(response.getheader('Content-Length'), '4')
+            self.assertEqual(response.read(), b'')
+            connection.request('GET', url)
+            self.assertEqual(connection.getresponse().read(), b'mesh')
+            self.assertIs(connection.sock, sock)
+            connection.request('POST', '/unknown', body=b'GET /health HTTP/1.1\r\n\r\n')
+            response = connection.getresponse()
+            self.assertEqual(response.status, 404)
+            self.assertEqual(response.getheader('Connection'), 'close')
+            response.read()
+            self.assertIsNone(connection.sock)
+            connection.request('POST', '/limits', body=b'x', headers={'Content-Length': 'invalid'})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+            self.assertIsNone(connection.sock)
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
         release = threading.Event()
         def build(revision, tile, root):
@@ -433,6 +602,9 @@ class FarmTests(unittest.TestCase):
             self.assertIsNone(manifest['revision'])
             self.assertEqual(manifest['source_kind'], 'accepted-fallback')
             self.assertEqual(urlopen(base + manifest['visual']['t0_0_0']['url']).read(), b'mesh')
+            bundle = manifest['collision_bundle']
+            self.assertEqual(bundle['format'], 'sorted-col-v1')
+            self.assertEqual(urlopen(base + bundle['url']).read(), b'col' * 16)
             self.assertEqual((accepted / 't0_0_0/mesh.glb').stat().st_mtime_ns, before)
         finally:
             release.set()

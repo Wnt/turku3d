@@ -1,7 +1,11 @@
 # Procedural landmark appearance
 
 `ranking.py` produces a citywide candidate queue from available OSM extracts, with
-individual score contributions and missing-evidence fields. Buildings and castle
+individual score contributions and missing-evidence fields. `ranking --city` reads
+the existing Finland snapshot and extracts the complete Turku administrative area
+(OSM relation399906), keeping derived files under research storage. The end-to-end
+pipeline uses this complete inventory by default. Source and converter hashes
+cache the extract; raw data is never modified. Buildings and castle
 footprints qualify; ships, squares, and point monuments need separate generators.
 `enrichment.py` joins Museovirasto RKY areas and protected-register points and
 fetches the latest complete month of Wikimedia page views. The register is not a
@@ -86,3 +90,18 @@ await window.__dev.landmark('103371570S', null); // restore streamed appearance
 This preview retains the resident collision and surveyed shadow shell. Raw PNG
 maps are convenient for iteration; final visual/performance acceptance uses the
 normal packaged tile with compressed textures and regenerated shadows.
+
+
+## Resume a complete measured queue
+
+```sh
+python -m turku3d.landmarks.pipeline --ranked data/research/landmarks/ranked-city.json \
+  --cache-root "$TURKU3D_WORK/coarse" --assets "$TURKU3D_WORK/landmark-assets"
+```
+
+This resumes reference extraction with cached valid results, then builds every
+available described landmark. Missing references or survey geometry remain explicit
+per-building deferred outcomes; they do not abort later buildings. The asset command
+also accepts `--ranked` to generate assets independently of reference collection.
+Descriptions that newly fail identity verification retain their observations but
+stop supplying appearance parameters; reviewed repository recipes remain usable.

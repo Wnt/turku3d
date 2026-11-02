@@ -28,6 +28,9 @@ export const TRAFFIC = {
   queueGap: 1.5,
 } as const;
 
+/** Worker pose/velocity plus stable appearance seed and optional presentation fields. */
+export const TRAFFIC_STRIDE = 16;
+
 /** Moving-car caps per quality tier (street-richness plan §3.6/§7); the Air default is the low cap. The density
  *  (traffic/density.ts) sets how many cars the streets carry; the cap only bounds how many this client draws. */
 export const TRAFFIC_CAPS: Readonly<Record<QualityTier, number>> = { mobile: 10, low: 15, medium: 30, high: 40 };
