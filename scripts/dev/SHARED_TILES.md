@@ -143,3 +143,10 @@ Raw decoding stores can be evicted between builds; source inputs are never remov
 Adopted workers retain their original runtime deadline and disk-floor monitor. The daemon
 verifies PID identity and output ownership before stopping its own process group, and keeps
 product/cache pins until that process exits.
+
+The farm also serves the client's existing `sorted-col-v1` collision bundle: sixteen
+unchanged cells concatenated in sorted ID order, with a SHA-256 descriptor. Bundles live
+in farm-owned delivery storage even when their source is an accepted fallback. Identical
+cells across versions share the same bundle. The audit verifies both the full bundle and
+each cell slice. Game `/want`, `/demand` and version health counts cover only the requested
+generation; root `/health` remains the operator's complete farm view.

@@ -80,7 +80,7 @@ const sceneryIdentity = async footprint => {
   return { footprint: [...footprint].sort(), sources: sources.sort() };
 };
 const scenerySettled = s => !s || (!s.cataloguePending && !s.pending && !s.errors && s.loaded === s.total);
-const valid = s => s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
+const valid = s => s?.capture.qa_ready && s.capture.quality === 'high' && !s.capture.qa_error && !s.capture.incomplete_tiles.length
   && !s.capture.failed_assets_final.length && scenerySettled(s.capture.scenery);
 const save = () => {
   fs.writeFileSync(`${index}.tmp`, JSON.stringify({ generated: new Date().toISOString(), viewport: '1280x720',
@@ -124,7 +124,9 @@ try {
       const [h, m] = at.split(':').map(Number);
       const pose = { E, N, H, yaw, pitch, fov };
       const url = `${base}?cam=${cam.cam}&time=${at}&quality=high&hud=0&traffic=0&walkers=0`;
-      if (await evaluate('!!window.__qaMove')) {
+      // A benchmark page uses medium quality and has its own frame controller. Start a
+      // high-quality QA page before reusing it, otherwise metadata would mislabel the image.
+      if (await evaluate("!!window.__qaMove && window.__qaInfo?.quality === 'high' && !window.__bench")) {
         await evaluate(`window.__render.beforeFrame = undefined; window.__game.clock.simSeconds = 0;
           window.__render.setHour(${h + m / 60}); window.__qaMove(${JSON.stringify(pose)});`);
       } else {
