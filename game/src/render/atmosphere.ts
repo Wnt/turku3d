@@ -1,9 +1,9 @@
 // Two wind-driven cloud decks and a restrained city night sky in the existing sky draw.
 // The noise tile is generated here, with no downloaded imagery or per-frame noise generation.
 import * as THREE from 'three/webgpu';
-import { cameraPosition, Fn, dot, float, floor, fract, length, max, mix, normalize, positionWorld,
+import { cameraPosition, dot, float, floor, fract, length, max, mix, normalize, positionWorld,
   pow, smoothstep, texture, uniform, vec3, vec4 } from 'three/tsl';
-import type { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import type { AnalyticSky } from './analyticSky';
 import type { TimecycleSample } from './timecycle';
 import { cloudPixels } from './cloudField';
 
@@ -39,16 +39,13 @@ export class Atmosphere {
   readonly moonDirection = uniform(new THREE.Vector3(0.5, 0.4, -0.7).normalize());
   private readonly map = cloudTexture();
 
-  constructor(sky: SkyMesh) {
-    // Disable the addon's expensive procedural cloud branch; both decks use our shared mipmapped tile.
-    sky.cloudCoverage.value = 0;
-    const scattered = sky.material.colorNode as THREE.Node<'vec4'>;
-    sky.material.colorNode = Fn(() => {
+  constructor(sky: AnalyticSky) {
+    sky.material.colorNode = sky.createRadianceNode((diffuse, solar) => {
       const view = normalize(positionWorld.sub(cameraPosition)).toVar();
       const horizonWeight = pow(float(1).sub(max(view.y, 0)), 4);
       const night = mix(this.zenith, this.horizon, horizonWeight);
       const displayScale = mix(1, this.skyBrightness, smoothstep(0.07, 0.26, sky.sunPosition.y));
-      const base = scattered.rgb.mul(this.daylight).mul(displayScale).add(night).toVar();
+      const base = diffuse.mul(this.daylight).mul(displayScale).add(night).toVar();
       // Curved projection avoids infinite texture frequency at the horizon. Decks drift in different directions.
       const plane = view.xz.div(max(view.y, 0).add(0.14));
       const uv = plane.mul(0.18).add(this.wind);
@@ -94,9 +91,14 @@ export class Atmosphere {
       const moonHalo = pow(max(moonDot, 0), 650).mul(0.018);
       const moon = moonDisc.mul(1.5).add(moonHalo).mul(this.stars).mul(horizonFade)
         .mul(float(1).sub(alpha)).mul(float(1).sub(cirrus)).mul(float(1).sub(deck));
-      return vec4(skyColor.add(vec3(0.7, 0.8, 1).mul(star))
+      // Direct optical obstruction is independent of the diffuse horizon haze and .96 alpha cap.
+      const gap = float(1).sub(body.mul(this.density).clamp(0, 1)).toVar();
+      const gap2 = gap.mul(gap).toVar();
+      const transmission = gap2.mul(gap2).mul(float(1).sub(cirrus)).mul(float(1).sub(deck));
+      const direct = solar.mul(this.daylight).mul(displayScale).mul(transmission);
+      return vec4(skyColor.add(direct).add(vec3(0.7, 0.8, 1).mul(star))
         .add(vec3(0.75, 0.84, 1).mul(moon)), 1);
-    })();
+    });
     sky.material.needsUpdate = true;
   }
 
