@@ -40,11 +40,13 @@ PRODUCERS = (
     "sources",
     "surfaces",
     "ground_finishes",
+    "street_materials",
     "street_profiles",
     "street_survey",
     "bridges",
     "bridge_access",
     "bridge_details",
+    "bridge_kit",
     "bridge_join",
     "bridge_survey",
     "kerbs",
@@ -97,6 +99,10 @@ def producer_paths():
             props / "lights.py",
             props / "orientation.py",
             Path(C.__file__),
+            *[
+                Path(__file__).parents[1] / "landmarks" / name
+                for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py")
+            ],
             Path(__file__).parents[1] / "layers.py",
             Path(__file__).parents[1] / "facade_assets.py",
             Path(__file__).parents[1] / "package/gltf.py",

@@ -6,7 +6,7 @@ import shapely
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
-from turku3d.coarse import ground_finishes as finishes, inputs, surfaces
+from turku3d.coarse import street_materials as finishes, ground_finishes, inputs, surfaces
 
 
 def test_finish_covers_interior_triangles_as_well_as_cut_boundary_triangles():
@@ -43,9 +43,9 @@ def test_survey_finishes_preserve_collision_and_polygon_boundaries(monkeypatch):
 
 def test_procedural_finishes_are_repeatable_finite_pbr_with_metric_relief(tmp_path):
     for key in finishes.FINISH_KEYS.values():
-        maps = finishes.maps(key, 128)
+        maps = ground_finishes.maps(key, 128)
         for slot, pixels in maps.items():
-            np.testing.assert_array_equal(pixels, finishes.maps(key, 128)[slot])
+            np.testing.assert_array_equal(pixels, ground_finishes.maps(key, 128)[slot])
             assert pixels.shape == (128, 128, 3) and pixels.dtype == np.uint8
             # Wrapped edges behave like interior neighbours, rather than a visible seam.
             edge = np.abs(pixels[:, 0].astype(float) - pixels[:, -1]).mean()

@@ -1,3 +1,4 @@
+import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
 import { describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as R from '@dimforge/rapier3d';
@@ -374,7 +375,7 @@ describe('population ring', () => {
 });
 
 describe('rendering', () => {
-  test.each([false, true])('0 to 40 moving cars share the parked batches: no new draw, program or pipeline (velocity=%s)', async motion => {
+  test.each([false, true])('0 to 40 moving cars reuse resident fleet LOD batches and one program or pipeline (velocity=%s)', async motion => {
     const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
     renderer.hasFeature = () => false;
     Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
@@ -405,16 +406,17 @@ describe('rendering', () => {
       visuals.reserveTraffic(40);
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
-      expect(meshes.map(m => m.name).sort()).toEqual(TRAFFIC_MODELS.map(m => `parked/${m}`).sort());
+      expect(meshes.map(m => m.name).sort()).toEqual(FLEET.flatMap(m => [0, 1, 2].map(lod => `parked/${m.id}/${lod}`)).sort());
+      expect(load).not.toHaveBeenCalled();
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {
-        const moving = Array.from({ length: count }, (_, i) => ({ model: TRAFFIC_MODELS[i % 4], color: ['blue', 'white', 'beige'][i % 3],
+        const moving = Array.from({ length: count }, (_, i) => ({ seed: i === 0 ? 'p1' : String(i), model: TRAFFIC_MODELS[i % 4], color: ['blue', 'white', 'beige'][i % 3],
           x: i * 7, y: 0.75, z: 3, q: { x: 0, y: 0, z: 0, w: 1 } }));
         visuals.setTraffic(moving);
         visuals.update([], { restingPose: c => ({ pos: { x: c.x, y: c.y + 0.75, z: c.z }, rot: { x: 0, y: 0, z: 0, w: 1 } }) });
         expect(scene.children).toEqual(meshes);
         expect(meshes.reduce((n, m) => n + m.count, 0)).toBe(1 + count);
-        const sedan = meshes.find(m => m.name === 'parked/sedan')!;
+        const sedan = meshes.find(m => m.name === `parked/${fleetModel('sedan', 'p1').id}/0`)!;
         if (count) {
           // The first moving sedan follows the parked one, with its own paint.
           const paint = Array.from(instancePaintOf(sedan)!.array.slice(3, 6));

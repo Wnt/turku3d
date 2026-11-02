@@ -374,8 +374,7 @@ export const SPECIES = {
 export const TREES = ['birch', 'linden', 'maple', 'oak', 'rowan', 'willow', 'pine', 'spruce'];
 export const SHRUBS = ['lilac', 'rose', 'juniper'];
 
-export function skeleton(name, seed) {
-  const sp = SPECIES[name];
+export function skeleton(name, seed, sp = SPECIES[name]) {
   if (sp.kind === 'deciduous') return deciduous(sp, seed);
   if (sp.kind === 'shrub') return shrub(sp, seed);
   return conifer(sp, seed);

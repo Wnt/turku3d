@@ -47,6 +47,8 @@ export interface VehicleTuning {
   /** Suspension travel either side of the rest length (m). */
   suspensionTravel: number;
   maxSuspensionForce: number;
+  /** Additional tyre-force roll lever (Rapier internally retains only 10%). */
+  rollTransfer: number;
   /** Share of the engine force on driven steered (front) wheels; the rest goes to the driven rear wheels. */
   frontTorque: number;
   /** Scale of the curb strike's speed loss and lift impulse: long-travel suspension soaks a kerb up. */
@@ -77,6 +79,7 @@ export const CAR = {
   suspensionRelaxation: 5.5,
   suspensionTravel: 0.22,
   maxSuspensionForce: 18000,
+  rollTransfer: 0.55,
   frontTorque: 0,
   curbFeel: 1,
 } as const satisfies VehicleTuning;
@@ -107,6 +110,7 @@ export const SCOOTER = {
   suspensionRelaxation: 5.5,
   suspensionTravel: 0.22,
   maxSuspensionForce: 6000,
+  rollTransfer: 0,
   frontTorque: 0,
   curbFeel: 1,
 } as const satisfies VehicleTuning;
@@ -138,6 +142,7 @@ export const TRUCK = {
   suspensionRelaxation: 5.6,
   suspensionTravel: 0.36,
   maxSuspensionForce: 48000,
+  rollTransfer: 0.35,
   frontTorque: 0.4,
   curbFeel: 0.2,
 } as const satisfies VehicleTuning;
