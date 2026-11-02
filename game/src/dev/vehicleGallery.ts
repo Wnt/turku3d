@@ -124,7 +124,7 @@ async function activate(index: number) {
   world.createCollider(R.ColliderDesc.cuboid(STEP.hx, height / 2, STEP.hz).setTranslation(STEP.x, height / 2, STEP.z).setCollisionGroups(groups));
   block.scale.y = height / (STEP.hy * 2); block.position.y = height / 2;
   const kind = entry.kind === 'fleet' ? 'car' : entry.kind;
-  const start = kind === 'truck' ? { x: -1.0, y: 1.8, z: -3.75 } : START;
+  const start = kind === 'truck' ? { x: -1.0, y: 1.8, z: 1.75 } : START;
   const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind });
   const visual = await makeVisual(entry, index);
   if (pending !== index) { visual.dispose(); world.free(); return; }
@@ -146,7 +146,8 @@ addEventListener('resize', resize);
 // The chase camera swings back behind the car once it drives.
 function openingView(state: ReturnType<InstanceType<typeof Vehicle>['state']>) {
   chase.update(0, state, 0, 0, true);
-  chase.yaw = 0.70; chase.pitch = -0.3;
+  // The truck is seen from behind and above, so the raised front-right wheel on the platform is in view.
+  if (state.kind === 'truck') chase.pitch = -0.85; else { chase.yaw = 0.70; chase.pitch = -0.3; }
   chase.update(0, state, 0, 0, false);
 }
 
