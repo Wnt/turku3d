@@ -13,6 +13,7 @@
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
 //          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>]
 import http from 'node:http';
+import { captureMiddleware } from './capture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,7 +43,10 @@ function resolvePath(urlPath) {
   return resolveUnder(base, p);
 }
 
+const capture = captureMiddleware();
 async function handler(req, res) {
+  res.setHeader('Document-Policy', 'js-profiling');
+  if (req.url.startsWith('/__capture/')) return capture(req, res, () => { res.writeHead(404); res.end(); });
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match, Content-Type', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS' });
     return res.end();

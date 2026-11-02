@@ -1,3 +1,4 @@
+import { captureAllowed, captureControl } from './telemetry/capture';
 import { RoundUI } from './net/rounds';
 import { multiplayerStart } from './gameplay/startPoints';
 import { bindRoundReset } from './net/roundReset';
@@ -312,6 +313,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
+
+  const capture = captureAllowed() ? captureControl(window.__game!, document.body) : null;
+  if (capture) { pauseMenu.capture = capture; window.__game!.capture = capture; }
 
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
   else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
@@ -641,6 +645,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
+      capture?.dispose();
       devLayers.dispose();
       remotePlayers.dispose();
       audio.emit({ type: 'horns', vehicles: [] });
