@@ -39,6 +39,7 @@ PRODUCERS = (
     "input_keys",
     "sources",
     "surfaces",
+    "ground_finishes",
     "bridges",
     "bridge_access",
     "bridge_details",

@@ -159,9 +159,16 @@ export class Environment {
     if (!this.iblDirty) return;
     this.iblDirty = false;
     this.iblElevation = this.sunElevation;
-    this.environmentTarget = this.pmrem.fromScene(this.skyScene, 0, 0.1, 6000,
-      { size: 128, renderTarget: this.environmentTarget });
-    this.scene.environment = this.environmentTarget.texture;
+    // Visible daytime scattering is calibrated separately from the lighting owner's ambient radiance.
+    const visibleBrightness = this.atmosphere.skyBrightness.value;
+    this.atmosphere.skyBrightness.value = 1;
+    try {
+      this.environmentTarget = this.pmrem.fromScene(this.skyScene, 0, 0.1, 6000,
+        { size: 128, renderTarget: this.environmentTarget });
+      this.scene.environment = this.environmentTarget.texture;
+    } finally {
+      this.atmosphere.skyBrightness.value = visibleBrightness;
+    }
   }
 
   /** While the sun has no intensity its cascades are not re-rendered (3 passes on medium, 4 on high). Startup

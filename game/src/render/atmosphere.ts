@@ -30,6 +30,8 @@ export class Atmosphere {
   readonly cloudLit = uniform(new THREE.Color());
   readonly cloudShade = uniform(new THREE.Color());
   readonly daylight = uniform(1);
+  /** Visible daytime scattering, independently calibrated from the ambient lighting bake. */
+  readonly skyBrightness = uniform(0.45);
   readonly stars = uniform(0);
   readonly moonDirection = uniform(new THREE.Vector3(0.5, 0.4, -0.7).normalize());
   private readonly map = cloudTexture();
@@ -42,7 +44,8 @@ export class Atmosphere {
       const view = normalize(positionWorld.sub(cameraPosition)).toVar();
       const horizonWeight = pow(float(1).sub(max(view.y, 0)), 4);
       const night = mix(this.zenith, this.horizon, horizonWeight);
-      const base = scattered.rgb.mul(this.daylight).add(night).toVar();
+      const displayScale = mix(1, this.skyBrightness, smoothstep(0.07, 0.26, sky.sunPosition.y));
+      const base = scattered.rgb.mul(this.daylight).mul(displayScale).add(night).toVar();
       // Curved projection avoids infinite texture frequency at the horizon. Decks drift in different directions.
       const plane = view.xz.div(max(view.y, 0).add(0.14));
       const uv = plane.mul(0.18).add(this.wind);

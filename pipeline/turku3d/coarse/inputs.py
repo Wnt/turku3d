@@ -52,6 +52,7 @@ DEPENDENCIES = {
     ),
     "wfs": (
         "roofs.py",
+        "ground_finishes.py",
         "../buildings/source_surfaces.py",
         "../ground/materials.py",
         "../spatial.py",
@@ -141,6 +142,7 @@ class Inputs:
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
+    street_finishes: list = ()  # city visual finishes; never collision material ids
     register: dict = field(default_factory=dict)
     kerb_parking: dict = field(default_factory=dict)  # sign posts, stops, permit lines for kerb bays
     tunnels: list = ()  # OSM full tunnel ways, with tags
@@ -342,16 +344,23 @@ def prepare_wfs(
 ) -> dict:
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
+    from .ground_finishes import street_finish
 
     shells = buildings(bldg, tile, context=True) if bldg else []
     if shells and roof_paths:
         roofs.refine(shells, roof_paths)
+    street_rows = list(_frame(streets, tile.bbox))
     return {
         "buildings": [b for b in shells if b.visual_owner == tile.id],
         "wall_context": [b for b in shells if b.visual_owner != tile.id],
         "streets": [
             (shapely.make_valid(g), mat_id(surface_material(r.Katuosalaji, r.Pintamateriaali)))
-            for g, r in _frame(streets, tile.bbox)
+            for g, r in street_rows
+        ],
+        "street_finishes": [
+            (shapely.make_valid(g), finish)
+            for g, r in street_rows
+            if (finish := street_finish(r.Pintamateriaali)) is not None
         ],
         "water": [shapely.make_valid(g) for g, _ in _frame(water, tile.bbox)],
     }
@@ -785,6 +794,7 @@ def gather(
         kerb_parking=values.get("kerb_parking") or {},
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),
+        street_finishes=wfs["street_finishes"],
         register=values["register"],
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),
