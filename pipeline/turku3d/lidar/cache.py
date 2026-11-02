@@ -81,14 +81,18 @@ class PointCloud:
 
 
 def _identity(path):
-    stat = path.stat()
-    return [str(path.resolve()), stat.st_size, stat.st_mtime_ns]
+    from turku3d.tile_layer import identities
+
+    digest = identities({"source": path})["source"]
+    if digest is None:
+        raise FileNotFoundError(path)
+    return {"path": str(path.resolve()), "sha256": digest}
 
 
 class TileStore:
     """Decompress each source once; cache exact half-open tile crops and buffered crops.
 
-    Cache identity includes source path/size/mtime, this implementation and grid constants.
+    Cache identity includes source content, this implementation and grid constants.
     No pickle, no source writes. An advisory process lock and atomic directory rename keep
     concurrent builders from publishing partial shards. SHA manifests remain input authority.
     """
@@ -110,7 +114,7 @@ class TileStore:
             if self.source_paths is not None
             else self.source_dir / f"{tile.name}.laz"
         )
-        key = hashlib.sha256(json.dumps([_identity(path), self.version]).encode()).hexdigest()
+        key = hashlib.sha256(json.dumps([_identity(path)["sha256"], self.version]).encode()).hexdigest()
         return path, self.cache_dir / "sources" / key
 
     def _ensure_source(self, tile):

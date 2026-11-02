@@ -246,7 +246,7 @@ All coordinates are engine world-local metres: `x = E − 23459500`, `y = H`, `z
 - `unloadTile {id}` → `tileUnloaded`.
 - `spawnCharacter`, `setCharacterEnabled`, `spawnVehicle`, `resetVehicle`.
 - `step {seq, dt, character{vx,vz,jump}, vehicle{throttle,steer,brake,handbrake}|null}` → `state {character, previousCharacter, tick, remainder, vehicle, substeps, stepMs}`. The worker runs fixed 60 Hz substeps (at most 5), and the client keeps a single step in flight.
-- `raycast {id, origin, dir, maxToi, filter: solid|query|all|foot}` → `raycastResult {hit{toi, point, normal, material, tile}}`.
+- `raycast {id, rays:[{origin, dir, maxToi, filter: solid|query|all|foot}]}` → `raycastResult {hits:[{toi, point, normal, material, tile}|null]}`. The client batches same-turn calls; its public `raycast()` still resolves one hit.
 - `stats {id}` → `statsResult {tiles[], tris, colBytes, estWasmBytes}`.
 - Ambient traffic: `trafficTiles {add[{tile, hash, bounds, roads}], remove[]}`, `traffic {config}` (cap, clock offset, shared, enabled tiles, remote claims) and `trafficClaim {handle}`. Live input carries the camera `view`; `state` adds `traffic` (12 numbers per drawn car), `trafficEvents` (claims, repeated until acknowledged), `trafficStats` and `trafficTime`. See [ambient traffic](src/physics/README.md#ambient-traffic).
 
