@@ -120,7 +120,7 @@ export const SCOOTER = {
 } as const satisfies VehicleTuning;
 
 /** Trophy truck / prerunner: a heavy 4WD with big tyres on long-travel suspension (soft springs, strong damping,
- *  36 cm either way), high ride height and a 120 km/h top speed. The centre of mass sits low in the frame (engine,
+ *  50 cm either way), high ride height and a 120 km/h top speed. The centre of mass sits low in the frame (engine,
  *  fuel cell and spare tyre) so the 2.3 m track does not roll over in a hard turn. */
 export const TRUCK = {
   halfExt: { x: 2.35, y: 0.4, z: 1.0 },
@@ -145,7 +145,7 @@ export const TRUCK = {
   suspensionStiffness: 20,
   suspensionCompression: 4.2,
   suspensionRelaxation: 5.6,
-  suspensionTravel: 0.36,
+  suspensionTravel: 0.5,
   maxSuspensionForce: 48000,
   rollTransfer: 0.35,
   frontTorque: 0.4,
