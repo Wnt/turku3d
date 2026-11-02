@@ -6,6 +6,7 @@ import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
 import { FLEET, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry } from './geometry';
+import { AUTHORED_ESTATE, loadAuthoredFleet } from './authored';
 import { fleetLamps } from './lamps';
 import { fleetMaterial, fleetNight } from './material';
 
@@ -36,6 +37,7 @@ export class ParkedCarVisuals {
   private rotation=new THREE.Quaternion(); private scale=new THREE.Vector3(1,1,1);
   private loading: Promise<void>=Promise.resolve();
   private loaded=false;
+  private remoteRequests=new Map<string,Promise<void>>();
   constructor(private readonly scene: THREE.Object3D, private readonly prepare: (model: THREE.Object3D)=>Promise<void> = async()=>{}) {}
   reserveTraffic(count:number) { this.reserve=Math.max(0,count); }
   trafficModels(): string[] { return this.loaded ? [...TRAFFIC_MODELS] : []; }
@@ -66,6 +68,10 @@ export class ParkedCarVisuals {
         const key=`${model.id}/${lod}`, required=(counts.get(model.id)??0)+this.reserve;
         if((this.groups.get(key)?.mesh.instanceMatrix.count??0)>=required) continue;
         const capacity=Math.max(16,2**Math.ceil(Math.log2(Math.max(1,required))));
+        if(!this.geometries.has(key)) {
+          const authored=await loadAuthoredFleet(model.id,lod);
+          if(authored)this.geometries.set(key,authored);
+        }
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
         mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
@@ -93,9 +99,17 @@ export class ParkedCarVisuals {
     const actor=this.actor(def.model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);
     this.cars=this.cars.filter(c=>c.object_id!==id);
   }
-  requestRemoteModel(_key:string) { /* The code-authored fleet is resident; no network asset request. */ }
+  requestRemoteModel(key:string) {
+    const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
+    if(model.id!==AUTHORED_ESTATE||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
+    this.remoteRequests.set(geometryKey,loadAuthoredFleet(model.id,0).then(geometry=>{
+      if(geometry)this.geometries.set(geometryKey,geometry);
+    }).catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
+  }
   remoteModel(key:string):THREE.Mesh|null {
-    const [model,color]=key.split('/'); return this.actor(fleetModel(model,key),color??'silver',`remote/${key}`);
+    const [id,color]=key.split('/'), model=fleetModel(id,key);
+    if(model.id===AUTHORED_ESTATE&&!this.geometries.has(`${model.id}/0`))return null;
+    return this.actor(model,color??'silver',`remote/${key}`);
   }
   private transform(draw:Draw) {
     this.position.set(draw.pos.x,draw.pos.y-CHASSIS_LIFT,draw.pos.z);

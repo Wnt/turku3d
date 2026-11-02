@@ -21,7 +21,7 @@ const types: [BodyType, string, string, number, number, number, number, number, 
   ['classic', 'Muisto', 'sedan', 4.44, 1.76, 1.43, 2.61, .19, -.26],
 ];
 export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, l, w, h, wb, hood, rear], t) =>
-  brands.map((brand, i) => ({ id: `fleet-${body}-${i}`, name: `${brand} ${name} ${110 + i * 20}`, body, family,
+  brands.map((brand, i): FleetModel => ({ id: `fleet-${body}-${i}`, name: `${brand} ${name} ${110 + i * 20}`, body, family,
     length: l + [-.18, .10, .24, -.08, .02, .17, -.24][i], width: w + [-.02, .01, .05, -.04, 0, .03, -.01][i],
     height: h + [.025, -.02, .045, .015, -.035, .055, 0][i], wheelbase: wb + [-.09, .02, .12, -.03, .04, .08, -.11][i],
     hood: hood + [.01, -.02, -.015, .025, 0, -.01, .035][i], rear: rear + [0, .015, -.01, .025, -.02, .01, 0][i],
@@ -29,7 +29,7 @@ export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, 
     belt: (body === 'van' ? 1.12 : body === 'suv' || body === 'pickup' ? 1.12 : body === 'mpv' ? 1.10 : .97) + (i % 3) * .025,
     face: i, accessory: t === 1 && i === 1 || t === 3 && i === 2 ? 'box' : t === 1 && i === 4 || t === 3 && i === 5 ? 'rack' : t === 2 && i === 5 || t === 4 && i === 1 ? 'taxi' : 'none',
     age: body === 'classic' ? .75 + i * .03 : i === 6 ? .5 : .06 + i * .04,
-  })));
+  }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68 } : model);
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 export function fleetHash(value: string): number {
   let h = 2166136261;

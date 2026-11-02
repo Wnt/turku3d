@@ -1,3 +1,4 @@
+import './fleet-assets.fixture';
 import { expect,test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { createHash } from 'node:crypto';
@@ -5,6 +6,25 @@ import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
 import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import { draftManifest } from '../../src/world/manifest';
+import { AUTHORED_ESTATE, loadAuthoredFleet } from '../../src/actors/fleet/authored';
+
+test('shipped Blender estate has finite ground-aligned LODs and preserves all lamp roles',async()=>{
+  const triangles:number[]=[];
+  for(let lod=0;lod<3;lod++) {
+    const g=(await loadAuthoredFleet(AUTHORED_ESTATE,lod))!, positions=g.getAttribute('position'), surface=g.getAttribute('fleetSurface');
+    triangles.push((g.index?.count??positions.count)/3);
+    expect(Array.from(positions.array).every(Number.isFinite)).toBe(true);
+    expect(Array.from(g.getAttribute('normal').array).every(Number.isFinite)).toBe(true);
+    expect(g.boundingBox!.min.y).toBeCloseTo(0,2);
+    expect(g.boundingBox!.max.y).toBeCloseTo(1.545,2);
+    expect(g.boundingBox!.max.z-g.boundingBox!.min.z).toBeGreaterThan(4.6);
+    expect(new Set(Array.from({length:surface.count},(_,i)=>surface.getW(i)))).toEqual(new Set([0,1,2,3,4]));
+    expect(g.groups).toHaveLength(0);
+    g.dispose();
+  }
+  expect(triangles[0]).toBeLessThan(17000);expect(triangles[1]).toBeLessThan(5000);expect(triangles[2]).toBeLessThan(3300);
+  expect(triangles[0]).toBeGreaterThan(triangles[1]);expect(triangles[1]).toBeGreaterThan(triangles[2]);
+});
 
 test('56 distinct finite vehicle geometries have three decreasing LODs, ground contact and realistic dimensions',()=>{
   const hashes=new Set<string>();
