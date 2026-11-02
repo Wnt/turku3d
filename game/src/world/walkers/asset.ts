@@ -2,7 +2,7 @@ import { TextureLoader, SRGBColorSpace, type Texture } from 'three/webgpu';
 // Decoder for public/assets/walkers/walkers.bin (written by scripts/bake-walkers.mjs; layout documented there).
 
 /** Body regions the renderer tints per instance, in the bake's order. */
-export const REGIONS = ['skin', 'top', 'bottom', 'shoes', 'hair', 'inner', 'legwear', 'eyes'] as const;
+export const REGIONS = ['skin', 'top', 'bottom', 'shoes', 'hair', 'inner', 'legwear', 'eyes', 'iris'] as const;
 
 interface WalkerClip { row: number; frames: number }
 export interface WalkerVariant {
@@ -31,17 +31,18 @@ export interface WalkerAsset {
 interface Section { offset: number; length: number }
 interface Meta {
   format: string; version: number; fps: number; atlas?: string;
+  atlasFormat?: 'albedo-trim';
   vat: Section & { width: number; height: number; format: string; normal: { encoding: string; directions: number } };
   regions: string[];
   variants: { id: string; vertices: number; rowBase: number; height: number; metresPerLoop: number;
-    clips: { id: string; row: number; frames: number }[]; indices: Section; farIndices?: Section; uv?: Section; regionsOffset: Section }[];
+    clips: { id: string; row: number; frames: number }[]; indices: Section; farIndices: Section; uv: Section; regionsOffset: Section }[];
 }
 
 export function parseWalkerAsset(buffer: ArrayBuffer): WalkerAsset {
   const head = new Uint32Array(buffer, 0, 3);
-  if (head[0] !== 0x4b4c5754 || head[1] !== 2) throw new Error('walkers.bin: not a turku3d walker asset v2');
+  if (head[0] !== 0x4b4c5754 || head[1] !== 3) throw new Error('walkers.bin: not a turku3d walker asset v3');
   const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 12, head[2]))) as Meta;
-  if (meta.format !== 'turku3d-walkers' || meta.vat.format !== 'rgba16float' || meta.vat.normal.encoding !== 'spherical-fibonacci'
+  if (meta.format !== 'turku3d-walkers' || meta.version !== 3 || meta.atlasFormat !== 'albedo-trim' || meta.vat.format !== 'rgba16float' || meta.vat.normal.encoding !== 'spherical-fibonacci'
     || meta.regions.join() !== REGIONS.join()) throw new Error(`walkers.bin: unsupported ${meta.format} layout`);
   const base = 12 + head[2];
   const clip = (v: Meta['variants'][number], id: string) => {
@@ -57,8 +58,8 @@ export function parseWalkerAsset(buffer: ArrayBuffer): WalkerAsset {
       id: v.id, vertices: v.vertices, rowBase: v.rowBase, walk: clip(v, 'walk'), idle: clip(v, 'idle'),
       height: v.height, metresPerLoop: v.metresPerLoop,
       indices: new Uint16Array(buffer, base + v.indices.offset, v.indices.length),
-      farIndices: new Uint16Array(buffer, base + (v.farIndices ?? v.indices).offset, (v.farIndices ?? v.indices).length),
-      uv: v.uv ? new Float32Array(buffer, base + v.uv.offset, v.uv.length) : new Float32Array(v.vertices * 2),
+      farIndices: new Uint16Array(buffer, base + v.farIndices.offset, v.farIndices.length),
+      uv: new Float32Array(buffer, base + v.uv.offset, v.uv.length),
       regions: new Uint8Array(buffer, base + v.regionsOffset.offset, v.regionsOffset.length),
     })),
   };

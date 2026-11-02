@@ -16,6 +16,19 @@ import shapely
 from .ranking import rank
 
 
+def consolidate(rows):
+    """OSM ways and relations can describe one surveyed building: treat it once."""
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row.get("building_id") or row["id"], []).append(row)
+    result = []
+    for members in grouped.values():
+        primary = max(members, key=lambda row: (bool(row["tags"].get("name")), row["score"]))
+        primary["aliases"] = sorted({row["id"] for row in members if row["id"] != primary["id"]})
+        result.append(primary)
+    return sorted(result, key=lambda row: (-row["score"], row["id"]))
+
+
 def measure(rows, roots):
     buildings = {}
     streets = {}
@@ -39,6 +52,8 @@ def measure(rows, roots):
     blds = list(buildings.values())
     polygons = [b.footprint for b in blds]
     tree = shapely.STRtree(polygons)
+    street_rows = list(streets.values())
+    street_tree = shapely.STRtree([geometry for geometry, _ in street_rows])
     for row in rows:
         p = shapely.Point(row["location_xz"])
         matches = tree.query(p, predicate="intersects")
@@ -69,10 +84,17 @@ def measure(rows, roots):
             e["skyline_prominence_m"] = round(
                 max(0, b.top - float(np.median([blds[j].top for j in neighbours]))), 2
             )
+        # Rank every footprint; expensive visibility only resolves buildings that
+        # could reach the candidate tier with the maximum twenty visibility points.
+        preliminary = rank(row["tags"], e)
+        if preliminary["score"] + 20 < 28:
+            row.update(preliminary)
+            continue
         seen = set()
         seen_streets = set()
         tested = set()
-        for geometry, name in streets.values():
+        for street_index in street_tree.query(p.buffer(300), predicate="intersects"):
+            geometry, name = street_rows[street_index]
             if (
                 geometry.geom_type not in ("LineString", "MultiLineString")
                 or geometry.distance(p) > 300
@@ -121,7 +143,8 @@ def main():
     data = json.loads(a.ranked.read_text())
     report = measure(data["buildings"], a.cache_root)
     data["geometry_coverage"] = report
-    data["buildings"].sort(key=lambda r: (-r["score"], r["id"]))
+    data["coverage"]["osm_footprints_before_consolidation"] = len(data["buildings"])
+    data["buildings"] = consolidate(data["buildings"])
     a.ranked.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "sources"}))
 

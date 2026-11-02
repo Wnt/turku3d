@@ -113,3 +113,66 @@ def test_water_covered_survey_building_gets_boat_while_land_house_stays_a_house(
     )
     assert len(records) == 1 and records[0]["id"] == "survey:survey_ship"
     assert boat_inputs.separate([ship, land], records) == [land]
+
+
+def test_mapped_white_ship_uses_painted_cabins_and_retains_colour_provenance(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    scene(tmp_path, monkeypatch)
+    path = tmp_path / "osm.parquet"
+    rows = pq.read_table(path).to_pylist()
+    for row in rows:
+        tags = json.loads(row["tags"])
+        if tags.get("building") == "ship":
+            tags.update({"building:colour": "white", "building:material": "metal"})
+            row["tags"] = json.dumps(tags)
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    tile = C.VisualTile(0, 0, 0)
+    records = boat_inputs.prepare(tile, path, tmp_path / "buildings.parquet", tmp_path / "water.parquet")
+    assert records[0]["appearance"] == {"cabin_surface": "white", "source": "osm:building:colour"}
+    meshes = boats.produce(tile, records)
+    cabin_shells = [m for m in meshes if m.material == "building" and m.metadata.get("collision", True)]
+    assert cabin_shells and all(m.metadata["surface"] == "white" for m in cabin_shells)
+
+
+def test_cabin_bands_do_not_override_the_mapped_roof_finish():
+    for surface, expected in (("wood", "blue"), ("white", "white")):
+        parts = boats.cabin("ship", shapely.box(0, 0, 10, 3), 1.5, 5.8, surface)
+        roofs = [m for m in parts if m.material == "building" and np.allclose(m.positions[:, 1], 5.81)]
+        assert roofs and all(m.metadata["surface"] == expected for m in roofs)
+
+
+def test_reviewed_vessel_paint_controls_cabin_fascia_and_rails_without_changing_deck(tmp_path, monkeypatch):
+    monkeypatch.setattr(boat_inputs, "appearance_evidence", lambda: {"osm:ship": {
+        "id": "reviewed-ship", "reference": "same-pose-photo", "appearance": {
+            "cabin_surface": "white", "fascia_surface": "white", "rail_surface": "white"}}})
+    _, _, _, records = scene(tmp_path, monkeypatch)
+    boat = records[0]
+    assert boat["appearance"]["source"] == "vision:reviewed-ship"
+    assert boat["appearance"]["reference"] == "same-pose-photo"
+    assert boat["deck"] == 1.5
+    meshes = boats.produce(C.VisualTile(0, 0, 0), records)
+    assert not any(m.metadata["surface"] == "blue" for m in meshes)
+
+
+def test_floating_piers_and_boat_access_are_not_vessels(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    outline, _, _, _ = scene(tmp_path, monkeypatch)
+    path = tmp_path / "piers.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(osm_id="pier", tags=json.dumps({"man_made": "pier", "floating": "yes"}),
+             geometry_local=outline.wkb),
+        dict(osm_id="access", tags=json.dumps({"boat": "yes", "man_made": "pier"}),
+             geometry_local=outline.wkb),
+    ]), path)
+    tile = C.VisualTile(0, 0, 0)
+    records = boat_inputs.prepare(tile, path, None, tmp_path / "water.parquet")
+    assert len(records) == 1 and records[0]["kind"] == "pier"
+    assert records[0]["cabins"] == [] and records[0]["deck"] == 0.55
+    meshes = boats.produce(tile, records)
+    assert meshes and all(m.positions[:, 1].max() <= 0.55 for m in meshes)
+    assert all(m.extras["layer"] == "structures" and m.extras["material_key"].startswith("pier_")
+               for m in boats.visuals(tile, meshes))

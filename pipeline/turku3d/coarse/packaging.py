@@ -84,6 +84,7 @@ def producer_paths():
             Path(__file__).parents[1] / "wall_surfaces.py",
             Path(__file__).parents[1] / "wall_assembly.py",
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
+            Path(__file__).with_name("vessel_observations.json"),
             Path(__file__).parents[1] / "stage_cache.py",
             Path(__file__).parents[1] / "spatial.py",
             *sorted((Path(__file__).parents[1] / "roads").glob("*.py")),

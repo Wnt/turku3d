@@ -22,8 +22,8 @@ from .appearance import roof_mesh, wall_meshes
 from .descriptions import resolve, source_paths
 
 
-def build(building, root):
-    description = resolve(building)
+def build(building, root, description_root=None):
+    description = resolve(building, automatic_root=description_root)
     if description is None:
         raise ValueError(f"No landmark description for {building.facade_key}")
     package = Path(__file__).parents[1]
@@ -83,18 +83,49 @@ def build(building, root):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--building-id", required=True)
+    selection = p.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--building-id")
+    selection.add_argument(
+        "--ranked", type=Path, help="Build every described landmark in this inventory"
+    )
     p.add_argument("--cache-root", type=Path, action="append", required=True)
     p.add_argument("--out", type=Path, required=True)
+    p.add_argument("--descriptions", type=Path)
     a = p.parse_args()
+    if a.ranked:
+        rows = json.loads(a.ranked.read_text())["buildings"]
+        pending = {
+            str(row.get("building_id", row["id"])) for row in rows if row["tier"] == "landmark"
+        }
+    else:
+        pending = {a.building_id}
+    outcomes = []
     files = [path for root in a.cache_root for path in root.glob("**/.inputs/*/wfs.*.pkl")]
     for path in sorted(set(files), key=lambda path: path.stat().st_mtime, reverse=True):
         value = pickle.loads(path.read_bytes())["value"]
         for building in value.get("buildings", []):
-            if str(building.facade_key) == a.building_id:
-                print(json.dumps(build(building, a.out)))
-                return
-    raise ValueError(f"Building {a.building_id} not present in prepared survey caches")
+            key = str(building.facade_key)
+            if key not in pending:
+                continue
+            pending.remove(key)
+            try:
+                result = build(building, a.out, a.descriptions)
+            except Exception as error:
+                if not a.ranked:
+                    raise
+                result = dict(building_id=key, state="deferred", error=str(error))
+            outcomes.append(result)
+            print(json.dumps(result), flush=True)
+        if not pending:
+            break
+    if not a.ranked and pending:
+        raise ValueError(f"Building {a.building_id} not present in prepared survey caches")
+    outcomes.extend(
+        dict(building_id=key, state="deferred", error="No prepared survey geometry")
+        for key in sorted(pending)
+    )
+    a.out.mkdir(parents=True, exist_ok=True)
+    (a.out / "batch-results.json").write_text(json.dumps(outcomes, indent=2) + "\n")
 
 
 if __name__ == "__main__":

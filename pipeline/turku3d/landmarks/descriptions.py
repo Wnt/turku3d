@@ -42,14 +42,15 @@ def manifest_current(manifest):
     )
 
 
-def resolve(building):
+def resolve(building, automatic_root=None):
     key = str(building.facade_key)
+    automatic_root = automatic_root or C.data_root() / "landmark-descriptions"
     # Automatically estimated parameters seed new landmarks. Reviewed distributed
     # parameters win until a deliberate local development override is supplied.
     osm = getattr(building, "attributes", {}).get("osm_id", "").replace("/", "_")
     paths = [
-        C.data_root() / "landmark-descriptions" / f"{osm}.json",
-        C.data_root() / "landmark-descriptions" / f"{key}.json",
+        automatic_root / f"{osm}.json",
+        automatic_root / f"{key}.json",
         ROOT / f"{key}.json",
         C.work_root() / "landmark-descriptions" / f"{osm}.json",
         C.work_root() / "landmark-descriptions" / f"{key}.json",
@@ -58,7 +59,7 @@ def resolve(building):
     for path in paths:
         if path.is_file():
             candidate = json.loads(path.read_text())
-            if path.parent == C.data_root() / "landmark-descriptions" and (
+            if path.parent == automatic_root and (
                 candidate.get("reference_match") != "verified"
                 or candidate.get("reference_confidence", 0) < 0.5
             ):
