@@ -37,7 +37,8 @@
     "Pavement is pale warm grey rectangular concrete slabs; street dark neutral asphalt with patch edges and a light granite kerb.",
     "Retained local close-up 103304670P_37_v0_f_l_179223953576.jpg confirms three tall central arched windows, each with two glazing columns and four horizontal pane divisions; lower central triplet and narrow upper gable window. Pale trim is warm grey-beige.",
     "June 2026 Look Around panorama 569620272610193160, 1.4 m from shot camera: north entrance datum N2000 5.10 m from shipped lidar terrain, 1.06 m above building minimum base. Elevation offsets preserve surveyed roof height and expose the door threshold.",
-    "Current reference confirms muted red-brown brick, beige-grey trim, paired arched entrance lights, and a white concrete / dark ribbon-glass neighbour; the teal source sample was a metal doorway."
+    "Current reference confirms muted red-brown brick, beige-grey trim, paired arched entrance lights, and a white concrete / dark ribbon-glass neighbour; the teal source sample was a metal doorway.",
+    "June 2026 north-end perspective: central three clear openings are about 46 px wide and 142 px tall against an approximately 840 px facade width; retain a tall 3.2/1.05 aspect ratio after applying the street datum."
   ],
   "uncertainty": "Photo-derived openings and trim dimensions approx \u00b120%; side repetition approximate; opposite end layout not separately measured. Survey shell remains authoritative.",
   "brick": {
@@ -173,22 +174,22 @@
         {
           "x_m": 6.85,
           "sill_m": 2.682,
-          "width_m": 1.28,
-          "height_m": 2.8800000000000003,
+          "width_m": 1.05,
+          "height_m": 3.2,
           "rows": 4
         },
         {
           "x_m": 8.675,
           "sill_m": 2.682,
-          "width_m": 1.28,
-          "height_m": 2.8800000000000003,
+          "width_m": 1.05,
+          "height_m": 3.2,
           "rows": 4
         },
         {
           "x_m": 10.5,
           "sill_m": 2.682,
-          "width_m": 1.28,
-          "height_m": 2.8800000000000003,
+          "width_m": 1.05,
+          "height_m": 3.2,
           "rows": 4
         },
         {
