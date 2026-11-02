@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 const args = process.argv.slice(2);
 const opt = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const root = path.join(os.homedir(), 'turku3d');
@@ -70,13 +70,22 @@ const save = () => {
   fs.renameSync(`${index}.tmp`, index);
 };
 try {
+  await send('Page.setWebLifecycleState', { state: 'active' });
+  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await send('Network.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1200, deviceScaleFactor: 1, mobile: false });
-  for (const [n, cam] of cameras.entries()) {
+  const ordered = [...cameras.entries()].sort((a, b) =>
+    Number(b[1].id.startsWith('pano-')) - Number(a[1].id.startsWith('pano-')));
+  for (const [n, cam] of ordered) {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
       const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.png`;
       if (valid(shots.get(file))) continue;
+      const guard = path.join(root, 'tools/chrome-guard/guard.py');
+      if (fs.existsSync(guard)) {
+        const touched = spawnSync('python3', [guard, 'touch', opt('--guard-owner', 'integrator')], { encoding: 'utf8' });
+        if (touched.status === 2) console.log(touched.stdout.trim());
+      }
       failures.length = 0;
       const started = Date.now(), [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
       console.log(`Starting ${file}`);
@@ -93,6 +102,7 @@ try {
       const wanted = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
       let state;
       let throttled = false;
+      let settleRetries = 0;
       while (Date.now() - started < timeout) {
         if (!throttled) throttled = await evaluate(`(() => {
           if (!window.__render) return false;
@@ -110,8 +120,24 @@ try {
           const tiles = ${JSON.stringify(wanted)}.map(id => { const e = g?.lights?.source?.entries.get(id);
             return {id, pass:e?.pass, full:e?.state === 'draft' && e?.pass === 'full' && !e?.preview && !!e?.model}; });
           return {ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
+            hour:g?.dayClock?.hour, pose:window.__qaPose,
             info:window.__qaInfo,night:g?.dayClock?.night};
         })()`);
+        if (state.pose && state.hour !== undefined && (Math.abs(state.hour - (h + m / 60)) > 0.01 ||
+          ['E', 'N', 'H', 'yaw', 'pitch', 'fov'].some(key => Math.abs(state.pose[key] - pose[key]) > 0.001))) {
+          // A browser/HMR reload can restore the startup URL. Reapply the requested view before scoring it.
+          await evaluate(`window.__render.setHour(${h + m / 60}); window.__qaMove(${JSON.stringify(pose)});`);
+          throttled = false;
+          continue;
+        }
+        if (state.error?.startsWith('timeout: tiles did not settle')) {
+          // Keep already downloaded/compiled tiles while the capture's overall deadline permits a retry.
+          // Full-pass and asset checks still apply; an incomplete view never becomes a valid baseline.
+          console.log(`Retrying settle for ${file} with resident tiles`);
+          settleRetries++;
+          await evaluate(`window.__qaMove(${JSON.stringify(pose)})`);
+          continue;
+        }
         if (state.error) throw new Error(`${cam.id}@${at}: ${state.error}`);
         if (state.ready && state.tiles.every(t => t.full) && !assets.size && Date.now() - lastAsset > 2000) break;
         await delay(1000);
@@ -126,6 +152,8 @@ try {
           wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
           incomplete_tiles: state.tiles.filter(t => !t.full).map(t => t.id), failed_assets_final: [...new Set(failures)],
           tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
+          settle_retries: settleRetries,
+          effective_hour: state.hour, effective_pose: state.pose,
           vis_tris: state.qa?.visTris, load_ms: state.qa?.loadMs, night_level: state.night } };
       shots.set(file, row); save();
       console.log(JSON.stringify({file,valid:valid(row),seconds:row.capture.wall_s}));
@@ -133,5 +161,7 @@ try {
     }
   }
 } finally {
+  // Freeze even when tile settling, screenshotting, or evaluation fails.
+  await send('Page.setWebLifecycleState', { state: 'frozen' }).catch(error => console.error(error.message));
   socket.close();
 }

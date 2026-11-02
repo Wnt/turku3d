@@ -11,6 +11,7 @@ DOM overlays drawn over the WebGPU/WebGL canvas. Styles live in `game/index.html
 | `shopMenu.ts` | `ShopMenu`: the full-screen shop menu that renders a `ShopView` from the mission system |
 | `fullscreen.ts` | `FullscreenPolicy`: touch play runs the scene in fullscreen; the "Tap to continue in fullscreen" overlay |
 | `devMenu.ts` | `DevMenuFlow`: the pause menu's Developer pages (localhost only): money, fly mode, truck spawn, teleport, time of day |
+| `timePanel.ts` | `TimePanel`: the developer time panel (T): hour slider, readout, pause, ×1–×600, steps, quick times, live clock |
 
 ## Touch play and fullscreen
 
@@ -110,12 +111,41 @@ pause menu lists **Developer** (before Quit), whose pages (`devMenu.ts`, wired i
   takes the ground under E/N from the sky (the `?spawn=` rule), waits paused until the worker reports the
   character there and restarts safe reset. A place whose collision tile is not built says "Not built: arrives
   flying": the player arrives at 60 m (N2000) with fly mode on.
-- **Time of day**: dawn, noon, dusk or night (`core/sun.ts` `phaseTime`: the sun at 4° rising, highest, at 4°
-  setting, lowest in the night after) on the game clock's day. This explicit developer override pauses the cycle.
+- **Time of day**: the time panel's controls as menu rows, for the gamepad (a pick stays on its row, the status
+  line is the panel's readout): show/hide the panel, pause/resume, run at the next speed, ±1 h, ±10 min, the quick
+  times and back to the live clock. See the time panel below.
+
+### Time panel
+
+**T** (or Developer → Time of day → Show time panel) shows `timePanel.ts` above the controls line, under the pause
+overlay; its state is remembered per browser. It drives `render/dayClock.ts` `DayClock`:
+
+- **Slider** 00:00–24:00 to the minute (`Clock time`). A drag moves the sun, timecycle and lights every input event;
+  the sky IBL refreshes at most every 150 ms of a scrub and once it settles. A drag never turns the camera, and a
+  pointer drag or click hands the keyboard back to the game (WASD walks on).
+- **Readout**: clock time, sun elevation, night factor and how the clock runs (`live`, `paused`, `×600`).
+- **Pause / resume** (0) and **×1 ×10 ×60 ×600** (1–4): clock time per real time, so ×60 is a clock minute per
+  second and ×600 ten (the live cycle runs about ×36 by day). A resume uses the last speed (×60 at first).
+- **−1 h / +1 h** (the two keys right of P: `[` `]`, Å ¨ on a Finnish keyboard) and **−10 min / +10 min** (`,` `.`):
+  steps that wrap at midnight; a running clock keeps running from the new time.
+- **Quick times**: Dawn 06:30, 09:00, 13:00, Golden hour 19:30 (sun +3°), Blue hour 20:30 (−4°), 22:00, 04:00.
+- **Live** (B): back to the shared clock (with `?cycle=`'s period if one was given).
+
+The keys work while the panel shows, also when a panel control has focus (`Input` lets only the panels' keys through
+there) and while the pause menu is open. Like `?time=`, everything is a local view of this browser: the city clock shows
+an orange **Local time** badge (`Local time ×600 · live 14:05` names the shared time everyone else sees). Sky, sun,
+shadows (frozen while the sun is dark), timecycle, lit windows, street lamps and lamp pools follow the rendered clock;
+in single player ambient traffic (`DayClock.trafficClock`, sent in one-real-second steps while running) and walker
+births (`DayClock.hourAt`) follow it too, while multiplayer keeps them on the shared cycle. Saves never move a clock
+the URL pinned (`?time=`); they move a developer clock. Changing the time builds no shader pipeline: every change is
+uniforms and light intensities on the fixed light set (`tests/unit/night-pipelines.test.ts` drives a scrub and a ×600
+run through r186's CPU shader builders).
 
 Unit tests: `cd game && npx vitest run tests/unit/dev-tools.test.ts tests/unit/recovery.test.ts tests/unit/physics.test.ts`
-(the gate, the fly controller, dev money in the save, the day phases, the pages, the recovery hold, flight
-collisions). Browser (WebGPU, synthetic tiles, screenshots in `$TURKU3D_WORK/reports/gameplay-dev-tools/`):
+(the gate, the fly controller, dev money in the save, the developer clock and its quick times, the pages, the recovery
+hold, flight collisions); `tests/unit/night-pipelines.test.ts` (the clock keeps every pipeline) and
+`tests/unit/input.test.ts` (the time keys). Browser: `tests/e2e/render-controls.spec.ts` drives T, the slider, ×600
+and B. Browser (WebGPU, synthetic tiles, screenshots in `$TURKU3D_WORK/reports/gameplay-dev-tools/`):
 `cd game && npm run build && python3 ../scripts/dev/host_slots.py browser -- ./node_modules/.bin/playwright test tests/e2e/dev-tools.spec.ts --project webgpu`.
 
 ## Shop menu

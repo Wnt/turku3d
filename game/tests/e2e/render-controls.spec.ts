@@ -1,6 +1,6 @@
 import { isolatedTest as test, expect } from './fixtures';
 
-test('@render HiDPI SSE follows output pixels after resize and the debug time slider refreshes sunlight', async ({ browser }, info) => {
+test('@render the canvas follows HiDPI output pixels after resize; the developer time panel moves the sun locally', async ({ browser }, info) => {
   const context = await browser.newContext({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });
   await context.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   const page = await context.newPage();
@@ -14,24 +14,39 @@ test('@render HiDPI SSE follows output pixels after resize and the debug time sl
     await page.getByRole('option', { name: 'New game' }).click();
     await page.getByRole('button', { name: 'Skip' }).click();
     await page.waitForFunction(() => window.__game?.ready);
-    const sizes = () => page.evaluate(() => {
-      const r = window.__render!, tiles = window.__game!.tiles as any;
-      const resolution = tiles.tiles.cameraMap.get(r.camera);
-      return { canvas: [r.renderer.domElement.width, r.renderer.domElement.height], sse: [resolution.x, resolution.y] };
-    });
-    await expect.poll(async () => (await sizes()).sse).toEqual([1800, 1200]);
-    expect((await sizes()).canvas).toEqual([1800, 1200]);
+    // Output pixels (the draft tiles have no screen-space error of their own since the 3D Tiles renderer left).
+    const canvas = () => page.evaluate(() => { const c = window.__render!.renderer.domElement; return [c.width, c.height]; });
+    await expect.poll(canvas).toEqual([1800, 1200]);
     await page.setViewportSize({ width: 1600, height: 1000 });
-    await expect.poll(async () => (await sizes()).canvas[0]).toBeGreaterThan(2000);
-    const resized = await sizes();
-    expect(resized.sse).toEqual(resized.canvas);
-    expect(resized.canvas[0] * resized.canvas[1]).toBeLessThanOrEqual(2560 * 1440);
-    const elevation = await page.evaluate(() => window.__render!.environment.sunElevation);
-    const slider = page.getByRole('slider', { name: 'Time of day (UTC minutes)' });
+    await expect.poll(async () => (await canvas())[0]).toBeGreaterThan(2000);
+    const resized = await canvas();
+    expect(resized[0] * resized[1]).toBeLessThanOrEqual(2560 * 1440);
+    // The developer time panel (ui/timePanel.ts; localhost runs the developer tools): T shows it, the hour slider moves
+    // the sun at once and freezes a local view with a badge, 4 runs it at ×600, B returns to the live clock.
+    const sun = () => page.evaluate(() => window.__render!.environment.sunElevation);
+    const hour = () => page.evaluate(() => (window.__game!.dayClock as { hour: number }).hour);
+    const badge = page.locator('#local-time-badge');
+    await expect(badge).toBeHidden();
+    await page.keyboard.press('KeyT');
+    const slider = page.getByRole('slider', { name: 'Clock time' });
+    await expect(slider).toBeVisible();
     // Playwright's fill() dispatches both input and change for range controls.
-    await slider.fill('360');
-    await expect.poll(() => page.evaluate(() => window.__render!.environment.sunElevation)).toBeLessThan(elevation);
-    await page.keyboard.press('KeyH'); await expect(slider).toBeHidden();
+    await slider.fill('780');
+    await expect.poll(sun).toBeGreaterThan(30);
+    await slider.fill('1320');
+    await expect.poll(sun).toBeLessThan(-12);
+    await expect(page.locator('#time-panel .time-readout')).toHaveText('22:00 · sun −13.4° · night 1.00 · paused');
+    await expect(badge).toHaveText(/^Local time · paused · live \d\d:\d\d$/);
+    // The focused slider keeps its arrow keys, but the panel's shortcuts still reach the game.
+    await page.keyboard.press('Digit4');
+    await expect(badge).toHaveText(/^Local time ×600 · live/);
+    await expect.poll(hour).toBeGreaterThan(22.3);
+    await page.keyboard.press('Digit0');
+    await expect(badge).toHaveText(/ · paused · /);
+    await page.keyboard.press('KeyB');
+    await expect(badge).toBeHidden();
+    await expect(page.locator('#time-panel .time-readout')).toHaveText(/ · live$/);
+    await page.keyboard.press('KeyT'); await expect(slider).toBeHidden();
     expect(errors).toEqual([]);
   } finally { await context.close(); }
 });

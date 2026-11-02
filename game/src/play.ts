@@ -14,7 +14,7 @@ import { parkedNight } from './world/parkedOccupancy';
 import * as THREE from 'three/webgpu';
 import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
 import { devToolsEnabled } from './core/localOnly';
-import { PHASE_HOURS } from './core/dayCycle';
+import { cycleHour } from './core/dayCycle';
 import { Input } from './input';
 import { GameAudio } from './audio';
 import { showAudioPage } from './audio/menu';
@@ -39,6 +39,7 @@ import { IntroDialog } from './ui/introDialog';
 import { RecoveryHud } from './ui/recovery';
 import { PauseMenu } from './ui/menu';
 import { DevMenuFlow } from './ui/devMenu';
+import { TimePanel } from './ui/timePanel';
 import { FlyMode } from './gameplay/flyMode';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
@@ -129,6 +130,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   traffic.attach(coarse);
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
   const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,
+    birthHour: utc => multiplayerPlaying ? cycleHour(utc).hour : world.dayClock.hourAt(utc),
     raycast: (origin, dir, maxToi, filter) => physics.raycast(origin, dir, maxToi, filter), graphs: () => coarse?.roadGraphs() ?? [] });
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
@@ -211,9 +213,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     mode = 'car';
     orbit.distance = 8;
   };
-  // Developer tools (localhost, or ?dev=1 also on Pages): fly mode and the pause menu's Developer page (ui/devMenu.ts).
+  // Developer tools (localhost, or ?dev=1 also on Pages): fly mode, the time panel (T) and the Developer page (ui/devMenu.ts).
   const fly = devToolsEnabled(location) ? new FlyMode() : null;
-  const devFlow = fly ? new DevMenuFlow(pauseMenu, {
+  const timePanel = fly ? new TimePanel(document.body, world.dayClock) : null;
+  const devFlow = fly && timePanel ? new DevMenuFlow(pauseMenu, {
     money: () => missions.money,
     addMoney: euros => missions.grantDevMoney(euros),
     flying: () => fly.active,
@@ -223,7 +226,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       void saveGame.teleport(E, N, headingDeg).then(ground => { if (!ground) fly.set(true); }).catch(fail);
     },
     ask: question => window.prompt(question),
-    setTime: phase => window.__render!.setHour(PHASE_HOURS[phase]),
+    clock: world.dayClock, timePanel: () => timePanel.open, toggleTimePanel: () => timePanel.toggle(),
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
@@ -301,7 +304,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const multiplayerAt = await preparedMultiplayer;
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
   Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
   else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
@@ -332,6 +335,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (input.consume('hud')) hud.toggle();
     positionHud.handle(input, !startScreen.active);
     devLayers.handle(input, !startScreen.active);
+    timePanel?.handle(input, !startScreen.active);
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.
@@ -559,7 +563,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
     if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
     coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel);
-    parkedVehicles.setNight(parkedNight(world.sharedNow()));
+    parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)));
     parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());

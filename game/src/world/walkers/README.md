@@ -25,7 +25,10 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
   ordered by their own quantised geometry and weighted by the busiest street in the cell (none 0.7, service 0.85,
   street 1.0, major 1.4; pedestrianised streets 1.6). The cell owns `ceil(0.03 × weighted metres)` slots. Slot *k*
   is reborn every 70–110 s (its own hashed period and phase); life *n* exists when `k + u < expected × activity`,
-  where `activity` follows the day cycle's hour at the birth minute.
+  where `activity` follows the clock hour at the start of the birth minute (`Population`'s `BirthClock`): the
+  shared cycle in multiplayer and for the scorecard; in single player this browser's view clock
+  (`DayClock.hourAt`: `?time=`, `?cycle=`, the developer time panel). `hourAt` remembers each instant's mode for five
+  minutes, so a time edit only changes births after it and no living walker pops; density follows within a life.
 - **Routes.** A life starts at a hashed point of the cell's pieces, idles up to 2.5 s, then walks at 1.2–1.5 m/s
   with a 0.35–0.7 m keep-right offset that tapers to zero at junctions and dead ends. At a junction the exit is
   `hash(walker, node, step) % exits`, exits ordered by departure direction; 12% of junctions add a 2–6 s pause;

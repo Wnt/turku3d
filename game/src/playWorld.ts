@@ -9,6 +9,7 @@ import type { CoarseTiles } from './world/coarseTiles';
 import type { VisualTiles } from './world/tiles';
 import type { Telemetry } from './telemetry';
 import type { Environment } from './render/environment';
+import type { DayClock } from './render/dayClock';
 import type { PerformanceMonitor } from './render/performance';
 import type { MaterialStyler } from './render/materials';
 import type { parseParams } from './core/params';
@@ -39,6 +40,8 @@ export interface PlayWorld {
   loadingScreen: LoadingScreen;
   renderFrame: () => void;
   prepareGraphics: (model: THREE.Object3D) => Promise<void>;
+  /** The rendered clock: the shared cycle, or a local view (?time=, ?cycle=, the developer time panel). */
+  dayClock: DayClock;
   /** The shared clock; restoration only affects an unpinned developer clock. */
   clockTime: () => Date;
   /** The clock single-player traffic density follows (DayClock.trafficClock). */

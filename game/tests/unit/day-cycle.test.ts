@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { CYCLE_EPOCH, DAY_MS, PHASE_HOURS, SEGMENTS, cycleAt, dayCycle, localHour, parseClockHour, sunPath } from '../../src/core/dayCycle';
+import { CYCLE_EPOCH, DAY_MS, SEGMENTS, cycleAt, dayCycle, formatClock, localHour, parseClockHour, sunPath } from '../../src/core/dayCycle';
 
 const local = (date: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Helsinki',
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
@@ -63,9 +63,9 @@ test('the synthetic sun rises in the east, culminates in the south and sets in t
   expect(sunPath(13).elevation).toBeGreaterThan(30);
   expect(sunPath(19.5).elevation).toBeGreaterThan(0); expect(sunPath(19.5).elevation).toBeLessThan(6);
   expect(sunPath(22).elevation).toBeLessThan(-12);
-  for (const phase of Object.values(PHASE_HOURS)) expect(cycleAt(phase).hour).toBe(phase);
-  expect(cycleAt(PHASE_HOURS.night).night).toBe(1);
-  expect(cycleAt(PHASE_HOURS.noon).night).toBe(0);
+  for (const hour of [4, 6.5, 13, 19.5, 20.5, 22]) expect(cycleAt(hour).hour).toBe(hour);
+  expect(cycleAt(23.5).night).toBe(1);
+  expect(cycleAt(13.25).night).toBe(0);
 });
 
 test('?time=HH:MM clock hours and the local hour of an instant', () => {
@@ -76,4 +76,9 @@ test('?time=HH:MM clock hours and the local hour of an instant', () => {
   expect(localHour(new Date('2026-10-15T14:30:00+03:00'))).toBeCloseTo(14.5, 9);
   expect(localHour(new Date('2026-12-21T12:00:00+02:00'))).toBeCloseTo(12, 9);
   expect(localHour(cycleAt(19.5).time)).toBeCloseTo(19.5, 9);
+  // formatClock is its inverse to the minute, and wraps.
+  expect(formatClock(22)).toBe('22:00'); expect(formatClock(7.5)).toBe('07:30'); expect(formatClock(0)).toBe('00:00');
+  expect(formatClock(24)).toBe('00:00'); expect(formatClock(23.9999)).toBe('00:00'); expect(formatClock(-0.5)).toBe('23:30');
+  expect(formatClock(13 + 1 / 6 - 1e-9)).toBe('13:10');
+  for (let m = 0; m < 1440; m += 7) expect(parseClockHour(formatClock(m / 60))).toBeCloseTo(m / 60, 9);
 });

@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { mrt, normalView, velocity } from 'three/tsl';
 import { CAR, FOOT, type RoadGraphJson } from '../../src/gameplay/roadGraph';
-import { CYCLE_EPOCH, dayCycle } from '../../src/core/dayCycle';
+import { CYCLE_EPOCH, cycleHour, dayCycle } from '../../src/core/dayCycle';
 import { parseParams } from '../../src/core/params';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { NormalPrepass } from '../../src/render/normalPrepass';
@@ -150,6 +150,29 @@ describe('deterministic population', () => {
       expect(w.age).toBeGreaterThanOrEqual(0); expect(w.age).toBeLessThan(WALKER.life[1]);
       expect(Math.hypot(w.x - (w.cell.cx + 0.5) * 25, w.z - (w.cell.cz + 0.5) * 25)).toBeLessThan(MAX_TRAVEL + 40);
     }
+  });
+
+  test('births follow the birth clock (single player\'s view clock); an edit keeps every life that began before it', () => {
+    const network = buildWalkNetwork(parts(...ALL));
+    const shared = new Population(network), midday = new Population(network, () => 12.25);
+    expect(sorted(new Population(network, utc => cycleHour(utc).hour).near(250, 250, 250, T0))).toEqual(sorted(shared.near(250, 250, 250, T0)));
+    // Midday's activity is the peak: every walker the shared morning-to-midday births made is there too.
+    const peak = new Set(midday.near(250, 250, 250, T0).map(w => w.id));
+    expect(shared.near(250, 250, 250, T0).every(w => peak.has(w.id))).toBe(true);
+    const night = new Population(network, () => 4);
+    const day = shared.near(250, 250, 250, T0).length, small = night.near(250, 250, 250, T0).length;
+    expect(small).toBeGreaterThan(0); expect(small).toBeLessThan(day * 0.3);
+    // The view clock jumps to 04:00 at `edit`: walkers born before it walk on; only later births thin out.
+    const edit = T0 + 30_000;
+    const edited = new Population(network, utc => utc < edit ? 12.25 : 4);
+    const editMinute = Math.floor((edit - CYCLE_EPOCH) / 60_000) * 60;
+    const before = midday.near(250, 250, 250, edit + 1_000).filter(w => w.born < editMinute);
+    const after = edited.near(250, 250, 250, edit + 1_000);
+    expect(before.length).toBeGreaterThan(20);
+    expect(sorted(after.filter(w => w.born < editMinute))).toEqual(sorted(before));
+    // Births sample the start of their minute: those of the next minute already thin.
+    expect(edited.near(250, 250, 250, edit + 90_000).length).toBeLessThan(midday.near(250, 250, 250, edit + 90_000).length);
+    expect(edited.near(250, 250, 250, edit + 200_000).length).toBeLessThan(day * 0.3);
   });
 
   test('density follows the busiest street: cells beside the major street hold more walkers per metre', () => {
