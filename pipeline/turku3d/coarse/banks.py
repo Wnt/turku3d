@@ -9,6 +9,45 @@ from turku3d.ground.mesh import Mesh
 from . import surfaces
 
 
+def quay_crest(points, walks, water, masonry):
+    """Extend surveyed paving across a narrow retaining cap, not a wet TIN cell.
+
+    Shoreline cuts interpolate the ground grid, whose water-side vertices may
+    lie metres below the adjacent paving. That creates a sawtooth wall crest.
+    Only a measured walk within 2.5 m of its edge can support this correction;
+    natural banks and unsupported longitudinal sections retain their heights.
+    """
+    from .walkable import coordinates
+
+    result = points.copy()
+    xy = shapely.points(points[:, [0, 2]])
+    shore = shapely.distance(xy, water)
+    eligible = (shore < 3) & (shapely.distance(xy, masonry) < 1e-7)
+    best = np.full(len(points), np.inf)
+    for patch in walks:
+        distance = shapely.distance(xy, patch["line"])
+        ids = np.flatnonzero(eligible & (distance < patch["width"] / 2 + 2.5) & (distance < best))
+        if not len(ids):
+            continue
+        station, lateral = coordinates(patch["line"], points[ids][:, [0, 2]])
+        knots, heights = patch["knots"], patch["heights"]
+        k = np.clip(np.searchsorted(knots, station, side="right") - 1, 0, len(knots) - 2)
+        u = (station - knots[k]) / (knots[k + 1] - knots[k])
+        # Use the measured paving plane, clamped at its outer edge. Never use
+        # an outer sample from water, stairs or the next terrace as a wall cap.
+        v = np.clip(lateral / (patch["width"] / 2), -1, 1)
+        edge = np.where(v < 0, 2, 4)
+        a = heights[k, 3] + np.abs(v) * (heights[k, edge] - heights[k, 3])
+        b = heights[k + 1, 3] + np.abs(v) * (heights[k + 1, edge] - heights[k + 1, 3])
+        target = a * (1 - u) + b * u
+        valid = np.isfinite(target) & (u >= 0) & (u <= 1)
+        use = ids[valid]
+        weight = np.clip(1 - shore[use] / 3, 0, 1)
+        result[use, 1] = target[valid] * weight + points[use, 1] * (1 - weight)
+        best[use] = distance[use]
+    return result
+
+
 def join(*meshes):
     offsets = np.cumsum([0, *[len(m.positions) for m in meshes[:-1]]])
     return Mesh(
@@ -187,6 +226,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
 
     dry.positions[:, 1] = rim(dry.positions)
     dry.positions = walkable.grade(dry.positions, walks, inner_only=True)
+    dry.positions = quay_crest(dry.positions, walks, body, quay)
     # Cancel internal wet edges by coordinates: boundary cutting duplicates vertices.
     edges = np.concatenate([wet_mesh.indices[:, pair] for pair in ([0, 1], [1, 2], [2, 0])])
     xz = np.round(wet_mesh.positions[:, [0, 2]], 9)
@@ -210,6 +250,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     top = ends.reshape(-1, 3).copy()
     top[:, 1] = rim(top)
     top = walkable.grade(top, walks, inner_only=True)
+    top = quay_crest(top, walks, body, quay)
     top = top.reshape(-1, 2, 3)
     bottom = top.copy()
     bottom[:, :, 1] = level - 3
