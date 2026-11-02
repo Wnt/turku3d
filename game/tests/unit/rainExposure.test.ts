@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { RainSurfaceIndex, type RainMeshData } from '../../src/render/weather/surfaceIndex';
+import { rainBasins, RainSurfaceIndex, type RainMeshData } from '../../src/render/weather/surfaceIndex';
 function horizontal(y: number, size: number): RainMeshData {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size));
   mesh.rotation.x = -Math.PI / 2; mesh.position.y = y; mesh.updateMatrixWorld();
@@ -20,6 +20,18 @@ describe('rain roof/ground spatial index', () => {
     const mesh = horizontal(0, 10); mesh.matrix = new THREE.Matrix4().makeRotationZ(Math.PI / 3).multiply(new THREE.Matrix4().fromArray(mesh.matrix)).toArray();
     const index = new RainSurfaceIndex([mesh]);
     expect(index.height(1, 0)?.flat).toBe(false);
+  });
+  it('collects rain in measured depressions without treating an adjacent roof as a puddle', () => {
+    const field = new Float32Array(3 * 3 * 4);
+    for (let i = 0; i < 9; i++) { field[i * 4] = 3.04; field[i * 4 + 1] = 1; }
+    field[4 * 4] = 3; field[1 * 4] = 20;
+    rainBasins(field, 3);
+    expect(field[4 * 4 + 2]).toBeCloseTo(.04);
+    expect(field[1 * 4 + 2]).toBe(0);
+    field[4 * 4] = 3.08; rainBasins(field, 3);
+    expect(field[4 * 4 + 2]).toBe(0);
+    field[4 * 4] = 3; field[3 * 4] = 3; rainBasins(field, 3);
+    expect(field[4 * 4 + 2]).toBe(0); // The same dip drains when a gutter connects to the boundary.
   });
   it('reads normalized interleaved attributes with their matrix transform', () => {
     const index = new RainSurfaceIndex([{ position: new Int16Array([7,-32767,0,-32767,7,32767,0,-32767,7,0,0,32767]), stride: 4, offset: 1, normalized: true,

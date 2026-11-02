@@ -4,6 +4,8 @@ import * as THREE from 'three/webgpu';
 import RenderObjects from 'three/src/renderers/common/RenderObjects.js';
 // @ts-expect-error r186 render-object internals have no DefinitelyTyped declarations.
 import RenderObject from 'three/src/renderers/common/RenderObject.js';
+import { reflect, vec3, vec4 } from 'three/tsl';
+import { decodePrepassNormal, NormalPrepass } from '../../src/render/normalPrepass';
 import { GameRenderer, ShadowMaterials, hasDrawVertices } from '../../src/render/shadowMaterials';
 
 test('empty geometry, groups and disjoint draw ranges are skipped before pass encoding', () => {
@@ -63,4 +65,32 @@ test('shadow variants follow explicit invalidation and dispose with their templa
   base.dispose(); expect(disposed).toHaveBeenCalledOnce();
   expect(variants.select(source, null)).toBeNull();
   expect(variants.select(source, source)).toBe(source);
+});
+
+test('normal alpha identifies wet minerals across alternating receivers and authored cutouts', () => {
+  const prepass = new NormalPrepass();
+  const road = new THREE.MeshStandardNodeMaterial(), grass = new THREE.MeshStandardNodeMaterial();
+  road.userData.weatherWetness = true;
+  const wet = prepass.select(road)!, dry = prepass.select(grass)!;
+  expect(wet).not.toBe(dry);
+  for (let i = 0; i < 10; i++) {
+    expect(prepass.select(road)).toBe(wet);
+    expect(prepass.select(grass)).toBe(dry);
+    expect(wet.userData.weatherReceiver).toBe(1);
+    expect(dry.userData.weatherReceiver).toBe(0);
+  }
+  const leaf = new THREE.MeshStandardNodeMaterial({ alphaTest: .5 });
+  expect(prepass.select(leaf)).toBeNull();
+  expect(leaf.userData.weatherReceiver).toBe(0);
+  prepass.dispose();
+});
+
+test('receiver alpha never turns a normal or reflected ray into a four-dimensional vector', () => {
+  // The base JS constructor supplies IR caches; backend code-generation methods are unused here.
+  const builder = Reflect.construct(THREE.NodeBuilder, [null, null, null]) as THREE.NodeBuilder;
+  for (const receiver of [0, 1]) {
+    const normal = decodePrepassNormal(vec4(.5, 1, .5, receiver));
+    expect(normal.getNodeType(builder)).toBe('vec3');
+    expect(reflect(vec3(0, -1, -1), normal).getNodeType(builder)).toBe('vec3');
+  }
 });

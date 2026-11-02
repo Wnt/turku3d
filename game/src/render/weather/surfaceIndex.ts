@@ -58,3 +58,43 @@ export class RainSurfaceIndex {
     return y > -Infinity ? { y, flat } : null;
   }
 }
+
+/** Bounded spill depth in metres. Boundary cells drain; a connected gutter stays open rather than pooling. */
+export function rainBasins(heights: Float32Array, size: number) {
+  const visited = new Uint8Array(size * size), heap: { index: number; level: number }[] = [];
+  const push = (index: number, level: number) => {
+    const item = { index, level }; let at = heap.length; heap.push(item);
+    while (at > 0) { const parent = (at - 1) >>> 1; if (heap[parent].level <= level) break; heap[at] = heap[parent]; at = parent; }
+    heap[at] = item;
+  };
+  const pop = () => {
+    const first = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      let at = 0;
+      while (at * 2 + 1 < heap.length) {
+        let child = at * 2 + 1;
+        if (child + 1 < heap.length && heap[child + 1].level < heap[child].level) child++;
+        if (heap[child].level >= last.level) break;
+        heap[at] = heap[child]; at = child;
+      }
+      heap[at] = last;
+    }
+    return first;
+  };
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    const index = j * size + i; heights[index * 4 + 2] = 0;
+    if (i !== 0 && j !== 0 && i !== size - 1 && j !== size - 1) continue;
+    visited[index] = 1; push(index, heights[index * 4]);
+  }
+  while (heap.length) {
+    const { index, level } = pop(), x = index % size, z = Math.floor(index / size);
+    for (const next of [x > 0 ? index - 1 : -1, x + 1 < size ? index + 1 : -1, z > 0 ? index - size : -1, z + 1 < size ? index + size : -1]) {
+      if (next < 0 || visited[next]) continue;
+      visited[next] = 1;
+      const elevation = heights[next * 4], spill = Math.max(elevation, level);
+      if (heights[next * 4 + 1]) heights[next * 4 + 2] = Math.min(.12, spill - elevation);
+      push(next, spill);
+    }
+  }
+  return heights;
+}

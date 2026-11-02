@@ -56,7 +56,7 @@ declare global {
       setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
-      perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
+      perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void };
   }
 }
@@ -120,9 +120,9 @@ const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Came
   return { color: lightLayer ? weatherLayer.color.add(lightLayer.color) : weatherLayer.color,
     resource: { dispose() { weatherLayer.resource.dispose(); lightLayer?.resource.dispose(); } } };
 } } : lights?.sprites;
-const post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+let post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-window.__render = { camera, environment: env, renderer, perf, setTime: (iso: string) => {
+window.__render = { camera, environment: env, renderer, perf, post, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
@@ -167,6 +167,13 @@ function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
   lastWeatherIBL = now; lastWeatherCover = sample.cloudCover; lastWeatherOvercast = sample.overcast;
   env.updateIBL();
 }
+if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
+  if (!next || idPass) return;
+  const previous = post;
+  post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+  window.__render!.post = post;
+  retireAfterFrame(renderer, () => previous?.dispose());
+});
 if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   if (!next || !rain) return;
   const previous = rain; previous.dispose(true);

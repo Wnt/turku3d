@@ -2,6 +2,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, cameraFar, cameraNear, cameraPosition, float, fract, length, max, mix, pass, perspectiveDepthToViewZ, positionLocal, positionView, screenUV, smoothstep, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
 import { isPrecompiling } from '../compileModel';
+import { puddleMask, weatherUniforms } from './surfaces';
 import { RainExposure } from './exposure';
 import type { WeatherSample } from './schedule';
 
@@ -15,10 +16,8 @@ export class Rain {
   private readonly time = uniform(0);
   private readonly rain = uniform(0);
   private readonly wind = uniform(0);
-  private readonly drift = uniform(0);
-  private lastSeconds: number | null = null;
+  private readonly drift = uniform(new THREE.Vector2());
   private readonly brightness = uniform(.65);
-  private readonly started = Date.now() / 1000;
   private readonly right = uniform(new THREE.Vector3(1, 0, 0));
   constructor(world: THREE.Scene, count = 6000, exposure = new RainExposure(), scene = new THREE.Scene(), depth = new THREE.DepthTexture(1, 1)) {
     this.exposure = exposure; this.scene = scene; this.scene.fog = world.fog;
@@ -33,12 +32,12 @@ export class Rain {
     geometry.setAttribute('dropSeed', new THREE.InstancedBufferAttribute(seeds, 4));
     geometry.instanceCount = count;
     const seed = attribute('dropSeed', 'vec4');
-    const phase = fract(seed.y.sub(this.time.mul(seed.w.mul(.15).add(.5))));
+    const phase = fract(seed.y.sub(this.time.mul(seed.w.mul(4).floor().mul(.0625).add(.5))));
     const drift = this.drift;
-    const xz = fract(seed.xz.add(drift.mul(vec3(1, 0, .37).xz)).sub(cameraPosition.xz.div(64))).mul(64).add(cameraPosition.xz).sub(32);
+    const xz = fract(seed.xz.add(drift).sub(cameraPosition.xz.div(64))).mul(64).add(cameraPosition.xz).sub(32);
     const centre = vec3(xz.x, phase.mul(32).add(cameraPosition.y).sub(8), xz.y);
-    const width = seed.w.mul(.012).add(.018);
-    const streak = seed.w.mul(.55).add(.35);
+    const width = seed.w.mul(.01).add(.012);
+    const streak = seed.w.mul(.3).add(.18);
     const material = new THREE.MeshBasicNodeMaterial({ transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
     material.positionNode = centre.add(this.right.mul(positionLocal.x).mul(width))
       .add(vec3(this.wind.mul(-.1), 1, this.wind.mul(-.037)).mul(positionLocal.y).mul(streak));
@@ -54,7 +53,7 @@ export class Rain {
     const ownDepth = positionView.z.negate();
     const unoccluded = smoothstep(ownDepth.sub(.03), ownDepth.add(.03), sceneZ);
     const exposed = smoothstep(surface.r.add(.1), surface.r.add(.6), centre.y);
-    material.opacityNode = edge.mul(end).mul(fade).mul(density).mul(mix(.32, .75, this.rain)).mul(exposed).mul(unoccluded);
+    material.opacityNode = edge.mul(end).mul(fade).mul(density).mul(mix(.18, .48, this.rain)).mul(exposed).mul(unoccluded);
     material.fog = true;
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = 'weather GPU rain'; this.mesh.frustumCulled = false;
@@ -62,7 +61,7 @@ export class Rain {
     scene.add(this.mesh);
     const splashGeometry = geometry.clone(); splashGeometry.instanceCount = 900;
     const splash = new THREE.MeshBasicNodeMaterial({ transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
-    const age = fract(seed.y.add(this.time.mul(.65)));
+    const age = fract(seed.y.add(this.time.mul(.625)));
     const splashXZ = fract(seed.xz.sub(cameraPosition.xz.div(64))).mul(64).add(cameraPosition.xz).sub(32);
     const ground = texture(this.exposure.texture, splashXZ.sub(this.origin).div(64));
     splash.positionNode = vec3(splashXZ.x.add(positionLocal.x.mul(age.mul(.24).add(.02))), ground.r.add(.035),
@@ -70,22 +69,24 @@ export class Rain {
     splash.colorNode = vec3(.55, .65, .72).mul(this.brightness);
     const radius = length(uv().sub(vec2(.5))).mul(2);
     const ring = smoothstep(.7, .85, radius).mul(float(1).sub(smoothstep(.87, 1, radius)));
-    splash.opacityNode = ring.mul(float(1).sub(age)).mul(ground.g).mul(density).mul(.2).mul(unoccluded);
+    const pool = puddleMask(vec3(splashXZ.x, ground.r, splashXZ.y), weatherUniforms.wetness, float(1), 1);
+    splash.opacityNode = ring.mul(float(1).sub(age)).mul(ground.g).mul(density).mul(.15).mul(unoccluded).mul(pool.mul(.85).add(.15));
     splash.fog = true;
     this.splashes = new THREE.Mesh(splashGeometry, splash);
     this.splashes.name = 'weather surface splashes'; this.splashes.frustumCulled = false; this.splashes.renderOrder = 5;
     scene.add(this.splashes);
   }
   update(camera: THREE.Camera, sample: WeatherSample, seconds: number, night: number) {
-    if (sample.rain > .0001) this.exposure.update(camera);
+    if (sample.rain > .0001 || sample.wetness > .0001) this.exposure.update(camera);
     this.origin.value.copy(this.exposure.origin);
-    const dt = this.lastSeconds === null ? 0 : Math.max(0, Math.min(1, seconds - this.lastSeconds));
-    this.lastSeconds = seconds;
-    this.drift.value = (this.drift.value + dt * sample.wind * .025) % 1;
-    this.time.value = seconds - this.started;
+    // Quantized fall rates complete whole cycles in16s; wrap in double precision before GPU upload.
+    // Drift phases are wrapped independently, so shared-clock joins and weather edits never reset a volume.
+    const wrap = (value: number) => value - Math.floor(value);
+    this.time.value = ((seconds % 16) + 16) % 16;
+    this.drift.value.set(wrap(seconds * .009765625), wrap(seconds * .0036163330078125));
     this.rain.value = sample.rain;
     this.wind.value = sample.wind;
-    this.brightness.value = .32 + (1 - night) * .75;
+    this.brightness.value = .2 + (1 - night) * .5;
     this.right.value.setFromMatrixColumn(camera.matrixWorld, 0);
     this.scene.userData.rain = sample.rain;
   }

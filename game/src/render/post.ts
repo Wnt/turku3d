@@ -1,8 +1,10 @@
+import { decodePrepassNormal } from './normalPrepass';
+import { PuddleReflections } from './weather/puddleReflections';
 import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
-import { pass, mrt, sample, screenUV, normalView, velocity, packNormalToRGB, unpackRGBToNormal,
-  builtinAOContext, context, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
+import { pass, mrt, sample, screenUV, materialReference, normalView, velocity, packNormalToRGB,
+  builtinAOContext, context, convertToTexture, float, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -36,6 +38,7 @@ export class PostProcessing {
   /** Grading saturation of dim light (mesopic vision); the tier's day saturation by day. */
   private dimSaturation: THREE.UniformNode<'float', number>;
   private daySaturation: number;
+  readonly puddles: PuddleReflections | null;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
@@ -52,7 +55,8 @@ export class PostProcessing {
         const previous = renderer.contextNode; renderer.contextNode = this.baseContext;
         try { updatePre(frame); } finally { renderer.contextNode = previous; }
       };
-      pre.setMRT(mrt(aa === 'taa' ? { output: packNormalToRGB(normalView), velocity } : { output: packNormalToRGB(normalView) }));
+      const normalAndReceiver = vec4(packNormalToRGB(normalView), materialReference('userData.weatherReceiver', 'float') as unknown as THREE.Node<'float'>);
+      pre.setMRT(mrt(aa === 'taa' ? { output: normalAndReceiver, velocity } : { output: normalAndReceiver }));
       pre.getTexture('output').type = THREE.UnsignedByteType;
       // PassNode lazily clones the output texture for new MRT attachments. Normals fit in
       // UNORM8; NDC motion needs signed subpixel precision or TRAA leaves old car/wheel edges.
@@ -61,7 +65,7 @@ export class PostProcessing {
     let ambient: ReturnType<typeof ao> | null = null;
     if (q.aoSamples > 0 && pre) {
       const depth = pre.getTextureNode('depth');
-      const normals = sample(uv => unpackRGBToNormal(pre.getTextureNode().sample(uv)));
+      const normals = sample(uv => decodePrepassNormal(pre.getTextureNode().sample(uv)));
       ambient = ao(depth, normals, camera);
       // r186 setup() replaces GTAO's fullscreen material graph for every surface that references it.
       // This effect belongs to one renderer/camera; retain its graph across streamed surface builders.
@@ -92,9 +96,18 @@ export class PostProcessing {
       renderer.contextNode = this.beautyContext;
       try { updateBeauty(frame); } finally { renderer.contextNode = previous; }
     };
-    const temporal = aa === 'taa' && pre ? traa(beauty, pre.getTextureNode('depth'), pre.getTextureNode('velocity'), camera) : null;
+    const puddles = this.puddles = pre && (tier === 'medium' || tier === 'high')
+      ? new PuddleReflections(renderer, beauty.getTextureNode(), pre.getTextureNode('depth'),
+        coord => decodePrepassNormal(pre.getTextureNode().sample(coord).level(float(0))),
+        coord => pre.getTextureNode().sample(coord).level(float(0)).a, camera, this.baseContext) : null;
+    const puddleLight = puddles && pre ? puddles.reconstruct(pre.getTextureNode('depth'),
+      coord => decodePrepassNormal(pre.getTextureNode().sample(coord).level(float(0))),
+      coord => pre.getTextureNode().sample(coord).level(float(0)).a) : null;
+    const reflected = puddleLight ? convertToTexture(vec4(beauty.rgb.mul(float(1).sub(puddleLight.a))
+      .add(puddleLight.rgb), beauty.a), null, null, { depthBuffer: false }) : null;
+    const temporal = aa === 'taa' && pre ? traa(reflected ?? beauty, pre.getTextureNode('depth'), pre.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
-    const color = temporal ?? beauty;
+    const color = temporal ?? reflected ?? beauty;
     const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
     this.bloomScale = q.bloomStrength / QUALITY.medium.bloomStrength;
     glow?.setResolutionScale(q.bloomScale);
@@ -117,6 +130,8 @@ export class PostProcessing {
     this.resources = [beauty, this.pipeline];
     if (pre) this.resources.push(pre);
     if (ambient) this.resources.push(ambient);
+    if (puddles) this.resources.push(puddles);
+    if (reflected) this.resources.push(reflected);
     if (glow) this.resources.push(glow);
     if (temporal) this.resources.push(temporal);
     if (spatial) this.resources.push(spatial);

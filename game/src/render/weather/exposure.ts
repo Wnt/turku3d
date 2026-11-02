@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { weatherHeightField } from './surfaceState';
 import type { RainMeshData } from './surfaceIndex';
 const SIZE = 32, CELL = 2, EXTENT = SIZE * CELL;
 /** Geometry is copied once at stream-in. All triangle indexing and roof/ground queries run off the render thread. */
@@ -9,6 +10,7 @@ export class RainExposure {
   private readonly models = new Set<string>();
   private dirty = true;
   private sequence = 0;
+  private revision = 0;
   private requested = -1;
   private originX = Infinity;
   private originZ = Infinity;
@@ -16,18 +18,21 @@ export class RainExposure {
   private disposed = false;
   pending = false;
   constructor() {
-    const initial = new Float32Array(SIZE * SIZE * 2);
-    for (let i = 0; i < initial.length; i += 2) initial[i] = 65536;
-    this.texture = new THREE.DataTexture(initial, SIZE, SIZE, THREE.RGFormat, THREE.FloatType);
+    const initial = new Float32Array(SIZE * SIZE * 4);
+    for (let i = 0; i < initial.length; i += 4) initial[i] = 65536;
+    this.texture = new THREE.DataTexture(initial, SIZE, SIZE, THREE.RGBAFormat, THREE.FloatType);
     this.texture.magFilter = this.texture.minFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false; this.texture.needsUpdate = true;
+    weatherHeightField.map.value = this.texture; weatherHeightField.ready.value = 0;
     this.worker.onmessage = event => {
       if (this.disposed) return;
       if (event.data.kind === 'changed') { this.dirty = true; return; }
       if (event.data.sequence !== this.requested) return;
       this.pending = false;
+      if (event.data.revision !== this.revision) { this.dirty = true; return; }
       this.texture.image.data = event.data.heights;
       this.origin.set(event.data.x, event.data.z);
+      weatherHeightField.origin.value.copy(this.origin); weatherHeightField.ready.value = 1;
       this.texture.needsUpdate = true;
     };
   }
@@ -37,7 +42,7 @@ export class RainExposure {
     const meshes: RainMeshData[] = [], transfers: ArrayBuffer[] = [];
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
-      if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh) return;
+      if (!mesh.isMesh || mesh.userData.shadowBatch || (mesh as THREE.InstancedMesh).isInstancedMesh) return;
       const position = mesh.geometry.getAttribute('position') as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
       if (!position) return;
       const interleaved = (position as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute;
@@ -49,11 +54,11 @@ export class RainExposure {
         index, matrix: mesh.matrixWorld.toArray() });
       transfers.push(copy.buffer as ArrayBuffer); if (index) transfers.push(index.buffer as ArrayBuffer);
     });
-    this.worker.postMessage({ kind: 'add', id: model.uuid, meshes }, transfers);
+    this.worker.postMessage({ kind: 'add', id: model.uuid, meshes, revision: ++this.revision }, transfers);
   }
   remove(model: THREE.Object3D) {
     if (!this.models.delete(model.uuid)) return;
-    this.worker.postMessage({ kind: 'remove', id: model.uuid });
+    this.worker.postMessage({ kind: 'remove', id: model.uuid, revision: ++this.revision });
   }
   update(camera: THREE.Camera) {
     const x = Math.floor(camera.position.x / CELL) * CELL - EXTENT / 2;
@@ -62,7 +67,7 @@ export class RainExposure {
     if (this.pending || now - this.lastQuery < 100 || (!this.dirty && x === this.originX && z === this.originZ)) return;
     this.originX = x; this.originZ = z; this.dirty = false; this.pending = true; this.lastQuery = now;
     this.requested = ++this.sequence;
-    this.worker.postMessage({ kind: 'query', sequence: this.requested, x, z, size: SIZE, cell: CELL });
+    this.worker.postMessage({ kind: 'query', sequence: this.requested, revision: this.revision, x, z, size: SIZE, cell: CELL });
   }
   dispose() { this.disposed = true; this.worker.terminate(); this.texture.dispose(); this.models.clear(); }
 }

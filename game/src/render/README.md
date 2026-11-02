@@ -360,5 +360,11 @@ Developer clock edits do not move the shared weather schedule.
 `weather/rain.ts` resolves two instanced draws after temporal AA, testing the scene depth and a nearby 32² roof
 height field. `exposure.worker.ts` builds per-model triangle buckets and queries the field off the render thread;
 distant scenery is excluded. Shader/material factories bind shared wetness uniforms once. Mineral surfaces get
-darker, smoother films and a procedural basin mask; facade runoff is restrained. The current basin mask is a
-material proxy, not measured drainage. Rain keeps its scene/depth bindings and roof cache through Vite HMR.
+darker, smoother films; facade runoff is restrained. A two-metre worker height field supplies bounded spill
+depths and shelter. Centimetre-scale puddles still use a shared world-space material pattern below that resolution.
+Rain keeps its scene/depth bindings and roof cache through Vite HMR.
+
+The normal prepass packs mineral receiver eligibility into its existing alpha channel; normal RGB and velocity
+are unchanged. Medium/high puddles trace twenty projected samples and four crossing refinements at half resolution,
+then reconstruct with depth/normal/material checks before temporal AA. Dry weather skips the
+ray pass; the single pre-TAA composite remains. `weather-lab.html` is a small GPU correctness fixture; it is not city fidelity or FPS evidence.
