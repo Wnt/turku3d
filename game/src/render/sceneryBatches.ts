@@ -1,8 +1,7 @@
 import * as THREE from 'three/webgpu';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeSceneryGeometry } from './mergeSceneryGeometry';
 import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
-import { interleaveProgram } from './facadeProgramAttributes';
 
 interface Source { mesh: THREE.Mesh; mask: number; revision?: number }
 interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh }
@@ -113,31 +112,7 @@ export class SceneryBatches {
     // Admit one changed cell per frame. Until then its original meshes remain visible.
     const bucket = this.waiting.shift();
     if (bucket) {
-      const geometries = bucket.sources.map(s=>{
-        const geometry = s.mesh.geometry.clone();
-        for (const [name,attribute] of Object.entries(geometry.attributes)) {
-          if (!(attribute as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) continue;
-          const values=new Float32Array(attribute.count*attribute.itemSize);
-          for(let i=0;i<attribute.count;i++)for(let c=0;c<attribute.itemSize;c++)values[i*attribute.itemSize+c]=attribute.getComponent(i,c);
-          geometry.setAttribute(name,new THREE.BufferAttribute(values,attribute.itemSize));
-        }
-        // meshopt positions are normalized integers with a node dequantization transform.
-        // World coordinates must be floats before applying it; integer writes clip the city.
-        for (const name of ['position','normal','tangent']) {
-          const attribute = geometry.getAttribute(name);
-          if (!attribute) continue;
-          const values = new Float32Array(attribute.count * attribute.itemSize);
-          for (let i=0;i<attribute.count;i++) for (let c=0;c<attribute.itemSize;c++)
-            values[i*attribute.itemSize+c] = attribute.getComponent(i,c);
-          geometry.setAttribute(name,new THREE.BufferAttribute(values,attribute.itemSize));
-        }
-        return geometry.applyMatrix4(s.mesh.matrixWorld);
-      });
-      const geometry = mergeGeometries(geometries);
-      for (const temporary of geometries) temporary.dispose();
-      if (!geometry) throw new Error('Incompatible scenery batch attributes');
-      interleaveProgram(geometry);
-      geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+      const geometry = mergeSceneryGeometry(bucket.sources.map(source => source.mesh));
       const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
       mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
       mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;
