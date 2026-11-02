@@ -343,3 +343,7 @@ Sky brightness transitions to 0.45 above a 15-degree sun elevation, reducing the
 dimming clouds or changing dusk. PMREM temporarily restores brightness 1 so this visible-sky calibration does
 not retune ambient lighting. Night uses keyed blue gradients with sparse stars and an occluded moon. Fog follows
 the timecycle rather than the screenshot streaming radius. `atmosphere.ts` supports HMR without reloading the city.
+
+`Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
+local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck
+from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `0`) preserves the fair-sky defaults.
