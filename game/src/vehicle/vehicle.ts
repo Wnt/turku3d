@@ -20,6 +20,8 @@ const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
 export const IMPACT_MIN_DELTA_V = 0.5;
 
 export class Vehicle {
+  lights: 0 | 1 | 2 = 0;
+  horn = false;
   readonly body: Rapier.RigidBody;
   readonly controller: Rapier.DynamicRayCastVehicleController;
   readonly kind: VehicleKind;
@@ -97,6 +99,8 @@ export class Vehicle {
   }
 
   step(dt: number, input: VehicleInput | null) {
+    this.horn = input?.horn === true;
+    if (input?.lights !== undefined) this.lights = input.lights;
     this.beforeSolve = null;
     if (!input && this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
@@ -238,7 +242,7 @@ export class Vehicle {
   state(): VehicleState {
     const b = this.body, v = this.controller, lv = b.linvel();
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
-    return { kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
+    return { lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.tuning.wheels.map((cp, i) => {

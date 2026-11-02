@@ -18,5 +18,5 @@ export function fleetLamps(mesh:THREE.InstancedMesh, powered:readonly number[], 
 }
 export const fleetLampNode=Fn((builder:NodeBuilder)=>{
   const attribute=states.get(builder.object);
-  return attribute?instancedBufferAttribute(attribute,'vec4'):uniform(new THREE.Vector4(1,0,0,0));
+  return attribute?instancedBufferAttribute(attribute,'vec4'):uniform(new THREE.Vector4(0,0,0,0)).onObjectUpdate(({object})=>object?.userData.vehicleLampState ?? new THREE.Vector4(0,0,0,0));
 }) as unknown as ()=>Node<'vec4'>;
