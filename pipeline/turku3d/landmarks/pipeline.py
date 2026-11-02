@@ -41,7 +41,7 @@ def main():
         subprocess.run([sys.executable, "-m", module.__name__, *map(str, args)], check=True)
 
     if not a.ranked:
-        run(ranking, ["--out", ranked])
+        run(ranking, ["--city", "--out", ranked])
         run(enrichment, ["--ranked", ranked, "--pageviews"])
         if a.cache_root:
             run(

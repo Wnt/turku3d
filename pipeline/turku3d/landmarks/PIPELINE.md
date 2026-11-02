@@ -1,7 +1,11 @@
 # Procedural landmark appearance
 
 `ranking.py` produces a citywide candidate queue from available OSM extracts, with
-individual score contributions and missing-evidence fields. Buildings and castle
+individual score contributions and missing-evidence fields. `ranking --city` reads
+the existing Finland snapshot and extracts the complete Turku administrative area
+(OSM relation399906), keeping derived files under research storage. The end-to-end
+pipeline uses this complete inventory by default. Source and converter hashes
+cache the extract; raw data is never modified. Buildings and castle
 footprints qualify; ships, squares, and point monuments need separate generators.
 `enrichment.py` joins Museovirasto RKY areas and protected-register points and
 fetches the latest complete month of Wikimedia page views. The register is not a

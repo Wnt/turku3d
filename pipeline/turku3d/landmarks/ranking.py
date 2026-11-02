@@ -171,10 +171,24 @@ def main():
 
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--osm-root", type=Path, default=C.raw_dir("osm"))
+    p.add_argument(
+        "--city",
+        action="store_true",
+        help="Extract the complete municipality from the cached Finland snapshot",
+    )
     p.add_argument("--evidence", type=Path)
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
     paths = list(a.osm_root.glob("**/*.parquet"))
+    coverage = dict(osm_files=len(paths), scope="available local city OSM extracts")
+    if a.city:
+        from .city_source import extract
+
+        snapshots = sorted((a.osm_root / "geofabrik").glob("finland-*.osm.pbf"))
+        if not snapshots:
+            p.error("--city requires an existing read-only Finland snapshot")
+        path, coverage = extract(snapshots[-1], a.out.parent / "city-osm")
+        paths = [path]
     evidence = (
         json.loads(a.evidence.read_text())
         if a.evidence
@@ -190,7 +204,7 @@ def main():
         json.dumps(
             dict(
                 version=1,
-                coverage=dict(osm_files=len(paths), scope="available local city OSM extracts"),
+                coverage=coverage,
                 buildings=rows,
             ),
             ensure_ascii=False,
