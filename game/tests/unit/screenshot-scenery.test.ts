@@ -152,6 +152,20 @@ test('near scenery awaits known tree placements; approaching a cached far tile u
   expect(host.prepareVegetation).toHaveBeenCalledTimes(2);
 });
 
+test('a catalogue without tree sidecars does not repoll geometry every frame or expose nearby cones', async () => {
+  const {scenery,request,host,load}=setup();host.vegetationDistance=180;host.prepareVegetation=vi.fn(async()=>{});
+  const key='a'.repeat(64);
+  request.mockImplementation(async url=>new Response(JSON.stringify(url.includes('/scenery?')
+    ?{tiles:[{tile:'t0_0_0',key,h:[0,20],source_sha256:'same'}],missing:[]}
+    :{coarse:true,tile:'t0_0_0',pass_kind:'full',visual:{t0_0_0:{url:'scene.glb',sha256:'same'}}})));
+  load.mockImplementation(async()=>{const model=new THREE.Group(),cones=new THREE.Group();cones.userData.layer='vegetation';model.add(cones);return model;});
+  scenery.setRadius(4000,{x:125,y:5,z:125,dx:1,dz:0,halfAngle:.5});await settle();
+  for(let now=1000;now<1100;now++){scenery.update(125,125,now);await settle();}
+  expect(load).toHaveBeenCalledTimes(1);expect(host.prepareVegetation).not.toHaveBeenCalled();
+  expect((await load.mock.results[0].value).children[0].visible).toBe(false);
+  expect(request.mock.calls.filter(([url])=>url.endsWith('.json'))).toHaveLength(1);
+});
+
 test('a ready skyline retry completes before hundreds of untouched scenery tiles', async () => {
   const { scenery, request, load } = setup();
   const chimney = 't0_-6_5';

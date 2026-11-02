@@ -48,9 +48,9 @@ export class ScreenshotScenery {
 
   private async prepareTrees(id: string, e: Scenery, model: THREE.Object3D, distance: number, source: ScenerySource) {
     if (!this.needsTrees(e,distance)) return;
-    if (!source.trees_url) return;
     // A camera approaching a cached far tile must never expose its skyline cones up close.
     for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
+    if (!source.trees_url) return;
     const response = await this.request(new URL(source.trees_url,new URL(this.root,this.page)).href);
     if (!response.ok) throw new Error(`Tree placements: HTTP ${response.status}`);
     const data = await response.json() as TreePlacements;
@@ -201,7 +201,7 @@ export class ScreenshotScenery {
     }
     if (paused) return;
     for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
-      && this.needsTrees(e,distToL0(id,x,z)) && !e.busy) e.next = 0;
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,distToL0(id,x,z)) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
