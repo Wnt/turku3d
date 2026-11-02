@@ -204,7 +204,7 @@ export function conifer(sp, seed) {
   const tipsOnly = sp.kind === 'pine';
   for (const b of branches.filter(b => b.level >= 1)) {
     if (tipsOnly) {
-      for (const t of b.level === 1 ? [0.7, 0.85, 1] : [0.55, 1]) for (let c = 0; c < (t === 1 ? 4 : 2); c++) anchors.push({ ...at(b, t), phase: b.phase, tuft: true });
+      for (const t of b.level === 1 ? [0.55, 0.7, 0.85, 1] : [0.35, 0.55, 0.8, 1]) for (let c = 0; c < (t === 1 ? 4 : 2); c++) anchors.push({ ...at(b, t), phase: b.phase, tuft: true });
       continue;
     }
     const step = sp.cardSpacing;
@@ -356,13 +356,13 @@ export const SPECIES = {
   rowan: tree({ cell: 'rowan', bark: 'smooth', height: 8, radius: 2.6, trunk: 0.13, crownBase: 0.3, leader: 0.88, crownCentre: 0.5, shape: 0.55, lean: 0.03,
     n1: 18, elev: [40, 68], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 1.6, d3: 1.5, droop2: 0.15, card: 1.0, cardSpacing: 0.26, cards: 700 }),
   willow: tree({ cell: 'willow', bark: 'willow', height: 12, radius: 5.0, trunk: 0.38, crownBase: 0.22, leader: 0.7, crownCentre: 0.5, shape: 0.5, lean: 0.04,
-    n1: 22, elev: [45, 70], ratio: 0.55, d2: 2.6, a2: 25, l2ratio: 0.85, l2max: 4.5, d3: 1.2, up1: 0.04, droop1: 0.22, droop2: 1.6, droop3: 1.4, card: 1.2, lod1Keep: 0.55, cardSpacing: 0.42, cards: 600,
-    cardUp: -1.4, cardAlong: 1.0, cardOut: 0.15, cardAspect: 0.75, cardRoll: 1.3 }),
+    n1: 22, elev: [45, 70], ratio: 0.55, d2: 2.6, a2: 25, l2ratio: 0.85, l2max: 4.5, d3: 1.2, up1: 0.04, droop1: 0.22, droop2: 1.6, droop3: 1.4, card: 1.3, lod1Keep: 0.55, cardSpacing: 0.24, cards: 1150,
+    cardUp: -1.4, cardAlong: 1.0, cardOut: 0.15, cardAspect: 0.95, cardRoll: 1.3 }),
   pine: { kind: 'pine', cell: 'pine', bark: 'pine', height: 17, radius: 3.6, trunk: 0.24, crownBase: 0.58, whorl: 0.75, perWhorl: [3, 5], elev: [8, 38], ratio: 0.4,
-    up1: 0.12, droop1: 0.04, noise: 0.18, d2: 1.6, l2ratio: 0.45, hang: 0.0, droop2: 0.05, card: 1.05, cards: 300, segs: [10, 5, 3, 0],
+    up1: 0.12, droop1: 0.04, noise: 0.18, d2: 2.6, l2ratio: 0.45, hang: 0.0, droop2: 0.05, card: 1.35, cards: 680, lod1Keep: 0.6, segs: [10, 5, 3, 0],
     barkTint: p => p[1] > 7 ? [1.25, 0.86, 0.62] : [1, 1, 1] },
   spruce: { kind: 'spruce', cell: 'spruce', bark: 'spruce', height: 17, radius: 3.0, trunk: 0.25, crownBase: 0.03, lod1Keep: 0.6, whorl: 0.55, perWhorl: [4, 5], elev: [-22, 32], ratio: 0.35,
-    up1: 0.18, droop1: 0.12, noise: 0.06, d2: 3.2, l2ratio: 0.45, hang: 0.55, droop2: 0.6, card: 1.0, cardSpacing: 0.5, cards: 560, segs: [10, 5, 3, 0],
+    up1: 0.18, droop1: 0.12, noise: 0.06, d2: 3.2, l2ratio: 0.45, hang: 0.55, droop2: 0.6, card: 1.3, cardSpacing: 0.3, cards: 1150, segs: [10, 5, 3, 0],
     cardAlong: 1.0, cardOut: 0.35, cardUp: -0.15, flatCards: 0.55, cardRoll: 0.5 },
   lilac: { kind: 'shrub', cell: 'lilac', bark: 'smooth', height: 3.4, radius: 1.8, stems: 8, base: 0.3, elev: [55, 82], stem: 0.035, droop: 0.12, d2: 2.4, l2: 1.0,
     from: 0.35, card: 0.55, cardSpacing: 0.26, cards: 520, segs: [6, 5, 3, 3] },

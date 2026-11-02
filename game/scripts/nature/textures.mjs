@@ -277,7 +277,7 @@ export async function foliageAtlas(src) {
     maple: calibrate(fit(broadleafCard(set.maple, 3, { fill: 55, leaf: 86, spacing: 30, spread: [40, 80], opposite: true, sides: [0.18, 0.34, 0.5, 0.66] })), 0.095, 1.15),
     oak: calibrate(fit(broadleafCard(set.oak, 4, { fill: 85, leaf: 70, spacing: 21, spread: [35, 70], warm: 0.1, sides: [0.18, 0.32, 0.46, 0.6, 0.74] })), 0.075, 1.05),
     rowan: calibrate(fit(broadleafCard(rowanLeaves, 5, { fill: 22, leaf: 165, spacing: 42, spread: [40, 70], sides: [0.22, 0.42, 0.62] })), 0.09, 1.15),
-    willow: calibrate(fit(broadleafCard(set.narrow, 6, { fill: 110, leaf: 80, spacing: 12, spread: [15, 35], reach: 60, sides: [0.2, 0.35, 0.5, 0.65, 0.8], tint: [0.55, 0.62, 0.35] })), 0.07, 0.8),
+    willow: calibrate(fit(broadleafCard(set.narrow, 6, { fill: 170, leaf: 80, spacing: 9, spread: [15, 35], reach: 60, sides: [0.2, 0.35, 0.5, 0.65, 0.8], tint: [0.55, 0.62, 0.35] })), 0.07, 0.8),
     spruce: calibrate(fit(coniferCard(set.sprig, 7, { sprig: 190, spacing: 26, spread: [40, 75], tint: needleGreen })), 0.035, 0.9),
     pine: calibrate(fit(pineCard(set.needle, 8, { needle: 150, tint: [0.30, 0.46, 0.26] })), 0.045, 0.9),
     lilac: calibrate(fit(broadleafCard(set.lilac, 9, { fill: 55, leaf: 78, spacing: 26, spread: [40, 70], opposite: true, sides: [0.2, 0.38, 0.56, 0.72] })), 0.06),

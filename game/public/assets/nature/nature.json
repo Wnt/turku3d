@@ -316,20 +316,20 @@
   "tree_willow": {
    "kind": "tree",
    "species": "willow",
-   "height": 18.28,
-   "radius": 8.64,
+   "height": 18.53,
+   "radius": 8.78,
    "lods": [
     {
-     "triangles": 7316,
-     "vertices": 8261,
+     "triangles": 9512,
+     "vertices": 11555,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 1570,
-     "vertices": 2380,
+     "triangles": 2174,
+     "vertices": 3588,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -347,20 +347,20 @@
   "tree_willow_v2": {
    "kind": "tree",
    "species": "willow",
-   "height": 16.24,
-   "radius": 8.15,
+   "height": 16.82,
+   "radius": 8.39,
    "lods": [
     {
-     "triangles": 7244,
-     "vertices": 8189,
+     "triangles": 9440,
+     "vertices": 11483,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 1588,
-     "vertices": 2412,
+     "triangles": 2186,
+     "vertices": 3608,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -378,20 +378,20 @@
   "tree_pine": {
    "kind": "tree",
    "species": "pine",
-   "height": 18.94,
-   "radius": 4.57,
+   "height": 19.37,
+   "radius": 4.9,
    "lods": [
     {
-     "triangles": 2386,
-     "vertices": 2707,
+     "triangles": 3910,
+     "vertices": 4993,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 994,
-     "vertices": 1553,
+     "triangles": 1228,
+     "vertices": 2021,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -409,20 +409,20 @@
   "tree_pine_v2": {
    "kind": "tree",
    "species": "pine",
-   "height": 19.22,
-   "radius": 4.62,
+   "height": 19.47,
+   "radius": 4.82,
    "lods": [
     {
-     "triangles": 2412,
-     "vertices": 2725,
+     "triangles": 3936,
+     "vertices": 5011,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 1008,
-     "vertices": 1564,
+     "triangles": 1222,
+     "vertices": 1992,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -440,20 +440,20 @@
   "tree_spruce": {
    "kind": "tree",
    "species": "spruce",
-   "height": 17.37,
-   "radius": 4.45,
+   "height": 17.87,
+   "radius": 4.68,
    "lods": [
     {
-     "triangles": 9630,
-     "vertices": 9883,
+     "triangles": 11990,
+     "vertices": 13423,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 2346,
-     "vertices": 2956,
+     "triangles": 3026,
+     "vertices": 4316,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -471,20 +471,20 @@
   "tree_spruce_v2": {
    "kind": "tree",
    "species": "spruce",
-   "height": 16.66,
-   "radius": 4,
+   "height": 17.33,
+   "radius": 4.54,
    "lods": [
     {
-     "triangles": 9060,
-     "vertices": 9403,
+     "triangles": 11424,
+     "vertices": 12949,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 2088,
-     "vertices": 2630,
+     "triangles": 2816,
+     "vertices": 4086,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -857,7 +857,7 @@
   "nature_foliage": {
    "width": 2048,
    "height": 2048,
-   "bytes": 752862,
+   "bytes": 753025,
    "format": "ETC1S"
   },
   "nature_bark": {
@@ -875,13 +875,13 @@
   "nature_impostor": {
    "width": 2048,
    "height": 1024,
-   "bytes": 544654,
+   "bytes": 538990,
    "format": "ETC1S"
   },
   "nature_impostor_normal": {
    "width": 1024,
    "height": 512,
-   "bytes": 342972,
+   "bytes": 347285,
    "format": "UASTC+zstd"
   },
   "nature_wood": {
@@ -916,7 +916,7 @@
   }
  },
  "glb": {
-  "bytes": 7443424,
-  "sha256": "92c8fc04291cf083a035ac8bc19417cc59dff2174cf8e8ba4663a4f4e8e5dcae"
+  "bytes": 7933668,
+  "sha256": "16831c50b6cb63fbeec051550b0d96e9400dbba004d8058b5f0b9c5cf7ac76f7"
  }
 }
