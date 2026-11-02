@@ -11,6 +11,7 @@ import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
+import { prepareFacadeModules } from '../render/facadeModules';
 import { SharedMaterials } from '../render/sharedMaterials';
 import { disposeModelResources } from './disposeModel';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -151,6 +152,8 @@ export class CoarseTiles {
     let ready = false;
     try {
       await this.host.style?.(model);
+      if (this.entries.get(id) !== entry || entry.state !== state) return false;
+      await prepareFacadeModules(model);
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
       tintDraft(model, this.host.renderer, this.materials);
       if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
