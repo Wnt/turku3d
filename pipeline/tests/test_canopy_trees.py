@@ -50,6 +50,33 @@ def test_single_return_and_low_vegetation_do_not_invent_trees():
                      shapely.GeometryCollection(), shapely.GeometryCollection()) == []
 
 
+def test_flat_elevated_patch_does_not_invent_a_tree():
+    patch = crowns((30, 40, 8, 2))
+    patch[:, 1] = 8 + np.linspace(0, .12, len(patch))
+    assert inventory(VisualTile(0, 0, 0), patch, [], lambda x, z: 0,
+                     shapely.GeometryCollection(), shapely.GeometryCollection()) == []
+
+
+def test_disconnected_returns_do_not_enlarge_a_crown():
+    from turku3d.coarse.canopy_trees import connected_crown
+
+    core = crowns((30, 40, 12, 2))
+    detached = crowns((36, 40, 16, 1))
+    result = connected_crown(np.concatenate([core, detached]), 30, 40)
+    np.testing.assert_array_equal(result, core)
+
+
+def test_flat_patch_preserves_surveyed_tree_without_remeasuring_it():
+    known = Tree('puut:surveyed', 30, 40, 'register', height=12, crown_radius=3)
+    patch = crowns((30, 40, 8, 2))
+    patch[:, 1] = 8
+    result = inventory(VisualTile(0, 0, 0), patch, [known], lambda x, z: 0,
+                       shapely.GeometryCollection(), shapely.GeometryCollection())
+    assert len(result) == 1
+    assert result[0].height == 12 and result[0].crown_radius == 3
+    assert not result[0].measured
+
+
 def test_measured_register_crown_rechecks_visible_trunk_clearance():
     from turku3d.coarse.forests import clears_path, trunk_base_radius
     from turku3d.vegetation.trees import variant
