@@ -474,6 +474,7 @@ def build(
     collision = {}
     cols = {}
     basic_cells = []
+    navigation_cells = []
     for ct, (pos, idx, mat) in collision_tiles(
         tile,
         grid_pos,
@@ -492,6 +493,7 @@ def build(
         primitives = trunks(trees, ct) + barrier_cols[ct] + street["collision"].get(ct.id, [])
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         compact_collision(col)
+        navigation_cells.append(col)
         if first_pass:
             basic_cells.append((ct, col))
         data = cache.run(
@@ -524,18 +526,20 @@ def build(
         collision[cid]["url"] = url
         _write(out / "col" / f"{cid}.col", data)
     seconds["collision_ready"] = time.perf_counter() - started
-    if first_pass:
-        from turku3d.roads.tile_graph import with_heights
+    from .route_surface import bake as navigation_heights
 
+    t_heights = time.perf_counter()
+    roads = navigation_heights(tunnels.roads(bridge_roads), navigation_cells, surface_sample)
+    seconds["road_heights"] = time.perf_counter() - t_heights
+    if first_pass:
         from .basic import publish
 
-        first_roads = tunnels.roads(bridge_roads)
         return publish(
             tile,
             out,
             basic_cells,
             collision,
-            with_heights(first_roads, surface_sample) if first_roads is not None else None,
+            roads,
             producer_code,
             inputs.key,
             len(blds),
@@ -735,14 +739,6 @@ def build(
     cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks, carried_mask)
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
-    roads = tunnels.roads(bridge_roads)
-    if roads is not None:
-        from turku3d.roads.tile_graph import with_heights
-
-        t_heights = time.perf_counter()
-        roads = with_heights(roads, surface_sample)
-        seconds["road_heights"] = time.perf_counter() - t_heights
-
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
     _write(out / visual_url, vis)
