@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-const files = ['poses', 'frames', 'loaf', 'stats', 'marks', 'js'];
+const files = ['poses', 'frames', 'loaf', 'stats', 'marks', 'js', 'network'];
 export function captureMiddleware(root = process.env.TURKU3D_CAPTURES ?? path.join(os.homedir(), 'turku3d/captures')) {
   const queues = new Map();
   return async (req, res, next) => {
