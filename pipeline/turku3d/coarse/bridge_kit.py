@@ -261,20 +261,60 @@ def stayed_span(way, height_at, sample_ground, blocked, polygon, spec, *, obstac
             top = [p[0], y + height, p[1]]
             meshes.append(tube(key, [p[0], footing_top, p[1]], top, radius, "steel", "wall", 10))
             for target in limits[i:i + 2]:
-                anchor_section = cross_section(way, target, radius + .08, polygon)
-                if anchor_section is None:
+                # Widened viewing platforms can make a middle-span anchor unsafe.
+                # Search back along the real edge for the longest clear straight
+                # stay, retaining a useful span rather than a stub beside a tower.
+                candidates = np.linspace(target, station, int(abs(target - station) / .5) + 2)
+                pair = None
+                for attachment in candidates:
+                    if abs(attachment - station) < max(4., abs(target - station) * .35):
+                        break
+                    anchor_section = cross_section(way, attachment, radius + .08, polygon)
+                    if anchor_section is None:
+                        continue
+                    anchor = anchor_section[3][side]
+                    anchor_y = float(height_at(np.asarray([anchor]))[0]) + .18
+                    ends = [([p[0], y + height - lift, p[1]],
+                             [anchor[0], anchor_y, anchor[1]]) for lift in (.35, .8)]
+                    if all(stay_clear(a, b, .035, height_at, polygon, obstacles) for a, b in ends):
+                        pair = ends
+                        break
+                if pair is None:
                     return []
-                anchor = anchor_section[3][side]
-                anchor_y = float(height_at(np.asarray([anchor]))[0]) + .18
-                # Two rods attach below the cap and travel along the outer edge.
-                for lift in (.35, .8):
-                    a = [p[0], y + height - lift, p[1]]
-                    b = [anchor[0], anchor_y, anchor[1]]
-                    if not stay_clear(a, b, .035, height_at, polygon, obstacles):
-                        return []
-                    meshes.append(tube(key, a, b, .035, "steel", "railing"))
+                meshes.extend(tube(key, a, b, .035, "steel", "railing") for a, b in pair)
+                meshes.append(tapered_post(key, [anchor[0], anchor_y - .18, anchor[1]],
+                                           anchor_section[1], [(0, .32, .22), (.05, .32, .22),
+                                                               (.22, .12, .12)], "steel"))
         # A slim header closes the portal above pedestrian head clearance.
         meshes.append(tube(key, [edges[0][0], deck_y[0] + height - .65, edges[0][1]],
                            [edges[1][0], deck_y[1] + height - .65, edges[1][1]],
                            .085, "steel", "wall"))
+    return meshes
+
+
+def deck_framing(way, height_at, blocked, polygon, spec):
+    """Local transverse steel framing, omitted over protected lower passages."""
+    from .bridge_details import wall
+
+    if (spec["body"] != "steel" or spec["structure"] not in ("beam", "cable-stayed")
+            or way.get("landing")):
+        return []
+    key = f"draft-bridge:{way['id']}:framing"
+    meshes = []
+    for station in np.arange(1., way['line'].length - .5, spec['floor_beam_spacing']):
+        section = cross_section(way, station, .2, polygon)
+        if section is None:
+            continue
+        _, direction, _, edges = section
+        line = np.asarray(edges)
+        footprint = shapely.LineString(line).buffer(.07, cap_style='square')
+        # Lower passages were solved against the slab soffit. Do not add a beam
+        # below that clearance envelope, even when the deck itself is valid.
+        if not polygon.covers(footprint) or any(footprint.intersects(g) for g in blocked):
+            continue
+        top = height_at(line) - spec['thickness']
+        meshes.append(wall(key, line, top - spec['floor_beam_depth'], top, .14, 'steel'))
+        for edge, y in zip(edges, top, strict=True):
+            meshes.append(tapered_post(key, [edge[0], y, edge[1]], direction,
+                                       [(0, .12, .12), (spec['thickness'], .12, .12)], 'steel'))
     return meshes

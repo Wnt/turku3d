@@ -84,6 +84,8 @@ def style(way):
         support=body,
         rail_surface="paint" if way.get("stair_access") and body == "concrete" else "steel",
         arch_edge=False,
+        floor_beam_spacing=2.0,
+        floor_beam_depth=.25,
     )
     result.update(PROFILES.get(tags.get("wikidata"), {}))
     return result
@@ -458,30 +460,9 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 meshes.append(
                     wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"])
                 )
-    if (spec["body"] == "steel" and spec["structure"] in ("beam", "cable-stayed")
-            and not way.get("landing")):
-        # Exposed transverse floor beams and edge stiffeners under steel decks.
-        # These remain below the surveyed road, with no extra road collision skin.
-        for station in np.arange(1.0, axis.length - 0.5, 2.0):
-            p = np.asarray(axis.interpolate(float(station)).coords[0])
-            line = np.array([p - normal * (width / 2 - 0.2), p + normal * (width / 2 - 0.2)])
-            top = height_at(line) - spec["thickness"]
-            meshes.append(wall(key, line, top - 0.25, top, 0.14, "steel"))
-            for edge in line:
-                y = float(height_at(np.array([edge]))[0])
-                meshes.append(
-                    appearance(
-                        _box(
-                            key,
-                            (edge[0], y - spec["thickness"] / 2, edge[1]),
-                            (0.06, spec["thickness"] / 2, 0.06),
-                            "wall",
-                        ),
-                        "steel",
-                    )
-                )
-    from .bridge_kit import entrances, stayed_span
+    from .bridge_kit import deck_framing, entrances, stayed_span
 
+    meshes.extend(deck_framing(way, height_at, blocked, polygon, spec))
     meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec,
                               obstacles=[] if obstacles is None else [obstacles]))
     # Lower quay passages constrain supports below the deck, not pylons above it.

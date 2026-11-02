@@ -192,3 +192,42 @@ def test_tube_uvs_have_area_at_every_orientation():
         uv = mesh.uvs[mesh.indices]
         a, b = uv[:, 1] - uv[:, 0], uv[:, 2] - uv[:, 0]
         assert (abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]) > 1e-8).all()
+
+
+def test_stays_fit_before_a_widened_midspan_viewing_platform():
+    from turku3d.coarse.bridge_details import style
+
+    way = stayed_crossing()
+    way['outline'] = shapely.union_all([way['outline'], shapely.box(22, -5, 40, 5)])
+    meshes = stayed_span(way, lambda p: np.full(len(p), 4.5),
+                         lambda p: np.zeros(len(p)), [], way['outline'], style(way))
+    rods = [m for m in meshes if m.material == 'railing']
+    assert len(rods) == 16
+    # Attachment search retracts the inner stays before the platform, leaving
+    # its whole widened walking area free of head-height diagonal barriers.
+    for mesh in rods:
+        assert mesh.positions[:, 0].max() < 22 or mesh.positions[:, 0].min() > 40
+
+
+def test_floor_beams_follow_bends_and_avoid_obstacle_cuts_and_lower_passages():
+    from turku3d.coarse.bridge_kit import deck_framing
+    from turku3d.coarse.bridge_details import style
+
+    way = stayed_crossing()
+    way['line'] = shapely.LineString([(0, 0), (30, 0), (30, 30)])
+    way['outline'] = way['line'].buffer(3, cap_style='flat', join_style='mitre')
+    obstacle = shapely.box(20, -1, 24, 1)
+    effective = way['outline'].difference(obstacle)
+    lower = shapely.box(28, 10, 32, 14)
+    spec = style(way) | {'body': 'steel'}
+    meshes = deck_framing(way, lambda p: np.full(len(p), 6.), [lower], effective, spec)
+    assert meshes
+    for mesh in meshes:
+        footprint = shapely.MultiPoint(mesh.positions[:, [0, 2]]).convex_hull
+        assert effective.covers(footprint)
+        assert not footprint.intersects(lower)
+        # Vertical leg framing runs across X, horizontal leg across Z.
+        if np.ptp(mesh.positions[:, 2]) > 1:
+            assert np.ptp(mesh.positions[:, 0]) < .2
+        if np.ptp(mesh.positions[:, 0]) > 1:
+            assert np.ptp(mesh.positions[:, 2]) < .2
