@@ -5,7 +5,7 @@ import { WalkerContact } from './contact';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import {
-  attribute, cos, float, floor, fract, int, ivec2, max, mix, mod, normalize, normalLocal, positionLocal, positionPrevious,
+  attribute, bumpMap, cos, float, floor, fract, int, ivec2, max, mix, mod, normalize, normalLocal, positionLocal, positionPrevious,
   pow, select, sin, smoothstep, sqrt, texture, textureLoad, varying, vec3,
 } from 'three/tsl';
 import { GOLDEN_FRACTION, fibonacciDirection, type WalkerAsset, type WalkerVariant } from './asset';
@@ -49,8 +49,11 @@ export class WalkerMaterial extends THREE.MeshStandardNodeMaterial {
       const colour = mix(this.colorNode, secondary, select(isCloth, trimWeight, float(0)));
       this.colorNode = colour.mul(texel.rgb).mul(varying(gain));
       this.opacityNode = select(isHair, texel.a, float(1));
+      // The source hair atlas already resolves fibres. Derivative relief uses
+      // the existing albedo; no additional texture map or render pass is introduced.
+      this.normalNode = bumpMap(texel.r, varying(select(isHair, float(0.0015), float(0))));
       this.roughnessNode = varying(select(region.lessThan(0.5), float(0.68),
-        select(isShoes, float(0.64), select(region.greaterThan(6.5), float(0.32), float(0.86)))));
+        select(isShoes, float(0.64), select(isHair, float(0.52), select(region.greaterThan(6.5), float(0.32), float(0.86))))));
       this.alphaTest = 0.35;
     }
   }

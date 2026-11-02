@@ -26,7 +26,8 @@
           24,
           0.22
         ]
-      ]
+      ],
+      "hairSculpt": "hair_short02_swept_m070"
     },
     {
       "id": "tee-shorts-crop",
@@ -109,7 +110,8 @@
           23,
           0.3
         ]
-      ]
+      ],
+      "hairSculpt": "hair_short02_swept_m055"
     },
     {
       "id": "light-jacket",
