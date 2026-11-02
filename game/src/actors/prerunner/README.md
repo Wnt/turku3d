@@ -1,21 +1,22 @@
 # KORPI 440
 
 Original fictional Turku-built unlimited off-road racer. The tube frame, swept body panels,
-eight-stack V8, beadlocks, terrain tread, safety webbing and fictional livery are authored
+supercharged V8 with filtered exposed induction, beadlocks, terrain tread, safety webbing and fictional livery are authored
 here; no vehicle mesh, texture, brand or livery is taken from a commercial game.
 
 `TruckVisual` retains the existing `truck` physics/network kind, +X forward, +Y up,
 wheel order FL/FR/RL/RR. All dimensions come from `TRUCK` in physics/constants.ts.
 `model.ts` caches immutable meshes shared by every local and remote actor.
-`rig.ts` applies authoritative wheel poses to separate steering/spin pivots and four
+`rig.ts` applies authoritative wheel poses to separate steering/spin pivots and five
 instanced running-gear draws. Remote scene clones bind their own instance matrices.
 Springs vary pitch without scaling the wire cross-section; damper barrels stay fixed
 while their chromed shafts slide. The raycast controller supplies a vertical wheel path;
-rigid wishbones follow an approximate lateral arc, connected to that physical hub by
-an upright. It is a visual rig, not a second physics solver.
+the outboard upright stays rigid and fixed to the physical hub. Inner arm sleeves absorb
+the vertical-contact linkage approximation. It is a visual rig, not a second physics solver.
 
-Close geometry has about 28.5k triangles plus the articulated rig; at 35m it switches
-to six vertex-colour draws, and at 90m approximately 5.2k triangles. Small suspension
+The complete near actor has about 46k triangles and 20 draws, including the articulated rig.
+All four wheels and the spare share five material batches. At 35m it switches to
+two vertex-colour draws, and at 90m approximately 3.7k triangles. Small suspension
 parts are removed at 35m. LOD changes use 10% hysteresis. These are mesh budgets,
 not a claim of measured in-city FPS.
 

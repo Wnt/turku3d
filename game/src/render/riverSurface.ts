@@ -28,14 +28,14 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
     return flow.value;
   });
   const uv = positionWorld.xz;
-  const swell = texture(waves, uv.mul(0.12).add(flow.xy)).rg.sub(0.5).mul(0.48);
+  const swell = texture(waves, uv.mul(0.19).add(flow.xy)).rg.sub(0.5).mul(0.32);
   const ripple = texture(waves, uv.yx.mul(0.6).add(flow.zw)).rg.sub(0.5).mul(0.24);
   const slope = swell.add(ripple.yx);
   const normal = normalize(vec3(slope.x, 1, slope.y));
   const view = normalize(cameraPosition.sub(positionWorld));
   const grazing = float(1).sub(max(dot(view, normal), 0));
   const fresnel = float(0.02).add(pow(grazing, 5).mul(0.98));
-  if (reflection) reflection.uvNode = reflection.uvNode!.add(cameraViewMatrix.mul(vec4(normal.x, 0, normal.z, 0)).xy.mul(vec2(-1, 1)).mul(mix(0.012, 0.028, grazing)));
+  if (reflection) reflection.uvNode = reflection.uvNode!.add(cameraViewMatrix.mul(vec4(normal.x, 0, normal.z, 0)).xy.mul(vec2(-1, 1)).mul(mix(0.012, 0.021, grazing)));
   const daylight = float(1).sub(nightUniforms.night.mul(0.9));
   const reflected = reflection?.rgb ?? (env.environmentMap
     ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)) : vec3(0.18, 0.25, 0.3).mul(daylight));
