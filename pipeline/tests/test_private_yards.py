@@ -21,9 +21,12 @@ def yard(public=False):
 
 
 def test_private_garden_beds_mark_the_enclosing_yard_not_only_the_beds():
-    private = private_areas(yard())
-    assert private.covers(shapely.Point(30,30))
-    assert not private.covers(shapely.Point(-1,20))
+    for kind in ("fence","wall","railing"):
+        records=yard()
+        records[0][1]["barrier"]=kind
+        private = private_areas(records)
+        assert private.covers(shapely.Point(30,30))
+        assert not private.covers(shapely.Point(-1,20))
 
 
 def test_public_park_remains_public_around_a_private_flowerbed():
