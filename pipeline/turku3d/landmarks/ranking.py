@@ -98,6 +98,15 @@ def inventory(paths, enrichment=None):
             g = shapely.from_wkb(row["geometry_local"])
             if g.geom_type == "LineString" and g.is_ring:
                 g = shapely.Polygon(g)
+            # Structures need their own generators; a historic ship is not a church facade.
+            if g.area < 20 or tags.get("building") in ("ship", "no"):
+                continue
+            if not tags.get("building") and tags.get("historic") not in (
+                "castle",
+                "manor",
+                "church",
+            ):
+                continue
             evidence = dict(enrichment.get(key, {}))
             if g.area > 0:
                 evidence["compactness"] = 4 * math.pi * g.area / g.length**2
@@ -110,6 +119,7 @@ def inventory(paths, enrichment=None):
                 name=tags.get("name", key),
                 tags=tags,
                 location_xz=[p.x, p.y],
+                footprint_wkt=g.wkt,
                 tile=f"t0_{math.floor(p.x / 250)}_{math.floor(p.y / 250)}",
                 evidence=evidence,
                 **result,
@@ -126,7 +136,16 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     a = p.parse_args()
     paths = list(a.osm_root.glob("**/*.parquet"))
-    rows = inventory(paths, json.loads(a.evidence.read_text()) if a.evidence else {})
+    evidence = (
+        json.loads(a.evidence.read_text())
+        if a.evidence
+        else (
+            {r["id"]: r.get("evidence", {}) for r in json.loads(a.out.read_text())["buildings"]}
+            if a.out.exists()
+            else {}
+        )
+    )
+    rows = inventory(paths, evidence)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(
         json.dumps(

@@ -54,3 +54,29 @@ def test_ranking_promotes_evidence_and_reports_unknowns():
     assert "rky" in a["missing_evidence"] and "rky" not in b["missing_evidence"]
     assert sum(r["points"] for r in b["reasons"]) == b["score"]
     assert rank({"building": "apartments"})["tier"] == "ordinary"
+
+
+def test_internal_roof_closure_is_trimmed_without_mutating_collision_shell():
+    from shapely.geometry import box
+    from turku3d.landmarks.appearance import visible_walls
+
+    b = building()
+    b.base = 0
+    b.roof_parts = [(box(-10, -10, 10, 10), np.array([0, 0, 12.0]))]
+    walls = np.array([[0, 0, 0], [2, 0, 0], [2, 20, 0], [0, 20, 0]], float)
+    result = visible_walls(b, walls)
+    assert np.all(result[0, :2, 1] == 12)
+    assert np.all(walls[:2, 1] == 0)
+    b.roof_parts = [(box(0, 0, 2, 2), np.array([0, 0, 12.0]))]
+    assert np.array_equal(visible_walls(b, walls)[0], walls)
+
+
+def test_arch_survives_anisotropic_texture_density():
+    from PIL import Image, ImageDraw
+    from turku3d.landmarks.procedural import arch
+
+    # A wide opening on a height-capped atlas has unequal horizontal/vertical texel scales.
+    image = Image.new("RGB", (220, 60))
+    arch(ImageDraw.Draw(image), (10, 5, 210, 55), (255, 255, 255), False, rise=20)
+    assert image.getpixel((110, 6)) == (255, 255, 255)
+    assert image.getpixel((10, 5)) == (0, 0, 0)

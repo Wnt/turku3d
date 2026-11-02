@@ -10,7 +10,10 @@ ROOT = Path(__file__).with_name("descriptions")
 
 
 def source_paths():
-    return [*Path(__file__).parent.glob("*.py")]
+    return [
+        Path(__file__).with_name(name)
+        for name in ("appearance.py", "descriptions.py", "procedural.py")
+    ]
 
 
 def parameter_hash(buildings):
@@ -26,6 +29,8 @@ def resolve(building):
         ROOT / f"{key}.json",
         C.data_root() / "landmark-descriptions" / f"{osm}.json",
         C.data_root() / "landmark-descriptions" / f"{key}.json",
+        C.work_root() / "landmark-descriptions" / f"{osm}.json",
+        C.work_root() / "landmark-descriptions" / f"{key}.json",
     ]
     result = None
     for path in paths:

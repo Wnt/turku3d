@@ -32,6 +32,9 @@ def gather(record, root, limit=4):
         if all((directory / r["file"]).exists() for r in old.get("images", [])) and old.get(
             "images"
         ):
+            old["record"] = record
+            old["building_id"] = record.get("building_id", record["id"])
+            manifest.write_text(json.dumps(old, indent=2, ensure_ascii=False) + "\n")
             return old
     tags = record.get("tags", {})
     name = tags.get("name:en") or record["name"]
@@ -49,6 +52,33 @@ def gather(record, root, limit=4):
             iiurlwidth=1600,
         ),
     )
+    # P18 provides a building-specific photograph when name search has no exterior hit.
+    if tags.get("wikidata"):
+        entity = get_json(
+            "https://www.wikidata.org/w/api.php",
+            dict(action="wbgetentities", format="json", ids=tags["wikidata"], props="claims"),
+        )
+        claims = entity.get("entities", {}).get(tags["wikidata"], {}).get("claims", {})
+        titles = [
+            "File:" + r["mainsnak"]["datavalue"]["value"]
+            for r in claims.get("P18", [])
+            if "datavalue" in r.get("mainsnak", {})
+        ]
+        if titles:
+            photos = get_json(
+                "https://commons.wikimedia.org/w/api.php",
+                dict(
+                    action="query",
+                    format="json",
+                    titles="|".join(titles[:2]),
+                    prop="imageinfo",
+                    iiprop="url|extmetadata",
+                    iiurlwidth=1280,
+                ),
+            )
+            data.setdefault("query", {}).setdefault("pages", {}).update(
+                photos.get("query", {}).get("pages", {})
+            )
     images = []
     errors = []
     if record["id"] == "way/437169589":
@@ -69,6 +99,8 @@ def gather(record, root, limit=4):
     for page in sorted(
         data.get("query", {}).get("pages", {}).values(), key=lambda r: r.get("index", 0)
     ):
+        if not page.get("imageinfo"):
+            continue
         info = page["imageinfo"][0]
         url = info.get("thumburl") or info["url"]
         r = requests.get(url, headers={"User-Agent": AGENT}, timeout=40)
@@ -108,6 +140,8 @@ def describe(reference, directory, output, model="gpt-6-astra"):
         raise ValueError("No reference images; refusing invented description")
     template = json.loads((ROOT / "103371570S.json").read_text())
     key = reference["building_id"]
+    template["wall_material"] = "brick"
+    template["windows"]["rows_m"] = [template["windows"]["sill_m"]]
     prompt = (
         "Estimate architectural parameters of the ONE named building in the supplied exterior photos. "
         "Return JSON only with this exact structure, changing values to this building. No painting or image generation. "
@@ -115,7 +149,7 @@ def describe(reference, directory, output, model="gpt-6-astra"):
         "and facade observations. Never transplant the example cathedral window arrangement to a different building. "
         "Use the supplied height evidence where present. Colours are estimated neutral albedo, not shadow pixels. "
         "All size_m and colour arrays must be finite positive numeric arrays of length 2 and 3 respectively. "
-        "brick.bond is running, monk, or flemish. tower opening_rows are [sill_m,width_m,height_m,count]. "
+        "wall_material is brick, stone, render, wood, or concrete; brick.colour supplies main wall colour even for render. windows.type is rectangular, round-arched, or gothic-lancet. windows.rows_m lists all observed sill elevations above ground, not just one row. Roof material is copper, metal, zinc, slate, or tile. brick.bond is running, monk, or flemish. tower opening_rows are [sill_m,width_m,height_m,count]. "
         "Set tower.minimum_height_m high if there is no tower. Roof material must match actual evidence. "
         f"building_id must be {json.dumps(key)}. version=1. Example schema: {json.dumps(template)}\n"
         f"Building evidence: {json.dumps(reference)}"
@@ -141,7 +175,11 @@ def describe(reference, directory, output, model="gpt-6-astra"):
         if run.returncode or not result.exists():
             raise RuntimeError(f"Vision extraction failed: exit {run.returncode}")
         text = result.read_text()
+        (directory / "vision-response.txt").write_text(text)
         d = json.loads(text[text.find("{") : text.rfind("}") + 1])
+    (directory / "vision-observation.json").write_text(
+        json.dumps(d, indent=2, ensure_ascii=False) + "\n"
+    )
     validate(d, key)
     d["reference_hashes"] = [r["sha256"] for r in reference["images"]]
     output.parent.mkdir(parents=True, exist_ok=True)
