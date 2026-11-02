@@ -19,7 +19,7 @@ test('discovers authored types, tree variants, bridge parts and unfamiliar layer
   expect(layerPath({ layer: 'bridges', kind: 'prop', object_id: 'bridge:Auransilta:rail:0:1' })).toBe('Structures/Rail');
   expect(layerPath({ layer: 'future_layer', kind: 'lantern' })).toBe('Future Layer/Lantern');
 });
-test('mixed ranges keep private buffers across repeated toggles and restore source ownership', () => {
+test('mixed ranges keep private buffers while filtering and release them when all layers are allowed', () => {
   const { scene, panel } = setup({ 'Buildings/Roof': false });
   const original = new THREE.BoxGeometry();
   const indices = Array.from(original.index!.array);
@@ -38,17 +38,56 @@ test('mixed ranges keep private buffers across repeated toggles and restore sour
   expect(Array.from(original.index!.array)).toEqual(indices);
   for (let i = 0; i < 10; i++) {
     panel.restore(); expect(mesh.geometry).toBe(original);
-    (panel as any).choices['Buildings/Roof'] = i % 2 === 0;
     panel.update();
     expect(mesh.geometry).toBe(filtered);
     expect(((mesh as THREE.Mesh).material as THREE.Material[])[0]).toBe(materials[0]);
-    expect(materials[0].visible).toBe(i % 2 === 0);
+    expect(materials[0].visible).toBe(false);
   }
   expect(dispose).not.toHaveBeenCalled();
-  mesh.dispatchEvent({ type: 'dispose' } as never);
+  panel.restore();
+  (panel as any).choices['Buildings/Roof'] = true;
+  panel.update();
   expect(mesh.geometry).toBe(original);
   expect(dispose).toHaveBeenCalledOnce();
   expect(Array.isArray(mesh.material)).toBe(false);
+  panel.dispose();
+});
+
+test('closed default panel neither traverses nor clones mixed batch geometry', () => {
+  const { scene, panel } = setup();
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+  mesh.userData.objects = [
+    { layer: 'buildings', surface: 'roof', start: 0, count: 6 },
+    { layer: 'buildings', surface: 'wall', start: 6, count: 30 },
+  ];
+  scene.add(mesh);
+  const clone = vi.spyOn(mesh.geometry, 'clone'), traverse = vi.spyOn(scene, 'traverse');
+  panel.update(); panel.restore(); panel.update();
+  expect(traverse).not.toHaveBeenCalled();
+  expect(clone).not.toHaveBeenCalled();
+  panel.toggle(); panel.update(); panel.update();
+  expect(traverse).toHaveBeenCalledTimes(1);
+  const next = new THREE.Mesh(); next.userData = { layer: 'new_layer' }; scene.add(next);
+  panel.update();
+  expect(traverse).toHaveBeenCalledTimes(2);
+  scene.remove(mesh);
+  expect((panel as any).observed.has(mesh)).toBe(false);
+  expect((panel as any).entries).toHaveLength(0);
+  panel.dispose();
+});
+
+test('removing a filtered batch releases private geometry while the panel stays closed', () => {
+  const { scene, panel } = setup({ 'Buildings/Roof': false });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+  mesh.userData.objects = [
+    { layer: 'buildings', surface: 'roof', start: 0, count: 6 },
+    { layer: 'buildings', surface: 'wall', start: 6, count: 30 },
+  ];
+  scene.add(mesh); panel.update();
+  const dispose = vi.spyOn(mesh.geometry, 'dispose');
+  panel.restore(); scene.remove(mesh);
+  expect(dispose).toHaveBeenCalledOnce();
+  expect((panel as any).filtered.size).toBe(0);
   panel.dispose();
 });
 test('hiding an entire merged batch masks the draw without an empty replacement index', () => {

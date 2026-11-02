@@ -48,6 +48,10 @@ export class PositionHud {
   private centre = new THREE.Vector2();
   private noticeUntil = 0;
   private notice = '';
+  private bounds = new THREE.Box3();
+  private point = new THREE.Vector3();
+  private hits: THREE.Intersection[] = [];
+  private candidates: { mesh: THREE.Mesh; distance: number }[] = [];
 
   constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles, readonly enabled = devToolsEnabled(location)) {
     try { this.visible = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { /* Session default. */ }
@@ -75,12 +79,39 @@ export class PositionHud {
     this.camera.getWorldDirection(this.direction);
     this.ray.setFromCamera(this.centre, this.camera);
     this.ray.far = 300;
-    const meshes: THREE.Object3D[] = [];
+    // Test bounding boxes first, then stop at the nearest surface. Raycasting all resident
+    // triangles just to discard every hit except the first scales with the whole city.
+    this.candidates.length = 0;
     for (const model of this.tiles.models) model.traverseVisible(o => {
-      if ((o as THREE.Mesh).isMesh && !o.userData.shadowBatch) meshes.push(o);
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || o.userData.shadowBatch || !this.ray.layers.test(mesh.layers)) return;
+      if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
+        const instance = mesh as THREE.InstancedMesh;
+        if (!instance.boundingBox) instance.computeBoundingBox();
+        this.bounds.copy(instance.boundingBox!);
+      } else {
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        this.bounds.copy(mesh.geometry.boundingBox!);
+      }
+      this.bounds.applyMatrix4(mesh.matrixWorld);
+      if (!this.ray.ray.intersectBox(this.bounds, this.point)) return;
+      const distance = this.bounds.containsPoint(this.ray.ray.origin) ? 0 : this.point.distanceTo(this.ray.ray.origin);
+      if (distance <= this.ray.far) this.candidates.push({ mesh, distance });
     });
-    const hit = this.ray.intersectObjects(meshes, false)[0];
+    this.candidates.sort((a, b) => a.distance - b.distance);
+    let hit: THREE.Intersection | undefined;
+    for (const { mesh, distance } of this.candidates) {
+      if (distance > this.ray.far) break;
+      this.hits.length = 0;
+      mesh.raycast(this.ray, this.hits);
+      for (const candidate of this.hits) if (!hit || candidate.distance < hit.distance) {
+        hit = candidate;
+        this.ray.far = hit.distance;
+      }
+    }
     const target = buildingTarget(hit);
+    // Intersections and candidates hold meshes: a hidden readout must not retain evicted tiles.
+    this.hits.length = this.candidates.length = 0;
     return positionReadout(this.camera.position, this.direction, target);
   }
 
