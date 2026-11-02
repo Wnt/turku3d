@@ -87,23 +87,23 @@ export function racerModel(lod = 0): RacerModel {
   rail([-1.6,-.35,0],[1.6,-.35,0],.065,m.frame);
   // Original sidewall profile with actual shoulder, deep block tread, recessed hubs and beadlock bolts.
   const w=new Parts(), radius=TRUCK.wheelRadius, width=.46;
-  const profile=[v(.30,-width/2-.012,0),v(.43,-width/2,0),v(.505,-.13,0),v(.54,-.085,0),v(.54,.085,0),v(.505,.13,0),v(.43,width/2,0),v(.30,width/2+.012,0)];
+  const profile=[v(.22,-width/2-.012,0),v(.43,-width/2,0),v(.505,-.13,0),v(.54,-.085,0),v(.54,.085,0),v(.505,.13,0),v(.43,width/2,0),v(.22,width/2+.012,0)];
   const tyre=new T.LatheGeometry(profile.map(a=>new T.Vector2(a.x*(radius-.039)/.54,a.y)),lod===2?10:lod?16:40).rotateX(Math.PI/2);
   w.add(m.rubber,tyre);
   const tread=lod===2?0:lod?20:40;
-  for(let i=0;i<tread;i++)for(const row of lod?[0]:[-1,0,1]) {
+  for(let i=0;i<tread;i++)for(const row of lod?[0]:[-1.5,-.5,.5,1.5]) {
     const a=i/tread*Math.PI*2+row*.035;
     const g=new T.BoxGeometry(.097,lod===2?.02:.046,.112).rotateZ(-row*.21).translate(0,radius-.028-Math.abs(row)*.012,row*.116).rotateZ(a);
     w.add(m.rubber,g);
   }
   for(const s of [-1,1]){
-    const ring=new T.TorusGeometry(radius*.55,.028,6,lod===2?10:lod?16:36).translate(0,0,s*(width/2+.012));w.add(m.orange,ring);
-    const rim=new T.CylinderGeometry(radius*.53,radius*.53,.035,lod===2?10:lod?16:32).rotateX(Math.PI/2).translate(0,0,s*(width/2-.017));w.add(m.black,rim);
+    const ring=new T.TorusGeometry(radius*.42,.028,6,lod===2?10:lod?16:36).translate(0,0,s*(width/2+.012));w.add(m.orange,ring);
+    const rim=new T.CylinderGeometry(radius*.405,radius*.405,.035,lod===2?10:lod?16:32).rotateX(Math.PI/2).translate(0,0,s*(width/2-.017));w.add(m.black,rim);
     w.add(m.alloy,new T.CylinderGeometry(.092,.092,.07,12).rotateX(Math.PI/2).translate(0,0,s*(width/2+.004)));
     for(let i=0;i<(lod===2?0:6);i++){
-      const a=i*Math.PI/3;w.add(m.alloy,new T.BoxGeometry(.23,.055,.025).translate(.14,0,0).rotateZ(a).translate(0,0,s*(width/2-.006)));
+      const a=i*Math.PI/3;w.add(m.alloy,new T.BoxGeometry(.19,.05,.026).translate(.108,0,0).rotateZ(a).translate(0,0,s*(width/2-.006)));
     }
-    if(!lod)for(let i=0;i<24;i++){const a=i*Math.PI/12;w.add(m.alloy,new T.CylinderGeometry(.012,.012,.018,6).rotateX(Math.PI/2).translate(Math.cos(a)*radius*.55,Math.sin(a)*radius*.55,s*(width/2+.036)));}
+    if(!lod)for(let i=0;i<24;i++){const a=i*Math.PI/12;w.add(m.alloy,new T.CylinderGeometry(.012,.012,.018,6).rotateX(Math.PI/2).translate(Math.cos(a)*radius*.42,Math.sin(a)*radius*.42,s*(width/2+.036)));}
   }
   const wheel=w.build(`korpi-wheel-lod${lod}`,lod?m.distant:undefined),spare=wheel.clone(true);spare.rotation.x=Math.PI/2;spare.rotation.y=.24;spare.position.set(-1.75,.19,0);
   const body=p.build(`korpi-440-lod${lod}`,lod?m.distant:undefined);body.add(spare);

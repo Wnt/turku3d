@@ -1,5 +1,6 @@
 """The farm's version, concurrency, publication and eviction contracts, without city data."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -24,9 +25,10 @@ def fake_build(_revision, tile, root):
     (directory / 'mesh.glb').write_bytes(b'mesh')
     (directory / 'ground.col').write_bytes(b'col')
     m = dict(coarse=True, tile=tile, pass_kind='full',
-             visual={tile: dict(url='mesh.glb', bytes=4)},
+             visual={tile: dict(url='mesh.glb', bytes=4, sha256=hashlib.sha256(b'mesh').hexdigest())},
              collision={f'c_{int(tile.split("_")[1])*4+x}_{int(tile.split("_")[2])*4+z}':
-                        dict(url='ground.col', bytes=3) for x in range(4) for z in range(4)})
+                        dict(url='ground.col', bytes=3, sha256=hashlib.sha256(b'col').hexdigest())
+                        for x in range(4) for z in range(4)})
     farm_module.atomic_json(directory / 'manifest.json', m)
     farm_module.atomic_json(directory / 'stage-times.json', dict(ground={'cached': True}, walls={'cached': False}))
     return {'returncode': 0}
@@ -156,6 +158,36 @@ class FarmTests(unittest.TestCase):
         self.assertEqual(farm.request(REV, 't0_1_0')[0], 507)
         self.assertFalse(farm.jobs)
 
+    def test_disk_pressure_evicts_cold_area_cache_while_another_area_is_building(self):
+        import fcntl
+        entered, release = threading.Event(), threading.Event()
+        def build(rev, tile, root):
+            entered.set()
+            release.wait(3)
+            return fake_build(rev, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        active = self.root / 'cache/inputs/t0_0_0/ground.key.pkl'
+        cold = self.root / 'cache/stages/t0_5_5/ground/key.pkl'
+        locked = self.root / 'cache/stages/t0_6_6/ground/key.pkl'
+        for p in (active, cold, locked):
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b'cache')
+        try:
+            with locked.with_suffix('.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                farm.free = lambda: 24 * farm_module.GIB
+                with farm.lock:
+                    self.assertFalse(farm.make_room(27 * farm_module.GIB))
+                self.assertTrue(active.exists())
+                self.assertTrue(locked.exists())
+                self.assertFalse(cold.exists())
+        finally:
+            farm.free = lambda: 100 * farm_module.GIB
+            release.set()
+        self.wait(farm)
+
     def test_explicit_candidate_precedes_background_from_another_revision(self):
         entered, release = threading.Event(), threading.Event()
         calls = []
@@ -182,6 +214,161 @@ class FarmTests(unittest.TestCase):
         self.wait(farm)
         self.assertEqual(farm.request(REV, 't0_0_0')[0], 200)
         self.assertEqual(farm.metrics['builds'], 1)
+
+    def test_explicit_profiled_revision_takes_precedence_over_alias_profile(self):
+        farm = self.farm()
+        for source in ('e' * 64, 'f' * 64):
+            farm_module.atomic_json(self.root / 'sources/versions' / source / 'source-version.json',
+                                    dict(version=source, files={}))
+        requested = farm.register(REV, source_version='e' * 64)
+        farm.register(REV, 'integration', 'f' * 64)
+        result = farm.register(requested['revision'], 'integration')
+        self.assertEqual(result['revision'], requested['revision'])
+        self.assertEqual(result['source_version'], 'e' * 64)
+
+    def test_parallel_supplement_initialization_preserves_exact_profile(self):
+        from concurrent.futures import ThreadPoolExecutor
+        farm = self.farm()
+        source = self.root / 'sources/profile/supplements/lidar-supplement'
+        source.mkdir(parents=True)
+        work = self.root / 'work'
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda _: farm.mount_supplements(source.parents[1], work), range(12)))
+        self.assertEqual((work / source.name).resolve(), source)
+        other = self.root / 'sources/other/supplements/lidar-supplement'
+        other.mkdir(parents=True)
+        with self.assertRaisesRegex(RuntimeError, 'pinned source'):
+            farm.mount_supplements(other.parents[1], work)
+
+    def test_raw_adoption_pins_sources_and_destination_against_disk_eviction(self):
+        from unittest.mock import patch
+        farm = self.farm()
+        repo = self.root / 'revisions' / REV / 'repo'
+        base = repo / 'pipeline/turku3d'
+        for name in ('config.py', 'vegetation/trees.py'):
+            p = base / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('producer')
+        source = farm.output(GEN) / 'work/cache/vegetation/complete.npz'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b'complete')
+        original = farm_module.os.link
+        def evict_then_link(src, dst):
+            farm.free = lambda: 0
+            with farm.lock:
+                farm.make_room(27 * farm_module.GIB)
+            self.assertTrue(source.exists())
+            self.assertTrue(dst.parent.exists())
+            original(src, dst)
+        with patch.object(farm_module.os, 'link', side_effect=evict_then_link):
+            self.assertEqual(farm.seed_intermediates(), 1)
+        self.assertFalse(farm.adopting)
+
+    def test_lidar_adoption_requires_every_declared_complete_shard(self):
+        import struct
+        directory = self.root / 'decoded'
+        directory.mkdir()
+        farm_module.atomic_json(directory / 'MANIFEST.json', dict(counts={'c_0_0': 2}))
+        with self.assertRaises(FileNotFoundError):
+            farm_module.Farm.validate_shards(directory)
+        dtype = [('xyz', '<f8', (3,)), ('classification', '|u1'), ('return_number', '|u1'),
+                 ('number_of_returns', '|u1'), ('intensity', '<u2')]
+        header = repr(dict(descr=dtype, fortran_order=False, shape=(2,))).encode()
+        header += b' ' * (-(10 + len(header) + 1) % 64) + b'\n'
+        data = b'\x93NUMPY\x01\x00' + struct.pack('<H', len(header)) + header + bytes(58)
+        shard = directory / 'c_0_0.npy'
+        shard.write_bytes(data)
+        self.assertEqual(len(farm_module.Farm.validate_shards(directory)), 2)
+        shard.write_bytes(data[:-1])
+        with self.assertRaisesRegex(RuntimeError, 'incomplete'):
+            farm_module.Farm.validate_shards(directory)
+
+    def test_collision_delivery_bundles_preserve_bytes_and_do_not_write_accepted_sources(self):
+        import hashlib
+        farm = self.farm()
+        root = self.root / 'accepted'
+        tile = 't0_0_0'
+        directory = root / tile / 'col'
+        directory.mkdir(parents=True)
+        cells = {}
+        for x in range(4):
+            for z in range(4):
+                cell = f'c_{x}_{z}'
+                data = (cell + '-bytes').encode()
+                path = directory / (cell + '.col')
+                path.write_bytes(data)
+                cells[cell] = dict(url='col/' + path.name, bytes=len(data),
+                                   sha256=hashlib.sha256(data).hexdigest())
+        before = {p: p.stat().st_mtime_ns for p in directory.iterdir()}
+        manifest = dict(collision=cells)
+        descriptor = farm.collision_bundle(root, tile, manifest)
+        name = descriptor['url'].rsplit('/', 1)[-1]
+        body = (self.root / 'delivery/shared' / name).read_bytes()
+        self.assertEqual(body, b''.join((root / tile / cells[c]['url']).read_bytes() for c in sorted(cells)))
+        self.assertEqual(hashlib.sha256(body).hexdigest(), descriptor['sha256'])
+        self.assertEqual(before, {p: p.stat().st_mtime_ns for p in directory.iterdir()})
+        self.assertIs(farm.collision_bundle(root, tile, manifest), descriptor)
+        (directory / 'c_0_0.col').write_bytes(b'bad')
+        farm.bundles.clear()
+        with self.assertRaisesRegex(ValueError, 'source mismatch'):
+            farm.collision_bundle(root, tile, manifest)
+
+    def test_retained_bundle_uses_the_selected_generations_root(self):
+        farm = self.farm()
+        for generation, revision, built in ((GEN, REV, '2026-11-03'), (GEN2, REV2, '2026-11-02')):
+            root = farm.output(generation)
+            fake_build(revision, 't0_0_0', root)
+            manifest = farm_module.read_json(root / 't0_0_0/manifest.json')
+            manifest['built'] = built
+            farm_module.atomic_json(root / 't0_0_0/manifest.json', manifest)
+            farm_module.atomic_json(root / 't0_0_0/ready.json', dict(revision=revision, generation=generation))
+        manifest, prefix, provenance, root = farm.retained('t0_0_0')
+        self.assertEqual(provenance['revision'], REV)
+        self.assertEqual(root, farm.output(GEN))
+
+    def test_raw_intermediates_share_by_producer_and_adopt_complete_private_files(self):
+        farm = self.farm()
+        repo = self.root / 'revisions' / REV / 'repo'
+        base = repo / 'pipeline/turku3d'
+        for name in ('config.py', 'vegetation/trees.py', 'buildings/reconstruct.py',
+                     'buildings/inputs.py', 'lidar/cache.py'):
+            p = base / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('producer')
+        local = farm.output(GEN) / 'work/cache/vegetation'
+        local.mkdir(parents=True)
+        old = local / 'content.npz'
+        old.write_bytes(b'complete')
+        (local / '.content.tmp.npz').write_bytes(b'partial')
+        self.assertEqual(farm.seed_intermediates(), 1)
+        other = farm.output(GEN2) / 'work'
+        farm.mount_intermediates(repo, other)
+        linked = other / 'cache/vegetation/content.npz'
+        self.assertTrue(linked.exists())
+        self.assertEqual(linked.stat().st_ino, old.stat().st_ino)
+        self.assertFalse((linked.parent / '.content.tmp.npz').exists())
+        self.assertFalse(local.is_symlink())
+        old_roots = farm.intermediate_roots(repo)
+        (base / 'buildings/inputs.py').write_text('new roof producer')
+        roots = farm.intermediate_roots(repo)
+        self.assertEqual(roots['vegetation'], old_roots['vegetation'])
+        self.assertNotEqual(roots['coarse-roofs'], old_roots['coarse-roofs'])
+
+    def test_game_polling_counts_only_its_requested_generation(self):
+        entered, release = threading.Event(), threading.Event()
+        def build(revision, tile, root):
+            entered.set()
+            release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV2, 't0_1_0')
+        first, second = farm.version_status(REV), farm.version_status(REV2)
+        self.assertEqual((first['queued'], first['building']), (0, ['t0_0_0']))
+        self.assertEqual((second['queued'], second['building']), (1, []))
+        release.set()
+        self.wait(farm)
 
     def test_live_camera_demand_precedes_old_explicit_requests(self):
         entered, release = threading.Event(), threading.Event()
@@ -210,11 +397,31 @@ class FarmTests(unittest.TestCase):
         farm_module.atomic_json(self.root / 'pending.json', [dict(revision=REV, generation=GEN,
             tile='t0_0_0', requested=time.time(), seen=time.time(), explicit=True, distance=0,
             pid=2147483647, start_ticks='0')])
-        farm = self.farm(execute=None)
+        farm = self.farm(execute=None, free=lambda: 24 * farm_module.GIB)
         self.wait(farm)
         receipt = farm_module.read_json(farm.output(GEN) / 't0_0_0/ready.json')
         self.assertTrue(receipt['result']['adopted'])
         self.assertEqual(farm.metrics['builds'], 1)
+
+    def test_adopted_workers_keep_disk_and_total_runtime_limits(self):
+        from unittest.mock import patch
+        farm = self.farm(execute=None)
+        root = farm.output(GEN)
+        tile = 't0_0_0'
+        info = dict(pid=2147483647, start_ticks='0', started_monotonic=time.monotonic())
+        farm.queue_info[(GEN, tile)] = info
+        with patch.object(farm_module, 'process_alive', return_value=True), patch.object(farm, 'stop_worker') as stop:
+            farm.free = lambda: 24 * farm_module.GIB
+            with self.assertRaisesRegex(RuntimeError, 'disk floor'):
+                farm.run_build(REV, tile, root)
+            stop.assert_called_once_with(info, root / tile)
+            stop.reset_mock()
+            farm.free = lambda: 100 * farm_module.GIB
+            info['started_monotonic'] = time.monotonic() - 1801
+            with self.assertRaisesRegex(RuntimeError, 'build timeout'):
+                farm.run_build(REV, tile, root)
+            stop.assert_called_once_with(info, root / tile)
+        farm.queue_info.clear()
 
     def test_recent_unpinned_payloads_get_a_grace_lease(self):
         farm = self.farm(grace_seconds=900)
@@ -287,6 +494,9 @@ class FarmTests(unittest.TestCase):
             self.assertIsNone(manifest['revision'])
             self.assertEqual(manifest['source_kind'], 'accepted-fallback')
             self.assertEqual(urlopen(base + manifest['visual']['t0_0_0']['url']).read(), b'mesh')
+            bundle = manifest['collision_bundle']
+            self.assertEqual(bundle['format'], 'sorted-col-v1')
+            self.assertEqual(urlopen(base + bundle['url']).read(), b'col' * 16)
             self.assertEqual((accepted / 't0_0_0/mesh.glb').stat().st_mtime_ns, before)
         finally:
             release.set()

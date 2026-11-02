@@ -1,6 +1,8 @@
 """Identify moored ships before ordinary house facades and roof extrusion."""
 
 import json
+from functools import cache
+from pathlib import Path
 
 import numpy as np
 import shapely
@@ -8,6 +10,14 @@ import shapely
 from turku3d import config as C
 
 from .garden_inputs import polygon
+from .water import LEVEL
+
+
+@cache
+def appearance_evidence():
+    """Reviewed vessel paint measurements; keep observations and their source identities."""
+    data = json.loads(Path(__file__).with_name("vessel_observations.json").read_text())
+    return {row["vessel_id"]: row for row in data["observations"] if row.get("appearance")}
 
 
 def prepare(tile, osm, buildings_path, water_path):
@@ -32,14 +42,14 @@ def prepare(tile, osm, buildings_path, water_path):
             tags.get("building") == "ship"
             or tags.get("man_made") in ("ship", "boat")
             or tags.get("ship") not in (None, "no")
-            or tags.get("boat") == "yes"
-            or tags.get("floating") == "yes"
             or tags.get("seamark:type") == "hulk"
         )
-        if explicit and shape.intersects(window):
+        floating_pier = tags.get("man_made") == "pier" and tags.get("floating") == "yes"
+        if (explicit or floating_pier) and shape.intersects(window):
             for part in shapely.get_parts(shape):
                 mapped.append(
-                    dict(id="osm:" + identity, outline=part, tags=tags.copy(), buildings=[])
+                    dict(id="osm:" + identity, kind="pier" if floating_pier and not explicit else "ship",
+                         outline=part, tags=tags.copy(), buildings=[])
                 )
             seen.add(identity)
     shells = buildings(buildings_path, tile, context=True) if buildings_path else []
@@ -64,15 +74,24 @@ def prepare(tile, osm, buildings_path, water_path):
             and shape.intersection(water).area / shape.area >= 0.85
         ):
             mapped.append(
-                dict(id="survey:" + building.key, outline=shape, tags={}, buildings=[building])
+                dict(id="survey:" + building.key, kind="ship", outline=shape, tags={}, buildings=[building])
             )
     for boat in mapped:
         shape = boat["outline"]
         nearby = [
             (geom.distance(shape), tags) for geom, tags in amenities if geom.distance(shape) <= 3
         ]
-        if nearby:
+        if nearby and boat["kind"] == "ship":
             boat["tags"].update(min(nearby, key=lambda row: row[0])[1])
+        colour = boat["tags"].get("building:colour", "").strip().lower()
+        white_cabin = colour in ("white", "ivory", "cream", "#ffffff", "#fff")
+        boat["appearance"] = dict(
+            cabin_surface="white" if white_cabin else "wood",
+            source="osm:building:colour" if white_cabin else "fallback",
+        )
+        if evidence := appearance_evidence().get(boat["id"]):
+            boat["appearance"].update(evidence["appearance"], source="vision:" + evidence["id"],
+                                      reference=evidence["reference"])
         parts = [
             (g.intersection(shape), plane)
             for b in boat["buildings"]
@@ -87,17 +106,17 @@ def prepare(tile, osm, buildings_path, water_path):
             and np.ptp(plane_height(p, np.asarray(g.exterior.coords)[:, :2])) <= 0.5
         ]
         # City ship floors sit at the waterline, unlike the lowest large roof/deck.
-        boat["water"] = float(
+        boat["water"] = LEVEL if boat["kind"] == "pier" else float(
             np.clip(min((b.base for b in boat["buildings"]), default=0.2), -0.5, 0.5)
         )
-        boat["deck"] = float(
+        boat["deck"] = LEVEL + 0.55 if boat["kind"] == "pier" else float(
             np.clip(
                 min((h for _, h in major), default=1.5), boat["water"] + 0.9, boat["water"] + 1.9
             )
         )
-        boat["cabins"] = [(g, h) for g, h in major if h >= boat["deck"] + 1.8]
+        boat["cabins"] = [] if boat["kind"] == "pier" else [(g, h) for g, h in major if h >= boat["deck"] + 1.8]
         boat["masts"] = []
-        for building in boat["buildings"]:
+        for building in (boat["buildings"] if boat["kind"] == "ship" else []):
             for g, p in building.roof_parts:
                 height = float(np.max(plane_height(p, np.asarray(g.exterior.coords)[:, :2])))
                 if 0.015 <= g.area <= 0.35 and boat["deck"] + 5 <= height <= boat["deck"] + 20:

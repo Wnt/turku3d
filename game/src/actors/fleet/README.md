@@ -36,3 +36,8 @@ invent parking locations. Call `refresh()` after moving to a new loaded area.
 All geometry and details are authored in code for this project. No GTA, Google,
 manufacturer model, logo or panorama pixels are included. Real street references
 and statistical source notes stay outside git in `~/turku3d/data/research/cars/`.
+
+The cabin side is a connected painted surface with separate inset front, rear and quarter
+windows, seals and flat pillars. Tyres use rounded shoulders and recessed rim barrels;
+a coarse alloy pattern remains at the middle LOD. Near plates use original fictional
+Finnish-style letter/number strokes. All detail remains in the shared merged geometry.

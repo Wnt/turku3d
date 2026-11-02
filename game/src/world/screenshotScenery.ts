@@ -114,7 +114,7 @@ export class ScreenshotScenery {
       for (const result of results) for (const source of result.tiles) {
         returned.add(source.tile);
         const previous = this.sources.get(source.tile), entry = this.entries.get(source.tile);
-        if (entry && previous?.key !== source.key) { entry.complete = false; entry.next = 0; }
+        if (entry && previous?.key !== source.key) { entry.complete = false; entry.next = 0; entry.error = undefined; }
         this.sources.set(source.tile, source); this.unavailable.delete(source.tile);
       }
       for (const id of tiles) if (!returned.has(id)) { this.sources.delete(id); this.unavailable.add(id); }
