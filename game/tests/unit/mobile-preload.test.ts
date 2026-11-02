@@ -38,7 +38,7 @@ test.each([true, false])('startup uploads textures and uses one warmup view (mob
   const prepare = vi.fn(async () => {});
   await preloadWorld(world, { x: 0, z: 0 }, prepare, [actor]);
   expect(prepare).toHaveBeenCalledOnce();
-  expect(draws).toBe(9);
+  expect(draws).toBe(3);
   expect(mesh.frustumCulled).toBe(true);
   expect(actor.frustumCulled).toBe(true);
 });
