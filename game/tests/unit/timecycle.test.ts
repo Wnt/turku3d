@@ -30,9 +30,9 @@ test('night: no sun light below the horizon, artificial ambient on; day uses neu
   expect(deep.night).toBe(1);
   expect(deep.exposure).toBeGreaterThan(1);
   expect(deep.bloomStrength).toBeGreaterThan(0.25); expect(deep.bloomThreshold).toBeLessThan(1);
-  // Reference-judged daylight: neutral diffuse fill removes the broad blue cast without lowering exposure.
+  // Reference-judged daylight: a stronger sun against neutral fill restores street-level contrast without lowering exposure.
   const afternoon = timecycle(30);
-  expect(afternoon).toMatchObject({ sunIntensity: 3.2, environmentIntensity: 0.12, hemisphereIntensity: 2.4, exposure: 0.65,
+  expect(afternoon).toMatchObject({ sunIntensity: 4.0, environmentIntensity: 0.08, hemisphereIntensity: 1.0, exposure: 0.65,
     bloomStrength: 0.045, bloomThreshold: 1.5, night: 0, fogNear: 500, fogFar: 3500 });
   expect(afternoon.fogColor).toEqual(linearRgb('#b8cde0'));
   // The night factor only grows as the sun sinks.
