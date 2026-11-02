@@ -21,6 +21,25 @@ def test_reference_consensus_beats_wide_occluded_view():
     assert best_description([rows[0], rows[2]])["facade_id"] == "c"
 
 
+def test_exported_automatic_choice_is_reselected_but_reviewed_override_survives(tmp_path, monkeypatch):
+    from turku3d import facade_assets as assets
+    monkeypatch.setenv("TURKU3D_WORK", str(tmp_path / "work"))
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path / "data"))
+    monkeypatch.setenv("TURKU3D_FACADE_ASSETS", str(tmp_path / "assets"))
+    directory = tmp_path / "assets/facade-params"
+    directory.mkdir(parents=True)
+    path = directory / assets.opaque("b")
+    row = dict(source="existing-generated-facade", description=dict(material="metal"))
+    path.write_text(json.dumps(row))
+    monkeypatch.setattr(assets, "building", lambda _: dict(facades=[dict(metadata=dict(
+        facade_id="b_1", width_m=10, fast_description=dict(source="reference",
+        description=dict(material="concrete"))))]))
+    assert assets.description_row("b")["description"]["material"] == "concrete"
+    row["source"] = "reviewed"
+    path.write_text(json.dumps(row))
+    assert assets.description_row("b")["description"]["material"] == "metal"
+
+
 def test_fragments_share_measured_elevation_and_do_not_repeat_shopfronts():
     b = SimpleNamespace(key="hall", facade_key="103304670P", base=4.039, attributes={})
     d = resolve(b)
