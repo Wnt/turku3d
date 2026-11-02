@@ -4,6 +4,8 @@ import * as THREE from 'three/webgpu';
 import { FLEET } from '../../src/actors/fleet/catalog';
 import { buildFleetWheel } from '../../src/actors/fleet/geometry';
 import { addFleetWheels, applyFleetWheels } from '../../src/actors/fleet/wheels';
+import { ParkedCarVisuals } from '../../src/actors/fleet/visuals';
+import { draftManifest } from '../../src/world/manifest';
 
 test('front wheel axes meet at a common rear-axle turn centre in either direction', () => {
   for (const steer of [-.5, -.1, .1, .5]) {
@@ -12,6 +14,24 @@ test('front wheel axes meet at a common rear-axle turn centre in either directio
     expect(Math.abs(ackermann(steer,2.7,-Math.sign(steer)*.8))).toBeGreaterThan(Math.abs(steer));
   }
   expect(ackermann(0,2.7,.8)).toBe(0);
+});
+
+test('near fleet wheels batch four hubs per car and distant cars stay a single draw', async () => {
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  const model=FLEET[0];
+  manifest.vehicles=Array.from({length:120},(_,i)=>({object_id:`wheel-${i}`,model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);
+  const camera=new THREE.PerspectiveCamera(120,1,.1,500);camera.position.set(0,2,20);camera.lookAt(0,0,0);visuals.setView(camera);
+  const rest={restingPose:()=>({pos:{x:0,y:.75,z:0},rot:{x:0,y:0,z:0,w:1}})};
+  visuals.update([],rest);
+  expect(visuals.snapshot().draws).toBe(3);expect(visuals.snapshot().instances).toBe(120);
+  const wheels=scene.children.filter(c=>c.name.startsWith('wheels/')&&(c as THREE.InstancedMesh).count>0) as THREE.InstancedMesh[];
+  expect(wheels).toHaveLength(2);expect(wheels.map(w=>w.count)).toEqual([240,240]);
+  const versions=wheels.map(w=>w.instanceMatrix.version);visuals.update([],rest);
+  expect(wheels.map(w=>w.instanceMatrix.version)).toEqual(versions);
+  camera.position.z=200;camera.lookAt(0,0,0);visuals.setView(camera);visuals.update([],rest);
+  expect(visuals.snapshot().draws).toBe(1);expect(wheels.every(w=>!w.visible)).toBe(true);
+  visuals.dispose();expect(scene.children).toHaveLength(0);
 });
 
 test('one circumference is one signed wheel revolution for every fleet tyre', () => {

@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import type { WheelState } from '../../physics/protocol';
 import { CHASSIS_LIFT } from '../../traffic/constants';
+import { paintActor } from '../parkedPaint';
 import type { FleetModel } from './catalog';
 
 /** Fleet meshes face +Z; physics faces +X. Hubs remain in the model's wheel arches. */
@@ -24,6 +25,7 @@ export function addFleetWheels(actor: THREE.Object3D, model: FleetModel,
     const hub = new THREE.Group(); hub.name = `fleet-wheel-${i}`;
     hub.position.set(side * (model.width / 2 - .075), model.wheel, (i < 2 ? 1 : -1) * model.wheelbase / 2);
     const wheel = new THREE.Mesh(geometry(side), material);
+    paintActor(wheel,'silver');
     wheel.castShadow = true; wheel.receiveShadow = true; hub.add(wheel); actor.add(hub);
   }
 }

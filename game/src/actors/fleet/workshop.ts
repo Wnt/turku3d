@@ -23,7 +23,36 @@ let meshes:THREE.Mesh[]=[];
 let motionVisuals: ParkedCarVisuals | undefined;
 let motionStates: VehicleState[] = [];
 const workshop={
-  async motionSetup() {
+  async batchBench() {
+    motionVisuals?.dispose();
+    for(const mesh of meshes){mesh.removeFromParent();mesh.geometry.dispose();}meshes=[];
+    const manifest=draftManifest(location.origin+'/');
+    manifest.vehicles=Array.from({length:112},(_,i)=>{
+      const model=FLEET[i%FLEET.length];
+      return {object_id:`bench-${i}`,model:model.id,color:'silver',x:(i%14-6.5)*3.2,y:0,z:(Math.floor(i/14)-3.5)*6,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5};
+    });
+    motionVisuals=new ParkedCarVisuals(scene);await motionVisuals.load(manifest);
+    camera.position.set(27,20,37);camera.lookAt(0,0,0);camera.fov=58;camera.updateProjectionMatrix();
+    motionVisuals.setView(camera);motionVisuals.update([],{restingPose:c=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})});
+    const batches=scene.children.filter(o=>o.name.startsWith('parked/')) as THREE.InstancedMesh[];
+    const wheels=scene.children.filter(o=>o.name.startsWith('wheels/'));
+    const original=batches.map(b=>b.geometry),baseline=batches.map(b=>{
+      const [,id,lod]=b.name.split('/');return buildFleetGeometry(FLEET.find(m=>m.id===id)!,Number(lod) as 0|1|2);
+    });
+    const results=[];
+    for(const articulated of [false,true]){
+      batches.forEach((b,i)=>b.geometry=articulated?original[i]:baseline[i]);
+      wheels.forEach(w=>w.visible=articulated&&(w as THREE.InstancedMesh).count>0);
+      const samples:number[]=[],calls:number[]=[];let previous=performance.now();
+      for(let i=0;i<180;i++){
+        await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+        const now=performance.now();if(i>=60){samples.push(now-previous);calls.push(renderer.info.render.calls);}previous=now;
+      }
+      results.push({articulated,fps:1000/(samples.reduce((a,b)=>a+b,0)/samples.length),draws:Math.max(...calls),instances:112});
+    }
+    baseline.forEach(g=>g.dispose());return {results,batches:motionVisuals.snapshot()};
+  },
+  async motionSetup(instanced=false) {
     const R = await import('@dimforge/rapier3d');
     const { Vehicle } = await import('../../vehicle/vehicle');
     const { CurbQueries } = await import('../../vehicle/curbQueries');
@@ -44,7 +73,7 @@ const workshop={
     curb.position.set(3,.075,-1);curb.receiveShadow=true;scene.add(curb);
     const model=FLEET[0], manifest=draftManifest(location.origin+'/');
     manifest.vehicles=[{object_id:'motion',model:model.id,color:'blue',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}];
-    motionVisuals=new ParkedCarVisuals(scene);await motionVisuals.load(manifest);motionVisuals.takeOver('motion');
+    motionVisuals=new ParkedCarVisuals(scene);await motionVisuals.load(manifest);if(!instanced)motionVisuals.takeOver('motion');
     for(const mesh of meshes){mesh.removeFromParent();mesh.geometry.dispose();}meshes=[];
     camera.position.set(7,2.6,6);camera.lookAt(.7,.55,-.6);camera.fov=43;camera.updateProjectionMatrix();
     document.getElementById('label')!.style.display='none';
@@ -53,12 +82,17 @@ const workshop={
   motionFrame(index:number, articulated=true) {
     const state=motionStates[index];if(!state||!motionVisuals)throw Error('Run motionSetup first');
     motionVisuals.update([state]);
-    const actor=scene.getObjectByName('driven/motion') as THREE.Mesh;
+    const actor=(scene.getObjectByName('driven/motion')??scene.getObjectByName('parked/fleet-hatch-0/0')) as THREE.Mesh;
+    if(!scene.getObjectByName('driven/motion')){
+      const source=new THREE.Object3D();source.position.set(state.pos.x,state.pos.y-.75,state.pos.z);
+      source.quaternion.set(state.rot.x,state.rot.y,state.rot.z,state.rot.w).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2));
+      actor.userData.baselinePose=source;
+    }
     // Baseline uses the unchanged flattened geometry; both images use identical physical poses.
-    if(articulated){actor.visible=true;for(const m of meshes)m.visible=false;}
+    if(articulated){actor.visible=true;for(const child of scene.children)if(child.name.startsWith('wheels/'))child.visible=true;for(const m of meshes)m.visible=false;}
     else {
       if(!meshes.length){const mesh=new THREE.Mesh(buildFleetGeometry(FLEET[0],0),fleetMaterial());paintActor(mesh,'blue');mesh.castShadow=true;mesh.receiveShadow=true;scene.add(mesh);meshes.push(mesh);}
-      actor.visible=false;meshes[0].visible=true;meshes[0].position.copy(actor.position);meshes[0].quaternion.copy(actor.quaternion);meshes[0].scale.copy(actor.scale);
+      actor.visible=false;for(const child of scene.children)if(child.name.startsWith('wheels/'))child.visible=false;meshes[0].visible=true;const source=actor.userData.baselinePose??actor;meshes[0].position.copy(source.position);meshes[0].quaternion.copy(source.quaternion);meshes[0].scale.copy(source.scale);
     }
     return {t:(index+1)/60,position:state.pos,wheels:state.wheels,draws:renderer.info.render.calls};
   },
@@ -79,7 +113,7 @@ const workshop={
   renderer,scene,camera,
 };
 Object.assign(window,{fleetWorkshop:workshop});workshop.show();
-renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+renderer.setAnimationLoop(()=>{renderer.info.reset();renderer.render(scene,camera);});
 if(import.meta.hot){
   import.meta.hot.accept();
   import.meta.hot.dispose(()=>{renderer.setAnimationLoop(null);renderer.domElement.remove();renderer.dispose();});
