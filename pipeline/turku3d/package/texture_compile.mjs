@@ -43,7 +43,7 @@ export async function compileTexture(request, key, extension, produce) {
   fs.mkdirSync(root, { recursive:true });
   const file = path.join(root, `${key}.${extension}`);
   const lock = `${file}.lock`;
-  const stats = request.textureCompilation ??= { hits:0, misses:0, waits:0, seconds:0 };
+  const stats = request.textureCompilation ??= { hits:0, misses:0, waits:0, seconds:0, lockWaitSeconds:0 };
   const started = performance.now();
   const hit = () => {
     try { touch(file); stats.hits++; return true; }
@@ -87,7 +87,9 @@ export async function compileTexture(request, key, extension, produce) {
       }
       if (performance.now() - started > 300_000) throw new Error(`Texture compile lock timed out: ${key}`);
       stats.waits++;
+      const waitStarted = performance.now();
       await delay(50);
+      stats.lockWaitSeconds += (performance.now() - waitStarted) / 1000;
     }
     if (locked && !hit()) {
       const temp = path.join(root, `.${key}.${process.pid}.${randomUUID()}.${extension}`);

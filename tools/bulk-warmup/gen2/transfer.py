@@ -126,7 +126,8 @@ class Pull:
         atomic(self.a.root/'receipts/sources'/(version+'.json'),dict(version=version,verified=True,at=time.time()))
         print(json.dumps(dict(source_version=version,verified=True,root=str(final))),flush=True)
     def products(self):
-        build=self.json(self.a.remote_root+'/state/build.json')
+        build=(json.loads(self.a.build_file.read_text()) if self.a.build_file
+               else self.json(self.a.remote_root+'/state/build.json'))
         generation=build['generation'];revision=build['revision']
         if not all(HEX.fullmatch(build[k]) for k in ('generation','revision','source_version')):raise ValueError('invalid build identity')
         profile=self.a.root/'sources/versions'/build['source_version']
@@ -200,6 +201,7 @@ def main():
     p.add_argument('--root',type=Path,required=True,help='receiving farm root')
     p.add_argument('--sources',help='pull and verify this immutable source version')
     p.add_argument('--link-dest',type=Path,help='reuse matching local files via rsync checksum + hard links')
+    p.add_argument('--build-file',type=Path,help='saved immutable build descriptor; safe across host revision changes')
     p.add_argument('--tiles',nargs='+')
     p.add_argument('--prune',action='store_true',help='remove host tile only after verified publication and acknowledgement')
     a=p.parse_args();a.root=a.root.resolve();a.root.mkdir(parents=True,exist_ok=True)

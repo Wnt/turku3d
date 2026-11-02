@@ -16,6 +16,8 @@ import time
 import zlib
 from pathlib import Path
 
+from turku3d import profiling
+
 import numpy as np
 
 
@@ -97,7 +99,7 @@ def prune_entries(directory, key=None):
     """
     directory = Path(directory)
     with (directory / ".retention.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        profiling.flock(lock, fcntl.LOCK_EX, "stage")
         return _prune_entries(directory, key)
 
 
@@ -141,6 +143,7 @@ class StageCache:
     @contextmanager
     def measure(self, name):
         started = time.perf_counter()
+        profile = profiling.snapshot()
         self.metrics[name] = dict(status="running", started=time.time(), seconds=0)
         self.flush()
         try:
@@ -151,6 +154,7 @@ class StageCache:
         else:
             self.metrics[name]["status"] = "complete"
         finally:
+            self.metrics[name].update(profiling.elapsed(profile))
             self.metrics[name]["seconds"] = round(time.perf_counter() - started, 6)
             self.flush()
 
@@ -169,7 +173,7 @@ class StageCache:
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{key}.pkl"
         with (directory / (".retention.lock" if self.retain else f"{key}.lock")).open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            profiling.flock(lock, fcntl.LOCK_EX, "stage")
             value, hit = None, False
             if target.exists():
                 data = target.read_bytes()

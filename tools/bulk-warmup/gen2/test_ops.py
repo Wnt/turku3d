@@ -114,7 +114,7 @@ for x in range(4):
 (out/'manifest.json').write_text(json.dumps({'coarse':True,'tile':out.name,'pass_kind':'full','visual':{out.name:visual},'collision':collision}))
 ''')
             runner=root/'run.sh';runner.write_text('#!/bin/sh\nexec '+sys.executable+' '+str(generator)+' "$@"\n');runner.chmod(0o755)
-            command=[sys.executable,str(HERE/'bulk.py'),str(root),'--tiles','t0_0_0','t0_1_0','--workers','1','--reserve-gib','0.01']
+            command=[sys.executable,str(HERE/'bulk.py'),str(root),'--tiles','t0_0_0','t0_1_0','--workers','1','--reserve-gib','0.01','--worker-memory-gib','0.01']
             with (state/'prefetch.lock').open('a') as lock:
                 fcntl.flock(lock,fcntl.LOCK_EX)
                 blocked=subprocess.run(command,capture_output=True,text=True,timeout=20)
