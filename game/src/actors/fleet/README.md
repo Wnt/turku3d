@@ -41,3 +41,12 @@ The cabin side is a connected painted surface with separate inset front, rear an
 windows, seals and flat pillars. Tyres use rounded shoulders and recessed rim barrels;
 a coarse alloy pattern remains at the middle LOD. Near plates use original fictional
 Finnish-style letter/number strokes. All detail remains in the shared merged geometry.
+
+Authored Blender models use `tools/dev/fleet-mcp.py --build MODEL.json` through
+Blenderwright MCP. Small fitted parts such as window panes can be listed in
+`preserve_lod_objects`. Their evaluated meshes stay separate during decimation;
+their triangles are reserved before reducing the body and four wheels to the LOD
+budget. Packing still merges matching material roles into shared instanced draws.
+Inspect all three LOD renders: a valid triangle count does not guarantee intact glass.
+Native street pairs wait up to 240 seconds for scene readiness before freezing
+parking records, preventing incomplete cold-load manifests from becoming baselines.

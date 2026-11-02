@@ -138,7 +138,7 @@ const previous = fs.existsSync(index) ? JSON.parse(fs.readFileSync(index)) : { s
 const shots = new Map(previous.shots.map(s => [s.file, s]));
 const build = execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
 const scenerySettled = s => !s || (s.ready ?? (!s.cataloguePending && !s.pending && !s.errors && s.loaded === s.total));
-const valid = s => s?.capture.vegetation_ready !== false && s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
+const valid = s => s?.capture.lamps_pending !== true && s?.capture.vegetation_ready !== false && s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
   && !s.capture.failed_assets_final.length && scenerySettled(s.capture.scenery);
 const save = () => {
   fs.writeFileSync(`${index}.tmp`, JSON.stringify({ generated: new Date().toISOString(), viewport: '1280x720',
@@ -474,7 +474,9 @@ try {
       const url = `${base}?cam=${cam.cam}&time=${at}&quality=${opt('--quality', 'high')}&aa=${opt('--aa', 'taa')}&hud=0&traffic=0&walkers=0`;
       if (await evaluate(`!!window.__qaMove && window.__game.params.aa===${JSON.stringify(opt('--aa','taa'))} && window.__game.params.quality===${JSON.stringify(opt('--quality','high'))}`)) {
         await evaluate(`window.__render.beforeFrame = undefined; window.__game.clock.simSeconds = 0;
-          window.__render.setHour(${h + m / 60}); window.__qaMove(${JSON.stringify(pose)});`);
+          window.__render.setHour(${h + m / 60});
+          if (!window.__qaPose || Object.entries(${JSON.stringify(pose)}).some(([key,value])=>Math.abs(window.__qaPose[key]-value)>.001))
+            window.__qaMove(${JSON.stringify(pose)});`);
       } else {
         await send('Page.navigate', { url });
       }
@@ -507,7 +509,7 @@ try {
           const vegetationReady = !!g?.vegetation?.library && !g.vegetation.pending.size && !g.vegetation.disposed;
           return {vegetationReady,canopyMode:window.__canopyCompare?.mode??'before',canopyTiles:window.__canopyCompare?.tiles,natureHash:g?.vegetation?.library?.manifest?.glb?.sha256,ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
             azimuth:env?.sunAzimuth, clock:g?.dayClock?.snapshot(), hour:g?.dayClock?.hour, pose:window.__qaPose,
-            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress};
+            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress,lamps:g?.lights?.snapshot()};
         })()`);
         if (state.pose && state.hour !== undefined && (Math.abs(state.hour - (h + m / 60)) > 0.01 ||
           ['E', 'N', 'H', 'yaw', 'pitch', 'fov'].some(key => Math.abs(state.pose[key] - pose[key]) > 0.001))) {
@@ -525,7 +527,7 @@ try {
           continue;
         }
         if (state.error) throw new Error(`${cam.id}@${at}: ${state.error}`);
-        if (compared && state.vegetationReady && state.ready && state.tiles.every(t => t.full) && scenerySettled(state.scenery)
+        if (compared && state.vegetationReady && !state.lamps?.pending && state.ready && state.tiles.every(t => t.full) && scenerySettled(state.scenery)
           && !assets.size && Date.now() - lastAsset > 2000) break;
         await delay(1000);
       }
@@ -560,6 +562,7 @@ try {
         notes: cam.notes, url, build: `${execFileSync('git', ['branch', '--show-current'], {encoding:'utf8'}).trim()}@${build}`, capture: {
           vegetation_ready:state.vegetationReady, canopy_mode:state.canopyMode, canopy_tiles:state.canopyTiles, nature_hash:state.natureHash, comparison_variant: opt('--variant', 'after'), comparison_baseline: opt('--comparison', 'same-build'), wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
           incomplete_tiles: state.tiles.filter(t => !t.full).map(t => t.id), failed_assets_final: [...new Set(failures)],
+          lamps_pending:state.lamps?.pending, lamps:state.lamps?.lamps,
           resident: await evaluate(`[...window.__game.lights.source.entries].filter(([,e])=>e.model).map(([id,e])=>({id,hash:e.visualHash,preview:!!e.preview,visible:e.model.visible,pass:e.pass}))`), tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
           sun_azimuth_deg: state.azimuth, clock: state.clock,
           settle_retries: settleRetries,
@@ -575,6 +578,9 @@ try {
         await evaluate(`new Promise(resolve=>{const r=window.__render,previous=r.afterFrame;let frames=0;
           r.beforeFrame=()=>true;r.afterFrame=()=>{previous?.();if(++frames<32)return;
             r.afterFrame=previous;r.beforeFrame=()=>false;resolve(true);};})`);
+        const afterLamps = await evaluate('window.__game?.lights?.snapshot()');
+        if (afterLamps?.pending || afterLamps?.lamps !== state.lamps?.lamps)
+          throw new Error('Lamp data changed during A/B; retake after lamp scanning settles');
         const after=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
         const afterFile=file.replace('.jpg','-after.jpg');
         fs.writeFileSync(path.join(out,afterFile),Buffer.from(after.data,'base64'));
