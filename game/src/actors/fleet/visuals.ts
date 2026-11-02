@@ -5,8 +5,9 @@ import type { ParkedPose } from '../../world/parkedVehicles';
 import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
 import { FLEET, fleetModel, type FleetModel } from './catalog';
-import { buildFleetGeometry } from './geometry';
+import { buildFleetGeometry, buildFleetWheel } from './geometry';
 import { AUTHORED_ESTATE, loadAuthoredFleet } from './authored';
+import { addFleetWheels, applyFleetWheels } from './wheels';
 import { fleetLamps } from './lamps';
 import { fleetMaterial, fleetNight } from './material';
 
@@ -90,7 +91,15 @@ export class ParkedCarVisuals {
     this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
   }
   private actor(model:FleetModel,color:string,name:string) {
-    const actor=new THREE.Mesh(this.geometry(model,0),fleetMaterial()); paintActor(actor,color);
+    const articulated=model.id!==AUTHORED_ESTATE;
+    const key=`${model.id}/body`;
+    if(articulated&&!this.geometries.has(key))this.geometries.set(key,buildFleetGeometry(model,0,false));
+    const actor=new THREE.Mesh(articulated?this.geometries.get(key)!:this.geometry(model,0),fleetMaterial()); paintActor(actor,color);
+    if(articulated)addFleetWheels(actor,model,side=>{
+      const wheelKey=`${model.id}/wheel/${side}`;
+      if(!this.geometries.has(wheelKey))this.geometries.set(wheelKey,buildFleetWheel(model,0,side));
+      return this.geometries.get(wheelKey)!;
+    },fleetMaterial());
     actor.name=name;actor.castShadow=true;actor.receiveShadow=true;return actor;
   }
   takeOver(id:string) {
@@ -160,6 +169,7 @@ export class ParkedCarVisuals {
       const state=byId.get(id);actor.visible=!!state;if(!state)continue;
       actor.matrix.copy(this.transform({id,...this.definitions.get(id)!,pos:state.pos,rot:state.rot}));
       actor.matrix.decompose(actor.position,actor.quaternion,actor.scale);
+      applyFleetWheels(actor,state.wheels);
     }
   }
   dispose() {

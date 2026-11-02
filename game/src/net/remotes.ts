@@ -1,3 +1,4 @@
+import { applyFleetWheels } from '../actors/fleet/wheels';
 import type { TyreEffects } from '../vehicle/tyreEffects';
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
@@ -166,6 +167,7 @@ export class RemotePlayers {
       if (remote.vehicleKey !== 'player') remote.car.position.y -= 0.75;
       remote.scooter.quaternion.copy(vehicleRotation(pose, false));
       remote.truck.quaternion.copy(vehicleRotation(pose, false));
+      if (pose.mode === 'car' && remote.vehicleKey !== 'player' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
       if (pose.mode === 'truck' && pose.wheels) applyRaceWheels(remote.truck, pose.wheels);
       const wheeled = pose.mode === 'car' && remote.vehicleKey === 'player' ? remote.car : null;
       pose.wheels?.forEach((w, i) => {
