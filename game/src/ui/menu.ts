@@ -152,6 +152,7 @@ export class MenuPanel implements MenuHost {
 
 /** The pause overlay (Menu / Esc / touch Pause): the world waits behind it. */
 export class PauseMenu {
+  capture?: { readonly on: boolean; toggle(): void; mark(k: 'pause' | 'resume'): void };
   readonly element = document.createElement('section');
   readonly panel: MenuPanel;
 
@@ -167,8 +168,18 @@ export class PauseMenu {
   }
 
   get open() { return !this.element.hidden; }
-  show(page: MenuPage) { this.element.hidden = false; this.panel.show(page); }
-  close() { this.element.hidden = true; }
+  show(page: MenuPage) {
+    if (!this.open) this.capture?.mark('pause');
+    if (page.id === 'pause' && this.capture) {
+      const capture = this.capture;
+      page = { ...page, items: [...page.items, { id: 'performance-capture', label: `Performance capture: ${capture.on ? 'On' : 'Off'}`,
+        detail: 'Save drive and profiling data on this computer', enabled: true, run: () => {
+          capture.toggle(); this.show({ ...page, items: page.items.filter(item => item.id !== 'performance-capture'), select: 'performance-capture' });
+        } }] };
+    }
+    this.element.hidden = false; this.panel.show(page);
+  }
+  close() { if (this.open) this.capture?.mark('resume'); this.element.hidden = true; }
 }
 
 /** What the save menus do to the running game. */

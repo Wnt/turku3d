@@ -3,17 +3,21 @@ import { gameDist, port, tileDist, workRoot } from '../tools/dev/environment.mjs
 import { localhostGame } from '../tools/dev/localhost/vitePlugin.mjs';
 import path from 'node:path';
 import wasm from 'vite-plugin-wasm';
+import { capturePlugin } from '../tools/dev/capture.mjs';
+import { execFileSync } from 'node:child_process';
+const captureCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
 // Local servers isolate directly; static hosts use public/isolation.js for the shared physics exchange.
-const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
+const isolation = { 'Document-Policy': 'js-profiling', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
 
 export default defineConfig({
   // Relative asset URLs: the same build runs at / locally and under /turku-game/ on GitHub Pages.
   base: './',
+  define: { 'import.meta.env.VITE_COMMIT': JSON.stringify(captureCommit) },
   cacheDir: path.join(workRoot, 'cache/vite'),
   // Dev server only: /tiles from the sandbox dist (or the localhost service's tile release, tools/dev/localhost-game),
   // POST /telemetry (also on `vite preview`, the browser checks' server) and the localhost build status.
-  plugins: [wasm(), {
+  plugins: [wasm(), capturePlugin(), {
     name: 'preload-game-entry',
     transformIndexHtml: { order: 'post', handler(_html, context) {
       // bootstrap waits for isolation; discover the large dynamic entry during HTML parsing.
