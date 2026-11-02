@@ -48,3 +48,18 @@ def test_single_return_and_low_vegetation_do_not_invent_trees():
     points = np.array([[30, 20, 40], [60, 1, 80]])
     assert inventory(VisualTile(0, 0, 0), points, [], lambda x, z: 0,
                      shapely.GeometryCollection(), shapely.GeometryCollection()) == []
+
+
+def test_measured_register_crown_rechecks_visible_trunk_clearance():
+    from turku3d.coarse.forests import clears_path, trunk_base_radius
+    from turku3d.vegetation.trees import variant
+
+    known = Tree('puut:edge', 30, 40, 'register', species='Tilia cordata',
+                 height=6, crown_radius=1, variant=variant('Tilia cordata', 6))
+    edge = trunk_base_radius(variant('Tilia cordata', 17)) * 2.5
+    paths = shapely.box(30 + edge, 30, 40, 50)
+    assert clears_path(known, paths)
+    result = inventory(VisualTile(0, 0, 0), crowns((30, 40, 17, 4)),
+                       [known], lambda x, z: 0, shapely.GeometryCollection(), paths)
+    assert all(clears_path(tree, paths) for tree in result)
+    assert all(tree.object_id != known.object_id for tree in result)

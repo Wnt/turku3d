@@ -86,6 +86,8 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths):
             tree.measured = True
             tree.trunk_radius = float(np.clip(tree.height * 0.018, 0.09, 0.55))
             tree.variant = variant(tree.species, tree.height)
-        if tree.source != "lidar" or (tree.measured and clears_path(tree, paths)):
+        # Measurements may enlarge a registered tree after its initial clearance
+        # check. Every final visible trunk must still clear the path footprint.
+        if (tree.source != "lidar" or tree.measured) and clears_path(tree, paths):
             result.append(tree)
     return result
