@@ -1,0 +1,104 @@
+{
+  "assetBase": "/assets/cars/model-y",
+  "fleet": {
+    "id": "model-y",
+    "name": "Vire Ilma E4",
+    "body": "suv",
+    "family": "suv",
+    "length": 4.751,
+    "width": 1.921,
+    "height": 1.624,
+    "wheelbase": 2.89,
+    "hood": 0.26,
+    "rear": -0.43,
+    "taper": 0.82,
+    "wheel": 0.35605,
+    "belt": 1.05,
+    "face": 3,
+    "accessory": "none",
+    "age": 0.08
+  },
+  "id": "model-y",
+  "wheels": {
+    "radius": 0.35605,
+    "width": 0.255,
+    "pivots": {
+      "wheel_FL": [
+        -0.818,
+        0.35605,
+        1.5005
+      ],
+      "wheel_FR": [
+        0.818,
+        0.35605,
+        1.5005
+      ],
+      "wheel_RL": [
+        -0.818,
+        0.35605,
+        -1.3895
+      ],
+      "wheel_RR": [
+        0.818,
+        0.35605,
+        -1.3895
+      ]
+    }
+  },
+  "triangles": [
+    37424,
+    9406,
+    1788
+  ],
+  "spec": {
+    "id": "model-y",
+    "referenceModel": "Tesla Model Y Long Range AWD 2021",
+    "fictionalName": "Vire Ilma E4",
+    "massKg": 2054,
+    "lengthM": 4.751,
+    "widthM": 1.921,
+    "heightM": 1.624,
+    "wheelbaseM": 2.89,
+    "trackFrontM": 1.636,
+    "trackRearM": 1.636,
+    "tyreSize": "255/45R19",
+    "wheelRadiusM": 0.35605,
+    "wheelWidthM": 0.255,
+    "rideHeightM": 0.167,
+    "powerKw": 378,
+    "torqueNm": 493,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "topSpeedKmh": 217,
+    "turningCircleM": 12.1,
+    "drivingCharacter": "Strong immediate electric acceleration, planted low-battery mass and firm, quick front response.",
+    "sources": [
+      {
+        "url": "https://www.tesla.com/sites/default/files/model_y_owners_manual_europe_gb.pdf",
+        "fields": "dimensions, wheelbase, tracks, tyre size, clearance, turning circle; 2021 manual pp183-187"
+      },
+      {
+        "url": "https://ev-database.org/car/1182/Tesla-Model-Y-Long-Range-AWD",
+        "fields": "mass, peak power/torque, acceleration, speed",
+        "note": "Public source checked2026-11-02; total power/torque explicitly marked estimates."
+      },
+      {
+        "url": "https://specs.info/wp-content/uploads/2020/10/model_y_owners_manual_north_america_en.pdf",
+        "fields": "Manufacturer side/front drawing and dimensional cross-check only;2020 NA mass is not applied to the2021 EU trim."
+      }
+    ],
+    "referenceObservations": {
+      "side": "Continuous convex roof arc peaks ahead of B pillar then descends to short rear deck. Low rounded grille-free nose. Beltline rises slightly toward rear. Circular arches, flush handles and narrow triangular rear quarter glazing.",
+      "rear": "Strong shoulder haunches, sloping fastback glass, separate short horizontal trunk lip and wraparound red lamps.",
+      "drawing": "2020 owner manual side drawing used to correct low nose, excessive belt height and low tail; preserve dimensioned axle centres, drawings approximate not perfectly to scale.",
+      "check02": "Cabin still reads detached/bubbled; needs roof-to-tail continuity and fitted pillars. Nose needs larger swept lamps; avoid repeatedly changing wheelbase/tyre physical dimensions based on perspective.",
+      "check03": "Added continuous painted rear pillar from roof to tail, slimmer B pillar, larger swept headlamp footprint, dark reflective glazing. Side reference from ezoomed checked locally; photo perspective exaggerates wheel/body ratio, retain manufacturer wheel dimensions."
+    },
+    "status": "candidate-research",
+    "zeroTo100Seconds": 5.0,
+    "massNote": "EU unladen mass published by EV Database for July2021\u2013January2022 LR AWD; equipment and homologation convention differ from the2020 North America manual.",
+    "powerTorqueNote": "EV Database estimates378kW and493Nm for July2021\u2013January2022 LR AWD; Tesla does not publish a combined peak figure.",
+    "gearCount": 1
+  },
+  "accepted": false
+}

@@ -78,3 +78,14 @@ source URLs, transformations and the SHA-256; inputs and generated meshes stay o
 produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
 
 The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.
+
+## Model Y crossover study — original Blender fleet prototype
+
+`cars/model-y/lod{0,1,2}.glb`: original geometry authored through parameterised
+Blenderwright tools in Blender 5.2 (2026). Copyright 2026 Jonni Madekivi; MIT,
+as the repository. Fictional Vire badge and VIR-519 plate. No downloaded mesh,
+reference photographs or manufacturer artwork is included. Public dimensional
+and driving specification sources are recorded in `spec.json`; estimated power
+and torque are identified there. Editable local source and build settings live
+under `data/assets-src/cars/model-y/`. Four hub-centred wheels and four named
+lamp material roles are preserved. This model remains a visual prototype.
