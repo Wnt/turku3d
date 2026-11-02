@@ -89,12 +89,10 @@ export function fenceTint(asset: string, key: string): [number, number, number] 
   return [r, g, b];
 }
 
-/**
- * Library scale for a tile instance of measured height and crown radius: uniform by height, with the crown allowed
- * to widen or narrow by at most 30 %, so leaves and bark keep their proportions.
- */
+/** Preserve the inventory's height and crown radius independently, including broad pruned street trees.
+ * Invalid measurements fall back to the asset's proportions; every LOD uses the same transform. */
 export function natureScale(height: number, crownRadius: number, assetHeight: number, assetRadius: number) {
-  const k = height / assetHeight;
-  const crown = Math.min(1.3 * k, Math.max(0.75 * k, crownRadius / assetRadius));
-  return { y: k, xz: crown };
+  const valid = (v: number) => Number.isFinite(v) && v > 0;
+  const y = valid(height) && valid(assetHeight) ? height / assetHeight : 1;
+  return { y, xz: valid(crownRadius) && valid(assetRadius) ? crownRadius / assetRadius : y };
 }

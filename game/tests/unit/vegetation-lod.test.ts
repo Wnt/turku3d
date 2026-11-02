@@ -48,10 +48,12 @@ describe('species mapping', () => {
     expect(library.variant('tree_oak', 'osm:7').name).toBe('tree_oak');
   });
 
-  it('scales library trees uniformly by height and bounds crown stretch', () => {
+  it('preserves measured broad crowns and falls back only for invalid dimensions', () => {
     expect(natureScale(10, 3, 20, 5)).toEqual({ y: 0.5, xz: 0.6 });
-    expect(natureScale(10, 30, 20, 5).xz).toBeCloseTo(0.65);
-    expect(natureScale(10, 0.1, 20, 5).xz).toBeCloseTo(0.375);
+    expect(natureScale(10, 6, 16, 4.6)).toEqual({ y: .625, xz: 6 / 4.6 });
+    expect(natureScale(10, .1, 20, 5).xz).toBeCloseTo(.02);
+    expect(natureScale(10, NaN, 20, 5)).toEqual({ y: .5, xz: .5 });
+    expect(natureScale(Infinity, 3, 20, 0)).toEqual({ y: 1, xz: 1 });
   });
 });
 
