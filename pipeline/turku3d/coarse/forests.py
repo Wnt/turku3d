@@ -188,6 +188,16 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         )
         and clears_path(t, paths)
     ][:TREE_CAP]
+    # Ground key points usually contain no canopy. Use the full classified source,
+    # reduced once per source hash and cached independently of the terrain material.
+    from .canopy_trees import inventory
+
+    measured_canopy = getattr(inputs, "vegetation_canopy", ())
+    measured_blocked = shapely.union_all([
+        surveyed, paths, *(b.footprint.buffer(1) for b in inputs.buildings),
+        *(g for _, g, kind, _ in inputs.forests if kind == "open"),
+    ])
+    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths)[:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:
@@ -282,7 +292,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         # A trunk outside the road is insufficient: its complete crown must clear the deck.
         trees = [t for t in trees if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]
         bushes = [t for t in bushes if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]
-    return deduplicate(trees, SPACING), bushes
+    return deduplicate(trees, 3.5 if len(measured_canopy) else SPACING), bushes
 
 
 def trunks(trees, ct):
@@ -310,12 +320,16 @@ def draft_trees(tile, grid_pos, trees, water, shells):
 
     blocked = shapely.union_all([*water, *(b.footprint for b, _ in shells)])
     result = []
-    for object_id, x, z, height, conifer in trees:
+    for object_id, x, z, height, conifer, *species in trees:
         if not blocked.is_empty and blocked.covers(shapely.Point(x, z)):
             continue
-        tree = Tree(object_id, x, z, "osm", y=grid_height(tile, heights, x, z), height=height)
+        tree = Tree(
+            object_id, x, z, "register" if object_id.startswith(REGISTER_TREE) else "osm",
+            species=species[0] if species else "havupuu" if conifer else "",
+            y=grid_height(tile, heights, x, z), height=height,
+        )
         tree.crown_radius = float(np.clip(height * 0.3, 1.5, 7.0))
         tree.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
-        tree.variant = VARIANTS[3] if conifer else variant("", height)
+        tree.variant = VARIANTS[3] if conifer else variant(tree.species, height)
         result.append(tree)
     return result

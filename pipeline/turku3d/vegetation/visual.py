@@ -82,6 +82,7 @@ def write_instances(path, tile, trees):
         for mesh in prototypes(name):
             mesh.extras.update(
                 instance_object_ids=[t.object_id for t in batch],
+                instance_species=[t.species for t in batch],
                 variant=name,
                 vegetation_instances={"version": 1, "cell_size": 50},
             )

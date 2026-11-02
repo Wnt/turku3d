@@ -26,6 +26,7 @@ def source_paths():
         Path(__file__).with_name("facade_inference.py"),
         Path(__file__).with_name("facade_style_geometry.py"),
         Path(__file__).with_name("facade_program_geometry.py"),
+        Path(__file__).with_name("facade_relief.py"),
         Path(__file__).with_name("facade_sections.py"),
         Path(__file__).with_name("facade_components.py"),
         Path(__file__).with_name("facade_component_geometry.py"),

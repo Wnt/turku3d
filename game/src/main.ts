@@ -19,6 +19,7 @@ import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { renderPixelRatio } from './render/quality';
 import { VegetationLod } from './world/vegetationLod';
+import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { VisualTiles } from './world/tiles';
@@ -115,7 +116,8 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-const vegetation = idPass ? null : new VegetationLod(params.quality);
+let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
+let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary) : null;
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
@@ -139,6 +141,7 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
+let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
@@ -146,6 +149,9 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  distantCity?.follow(camera);
+  // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
+  env.atmosphere.setTime(params.qa ? 0 : dayClock.sharedNow() / 1000);
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
@@ -172,7 +178,19 @@ addEventListener('resize', () => {
 // slower instead of failing it (tests/e2e/waits.ts).
 const clock = { frames: 0, simSeconds: 0 };
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
-  lights };
+  lights, vegetation };
+
+// Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
+// streamed tiles and physics worker alive throughout a visual iteration.
+window.__game.replaceVegetation = async (Renderer: typeof VegetationLod, replacement = natureLibrary) => {
+  if (!replacement || !vegetation) return;
+  natureLibrary = replacement;
+  const models = vegetation.loadedModels();
+  for (const model of models) vegetation.remove(model);
+  vegetation = new Renderer(params.quality, natureLibrary);
+  for (const model of models) await vegetation!.addAsync(model);
+  window.__game!.vegetation = vegetation;
+};
 
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
@@ -218,6 +236,15 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   lights?.attach(coarse);
+  if (!idPass) {
+    distantCity = coarse.screenshotScenery;
+    distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
+    distantCity.follow(camera);
+    // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
+    env.sky.scale.setScalar(12000);
+    camera.far = 12000; camera.updateProjectionMatrix();
+    window.__game!.scenery = distantCity;
+  }
   return coarse;
 }
 
@@ -262,11 +289,18 @@ async function runQa() {
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
     now: () => performance.now(),
-    busy: () => [...benchFetches.values()].some(start => performance.now() - start > 1500),
+    busy: () => {
+      const scenery = distantCity?.progress;
+      // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
+      return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
+        || scenery.loaded !== scenery.total)
+        || [...benchFetches.values()].some(start => performance.now() - start > 1500);
+    },
     // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
     signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
       (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
     info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
+      scenery: distantCity?.progress,
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;

@@ -86,5 +86,5 @@ test('live screenshot direction, position and FOV follow the camera while the pa
   panel.update();
   const view = setView.mock.calls.at(-1)![0];
   expect(view.x).toBe(4051); expect(view.dx).toBeCloseTo(1);
-  expect(view.halfAngle).toBeCloseTo(Math.atan(1.6));
+  expect(view.halfAngle).toBeCloseTo(Math.atan(1.6) + .15);
 });

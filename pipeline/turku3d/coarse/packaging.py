@@ -54,6 +54,7 @@ PRODUCERS = (
     "portals",
     "road_top",
     "forests",
+    "canopy_trees",
     "fences",
     "furniture",
     "tree_inputs",

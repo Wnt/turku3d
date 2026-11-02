@@ -21,7 +21,7 @@ test('timecycle rows interpolate linearly between elevation keys and clamp outsi
   expect(linearRgb('#000000')).toEqual([0, 0, 0]);
 });
 
-test('night: no sun light below the horizon, artificial ambient on; day keeps the former afternoon look', () => {
+test('night: no sun light below the horizon, artificial ambient on; day uses judged neutral fill with earlier distance haze', () => {
   for (let e = -90; e <= -1; e += 0.5) {
     expect(timecycle(e).sunIntensity).toBe(0);
     expect(timecycle(e).hemisphereIntensity).toBeGreaterThan(0);
@@ -30,10 +30,10 @@ test('night: no sun light below the horizon, artificial ambient on; day keeps th
   expect(deep.night).toBe(1);
   expect(deep.exposure).toBeGreaterThan(1);
   expect(deep.bloomStrength).toBeGreaterThan(0.25); expect(deep.bloomThreshold).toBeLessThan(1);
-  // Former formulas above 10 degrees: sun 3.2, IBL 0.35, exposure 0.65, bloom 0.045 at threshold 1.5.
+  // Reference-judged daylight: a stronger sun against neutral fill restores street-level contrast without lowering exposure.
   const afternoon = timecycle(30);
-  expect(afternoon).toMatchObject({ sunIntensity: 3.2, environmentIntensity: 0.35, hemisphereIntensity: 0, exposure: 0.65,
-    bloomStrength: 0.045, bloomThreshold: 1.5, night: 0, fogNear: 500, fogFar: 3500 });
+  expect(afternoon).toMatchObject({ sunIntensity: 4.0, environmentIntensity: 0.08, hemisphereIntensity: 1.0, exposure: 0.65,
+    bloomStrength: 0.045, bloomThreshold: 1.5, night: 0, fogNear: 120, fogFar: 3500 });
   expect(afternoon.fogColor).toEqual(linearRgb('#b8cde0'));
   // The night factor only grows as the sun sinks.
   let previous = 0;

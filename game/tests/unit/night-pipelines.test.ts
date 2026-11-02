@@ -117,6 +117,20 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
   return { env, meshes, at, keys, shaders, lamps };
 }
 
+test('time edits move the shadow-casting sun with the sky while the camera stays still', () => {
+  const { env, at } = world(false, 'medium');
+  const focus = new THREE.Vector3(168, 5, 246);
+  env.follow(focus);
+  for (const hour of [13, 19.5, 22, 4, 13]) {
+    at(hour);
+    const light = env.sun.getWorldPosition(new THREE.Vector3());
+    const target = env.sun.target.getWorldPosition(new THREE.Vector3());
+    expect(target.distanceTo(focus)).toBeLessThan(1e-10);
+    expect(light.distanceTo(target)).toBeCloseTo(200, 10);
+    expect(light.sub(target).normalize().distanceTo(env.sunDir), `${hour}:00`).toBeLessThan(1e-10);
+  }
+});
+
 test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slots (WebGL=%s)', webgl => {
   const { env, meshes, at, keys, shaders, lamps } = world(webgl, 'medium');
   expect(meshes.map(m => m.name)).toEqual(['kit-v3', 'kit-v4', 'draft-facade', 'ground-slabs', 'prop-car',

@@ -115,7 +115,9 @@ export class CoarseTiles {
     this.remote = !isLocalHost(page.hostname);
     this.comparison = new VisualPassComparison(host, this.entries, url => this.request(url), url => this.load(url),
       model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page);
-    this.screenshotScenery = new ScreenshotScenery(host, this.entries, url => this.request(url), url => this.load(url),
+    // Optional distant derivatives must not put collision/nearby streaming into outage backoff.
+    this.screenshotScenery = new ScreenshotScenery(host, this.entries,
+      url => this.fetch(new URL(url, this.page).href, { signal: AbortSignal.timeout(30_000) }), url => this.load(url),
       model => tintDraft(model, this.host.renderer, this.materials), (model, id) => this.dispose(model, id), this.root, this.page);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
@@ -163,7 +165,7 @@ export class CoarseTiles {
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }) {
     this.clock = now;
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
-    this.screenshotScenery.update(x, z, now, !!this.outage);
+    this.screenshotScenery.update(x, z, now);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };

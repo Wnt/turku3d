@@ -110,7 +110,10 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                     bays=section.get("bays") or [section["kind"]] * count,
                     head=section["head"],
                     surround=section["surround"],
-                    confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")},
+                    **({"opening_counts": section["opening_counts"]}
+                       if "opening_counts" in section else {}),
+                    confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")
+                                + (("opening_counts",) if "opening_counts" in section else ())},
                 )
                 for i in range(rows)
             ],
