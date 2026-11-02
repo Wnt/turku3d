@@ -27,10 +27,13 @@ await new Promise((resolve, reject) => {
 console.log(`Connected to integration page ${target.id}`);
 let seq = 0;
 const pending = new Map(), assets = new Map(), failures = [];
+const consoleErrors=[];
 let lastAsset = 0;
 const asset = url => /\.(glb|bin|col|ktx2|png|jpg)(\?|$)/.test(url);
 socket.onmessage = ({ data }) => {
   const msg = JSON.parse(data);
+  if(msg.method==='Runtime.exceptionThrown')consoleErrors.push(msg.params.exceptionDetails);
+  if(msg.method==='Runtime.consoleAPICalled'&&msg.params.type==='error')consoleErrors.push(msg.params.args.map(a=>a.value??a.description));
   if (msg.id) {
     const p = pending.get(msg.id);
     if (!p) return;
@@ -62,10 +65,18 @@ fs.mkdirSync(out, { recursive: true });
 // Vehicle motion fixtures use the production physics and visual classes, with identical
 // cached physical poses for the flattened baseline and articulated candidate.
 if (args.includes('--fleet-motion')) {
+  await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
+  await evaluate('window.fleetWorkshop=undefined');
   await send('Page.navigate', {url:new URL('fleet-gallery.html',base).href});
   for(let i=0;i<120&&!await evaluate('!!window.fleetWorkshop');i++)await delay(250);
-  const setup=await evaluate('window.fleetWorkshop.motionSetup()');
+  consoleErrors.length=0;
+  const setup=await evaluate(`window.fleetWorkshop.motionSetup(${args.includes('--fleet-batch')})`);
+  if(args.includes('--fleet-bench')){
+    const bench=await evaluate('window.fleetWorkshop.batchBench()');
+    fs.writeFileSync(path.join(out,'batch-bench.json'),JSON.stringify(bench,null,1));
+    console.log(JSON.stringify(bench));socket.close();process.exit(0);
+  }
   const frames=[];
   for(const articulated of [false,true])for(const index of [8,26,44,62,80,98]){
     const state=await evaluate(`window.fleetWorkshop.motionFrame(${index},${articulated})`);
@@ -74,7 +85,7 @@ if (args.includes('--fleet-motion')) {
     const file=`${articulated?'after':'before'}-${index}.jpg`;
     fs.writeFileSync(path.join(out,file),Buffer.from(shot.data,'base64'));frames.push({file,...state});
   }
-  fs.writeFileSync(path.join(out,'motion.json'),JSON.stringify({setup,frames},null,1));
+  fs.writeFileSync(path.join(out,'motion.json'),JSON.stringify({setup,frames,consoleErrors},null,1));
   console.log(JSON.stringify({setup,frames:frames.length,out}));
   socket.close();process.exit(0);
 }
