@@ -176,7 +176,7 @@ def rounded_pier(key, a, b, bottom, top, radius=.7, surface="stone"):
     ring = np.concatenate([b + arc, a - arc])
     lower = np.c_[ring[:, 0], np.full(len(ring), bottom), ring[:, 1]]
     upper = lower.copy()
-    upper[:, 1] = top
+    upper[:, 1] = top(ring) if callable(top) else top
     faces = Faces()
     faces.face(lower, ring - a)
     faces.face(upper[::-1], (ring - a)[::-1])
@@ -185,7 +185,7 @@ def rounded_pier(key, a, b, bottom, top, radius=.7, surface="stone"):
         j = (i + 1) % len(ring)
         faces.face([lower[j], lower[i], upper[i], upper[j]],
                    [[perimeter[i + 1], bottom], [perimeter[i], bottom],
-                    [perimeter[i], top], [perimeter[i + 1], top]])
+                    [perimeter[i], upper[i, 1]], [perimeter[i + 1], upper[j, 1]]])
     return appearance(faces.mesh(key, "wall"), surface)
 
 
@@ -227,7 +227,7 @@ def stayed_span(way, height_at, sample_ground, blocked, polygon, spec, *, obstac
     available = set(float(s) for s in measured if axis.length * .1 < s < axis.length * .9)
     for i, station in enumerate(stations):
         if available:
-            nearest = min(available, key=lambda s: abs(s - station))
+            nearest = min(available, key=lambda s: (abs(s - station), s))
             if abs(nearest - station) < axis.length * .15:
                 stations[i] = nearest
                 available.remove(nearest)
@@ -327,10 +327,21 @@ def support_stations(way, spec):
     stations = [length * f for f in spec.get('pier_fractions',
                  np.linspace(0, 1, spans + 1)[1:-1])]
     available = set(float(s) for s in way.get('survey', {}).get('pier_stations', [])
-                    if .15 * length < s < .85 * length)
+                    if .08 * length < s < .92 * length)
+    if 'pier_fractions' not in spec:
+        # Survey evidence establishes generic topology. Only fill unsupported
+        # gaps longer than the conservative span limit; never delete a return.
+        measured = sorted(available)
+        stations = measured.copy()
+        limit = 35 if spec['foot'] else 40
+        for a, b in zip([0, *measured], [*measured, length], strict=True):
+            count = max(1, int(np.ceil((b - a) / limit)))
+            stations.extend(np.linspace(a, b, count + 1)[1:-1])
+        return sorted(stations)
+    available = {s for s in available if .15 * length < s < .85 * length}
     for i, station in enumerate(stations):
         if available:
-            nearest = min(available, key=lambda s: abs(s - station))
+            nearest = min(available, key=lambda s: (abs(s - station), s))
             if abs(nearest - station) < .12 * length:
                 stations[i] = nearest
                 available.remove(nearest)
@@ -365,48 +376,62 @@ def beam_supports(way, height_at, sample_ground, blocked, polygon, spec):
         if top - bottom < 1:
             continue
         meshes.append(rounded_pier(key, *ends, bottom, top - .25, radius, spec['support']))
-        meshes.append(rounded_pier(key, *ends, top - .25, top, radius + .15, spec['support']))
+        soffit = lambda points: height_at(points) - spec['thickness'] - spec.get('box_depth', 0)
+        meshes.append(rounded_pier(key, *ends, top - .25, soffit, radius + .15, spec['support']))
     return meshes
 
 
-def box_girder(way, height_at, blocked, polygon, spec):
-    """Closed shallow trapezoidal box sections follow the lidar crown and local width.
-
-    Lower passages retain their solved clearance envelope: an intersecting section
-    is omitted. The deck itself remains the sole walking/driving surface.
-    """
+def box_girder(way, height_at, blocked, polygon, spec, *, profile_stations=()):
+    """Closed trapezoidal runs with metric perimeter UVs and the exact deck knots."""
     depth = spec.get('box_depth', 0)
     if depth <= 0 or way.get('landing'):
         return []
     axis = way['line']
-    sections = []
-    for station in np.linspace(.15, axis.length - .15, max(2, int(np.ceil(axis.length / 2)) + 1)):
-        section = cross_section(way, station, .3, polygon)
+    knots = [axis.project(shapely.Point(p)) for p in axis.coords]
+    stations = np.unique(np.r_[np.linspace(.15, axis.length - .15,
+                              max(2, int(np.ceil(axis.length / 2)) + 1)),
+                              profile_stations, knots])
+    stations = stations[(stations >= .15) & (stations <= axis.length - .15)]
+    sections, cap_uvs, perimeters = [], [], []
+    for station in stations:
+        section = cross_section(way, station, spec.get('box_inset', .3), polygon)
         if section is None:
-            sections.append(None)
+            sections.append(None); cap_uvs.append(None); perimeters.append(None)
             continue
-        centre, _, _, edges = section
+        centre, _, normal, edges = section
         upper = np.asarray(edges)
-        lower = centre + (upper - centre) * .78
+        lower = centre + (upper - centre) * spec.get('box_lower_width', .78)
         top = height_at(upper) - spec['thickness']
-        # Clockwise in cross-section when viewed along the positive axis.
-        sections.append(np.array([[upper[0, 0], top[0], upper[0, 1]],
-                                  [upper[1, 0], top[1], upper[1, 1]],
-                                  [lower[1, 0], top[1] - depth, lower[1, 1]],
-                                  [lower[0, 0], top[0] - depth, lower[0, 1]]]))
-    from .bridge_details import appearance
-    faces = Faces()
+        ring = np.array([[upper[0, 0], top[0], upper[0, 1]],
+                         [upper[1, 0], top[1], upper[1, 1]],
+                         [lower[1, 0], top[1] - depth, lower[1, 1]],
+                         [lower[0, 0], top[0] - depth, lower[0, 1]]])
+        sections.append(ring)
+        cap_uvs.append(np.c_[(ring[:, [0, 2]] - centre) @ normal, ring[:, 1]])
+        perimeters.append(np.r_[0, np.cumsum(np.linalg.norm(np.diff(np.r_[ring, ring[:1]], axis=0), axis=1))])
+    valid = []
     for a, b in zip(sections[:-1], sections[1:], strict=True):
         if a is None or b is None:
+            valid.append(False)
             continue
         footprint = shapely.MultiPoint(np.r_[a[:, [0, 2]], b[:, [0, 2]]]).convex_hull
-        if not polygon.covers(footprint) or any(footprint.intersects(g) for g in blocked):
+        valid.append(polygon.covers(footprint) and not any(footprint.intersects(g) for g in blocked))
+    from .bridge_details import appearance
+    faces = Faces()
+    for index, keep in enumerate(valid):
+        if not keep:
             continue
-        # Each station interval is closed, so collision cannot develop open sides
-        # when a protected lower passage interrupts the cladding.
-        faces.face(a[::-1])
-        faces.face(b)
+        a, b = sections[index:index + 2]
+        ua, ub = stations[index:index + 2]
+        va, vb = perimeters[index:index + 2]
+        # Close only actual ends and lower-passage interruptions, no internal
+        # coincident bulkheads at every two-metre profile segment.
+        if index == 0 or not valid[index - 1]:
+            faces.face(a[::-1], cap_uvs[index][::-1])
+        if index == len(valid) - 1 or not valid[index + 1]:
+            faces.face(b, cap_uvs[index + 1])
         for i in range(4):
             j = (i + 1) % 4
-            faces.face([a[i], a[j], b[j], b[i]])
+            faces.face([a[i], a[j], b[j], b[i]],
+                       [[ua, va[i]], [ua, va[i + 1]], [ub, vb[i + 1]], [ub, vb[i]]])
     return [appearance(faces.mesh(f"draft-bridge:{way['id']}:box", 'wall'), 'steel')] if faces.indices else []

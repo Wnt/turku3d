@@ -288,7 +288,7 @@ def railing_lines(ways):
     return result
 
 
-def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, obstacles=None):
+def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, obstacles=None, profile_stations=()):
     from .bridges import samples
 
     key = f"draft-bridge:{way['id']}"
@@ -423,7 +423,7 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 )
     from .bridge_kit import box_girder, deck_framing, entrances, stayed_span
 
-    meshes.extend(box_girder(way, height_at, blocked, polygon, spec))
+    meshes.extend(box_girder(way, height_at, blocked, polygon, spec, profile_stations=profile_stations))
     meshes.extend(deck_framing(way, height_at, blocked, polygon, spec))
     meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec,
                               obstacles=[] if obstacles is None else [obstacles]))

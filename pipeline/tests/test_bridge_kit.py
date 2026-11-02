@@ -261,11 +261,13 @@ def test_box_girder_is_closed_outward_below_deck_and_respects_underpass():
     assert mesh.metadata['collision']
     assert mesh.positions[:, 1].max() <= 5 - spec['thickness'] + 1e-6
     assert np.isclose(mesh.positions[:, 1].min(), 5 - spec['thickness'] - spec['box_depth'])
-    # Every closed station interval consists of 12 triangles; all face outward.
-    tri = mesh.positions[mesh.indices].reshape(-1, 12, 3, 3)
-    normals = np.cross(tri[:, :, 1] - tri[:, :, 0], tri[:, :, 2] - tri[:, :, 0])
-    centres = tri.mean(axis=(1, 2))
-    assert (np.sum(normals * (tri.mean(axis=2) - centres[:, None]), axis=2) > 0).all()
+    tri = mesh.positions[mesh.indices]
+    normals = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    assert (np.sum(normals * (tri.mean(axis=1) - [25, 4.275, 0]), axis=1) > 0).all()
+    uv = mesh.uvs[mesh.indices]
+    determinant = np.linalg.det(np.stack([uv[:, 1] - uv[:, 0], uv[:, 2] - uv[:, 0]], axis=1))
+    assert (abs(determinant) > 1e-8).all()
+    assert len(mesh.indices) < 450  # no hidden caps at every station
     blocked = shapely.box(20, -20, 30, 20)
     safe = box_girder(way, height, [blocked], way['outline'], spec)
     for triangle in safe[0].positions[safe[0].indices]:
@@ -292,3 +294,47 @@ def test_beam_cutwaters_follow_curved_deck_and_avoid_lower_paths():
     blocked = [shapely.box(0, -30, 45, 30)]
     safe = beam_supports(way, height, ground, blocked, way['outline'], spec)
     assert len(safe) == 2
+
+
+def test_generic_supports_preserve_measured_topology_and_fill_only_long_gaps():
+    from turku3d.coarse.bridge_kit import support_stations
+    spec = dict(foot=False)
+    way = dict(line=shapely.LineString([(0, 0), (30, 0)]), survey={'pier_stations': [15]})
+    assert support_stations(way, spec) == [15]
+    way['line'] = shapely.LineString([(0, 0), (120, 0)])
+    way['survey']['pier_stations'] = [30, 60, 90]
+    assert support_stations(way, spec) == [30, 60, 90]
+    way['survey']['pier_stations'] = [30]
+    assert support_stations(way, spec) == [30, 60, 90]
+
+
+def test_girder_uvs_survive_rotation_grade_bends_and_include_deck_knots():
+    from turku3d.coarse.bridge_kit import box_girder
+    for axis in [shapely.LineString([(0, 0), (94, 0)]),
+                 shapely.LineString([(0, 0), (60, 72)]),
+                 shapely.LineString([(0, 0), (40, 0), (70, 30)])]:
+        way = dict(id='uv', line=axis, width=12, outline=axis.buffer(6, cap_style='flat'))
+        def height(p):
+            station = shapely.line_locate_point(axis, shapely.points(p))
+            return 5 + .01 * station + .2 * np.maximum(0, 1 - abs(station - 17.3))
+        meshes = box_girder(way, height, [], way['outline'], dict(box_depth=.65, thickness=.4),
+                            profile_stations=[16.3, 17.3, 18.3])
+        assert meshes
+        for mesh in meshes:
+            uv = mesh.uvs[mesh.indices]
+            assert (abs(np.linalg.det(np.stack([uv[:, 1] - uv[:, 0], uv[:, 2] - uv[:, 0]], axis=1))) > 1e-8).all()
+            assert np.isclose(mesh.uvs[:, 0], 17.3).any()
+
+
+def test_pier_cap_fits_sloped_soffit_without_a_daylight_wedge():
+    from turku3d.coarse.bridge_kit import beam_supports
+    axis = shapely.LineString([(0, 0), (100, 0)])
+    way = dict(id='slope', line=axis, width=16, outline=axis.buffer(8, cap_style='flat'))
+    spec = dict(structure='beam', foot=False, thickness=.4, support='stone', box_depth=.65)
+    height = lambda p: 5 + p[:, 0] * .03
+    meshes = beam_supports(way, height, lambda p: np.zeros(len(p)), [], way['outline'], spec)
+    assert len(meshes) == 4
+    for cap in meshes[1::2]:
+        expected = height(cap.positions[:, [0, 2]]) - 1.05
+        top = cap.positions[:, 1] > cap.positions[:, 1].min() + .01
+        assert np.allclose(cap.positions[top, 1], expected[top])
