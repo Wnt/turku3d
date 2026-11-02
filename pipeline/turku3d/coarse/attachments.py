@@ -22,7 +22,7 @@ REACH = 8.0
 
 def measure(buildings, points, classes, context=()):
     """Find connected level patches with lower-side evidence, retaining source heights."""
-    points, classes = np.asarray(points), np.asarray(classes)
+    points, classes = np.asarray(points, dtype=np.float64), np.asarray(classes)
     keep = np.isin(classes, (1, 2, 6, 8, 10, 12, 17))
     points, classes = points[keep], classes[keep]
     if len(points) < 20 or not buildings:
@@ -63,8 +63,12 @@ def measure(buildings, points, classes, context=()):
                 if len(q) < 20:
                     continue
                 # Height modes preserve separate slabs at the same plan position.
-                low = np.floor(q[:, 1].min() / 0.05) * 0.05
-                bins = np.floor((q[:, 1] - low) / 0.05).astype(int)
+                # Float32 source heights can round a floating lower edge above
+                # the minimum return. Subtract integer bin indices instead.
+                absolute_bins = np.floor(q[:, 1] / 0.05).astype(np.int64)
+                first_bin = int(absolute_bins.min())
+                bins = absolute_bins - first_bin
+                low = first_bin * 0.05
                 counts = np.bincount(bins)
                 peaks, _ = find_peaks(np.r_[0, counts, 0], distance=3, prominence=8)
                 candidates = []

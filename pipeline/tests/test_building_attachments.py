@@ -135,3 +135,12 @@ def test_mapped_stairs_reach_the_reconstructed_terrace_level():
     assert meshes and cuts
     assert max(m.positions[:, 1].max() for m in meshes) == 2
     assert min(m.positions[:, 1].min() for m in meshes) <= 0.4
+
+
+def test_float32_height_at_rounded_histogram_boundary_keeps_nonnegative_bins():
+    # 1.8f32 rounds below a lower edge computed as floor(h/.05)*.05 in float32.
+    # Farm source shards use that dtype, unlike the original double fixtures.
+    deck, classes = points(10.05, 14, 2, 8, 1.8)
+    ground, labels = points(14.2, 18, 1, 9, 0.1)
+    result = inventory((deck.astype(np.float32), classes), (ground.astype(np.float32), labels))
+    assert any(abs(r["height"] - 1.8) < 1e-5 and r["region"].area > 18 for r in result)
