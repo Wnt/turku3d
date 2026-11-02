@@ -17,9 +17,11 @@ export class WalkerContact {
     const material = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     material.name = 'human-soft-contact';
-    material.colorNode = vec3(0.055, 0.065, 0.08);
+    // Alpha-blended contact must only remove light. A fixed grey unlit colour
+    // becomes a travelling light pool when the night ground is darker than it.
+    material.colorNode = vec3(0);
     material.opacityNode = pow(max(float(0), float(1).sub(length(uv().sub(0.5).mul(2)))), 1.7)
-      .mul(attribute('humanContact', 'float')).mul(0.44);
+      .mul(attribute('humanContact', 'float')).mul(0.22);
     this.mesh = new THREE.InstancedMesh(geometry, material, capacity);
     this.mesh.name = 'human-ground-contact';
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

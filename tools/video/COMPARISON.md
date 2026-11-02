@@ -3,8 +3,8 @@
 Re-create the 60-second, 1920×1080, 60 fps film with this exact command:
 
 ```sh
-cd ~/turku3d/wt/loops/video/repo
-node tools/video/make-comparison.mjs \
+cd ~/turku3d/wt/loops/viewdist/repo
+TURKU3D_CAPTURE_OWNER=viewdist node tools/video/make-comparison.mjs \
   --left https://wnt.github.io/turku-game/ \
   --right http://localhost:5220/ \
   --shots tools/video/comparison-shots.json \
@@ -12,9 +12,9 @@ node tools/video/make-comparison.mjs \
 ```
 
 The delivered cut is `~/turku3d/video/2026-11-02/turku3d-before-after.mp4`.
-The previous 14:39 cut is preserved beside it as
-`turku3d-before-after-1439.mp4`. The final capture compares production `5a832712`
-with integration `f85e7de6`, using fresh tiles from `video-f85e7de6`.
+The previous 16:24 cut is preserved beside it as
+`turku3d-before-after-1624.mp4`; the earlier14:39 cut is also retained.
+`builds.json` records the exact production/integration commits and tile alias.
 Re-running selects the integration commit current at that time. Choose a new
 `--out` directory to preserve the delivered cut and its capture receipts.
 
@@ -26,13 +26,13 @@ same local production fallback. Nothing writes to production, main, or raw data.
 Local servers started by the command are stopped when it finishes.
 The read-only production relay retries transient upstream failures up to three
 times. Successful content-addressed assets are cached in
-`~/turku3d/loops/video/published-cache/` with byte-integrity checks; manifests
+`~/turku3d/loops/<owner>/published-cache/` with byte-integrity checks; manifests
 remain live. Delete that directory to clear only this pipeline's local cache.
 
 Prerequisites: the repository's Node dependencies, ffmpeg/ffprobe, the existing
 pipeline Python environment (Pillow and NumPy), the shared tile farm, 5195, 5220,
 and the Chrome guard. No paid tools or new keys. Browser profile and logs live in
-`~/turku3d/loops/video/`; only one guarded automation browser is used at a time.
+`~/turku3d/loops/<owner>/`; only one guarded automation browser is used at a time.
 Close any manually held video browser before running the complete command.
 
 `comparison-shots.json` contains the 15 camera paths, hours, weather presets and
@@ -47,7 +47,7 @@ renderer using that side's streamed vehicle records. Gen 2 retains its occupancy
 rules and resting-slot transforms; production retains its nearby-body range.
 No parking positions are invented. Trucks and moving ambient traffic are omitted.
 
-The command registers the integration commit as `video-<sha>`, requests every
+The command registers the integration commit as `<owner>-<sha>`, requests every
 path tile plus a one-tile ring, and adds any extra detailed resident tiles observed
 in preview. It waits for full, fresh products, then changes only `version` in
 `loops/integrator/tile-service.json` (retaining `service` and `scenery`). It runs
@@ -55,7 +55,8 @@ the coordinator's 5220 verification with our guarded profile, then captures.
 
 Capture reuses two paused pages in one browser, rendering the two sides of each
 segment back to back. `beforeFrame`/`afterFrame`, the simulation clock, rain phase,
-and `performance.now` advance one frame at a time. CDP screenshots pipe directly
+advance one frame at a time. Only the legacy production page substitutes
+`performance.now`; the new game streams against its ordinary monotonic clock. CDP screenshots pipe directly
 to H.264 encoders; real-time FPS does not change the output timing. Camera poses
 and resident visual hashes are stored with each clip. New-side stale manifests,
 incomplete tiles and mismatched resident hashes are rejected. The frozen
@@ -136,3 +137,31 @@ midpoint pose and animation frame, warms temporal history there, and writes
 
 The older explainer/showcase pipeline and its `shots.json` are independent; see
 [README.md](README.md).
+
+View-distance revision: the shot list replaces riverboats, academy, library and Föri
+with 95–135 m city-centre, cathedral, Kauppatori and bridge panoramas. Castle and
+waterfront remain in slots 13/14. The new build uses ordinary game streaming; capture
+does not replace its update function, preload a special route, or delete tile entries.
+`TURKU3D_CAPTURE_OWNER` selects the guard owner, isolated profile and working directories.
+
+The new-side capture runs a frozen local snapshot of the selected integration commit
+on5961 against its pinned tile alias. This prevents other loops' subsequent HMR edits
+from changing a shot.5220 still receives and verifies the actual game fix. Every new-side
+frame must pass the game's `viewStatus()` readiness signal; each receipt stores far
+source hashes and coverage. Captures can wait for streaming but cannot alter it.
+
+Prepare the shot footprints without occupying a browser slot:
+
+```sh
+node tools/video/prepare-scenery.mjs --service http://127.0.0.1:5226 \
+  --shots tools/video/comparison-shots.json --out /owned/scenery-ready.json
+```
+
+Preparation uses the game's actual tile-selection functions. The capture audit
+checks all240 new-side frame receipts per shot and final manifest hashes before
+composition, then verifies the encoded film and creates its contact sheet.
+
+When another agent is waiting, capture releases its browser at a clip boundary
+after ten minutes. Re-run the same command with `--resume`: it keeps the original
+integration and production revisions and reuses matching completed clips and
+previews. An interrupted clip is recaptured before the film can pass its audit.

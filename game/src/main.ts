@@ -21,7 +21,8 @@ import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { renderPixelRatio } from './render/quality';
+import { QUALITY, renderPixelRatio } from './render/quality';
+import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
@@ -289,6 +290,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>) {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
+    vegetationDistance: QUALITY[params.quality].vegetation.mid,
+    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
     previewCollision: collisionPreview,
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
@@ -302,7 +305,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
     distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
-    env.setCityDistance(camera, distantCity.radius);
+    env.setCityDistance(camera, 15000);
     window.__game!.scenery = distantCity;
   }
   return coarse;
@@ -352,8 +355,7 @@ async function runQa() {
     busy: () => {
       const scenery = distantCity?.progress;
       // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
-      return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
-        || scenery.loaded !== scenery.total)
+      return !!scenery && !scenery.ready
         || [...benchFetches.values()].some(start => performance.now() - start > 1500)
         || !!rain && weather.sample.wetness > .0001 && !rain.exposure.settled;
     },
@@ -459,6 +461,8 @@ async function runPlay() {
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
   const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
+  // Keep startup's live worker/streaming diagnostics available before the play session is ready.
+  Object.assign(window.__game!, { physics, coarse, streamer });
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.

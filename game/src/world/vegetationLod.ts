@@ -7,6 +7,10 @@ import { GrassField } from './nature/grass';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
 
+export function vegetationLevel(distance: number, range: { near:number; mid:number }) {
+  return distance < range.near ? 0 : distance < range.mid ? 1 : 2;
+}
+
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
@@ -65,8 +69,8 @@ export class VegetationLod {
   private projection = new THREE.Matrix4();
   private sphere = new THREE.Sphere();
   private position = new THREE.Vector3();
+  private treePosition = new THREE.Vector3();
   private visible: Bucket[] = [];
-  private remaining = [0, 0, 0];
   private library: NatureLibrary | null = null;
   private grass: GrassField | null = null;
   private readonly ready: Promise<void>;
@@ -163,7 +167,7 @@ export class VegetationLod {
         matrix.decompose(t, q, s);
         const id = ids?.[i] ?? `${variant}:${i}`;
         inModel.copy(t).applyMatrix4(toModel);
-        const nearWater = water.has(waterCell(inModel.x, inModel.z));
+        const nearWater = owner.userData.instance_near_water?.[i] ?? water.has(waterCell(inModel.x, inModel.z));
         const asset = library.variant(natureAsset(variant, String(id), s.y, nearWater, owner.userData.instance_species?.[i] ?? ""), String(id)), name = asset.name;
         const scale = natureScale(s.y, Math.max(s.x, s.z), asset.height, asset.radius);
         place(byAsset, name, new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz)), natureTint(String(id)), ids?.[i]);
@@ -274,8 +278,7 @@ export class VegetationLod {
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
-    const remaining = this.remaining;
-    remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = this.screenshotDistance ? Infinity : q.farInstances;
+    let near = q.nearInstances, far = this.screenshotDistance ? Infinity : q.farInstances;
     let barriers = q.barrierInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
@@ -287,15 +290,21 @@ export class VegetationLod {
         if (count) bucket.draw.selections[Math.min(level, bucket.draw.levels.length - 1)].push({ bucket, offset: 0, count });
         continue;
       }
-      // A partially filled near/mid budget must demote the rest of a cell, not
-      // erase its trees. Ranges are disjoint so no tree draws at two LODs.
-      let offset = 0;
-      for (; level < bucket.draw.levels.length && offset < bucket.count; level++) {
-        const count = Math.min(bucket.count - offset, remaining[level]);
-        if (!count) continue;
-        remaining[level] -= count;
-        bucket.draw.selections[level].push({ bucket, offset, count });
-        offset += count;
+      // Cells are only culling units. The tree's own position selects its LOD, in either pass.
+      // Exhausting the high-detail budget may choose the reduced mesh, never a nearby impostor.
+      for (let offset=0;offset<bucket.count;offset++) {
+        this.treePosition.fromArray(bucket.matrices,offset*16+12).applyMatrix4(bucket.draw.root.matrixWorld);
+        const distance=this.treePosition.distanceTo(this.position);
+        if (distance>Math.max(q.far,this.screenshotDistance)) continue;
+        const wanted=vegetationLevel(distance,q);
+        level=wanted===0 && near>0 ? 0 : wanted<2 ? 1 : 2;
+        if (level>=bucket.draw.levels.length) continue;
+        if (level===2 && far<=0) continue;
+        if (level===0) near--;
+        if (level===2) far--;
+        const selections=bucket.draw.selections[level], last=selections[selections.length-1];
+        if (last?.bucket===bucket && last.offset+last.count===offset) last.count++;
+        else selections.push({bucket,offset,count:1});
       }
     }
     // Cells cull independently, but compact into one draw per tile/asset/LOD part.
@@ -366,7 +375,7 @@ function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)) return;
     const key = materialKey(mesh, mesh.material);
-    if (key && surfaceStyle(key) === 'water') meshes.push(mesh);
+    if (mesh.userData.surface === 'water' || (key && surfaceStyle(key) === 'water')) meshes.push(mesh);
   });
   const a = new THREE.Vector3(), b = new THREE.Vector3(), r = Math.ceil(WATER_REACH / WATER_CELL);
   for (const mesh of meshes) {

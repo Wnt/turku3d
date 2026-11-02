@@ -55,6 +55,37 @@ test('normal residency takes over scenery; reset invalidates an in-flight model'
   expect(late.parent).toBeNull(); expect(dispose).toHaveBeenCalledWith(late, expect.any(String));
 });
 
+test('prepared scenery owns the first visual until full detail and preview returns when scenery is released', async () => {
+  const { scene, nearby, scenery, load } = setup();
+  load.mockImplementation(async () => {
+    const model = new THREE.Group();
+    for (const layer of ['ground', 'buildings', 'vegetation']) {
+      const child = new THREE.Group(); child.userData.layer = layer; model.add(child);
+    }
+    return model;
+  });
+  scenery.setRadius(1000); scenery.update(125, 125, 0); await settle();
+  const source = scene.children[0];
+  const entry: Entry = { model: new THREE.Group(), preview: {coarse:true,tile:'t0_0_0',visual:{},collision:{}}, state: 'draft', nextPoll: 0, collision: new Map() };
+  nearby.set('t0_0_0', entry);
+  scenery.nearbyChanged('t0_0_0');
+  expect(source.visible).toBe(true);
+  expect(entry.model!.visible).toBe(false);
+  expect(source.children.map(c => c.visible)).toEqual([true, true, true]);
+  scenery.setRadius(0);
+  expect(entry.model!.visible).toBe(true);
+  scenery.setRadius(1000);scenery.update(125,125,500);await settle();
+  const replacement=scene.children[0];
+  delete entry.preview;
+  entry.cachedAt=1000;entry.model!.visible=false;
+  scenery.nearbyChanged('t0_0_0');expect(replacement.visible).toBe(true);
+  entry.cachedAt=undefined;entry.model!.visible=true;
+  scenery.nearbyChanged('t0_0_0');
+  expect(replacement.visible).toBe(false);
+  scenery.update(125, 125, 1000); await settle();
+  expect(replacement.parent).toBeNull();
+});
+
 test('5 km from the supplied east-city viewpoint includes the cathedral and farther scenery', () => {
   const { scenery } = setup();
   scenery.setRadius(5000); scenery.update(3749.71, 436.7, 0, true);
@@ -64,27 +95,30 @@ test('5 km from the supplied east-city viewpoint includes the cathedral and fart
   expect(scenery.progress.total).toBeGreaterThan(400);
 });
 
-test('photo range keeps fog and sky beyond scenery and Normal restores defaults', () => {
+test('photo range extends clipping without changing weather fog', () => {
   const scene = new THREE.Scene();
   const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   const env = new Environment(scene, renderer, 'medium');
   const camera = new THREE.PerspectiveCamera(60, 1, .1, 6000);
+  env.setSun(180, 45, 13);
+  const fog = (scene.fog as THREE.Fog).clone();
   env.setScreenshotDistance(camera, 5000);
   expect(camera.far).toBeGreaterThan(5000 * Math.sqrt(3));
   expect(env.sky.scale.x / 2).toBeGreaterThan(5000);
-  expect((scene.fog as THREE.Fog).near).toBe(5000);
+  expect((scene.fog as THREE.Fog).near).toBe(fog.near);
+  expect((scene.fog as THREE.Fog).far).toBe(fog.far);
   env.setScreenshotDistance(camera, 0);
   expect(camera.far).toBe(6000); expect(env.sky.scale.x).toBe(4500);
-  expect((scene.fog as THREE.Fog).near).toBe(500); expect((scene.fog as THREE.Fog).far).toBe(3500);
+  expect((scene.fog as THREE.Fog).near).toBe(fog.near); expect((scene.fog as THREE.Fog).far).toBe(fog.far);
   env.dispose();
 });
 
 test('large views use derivative sources without requesting source regeneration', async () => {
   const { scenery, request, host, load } = setup();
   request.mockImplementation(async (url: string) => {
-    if (url.includes('/scenery?')) return new Response(JSON.stringify({ tiles: [{ tile: 't0_-6_5', h: [0, 107], key: 'a'.repeat(64), source_sha256: 'base' }], missing: [] }));
-    return new Response(JSON.stringify({ coarse: true, scenery: true, tile: 't0_-6_5', pass_kind: 'full',
-      visual: { 't0_-6_5': { url: '../scenery/lod.test.glb', sha256: 'derived' } } }));
+    if (url.includes('/scenery?')) return new Response(JSON.stringify({ tiles: [{ tile: 't2_-2_1', h: [0, 107], key: 'a'.repeat(64), source_sha256: 'base' }], missing: [] }));
+    return new Response(JSON.stringify({ coarse: true, scenery: true, tile: 't2_-2_1', pass_kind: 'full',
+      visual: { 't2_-2_1': { url: '../scenery/lod.test.glb', sha256: 'derived' } } }));
   });
   const view = { x: 3751.26, y: 164.15, z: 430.05, dx: -1, dz: 0, halfAngle: .8 };
   scenery.setRadius(6000, view); view.dx = 1;
@@ -99,9 +133,61 @@ test('large views use derivative sources without requesting source regeneration'
   expect(load).toHaveBeenCalledTimes(1);
 });
 
+test('near scenery awaits known tree placements; approaching a cached far tile upgrades vegetation once', async () => {
+  const {scenery,request,host,load}=setup();
+  const ids=['t0_0_0','t0_4_0'],keys=['a'.repeat(64),'b'.repeat(64)];
+  host.vegetationDistance=180;
+  host.prepareVegetation=vi.fn(async()=>{});
+  request.mockImplementation(async url=>{
+    if(url.includes('/scenery?'))return new Response(JSON.stringify({tiles:ids.map((tile,i)=>({tile,key:keys[i],h:[0,20],source_sha256:'same',trees_url:`scenery/${keys[i]}.trees.json`})),missing:[]}));
+    if(url.endsWith('.trees.json'))return new Response('{"version":1,"nodes":[]}');
+    const i=url.includes(keys[0])?0:1;
+    return new Response(JSON.stringify({coarse:true,tile:ids[i],pass_kind:'full',visual:{[ids[i]]:{url:'scene.glb',sha256:ids[i]}}}));
+  });
+  const view={x:125,y:5,z:125,dx:1,dz:0,halfAngle:1};
+  scenery.setRadius(4000,view);await settle();scenery.update(125,125,1000);await settle();
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(host.prepareVegetation).toHaveBeenCalledTimes(1);
+  scenery.setView({...view,x:1125},2000);await settle();scenery.update(1125,125,2000);await settle();
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(host.prepareVegetation).toHaveBeenCalledTimes(2);
+  scenery.update(1125,125,3000);await settle();
+  expect(host.prepareVegetation).toHaveBeenCalledTimes(2);
+});
+
+test('a catalogue without tree sidecars does not repoll geometry every frame or expose nearby cones', async () => {
+  const {scenery,request,host,load}=setup();host.vegetationDistance=180;host.prepareVegetation=vi.fn(async()=>{});
+  const key='a'.repeat(64);
+  request.mockImplementation(async url=>new Response(JSON.stringify(url.includes('/scenery?')
+    ?{tiles:[{tile:'t0_0_0',key,h:[0,20],source_sha256:'same'}],missing:[]}
+    :{coarse:true,tile:'t0_0_0',pass_kind:'full',visual:{t0_0_0:{url:'scene.glb',sha256:'same'}}})));
+  load.mockImplementation(async()=>{const model=new THREE.Group(),cones=new THREE.Group();cones.userData.layer='vegetation';model.add(cones);return model;});
+  scenery.setRadius(4000,{x:125,y:5,z:125,dx:1,dz:0,halfAngle:.5});await settle();
+  for(let now=1000;now<1100;now++){scenery.update(125,125,now);await settle();}
+  expect(load).toHaveBeenCalledTimes(1);expect(host.prepareVegetation).not.toHaveBeenCalled();
+  expect((await load.mock.results[0].value).children[0].visible).toBe(false);
+  expect(request.mock.calls.filter(([url])=>url.endsWith('.json'))).toHaveLength(1);
+});
+
+test('queued tree placements remain pending and retry promptly without claiming a source failure', async () => {
+  const {scenery,request,host}=setup();host.vegetationDistance=180;host.prepareVegetation=vi.fn(async()=>{});
+  const key='a'.repeat(64);let attempts=0;
+  request.mockImplementation(async url=>{
+    if(url.includes('/scenery?'))return new Response(JSON.stringify({tiles:[{tile:'t0_0_0',key,h:[0,20],source_sha256:'same',trees_url:`scenery/${key}.trees.json`}],missing:[]}));
+    if(url.endsWith('.trees.json'))return ++attempts===1?new Response('{"state":"preparing"}',{status:202}):new Response('{"version":1,"nodes":[]}');
+    return new Response(JSON.stringify({coarse:true,tile:'t0_0_0',pass_kind:'full',visual:{t0_0_0:{url:'scene.glb',sha256:'same'}}}));
+  });
+  scenery.setRadius(4000,{x:125,y:5,z:125,dx:1,dz:0,halfAngle:.5});await settle();
+  scenery.update(125,125,1000);await settle();
+  expect(scenery.progress.errors).toBe(0);expect(scenery.progress.pending).toBe(1);expect(scenery.progress.loaded).toBe(0);
+  scenery.update(125,125,2999);await settle();expect(attempts).toBe(1);
+  scenery.update(125,125,3001);await settle();
+  expect(attempts).toBe(2);expect(scenery.progress.loaded).toBe(1);expect(scenery.progress.errors).toBe(0);
+});
+
 test('a ready skyline retry completes before hundreds of untouched scenery tiles', async () => {
   const { scenery, request, load } = setup();
-  const chimney = 't0_-6_5';
+  const chimney = 't2_-2_1';
   const attempts = new Map<string, number>();
   request.mockImplementation(async (url: string) => {
     if (url.includes('/scenery?')) {
@@ -119,7 +205,7 @@ test('a ready skyline retry completes before hundreds of untouched scenery tiles
   await settle();
   scenery.update(3751.26, 430.05, 0); await settle();
   expect(attempts.get(chimney)).toBe(1);
-  expect(scenery.progress.total).toBeGreaterThan(100);
+  expect(scenery.progress.total).toBeGreaterThan(50);
   scenery.update(3751.26, 430.05, 1000); await settle();
   expect(attempts.size).toBe(8); // Other scenery advances while the skyline retry is cooling down.
   scenery.update(3751.26, 430.05, 2000); await settle();
@@ -128,9 +214,9 @@ test('a ready skyline retry completes before hundreds of untouched scenery tiles
   expect(scenery.progress.loaded).toBe(1);
 });
 
-test('live turns request the new sector, reuse brief look-backs and release old scenery', async () => {
+test('coarse city survives turns and is released after leaving its area', async () => {
   const { scenery, request, scene, load, dispose } = setup();
-  const west = 't0_-6_5', east = 't0_30_1';
+  const west = 't2_-2_1', east = 't2_7_0';
   request.mockImplementation(async (url: string) => {
     if (url.includes('/scenery?')) {
       const ids = new URL(url, 'http://localhost').searchParams.get('tiles')!.split(',');
@@ -144,21 +230,21 @@ test('live turns request the new sector, reuse brief look-backs and release old 
   const view = { x: 3751.26, y: 164.15, z: 430.05, dx: -1, dz: 0, halfAngle: .8 };
   scenery.setRadius(6000, view); await settle();
   scenery.update(view.x, view.z, 1000); await settle();
-  expect(scenery.progress.loaded).toBe(1);
+  expect(scenery.progress.loaded).toBe(2);
   const original = scene.children[0];
   scenery.setView({ ...view, dx: 1 }, 1200);
   await settle(); scenery.update(view.x, view.z, 1216); await settle();
-  expect(scenery.heading).toBe(90); expect(scenery.progress.loaded).toBe(1);
-  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/t0_30_1.glb');
+  expect(scenery.heading).toBe(90); expect(scenery.progress.loaded).toBe(2);
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/t2_7_0.glb');
   expect(scene.children).toContain(original);
   const catalogues = request.mock.calls.filter(([url]) => url.includes('/scenery?')).length;
   scenery.setView(view, 1500); scenery.update(view.x, view.z, 1500); await settle();
-  expect(scenery.heading).toBe(270); expect(scenery.progress.loaded).toBe(1);
+  expect(scenery.heading).toBe(270); expect(scenery.progress.loaded).toBe(2);
   expect(request.mock.calls.filter(([url]) => url.includes('/scenery?'))).toHaveLength(catalogues);
   expect(load).toHaveBeenCalledTimes(2); expect(scene.children).toContain(original);
-  scenery.setView({ ...view, dx: 1 }, 8000); scenery.update(view.x, view.z, 8000); await settle();
+  scenery.setView({ ...view, x: 25000 }, 8000); scenery.update(25000, view.z, 8000); await settle();
   expect(dispose).toHaveBeenCalledWith(original, west);
-  expect(scene.children).toHaveLength(1);
+  expect(scene.children).toHaveLength(0);
   expect(request.mock.calls.every(([url]) => url.includes('/scenery'))).toBe(true);
   scenery.setRadius(0); expect(scene.children).toHaveLength(0);
 });
@@ -168,14 +254,14 @@ test('a turn during catalogue loading cannot restore the old sector', async () =
   let release!: (response: Response) => void;
   request.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
   request.mockImplementation(async (url: string) => {
-    if (url.includes('/scenery?')) return new Response(JSON.stringify({ tiles: [{ tile: 't0_30_1', key: 'east', h: [0, 10], source_sha256: 'base' }], missing: [] }));
-    return new Response(JSON.stringify({ coarse: true, tile: 't0_30_1', pass_kind: 'full',
-      visual: { 't0_30_1': { url: '../scenery/east.glb', sha256: 'east' } } }));
+    if (url.includes('/scenery?')) return new Response(JSON.stringify({ tiles: [{ tile: 't2_7_0', key: 'east', h: [0, 10], source_sha256: 'base' }], missing: [] }));
+    return new Response(JSON.stringify({ coarse: true, tile: 't2_7_0', pass_kind: 'full',
+      visual: { 't2_7_0': { url: '../scenery/east.glb', sha256: 'east' } } }));
   });
   const view = { x: 3751.26, y: 164.15, z: 430.05, dx: -1, dz: 0, halfAngle: .4 };
   scenery.setRadius(6000, view);
   scenery.setView({ ...view, dx: 1 }, 1000);
-  release(new Response(JSON.stringify({ tiles: [{ tile: 't0_-6_5', key: 'west', h: [0, 107], source_sha256: 'base' }], missing: [] })));
+  release(new Response(JSON.stringify({ tiles: [{ tile: 't2_-2_1', key: 'west', h: [0, 107], source_sha256: 'base' }], missing: [] })));
   await settle(); scenery.update(view.x, view.z, 1000); await settle();
   scenery.update(view.x, view.z, 1016); await settle();
   expect(scenery.heading).toBe(90);
@@ -196,4 +282,67 @@ test('collision previews retain distant scenery until the detailed model replace
   entry.preview = undefined;
   scenery.update(125, 125, 2000); await settle();
   expect(model.parent).toBeNull();
+});
+
+
+test('loaded parent covers refinement until all selected children arrive, without double drawing', async () => {
+  const { scenery, scene } = setup();
+  scenery.setRadius(8000, { x: 100, y: 20, z: 100, dx: 1, dz: 0, halfAngle: .8 });
+  await settle();
+  const state = scenery as unknown as { footprint: string[]; unavailable: Set<string>;
+    entries: Map<string, { model: THREE.Group; next: number; seen: number; complete: boolean }> };
+  state.footprint = ['t0_0_0', 't0_1_0']; state.unavailable.clear();
+  const parent = new THREE.Group(), left = new THREE.Group(), right = new THREE.Group();
+  scene.add(parent, left, right);
+  const entry = (model: THREE.Group) => ({ model, next: Infinity, seen: 0, complete: true });
+  state.entries.set('t2_0_0', entry(parent)); state.entries.set('t0_0_0', entry(left));
+  scenery.update(100, 100, 1000, true);
+  expect(parent.visible).toBe(true); expect(left.visible).toBe(false);
+  state.entries.set('t0_1_0', entry(right));
+  scenery.update(100, 100, 1100, true);
+  expect(parent.visible).toBe(false); expect(left.visible).toBe(true); expect(right.visible).toBe(true);
+  scenery.update(100, 100, 7000, true);
+  expect(parent.parent).toBeNull();
+});
+
+
+test('old children remain visible while a coarser replacement is loading', async () => {
+  const { scenery, scene } = setup();
+  scenery.setRadius(8000, { x: 2000, y: 20, z: 100, dx: -1, dz: 0, halfAngle: .8 });
+  await settle();
+  const state = scenery as unknown as { footprint: string[]; unavailable: Set<string>;
+    entries: Map<string, { model: THREE.Group; next: number; seen: number; complete: boolean }> };
+  state.footprint = ['t2_0_0']; state.unavailable.clear();
+  const child = new THREE.Group(), parent = new THREE.Group(); scene.add(child, parent);
+  const entry = (model: THREE.Group) => ({ model, next: Infinity, seen: 0, complete: true });
+  state.entries.set('t0_0_0', entry(child));
+  scenery.update(2000, 100, 10000, true);
+  expect(child.visible).toBe(true); expect(child.parent).toBe(scene);
+  state.entries.set('t2_0_0', entry(parent));
+  scenery.update(2000, 100, 10016, true);
+  expect(parent.visible).toBe(true); expect(child.visible).toBe(false);
+});
+
+
+test('steep aerial views request ground on every side of the camera', () => {
+  const { scenery } = setup();
+  scenery.setRadius(4000);
+  const camera = new THREE.PerspectiveCamera(60, 16 / 9, .1, 16000);
+  camera.position.set(125, 150, 125);
+  camera.lookAt(125, 0, 125); camera.updateMatrixWorld();
+  scenery.follow(camera);
+  const ids = (scenery as unknown as { footprint: string[] }).footprint;
+  for (const id of ['t0_-1_0', 't0_1_0', 't0_0_-1', 't0_0_1']) expect(ids).toContain(id);
+});
+
+test('a collision preview yields to scenery and returns if that scenery leaves', async () => {
+  const { scenery, nearby } = setup();
+  const model = new THREE.Group();
+  nearby.set('t0_0_0', { model, preview: {} as never, state: 'draft', nextPoll: 0, collision: new Map() });
+  scenery.setRadius(1000); scenery.update(125, 125, 0); await settle();
+  scenery.update(125, 125, 1000); await settle();
+  expect(model.visible).toBe(false);
+  scenery.setRadius(0);
+  scenery.update(125, 125, 2000);
+  expect(model.visible).toBe(true);
 });

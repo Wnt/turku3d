@@ -6,6 +6,7 @@ import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
 
 export interface NetPose {
+  lights?: 0 | 1 | 2; horn?: boolean;
   vehicleId?: string;
   rot?: Quat; wheels?: WheelState[];
   t: number; E: number; N: number; H: number; yaw: number;
@@ -41,7 +42,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
   const articulated = JSON.stringify([pose.rot, pose.wheels]) !== JSON.stringify([previous.rot, previous.wheels]);
-  const changed = articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
+  const changed = pose.lights !== previous.lights || pose.horn !== previous.horn || articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
 }

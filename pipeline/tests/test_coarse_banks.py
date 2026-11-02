@@ -9,6 +9,31 @@ from turku3d.coarse.inputs import CELLS
 from turku3d.col.materials import mat_id
 
 
+def test_surveyed_quay_cap_removes_wet_grid_sawtooth_and_keeps_the_join():
+    tile = C.VisualTile(0, 0, 0)
+    heights = np.full((CELLS + 1, CELLS + 1), 3.0)
+    heights[:, 51:] = np.arange(CELLS + 1)[:, None] % 2 * 2.0
+    p, ix = grid_mesh(tile, heights)
+    water = shapely.box(99.5, -10, 300, 260)
+    line = shapely.LineString([(96.5, -10), (96.5, 260)])
+    patch = dict(line=line, width=3, knots=np.array([0., 270.]),
+                 cross=np.array([-7.5, -4.5, -1.5, 0, 1.5, 4.5, 7.5]),
+                 heights=np.array([[np.nan, np.nan, 3, 3, 3, np.nan, np.nan]] * 2))
+    dry, _, bank, _ = produce(p, ix, np.full(len(ix), mat_id("grass"), np.uint8),
+                              np.ones(len(ix), bool), [water], 0,
+                              [(water.boundary.buffer(.5), mat_id("quay"))], walks=[patch])
+    crest = bank.positions[bank.positions[:, 1] > 0]
+    np.testing.assert_allclose(crest[:, 1], 3)
+    dry_points = {tuple(np.round(v, 8)) for v in dry.positions}
+    assert all(tuple(np.round(v, 8)) in dry_points for v in crest)
+    # A point beyond the measured path end must not inherit its paving level.
+    from turku3d.coarse.banks import quay_crest
+    query = np.array([[99.5, 1., 270.], [99.5, 1., 100.]])
+    actual = quay_crest(query, [patch], water, water.boundary.buffer(.5))
+    assert actual[0, 1] == 1
+    assert actual[1, 1] == 3
+
+
 def river_mesh(regions=(), barriers=()):
     tile = C.VisualTile(0, 0, 0)
     p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), 4.0))

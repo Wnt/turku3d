@@ -1,6 +1,8 @@
 import { RoundUI } from './net/rounds';
 import { multiplayerStart } from './gameplay/startPoints';
 import { bindRoundReset } from './net/roundReset';
+import { VehicleSignals } from './vehicle/signals';
+import { VehicleBeams } from './vehicle/beams';
 import { TyreEffects } from './vehicle/tyreEffects';
 import type { PlayWorld } from './playWorld';
 export type { PlayWorld } from './playWorld';
@@ -85,6 +87,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const root = new THREE.Group();
   root.name = 'play-session';
   scene.add(root);
+  const vehicleSignals = new VehicleSignals();
+  const vehicleBeams = new VehicleBeams(root, physics);
   const tyreEffects = new TyreEffects(root, params.quality);
   const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
   root.add(edgeMarker.group);
@@ -93,7 +97,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const positionHud = new PositionHud(camera, tiles);
-  const devLayers = new DevLayers(scene, coarse, renderer, radius => env.setScreenshotDistance(camera, radius), camera);
+  const devLayers = new DevLayers(scene, coarse, renderer, radius => { env.setScreenshotDistance(camera, radius); env.setCityDistance(camera, 15000); }, camera);
   const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
     if (!startScreen.active) void positionHud.copy();
   });
@@ -195,6 +199,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   });
   /** On foot again at `at` (null: wherever the character is placed next). */
   const leaveCar = (at: V3 | null) => {
+    const leaving = physics.latest?.vehicles.find(v => v.id === drivenId);
+    if (leaving) leaving.horn = false;
     if (multiplayerPlaying) sharedVehicles?.release(drivenId);
     mode = 'foot';
     physics.driveVehicle(null);
@@ -207,6 +213,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const enterVehicle = (id: string) => {
     fly?.set(false);
     drivenId = id;
+    vehicleSignals.enter();
     if (multiplayerPlaying) sharedVehicles?.drive(id);
     saveGame.usedVehicle(id);
     if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId);
@@ -303,7 +310,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
   const multiplayerAt = await preparedMultiplayer;
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerAt, saveGame, [audioPreload, voicePreload]);
-  Object.assign(window.__game!, { input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
+  Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
@@ -318,9 +325,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const framePacer = new FramePacer(params.mobile ? 30 : 0);
   Object.assign(window.__game!, { framePacer });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
+    if (document.hidden) {
+      vehicleSignals.update(false, false, false); audio.emit({ type: 'horns', vehicles: [] });
+      physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
+    }
   }, { signal: listeners.signal });
   renderer.setAnimationLoop(() => {
+    if (window.__render?.beforeFrame?.() === false) return;
     const now = performance.now();
     if (document.hidden || !framePacer.ready(now)) return;
     clock.frames++;
@@ -410,6 +421,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       }
     }
 
+    vehicleSignals.update(mode === 'car' && !paused && !menuOpen && !introOpen && !rounds.blocking && !startScreen.active, input.consume('lights'), input.actions.horn > .5);
+    // The worker freezes while paused; transmit the live release even without another physics step.
+    if (mode === 'car' && vs) { vs.lights = vehicleSignals.lights; vs.horn = vehicleSignals.horn; }
     let charIn: CharacterInput = { vx: 0, vz: 0, jump: false };
     let carIn: VehicleInput | null = null;
     if (mode === 'foot') {
@@ -435,6 +449,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         : { throttle: input.actions.throttle, steer: input.actions.steer,
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
+    if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
@@ -480,6 +495,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000);
+    if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
       if (st.character && st.character.enabled) {
@@ -511,6 +527,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       const sent = multiplayer?.sendPose({ t: now, E: feet.x, N: -feet.z, H: feet.y, yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)),
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: poseMode === 'foot' ? null : shared?.pose.vehicle ?? vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
         ...(poseMode !== 'foot' && shared && sharedVehicles?.hasSeat(drivenId!) ? { vehicleId: shared.id } : {}),
+        lights: mode === 'car' ? vs?.lights ?? 1 : 0, horn: mode === 'car' && vehicleSignals.horn,
         carrying: missions.phase === 'carrying' }, updates);
       if (sent) sharedVehicles?.sentUpdates(updates);
     }
@@ -551,6 +568,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         orbit.clampDist = h ? Math.max(0.8, h.toi - 0.3) : Infinity; camRayBusy = false;
       });
     }
+    vehicleBeams.update(mode === 'car' ? latestOf(drivenId ?? 'player') : null, now);
+    audio.emit({ type: 'horns', vehicles: [
+      ...(vehicleSignals.horn && vs ? [{ id: 'local', kind: vs.kind ?? 'car' as const, position: vs.pos }] : []),
+      ...(multiplayerPlaying ? remotePlayers.horns : []),
+    ] });
     tyreEffects.end(camera);
     audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
@@ -576,7 +598,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     positionHud.update(now, !startScreen.active);
     devLayers.update();
     renderFrame();
-    window.__render?.afterFrame?.();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
         vehicle: mode === 'car' ? drivenId ?? 'player' : null }));
@@ -600,7 +621,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
       E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),
       ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`, draft: coarse?.status,
-      perf,
+      lights: vs?.lights ?? 0, perf,
     });
     input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden'
       : menuOpen || missions.shop || pauseMenu.open ? 'menu' : paused ? 'paused' : recovery.lost ? 'lost' : mode);
@@ -609,6 +630,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     help.textContent = controlsHelp(input, mode, !!fly?.active, paused, !!recovery.lost);
     world.loadingScreen.update(!startScreen.active, coarse?.status);
     perf.end();
+    window.__render?.afterFrame?.();
   });
 
   return {
@@ -621,6 +643,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayer?.disconnect();
       devLayers.dispose();
       remotePlayers.dispose();
+      audio.emit({ type: 'horns', vehicles: [] });
+      vehicleBeams.dispose();
       tyreEffects.dispose();
       walkers.dispose();
       parkedVisuals.dispose();

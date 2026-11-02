@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { SCOOTER } from '../physics/constants';
+import { vehicleLamps } from '../vehicle/lamps';
 import type { VehicleState } from '../physics/protocol';
 import { scooterLean } from '../vehicle/lean';
 
@@ -43,6 +44,7 @@ export class ScooterVisual {
     this.root.visible = this.loaded;
     this.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);
+    vehicleLamps(this.root, 'scooter', s.lights ?? 0);
     const [front, rear] = s.wheels;
     if (front && rear) this.lean.position.y = (front.pos.y + rear.pos.y) / 2 - SCOOTER.wheelRadius;
     // Positive steer turns left; the body leans into the turn (negative roll about +X).

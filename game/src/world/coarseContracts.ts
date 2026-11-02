@@ -4,8 +4,9 @@ import type { CollisionBundle } from './collisionBundle';
 import type { Manifest, ManifestEntry, ParkedVehicle } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { TileLightsField } from '../render/lights/tileLights';
+import type { TreePlacements } from './treePlacements';
 
-export interface CoarseFragment { generation?: string; stale?: boolean; pass_kind?: 'first' | 'full'; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
+export interface CoarseFragment { generation?: string; stale?: boolean; pass_kind?: 'first' | 'full'; vegetation?: TreePlacements; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'];
@@ -27,6 +28,8 @@ export interface Entry extends DraftFreshness {
   version?: number; visualHash?: string; refreshing?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
   resident?: boolean; retries?: number;
+  /** Recently detached GPU-ready full visual, retained briefly for reversals. */
+  cachedAt?: number;
   preview?: CoarseFragment;
 }
 
@@ -47,6 +50,8 @@ export interface CoarseHost {
   previewCollision?: (buffers: ReadonlyMap<string, ArrayBuffer>) => Promise<THREE.Object3D>;
   /** After material styling and draft tint: register derived runtime geometry here. */
   styled?: (model: THREE.Object3D) => void | Promise<void>;
+  vegetationDistance?: number;
+  prepareVegetation?: (model: THREE.Object3D, data: TreePlacements) => Promise<void>;
   trackModel?: (model: THREE.Object3D, id: string) => void;
   untrackModel?: (model: THREE.Object3D, id: string) => void;
   style?: (model: THREE.Object3D) => void | Promise<void>;

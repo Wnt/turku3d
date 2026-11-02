@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { VegetationLod } from '../../src/world/vegetationLod';
+import { VegetationLod, vegetationLevel } from '../../src/world/vegetationLod';
 import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
 import { batchTileShadows } from '../../src/world/shadowBatch';
@@ -62,8 +62,8 @@ describe('species mapping', () => {
 });
 
 describe('vegetation LOD', () => {
-  it('demotes a partly admitted cell without dropping or duplicating its remaining trees', () => {
-    const { model, mesh } = tile(900, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -20));
+  it('uses reduced real meshes when the near budget is full, without nearby impostors or duplicates', () => {
+    const { model, mesh } = tile(900, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -10));
     mesh.userData.instance_species = Array(900).fill('Tilia cordata');
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
@@ -72,9 +72,34 @@ describe('vegetation LOD', () => {
     const ids = foliage.flatMap(b => b.userData.instance_object_ids);
     expect(ids).toHaveLength(900); expect(new Set(ids).size).toBe(900);
     expect(foliage.filter(b => b.userData.level === 0).reduce((n, b) => n + b.count, 0)).toBe(64);
-    expect(foliage.filter(b => b.userData.level === 1).reduce((n, b) => n + b.count, 0)).toBe(700);
-    expect(foliage.filter(b => b.userData.level === 2).reduce((n, b) => n + b.count, 0)).toBe(136);
+    expect(foliage.filter(b => b.userData.level === 1).reduce((n, b) => n + b.count, 0)).toBe(836);
+    expect(foliage.some(b => b.userData.level === 2)).toBe(false);
     lod.remove(model);
+  });
+
+  it('selects LOD from each tree distance even inside one cell', () => {
+    expect([49.9,50,179.9,180].map(d=>vegetationLevel(d,{near:50,mid:180}))).toEqual([0,1,1,2]);
+    const {model,mesh}=tile(2,'tree_detailed_fall',i=>new THREE.Vector3(0,0,-(45+i*10)));
+    mesh.userData.instance_species=['Tilia cordata','Tilia cordata'];
+    const scene=new THREE.Scene();scene.add(model);
+    const lod=new VegetationLod('medium',library);lod.add(model);lod.update(new THREE.PerspectiveCamera(65,1,.1,1000));
+    const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&b.material!==library.materials.bark);
+    expect(foliage.filter(b=>b.userData.level===0).flatMap(b=>b.userData.instance_object_ids)).toEqual(['osm:0']);
+    expect(foliage.filter(b=>b.userData.level===1).flatMap(b=>b.userData.instance_object_ids)).toEqual(['osm:1']);
+    lod.dispose();
+  });
+
+  it('includes camera height and keeps screenshot range out of near-detail selection', () => {
+    const {model,mesh}=tile(1,'tree_detailed_fall',()=>new THREE.Vector3(0,0,-20));
+    const scene=new THREE.Scene();scene.add(model);
+    const lod=new VegetationLod('medium',library);lod.screenshotDistance=4000;lod.add(model);
+    const camera=new THREE.PerspectiveCamera(65,1,.1,5000);
+    for(const [height,level]of [[120,1],[400,2]]) {
+      camera.position.set(0,height,0);camera.lookAt(0,0,-20);lod.update(camera);
+      const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&b.material!==library.materials.bark);
+      expect(foliage).toHaveLength(1);expect(foliage[0].userData.level).toBe(level);
+    }
+    lod.dispose();
   });
 
   it('culls cells, packs one draw per library part and LOD, and releases generated resources', () => {

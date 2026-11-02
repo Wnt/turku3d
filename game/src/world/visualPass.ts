@@ -1,7 +1,14 @@
 import type * as THREE from 'three/webgpu';
 import type { CoarseHost } from './coarseTiles';
+import type { TreePlacements } from './treePlacements';
+
+/** A retained full visual stays authoritative while a producer rebuilds its first pass. */
+export function acceptsVisualPass(current: 'first' | 'full' | undefined, incoming: 'first' | 'full' | undefined) {
+  return current !== 'full' || incoming !== 'first';
+}
 
 export interface ComparisonEntry {
+  cachedAt?: number;
   model?: THREE.Object3D; pass?: 'first' | 'full'; comparison?: THREE.Object3D;
   comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
 }
@@ -21,13 +28,13 @@ export class VisualPassComparison {
     this.pass = pass;
     for (const e of this.entries.values()) {
       this.clear(e); e.comparisonNext = 0;
-      if (e.model) e.model.visible = pass === 'auto' || e.pass === pass;
+      if (e.model) e.model.visible = e.cachedAt === undefined && (pass === 'auto' || e.pass === pass);
     }
     this.status = '';
   }
 
   clear(e: ComparisonEntry) {
-    if (e.model) e.model.visible = true;
+    if (e.model) e.model.visible = e.cachedAt === undefined;
     if (e.comparison) {
       e.comparison.removeFromParent(); this.dispose(e.comparison);
       e.comparison = undefined;
@@ -46,13 +53,14 @@ export class VisualPassComparison {
     try {
       const res = await this.request(`${this.root}${id}/${pass === 'first' ? 'first' : 'manifest'}.json`);
       if (!res.ok || res.status === 202) throw new Error(`${id}: ${pass} pass pending`);
-      const fragment = await res.json() as { pass_kind: string; visual: Record<string, { url: string }> };
+      const fragment = await res.json() as { pass_kind: string; vegetation?:TreePlacements; visual: Record<string, { url: string }> };
       if (fragment.pass_kind !== pass || !fragment.visual?.[id]) throw new Error(`${id}: ${pass} pass pending`);
       model = await this.load(new URL(fragment.visual[id].url, new URL(`${this.root}${id}/`, this.page)).href);
+      if (fragment.vegetation) await this.host.prepareVegetation?.(model,fragment.vegetation);
       await this.host.style?.(model);
       this.style(model);
       await this.host.styled?.(model);
-      if (this.entries.get(id) !== e || this.pass !== pass || !e.model) return;
+      if (this.entries.get(id) !== e || this.pass !== pass || !e.model || e.cachedAt !== undefined) return;
       this.clear(e);
       e.comparison = model; e.comparisonMode = pass; e.model.visible = false;
       this.host.scene.add(model); this.host.trackModel?.(model, 'comparison'); model = null;

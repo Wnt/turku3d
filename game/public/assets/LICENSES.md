@@ -49,3 +49,32 @@ or photographic pixels are included. The local reference plane is excluded from 
 Editable sources: `data/assets-src/cars/estate/estate.blend` and `estate-lods.blend`.
 Run `node game/scripts/prepare-fleet.mjs <source-directory> <output-directory>`
 to pack the three exported LODs with meshopt.
+
+## Octavia IV Combi study — original Blender fleet prototype
+
+`cars/octavia-combi-4/lod{0,1,2}.glb`: original geometry authored through
+Blenderwright in Blender 5.2 (2026). Copyright 2026 Jonni Madekivi; MIT,
+as the repository. Fictional diamond badge and VIR-268 plate. No downloaded
+mesh, photographic pixels or manufacturer artwork is included. Dimensions and
+vehicle specifications cite their factual sources in `spec.json`. Editable local
+source: `data/assets-src/cars/octavia-combi/octavia-cage.blend`; build settings
+in the adjacent `model.json`. Separate hub-centred wheels and named lamp materials
+are preserved in all three meshopt LODs. This model remains a visual prototype.
+
+## Regional horizon terrain
+
+Generated outer terrain uses [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/)
+under its [free and open licence](https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Data/DEM/resources/license/License-COPDEM-30.pdf),
+and [ESA WorldCover 2021 v200](https://esa-worldcover.org/en/data-access) under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Data accessed 2026-11-02.
+Only elevation and land-cover classes become geometry/vertex pigments; no satellite imagery is rendered.
+Regional resampling, ocean flattening and mesh simplification modify the source products.
+
+© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021)
+processed by ESA WorldCover consortium. Copernicus DEM: European Union, produced
+by Airbus Defence and Space and DLR. The immutable grid's `sources.json` records
+source URLs, transformations and the SHA-256; inputs and generated meshes stay outside Git.
+
+produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
+
+The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.

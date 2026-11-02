@@ -121,16 +121,16 @@ test('photo shortcuts use free controls and clipboard runs in the original key g
   const a = mapActions(pad([0, 0, 0, 0], { 14: 1, 15: 1 }), new Set(), bindings());
   expect(Object.entries(a).filter(([, value]) => value !== 0).map(([action]) => action).sort())
     .toEqual(['photoCharacter', 'positionHud']);
-  const keyboard = mapActions(null, new Set(['KeyP', 'KeyV', 'KeyL']), bindings());
+  const keyboard = mapActions(null, new Set(['KeyP', 'KeyV', 'KeyJ']), bindings());
   expect(keyboard.positionHud).toBe(1); expect(keyboard.photoCharacter).toBe(1); expect(keyboard.copyPosition).toBe(1);
   const events = new EventTarget(), el = new EventTarget();
   vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
   vi.stubGlobal('navigator', {});
   const copy = vi.fn();
   const input = new Input(el as HTMLElement, undefined, undefined, copy);
-  events.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyL', repeat: false }));
+  events.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyJ', repeat: false }));
   expect(copy).toHaveBeenCalledTimes(1);
-  events.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyL', repeat: true }));
+  events.dispatchEvent(Object.assign(new Event('keydown'), { code: 'KeyJ', repeat: true }));
   expect(copy).toHaveBeenCalledTimes(1);
   input.dispose();
 });

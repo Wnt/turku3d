@@ -12,7 +12,7 @@ import type { SharedVehicle, VehicleCommand, VehicleUpdate } from './vehicleType
 
 export function vehiclePose(state: VehicleState, model: string, now: number): NetPose {
   const yaw = yawOf(state.rot) - Math.PI / 2;
-  return { t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
+  return { lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
     yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), rot: state.rot, wheels: state.wheels,
     vE: state.linvel.x, vN: -state.linvel.z, vH: state.linvel.y,
     mode: state.kind ?? 'car', vehicle: model, carrying: false };
@@ -21,7 +21,7 @@ export function vehiclePose(state: VehicleState, model: string, now: number): Ne
 // Quantization is a dirty-state threshold, not physics: sleeping cars produce no
 // updates; tiny suspension/float noise must not multiply into 16-player traffic.
 export function vehicleFingerprint(p: NetPose): string {
-  return JSON.stringify([p.E, p.N, p.H, p.vE, p.vN, p.vH].map(v => Math.round(v * 100)))
+  return JSON.stringify([p.lights, p.horn]) + JSON.stringify([p.E, p.N, p.H, p.vE, p.vN, p.vH].map(v => Math.round(v * 100)))
     + JSON.stringify(p.rot && [p.rot.x, p.rot.y, p.rot.z, p.rot.w].map(v => Math.round(v * 1000)))
     + JSON.stringify(p.wheels?.map(w => [w.steer, w.rotation, w.suspension].map(v => Math.round(v * 100))));
 }

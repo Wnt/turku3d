@@ -54,7 +54,7 @@ OFFICE_LATLON = (60.44839, 22.26726)
 # --------------------------------------------------------------------------------------
 
 VISUAL_TILE_SIZE = 250.0  # level 0
-VISUAL_MAX_LEVEL = 3  # 250 m, 500 m, 1 km, 2 km
+VISUAL_MAX_LEVEL = 4  # 250 m through 4 km distant-city nodes
 COLLISION_TILE_SIZE = 62.5
 LAZ_TILE_SIZE = 500.0
 COLLISION_PER_VISUAL = int(VISUAL_TILE_SIZE / COLLISION_TILE_SIZE)  # 4 -> 4x4 = 16

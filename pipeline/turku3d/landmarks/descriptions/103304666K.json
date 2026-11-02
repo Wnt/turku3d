@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "building_id": "103304666K",
+  "name": "KOP-kolmio, Aurakatu 8",
+  "surfaces": [],
+  "reference_match": "verified",
+  "reference_confidence": 0.9,
+  "observations": [
+    "June 2026 street view: pale warm grey concrete fascia and dark neutral ribbon glazing; podium two storeys with large shop windows.",
+    "Whole-building teal paint came from a retained one-storey metal doorway description (_168). Concrete references _155 and _80 corroborate the main facade material; select their consensus."
+  ],
+  "facade_measurements": {
+    "opaque_material": "concrete",
+    "opaque_srgb": [
+      180,
+      181,
+      172
+    ],
+    "frame_srgb": [
+      41,
+      46,
+      44
+    ],
+    "glazing": "dark neutral horizontal ribbons"
+  },
+  "provenance": [
+    {
+      "source": "local research/areafix/market-block-lookaround.jpg; Look Around 569620272610193160, 2026-06-11",
+      "method": "vision parameters only; no reference pixels packaged"
+    }
+  ]
+}

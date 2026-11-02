@@ -104,6 +104,10 @@ def worker_elapsed(info):
     return max(0, time.monotonic() - started) if started is not None else 0
 
 
+# osgallery-dev has 16 threads and 48 GB; a build uses about one core and 1.1 GB.
+MAX_WORKERS = 12
+
+
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
                  reserve_gib=2, grace_seconds=900, execute=None, free=None):
@@ -118,7 +122,7 @@ class Farm:
         self.adoption_lock = threading.Lock()
         self.adopting = set()
         self.bundles = OrderedDict()
-        self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='tile')
+        self.pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
@@ -928,8 +932,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(200, self.server.farm.cancel(body['revision'], body['tiles']))
             if self.path == '/limits':
                 workers = body.get('workers')
-                if not isinstance(workers, int) or not 1 <= workers <= 4:
-                    raise ValueError('worker cap must be 1..4')
+                if not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
+                    raise ValueError(f'worker cap must be 1..{MAX_WORKERS}')
                 farm = self.server.farm
                 with farm.lock:
                     farm.workers = workers
@@ -1036,7 +1040,7 @@ def main():
     parser.add_argument('--runner', type=Path, required=True)
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=7950)
-    parser.add_argument('--workers', type=int, default=2, choices=range(1, 5))
+    parser.add_argument('--workers', type=int, default=2, choices=range(1, MAX_WORKERS + 1))
     args = parser.parse_args()
     with file_lock(args.root / 'service.lock'):
         farm = Farm(args.root, args.runner, workers=args.workers)

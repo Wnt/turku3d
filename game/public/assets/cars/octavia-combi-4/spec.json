@@ -1,0 +1,27 @@
+{
+  "model": "2020 Octavia IV Combi 1.0 TSI e-TEC DSG",
+  "massKg": 1353,
+  "massNote": "OEM basic kerb mass includes 75 kg driver; published equipment range 1353\u20131555 kg.",
+  "lengthM": 4.689,
+  "widthM": 1.829,
+  "heightM": 1.468,
+  "wheelbaseM": 2.686,
+  "trackFrontM": 1.543,
+  "trackRearM": 1.535,
+  "tyreSize": "225/45 R18",
+  "rideHeightM": 0.142,
+  "powerKw": 81,
+  "torqueNm": 200,
+  "drivetrain": "FWD",
+  "fuel": "petrol-mild-hybrid",
+  "zeroTo100Seconds": 10.6,
+  "topSpeedKmh": 201,
+  "turningCircleM": 10.4,
+  "drivingCharacter": "Light front-drive family estate; modest low-speed turbo torque, safe progressive understeer and relaxed seven-speed shifts.",
+  "sources": [
+    "https://cdn.skoda-storyboard.com/2020/09/TD-OCTAVIA-COMBI-petrol-en.pdf",
+    "https://cdn.skoda-storyboard.com/2020/09/OCTAVIA_EN_wheels_overview.pdf"
+  ],
+  "wheelNote": "Optional 18-inch 225/45 wheel package; performance figures are OEM base specification.",
+  "gearCount": 7
+}
