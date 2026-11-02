@@ -49,6 +49,21 @@ describe('species mapping', () => {
 });
 
 describe('vegetation LOD', () => {
+  it('demotes a partly admitted cell without dropping or duplicating its remaining trees', () => {
+    const { model, mesh } = tile(900, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -20));
+    mesh.userData.instance_species = Array(900).fill('Tilia cordata');
+    const scene = new THREE.Scene(); scene.add(model);
+    const camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
+    const lod = new VegetationLod('mobile', library); lod.add(model); lod.update(camera);
+    const foliage = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy && b.material !== library.materials.bark);
+    const ids = foliage.flatMap(b => b.userData.instance_object_ids);
+    expect(ids).toHaveLength(900); expect(new Set(ids).size).toBe(900);
+    expect(foliage.filter(b => b.userData.level === 0).reduce((n, b) => n + b.count, 0)).toBe(64);
+    expect(foliage.filter(b => b.userData.level === 1).reduce((n, b) => n + b.count, 0)).toBe(700);
+    expect(foliage.filter(b => b.userData.level === 2).reduce((n, b) => n + b.count, 0)).toBe(136);
+    lod.remove(model);
+  });
+
   it('culls cells, packs one draw per library part and LOD, and releases generated resources', () => {
     const { model, mesh } = tile();
     const scene = new THREE.Scene(); scene.add(model);

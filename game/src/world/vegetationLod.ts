@@ -5,11 +5,12 @@ import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
 import { natureAsset, natureScale, natureTint } from './nature/species';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
+import { GroundCover } from './nature/groundCover';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
-    if (node.userData.layer === 'vegetation') return node;
+    if (node.userData.layer === 'vegetation' || node.userData.material_key === 'draft_hedge') return node;
   }
   return null;
 }
@@ -21,16 +22,15 @@ interface Bucket {
   colors: Float32Array;
   objectIds: unknown[];
   distance: number;
-  selectedCount: number;
-  selectedLevel: number;
   count: number;
   index: number;
 }
+interface Selection { bucket: Bucket; offset: number; count: number }
 interface Draw {
   root: THREE.Group;
   /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer. */
   levels: THREE.InstancedMesh[][];
-  selections: Bucket[][];
+  selections: Selection[][];
   previous: number[][];
 }
 interface Model {
@@ -58,7 +58,9 @@ export class VegetationLod {
   private remaining = [0, 0, 0];
   private library: NatureLibrary | null = null;
   private readonly ready: Promise<void>;
+  private readonly groundCover: GroundCover;
   constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>) {
+    this.groundCover = new GroundCover(tier);
     if (library instanceof Promise) this.ready = library.then(loaded => { this.library = loaded; });
     else { this.library = library; this.ready = Promise.resolve(); }
   }
@@ -88,8 +90,9 @@ export class VegetationLod {
       const mesh = object as THREE.InstancedMesh;
       if (mesh.isInstancedMesh && vegetationOwner(mesh)) data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow });
     });
-    if (!data.sources.length) return;
     this.models.set(model, data);
+    yield* this.groundCover.add(model, library);
+    if (!data.sources.length) return;
     for (const { mesh } of data.sources) { mesh.visible = false; mesh.castShadow = false; }
     // Bark and crown prototypes of one variant share their placements: one representative per variant and parent.
     const representatives = new Map<string, THREE.InstancedMesh>();
@@ -115,10 +118,14 @@ export class VegetationLod {
         const id = ids?.[i] ?? `${variant}:${i}`;
         inModel.copy(t).applyMatrix4(toModel);
         const nearWater = water.has(waterCell(inModel.x, inModel.z));
-        const name = natureAsset(variant, String(id), s.y, nearWater, owner.userData.instance_species?.[i] ?? "");
+        const hedge = owner.userData.material_key === 'draft_hedge';
+        const name = hedge ? 'hedge' : natureAsset(variant, String(id), s.y, nearWater, owner.userData.instance_species?.[i] ?? "");
         const asset = library.asset(name);
         const scale = natureScale(s.y, Math.max(s.x, s.z), asset.height, asset.radius);
-        const placed = new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz));
+        // Barrier instances carry segment length, height and thickness instead of crown radii.
+        if (hedge) s.set(s.x / (asset.module ?? 2), s.y / asset.height, s.z / .8);
+        else s.set(scale.xz, scale.y, scale.xz);
+        const placed = new THREE.Matrix4().compose(t, q, s);
         const cell = `${Math.floor(t.x / 50)},${Math.floor(t.z / 50)}`;
         let cells = byAsset.get(name);
         if (!cells) byAsset.set(name, cells = new Map());
@@ -141,7 +148,7 @@ export class VegetationLod {
             bounds.union(sphere.copy(local).applyMatrix4(list[i].matrix));
           }
           all.union(bounds);
-          data.buckets.push({ draw, matrices, colors, objectIds: list.map(p => p.id), bounds, distance: 0, selectedCount: 0, selectedLevel: -1, count: list.length, index: data.buckets.length });
+          data.buckets.push({ draw, matrices, colors, objectIds: list.map(p => p.id), bounds, distance: 0, count: list.length, index: data.buckets.length });
         }
         // Static conservative bounds cover every possible packed selection and all cheaper LODs.
         for (const level of draw.levels) for (const part of level) part.boundingSphere = all.clone();
@@ -156,12 +163,13 @@ export class VegetationLod {
     const levels = asset.lods.map((lod, level) => {
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16);
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+      const objectIds: unknown[] = [];
       matrices.setUsage(THREE.DynamicDrawUsage); colors.setUsage(THREE.DynamicDrawUsage);
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
       const batch = (part: NaturePart, shadowProxy = false) => {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
-        mesh.userData = { ...owner.userData, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: [] };
+        mesh.userData = { ...owner.userData, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds };
         mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
         if (shadowProxy) mesh.layers.set(TILE_SHADOW_LAYER);
         mesh.visible = false; mesh.count = 0;
@@ -182,6 +190,7 @@ export class VegetationLod {
     camera.updateMatrixWorld();
     this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
+    this.groundCover.update(camera);
     camera.getWorldPosition(this.position);
     const q = QUALITY[this.tier].vegetation;
     this.visible.length = 0;
@@ -196,7 +205,6 @@ export class VegetationLod {
         if (active) draw.root.updateWorldMatrix(true, false);
       }
       for (const bucket of data.buckets) {
-        bucket.selectedLevel = -1;
         if (!active) continue;
         this.sphere.copy(bucket.bounds).applyMatrix4(bucket.draw.root.matrixWorld);
         bucket.distance = Math.max(0, this.position.distanceTo(this.sphere.center) - this.sphere.radius);
@@ -208,26 +216,31 @@ export class VegetationLod {
     remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = this.screenshotDistance ? Infinity : q.farInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
-      while (level < 3 && remaining[level] <= 0) level++;
-      // Shrubs and hedges have no impostor: beyond their last LOD they are not drawn.
-      if (level >= bucket.draw.levels.length) continue;
-      const count = Math.min(bucket.count, remaining[level]);
-      remaining[level] -= count;
-      bucket.selectedCount = count;
-      bucket.selectedLevel = level;
+      // A partially filled near/mid budget must demote the rest of a cell, not
+      // erase its trees. Ranges are disjoint so no tree draws at two LODs.
+      let offset = 0;
+      for (; level < bucket.draw.levels.length && offset < bucket.count; level++) {
+        const count = Math.min(bucket.count - offset, remaining[level]);
+        if (!count) continue;
+        remaining[level] -= count;
+        bucket.draw.selections[level].push({ bucket, offset, count });
+        offset += count;
+      }
     }
     // Cells cull independently, but compact into one draw per tile/asset/LOD part.
     // Only changed cell selections upload matrices; stationary views do no buffer writes.
     for (const data of this.models.values()) {
-      for (const bucket of data.buckets) if (bucket.selectedLevel >= 0) bucket.draw.selections[bucket.selectedLevel].push(bucket);
       for (const draw of data.draws) {
         for (let level = 0; level < draw.levels.length; level++) {
           const parts = draw.levels[level], selections = draw.selections[level], previous = draw.previous[level];
           if (!selections.length) continue;
+          selections.sort((a, b) => a.bucket.index - b.bucket.index);
           // Distance chooses membership, not buffer order. Passing a cell must not repack unchanged instances.
-          let changed = previous.length !== selections.length * 2;
+          let changed = previous.length !== selections.length * 3;
           for (let i = 0; !changed && i < selections.length; i++) {
-            changed = previous[i * 2] !== selections[i].index || previous[i * 2 + 1] !== selections[i].selectedCount;
+            const selection = selections[i];
+            changed = previous[i * 3] !== selection.bucket.index || previous[i * 3 + 1] !== selection.offset
+              || previous[i * 3 + 2] !== selection.count;
           }
           const first = parts[0];
           if (changed) {
@@ -235,13 +248,12 @@ export class VegetationLod {
             let offset = 0;
             const objectIds = first.userData.instance_object_ids as unknown[];
             objectIds.length = 0; previous.length = 0;
-            for (const bucket of selections) {
-              const count = bucket.selectedCount;
-              matrices.set(bucket.matrices.subarray(0, count * 16), offset * 16);
-              colors.set(bucket.colors.subarray(0, count * 3), offset * 3);
+            for (const { bucket, offset: start, count } of selections) {
+              matrices.set(bucket.matrices.subarray(start * 16, (start + count) * 16), offset * 16);
+              colors.set(bucket.colors.subarray(start * 3, (start + count) * 3), offset * 3);
               offset += count;
-              for (let i = 0; i < count; i++) objectIds.push(bucket.objectIds[i]);
-              previous.push(bucket.index, count);
+              for (let i = start; i < start + count; i++) objectIds.push(bucket.objectIds[i]);
+              previous.push(bucket.index, start, count);
             }
             for (const part of parts) part.count = offset;
             first.instanceMatrix.needsUpdate = true; first.instanceColor!.needsUpdate = true;
@@ -253,6 +265,7 @@ export class VegetationLod {
   }
 
   remove(model: THREE.Object3D) {
+    this.groundCover.remove(model);
     const data = this.models.get(model);
     if (!data) return;
     for (const draw of data.draws) {

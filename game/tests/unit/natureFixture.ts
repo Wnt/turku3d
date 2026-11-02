@@ -26,6 +26,8 @@ export function natureFixture(): NatureLibrary {
     node(name, 0, 'tree', ['nature_bark', 'nature_leaves'], 15); node(name, 1, 'tree', ['nature_bark', 'nature_leaves'], 15); node(name, 2, 'tree', ['nature_impostor'], 15);
   }
   for (const name of SHRUBS) { node(name, 0, 'shrub', ['nature_bark', 'nature_leaves'], 2); node(name, 1, 'shrub', ['nature_leaves'], 2); }
+  node('hedge', 0, 'hedge', ['nature_leaves'], 1.2); node('hedge', 1, 'hedge', ['nature_leaves'], 1.2);
+  node('grass_clump', 0, 'grass', ['nature_leaves'], .42);
   node('picket_fence', 0, 'fence', ['nature_wood'], 1); node('metal_railing', 0, 'fence', ['nature_metal'], 1); node('granite_wall', 0, 'fence', ['nature_granite'], 1);
   return natureLibraryFromScene(root, null, true);
 }
