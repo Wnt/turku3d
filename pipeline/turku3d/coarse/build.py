@@ -251,6 +251,9 @@ def build(
     )
     surface_sample = gardens.sampler(tile, surface_sample, inputs.gardens)
     surface_sample = walkable.sampler(surface_sample, inputs.walkable)
+    from . import attachments
+
+    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
     own_keys = {b.key for b in blds}
     wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
     shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
@@ -289,6 +292,39 @@ def build(
         tunnels.openings,
     )
     seconds.update(structure_seconds)
+    attachment_meshes, attachment_openings = cache.run(
+        "attachments",
+        source_key(Path(attachments.__file__), Path(gardens.__file__),
+                   Path(__file__).with_name("geometry.py"), base / "structures/geometry.py"),
+        [tile, inputs.attachments],
+        lambda: attachments.produce(tile, inputs.attachments),
+    )
+    dry = stairs.cut_ground(dry, attachment_openings)
+    solid = stairs.cut_ground(solid, attachment_openings)
+    stair_meshes = [*stair_meshes, *attachment_meshes]
+    seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
+    from . import yard_cover
+    from turku3d.tile_layer import identities
+
+    yard_source = (inputs.sources.get("roads") or [None])[0]
+    yard_source = Path(yard_source) if yard_source else None
+    yard_parcels, play_areas = cache.run(
+        "yard_features", source_key(Path(yard_cover.__file__),
+                                    Path(__file__).with_name("garden_inputs.py"), base / "spatial.py"),
+        [tile, identities({"osm": yard_source})],
+        lambda: yard_cover.features(tile, yard_source),
+    ) if yard_source else (shapely.Polygon(), [])
+    yard_blocked = [*water, *[b.footprint for b in [*blds, *inputs.wall_context]]]
+    play_blocked = [*yard_blocked, *[g for g, m in [*inputs.streets, *inputs.surfaces]
+                     if m in (mat_id("road"), mat_id("sidewalk"), mat_id("paving_slab"),
+                              mat_id("bridge_deck"))]]
+    play_meshes = cache.run(
+        "playgrounds", source_key(Path(yard_cover.__file__), base / "structures/geometry.py",
+                                  Path(__file__).with_name("bridge_details.py")),
+        [tile, play_areas, grid_pos, dry.positions, play_blocked],
+        lambda: yard_cover.playgrounds(tile, play_areas, surface_sample, play_blocked),
+    )
+    stair_meshes.extend(play_meshes)
     from . import street_profiles
 
     if inputs.retaining:
@@ -306,7 +342,7 @@ def build(
                  street_profiles.constrain(solid, inputs.street_profiles)),
     )
     dry, solid = dry_surface.mesh, solid_surface.mesh
-    surface_sample = street_profiles.sampler(surface_sample, dry_surface)
+    surface_sample = attachments.sampler(street_profiles.sampler(surface_sample, dry_surface), inputs.attachments)
     seconds["street_profiles_geometry"] = cache.metrics["street_profiles"]["seconds"]
     # The measured connected terrain replaces legacy raised strips in its area.
     kerb_lines = inputs.kerbs
@@ -416,7 +452,8 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, inputs.retaining],
+        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
+         inputs.retaining, inputs.vegetation_roads],
         stage,
         barrier_stage,
     )
@@ -519,7 +556,12 @@ def build(
     )
     t_surface = time.perf_counter()
     forest_paths = path_surfaces(inputs)
-    visual_regions = [*inputs.surfaces, *forest_paths]
+    lawn_regions = cache.run(
+        "yard_lawns", source_key(Path(yard_cover.__file__)),
+        [tile, inputs.ortho, yard_parcels, yard_blocked],
+        lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
+    )
+    visual_regions = [*lawn_regions, *inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
@@ -741,6 +783,7 @@ def build(
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
         stairs=stairs.stats(stair_meshes, inputs.stairs),
+        attachments=attachments.stats(tile, inputs.attachments),
         walkable=walkable.stats(tile, inputs.walkable),
         gardens=gardens.stats(tile, inputs.gardens),
         boats=boats.stats(tile, inputs.boats, boat_meshes),

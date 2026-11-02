@@ -211,6 +211,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "water",
         "walkable",
         "retaining",
+        "attachments",
         "gardens",
         "boats",
         "ortho",
@@ -253,7 +254,10 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return ["fitted-street-kerb"]
         if dataset == "gardens":
             return {}
-        if dataset in ("water", "boats", "barriers", "retaining"):
+        if dataset == "attachments":
+            return [dict(building="solid", kind="terrace", height=2, bottom=0,
+                         support=20, source="lidar")]
+        if dataset in ("water", "boats", "barriers", "retaining", "vegetation_roads"):
             return []
         if dataset == "wfs":
             assert len(sources) == 3
@@ -275,11 +279,13 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "water",
         "walkable",
         "retaining",
+        "attachments",
         "gardens",
         "boats",
         "wfs",
         "roads",
         "barriers",
+        "vegetation_roads",
         "tunnels",
         "stairs",
         "street_profiles",
@@ -287,6 +293,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     assert result.walkable == ["fitted-river-walk"]
     # Surveyed kerbs are structural just like the river walk and bridge heights.
     assert result.street_profiles == ["fitted-street-kerb"]
+    assert result.attachments[0]["height"] == 2
+    assert result.buildings[0].attributes["lidar_attachments"][0]["height"] == 2
     assert result.stairs == ((), ())
     assert result.parking == ((), ())
     assert result.kerbs is None

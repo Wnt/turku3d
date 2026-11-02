@@ -334,7 +334,8 @@ def visuals(tile, meshes):
                 layer="structures",
                 object_id=m.object_id,
                 material_key="draft_bridge_" + m.metadata.get("surface", "concrete"),
-                kind="retaining_wall" if m.object_id.startswith("retaining:") else "stairs",
+                kind=m.metadata.get("kind", "retaining_wall" if m.object_id.startswith("retaining:") else "stairs"),
+                **({"building": m.metadata["building"]} if "building" in m.metadata else {}),
             ),
         )
         for m in meshes
@@ -415,6 +416,7 @@ def from_inputs(cache, tile, inputs, grid_pos, sample, dry, solid, sources, deck
         [*inputs.retaining, *inputs.barriers],
         inputs.water,
         inputs.walkable,
+        getattr(inputs, "attachments", ()),
     )
 
 
@@ -431,6 +433,7 @@ def stage(
     barriers=(),
     water=(),
     walks=(),
+    attachments=(),
 ):
     from pathlib import Path
 
@@ -451,6 +454,7 @@ def stage(
         Path(__file__).with_name("tunnels.py"),
         Path(retaining.__file__),
         Path(__file__).with_name("gardens.py"),
+        Path(__file__).with_name("attachments.py"),
         base / "bridges/build.py",
         Path(C.__file__),
         base / "structures/geometry.py",
@@ -477,6 +481,7 @@ def stage(
             barriers,
             water,
             walks,
+            attachments,
         ],
         geometry,
     )

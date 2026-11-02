@@ -9,6 +9,39 @@ from turku3d.ground.mesh import Mesh
 from . import surfaces
 
 
+def surveyed_crest(points, ground, water, masonry):
+    """Recover a mapped stone rim from dry lidar support before wet-grid interpolation.
+
+    Smoothed TIN cells blend the quay paving with returns at water level. A
+    supported local median on the dry side restores the cap without interpreting
+    every natural shoreline as a retaining wall.
+    """
+    from scipy.spatial import cKDTree
+
+    if not len(points) or not len(ground) or masonry.is_empty:
+        return points
+    result = points.copy()
+    xy = shapely.points(points[:, [0, 2]])
+    distance = shapely.distance(xy, water)
+    eligible = (distance < 2.5) & (shapely.distance(xy, masonry) < 1e-7)
+    support = ground[~shapely.intersects_xy(water, ground[:, 0], ground[:, 2])]
+    if len(support) < 4 or not eligible.any():
+        return result
+    shore = shapely.distance(shapely.points(support[:, [0, 2]]), water)
+    support = support[(shore >= 0.15) & (shore <= 3) & (support[:, 1] > 0.2)]
+    if len(support) < 4:
+        return result
+    ids = np.flatnonzero(eligible)
+    d, ix = cKDTree(support[:, [0, 2]]).query(points[ids][:, [0, 2]], k=4)
+    target = np.median(support[ix, 1], axis=1)
+    valid = d[:, -1] <= 2.5
+    ids, target = ids[valid], target[valid]
+    weight = np.clip(1 - distance[ids] / 2.5, 0, 1)
+    weight *= np.clip(shapely.distance(xy[ids], masonry.boundary), 0, 1)
+    result[ids, 1] += np.maximum(0, target - result[ids, 1]) * weight
+    return result
+
+
 def quay_crest(points, walks, water, masonry):
     """Extend surveyed paving across a narrow retaining cap, not a wet TIN cell.
 
@@ -126,7 +159,7 @@ def pond_levels(water, paths):
     return result
 
 
-def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=(), walks=()):
+def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=(), walks=(), ground=()):
     """Cut both sides on the same outline, keeping grid and collision-tile constraints.
 
     Mapped quays/walls retain the surveyed rim and descend vertically. Other banks
@@ -226,6 +259,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
 
     dry.positions[:, 1] = rim(dry.positions)
     dry.positions = walkable.grade(dry.positions, walks, inner_only=True)
+    dry.positions = surveyed_crest(dry.positions, ground, body, quay)
     dry.positions = quay_crest(dry.positions, walks, body, quay)
     # Cancel internal wet edges by coordinates: boundary cutting duplicates vertices.
     edges = np.concatenate([wet_mesh.indices[:, pair] for pair in ([0, 1], [1, 2], [2, 0])])
@@ -250,6 +284,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     top = ends.reshape(-1, 3).copy()
     top[:, 1] = rim(top)
     top = walkable.grade(top, walks, inner_only=True)
+    top = surveyed_crest(top, ground, body, quay)
     top = quay_crest(top, walks, body, quay)
     top = top.reshape(-1, 2, 3)
     bottom = top.copy()
@@ -327,8 +362,8 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
             Path(C.__file__),
             Path(__file__).parents[1] / "col/materials_v1.json",
         ),
-        [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable],
+        [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable, inputs.points],
         lambda: produce(
-            grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable
+            grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable, inputs.points
         ),
     )

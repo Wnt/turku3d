@@ -21,6 +21,7 @@ BRIDGE = Path(C.REPO_ROOT / "pipeline/turku3d/package/visual.mjs")
 # must not invalidate finished world tiles when their orchestration changes.
 PRODUCERS = (
     "boats",
+    "harbour",
     "boat_inputs",
     "walkable",
     "gardens",
@@ -56,6 +57,7 @@ PRODUCERS = (
     "stair_survey",
     "retaining",
     "retaining_survey",
+    "attachments",
     "tunnels",
     "openings",
     "portals",
@@ -63,6 +65,7 @@ PRODUCERS = (
     "forests",
     "canopy_trees",
     "fences",
+    "fence_survey",
     "furniture",
     "tree_inputs",
     "geometry",

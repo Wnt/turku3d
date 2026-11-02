@@ -1,0 +1,120 @@
+"""Above-ground linear lidar support for mapped walls and short enclosure gaps."""
+
+import json
+
+import numpy as np
+import shapely
+from scipy.spatial import cKDTree
+from shapely.ops import substring
+
+from turku3d import config as C
+from turku3d.lidar import PointCloud, TileStore
+from turku3d.roads.access import polygon, private_areas
+from turku3d.spatial import rows
+
+
+def profile(line, cloud):
+    """A thin, sustained top above the higher adjacent ground, never a retaining drop."""
+    ground = cloud.points[cloud.records["classification"] == 2]
+    candidates = cloud.points[np.isin(cloud.records["classification"], [1, 2, 6, 12, 17])]
+    if len(ground) < 8 or len(candidates) < 6 or line.length < 1:
+        return None
+    ground_index, index = cKDTree(ground[:, [0, 2]]), cKDTree(candidates[:, [0, 2]])
+    steps = np.unique(np.r_[np.arange(0, line.length, 2.5), line.length])
+    tops, bases = [], []
+    for station in steps:
+        centre = np.asarray(line.interpolate(station).coords[0])
+        a = np.asarray(line.interpolate(max(0, station-0.1)).coords[0])
+        b = np.asarray(line.interpolate(min(line.length, station+0.1)).coords[0])
+        direction = (b-a)/max(np.linalg.norm(b-a), 1e-12)
+        g = ground[ground_index.query_ball_point(centre, 1.8)]
+        if len(g) < 8:
+            continue
+        lateral = (g[:, [0, 2]]-centre) @ np.array([-direction[1], direction[0]])
+        sides = [g[(lateral*sign > 0.6) & (lateral*sign < 1.8),1] for sign in (-1,1)]
+        levels = [float(np.median(v)) for v in sides if len(v)>=4]
+        base = max(levels) if levels else float(np.quantile(g[:, 1],0.65))
+        p = candidates[index.query_ball_point(centre, 1.5)]
+        delta = p[:, [0, 2]]-centre
+        across = abs(delta @ np.array([-direction[1], direction[0]]))
+        along = abs(delta @ direction)
+        h = p[:, 1]-base
+        use = (across < 0.65) & (along <= 1.25) & (h >= 0.35) & (h <= 3.5)
+        h = h[use]
+        if len(h) < 3:
+            continue
+        bins, counts = np.unique(np.floor(h/0.15).astype(int), return_counts=True)
+        strong = bins[counts >= max(3, counts.max()*0.4)]
+        if not len(strong):
+            continue
+        mode = (strong.max()+0.5)*0.15
+        support = h[abs(h-mode) < 0.2]
+        if len(support) >= 3:
+            tops.append(float(np.median(support)))
+            bases.append(base)
+    if len(tops) < max(2, int(np.ceil(len(steps)*0.6))):
+        return None
+    centre = float(np.median(tops))
+    if np.median(abs(np.asarray(tops)-centre)) > 0.25:
+        return None
+    return dict(height=round(centre,2),base=float(np.median(bases)))
+
+
+def enrich(tile, records, osm, paths):
+    """Complete mapped enclosures only where raw lidar confirms an above-ground barrier."""
+    source = [(r["geometry_local"], json.loads(r["tags"] or "{}"))
+              for _, r in rows(osm, tile.bbox.buffered(100))]
+    private = private_areas(source)
+    known = shapely.union_all([g for g, t, _ in records if t["barrier"] != "gate"])
+    buildings = shapely.union_all([polygon(g) for g,t in source if t.get("building") not in (None,"no")])
+    gates = shapely.union_all([g.buffer(2) for g,t in source if t.get("barrier") == "gate"])
+    gaps = private.boundary.difference(known.buffer(0.5)).difference(buildings.buffer(0.4)).difference(gates)
+    pending = list(records)
+    donors = [(g,t) for g,t,_ in records if t["barrier"] in ("fence","wall","city_wall","railing")]
+    for gap in shapely.get_parts(gaps):
+        if (gap.geom_type != "LineString" or gap.is_ring or not 1.5 <= gap.length <= 12
+                or not gap.intersects(shapely.box(*tile.bbox.as_tuple()))):
+            continue
+        if donors:
+            donor, tags = min(donors, key=lambda row: row[0].distance(gap))
+            if donor.distance(gap) < 1:
+                pending.append((gap, {**tags, "_inferred_gap": True}, False))
+    store = TileStore(source_paths={p.stem:p for p in paths})
+    available = {p.stem for p in paths}
+    result = []
+    for geometry, tags, on_road in pending:
+        if tags["barrier"] not in ("fence","wall","city_wall","railing") or "height" in tags:
+            result.append((geometry,tags,on_road))
+            continue
+        for line in shapely.get_parts(geometry):
+            if line.geom_type != "LineString":
+                result.append((line,tags,on_road))
+                continue
+            bounds = C.BBoxLocal(*line.buffer(2).bounds)
+            cloud = None
+            if all(b.name in available for b in C.laz_tiles_for_bbox(bounds)):
+                cloud = store.query(bounds).query(last_return=True)
+                if not buildings.is_empty:
+                    cloud = PointCloud(cloud.records[~shapely.intersects_xy(
+                        buildings.buffer(0.2), cloud.points[:,0], cloud.points[:,2])])
+            if cloud is None:
+                if not tags.get("_inferred_gap"):
+                    result.append((line,tags,on_road))
+                continue
+            from .retaining_survey import ground_points, measure
+
+            spans = [line] if tags.get("_inferred_gap") else [
+                substring(line, start, min(start+5,line.length)) for start in np.arange(0,line.length,5)
+            ]
+            for span in spans:
+                local = cloud.query(C.BBoxLocal(*span.buffer(2).bounds))
+                measured = profile(span,local)
+                fitted = ({**tags,"height":str(measured["height"]),"_lidar_base":measured["base"],
+                           "_lidar_height":True} if measured is not None else tags)
+                profiles = (measure(span,ground_points(local))
+                            if tags["barrier"] in ("wall","city_wall") and span.length>=1.5 else [])
+                if profiles:
+                    result.extend((edge,{**fitted,"_survey":profile},on_road) for edge,profile in profiles)
+                elif measured is not None or not tags.get("_inferred_gap"):
+                    result.append((span,fitted,on_road))
+    return result
