@@ -16,12 +16,17 @@ VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
 
 
 class Scenery:
-    def __init__(self, root, cache=None, survey=None):
+    def __init__(self, root, cache=None, survey=None, preferred=None):
         self.root = Path(root)
+        self.roots = ([Path(preferred)] if preferred else []) + [self.root]
         self.cache = Path(cache) if cache else self.root / '.scenery'
         self.script = Path(__file__).with_suffix('.mjs')
         self.tree_script = Path(__file__).with_name('scenery-trees.mjs')
-        self.recipe = hashlib.sha256(self.script.read_bytes()).hexdigest()
+        # Helper/decoder changes invalidate only render derivatives, never authored tiles.
+        dependencies = [self.script, self.script.with_name('scenery-openings.mjs'),
+                        self.script.with_name('scenery-source.mjs'),
+                        Path(__file__).parents[2] / 'pipeline/turku3d/package/facade_decode.mjs']
+        self.recipe = hashlib.sha256(b''.join(path.read_bytes() for path in dependencies)).hexdigest()
         self.survey = survey
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
         self.pending = {}
@@ -35,17 +40,21 @@ class Scenery:
             if not TILE.fullmatch(tile):
                 continue
             source = None
-            for name in ('manifest.json', 'last-full.json'):
-                try:
-                    fragment = json.loads((self.root / tile / name).read_text())
-                    entry = fragment['visual'][tile]
-                    if fragment.get('pass_kind', 'full') != 'full' or not VISUAL.fullmatch(entry['url']):
+            source_root = self.root
+            for root in self.roots:
+                for name in ('manifest.json', 'last-full.json'):
+                    try:
+                        fragment = json.loads((root / tile / name).read_text())
+                        entry = fragment['visual'][tile]
+                        if fragment.get('pass_kind', 'full') != 'full' or not VISUAL.fullmatch(entry['url']):
+                            continue
+                        if (root / tile / entry['url']).is_file():
+                            source, source_root = entry, root
+                            break
+                    except (OSError, ValueError, KeyError, TypeError):
                         continue
-                    if (self.root / tile / entry['url']).is_file():
-                        source = entry
-                        break
-                except (OSError, ValueError, KeyError, TypeError):
-                    continue
+                if source is not None:
+                    break
             if source is None:
                 row = self.survey.describe(tile) if self.survey else None
                 if row:
@@ -57,7 +66,7 @@ class Scenery:
                 continue
             key = hashlib.sha256(f"{self.recipe}:{tile}:{source['sha256']}".encode()).hexdigest()
             row = dict(tile=tile, key=key, source_sha256=source['sha256'], source_url=source['url'],
-                       h=source.get('h', [0, 0]), recipe=self.recipe)
+                       source_root=str(source_root), h=source.get('h', [0, 0]), recipe=self.recipe)
             mapping = self.cache / f'{key}.source.json'
             if not mapping.exists():
                 self._write(mapping, json.dumps(row).encode())
@@ -71,6 +80,12 @@ class Scenery:
         temporary = path.with_suffix(f'.tmp-{os.getpid()}-{threading.get_ident()}')
         temporary.write_bytes(data)
         temporary.replace(path)
+
+    def _source(self, row):
+        root = Path(row.get('source_root', self.root))
+        if root.resolve() not in [p.resolve() for p in self.roots]:
+            raise ValueError('Unconfigured scenery source root')
+        return (root / row['tile'] / row['source_url']).resolve()
 
     def descriptor(self, key):
         if not KEY.fullmatch(key):
@@ -135,14 +150,14 @@ class Scenery:
             raise ValueError('Invalid derivative source')
         # Local source unions use directory symlinks. Resolve before conversion so
         # external ../shared buffers stay relative to the original tile root.
-        source = (self.root / row['tile'] / row['source_url']).resolve()
+        source = self._source(row)
         if hashlib.sha256(source.read_bytes()).hexdigest() != row['source_sha256']:
             raise ValueError('Derivative source changed')
         output = self.cache / f'lod.{key}.glb'
         temporary = self.cache / f'lod.{key}.{os.getpid()}.{threading.get_ident()}.glb'
         try:
             result = subprocess.run(['node', str(self.script), str(source), str(temporary)],
-                                    check=True, capture_output=True, text=True, timeout=30)
+                                    check=True, capture_output=True, text=True, timeout=90)
             stats = json.loads(result.stdout.strip().splitlines()[-1])
             temporary.replace(output)
         finally:
@@ -185,7 +200,7 @@ class Scenery:
         row = json.loads((self.cache / f'{key}.source.json').read_text())
         if not TILE.fullmatch(row['tile']) or not VISUAL.fullmatch(row['source_url']):
             raise ValueError('Invalid tree source')
-        source = (self.root / row['tile'] / row['source_url']).resolve()
+        source = self._source(row)
         if hashlib.sha256(source.read_bytes()).hexdigest() != row['source_sha256']:
             raise ValueError('Tree source changed')
         temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')

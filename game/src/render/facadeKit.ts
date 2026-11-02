@@ -7,6 +7,7 @@ import { draftWindows, facadeKey, kitGlassMask, quantise, wallFrame, windowEmiss
 import { facadeAttribute, facadePaintAttributes, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
 import { addFacadeModules, facadeModuleMaterial } from './facadeModules';
+import { facadeProgramSurface } from './facadeProgramSurface';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -81,6 +82,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
   material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), program?.row ?? floor(bays.y),
     program?.rise ?? fract(bays.y), glazing, pane);
+  if ((p.version ?? 1) >= 4) material.emissiveNode = facadeProgramSurface(p.version).emission;
   wetSurface(material, true);
   return material;
 }
