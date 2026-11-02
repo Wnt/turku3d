@@ -71,7 +71,7 @@ def test_cut_terrain_reuses_ground_palette_and_never_tunnel_concrete():
     p, ix, keep = result.terrain(p, ix)
     rgb = np.full((32, 32, 3), [70, 130, 50], np.uint8)
     ids = surfaces.classify(p[ix].mean(axis=1), rgb, tile, ())
-    ground = surfaces.visuals(tile, p, ix, ids, keep, ortho=rgb)
+    ground = surfaces.visuals(tile, p, ix, ids, keep)
     assert ground
     assert all(m.extras["layer"] == "ground" for m in ground)
     assert surfaces.KEYS.index("grass") in surfaces.channels(ground)
