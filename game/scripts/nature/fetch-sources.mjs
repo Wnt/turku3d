@@ -29,13 +29,11 @@ const AMBIENTCG = {
   'Foliage001_2K-PNG': '32121763ebc2a1adca7ea64dbeb20ee759ea101bc79f6a066cbc2d39ae1dfdaa',
   'Foliage003_2K-PNG': '67c9a94a7ef14eb2aee2f36b04407501e6914ea8812ede9cbc4fc2d615427575',
   'Foliage006_2K-PNG': '1c9682dfcc07c9417745073f3c3641ad2bf02bc1a7b8b27098ddc8652555fd57',
-  'Foliage008_2K-PNG': '9d09de2c1cc96b818485984e1f6fcacaf11c4119b28f988689cf6c5d82fad98b',
   'Bark002_1K-JPG': 'd4b0363d39df7923d6c93deec9772763b7d1512623f66d07380d4142d4825b26',
   'Bark004_1K-JPG': '6161a463afae25f69e058356d8b6e0bd1498b10f2949ea90880e25a031063b44',
   'Bark009_1K-JPG': 'cda06f2bf1d92a5d51806ed9128a6adbf0022e9af8dda397dd2952d920fddb11',
   'Bark010_1K-JPG': '3cd7dbca3af9d09e549cef33a550782c2b9b7944ccdb4ed3d9e3c9f3e4cdeb82',
   'Granite003B_1K-JPG': '6087627a56bea42176f6053787674957a3b82898e72dfd2332ed2e9dcc4fcc5a',
-  'PaintedWood008A_1K-JPG': '1f6b84943a05c8c40e668ba4c82274bf6a55deae69264ea28139bcf38dac1921',
 };
 /** Poly Haven (https://polyhaven.com/a/ID), CC0 1.0: 1k diffuse and OpenGL normal maps. */
 const POLYHAVEN = {

@@ -31,7 +31,7 @@ const library = await loadNatureLibrary(renderer, env, false);
 library.materials.windStrength.value = Number(query.get('wind') ?? 1);
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2),
-  new THREE.MeshStandardNodeMaterial({ color: 0x4f5b3a, roughness: 0.97 }));
+  new THREE.MeshStandardNodeMaterial({ color: 0x3d5226, roughness: 0.97 }));
 ground.receiveShadow = true;
 scene.add(ground);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -59,16 +59,20 @@ function place(asset: NatureAsset, lod: number, x: number, z: number, rotation =
 function clear() { for (const m of placed.splice(0)) { scene.remove(m); m.dispose(); } }
 
 /** Ground cover around the subject: grass clumps, meadow and rosettes with the leaf material. */
-function meadow(radius: number, count: number) {
-  const kinds = ['grass_clump', 'grass_wide', 'grass_meadow', 'groundcover_rosette'].map(n => library.asset(n));
+/** Ground around the subject: a continuous lawn of overlapping lawn cards, a few taller tufts, flowers and rosettes. */
+function meadow(radius: number, perSquareMetre = 3) {
+  const count = Math.PI * radius * radius * perSquareMetre;
+  const kinds = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette'].map(n => library.asset(n));
   const matrix = new THREE.Matrix4(), rng = mulberry(7);
   for (const [k, asset] of kinds.entries()) {
-    const n = Math.round(count * [0.55, 0.25, 0.12, 0.08][k]);
+    const n = Math.round(count * [0.84, 0.08, 0.03, 0.05][k]);
     for (const part of asset.lods[0].parts) {
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, n);
+      // The game's grass material (sharp, unboosted alpha), never fading inside the viewer's meadow.
+      library.materials.grassRange.value.set(1e4, 2e4);
+      const mesh = new THREE.InstancedMesh(part.geometry, library.materials.grass, n);
       const r2 = mulberry(11 + k);
       for (let i = 0; i < n; i++) {
-        const a = r2() * Math.PI * 2, d = Math.sqrt(r2()) * radius, s = 0.7 + r2() * 0.6;
+        const a = r2() * Math.PI * 2, d = Math.sqrt(r2()) * radius, s = k ? 0.6 + r2() * 0.5 : 0.8 + r2() * 0.45;
         matrix.compose(new THREE.Vector3(Math.cos(a) * d, 0, Math.sin(a) * d), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r2() * 6.28), new THREE.Vector3(s, s, s));
         mesh.setMatrixAt(i, matrix);
         const b = 0.8 + r2() * 0.35; mesh.setColorAt(i, new THREE.Color(b, b, b * (0.9 + rng() * 0.15)));
@@ -137,12 +141,12 @@ function build() {
     const w = subject.kind === 'fence' ? 11 : subject.radius * 2.4;
     subject.lods.forEach((_, k) => place(subject, k, (k - (subject.lods.length - 1) / 2) * w, 0, 0, subject.kind === 'fence' ? 5 : 1, new THREE.Vector3(2, 0, 0)));
     target.set(0, subject.height * 0.45, 0); camera.position.set(0, subject.height * 0.5, Math.max(8, w * subject.lods.length * 0.9));
-    meadow(Math.max(14, w * 2), 1400);
+    meadow(Math.max(14, w * 2));
   } else {
     place(subject, lodParam === 'auto' ? 0 : Number(lodParam), 0, 0, 0, subject.kind === 'fence' ? 5 : 1, new THREE.Vector3(2, 0, 0));
     target.set(subject.kind === 'fence' ? 4 : 0, subject.height * 0.45, 0);
     camera.position.set(subject.radius * 1.6 + 4, Math.max(1.7, subject.height * 0.35), subject.radius * 2.4 + 6);
-    meadow(26, 1800);
+    meadow(26);
   }
   const cam = camOverride ?? query.get('cam')?.split(',').map(Number);
   if (cam?.length === 6) { camera.position.set(cam[0], cam[1], cam[2]); target.set(cam[3], cam[4], cam[5]); }
