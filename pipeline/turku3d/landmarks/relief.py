@@ -97,6 +97,7 @@ def meshes(building, walls, origin, description):
                     image=images[0], normal_image=images[1], orm_image=images[2],
                     repeat=surface != "elevation",
                     extras=dict(layer="buildings", building_id=building.facade_key,
+                                object_id=f"relief_{building.key}_{number}_{index}_{surface}",
                                 material_key="landmark_procedural", surface="wall", facade_relief=True,
                                 landmark_description=d["content_hash"], texture_uv="normalized"),
                 ))

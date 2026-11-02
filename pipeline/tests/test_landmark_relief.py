@@ -6,6 +6,7 @@ import shapely
 
 from turku3d.landmarks.descriptions import resolve
 from turku3d.landmarks.relief import extrude, meshes
+from turku3d.layers import read_visual, write_visual
 
 
 def test_extruded_profile_is_closed_outward_and_retains_its_hole():
@@ -21,7 +22,7 @@ def test_extruded_profile_is_closed_outward_and_retains_its_hole():
     assert projected.symmetric_difference(polygon).area < 1e-9
 
 
-def test_fragment_anchor_emits_a_spanning_component_once_and_keeps_provenance():
+def test_fragment_anchor_emits_a_spanning_component_once_and_keeps_provenance(tmp_path):
     b = SimpleNamespace(key="part", facade_key="103304670P", base=0, attributes={})
     d = resolve(b)
     d["elevations"] = [dict(origin_xz=[0, 0], axis_xz=[1, 0], normal_xz=[0, -1],
@@ -34,6 +35,9 @@ def test_fragment_anchor_emits_a_spanning_component_once_and_keeps_provenance():
     assert not c
     assert all(m.extras["facade_relief"] and m.extras["building_id"] == b.facade_key for m in a)
     assert all(np.isfinite(m.uvs).all() for m in a)
+    output = tmp_path / "relief.vis.glb"
+    write_visual(output, a)
+    assert read_visual(output)
     # The texture origin must not bury relief inside an offset surveyed wall.
     moved = meshes(b, [left + [0, 0, -.3]], np.zeros(3), d)
     np.testing.assert_allclose(np.concatenate([m.positions for m in moved]),
