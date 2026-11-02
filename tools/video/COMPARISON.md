@@ -12,6 +12,10 @@ in an isolated local Vite snapshot on 5960 against the published-tiles proxy 519
 and the integration server on 5220. Passing the published Pages URL selects the
 same local production fallback. Nothing writes to production, main, or raw data.
 Local servers started by the command are stopped when it finishes.
+The read-only production relay retries transient upstream failures up to three
+times. Successful content-addressed assets are cached in
+`~/turku3d/loops/video/published-cache/` with byte-integrity checks; manifests
+remain live. Delete that directory to clear only this pipeline's local cache.
 
 Prerequisites: the repository's Node dependencies, ffmpeg/ffprobe, the existing
 pipeline Python environment (Pillow and NumPy), the shared tile farm, 5195, 5220,
@@ -102,6 +106,7 @@ Focused checks:
 
 ```sh
 node --test tools/video/comparison.test.mjs
+node --test tools/video/published-proxy.test.mjs
 node --check tools/video/comparison-capture.mjs
 ```
 
