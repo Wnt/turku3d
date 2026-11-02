@@ -10,6 +10,7 @@ import { facadeKitMaterial } from './facadeKit';
 import { interleaveProgram, interleaveProgramAsync } from './facadeProgramAttributes';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
+import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
 import type { Environment } from './environment';
 
@@ -99,7 +100,7 @@ export class MaterialStyler {
           normal.transformDirection(mesh.matrixWorld);
           const point = new THREE.Vector3().fromBufferAttribute(mesh.geometry.getAttribute('position'), 0).applyMatrix4(mesh.matrixWorld);
           const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
-          const key = [...normal.toArray(), plane.constant].map(v => v.toFixed(4)).join(',');
+          const key = waterSharingKey([...normal.toArray(), plane.constant].map(v => v.toFixed(4)).join(','), mesh.userData);
           let shared = this.rivers.get(key);
           if (!shared) {
             shared = { river: new RiverMaterial(mesh, this.env, this.tier, this.deterministic, this.renderer), meshes: new Set() };
