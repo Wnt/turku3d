@@ -26,12 +26,14 @@ await new Promise((resolve, reject) => {
 });
 console.log(`Connected to integration page ${target.id}`);
 let seq = 0;
+const loadedPages=new Set();
 const pending = new Map(), assets = new Map(), failures = [];
 const consoleErrors=[];
 let lastAsset = 0;
 const asset = url => /\.(glb|bin|col|ktx2|png|jpg)(\?|$)/.test(url);
 socket.onmessage = ({ data }) => {
   const msg = JSON.parse(data);
+  if(msg.method==='Page.lifecycleEvent'&&msg.params.name==='load')loadedPages.add(msg.params.loaderId);
   if(msg.method==='Runtime.exceptionThrown')consoleErrors.push(msg.params.exceptionDetails);
   if(msg.method==='Runtime.consoleAPICalled'&&msg.params.type==='error')consoleErrors.push(msg.params.args.map(a=>a.value??a.description));
   if (msg.id) {
@@ -62,28 +64,42 @@ const evaluate = async expression => {
 };
 const delay = ms => new Promise(r => setTimeout(r, ms));
 fs.mkdirSync(out, { recursive: true });
+if(args.includes('--fleet-inspect')){
+  console.log(JSON.stringify(await evaluate(`window.fleetWorkshop.scene.children.map(o=>({name:o.name,type:o.type,count:o.count,visible:o.visible,pos:o.position.toArray()}))`)));
+  socket.close();process.exit(0);
+}
 // Vehicle motion fixtures use the production physics and visual classes, with identical
 // cached physical poses for the flattened baseline and articulated candidate.
 if (args.includes('--fleet-motion')) {
   await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
+  await send('Page.enable');
+  await send('Page.setLifecycleEventsEnabled',{enabled:true});
   await evaluate('window.fleetWorkshop=undefined');
-  await send('Page.navigate', {url:new URL('fleet-gallery.html',base).href});
+  for(const url of ['about:blank',new URL('fleet-gallery.html',base).href]){
+    const navigation=await send('Page.navigate',{url});
+    for(let i=0;i<600&&!loadedPages.has(navigation.loaderId);i++)await delay(50);
+    if(!loadedPages.has(navigation.loaderId))throw Error(`Workshop did not load: ${url}`);
+  }
   for(let i=0;i<120&&!await evaluate('!!window.fleetWorkshop');i++)await delay(250);
   consoleErrors.length=0;
-  const setup=await evaluate(`window.fleetWorkshop.motionSetup(${args.includes('--fleet-batch')})`);
+  const setup=await evaluate(`window.fleetWorkshop.motionSetup(${args.includes('--fleet-batch')||args.includes('--ground-motion')})`);
+  if(setup.revision!==4)throw Error('Stale fleet workshop: wait for Vite HMR before capture');
   if(args.includes('--fleet-bench')){
     const bench=await evaluate('window.fleetWorkshop.batchBench()');
     fs.writeFileSync(path.join(out,'batch-bench.json'),JSON.stringify(bench,null,1));
     console.log(JSON.stringify(bench));socket.close();process.exit(0);
   }
   const frames=[];
-  for(const articulated of [false,true])for(const index of [8,26,44,62,80,98]){
-    const state=await evaluate(`window.fleetWorkshop.motionFrame(${index},${articulated})`);
+  for(const articulated of [false,true]){
+    if(args.includes('--ground-motion'))await evaluate('window.fleetWorkshop.motionSetup(true)');
+    for(const index of [8,26,44,62,80,98]){
+    const state=await evaluate(`window.fleetWorkshop.${args.includes('--ground-motion')?'groundFrame':'motionFrame'}(${index},${articulated})`);
     await delay(100);
     const shot=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
     const file=`${articulated?'after':'before'}-${index}.jpg`;
     fs.writeFileSync(path.join(out,file),Buffer.from(shot.data,'base64'));frames.push({file,...state});
+  }
   }
   fs.writeFileSync(path.join(out,'motion.json'),JSON.stringify({setup,frames,consoleErrors},null,1));
   console.log(JSON.stringify({setup,frames:frames.length,out}));

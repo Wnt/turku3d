@@ -16,7 +16,7 @@ function world(cars: ParkedVehicle[], cap: number) {
     loaded: { has: () => true }, latest: { vehicles: [] as VehicleState[] },
     spawnVehicle: vi.fn((pos: V3, yaw: number, spec: Partial<VehicleSpec>) => {
       const rot: Quat = spec.rot ?? { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-      bodies.set(spec.id!, { id: spec.id, pos: { ...pos }, rot, linvel: { x: 0, y: 0, z: 0 }, speed: 0 } as VehicleState);
+      bodies.set(spec.id!, { id: spec.id, pos: { ...pos }, rot, linvel: { x: 0, y: 0, z: 0 }, speed: 0, forwardSpeed:0, curbStrike:null, wheels:[] });
       physics.latest.vehicles = [...bodies.values()];
     }),
     removeVehicle: vi.fn((id: string) => { bodies.delete(id); physics.latest.vehicles = [...bodies.values()]; }),
@@ -70,7 +70,7 @@ test.each(tiers)('%s: moving re-ranks bodies to the new nearest %i, evicting by 
   expect(evicted.length).toBeGreaterThan(0);
   expect(evicted.every(c => c.object_id.startsWith('a') && Math.hypot(c.x - 100, c.z) < 170)).toBe(true);
   const car = cars.find(c => c.object_id === pushed)!;
-  expect(stream.restingPose(car)).toEqual(moved);
+  expect(stream.restingPose(car)).toEqual({...moved,wheels:[]});
   await at(0, 0);
   expect(physical()).toEqual(nearest(cars, 0, 0, k));
   expect(physics.spawnVehicle.mock.calls.filter(([, , spec]) => spec.id === pushed).at(-1))
