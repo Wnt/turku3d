@@ -8,7 +8,7 @@ from turku3d.package.gltf import GlbMesh
 
 from .atlas import batch, merge
 from .descriptions import resolve
-from .faces import Face, architectural_faces
+from .faces import Face, architectural_faces, entrance_face
 from .layout import accepted_openings
 from .procedural import maps, material_maps, roof_surface, wall_maps
 from .relief import apply as apply_relief
@@ -88,7 +88,9 @@ def wall_meshes(building, walls, origin, description=None):
         return None
     result = []
     relief = []
-    for index, (face, band_kind) in enumerate(material_wall_parts(building, walls, d)):
+    parts = list(material_wall_parts(building, walls, d))
+    entrance = entrance_face([face for face, _ in parts], building.base, d.get("entrance"))
+    for index, (face, band_kind) in enumerate(parts):
         vertices = face.rectangle()
         width = float(np.linalg.norm(vertices[1, [0, 2]] - vertices[0, [0, 2]]))
         low, high = float(vertices[:, 1].min()), float(vertices[:, 1].max())
@@ -98,11 +100,7 @@ def wall_meshes(building, walls, origin, description=None):
             high - building.base > d["tower"]["minimum_height_m"]
             and width < d["tower"]["maximum_width_m"]
         )
-        direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
-        outward = np.array([direction[1], -direction[0]]) / width
-        wall_description = dict(
-            d, show_entrance=bool(d.get("entrance") and tower and outward[0] < -0.9)
-        )
+        wall_description = dict(d, show_entrance=face.identity == entrance)
         plan = accepted_openings(
             width,
             high - low,

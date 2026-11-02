@@ -83,3 +83,36 @@ def architectural_faces(walls, tolerance=0.02):
             identity = hashlib.sha256(key.tobytes()).hexdigest()[:16]
             faces.append(Face(translate(polygon, xoff=-left), start, group["direction"], identity))
     return sorted(faces, key=lambda face: face.identity)
+
+
+def entrance_face(faces, base, entrance):
+    """Select one usable principal face from the building's declared orientation."""
+    if not entrance:
+        return None
+    if entrance.get("face_id"):
+        return next((face.identity for face in faces if face.identity == entrance["face_id"]), None)
+    direction = {"west": [-1, 0], "east": [1, 0], "north": [0, -1], "south": [0, 1]}.get(
+        entrance.get("facade", "").lower()
+    )
+    if direction is None:
+        return None
+    from .layout import arch_polygon
+
+    candidates = []
+    for face in faces:
+        if face.normal @ direction < np.cos(np.deg2rad(20)):
+            continue
+        portal = arch_polygon(
+            face.width / 2,
+            base + entrance.get("sill_m", 0.1),
+            entrance["width_m"],
+            entrance["height_m"],
+            True,
+        )
+        if face.polygon.covers(portal.buffer(0.16)):
+            candidates.append(face)
+    return (
+        max(candidates, key=lambda face: (face.polygon.area, face.identity)).identity
+        if candidates
+        else None
+    )

@@ -60,3 +60,19 @@ def test_narrow_tower_does_not_overlap_the_wide_tower_opening_row():
     )
     assert len(openings(3.2, 10, 0, d, True)) == 1
     assert len(openings(15, 10, 0, d, True)) == 3
+
+
+def test_entrance_uses_one_principal_face_in_the_declared_orientation():
+    from turku3d.landmarks.faces import entrance_face
+
+    west = np.array([[0, 0, 12], [0, 0, 0], [0, 20, 0], [0, 20, 12]], float)
+    smaller = np.array([[1, 0, 6], [1, 0, 0], [1, 8, 0], [1, 8, 6]], float)
+    north = wall(0, 12)
+    faces = architectural_faces([west, smaller, north])
+    entrance = dict(facade="west", sill_m=0.35, width_m=2, height_m=4)
+    selected = entrance_face(faces, 0, entrance)
+    chosen = next(face for face in faces if face.identity == selected)
+    assert chosen.polygon.area == 240
+    assert np.allclose(chosen.normal, [-1, 0])
+    entrance["facade"] = "north"
+    assert entrance_face(faces, 0, entrance) != selected
