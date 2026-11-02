@@ -319,7 +319,7 @@ def build(
             inputs.markings,
         ),
     )
-    from .forest_paths import path_ground, path_surfaces
+    from .forest_paths import path_surfaces
     from .forests import BUSH_CAP, TREE_CAP, produce, trunks
 
     seconds["kerbs_geometry"] = cache.metrics["kerbs"]["seconds"]
@@ -511,68 +511,13 @@ def build(
         np.ones(len(surface_idx), bool),
         surface_normals,
     )
-    from . import ortho_cleanup
-
-    clean_args = (
-        tile,
-        inputs.ortho,
-        inputs.streets,
-        visual_regions,
-        inputs.ortho_canopy,
-        inputs.heights,
-        inputs.markings,
-        [b.footprint for b in blds],
-        inputs.water,
-        inputs.parking,
-    )
-    ground_ortho, cleanup_stats = cache.run(
-        "ground_ortho",
-        source_key(Path(ortho_cleanup.__file__), surfaces.classify, surfaces.fallback, *common),
-        clean_args,
-        lambda: ortho_cleanup.clean(*clean_args),
-    )
-    ground_ortho = cache.run(
-        "forest_path_ground",
-        source_key(path_ground, surfaces.fallback, *common),
-        [tile, ground_ortho, forest_paths],
-        lambda: path_ground(tile, ground_ortho, forest_paths),
-    )
-    from . import ground_colour
-
-    ortho_paths = inputs.sources.get("ortho", ())
-    mosaic = Path(ortho_paths[0]).name if ortho_paths and ortho_paths[0] else None
-    corrected_ortho, colour_stats = cache.run(
-        "ground_colour",
-        source_key(Path(ground_colour.__file__), ground_colour.TABLE, *common),
-        (
-            tile,
-            ground_ortho,
-            inputs.ortho,
-            inputs.streets,
-            visual_regions,
-            [b.footprint for b in blds],
-            inputs.water,
-            mosaic,
-        ),
-        lambda: ground_colour.apply(
-            tile,
-            ground_ortho,
-            inputs.ortho,
-            inputs.streets,
-            visual_regions,
-            [b.footprint for b in blds],
-            inputs.water,
-            mosaic,
-        ),
-    )
-    seconds.update(
-        {name: cache.metrics[name]["seconds"] for name in ("ground_ortho", "ground_colour")}
-    )
+    # City/OSM surface classes select metre-scale PBR materials. The ortho remains
+    # classifier input only: its parked cars and baked shadows are not albedo.
     ground_meshes = cache.run(
         "ground_visual",
         source_key(surfaces.visuals, base / "package/gltf.py", *common),
-        [visual_args, corrected_ortho, surfaces.KEYS, surfaces.BINDINGS],
-        lambda: surfaces.visuals(*visual_args, ortho=corrected_ortho),
+        [visual_args, surfaces.KEYS, surfaces.BINDINGS],
+        lambda: surfaces.visuals(*visual_args),
     )
     from turku3d.roads import paint as road_paint
 
@@ -754,8 +699,6 @@ def build(
         boats=boats.stats(tile, inputs.boats, boat_meshes),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         rule_paint=paint_counts,
-        ground_ortho_cleanup=cleanup_stats,
-        ground_colour_calibration=colour_stats,
         ground_surfaces={
             surfaces.KEYS[c]: int(
                 sum(

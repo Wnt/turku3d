@@ -14,6 +14,47 @@ from turku3d.facade_sections import prepare
 from turkutex.facade_structure import compile_structure
 
 
+@pytest.mark.parametrize("levels,source,expected", [(None, None, 3), (4, "register", 4), (3, "osm", 3), (20, "osm", 3)])
+def test_missing_storeys_get_visual_windows_without_changing_register(monkeypatch, levels, source, expected):
+    from turku3d import facade_programs as fp, facade_learning
+
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    monkeypatch.setattr(facade_learning, "apply", lambda p: p)
+    attrs = dict(levels=levels, levels_source=source, material_class="brick")
+    building = SimpleNamespace(key="missing-levels", facade_key="missing-levels", base=2, top=11.6,
+                               footprint=shapely.box(0, 0, 12, 5), attributes=attrs)
+    vertices = np.array([[0, 2, 0], [12, 2, 0], [12, 11.6, 0], [0, 11.6, 0]])
+    p = fp.resolve(building, vertices, {})
+    assert p["storeys"]["value"] == expected
+    assert fp.compile_wall(p["walls"][0], expected)["module"] < 42
+    assert building.attributes == attrs and attrs["levels"] == levels
+    if source == "register":
+        assert p["storeys"]["source"] == "register" and p["storeys"]["support"] == 1
+    else:
+        assert p["storeys"]["support"] < 0.6
+        assert "register" not in p["storeys"]["source"]
+
+
+def test_learned_cladding_uses_its_material_palette(monkeypatch):
+    from turku3d import facade_programs as fp, facade_learning
+    from turkutex.wall_palette import sample
+
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    def learned(p):
+        for w in p["walls"]:
+            w["wall"]["material"]["value"] = "brick"
+        return p
+    monkeypatch.setattr(facade_learning, "apply", learned)
+    b = SimpleNamespace(key="learned-brick", facade_key="learned-brick", base=0, top=9.6,
+                        footprint=shapely.box(0, 0, 12, 5), attributes=dict(levels=3))
+    p = fp.resolve(b, np.array([[0, 0, 0], [12, 0, 0], [12, 9.6, 0], [0, 9.6, 0]]), {})
+    wall = p["walls"][0]
+    assert wall["wall"]["colour"]["value"] == sample(b.key, {"material_class": "brick"})
+    assert wall["wall"]["colour"]["value"] != sample(b.key, {})
+
+
 def test_supported_leaves_and_explicit_negatives_do_not_erase_richer_fields():
     prior = dict(
         wall=dict(material=dict(value="stone", support=0.4)),
