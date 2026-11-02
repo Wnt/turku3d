@@ -398,7 +398,7 @@ describe('rendering', () => {
       visuals.reserveTraffic(40);
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
-      expect(meshes.map(m => m.name).sort()).toEqual(FLEET.flatMap(m => [0,1,2].flatMap(lod=>[`parked/${m.id}/${lod}`,...(m.id==='fleet-estate-3'||lod===2?[]:[`wheels/${m.id}/${lod}/1`,`wheels/${m.id}/${lod}/-1`])])).sort());
+      expect(meshes.map(m => m.name).sort()).toEqual([...FLEET.flatMap(m=>[0,1,2].map(lod=>`parked/${m.id}/${lod}`)),...new Set(FLEET.filter(m=>m.id!=='fleet-estate-3').flatMap(m=>[0,1].map(lod=>`wheels/${lod}/${m.wheel.toFixed(3)}/${lod===0?m.face%3:0}`)))].sort());
       // All LOD assets are resident before traffic starts changing.
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {

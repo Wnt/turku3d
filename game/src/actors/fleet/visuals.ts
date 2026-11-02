@@ -16,16 +16,20 @@ import { fleetMaterial, fleetNight } from './material';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
-interface Batch { wheels: THREE.InstancedMesh[]; mesh: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
+interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
+interface Batch { mesh: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
 interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
+/** Rim detail and tyre radius determine the wheel design, independently of body/paint. */
+export const fleetWheelDesign=(model:FleetModel,lod:number)=>`${lod}/${model.wheel.toFixed(3)}/${lod===0?model.face%3:0}`;
 
-/** Shared original parametric fleet. Near model/LODs share one body draw and two wheel draws;
+/** Shared original parametric fleet. Near model/LODs share a body draw and pool wheel draws by tyre/rim design;
  * far cars retain one flattened draw. Paint and lamps do not add draws. Existing physics records remain authoritative. */
 export class ParkedCarVisuals {
   private cars: ParkedVehicle[]=[];
   private groups=new Map<string,Batch>();
+  private wheelGroups=new Map<string,WheelBatch>();
   private geometries=new Map<string,THREE.BufferGeometry>();
   private dynamic=new Map<string,THREE.Mesh>();
   private definitions=new Map<string,{model:FleetModel;color:string;size?:ParkedVehicle}>();
@@ -71,7 +75,25 @@ export class ParkedCarVisuals {
     }
     const models=this.reserve?FLEET:FLEET.filter(m=>counts.has(m.id));
     const replacements: [string,Batch][]=[];
+    const wheelReplacements:[string,WheelBatch][]=[];
+    const plans=new Map<string,{model:FleetModel;lod:0|1;count:number}>();
+    for(const model of models)if(model.id!==AUTHORED_ESTATE)for(const lod of [0,1] as const){
+      const key=fleetWheelDesign(model,lod),plan=plans.get(key);
+      if(plan)plan.count+=counts.get(model.id)??0;
+      else plans.set(key,{model,lod,count:counts.get(model.id)??0});
+    }
     try {
+      for(const [key,plan] of plans){
+        const required=(plan.count+this.reserve)*4;
+        if((this.wheelGroups.get(key)?.mesh.instanceMatrix.count??0)>=required)continue;
+        const capacity=Math.max(64,2**Math.ceil(Math.log2(Math.max(1,required))));
+        const geometryKey=`wheel-design/${key}`;
+        if(!this.geometries.has(geometryKey))this.geometries.set(geometryKey,buildFleetWheel(plan.model,plan.lod,1));
+        const mesh=new THREE.InstancedMesh(this.geometries.get(geometryKey)!,fleetMaterial(),capacity);
+        mesh.name=`wheels/${key}`;mesh.castShadow=plan.lod===0;mesh.receiveShadow=true;
+        mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);
+        wheelReplacements.push([key,{mesh,count:0,dirty:true}]);await this.prepare(mesh);
+      }
       for(const model of models) for(let lod=0;lod<3;lod++) {
         const key=`${model.id}/${lod}`, required=(counts.get(model.id)??0)+this.reserve;
         if((this.groups.get(key)?.mesh.instanceMatrix.count??0)>=required) continue;
@@ -83,22 +105,18 @@ export class ParkedCarVisuals {
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
         mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
-        const wheels:THREE.InstancedMesh[]=[];
-        if(model.id!==AUTHORED_ESTATE&&lod<2)for(const side of [1,-1]){
-          const wheelKey=`${model.id}/${lod}/wheel/${side}`;
-          if(!this.geometries.has(wheelKey))this.geometries.set(wheelKey,buildFleetWheel(model,lod as 0|1,side));
-          const wheel=new THREE.InstancedMesh(this.geometries.get(wheelKey)!,fleetMaterial(),capacity*2);
-          wheel.name=`wheels/${key}/${side}`;wheel.castShadow=lod===0;wheel.receiveShadow=true;
-          wheel.count=0;wheel.setMatrixAt(0,HIDDEN);paintInstances(wheel,[]);fleetLamps(wheel,[]);wheels.push(wheel);await this.prepare(wheel);
-        }
-        const batch={wheels,mesh,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true}; replacements.push([key,batch]);
+        const batch={mesh,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true}; replacements.push([key,batch]);
         await this.prepare(mesh);
       }
-    } catch(error) { for(const [,b] of replacements) {b.mesh.dispose();for(const wheel of b.wheels)wheel.dispose();} throw error; }
+    } catch(error) { for(const [,b] of [...replacements,...wheelReplacements])b.mesh.dispose(); throw error; }
     // Keep every old draw until ALL replacement materials and passes are ready.
     for(const [key,batch] of replacements) {
-      const old=this.groups.get(key); if(old) {old.mesh.removeFromParent();old.mesh.dispose();for(const wheel of old.wheels){wheel.removeFromParent();wheel.dispose();}}
-      this.groups.set(key,batch); this.scene.add(batch.mesh,...batch.wheels);
+      const old=this.groups.get(key); if(old) {old.mesh.removeFromParent();old.mesh.dispose();}
+      this.groups.set(key,batch); this.scene.add(batch.mesh);
+    }
+    for(const [key,batch] of wheelReplacements){
+      const old=this.wheelGroups.get(key);if(old){old.mesh.removeFromParent();old.mesh.dispose();}
+      this.wheelGroups.set(key,batch);this.scene.add(batch.mesh);
     }
     for(const car of cars) this.definitions.set(car.object_id,{model:fleetModel(car.model,car.object_id),color:car.color,size:car});
     const resident=new Set(cars.map(c=>c.object_id));
@@ -152,16 +170,21 @@ export class ParkedCarVisuals {
     let changed=false;
     for(let i=0;i<16;i++)if(array[offset+i]!==Math.fround(matrix.elements[i])){changed=true;break;}
     if(changed){group.mesh.setMatrixAt(group.count,matrix);group.dirty=true;}
-    for(let i=0;i<4&&group.wheels.length;i++){
-      const side=i%2?-1:1, wheel=group.wheels[i%2], index=group.count*2+(i<2?0:1);
+    const wheelBatch=draw.model.id===AUTHORED_ESTATE?undefined:this.wheelGroups.get(fleetWheelDesign(draw.model,lod));
+    for(let i=0;i<4&&wheelBatch;i++){
+      const side=i%2?-1:1,wheel=wheelBatch.mesh,index=wheelBatch.count++;
+      if(index>=wheel.instanceMatrix.count)throw Error('Wheel design batch capacity exceeded');
       const state=draw.wheels?.[i],steer=state?.steer??(i<2?ackermann(draw.steer??0,draw.model.wheelbase,-side*(draw.model.width/2-.075)):0);
       this.hubPosition.set(side*(draw.model.width/2-.075),(state||draw.wheelY)?((state?.pos.y??draw.wheelY![i])+CHASSIS_LIFT)/this.scale.y:draw.model.wheel,(i<2?1:-1)*draw.model.wheelbase/2);
-      this.hubEuler.set(state?.rotation??draw.spin??0,steer,0,'YXZ');this.hubRotation.setFromEuler(this.hubEuler);
+      const spin=state?.rotation??draw.spin??0;
+      // Rotate the shared outward rim to the opposite side. Reverse its local spin
+      // so all four tyres still roll forward, with the parked spoke phase preserved.
+      this.hubEuler.set(side<0?Math.PI-spin:spin,steer+(side<0?Math.PI:0),0,'YXZ');this.hubRotation.setFromEuler(this.hubEuler);
       this.hubMatrix.compose(this.hubPosition,this.hubRotation,this.unitScale);
       this.wheelMatrix.multiplyMatrices(matrix,this.hubMatrix);
       const offset=index*16,array=wheel.instanceMatrix.array;
       for(let k=0;k<16;k++)if(array[offset+k]!==Math.fround(this.wheelMatrix.elements[k])){
-        wheel.setMatrixAt(index,this.wheelMatrix);group.dirty=true;break;
+        wheel.setMatrixAt(index,this.wheelMatrix);wheelBatch.dirty=true;break;
       }
     }
     group.paints[group.count]=draw.color;group.indicators[group.count]=draw.indicator??0;
@@ -170,6 +193,7 @@ export class ParkedCarVisuals {
   update(states:VehicleState[],rest?:ParkedRest) {
     const byId=new Map(states.map(s=>[s.id,s]));
     for(const b of this.groups.values()){b.count=0;b.dirty=false;}
+    for(const b of this.wheelGroups.values()){b.count=0;b.dirty=false;}
     for(const car of this.cars) {
       const pose=byId.get(car.object_id)??rest?.restingPose(car); if(!pose)continue;
       const def=this.definitions.get(car.object_id)!;
@@ -198,14 +222,16 @@ export class ParkedCarVisuals {
     for(const b of this.groups.values()) {
       const changedCount=b.mesh.count!==b.count;
       b.mesh.count=b.count;b.mesh.visible=b.count>0;
-      for(const wheel of b.wheels){wheel.count=b.count*2;wheel.visible=b.count>0;
-        if(b.dirty)wheel.instanceMatrix.needsUpdate=true;
-        if(b.count&&(b.dirty||changedCount))wheel.computeBoundingSphere();
-      }
       if(!b.count)continue;
       b.paints.length=b.count;b.lamps.length=b.count;b.indicators.length=b.count;b.brakes.length=b.count;paintInstances(b.mesh,b.paints);fleetLamps(b.mesh,b.lamps,b.indicators,b.brakes);
       if(b.dirty)b.mesh.instanceMatrix.needsUpdate=true;
       if(b.dirty||changedCount)b.mesh.computeBoundingSphere();
+    }
+    for(const b of this.wheelGroups.values()){
+      const changedCount=b.mesh.count!==b.count;
+      b.mesh.count=b.count;b.mesh.visible=b.count>0;
+      if(b.dirty)b.mesh.instanceMatrix.needsUpdate=true;
+      if(b.count&&(b.dirty||changedCount))b.mesh.computeBoundingSphere();
     }
     for(const [id,actor] of this.dynamic) {
       const state=byId.get(id);actor.visible=!!state;if(!state)continue;
@@ -216,15 +242,17 @@ export class ParkedCarVisuals {
     }
   }
   dispose() {
-    for(const b of this.groups.values()){b.mesh.removeFromParent();b.mesh.dispose();for(const wheel of b.wheels){wheel.removeFromParent();wheel.dispose();}}
+    for(const b of [...this.groups.values(),...this.wheelGroups.values()]){b.mesh.removeFromParent();b.mesh.dispose();}
     for(const actor of this.dynamic.values())actor.removeFromParent();
-    this.groups.clear();this.dynamic.clear();this.definitions.clear();this.wheelMotion.clear();
+    this.groups.clear();this.wheelGroups.clear();this.dynamic.clear();this.definitions.clear();this.wheelMotion.clear();
     for(const geometry of this.geometries.values())geometry.dispose();this.geometries.clear();
   }
   snapshot() {
-    const active=[...this.groups.values()].filter(b=>b.count);
-    return {catalogue:FLEET.length,models:[...new Set(active.map(b=>b.model.id))],instances:active.reduce((s,b)=>s+b.count,0),draws:active.reduce((n,b)=>n+1+b.wheels.length,0),
-      lods:[0,1,2].map(lod=>active.filter(b=>b.lod===lod).reduce((s,b)=>s+b.count,0)),triangles:active.reduce((s,b)=>s+((b.mesh.geometry.index?.count??b.mesh.geometry.getAttribute('position').count)/3+b.wheels.reduce((n,w)=>n+2*(w.geometry.index?.count??w.geometry.getAttribute('position').count)/3,0))*b.count,0)};
+    const active=[...this.groups.values()].filter(b=>b.count),wheels=[...this.wheelGroups.values()].filter(b=>b.count);
+    const triangles=(mesh:THREE.Mesh)=>(mesh.geometry.index?.count??mesh.geometry.getAttribute('position').count)/3;
+    return {catalogue:FLEET.length,models:[...new Set(active.map(b=>b.model.id))],instances:active.reduce((s,b)=>s+b.count,0),draws:active.length+wheels.length,
+      lods:[0,1,2].map(lod=>active.filter(b=>b.lod===lod).reduce((s,b)=>s+b.count,0)),
+      triangles:active.reduce((s,b)=>s+triangles(b.mesh)*b.count,0)+wheels.reduce((s,b)=>s+triangles(b.mesh)*b.count,0)};
   }
   inspect(id:string,camera:THREE.Camera) {
     const actor=this.dynamic.get(id);if(!actor)return null;
@@ -234,3 +262,5 @@ export class ParkedCarVisuals {
     return {parented:actor.parent===this.scene,visible:actor.visible&&frustum.intersectsObject(actor),position:actor.position.toArray(),projected:projected.toArray(),castShadow:actor.castShadow,staticInstances:this.cars.filter(c=>c.object_id===id).length};
   }
 }
+
+if(import.meta.hot)import.meta.hot.accept();
