@@ -103,7 +103,7 @@ describe('bench draw attribution', () => {
     expect(result).toMatchObject({ id: 'riverside', at: '13:00', quality: 'medium', frames: 3,
       submittedDraws: { total: 4, prepass: 2, beauty: 2, csm: 0, reflection: 0, post: 0 }, instances: 20,
       pipelinesAfterWarmup: 10, pipelinesAfterMeasure: 12, adaptiveScale: 1, tiles: ['t0_0_0'],
-      settleMs: 2850, settleTimedOut: false, measureMs: 60, fps: 50 });
+      settleMs: 2850, settleTimedOut: false, measureMs: 60, fps: 50, measurementStable: false });
     expect(flushed).toBe(1);
     expect(paused).toEqual([true, false]);
     expect(await frame(1)).toBeNull(); // done: further frames are ignored
@@ -121,8 +121,25 @@ describe('bench draw attribution', () => {
     await frame(2);
     const second = await frame(2);
     expect(second).toMatchObject({ id: 'shopping', at: '22:00',
-      submittedDraws: { total: 2, prepass: 1, beauty: 1 }, instances: 10, settleMs: 1000 });
+      submittedDraws: { total: 2, prepass: 1, beauty: 1 }, instances: 10, settleMs: 1000,
+      measurementStable: true, measurementChanges: 0, measurementBusy: false });
     expect(flushed).toBe(2);
     expect(resets).toBe(2);
+    // Resource counts can change and return to their original value within the measured window.
+    // Comparing only settle.last with afterMeasure would incorrectly accept this run.
+    bench.restart(benchPose('shopping', '13:00'));
+    await frame(9); clock += 1000; await frame(9);
+    await frame(9); await frame(9);
+    loading = 'temporary-new-tile'; await frame(2);
+    loading = 'b'; await frame(2);
+    const transient = await frame(2);
+    expect(transient).toMatchObject({ measurementStable: false, measurementChanges: 2,
+      measurementBusy: false, settleSignature: { last: 'b', afterMeasure: 'b' } });
+    bench.restart(benchPose('shopping', '13:00'));
+    await frame(9); clock += 1000; await frame(9);
+    await frame(9); await frame(9);
+    downloading = true; await frame(2);
+    downloading = false; await frame(2);
+    expect(await frame(2)).toMatchObject({ measurementStable: false, measurementChanges: 0, measurementBusy: true });
   });
 });
