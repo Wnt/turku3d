@@ -139,6 +139,7 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
+let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
@@ -148,6 +149,7 @@ const renderFrame = () => {
   dayClock.update();
   // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
   env.atmosphere.setTime(params.qa ? 0 : dayClock.sharedNow() / 1000);
+  distantCity?.follow(camera);
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
@@ -220,6 +222,15 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   lights?.attach(coarse);
+  if (!idPass) {
+    distantCity = coarse.screenshotScenery;
+    distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
+    distantCity.follow(camera);
+    // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
+    env.sky.scale.setScalar(12000);
+    camera.far = 12000; camera.updateProjectionMatrix();
+    window.__game!.scenery = distantCity;
+  }
   return coarse;
 }
 
@@ -264,11 +275,18 @@ async function runQa() {
     perf,
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
     now: () => performance.now(),
-    busy: () => [...benchFetches.values()].some(start => performance.now() - start > 1500),
+    busy: () => {
+      const scenery = distantCity?.progress;
+      // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
+      return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
+        || scenery.loaded !== scenery.total)
+        || [...benchFetches.values()].some(start => performance.now() - start > 1500);
+    },
     // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
     signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
       (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
     info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
+      scenery: distantCity?.progress,
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;

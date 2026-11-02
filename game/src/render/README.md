@@ -12,13 +12,17 @@ QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` p
 
 `timecycle.json` is our own table, tuned by eye. Its light rows are keyed by **sun elevation** (so QA's calendar dates and
 the synthetic cycle share one table): sun colour/intensity (0 below −1°, the sun stays visible and shadowed),
-IBL intensity, hemisphere "artificial ambient" (0 by day), fog colour/range, exposure, bloom strength/threshold, the
-night factor and the twilight/night sky colours added below the horizon (a blue hour around −4°, then a city-lit night
+IBL intensity, hemisphere diffuse fill (neutral daylight; cool artificial ambient at night), fog colour/range,
+exposure, bloom strength/threshold, the night factor and the twilight/night sky colours added below the horizon (a blue hour around −4°, then a city-lit night
 horizon; black by day). The lit-window share is keyed by clock hour (15–60 %, peaking at 20:00, thinnest at 04:00).
 The night grade keeps lamps, windows and their pools in colour but lets dim light fall to the table's `mesopic`
 saturation (a luminance-keyed uniform in the final grade): autumn crowns and painted walls no longer glow in the dark.
 All of these are uniforms: the sun is never hidden and no light is added or removed, so day and night share every
 pipeline (`tests/unit/night-pipelines.test.ts` builds the real r186 programs at 13:00 and 23:30 on both backends).
+At elevations of 12° and above, sun intensity 4.0, IBL 0.08 and neutral hemisphere fill 1.0 retain strong
+street-level sun–shade separation; exposure stays 0.65. Dawn, dusk and night keep their own keyed values.
+Time edits also reposition the directional sun around its existing target, so a stationary QA camera gets the
+same lighting and shadow direction as the visible sky without requiring another camera move.
 `renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
 4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
 re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,

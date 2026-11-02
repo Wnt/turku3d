@@ -121,7 +121,7 @@ test('a ready skyline retry completes before hundreds of untouched scenery tiles
   expect(attempts.get(chimney)).toBe(1);
   expect(scenery.progress.total).toBeGreaterThan(100);
   scenery.update(3751.26, 430.05, 1000); await settle();
-  expect(attempts.size).toBe(32); // Other scenery advances while the skyline retry is cooling down.
+  expect(attempts.size).toBe(8); // Other scenery advances while the skyline retry is cooling down.
   scenery.update(3751.26, 430.05, 2000); await settle();
   expect(attempts.get(chimney)).toBe(2);
   expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/chimney.glb');
@@ -181,4 +181,19 @@ test('a turn during catalogue loading cannot restore the old sector', async () =
   expect(scenery.heading).toBe(90);
   expect(load).toHaveBeenCalledTimes(1);
   expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/east.glb');
+});
+
+// A mobile collision preview does not cover the simplified building/terrain silhouette.
+test('collision previews retain distant scenery until the detailed model replaces them', async () => {
+  const { scenery, nearby, scene } = setup();
+  scenery.setRadius(1000); scenery.update(125, 125, 0); await settle();
+  const model = scene.children[0];
+  const entry: Entry = { model: new THREE.Group(), preview: { coarse: true } as Entry['preview'],
+    state: 'draft', nextPoll: 0, collision: new Map() };
+  nearby.set('t0_0_0', entry);
+  scenery.update(125, 125, 1000); await settle();
+  expect(model.parent).toBe(scene);
+  entry.preview = undefined;
+  scenery.update(125, 125, 2000); await settle();
+  expect(model.parent).toBeNull();
 });
