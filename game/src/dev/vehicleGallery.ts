@@ -5,6 +5,11 @@
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { FLEET } from '../actors/fleet/catalog';
+import { AUTHORED_MODELS } from '../actors/fleet/registry';
+import { CarVisual } from '../actors/car';
+import { ScooterVisual } from '../actors/scooter';
+import { TruckVisual } from '../actors/truck';
+import type { VehicleState } from '../physics/protocol';
 import { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { draftManifest } from '../world/manifest';
 import { Input } from '../input';
@@ -40,17 +45,47 @@ const camera = new THREE.PerspectiveCamera(43, 16 / 9, 0.1, 400);
 const chase = new ChaseCamera(camera, { cameraCast: async (_origin, _dir, distance) => distance });
 const input = new Input(renderer.domElement);
 
+type Entry = { kind: 'fleet'; model: (typeof FLEET)[number] } | { kind: 'car' | 'scooter' | 'truck'; name: string };
+const authored = new Set(AUTHORED_MODELS.map(m => m.id));
+const ENTRIES: Entry[] = [
+  { kind: 'car', name: 'Player car (sedan)' }, { kind: 'scooter', name: 'Scooter' }, { kind: 'truck', name: 'Trophy truck' },
+  ...FLEET.filter(m => authored.has(m.id)).map(model => ({ kind: 'fleet' as const, model })),
+  ...FLEET.filter(m => !authored.has(m.id)).map(model => ({ kind: 'fleet' as const, model })),
+];
 const list = document.getElementById('list')!;
-const views = FLEET.map((model, i) => {
+const views = ENTRIES.map((entry, i) => {
   const section = document.createElement('section'), title = document.createElement('h2'), view = document.createElement('div');
-  title.textContent = `${i + 1}. ${model.name} · ${model.body} · ${model.length.toFixed(2)} m`;
+  title.textContent = entry.kind === 'fleet'
+    ? `${i + 1}. ${entry.model.name} · ${entry.model.body} · ${entry.model.length.toFixed(2)} m${authored.has(entry.model.id) ? ' · rebuilt real model' : ''}`
+    : `${i + 1}. ${entry.name}`;
   view.className = 'view'; view.dataset.index = String(i);
   const still = document.createElement('canvas'); still.width = 960; still.height = 540; view.append(still);
   section.append(title, view); list.append(section);
   return { view, still };
 });
 
-type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: InstanceType<typeof Vehicle>; visuals: ParkedCarVisuals };
+type Visual = { update(state: VehicleState, dt: number): void; dispose(): void };
+type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: InstanceType<typeof Vehicle>; visual: Visual };
+
+async function makeVisual(entry: Entry, index: number): Promise<Visual> {
+  if (entry.kind === 'car') {
+    const v = new CarVisual(scene); await v.load('/assets/car/sedan.glb');
+    return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
+  }
+  if (entry.kind === 'scooter') {
+    const v = new ScooterVisual(scene); await v.load('/assets/vehicles/scooter.glb'); scene.add(v.root); v.root.visible = true;
+    return { update: (s, dt) => v.update(dt, s), dispose: () => v.root.removeFromParent() };
+  }
+  if (entry.kind === 'truck') {
+    const v = new TruckVisual(scene); await v.load(); v.root.visible = true;
+    return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
+  }
+  const model = (entry as Extract<Entry, { kind: 'fleet' }>).model, manifest = draftManifest(location.origin + '/');
+  manifest.vehicles = [{ object_id: 'drive', model: model.id, color: COLORS[index % COLORS.length], x: 0, y: 0, z: 0, yaw: 0,
+    width: model.width, height: model.height, length: model.length, clear_front_m: 5, clear_rear_m: 5 }];
+  const visuals = new ParkedCarVisuals(scene); await visuals.load(manifest); visuals.takeOver('drive');
+  return { update: s => { visuals.setView(camera); visuals.update([{ ...s, id: 'drive' }]); }, dispose: () => visuals.dispose() };
+}
 let active: Active | null = null, pending = -1;
 
 function snapshot(a: Active) {
@@ -62,22 +97,21 @@ function snapshot(a: Active) {
 async function activate(index: number) {
   if (active?.index === index || pending === index) return;
   pending = index;
-  if (active) { snapshot(active); active.visuals.dispose(); active.world.free(); active = null; }
-  const model = FLEET[index], world = new R.World({ x: 0, y: -9.81, z: 0 }); world.timestep = 1 / 60;
+  if (active) { snapshot(active); active.visual.dispose(); active.world.free(); active = null; }
+  const entry = ENTRIES[index], world = new R.World({ x: 0, y: -9.81, z: 0 }); world.timestep = 1 / 60;
   const groups = (GROUP.STATIC_SOLID << 16) | GROUP.VEHICLE;
   world.createCollider(R.ColliderDesc.cuboid(200, 0.5, 200).setTranslation(0, -0.5, 0).setCollisionGroups(groups));
   world.createCollider(R.ColliderDesc.cuboid(STEP.hx, STEP.hy, STEP.hz).setTranslation(STEP.x, STEP.y, STEP.z).setCollisionGroups(groups));
-  const vehicle = new Vehicle(R, world, START, 0, new CurbQueries(R, world));
-  const manifest = draftManifest(location.origin + '/');
-  manifest.vehicles = [{ object_id: 'drive', model: model.id, color: COLORS[index % COLORS.length], x: 0, y: 0, z: 0, yaw: 0,
-    width: model.width, height: model.height, length: model.length, clear_front_m: 5, clear_rear_m: 5 }];
-  const visuals = new ParkedCarVisuals(scene); await visuals.load(manifest); visuals.takeOver('drive');
-  if (pending !== index) { visuals.dispose(); world.free(); return; }
+  const kind = entry.kind === 'fleet' ? 'car' : entry.kind;
+  const start = kind === 'truck' ? { ...START, y: START.y + 0.5 } : START;
+  const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind });
+  const visual = await makeVisual(entry, index);
+  if (pending !== index) { visual.dispose(); world.free(); return; }
   for (let i = 0; i < 60; i++) { vehicle.step(1 / 60, null); world.step(); }
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
   resize(); openingView(vehicle.state()); followSun(vehicle.state().pos);
-  active = { index, world, vehicle, visuals }; pending = -1;
+  active = { index, world, vehicle, visual }; pending = -1;
 }
 
 function resize() {
@@ -125,6 +159,6 @@ renderer.setAnimationLoop(() => {
   const state = { ...active.vehicle.state(), id: 'drive' };
   chase.update(dt, state, input.lookX, input.lookY, input.consume('cameraReset'));
   followSun(state.pos);
-  active.visuals.setView(camera); active.visuals.update([state]);
+  active.visual.update(state, dt);
   renderer.render(scene, camera);
 });
