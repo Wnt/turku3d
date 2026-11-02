@@ -575,10 +575,10 @@ Tuomiokirkkosilta's outer concrete arches have open spandrels and vertical posts
 Browser-free crossing regression (production car, Rapier 0.21, hash-verified OCI COLs):
 
 ```sh
-node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings"
+node tools/validator/bin/bridge-crossing.mjs "$TURKU3D_WORK/reports/bridge-crossings"
 # Repeat against the frozen downloaded payloads, without network/build waits:
-node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
-node --test tools/validator/test/bridge-crossing.test.ts
+node tools/validator/bin/bridge-crossing.mjs "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
+node --experimental-transform-types --import ./tools/validator/src/ts-runtime.mjs --test tools/validator/test/bridge-crossing.test.ts
 ```
 
 The live command holds anonymous tile demand and requires full/current manifests;
