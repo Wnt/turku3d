@@ -78,6 +78,7 @@ DEPENDENCIES = {
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
     "trees": ("tree_inputs.py", "../spatial.py"),
+    "attachments": ("attachments.py", "retaining_survey.py", "retaining.py", "../lidar/cache.py", "../spatial.py"),
     "retaining": ("retaining_survey.py", "retaining.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
     "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
     "barriers": ("fences.py", "../spatial.py"),
@@ -96,7 +97,7 @@ DEPENDENCIES = {
     "stairs": ("stairs.py", "stair_survey.py", "stair_rails.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
-    "boats": ("boat_inputs.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../spatial.py"),
+    "boats": ("piers.py", "bridge_survey.py", "../ground/inputs.py", "boat_inputs.py", "harbour.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../lidar/cache.py", "../spatial.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
     "street_profiles": ("street_survey.py", "../spatial.py",
@@ -163,6 +164,7 @@ class Inputs:
     boats: list = ()
     wall_context: list = ()  # neighbouring complete buildings for deterministic wall ownership
     walkable: list = ()  # canonical lidar-fitted river paths and embankment cross sections
+    attachments: list = ()  # supported exterior decks and tread levels from classified lidar
     retaining: list = ()  # raw-lidar two-sided WFS retaining tops, before path blending
 
 
@@ -501,7 +503,8 @@ def _save(path: Path, key: str, value) -> None:
 
 def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
-    from . import bridge_survey, street_survey
+    from . import bridge_survey, street_survey, piers
+    from .harbour import source_paths as harbour_sources
 
     laz, missing = sources.lidar_paths(tile)
     ortho = None if first_pass else sources.ortho_source(tile)
@@ -514,9 +517,10 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
         if osm and not missing
         else [],
+        "attachments": [wfs[0][1], *roofs.lidar_paths(tile)],
         "retaining": [sources.wfs_source("kanta:Rakenne", tile)[1], *bridge_survey.source_paths(tile)],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
-        "boats": [osm, wfs[0][1], wfs[2][1]] if osm and all(f for f, _ in wfs[:3]) else [],
+        "boats": [osm, wfs[0][1], wfs[2][1], *dict.fromkeys([*piers.source_paths(tile), *harbour_sources(tile)])] if osm and all(f for f, _ in wfs[:3]) else [],
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs[:3])
@@ -581,6 +585,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .walkable import prepare as prepare_walkable
 
         return prepare_walkable(tile, paths[0], paths[1], paths[2:]) if paths else []
+    if dataset == "attachments":
+        from .attachments import prepare as prepare_attachments
+
+        return prepare_attachments(tile, paths[0], paths[1:]) if paths else []
     if dataset == "retaining":
         from .retaining_survey import prepare as prepare_retaining
 
@@ -837,6 +845,15 @@ def gather(
                 if a.get("construction_year")
             ],
         )
+    # Keep inferred exterior structure evidence on its source building as well
+    # as in the geometry dataset, so facade work can reuse the measured levels.
+    for building in [*wfs["buildings"], *wfs.get("wall_context", [])]:
+        evidence = [
+            {key: row[key] for key in ("kind", "height", "bottom", "support", "source")}
+            for row in values.get("attachments", ()) or () if row["building"] == building.key
+        ]
+        if evidence:
+            building.attributes["lidar_attachments"] = evidence
     from .boat_inputs import separate
 
     return Inputs(
@@ -854,6 +871,7 @@ def gather(
         boats=values["boats"],
         walkable=values["walkable"] or (),
         retaining=values.get("retaining") or (),
+        attachments=values.get("attachments") or (),
         kerbs=values["kerbs"],
         kerb_parking=values.get("kerb_parking") or {},
         markings=values["markings"] or (),

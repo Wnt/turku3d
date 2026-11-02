@@ -267,6 +267,11 @@ test('resident collision bytes survive worker transfer and range revisits; uncha
   s.update(20, 20, true); await tick();
   s.refresh(['c_0_0']); await tick();
   expect(physics.loadTile).toHaveBeenCalledTimes(1);
+  // A new serving generation can move an unchanged payload without changing its content identity.
+  entries.c_0_0 = { ...entries.c_0_0, url: '/coarse/_v/new-generation/c_0_0.col' };
+  s.update(20, 20, true);
+  s.refresh(['c_0_0']); await tick();
+  expect(physics.loadTile).toHaveBeenCalledTimes(1);
   s.update(1000, 1000, true);
   expect(physics.loaded.has('c_0_0')).toBe(false);
   s.update(20, 20, true); await tick();

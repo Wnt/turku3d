@@ -20,11 +20,15 @@ def appearance_evidence():
     return {row["vessel_id"]: row for row in data["observations"] if row.get("appearance")}
 
 
-def prepare(tile, osm, buildings_path, water_path):
+def prepare(tile, osm, buildings_path, water_path, *lidar_paths):
     from turku3d.spatial import rows
 
     from .inputs import _frame, buildings
     from .roofs import plane_height
+
+    # Piers also consume ground-only keypoints. Harbour structures need the full
+    # classified cloud; a later ground file with the same stem must not shadow it.
+    survey_paths = [p for p in lidar_paths if p.parent.name != "maanpinta"]
 
     window = shapely.box(*tile.bbox.buffered(50).as_tuple())
     water = shapely.union_all([g for g, _ in _frame(water_path, tile.bbox.buffered(100))])
@@ -40,22 +44,31 @@ def prepare(tile, osm, buildings_path, water_path):
             continue
         explicit = (
             tags.get("building") == "ship"
+            or tags.get("historic") == "ship"
             or tags.get("man_made") in ("ship", "boat")
             or tags.get("ship") not in (None, "no")
             or tags.get("seamark:type") == "hulk"
         )
-        floating_pier = tags.get("man_made") == "pier" and tags.get("floating") == "yes"
-        if (explicit or floating_pier) and shape.intersects(window):
+        if explicit and tags.get("man_made") != "pier" and shape.intersects(window):
             for part in shapely.get_parts(shape):
                 mapped.append(
-                    dict(id="osm:" + identity, kind="pier" if floating_pier and not explicit else "ship",
+                    dict(id="osm:" + identity, kind="ship",
                          outline=part, tags=tags.copy(), buildings=[])
                 )
             seen.add(identity)
+    from .piers import prepare as prepare_piers
+
+    docks = prepare_piers(tile, osm, lidar_paths)
     shells = buildings(buildings_path, tile, context=True) if buildings_path else []
     for building in shells:
         shape = building.footprint
         if not shape.intersects(window):
+            continue
+        pier = next((dock for dock in docks
+                     if shape.intersection(dock["outline"]).area / shape.area >= 0.5), None)
+        if pier is not None:
+            pier["building_keys"].append(building.key)
+            pier["source_facades"].append(building.facade_key)
             continue
         overlaps = [shape.intersection(b["outline"]).area / shape.area for b in mapped]
         if overlaps and max(overlaps) >= 0.5:
@@ -89,6 +102,11 @@ def prepare(tile, osm, buildings_path, water_path):
             cabin_surface="white" if white_cabin else "wood",
             source="osm:building:colour" if white_cabin else "fallback",
         )
+        if boat["tags"].get("historic") == "ship" and not colour:
+            if boat["tags"].get("building:material") != "wood":
+                boat["appearance"].update(cabin_surface="white", source="osm:historic:ship")
+            if boat["tags"].get("ship:type") in ("corvette", "minelayer", "warship", "gunboat"):
+                boat["appearance"].update(hull_surface="grey", cabin_surface="grey")
         if evidence := appearance_evidence().get(boat["id"]):
             boat["appearance"].update(evidence["appearance"], source="vision:" + evidence["id"],
                                       reference=evidence["reference"])
@@ -127,7 +145,15 @@ def prepare(tile, osm, buildings_path, water_path):
         boat["source_facades"] = [b.facade_key for b in boat["buildings"]]
         boat["owner"] = C.VisualTile.at(shape.centroid.x, shape.centroid.y).id
         del boat["buildings"]
-    return sorted(mapped, key=lambda boat: boat["id"])
+        if boat["kind"] == "ship" and survey_paths:
+            from .harbour import cloud_for, survey_ship
+
+            cloud = cloud_for(shape, survey_paths)
+            if cloud is not None:
+                survey_ship(boat, cloud.points, cloud.records["classification"])
+    from .harbour import prepare as harbour_prepare
+
+    return sorted([*mapped, *docks, *harbour_prepare(tile, osm, survey_paths, water)], key=lambda boat: boat["id"])
 
 
 def separate(buildings, boats):
