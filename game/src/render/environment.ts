@@ -103,11 +103,17 @@ export class Environment {
 
   /** Keep the sky behind distant geometry; weather is independent of streaming distance. */
   setScreenshotDistance(camera: THREE.PerspectiveCamera, distance: number) {
-    this.screenshotDistance = Number.isFinite(distance) ? Math.max(0, Math.min(8000, distance)) : 0;
-    camera.far = Math.max(6000, this.screenshotDistance * 4);
-    camera.updateProjectionMatrix();
-    this.sky.scale.setScalar(Math.max(4500, this.screenshotDistance * 4));
+    this.screenshotDistance = Number.isFinite(distance) ? Math.max(0, Math.min(15000, distance)) : 0;
+    this.setCityDistance(camera, this.screenshotDistance);
     this.applyFog();
+  }
+
+  /** Clip the distant city and sky together without changing vegetation LOD or weather. */
+  setCityDistance(camera: THREE.PerspectiveCamera, distance: number) {
+    const radius = Number.isFinite(distance) ? Math.max(0, Math.min(15000, distance)) : 0;
+    camera.far = Math.max(6000, radius * 4);
+    camera.updateProjectionMatrix();
+    this.sky.scale.setScalar(Math.max(4500, radius * 4));
     this.resize();
   }
 

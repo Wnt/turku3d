@@ -247,8 +247,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
     distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
-    env.sky.scale.setScalar(12000);
-    camera.far = 12000; camera.updateProjectionMatrix();
+    env.setCityDistance(camera, distantCity.radius);
     window.__game!.scenery = distantCity;
   }
   return coarse;
