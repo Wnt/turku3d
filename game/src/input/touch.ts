@@ -13,7 +13,9 @@ const PINCH_ZOOM = 10;
 export type TouchContext = 'hidden' | 'foot' | 'car' | 'menu' | 'paused' | 'lost';
 
 interface Region { kind: 'stick' | 'look'; x: number; y: number; ox: number; oy: number }
-interface TouchFrame { actions: Actions; taps: ReadonlySet<Action>; lookX: number; lookY: number; zoom: number }
+interface TouchFrame { readonly actions: Readonly<Actions>; readonly taps: ReadonlySet<Action>;
+  readonly lookX: number; readonly lookY: number; readonly zoom: number }
+const IDLE_FRAME: TouchFrame = Object.freeze({ actions: Object.freeze(emptyActions()), taps: new Set<Action>(), lookX: 0, lookY: 0, zoom: 0 });
 
 /** Pointer bookkeeping without DOM: one stick pointer, up to two look pointers (pinch) and any number of buttons. */
 export class TouchPad {
@@ -63,6 +65,7 @@ export class TouchPad {
 
   /** This frame's actions; look (px) and zoom (wheel notches) accumulated since the last sample, then reset. */
   sample(): TouchFrame {
+    if (!this.active && !this.tapped.size && !this.lookX && !this.lookY && !this.zoom) return IDLE_FRAME;
     const actions = emptyActions();
     const s = this.stick;
     if (s) {
