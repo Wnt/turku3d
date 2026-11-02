@@ -35,6 +35,10 @@ test('hot alias selection, immutable payload routing and scenery stay independen
     assert.equal(calls.pop(), `/v/${rev}/coarse/t0_0_0/mesh.glb`);
     await fetch(base + '/coarse/status');
     assert.equal(calls.pop(), '/v/integration/coarse/status');
+    await fetch(base + '/coarse/demand?client=play&tiles=t0_0_0,t0_1_0&urgent=t0_0_0&visible=t0_1_0');
+    assert.equal(calls.pop(), '/v/integration/coarse/demand?client=play&tiles=t0_0_0,t0_1_0&urgent=t0_0_0&visible=t0_1_0');
+    await fetch(base + '/coarse/want?tiles=t0_0_0');
+    assert.equal(calls.pop(), '/v/integration/coarse/want?tiles=t0_0_0');
     await fetch(base + '/coarse/scenery/index.json');
     assert.equal(calls.pop(), '/coarse/scenery/index.json');
   } finally {

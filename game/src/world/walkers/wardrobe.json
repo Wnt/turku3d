@@ -1,0 +1,428 @@
+{
+  "families": [
+    {
+      "id": "tee-denim-crop",
+      "parts": [
+        "clothing_tshirt",
+        "clothing_jeans",
+        "clothing_shoes",
+        "hair_short02"
+      ],
+      "hidden": [
+        "torso",
+        "legs",
+        "feet"
+      ],
+      "sex": "male",
+      "weight": 0.7,
+      "summer": true,
+      "accessory": "backpack",
+      "faceMorphs": [
+        [
+          17,
+          0.35
+        ],
+        [
+          24,
+          0.22
+        ]
+      ]
+    },
+    {
+      "id": "tee-shorts-crop",
+      "parts": [
+        "clothing_tshirt",
+        "clothing_shorts",
+        "clothing_shoes",
+        "hair_short04"
+      ],
+      "hidden": [
+        "torso",
+        "shorts",
+        "feet"
+      ],
+      "sex": "male",
+      "weight": 0.8,
+      "summer": true,
+      "faceMorphs": [
+        [
+          19,
+          0.3
+        ],
+        [
+          22,
+          0.2
+        ]
+      ]
+    },
+    {
+      "id": "shirt-chinos",
+      "parts": [
+        "clothing_shirt",
+        "clothing_jeans",
+        "clothing_shoes",
+        "hair_short04"
+      ],
+      "hidden": [
+        "shirt",
+        "legs",
+        "feet"
+      ],
+      "sex": "male",
+      "weight": 0.55,
+      "summer": true,
+      "accessory": "cap",
+      "faceMorphs": [
+        [
+          3,
+          0.38
+        ],
+        [
+          27,
+          0.25
+        ]
+      ],
+      "minimumAge": 48
+    },
+    {
+      "id": "hoodie-denim",
+      "parts": [
+        "clothing_hoodie",
+        "clothing_jeans",
+        "clothing_shoes",
+        "hair_short02"
+      ],
+      "hidden": [
+        "hoodie",
+        "legs",
+        "feet"
+      ],
+      "sex": "male",
+      "weight": 0.55,
+      "summer": false,
+      "faceMorphs": [
+        [
+          16,
+          0.28
+        ],
+        [
+          23,
+          0.3
+        ]
+      ]
+    },
+    {
+      "id": "light-jacket",
+      "parts": [
+        "clothing_shirt",
+        "clothing_jacket",
+        "clothing_jeans",
+        "clothing_shoes",
+        "hair_short04"
+      ],
+      "hidden": [
+        "shirt",
+        "jacket",
+        "legs",
+        "feet"
+      ],
+      "sex": "male",
+      "weight": 0.85,
+      "summer": false,
+      "faceMorphs": [
+        [
+          25,
+          0.28
+        ],
+        [
+          36,
+          0.25
+        ]
+      ]
+    },
+    {
+      "id": "tee-denim-pony",
+      "parts": [
+        "clothing_tshirt",
+        "clothing_jeans",
+        "clothing_shoes",
+        "hair_ponytail01"
+      ],
+      "hidden": [
+        "torso",
+        "legs",
+        "feet"
+      ],
+      "sex": "female",
+      "weight": 0.8,
+      "summer": true,
+      "accessory": "backpack",
+      "faceMorphs": [
+        [
+          18,
+          0.24
+        ],
+        [
+          35,
+          0.22
+        ]
+      ]
+    },
+    {
+      "id": "tee-shorts-pony",
+      "parts": [
+        "clothing_tshirt",
+        "clothing_shorts",
+        "clothing_shoes",
+        "hair_ponytail01"
+      ],
+      "hidden": [
+        "torso",
+        "shorts",
+        "feet"
+      ],
+      "sex": "female",
+      "weight": 0.65,
+      "summer": true,
+      "faceMorphs": [
+        [
+          17,
+          0.2
+        ],
+        [
+          26,
+          0.25
+        ]
+      ]
+    },
+    {
+      "id": "shirt-skirt-long",
+      "parts": [
+        "clothing_shirt",
+        "clothing_skirt",
+        "clothing_shoes",
+        "hair_long01"
+      ],
+      "hidden": [
+        "shirt",
+        "hips",
+        "feet"
+      ],
+      "sex": "female",
+      "weight": 0.85,
+      "summer": true,
+      "accessory": "crossbody",
+      "faceMorphs": [
+        [
+          19,
+          0.25
+        ],
+        [
+          23,
+          0.18
+        ]
+      ]
+    },
+    {
+      "id": "summer-dress",
+      "parts": [
+        "clothing_dress",
+        "clothing_shoes",
+        "hair_long01"
+      ],
+      "hidden": [
+        "dress",
+        "feet"
+      ],
+      "sex": "female",
+      "weight": 0.9,
+      "summer": true,
+      "accessory": "crossbody",
+      "faceMorphs": [
+        [
+          16,
+          0.23
+        ],
+        [
+          37,
+          0.24
+        ]
+      ]
+    },
+    {
+      "id": "hoodie-denim-pony",
+      "parts": [
+        "clothing_hoodie",
+        "clothing_jeans",
+        "clothing_shoes",
+        "hair_ponytail01"
+      ],
+      "hidden": [
+        "hoodie",
+        "legs",
+        "feet"
+      ],
+      "sex": "female",
+      "weight": 0.75,
+      "summer": false,
+      "accessory": "backpack",
+      "faceMorphs": [
+        [
+          24,
+          0.22
+        ],
+        [
+          30,
+          0.18
+        ]
+      ]
+    },
+    {
+      "id": "jacket-skirt-crop",
+      "parts": [
+        "clothing_shirt",
+        "clothing_jacket",
+        "clothing_skirt",
+        "clothing_shoes",
+        "hair_short02"
+      ],
+      "hidden": [
+        "shirt",
+        "jacket",
+        "hips",
+        "feet"
+      ],
+      "sex": "female",
+      "weight": 0.85,
+      "summer": false,
+      "faceMorphs": [
+        [
+          3,
+          0.68
+        ],
+        [
+          25,
+          0.25
+        ]
+      ],
+      "minimumAge": 62
+    },
+    {
+      "id": "shirt-denim-bald",
+      "parts": [
+        "clothing_shirt",
+        "clothing_jeans",
+        "clothing_shoes"
+      ],
+      "hidden": [
+        "shirt",
+        "legs",
+        "feet"
+      ],
+      "sex": "male",
+      "weight": 0.75,
+      "summer": true,
+      "faceMorphs": [
+        [
+          3,
+          0.72
+        ],
+        [
+          23,
+          0.23
+        ]
+      ],
+      "minimumAge": 65
+    }
+  ],
+  "bodies": [
+    {
+      "id": "slender",
+      "height": 0.96,
+      "shape": [
+        0.9,
+        0.9,
+        0.97,
+        0.98
+      ],
+      "age": 24
+    },
+    {
+      "id": "tall-slender",
+      "height": 1.065,
+      "shape": [
+        0.91,
+        0.92,
+        0.95,
+        1.04
+      ],
+      "age": 31
+    },
+    {
+      "id": "compact",
+      "height": 0.91,
+      "shape": [
+        1.02,
+        1.04,
+        1.04,
+        0.98
+      ],
+      "age": 42
+    },
+    {
+      "id": "broad",
+      "height": 1.015,
+      "shape": [
+        1.12,
+        1.14,
+        1.03,
+        1.03
+      ],
+      "age": 36
+    },
+    {
+      "id": "fuller",
+      "height": 0.98,
+      "shape": [
+        1.12,
+        1.14,
+        1.07,
+        1.05
+      ],
+      "age": 49
+    },
+    {
+      "id": "lean-older",
+      "height": 0.96,
+      "shape": [
+        0.93,
+        0.96,
+        0.96,
+        1.05
+      ],
+      "age": 72
+    },
+    {
+      "id": "older-fuller",
+      "height": 0.94,
+      "shape": [
+        1.12,
+        1.14,
+        1.08,
+        1.02
+      ],
+      "age": 68
+    },
+    {
+      "id": "tall-athletic",
+      "height": 1.08,
+      "shape": [
+        1.09,
+        1.03,
+        0.98,
+        1.0
+      ],
+      "age": 28
+    }
+  ]
+}

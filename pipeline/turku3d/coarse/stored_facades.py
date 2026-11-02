@@ -183,7 +183,40 @@ def assemble_walls(shells, context=()):
     return [result[i] for i in range(requested)]
 
 
-def wall_meshes(b, walls, origin):
+def facade_layouts(shells):
+    """Recover one paint coordinate frame across passage-split building solids."""
+    import copy
+    import shapely
+
+    grouped = {}
+    for b, shell in shells:
+        grouped.setdefault(b.key, []).append((b, shell))
+    result = {}
+    for key, parts in grouped.items():
+        if len(parts) == 1:
+            continue
+        owner = copy.copy(max(parts, key=lambda row: row[0].footprint.area)[0])
+        owner.base = min(b.base for b, _ in parts)
+        owner.footprint = shapely.orient_polygons(
+            shapely.union_all([b.footprint for b, _ in parts]).simplify(.02)
+        )
+        heights = []
+        for _, shell in parts:
+            for p in shell[4].reshape(-1, 4, 3):
+                width = float(np.linalg.norm(p[1, [0, 2]] - p[0, [0, 2]]))
+                heights.append((max(.1, float(p[2:, 1].min() - owner.base)), width))
+        if not heights:
+            continue
+        half, accumulated = sum(w for _, w in heights) / 2, 0
+        for height, width in sorted(heights):
+            accumulated += width
+            if accumulated >= half:
+                break
+        result[key] = owner, height
+    return result
+
+
+def wall_meshes(b, walls, origin, layout=None):
     if not len(walls):
         return []
     from turku3d.facade_component_geometry import geometry, plan, slots
@@ -201,7 +234,8 @@ def wall_meshes(b, walls, origin):
             eave = float(walls[ring_start : end + 4].reshape(-1, 4, 3)[:, 2:, 1].min())
             eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
             ring_start = end + 4
-    program = resolve(b, walls, eaves)
+    owner, height = layout if layout is not None else (b, None)
+    program = resolve(owner, walls, eaves, layout_height=height)
     instructions, program_parts = [], []
     previous_instruction = None
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
@@ -223,7 +257,7 @@ def wall_meshes(b, walls, origin):
             else "rule-sampled"
         )
         style = compile_wall(wall, program["storeys"]["value"])
-        style["origin"][1] = b.base
+        style["origin"][1] = owner.base
         for points, uv, instruction in wall_parts(vertices, wall, style):
             instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
             parts = composed_parts(points, uv, instruction, plans)

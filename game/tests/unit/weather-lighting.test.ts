@@ -21,12 +21,15 @@ test('repeated weather updates and time edits never compound light or fog multip
     env.setSun(180, 35, 13);
     env.setWeather(WEATHER_PRESETS.overcast);
     const cloudy = structuredClone(env.sample);
+    expect(env.atmosphere.weatherHorizon.value.toArray()).toEqual(cloudy.fogColor);
     for (let n = 0; n < 100; n++) env.setWeather({ ...WEATHER_PRESETS.overcast });
     expect(env.sample).toEqual(cloudy);
+    expect(env.atmosphere.weatherHorizon.value.toArray()).toEqual(cloudy.fogColor);
     expect(env.sun.intensity).toBe(cloudy.sunIntensity);
     expect(renderer.toneMappingExposure).toBe(cloudy.exposure);
     env.setSun(250, 4, 19.5);
     expect(env.sample).toEqual(weatherLighting(timecycle(4), WEATHER_PRESETS.overcast));
+    expect(env.atmosphere.weatherHorizon.value.toArray()).toEqual(env.sample.fogColor);
     env.setWeather(WEATHER_PRESETS.clear);
     expect(env.sample).toEqual(timecycle(4));
     env.setSun(180, 35, 13);
