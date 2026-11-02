@@ -28,13 +28,13 @@ export class VisualPassComparison {
     this.pass = pass;
     for (const e of this.entries.values()) {
       this.clear(e); e.comparisonNext = 0;
-      if (e.model) e.model.visible = pass === 'auto' || e.pass === pass;
+      if (e.model) e.model.visible = e.cachedAt === undefined && (pass === 'auto' || e.pass === pass);
     }
     this.status = '';
   }
 
   clear(e: ComparisonEntry) {
-    if (e.model) e.model.visible = true;
+    if (e.model) e.model.visible = e.cachedAt === undefined;
     if (e.comparison) {
       e.comparison.removeFromParent(); this.dispose(e.comparison);
       e.comparison = undefined;
