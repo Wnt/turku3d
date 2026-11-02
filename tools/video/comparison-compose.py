@@ -29,32 +29,24 @@ def overlay(shot):
  text(d,(W-380,1007),f'{number:02d} / {len(c["shots"]):02d}   ·   MATCHED CAMERA',21,fill='#d5e1df')
  p=edit/(shot['id']+'-overlay.png');im.save(p);return p
 def card(end=False,still=False):
- im=Image.new('RGBA',(W,H));d=ImageDraw.Draw(im)
+ # Both bookends preserve the matched city view and shade each half equally.
+ im=Image.new('RGBA',(W,H),(7,17,24,135));d=ImageDraw.Draw(im)
+ d.line((960,0,960,H),fill=(212,232,225,100),width=2)
+ text(d,(96,64),'TURKU3D  /  GEN 2',30,fill='#a1dfcc',heavy=True)
+ text(d,(96,200),'PRODUCTION',30,fill='#d5e1df',heavy=True)
+ text(d,(1020,200),'NEW BUILD',30,fill='#d5e1df',heavy=True)
+ text(d,(90,402),'Same city.\nNew detail.' if end else 'Turku.\nBefore & after.',100,heavy=True)
+ d.rectangle((96,660,150,665),fill='#a1dfcc')
+ text(d,(96,708),'15 matched journeys · 60 fps' if end else '15 places. One shared camera.',34)
  if end:
-  d.rectangle((100,302,106,742),fill='#87cebd')
-  text(d,(144,300),'THE CITY KEEPS EVOLVING',34,fill='#87cebd',heavy=True)
-  text(d,(137,370),'Same city. A new level of detail.',78,heavy=True)
-  text(d,(145,510),'15 matched journeys · frame-exact capture · 60 fps',34)
-  text(d,(145,575),'Local comparison · '+date_long,28,fill='#bdcfce')
-  text(d,(145,680),'City of Turku · CC BY 4.0    /    © OpenStreetMap contributors · ODbL',24,fill='#bdcfce')
-  text(d,(145,725),'Weather shown on the new build; production uses its available clear setting.',23,fill='#bdcfce')
- else:
-  # Preserve both captured halves: introduce the city and comparison at the actual framing.
-  im=Image.new('RGBA',(W,H),(7,17,24,135));d=ImageDraw.Draw(im)
-  d.line((960,0,960,H),fill=(212,232,225,100),width=2)
-  text(d,(96,64),'TURKU3D  /  GEN 2',30,fill='#a1dfcc',heavy=True)
-  text(d,(96,200),'PRODUCTION',30,fill='#d5e1df',heavy=True)
-  text(d,(1020,200),'NEW BUILD',30,fill='#d5e1df',heavy=True)
-  text(d,(90,402),'Turku.\nBefore & after.',100,heavy=True)
-  d.rectangle((96,660,150,665),fill='#a1dfcc')
-  text(d,(96,708),'15 places. One shared camera.',34)
+  text(d,(1020,708),'Production: clear weather\nNew build: weather presets',27,fill='#d5e1df')
+  text(d,(96,934),'City of Turku · CC BY 4.0',22,fill='#bdcfce')
+  text(d,(96,974),'© OpenStreetMap contributors · ODbL',22,fill='#bdcfce')
+  text(d,(1440,974),date_long,22,fill='#bdcfce')
  p=edit/('end.png' if end else 'title.png');im.save(p)
  dest=edit/(('end' if end else 'title')+('-still.png' if still else '.mp4'));duration=c['endSeconds'] if end else c['titleSeconds']
  frame_args=['-frames:v',1] if still else ['-frames:v',round(duration*fps),*encode()]
- if end:
-  run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v]scale=1920:2160,crop=1920:1080,gblur=sigma=24,eq=brightness=-0.24:saturation=0.55[bg];[bg][1:v]overlay,format=yuv420p[v]','-map','[v]',*frame_args,dest])
- else:
-  run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-left-sample.jpg','-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v][1:v]hstack,gblur=sigma=2,eq=saturation=0.9[bg];[bg][2:v]overlay,format=yuv420p[v]','-map','[v]',*frame_args,dest])
+ run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-left-sample.jpg','-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v][1:v]hstack,gblur=sigma=2,eq=saturation=0.9[bg];[bg][2:v]overlay,format=yuv420p[v]','-map','[v]',*frame_args,dest])
  return dest,duration
 if a.still in ('title','end'):
  card(a.still=='end',still=True);raise SystemExit()
