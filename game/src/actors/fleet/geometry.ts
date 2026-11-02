@@ -54,7 +54,7 @@ class Builder {
   }
 }
 function wheel(b: Builder, x: number, y: number, z: number, r: number, side: number, face: number, lod: number) {
-  const n = lod === 0 ? 20 : lod === 1 ? 10 : 6, w=.205, rim=r*.64;
+  const n = lod === 0 ? 20 : lod === 1 ? 10 : 6, w=.205, rim=r*(face===6?.65:.70);
   const point = (xx: number, rr: number, angle: number): V => [xx,y+Math.sin(angle)*rr,z+Math.cos(angle)*rr];
   for (let i=0;i<n;i++) {
     b.flip=false;
@@ -81,7 +81,7 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
     const outside=x+side*(w/2+.010), spokes=lod===1?5:face%3===0?5:face%3===1?10:7;
     for(let i=0;i<spokes;i++) {
       const a=i/spokes*Math.PI*2, d=.10;
-      b.quad(point(outside,rim*.22,a-d*2),point(outside,rim*.94,a-d),point(outside,rim*.94,a+d),point(outside,rim*.22,a+d*2),[.52,.55,.59],METAL);
+      b.quad(point(outside,rim*.22,a-d*2),point(outside,rim*.94,a-d),point(outside,rim*.94,a+d),point(outside,rim*.22,a+d*2),[.33,.36,.40],METAL);
     }
     b.rod([outside-.008,y,z],[outside+.008,y,z],rim*.23,[.32,.35,.38],METAL,8);
   }
@@ -99,8 +99,16 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
   const topAt=(z:number)=>belt-(z>zf?(classic?.10:commercial?.14:.23)*Math.pow((z-zf)/(L/2-zf),1.15)
     :z<zr?(m.body==='sedan'||classic?.16:.07)*Math.pow((zr-z)/(L/2+zr),1.2):0);
   const bottomAt=(z:number)=>Math.max(low,...[front,rear].map(wz=>Math.abs(z-wz)<arch ? r+Math.sqrt(arch*arch-(z-wz)**2) : low));
+  const bodyPoint=(z:number,y:number,side:number,offset=0):V=>{
+    const w=widthAt(z),bottom=bottomAt(z),top=topAt(z),mid=Math.max(bottom,top-.25),sill=w*(bottom>low+.01?1:.91);
+    let x:number;
+    if(y<=mid){const t=Math.max(0,Math.min(1,(y-bottom)/Math.max(.001,mid-bottom)));x=sill+(w-sill)*t+(bottom<=low+.01?.018*Math.sin(t*Math.PI):0);}
+    else if(y<=top-.06)x=w*(1-.02*(y-mid)/Math.max(.001,top-.06-mid));
+    else x=w*(.98-.08*(y-(top-.06))/.06);
+    return [side*(x+offset),y,z];
+  };
   // Wheel arches are actual cut-outs, not black circles pasted onto a solid cuboid.
-  const stations=Array.from({length:n+1},(_,i)=>-L/2+L*i/n);
+  const stations=[zf,zr,front,rear,...Array.from({length:n+1},(_,i)=>-L/2+L*i/n)];
   const archSteps=lod===0?12:lod===1?8:4;
   for(const axle of [front,rear])for(let i=0;i<=archSteps;i++)stations.push(axle+Math.cos(i/archSteps*Math.PI)*arch);
   const zs=[...new Set(stations.filter(z=>z>=-L/2&&z<=L/2))].sort((a,b)=>a-b);
@@ -109,9 +117,10 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
     const z0=zs[i],z1=zs[i+1],x0=widthAt(z0),x1=widthAt(z1),y0=topAt(z0),y1=topAt(z1),a0=bottomAt(z0),a1=bottomAt(z1);
     for(const s of [-1,1]) {
       b.flip=s>0;
-      const bx0=x0*(a0>low+.01?1:.91),bx1=x1*(a1>low+.01?1:.91);
       const mid0=Math.max(a0,y0-.25),mid1=Math.max(a1,y1-.25);
-      b.quad([s*bx0,a0,z0],[s*bx1,a1,z1],[s*x1,mid1,z1],[s*x0,mid0,z0],[.86-m.age*.08,.87-m.age*.09,.88-m.age*.11],PAINT);
+      const belly0=a0+(mid0-a0)*.5,belly1=a1+(mid1-a1)*.5;
+      b.quad(bodyPoint(z0,a0,s),bodyPoint(z1,a1,s),bodyPoint(z1,belly1,s),bodyPoint(z0,belly0,s),[.84-m.age*.08,.85-m.age*.09,.86-m.age*.11],PAINT);
+      b.quad(bodyPoint(z0,belly0,s),bodyPoint(z1,belly1,s),bodyPoint(z1,mid1,s),bodyPoint(z0,mid0,s),[.91,.92,.93],PAINT);
       b.quad([s*x0,mid0,z0],[s*x1,mid1,z1],[s*x1*.98,y1-.06,z1],[s*x0*.98,y0-.06,z0],[.95,.96,.97],PAINT);
       b.quad([s*x0*.98,y0-.06,z0],[s*x1*.98,y1-.06,z1],[s*x1*.90,y1,z1],[s*x0*.90,y0,z0],WHITE,PAINT);
       if(lod<2 && (a0>low || a1>low)) b.quad([s*x0,a0,z0],[s*x0*.91,a0,z0],[s*x1*.91,a1,z1],[s*x1,a1,z1],DARK,TRIM);
@@ -129,7 +138,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
   b.flip=false;
   b.smooth=false;
   const rf=zf-(commercial?.28:classic?.39:.62), rr=zr+(m.body==='sedan'||classic?.52:commercial?.16:.32);
-  const roofW=W*m.taper, baseW=W*.90, baseY=topAt(zf), rearY=topAt(zr);
+  const roofW=W*m.taper, baseY=topAt(zf), rearY=topAt(zr);
   const roofAt=(z:number)=>H-.045*Math.pow(2*(z-rr)/(rf-rr)-1,2);
   const roofEdge=H-.105;
   // Glasshouse: slanted windscreens and narrower roof, with separate painted pillars.
@@ -138,7 +147,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
     const x0=cross[i],x1=cross[i+1];
     for(const [z,rz] of [[zf,rf],[zr,rr]]) {
       b.flip=z<0;
-      const point=(x:number,upper:boolean):V=>[x*(upper?roofW:baseW),upper?roofAt(rz)-.06*x*x:topAt(z+(z>0?1:-1)*.065*(1-x*x))+.025*(1-x*x),
+      const point=(x:number,upper:boolean):V=>[x*(upper?roofW:widthAt(z)*.90),upper?roofAt(rz)-.06*x*x:topAt(z+(z>0?1:-1)*.065*(1-x*x))+.025*(1-x*x),
         (upper?rz:z)+(z>0?1:-1)*.065*(1-x*x)];
       b.quad(point(x0,false),point(x1,false),point(x1,true),point(x0,true),WINDOW,GLASS);
     }
@@ -170,7 +179,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
     }
     const holes=panes.map(pane=>pane.map(([z,y])=>new THREE.Vector2(z,y)));
     const points=[...outer,...holes.flat()];
-    const sidePoint=(p:THREE.Vector2,inset=0):V=>[s*(baseW+(roofW-baseW)*(p.y-baseY)/(roofEdge-baseY)-inset),p.y,p.x];
+    const sidePoint=(p:THREE.Vector2,inset=0):V=>[s*(widthAt(p.x)*.90+(roofW-widthAt(p.x)*.90)*(p.y-baseY)/(roofEdge-baseY)-inset),p.y,p.x];
     for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(outer,holes))b.tri(sidePoint(points[a]),sidePoint(points[c]),sidePoint(points[d]));
     for(const pane of holes){
       const center=pane.reduce((sum,p)=>sum.add(p),new THREE.Vector2()).multiplyScalar(1/pane.length);
@@ -199,7 +208,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
         for(const z of [mid+.16,quarter+.18]){
           const top=Math.min(roofEdge-.11,baseY+.25),bottom=baseY+.10;
           const silhouette=clip([new THREE.Vector2(z-.075,bottom),new THREE.Vector2(z+.075,bottom),new THREE.Vector2(z+.075,top),new THREE.Vector2(z-.075,top)]);
-          for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(silhouette,[]))b.tri(sidePoint(silhouette[a],.023),sidePoint(silhouette[c],.023),sidePoint(silhouette[d],.023),[.007,.012,.016],GLASS);
+          for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(silhouette,[]))b.tri(sidePoint(silhouette[a],.023),sidePoint(silhouette[c],.023),sidePoint(silhouette[d],.023),[.013,.024,.033],GLASS);
         }
       }
     }
@@ -208,9 +217,18 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
       sidePoint(new THREE.Vector2(mid+.047,roofEdge-.018),-.002),sidePoint(new THREE.Vector2(mid-.047,roofEdge-.018),-.002),DARK,TRIM);
     if(lod<2) {
       // Waist seals, door seams and handles follow the authored openings.
-      b.rod([s*baseW,rearY,zr],[s*baseW,baseY,zf],.014,[.38,.4,.42],METAL);
-      if(lod===0)for(const z of [mid,zf-.1,zr+.2]) b.rod([s*(widthAt(z)+.004),belt-.12,z],[s*(widthAt(z)+.004),Math.max(low+.05,bottomAt(z)),z],.006,[.08,.09,.10],TRIM,4);
-      if(lod===0)for(const z of [mid+.13,Math.max(zr+.3,mid-.6)]) b.box(s*(widthAt(z)+.012),belt-.12,z,.025,.035,.15,[.45,.47,.48],METAL);
+      const waist=zs.filter(z=>z>=zr&&z<=zf);
+      for(let i=0;i<waist.length-1;i++){
+        const a=waist[i],c=waist[i+1];b.quad(bodyPoint(a,topAt(a)-.009,s,.002),bodyPoint(c,topAt(c)-.009,s,.002),
+          bodyPoint(c,topAt(c),s,.002),bodyPoint(a,topAt(a),s,.002),[.26,.29,.32],METAL);
+      }
+      if(lod===0)for(const z of [mid,zf-.1,m.body==='estate'?quarter:zr+.2]){
+        const bottom=Math.max(low+.025,bottomAt(z)+.015),top=topAt(z);
+        const levels=[bottom,bottom+(top-bottom)*.35,bottom+(top-bottom)*.7,top-.06,top].filter(y=>y>=bottom).sort((a,c)=>a-c);
+        for(let i=0;i<levels.length-1;i++)b.quad(bodyPoint(z-.003,levels[i],s,.002),bodyPoint(z+.003,levels[i],s,.002),
+          bodyPoint(z+.003,levels[i+1],s,.002),bodyPoint(z-.003,levels[i+1],s,.002),[.035,.04,.045],TRIM);
+      }
+      if(lod===0)for(const z of [mid+.13,Math.max(zr+.3,mid-.6)]) b.box(bodyPoint(z,belt-.12,s,.014)[0],belt-.12,z,.025,.035,.15,[.45,.47,.48],METAL);
       b.box(s*(W+.035),belt+.10,zf-.10,.15,.10,.21,WHITE,PAINT);
       b.box(s*(W+.04),belt+.10,zf-.211,.12,.075,.009,[.28,.36,.42],GLASS);
 
@@ -271,7 +289,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
     // Wipers and dark headrest silhouettes just inside the opaque, tinted windshield.
     for(const s of [-1,1]) {
       b.rod([s*.12,baseY+.018,zf+.008],[s*.62,baseY+.07,zf-.045],.009,DARK,TRIM,4);
-      b.box(s*.39,baseY+.10,zf-.045,.22,.14,.03,[.025,.035,.041],GLASS);
+
     }
   }
   if(m.accessory==='box' && lod<2) {
