@@ -120,7 +120,8 @@ try {
         state = await evaluate(`(() => {
           const g = window.__game, env = window.__render?.environment;
           const tiles = ${JSON.stringify(wanted)}.map(id => { const e = g?.lights?.source?.entries.get(id);
-            return {id, pass:e?.pass, full:e?.state === 'draft' && e?.pass === 'full' && !e?.preview && !!e?.model}; });
+            return {id, pass:e?.pass, visual_sha256:e?.visualHash,
+              full:e?.state === 'draft' && e?.pass === 'full' && !e?.preview && !!e?.model}; });
           return {ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
             azimuth:env?.sunAzimuth, clock:g?.dayClock?.snapshot(), hour:g?.dayClock?.hour, pose:window.__qaPose,
             info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress};
