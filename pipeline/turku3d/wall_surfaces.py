@@ -379,6 +379,15 @@ def layer_meshes(paths):
         if instanced_layer(path):
             continue  # Retain GPU instancing; the decoded shipping audit expands it.
         document, binary = read_glb(path.read_bytes())
+
+        def texture_image(info):
+            if info is None:
+                return None
+            texture = document["textures"][info["index"]]
+            view = document["bufferViews"][document["images"][texture["source"]]["bufferView"]]
+            offset = view.get("byteOffset", 0)
+            return binary[offset : offset + view["byteLength"]]
+
         for node in document["nodes"]:
             if "mesh" not in node:
                 continue
@@ -399,10 +408,7 @@ def layer_meshes(paths):
                 image, repeat = None, False
                 if "baseColorTexture" in pbr:
                     texture = document["textures"][pbr["baseColorTexture"]["index"]]
-                    view = document["bufferViews"][
-                        document["images"][texture["source"]]["bufferView"]
-                    ]
-                    image = binary[view["byteOffset"] : view["byteOffset"] + view["byteLength"]]
+                    image = texture_image(pbr["baseColorTexture"])
                     repeat = document["samplers"][texture["sampler"]]["wrapS"] == 10497
                 meshes.append(
                     GlbMesh(
@@ -420,6 +426,8 @@ def layer_meshes(paths):
                         if "COLOR_0" in attrs
                         else None,
                         image=image,
+                        normal_image=texture_image(material.get("normalTexture")),
+                        orm_image=texture_image(pbr.get("metallicRoughnessTexture")),
                         repeat=repeat,
                         color=tuple(pbr["baseColorFactor"]),
                         roughness=pbr["roughnessFactor"],
