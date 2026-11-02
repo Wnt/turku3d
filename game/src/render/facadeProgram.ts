@@ -1,7 +1,7 @@
 // Program-sized windows reuse the kit's PBR cells; bands are painted in wall metres.
 import { float, floor, fract, max, min, mix, sqrt, step, vec2, vec4 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
-import { facadeAttribute } from './facadeProgramAttributes';
+import { facadeAttribute, facadePaintAttributes } from './facadeProgramAttributes';
 import { metricGlazing } from './facadeGlazing';
 
 function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'float'>, b: Node<'float'>) {
@@ -11,7 +11,7 @@ function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'f
 }
 
 export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: Node<'vec3'>, upper: Node<'float'>, selected: Node<'float'>,
-  pattern: Node<'vec4'> = vec4(0, 0, 0, -1), panePhase: Node<'float'> = float(0)) {
+  pattern: Node<'vec4'> = vec4(0, 0, 0, -1), panePhase: Node<'float'> = float(0), packedPaint = false) {
   const opening = facadeAttribute('_kit_opening', 'vec4');
   const detail = facadeAttribute('_kit_detail', 'vec4');
   const size = facadeAttribute('_kit_extent', 'vec4').zw;
@@ -35,7 +35,7 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const isPatch = detail.w.greaterThan(0);
   const shape = isPatch.select(detail.w.div(4).floor(),
     upper.lessThan(1).select(detail.z.div(2).floor(), detail.w.negate())).mul(float(layout.x.lessThan(42)));
-  const floorSize = facadeAttribute('_kit_floors', 'vec3');
+  const floorSize = packedPaint ? facadePaintAttributes().floors : facadeAttribute('_kit_floors', 'vec3');
   const unitHeight = isPatch.select(size.y, mix(floorSize.x, floorSize.y, upper));
   const windowWidth = isPatch.select(float(1), shop.select(float(.78), door.select(float(.49), opening.x)));
   const windowHeight = isPatch.select(float(1), shop.select(float(.74), door.select(float(.76), opening.y)));
@@ -75,7 +75,7 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const visibleOpening = float(module.lessThan(42).and(doorLeaf.not()));
   // The bay index that `x` wraps within: one lit-window cell per program bay.
   const column = floor(shiftedBay);
-  return { module, local, opening, detail, size, x, y,
+  return { module, local, opening, detail, size, x, y, packedPaint,
     inside: glazing.inside.mul(visibleOpening), glass: glazing.glass.mul(visibleOpening),
     column: column.mul(64).add(isPatch.and(size.x.greaterThan(3)).select(glazing.column.div(2).floor(), float(0))),
     row: floor(bays.y),
@@ -85,7 +85,7 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
 export function programPigment(metres: Node<'vec2'>, bays: Node<'vec2'>, upper: Node<'float'>, layout: Node<'vec3'>,
   wall: Node<'vec3'>, trim: Node<'vec3'>, data: ReturnType<typeof programLayout>) {
   const bands = facadeAttribute('_kit_bands', 'vec4');
-  const base = facadeAttribute('_kit_base', 'vec3');
+  const base = data.packedPaint ? facadePaintAttributes().base : facadeAttribute('_kit_base', 'vec3');
   const plinth = step(metres.y, bands.x);
   const cornice = step(data.size.y.sub(bands.y), metres.y).mul(step(metres.y, data.size.y));
   const corner = step(min(metres.x, data.size.x.sub(metres.x)), bands.w);
