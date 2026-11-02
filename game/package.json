@@ -17,7 +17,6 @@
     "prepare-character": "node scripts/prepare-character.mjs",
     "prepare-car": "node scripts/prepare-car.mjs",
     "prepare-scooter": "node scripts/prepare-scooter.mjs",
-    "prepare-truck": "node scripts/prepare-truck.mjs",
     "render-fixture": "node scripts/make-render-fixture.mjs",
     "render-qa": "node scripts/render-qa-views.mjs",
     "prepare-audio": "node scripts/prepare-audio.mjs",

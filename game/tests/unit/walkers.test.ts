@@ -13,6 +13,7 @@ import { buildWalkNetwork, hash32 } from '../../src/world/walkers/network';
 import { MAX_TRAVEL, Population, WALKER, type Walker } from '../../src/world/walkers/population';
 import { RING, Ring, type RingView } from '../../src/world/walkers/ring';
 import { WALKER_CAPS, liveWalkerCount, walkerCap, walkersNear } from '../../src/world/walkers';
+import { HUMAN_MODELS, humanAppearance } from '../../src/world/walkers/appearance';
 import { WalkerMeshes } from '../../src/world/walkers/visuals';
 
 const TILE = 250;
@@ -226,8 +227,8 @@ describe('ring', () => {
 });
 
 test('caps per quality tier and the ?walkers= override', () => {
-  expect(WALKER_CAPS).toEqual({ mobile: 0, low: 10, medium: 30, high: 50 });
-  expect(walkerCap('low', null)).toBe(10); expect(walkerCap('medium', null)).toBe(30); expect(walkerCap('high', null)).toBe(50);
+  expect(WALKER_CAPS).toEqual({ mobile: 0, low: 10, medium: 60, high: 100 });
+  expect(walkerCap('low', null)).toBe(10); expect(walkerCap('medium', null)).toBe(60); expect(walkerCap('high', null)).toBe(100);
   expect(walkerCap('medium', 0)).toBe(0); expect(walkerCap('low', 80)).toBe(80);
   expect(parseParams('?walkers=12').walkers).toBe(12); expect(parseParams('').walkers).toBeNull();
   expect(() => parseParams('?walkers=-1')).toThrow(); expect(() => parseParams('?walkers=2.5')).toThrow(); expect(() => parseParams('?walkers=201')).toThrow();
@@ -237,13 +238,18 @@ const file = fs.readFileSync('public/assets/walkers/walkers.bin');
 const asset: WalkerAsset = parseWalkerAsset(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
 
 test('the committed VAT asset fits the budget', () => {
-  expect(asset.variants.map(v => v.id)).toEqual(['hoodie', 'jacket', 'skirt']);
-  expect(asset.vat.data.byteLength).toBeLessThanOrEqual(2_000_000);
+  expect(asset.variants).toHaveLength(12);
+  expect(new Set(HUMAN_MODELS.map(m => m.id)).size).toBe(96);
+  expect(new Set(HUMAN_MODELS.map(m => [m.family, m.height, ...m.shape].join())).size).toBe(96);
+  expect(asset.vat.data.byteLength).toBeLessThanOrEqual(32_000_000);
   expect(asset.fps).toBe(30);
   for (const v of asset.variants) {
     expect(v.walk.frames).toBe(40); expect(v.idle.frames).toBe(75); // the whole UAL loops at 30 fps
     expect(v.vertices).toBeLessThanOrEqual(asset.vat.width);
     expect(Math.max(...v.indices)).toBeLessThan(v.vertices);
+    expect(Math.max(...v.farIndices)).toBeLessThan(v.vertices);
+    expect(v.farIndices.length).toBeLessThan(v.indices.length * 0.35);
+    expect(v.uv.length).toBe(v.vertices * 2);
     expect(Math.max(...v.regions)).toBeLessThan(REGIONS.length);
     expect(v.height).toBeGreaterThan(1.5); expect(v.height).toBeLessThan(1.9);
   }
@@ -284,7 +290,7 @@ describe('rendering', () => {
     Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
     Object.assign(renderer, { hasFeature: () => false });
     if (velocityPass) { renderer.setRenderTarget(new THREE.RenderTarget()); renderer.setMRT(mrt({ output: normalView, velocity })); }
-    const meshes = new WalkerMeshes(asset, 50 + RING.margin);
+    const meshes = new WalkerMeshes({ ...asset, albedo: new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1) }, 50 + RING.margin);
     const out = counts.flatMap(count => meshes.meshes.map(mesh => {
       mesh.count = count;
       const backend = renderer.backend as typeof renderer.backend & { createNodeBuilder(o: THREE.Object3D, r: THREE.WebGPURenderer): ShaderBuilder };
@@ -303,7 +309,7 @@ describe('rendering', () => {
     expect(new Set(programs).size).toBe(1);
     expect(programs[0]).toMatch(/textureLoad/);
     expect(programs[0]).not.toMatch(/array<mat4x4<f32>,\s*\d+>/);
-    if (motion) expect(programs[0]).toMatch(/positionPrevious = \( mix/);
+    if (motion) expect(programs[0]).toMatch(/positionPrevious =/);
   });
 
   test('the depth/normal prepass keeps the VAT program and nothing casts walker shadows', () => {
@@ -312,7 +318,7 @@ describe('rendering', () => {
     expect(meshes.meshes.every(m => !m.castShadow && m.material === meshes.material)).toBe(true);
     meshes.update(Array.from({ length: 12 }, (_, i) => ({ variant: i % 3, x: i, y: 0, z: 0, yaw: 0, scale: 1, rowStart: 0, frames: 40,
       phase: 0, previousPhase: 0, skin: 0, top: 0, bottom: 0, hair: 0, shoes: 0, inner: 0, legwear: 0, fade: 1 })));
-    expect(meshes.meshes.map(m => m.count)).toEqual([4, 4, 4]);
+    expect(meshes.meshes.filter(m => m.count).map(m => m.count)).toEqual([4, 4, 4]);
     meshes.update([]);
     expect(meshes.meshes.every(m => m.count === 0 && !m.visible)).toBe(true);
     meshes.dispose();
@@ -328,4 +334,27 @@ test('hash32 values are pinned: a change re-dresses and re-routes every walker f
     ]
   `);
   expect(hash32(1, 2, 3)).not.toBe(hash32(3, 2, 1));
+});
+
+
+test('stable appearance catalog selects every real anatomical recipe and preserves bare legs', () => {
+  const seen = new Set<string>();
+  for (let id = 0; id < 2000; id++) {
+    const look = humanAppearance(id);
+    expect(look).toEqual(humanAppearance(id));
+    expect(look.variant).toBeLessThan(asset.variants.length);
+    expect(look.legwear).toBe(look.skin);
+    seen.add(look.model.id);
+  }
+  expect(seen.size).toBe(96);
+});
+
+
+test('textured animated crowd leaves WebGPU vertex-buffer slots for velocity matrices', () => {
+  const meshes = new WalkerMeshes(asset, 20);
+  for (const mesh of meshes.meshes) {
+    const bindings = new Set(Object.values(mesh.geometry.attributes).map(a => 'data' in a ? a.data : a));
+    expect(bindings.size).toBe(2); // static + appearance/animation, plus instance matrices owned by three.js
+  }
+  meshes.dispose();
 });

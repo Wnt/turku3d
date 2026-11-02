@@ -29,7 +29,7 @@ function ringScore(view: RingView, x: number, z: number): number {
 }
 
 /** A drawn walker and this client's cosmetic state for it (ring fade, smoothed yaw, last animation phase/clip). */
-export interface Drawn<T extends Placed> { walker: T; fade: number; yaw: number; phase: number; clip: number; first: boolean }
+export interface Drawn<T extends Placed> { walker: T; fade: number; yaw: number; phase: number; clip: number; first: boolean; lod?: 0 | 1 }
 
 export class Ring<T extends Placed> {
   private entries = new Map<number, Drawn<T> & { leaving: boolean }>();
