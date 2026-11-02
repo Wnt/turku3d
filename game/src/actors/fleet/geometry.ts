@@ -199,14 +199,31 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
   for(const end of [-1,1]) {
     b.flip=end<0;
     const z=end*(L/2+.006), lampY=topAt(end*L/2)-.09;
-    b.box(0,low+.14,z,W*1.70,.13,.04,DARK,TRIM);
+    b.box(0,low+.045,z,W*1.67,.035,.025,DARK,TRIM);
+    const intakeW=W*(end>0?1.05:.84),intakeH=end>0?.15:.09,iz=z+end*.009;
+    b.quad([-intakeW/2,low+.10,iz],[intakeW/2,low+.10,iz],[intakeW*.43,low+.10+intakeH,iz],[-intakeW*.43,low+.10+intakeH,iz],DARK,TRIM);
     b.box(0,lampY-.12,z+end*.013,W*(m.face%2?.79:.65),.15,.025,[.022,.026,.03],TRIM);
     for(const s of [-1,1]) {
       const lh=m.face%3===0?.13:.085, lw=W*(m.face%3===1?.46:.39);
       const cx=s*W*.64,zz=z+end*.022;
-      b.quad([cx-lw/2,lampY-lh/2,zz],[cx+lw/2,lampY-lh/2,zz],[cx+lw/2-s*.045,lampY+lh/2+.018,zz],
-        [cx-lw/2+s*.045,lampY+lh/2,zz],end>0?[.65,.76,.86]:[.35,.008,.006],[0,.17,.25,end>0?1:.55]);
-      if(lod===0) b.box(s*W*.83,lampY-.09,z+end*.022,.075,.035,.026,[.64,.21,.015],[0,.30,.1,0]);
+      const lamp=(width:number,height:number,depth:number,color:V,surface:Surface)=>{
+        const bevel=Math.min(.035,height*.23),xl=cx-width/2,xr=cx+width/2,yb=lampY-height/2,yt=lampY+height/2,zl=zz+end*depth;
+        const contour:V[]=[[xl+bevel,yb,zl],[xr-bevel,yb,zl],[xr,yb+bevel,zl],[xr,yt-bevel,zl],[xr-bevel,yt,zl],[xl+bevel,yt,zl],[xl,yt-bevel,zl],[xl,yb+bevel,zl]];
+        for(let k=0;k<contour.length;k++)b.tri([cx,lampY,zl],contour[k],contour[(k+1)%contour.length],color,surface);
+      };
+      lamp(lw+.045,lh+.035,0,[.012,.016,.02],TRIM);
+      lamp(lw,lh,.006,end>0?[.10,.15,.18]:[.16,.004,.003],[0,.12,.08,0]);
+      if(lod<2&&end>0){
+        const projectorX=cx-s*lw*.20,pr=lh*.29,pz=zz+end*.010;
+        for(let k=0;k<8;k++){
+          const a=k/8*Math.PI*2,c=(k+1)/8*Math.PI*2;
+          b.tri([projectorX,lampY,pz],[projectorX+Math.cos(a)*pr,lampY+Math.sin(a)*pr,pz],[projectorX+Math.cos(c)*pr,lampY+Math.sin(c)*pr,pz],[.60,.68,.74],[0,.15,.45,1]);
+        }
+      }
+      b.box(cx,lampY-lh*.29,zz+end*.012,lw*.78,.016,.004,end>0?[.72,.82,.94]:[.48,.008,.004],[0,.17,.12,end>0?1:.55]);
+      // +X is the vehicle's left in the model-to-physics frame.
+      b.box(s*W*.80,lampY-.07,z+end*.024,.085,.032,.025,[.75,.22,.006],[0,.22,.08,s>0?2:3]);
+
     }
     if(lod===0) {
       b.box(0,low+.18,z+end*.04,.51,.11,.018,[.9,.92,.87],[0,.55,0,0]);

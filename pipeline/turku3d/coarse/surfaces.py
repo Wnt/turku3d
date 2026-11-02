@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
-import inspect
 import json
-import subprocess
-import tempfile
 from pathlib import Path
 
 import numpy as np
 import shapely
-from PIL import Image
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh, vertex_normals
-from . import ground_finishes, street_materials
+from . import street_materials
 
 KEYS = (
     "asphalt_fresh",
@@ -88,8 +83,29 @@ def osm_surfaces(tile, path):
 
     result = []
     window = shapely.box(*tile.bbox.as_tuple())
+    records = []
+    parks, tagged_paths, path_finishes = [], [], []
     for _, row in rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
+        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
+        records.append((tags, geom))
+        if tags.get("leisure") in ("park", "garden", "nature_reserve"):
+            area = geom
+            if area.geom_type == "LineString" and area.is_ring:
+                area = shapely.make_valid(shapely.Polygon(area))
+            if area.geom_type in ("Polygon", "MultiPolygon"):
+                parks.append(area)
+        if (
+            tags.get("highway") in ("footway", "path") and tags.get("surface")
+            and tags.get("bridge", "no") == "no" and tags.get("tunnel", "no") == "no"
+            and tags.get("layer", "0") in ("0", "")
+            and geom.geom_type in ("LineString", "MultiLineString")
+        ):
+            tagged_paths.append(geom)
+            path_finishes.append(SURFACES.get(tags["surface"]))
+    park_index = shapely.STRtree(parks)
+    path_index = shapely.STRtree(tagged_paths)
+    for tags, geom in records:
         if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") not in (
             "no",
             "building_passage",
@@ -117,6 +133,17 @@ def osm_surfaces(tile, path):
             and tags.get("parking") not in ("multi-storey", "underground")
         ):
             key = "road"
+        if not key and highway == "footway" and not tags.get("surface"):
+            # A missing tag is not evidence of slab joints. In a mapped park, inherit
+            # gravel only from a physically joined, explicitly tagged path, with no
+            # conflicting joined finish. Full source ways keep this tile-independent.
+            connected = path_index.query(geom, predicate="dwithin", distance=0.05)
+            if (
+                len(connected)
+                and all(path_finishes[i] == "gravel" for i in connected)
+                and any(parks[i].covers(geom) for i in park_index.query(geom))
+            ):
+                key = "gravel"
         if not key and highway:
             key = (
                 "paving_slab"
@@ -127,7 +154,6 @@ def osm_surfaces(tile, path):
             )
         if not key:
             continue
-        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if not geom.intersects(window):
             continue
         if (
@@ -287,98 +313,9 @@ def channels(meshes):
 
 
 def library(root: Path, base: Path, channels):
-    """Retain native albedo detail at 1024 px/2 m; cache and share maps across tiles."""
-    sources = [C.work_root() / "textures/library", C.data_root() / "textures/library"]
-    source = next(
-        (
-            p
-            for p in sources
-            if all((p / f"{s}.array.ktx2").exists() for s in ("albedo", "normal", "orm"))
-        ),
-        None,
-    )
-    identity = [
-        str(base.resolve()),
-        KEYS,
-        *(inspect.getsource(f) for f in (library, fallback, neutral_asphalt)),
-        inspect.getsource(ground_finishes),
-    ]
-    if source:
-        identity.extend(
-            f"{p}:{p.stat().st_size}:{p.stat().st_mtime_ns}"
-            for p in sorted(source.glob("*.array.ktx2"))
-        )
-    key = hashlib.sha256(repr(identity).encode()).hexdigest()[:16]
-    target = root / f".surface-library-{key}"
-    target.mkdir(parents=True, exist_ok=True)
-    if base.exists():
-        for p in base.iterdir():
-            dest = target / p.name
-            if not dest.exists():
-                try:
-                    dest.symlink_to(p.resolve(), target_is_directory=p.is_dir())
-                except FileExistsError:
-                    pass
-    for channel in channels:
-        dest = target / ("draft_" + KEYS[channel])
-        if dest.exists():
-            continue
-        with tempfile.TemporaryDirectory(dir=target) as tmp:
-            stage = Path(tmp)
-            finish_maps = (
-                ground_finishes.maps(KEYS[channel])
-                if KEYS[channel] in street_materials.FINISH_KEYS.values() else None
-            )
-            for slot in ("albedo", "normal", "orm"):
-                output = stage / f"{slot}.png"
-                if finish_maps is not None:
-                    Image.fromarray(finish_maps[slot]).save(output)
-                elif source:
-                    subprocess.run(
-                        [
-                            "ktx",
-                            "extract",
-                            "--transcode",
-                            "rgba8",
-                            "--layer",
-                            str(channel),
-                            "--level",
-                            "0" if slot == "albedo" else "1" if slot == "normal" else "2",
-                            str(source / f"{slot}.array.ktx2"),
-                            str(output),
-                        ],
-                        check=True,
-                        capture_output=True,
-                    )
-                else:
-                    pixels = (
-                        fallback(channel)
-                        if slot == "albedo"
-                        else np.full(
-                            (256, 256, 3),
-                            (128, 128, 255) if slot == "normal" else (255, 230, 0),
-                            np.uint8,
-                        )
-                    )
-                    Image.fromarray(pixels).save(output)
-                if slot == "albedo" and channel in (0, 1):
-                    with Image.open(output) as image:
-                        pixels = neutral_asphalt(np.asarray(image.convert("RGB")))
-                    Image.fromarray(pixels).save(output)
-            (stage / "material.json").write_text(
-                json.dumps(
-                    dict(
-                        uv_scale=[0.5, 0.5],
-                        source="procedural" if finish_maps or not source else "own ground library",
-                    )
-                )
-            )
-            try:
-                stage.rename(dest)
-            except OSError:
-                if not dest.exists():
-                    raise
-    return target
+    from .surface_library import library as shared_library
+
+    return shared_library(root, base, channels)
 
 
 def mapped_paint(tile, path):

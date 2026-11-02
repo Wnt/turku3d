@@ -3,13 +3,13 @@
 import { float, fract, fwidth, max, min, round, smoothstep, step } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 
-export function metricGlazing(metres: Node<'vec2'>, size: Node<'vec2'>, top: Node<'float'>) {
+export function metricGlazing(metres: Node<'vec2'>, size: Node<'vec2'>, top: Node<'float'>, footprint?: Node<'float'>) {
   const columns = max(size.x.greaterThan(.8).select(float(2), float(1)), round(size.x.div(1.25)));
   const rows = max(1, round(size.y.div(1.8)));
   const pitchX = size.x.div(columns), pitchY = size.y.div(rows);
   const x = metres.x.div(pitchX), y = metres.y.div(pitchY);
   const edge = min(min(metres.x, size.x.sub(metres.x)), min(metres.y, top.mul(size.y).sub(metres.y)));
-  const aa = max(.002, max(fwidth(metres.x), fwidth(metres.y)));
+  const aa = max(.002, footprint ?? max(fwidth(metres.x), fwidth(metres.y)));
   const frameWidth = min(.065, size.x.mul(.12));
   const frame = float(1).sub(smoothstep(frameWidth.sub(aa), frameWidth.add(aa), edge));
   const dx = min(fract(x), float(1).sub(fract(x))).mul(pitchX);
