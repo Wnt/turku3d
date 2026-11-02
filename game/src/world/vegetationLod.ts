@@ -1,8 +1,10 @@
 import * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../render/quality';
-import { SharedMaterials } from '../render/sharedMaterials';
 import { PreparationBudget } from '../render/preparationBudget';
-import { PrototypeGeometry } from './prototypeGeometry';
+import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
+import { natureAsset, natureScale, natureTint } from './nature/species';
+import { TILE_SHADOW_LAYER } from './shadowBatch';
+import { materialKey, surfaceStyle } from '../render/materials';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
@@ -12,127 +14,11 @@ export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
   return null;
 }
 
-/** Opaque untextured parts with identical placements can share vertex colours and one draw. */
-function* combineParts(sources: THREE.InstancedMesh[], cache: PrototypeGeometry, owned: THREE.BufferGeometry[]): Generator<void, { mesh: THREE.InstancedMesh; parts: THREE.InstancedMesh[]; farGeometry?: THREE.BufferGeometry }[]> {
-  const key = (mesh: THREE.InstancedMesh) => {
-    const material = mesh.material as THREE.MeshStandardMaterial;
-    if (Array.isArray(mesh.material) || !material.isMeshStandardMaterial ||
-        (material as THREE.Material & { isNodeMaterial?: boolean }).isNodeMaterial ||
-        material.transparent || material.vertexColors ||
-        Object.values(material).some(value => value?.isTexture) || !mesh.geometry.getAttribute('normal')) return null;
-    const params = material.toJSON() as unknown as Record<string, unknown>;
-    for (const name of ['uuid', 'name', 'color', 'metadata', 'userData']) delete params[name];
-    return JSON.stringify(params);
-  };
-  const pending = [...sources], combined: { mesh: THREE.InstancedMesh; parts: THREE.InstancedMesh[]; farGeometry?: THREE.BufferGeometry }[] = [];
-  while (pending.length) {
-    yield;
-    const first = pending.shift()!, signature = key(first);
-    if (!signature) continue;
-    first.updateMatrix();
-    const parts = [first];
-    for (let i = pending.length - 1; i >= 0; i--) {
-      const next = pending[i]; next.updateMatrix();
-      if (next.parent === first.parent && next.count === first.count && key(next) === signature &&
-          next.matrix.equals(first.matrix) && first.instanceMatrix.array.every((v, n) => v === next.instanceMatrix.array[n])) {
-        parts.push(next); pending.splice(i, 1);
-      }
-    }
-    if (parts.length < 2) continue;
-    const geometryKey = parts.map(part => `${cache.signature(part.geometry)}:${(part.material as THREE.MeshStandardMaterial).color.toArray()}`).join('|');
-    const geometry = cache.acquire(`combined:${geometryKey}`, () => {
-      const positions: number[] = [], normals: number[] = [], colours: number[] = [], indices: number[] = [];
-      for (const part of parts) {
-        const p = part.geometry.getAttribute('position'), n = part.geometry.getAttribute('normal');
-        const colour = (part.material as THREE.MeshStandardMaterial).color, offset = positions.length / 3;
-        for (let i = 0; i < p.count; i++) {
-          positions.push(p.getX(i), p.getY(i), p.getZ(i));
-          normals.push(n.getX(i), n.getY(i), n.getZ(i));
-          colours.push(colour.r, colour.g, colour.b);
-        }
-        const index = part.geometry.index;
-        for (let i = 0; i < (index?.count ?? p.count); i++) indices.push(offset + (index?.getX(i) ?? i));
-      }
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-      geometry.setIndex(indices);
-      return geometry;
-    });
-    owned.push(geometry);
-    const material = (first.material as THREE.MeshStandardMaterial).clone();
-    material.color.setRGB(1, 1, 1); material.vertexColors = true;
-    const mesh = new THREE.InstancedMesh(geometry, material, first.count);
-    mesh.instanceMatrix.array.set(first.instanceMatrix.array);
-    mesh.position.copy(first.position); mesh.quaternion.copy(first.quaternion); mesh.scale.copy(first.scale);
-    const foliage = parts.find(part => vegetationOwner(part)!.userData.material_key !== 'tree_bark');
-    mesh.userData = { ...vegetationOwner(foliage ?? first)!.userData,
-      foliageColor: foliage ? (foliage.material as THREE.MeshStandardMaterial).color.toArray() : undefined };
-    first.parent!.add(mesh);
-    combined.push({ mesh, parts, farGeometry: foliage?.geometry });
-  }
-  return combined;
-}
-
-/** Vertex clustering preserves the prototype's shape without storing another asset. */
-export function clusteredTree(source: THREE.BufferGeometry): THREE.BufferGeometry {
-  const positions = source.getAttribute('position');
-  const colors = source.getAttribute('color'), mergedColors: number[] = [];
-  const points: number[] = [], remap: number[] = [], cells = new Map<string, number>();
-  for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i), y = positions.getY(i), z = positions.getZ(i);
-    const key = `${Math.round(x * 4)},${Math.round(y * 8)},${Math.round(z * 4)}:${colors ? `${colors.getX(i)},${colors.getY(i)},${colors.getZ(i)}` : ''}`;
-    let index = cells.get(key);
-    if (index === undefined) { index = points.length / 3; cells.set(key, index); points.push(x, y, z);
-      if (colors) mergedColors.push(colors.getX(i), colors.getY(i), colors.getZ(i));
-    }
-    remap.push(index);
-  }
-  const indices: number[] = [], seen = new Set<string>();
-  const count = source.index?.count ?? positions.count;
-  for (let i = 0; i < count; i += 3) {
-    const face = [0, 1, 2].map(j => remap[source.index?.getX(i + j) ?? i + j]);
-    if (new Set(face).size < 3) continue;
-    const key = [...face].sort((a, b) => a - b).join(',');
-    if (!seen.has(key)) { seen.add(key); indices.push(...face); }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-  if (colors) geometry.setAttribute('color', new THREE.Float32BufferAttribute(mergedColors, 3));
-  geometry.setIndex(indices); geometry.computeVertexNormals(); geometry.computeBoundingSphere();
-  return geometry;
-}
-
-/** Opaque crossed silhouette strips sampled from this prototype: no alpha-test overdraw. */
-export function crossedTree(source: THREE.BufferGeometry): THREE.BufferGeometry {
-  source.computeBoundingBox();
-  const box = source.boundingBox!, p = source.getAttribute('position');
-  const positions: number[] = [], indices: number[] = [];
-  const levels = 8, widths = new Array<number>(levels + 1).fill(0);
-  for (let i = 0; i < p.count; i++) {
-    const band = Math.min(levels, Math.round((p.getY(i) - box.min.y) / Math.max(0.001, box.max.y - box.min.y) * levels));
-    widths[band] = Math.max(widths[band], Math.hypot(p.getX(i), p.getZ(i)));
-  }
-  for (let axis = 0; axis < 2; axis++) {
-    const offset = positions.length / 3;
-    for (let i = 0; i <= levels; i++) {
-      const y = THREE.MathUtils.lerp(box.min.y, box.max.y, i / levels);
-      const width = widths[i] || Math.max(widths[Math.max(0, i - 1)], widths[Math.min(levels, i + 1)]);
-      for (const sign of [-1, 1]) positions.push(axis ? 0 : sign * width, y, axis ? sign * width : 0);
-      if (i) { const a = offset + (i - 1) * 2; indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(indices); geometry.computeVertexNormals(); geometry.computeBoundingSphere();
-  return geometry;
-}
-
 interface Bucket {
   draw: Draw;
   bounds: THREE.Sphere;
   matrices: Float32Array;
+  colors: Float32Array;
   objectIds: unknown[];
   distance: number;
   selectedCount: number;
@@ -142,28 +28,27 @@ interface Bucket {
 }
 interface Draw {
   root: THREE.Group;
-  levels: THREE.InstancedMesh[];
-  foliage: boolean;
-  mergeFar: boolean;
+  /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer. */
+  levels: THREE.InstancedMesh[][];
   selections: Bucket[][];
   previous: number[][];
 }
 interface Model {
-  combined: THREE.InstancedMesh[];
   sources: { mesh: THREE.InstancedMesh; visible: boolean; shadow: boolean }[];
   draws: Draw[];
   buckets: Bucket[];
-  geometries: THREE.BufferGeometry[];
-  materials: THREE.Material[];
 }
+interface Placement { matrix: THREE.Matrix4; tint: [number, number, number]; id: unknown }
 
-/** One shared per-frame instance budget for published and draft models, on either backend. */
+/**
+ * Tile vegetation (EXT_mesh_gpu_instancing prototypes with measured size per instance) drawn with the nature library:
+ * each instance becomes a Turku species tree or shrub (nature/species.ts), bucketed into 50 m cells, with one shared
+ * per-frame instance budget per LOD (full mesh, reduced mesh, impostor) for published and draft models on either backend.
+ */
 export class VegetationLod {
   /** Developer screenshot range; zero restores the quality-tier budget. */
   screenshotDistance = 0;
   private models = new Map<THREE.Object3D, Model>();
-  private materials = new SharedMaterials();
-  private prototypes = new PrototypeGeometry();
   private budget = new PreparationBudget();
   private frustum = new THREE.Frustum();
   private projection = new THREE.Matrix4();
@@ -171,24 +56,33 @@ export class VegetationLod {
   private position = new THREE.Vector3();
   private visible: Bucket[] = [];
   private remaining = [0, 0, 0];
-  constructor(private tier: QualityTier) {}
+  private library: NatureLibrary | null = null;
+  private readonly ready: Promise<void>;
+  constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>) {
+    if (library instanceof Promise) this.ready = library.then(loaded => { this.library = loaded; });
+    else { this.library = library; this.ready = Promise.resolve(); }
+  }
+
+  loadedModels() { return [...this.models.keys()]; }
 
   add(model: THREE.Object3D) {
-    const steps = this.addSteps(model);
+    if (!this.library) throw new Error('VegetationLod.add before the nature library loaded');
+    const steps = this.addSteps(model, this.library);
     while (!steps.next().done) { /* Synchronous fixture/startup caller. */ }
   }
 
   async addAsync(model: THREE.Object3D) {
-    const steps = this.addSteps(model);
+    await this.ready;
+    const steps = this.addSteps(model, this.library!);
     while (!steps.next().done) {
       const pending = this.budget.checkpoint();
       if (pending) await pending;
     }
   }
 
-  private *addSteps(model: THREE.Object3D): Generator<void> {
+  private *addSteps(model: THREE.Object3D, library: NatureLibrary): Generator<void> {
     if (this.models.has(model)) return;
-    const data: Model = { combined: [], sources: [], draws: [], buckets: [], geometries: [], materials: [] };
+    const data: Model = { sources: [], draws: [], buckets: [] };
     // Collect before adding children: traversal must never revisit generated meshes.
     model.traverse(object => {
       const mesh = object as THREE.InstancedMesh;
@@ -196,79 +90,92 @@ export class VegetationLod {
     });
     if (!data.sources.length) return;
     this.models.set(model, data);
-    const matrix = new THREE.Matrix4(), sphere = new THREE.Sphere();
-    const combined = yield* combineParts(data.sources.map(source => source.mesh), this.prototypes, data.geometries);
-    data.combined = combined.map(part => part.mesh);
-    const replaced = new Set(combined.flatMap(part => part.parts));
     for (const { mesh } of data.sources) { mesh.visible = false; mesh.castShadow = false; }
-    for (const mesh of [...data.sources.map(source => source.mesh).filter(mesh => !replaced.has(mesh)), ...data.combined]) {
-      yield;
+    // Bark and crown prototypes of one variant share their placements: one representative per variant and parent.
+    const representatives = new Map<string, THREE.InstancedMesh>();
+    for (const { mesh } of data.sources) {
       const owner = vegetationOwner(mesh)!;
-      if (data.combined.includes(mesh)) {
-        mesh.material = this.materials.acquire(mesh.material as THREE.Material);
-        data.materials.push(mesh.material as THREE.Material);
-      }
-      const foliage = owner.userData.material_key !== 'tree_bark';
-      const mid = this.prototypes.acquire(`mid:${this.prototypes.signature(mesh.geometry)}`, () => clusteredTree(mesh.geometry));
-      // A clustered crown can be cheaper than the 32-triangle silhouette.
-      // Share its mid/far draw rather than add geometry and another draw call.
-      const mergeFar = foliage && (mid.index?.count ?? mid.getAttribute('position').count) <= 96;
-      const farSource = combined.find(part => part.mesh === mesh)?.farGeometry ?? mesh.geometry;
-      const far = foliage && !mergeFar ? this.prototypes.acquire(`far:${this.prototypes.signature(farSource)}`, () => crossedTree(farSource)) : null;
-      data.geometries.push(mid); if (far) data.geometries.push(far);
-      let farMaterial = far ? (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material).clone() : null;
-      if (farMaterial) {
-        if (mesh.userData.foliageColor) {
-          (farMaterial as THREE.MeshStandardMaterial).vertexColors = false;
-          (farMaterial as THREE.MeshStandardMaterial).color.fromArray(mesh.userData.foliageColor);
-        }
-        farMaterial.side = THREE.DoubleSide;
-        farMaterial = this.materials.acquire(farMaterial); data.materials.push(farMaterial);
-      }
-      const cells = new Map<string, number[]>();
+      const variant = String(owner.userData.variant ?? owner.name.replace(/:\d+$/, ''));
+      const key = `${mesh.parent?.id}:${variant}`;
+      if (!representatives.has(key)) representatives.set(key, mesh);
+    }
+    const matrix = new THREE.Matrix4(), t = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    const water = yield* waterCells(model), toModel = new THREE.Matrix4(), inModel = new THREE.Vector3();
+    for (const mesh of representatives.values()) {
+      const owner = vegetationOwner(mesh)!;
+      const variant = String(owner.userData.variant ?? owner.name.replace(/:\d+$/, ''));
+      const ids = owner.userData.instance_object_ids as unknown[] | undefined;
+      toModel.copy(model.matrixWorld).invert().multiply(mesh.matrixWorld);
+      // Group placements by library asset, then by 50 m cell.
+      const byAsset = new Map<string, Map<string, Placement[]>>();
       for (let i = 0; i < mesh.count; i++) {
         if (i % 256 === 0) yield;
         mesh.getMatrixAt(i, matrix);
-        const key = `${Math.floor(matrix.elements[12] / 50)},${Math.floor(matrix.elements[14] / 50)}`;
-        if (!cells.has(key)) cells.set(key, []);
-        cells.get(key)!.push(i);
+        matrix.decompose(t, q, s);
+        const id = ids?.[i] ?? `${variant}:${i}`;
+        inModel.copy(t).applyMatrix4(toModel);
+        const nearWater = water.has(waterCell(inModel.x, inModel.z));
+        const name = natureAsset(variant, String(id), s.y, nearWater, owner.userData.instance_species?.[i] ?? "");
+        const asset = library.asset(name);
+        const scale = natureScale(s.y, Math.max(s.x, s.z), asset.height, asset.radius);
+        const placed = new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz));
+        const cell = `${Math.floor(t.x / 50)},${Math.floor(t.z / 50)}`;
+        let cells = byAsset.get(name);
+        if (!cells) byAsset.set(name, cells = new Map());
+        if (!cells.has(cell)) cells.set(cell, []);
+        cells.get(cell)!.push({ matrix: placed, tint: natureTint(String(id)), id: ids?.[i] });
       }
-      mesh.visible = false; mesh.castShadow = false;
-      const root = new THREE.Group();
-      root.name = 'vegetation-lod'; root.userData.vegetationLod = true;
-      root.position.copy(mesh.position); root.quaternion.copy(mesh.quaternion); root.scale.copy(mesh.scale);
-      const geometries = far ? [mesh.geometry, mid, far] : [mesh.geometry, mid];
-      const levels = geometries.map((geometry, level) => {
-        const batch = new THREE.InstancedMesh(geometry, level === 2 ? farMaterial! : mesh.material, mesh.count);
-        batch.userData = { ...owner.userData, vegetationLod: true };
-        batch.userData.instance_object_ids = [];
-        batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        batch.receiveShadow = level !== 2; batch.castShadow = level === 0;
-        batch.visible = false;
-        root.add(batch);
-        return batch;
-      });
-      mesh.parent!.add(root);
-      const draw: Draw = { root, levels, foliage, mergeFar, selections: [[], [], []], previous: [[], [], []] };
-      data.draws.push(draw);
-      if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
-      const all = new THREE.Sphere().makeEmpty();
-      for (const ids of cells.values()) {
-        const bounds = new THREE.Sphere().makeEmpty();
-        const matrices = new Float32Array(ids.length * 16);
-        for (let i = 0; i < ids.length; i++) {
-          if (i % 256 === 0) yield;
-          const id = ids[i];
-          mesh.getMatrixAt(id, matrix); matrix.toArray(matrices, i * 16);
-          sphere.copy(mesh.geometry.boundingSphere!).applyMatrix4(matrix);
-          bounds.union(sphere);
+      for (const [name, cells] of byAsset) {
+        yield;
+        const asset = library.asset(name);
+        const count = [...cells.values()].reduce((n, list) => n + list.length, 0);
+        const draw = this.createDraw(mesh, owner, asset, count);
+        data.draws.push(draw);
+        const local = assetSphere(asset), all = new THREE.Sphere().makeEmpty(), sphere = new THREE.Sphere();
+        for (const list of cells.values()) {
+          const bounds = new THREE.Sphere().makeEmpty();
+          const matrices = new Float32Array(list.length * 16), colors = new Float32Array(list.length * 3);
+          for (let i = 0; i < list.length; i++) {
+            list[i].matrix.toArray(matrices, i * 16);
+            colors.set(list[i].tint, i * 3);
+            bounds.union(sphere.copy(local).applyMatrix4(list[i].matrix));
+          }
+          all.union(bounds);
+          data.buckets.push({ draw, matrices, colors, objectIds: list.map(p => p.id), bounds, distance: 0, selectedCount: 0, selectedLevel: -1, count: list.length, index: data.buckets.length });
         }
-        all.union(bounds);
-        data.buckets.push({ draw, matrices, objectIds: ids.map(id => owner.userData.instance_object_ids?.[id]), bounds, distance: 0, selectedCount: 0, selectedLevel: -1, count: ids.length, index: data.buckets.length });
+        // Static conservative bounds cover every possible packed selection and all cheaper LODs.
+        for (const level of draw.levels) for (const part of level) part.boundingSphere = all.clone();
       }
-      // Static conservative bounds cover every possible packed selection and all cheaper LODs.
-      for (const batch of levels) batch.boundingSphere = all.clone();
     }
+  }
+
+  private createDraw(source: THREE.InstancedMesh, owner: THREE.Object3D, asset: NatureAsset, count: number): Draw {
+    const root = new THREE.Group();
+    root.name = `vegetation-lod:${asset.name}`; root.userData.vegetationLod = true;
+    root.position.copy(source.position); root.quaternion.copy(source.quaternion); root.scale.copy(source.scale);
+    const levels = asset.lods.map((lod, level) => {
+      const matrices = new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16);
+      const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
+      matrices.setUsage(THREE.DynamicDrawUsage); colors.setUsage(THREE.DynamicDrawUsage);
+      const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
+      const batch = (part: NaturePart, shadowProxy = false) => {
+        const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
+        mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
+        mesh.userData = { ...owner.userData, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: [] };
+        mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
+        if (shadowProxy) mesh.layers.set(TILE_SHADOW_LAYER);
+        mesh.visible = false; mesh.count = 0;
+        root.add(mesh);
+        return mesh;
+      };
+      const parts = lod.parts.map(part => batch(part));
+      // Near trees cast their shadow with the reduced LOD on the shadow-only layer: the same canopy cards at about a
+      // third of the triangles, as GTA's per-tree shadow proxies (docs/reports/environment-assets.md).
+      if (level === 0 && asset.lods.length > 1) parts.push(...asset.lods[1].parts.map(part => batch(part, true)));
+      return parts;
+    });
+    source.parent!.add(root);
+    return { root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
   }
 
   update(camera: THREE.PerspectiveCamera) {
@@ -285,7 +192,7 @@ export class VegetationLod {
       if (!model.parent || !model.parent.children.includes(model)) active = false;
       for (const draw of data.draws) {
         for (const selection of draw.selections) selection.length = 0;
-        for (const batch of draw.levels) batch.visible = false;
+        for (const level of draw.levels) for (const part of level) part.visible = false;
         if (active) draw.root.updateWorldMatrix(true, false);
       }
       for (const bucket of data.buckets) {
@@ -302,40 +209,44 @@ export class VegetationLod {
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
       while (level < 3 && remaining[level] <= 0) level++;
-      if (level > 2 || (level === 2 && !bucket.draw.foliage)) continue;
+      // Shrubs and hedges have no impostor: beyond their last LOD they are not drawn.
+      if (level >= bucket.draw.levels.length) continue;
       const count = Math.min(bucket.count, remaining[level]);
       remaining[level] -= count;
       bucket.selectedCount = count;
-      bucket.selectedLevel = level === 2 && bucket.draw.mergeFar ? 1 : level;
+      bucket.selectedLevel = level;
     }
-    // Cells cull independently, but compact into one draw per tile/prototype/LOD.
+    // Cells cull independently, but compact into one draw per tile/asset/LOD part.
     // Only changed cell selections upload matrices; stationary views do no buffer writes.
     for (const data of this.models.values()) {
       for (const bucket of data.buckets) if (bucket.selectedLevel >= 0) bucket.draw.selections[bucket.selectedLevel].push(bucket);
       for (const draw of data.draws) {
         for (let level = 0; level < draw.levels.length; level++) {
-          const batch = draw.levels[level], selections = draw.selections[level], previous = draw.previous[level];
+          const parts = draw.levels[level], selections = draw.selections[level], previous = draw.previous[level];
           if (!selections.length) continue;
           // Distance chooses membership, not buffer order. Passing a cell must not repack unchanged instances.
           let changed = previous.length !== selections.length * 2;
           for (let i = 0; !changed && i < selections.length; i++) {
             changed = previous[i * 2] !== selections[i].index || previous[i * 2 + 1] !== selections[i].selectedCount;
           }
+          const first = parts[0];
           if (changed) {
-            const target = batch.instanceMatrix.array as Float32Array;
+            const matrices = first.instanceMatrix.array as Float32Array, colors = first.instanceColor!.array as Float32Array;
             let offset = 0;
-            const objectIds = batch.userData.instance_object_ids as unknown[];
+            const objectIds = first.userData.instance_object_ids as unknown[];
             objectIds.length = 0; previous.length = 0;
             for (const bucket of selections) {
               const count = bucket.selectedCount;
-              target.set(bucket.matrices.subarray(0, count * 16), offset * 16); offset += count;
+              matrices.set(bucket.matrices.subarray(0, count * 16), offset * 16);
+              colors.set(bucket.colors.subarray(0, count * 3), offset * 3);
+              offset += count;
               for (let i = 0; i < count; i++) objectIds.push(bucket.objectIds[i]);
               previous.push(bucket.index, count);
             }
-            batch.count = offset;
-            batch.instanceMatrix.needsUpdate = true;
+            for (const part of parts) part.count = offset;
+            first.instanceMatrix.needsUpdate = true; first.instanceColor!.needsUpdate = true;
           }
-          batch.visible = batch.count > 0;
+          for (const part of parts) part.visible = part.count > 0;
         }
       }
     }
@@ -346,12 +257,57 @@ export class VegetationLod {
     if (!data) return;
     for (const draw of data.draws) {
       draw.root.removeFromParent();
-      for (const mesh of draw.levels) mesh.dispose();
+      for (const level of draw.levels) for (const part of level) part.dispose();
     }
-    for (const mesh of data.combined) { mesh.removeFromParent(); mesh.dispose(); }
     for (const source of data.sources) { source.mesh.visible = source.visible; source.mesh.castShadow = source.shadow; }
-    for (const geometry of data.geometries) this.prototypes.release(geometry);
-    for (const material of data.materials) this.materials.release(material);
     this.models.delete(model);
   }
 }
+
+const WATER_CELL = 4, WATER_REACH = 14;
+const waterCell = (x: number, z: number) => `${Math.floor(x / WATER_CELL)},${Math.floor(z / WATER_CELL)}`;
+
+/** Model-space 4 m cells within 14 m of the tile's water surfaces (their edges are the banks). */
+function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
+  const cells = new Set<string>();
+  model.updateWorldMatrix(true, true);
+  const inverse = model.matrixWorld.clone().invert(), toModel = new THREE.Matrix4();
+  const meshes: THREE.Mesh[] = [];
+  model.traverse(o => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)) return;
+    const key = materialKey(mesh, mesh.material);
+    if (key && surfaceStyle(key) === 'water') meshes.push(mesh);
+  });
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), r = Math.ceil(WATER_REACH / WATER_CELL);
+  for (const mesh of meshes) {
+    toModel.multiplyMatrices(inverse, mesh.matrixWorld);
+    const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
+    const count = index?.count ?? position.count;
+    for (let i = 0; i < count; i++) {
+      if (i % 3000 === 0) yield;
+      const next = i % 3 === 2 ? i - 2 : i + 1;
+      a.fromBufferAttribute(position, index?.getX(i) ?? i).applyMatrix4(toModel);
+      b.fromBufferAttribute(position, index?.getX(next) ?? next).applyMatrix4(toModel);
+      // Sample every triangle edge; interior edges of a water polygon are harmless (also water).
+      const steps = Math.max(1, Math.ceil(a.distanceTo(b) / WATER_CELL));
+      for (let k = 0; k <= steps; k++) {
+        const x = Math.floor((a.x + (b.x - a.x) * k / steps) / WATER_CELL), z = Math.floor((a.z + (b.z - a.z) * k / steps) / WATER_CELL);
+        for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) cells.add(`${x + dx},${z + dz}`);
+      }
+    }
+  }
+  return cells;
+}
+
+/** Bounding sphere of an asset at scale 1 (base at the origin). */
+function assetSphere(asset: NatureAsset) {
+  return new THREE.Sphere(new THREE.Vector3(0, asset.height / 2, 0), Math.hypot(asset.radius, asset.height / 2));
+}
+
+// This boundary also prevents shadowBatch's vegetationOwner import from reloading
+// main.ts. The existing world installs the new renderer around its resident tiles.
+if (import.meta.hot) import.meta.hot.accept(module => {
+  const replace = window.__game?.replaceVegetation as ((Renderer: typeof VegetationLod) => Promise<void>) | undefined;
+  if (module && replace) void replace(module.VegetationLod);
+});

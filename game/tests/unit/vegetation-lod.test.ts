@@ -1,46 +1,77 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { clusteredTree, crossedTree, VegetationLod } from '../../src/world/vegetationLod';
-import { tintDraft } from '../../src/render/facadeKit';
+import { VegetationLod } from '../../src/world/vegetationLod';
+import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
 import { batchTileShadows } from '../../src/world/shadowBatch';
+import { natureFixture } from './natureFixture';
 
-function trees() {
+const library = natureFixture();
+
+/** Tile vegetation in the generator's contract: one prototype per variant, measured (crown, height, crown) scale. */
+function tile(count = 60, variant = 'tree_detailed_fall', at = (i: number) => new THREE.Vector3(i * 10 - 300, 0, -100), height = 15) {
   const model = new THREE.Group();
-  const geometry = new THREE.SphereGeometry(1, 24, 16);
-  geometry.translate(0, 0.5, 0);
-  const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial(), 60);
-  mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage' };
-  for (let i = 0; i < mesh.count; i++) mesh.setMatrixAt(i, new THREE.Matrix4().makeTranslation(i * 10 - 300, 0, -100));
+  const mesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial(), count);
+  mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage', variant, instance_object_ids: Array.from({ length: count }, (_, i) => `osm:${i}`) };
+  for (let i = 0; i < count; i++) mesh.setMatrixAt(i, new THREE.Matrix4().compose(at(i), new THREE.Quaternion(), new THREE.Vector3(4, height, 4)));
   model.add(mesh);
-  return { model, mesh, geometry };
+  return { model, mesh };
 }
+const generated = (model: THREE.Object3D, source: THREE.Object3D) => {
+  const batches: THREE.InstancedMesh[] = [];
+  model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== source) batches.push(o as THREE.InstancedMesh); });
+  return batches;
+};
+const drawn = (batches: THREE.InstancedMesh[]) => batches.filter(b => b.visible && !b.userData.shadowProxy && b.material !== library.materials.bark).reduce((n, b) => n + b.count, 0);
 
-describe('vegetation LOD', () => {
-  it('derives cheaper geometry and a crossed silhouette from the prototype', () => {
-    const { geometry } = trees();
-    const mid = clusteredTree(geometry), far = crossedTree(geometry);
-    expect(mid.index!.count).toBeLessThan(geometry.index!.count);
-    expect(far.index!.count / 3).toBe(32);
-    far.computeBoundingBox(); geometry.computeBoundingBox();
-    expect(far.boundingBox!.min.y).toBeCloseTo(geometry.boundingBox!.min.y);
-    expect(far.boundingBox!.max.y).toBeCloseTo(geometry.boundingBox!.max.y);
-    expect(Array.from(mid.getAttribute('normal').array).every(Number.isFinite)).toBe(true);
+describe('species mapping', () => {
+  it('uses registered species ahead of riverside and shape guesses', () => {
+    expect(natureAsset('tree_pineDefaultA', 'puut:1', 18, true, 'Tilia cordata')).toBe('tree_linden');
+    expect(natureAsset('tree_default_fall', 'puut:2', 18, true, 'Acer platanoides')).toBe('tree_maple');
+    expect(natureAsset('tree_default_fall', 'puut:3', 18, false, 'Picea abies')).toBe('tree_spruce');
+  });
+  it('maps tile variants and inventory ids to Turku species deterministically', () => {
+    expect(natureAsset('tree_pineDefaultA', 'osm:1', 15)).toMatch(/^tree_(spruce|pine)$/);
+    expect(natureAsset('tree_oak_fall', 'osm:1', 12)).toMatch(/^tree_(oak|linden)$/);
+    expect(natureAsset('tree_default_fall', 'bush:area:1', 1.2)).toMatch(/^shrub_/);
+    expect(natureAsset('tree_default_fall', 'osm:7', 4)).toMatch(/^tree_(rowan|birch)$/);
+    for (let i = 0; i < 200; i++) expect(natureAsset('tree_detailed_fall', `osm:${i}`, 15)).toBe(natureAsset('tree_detailed_fall', `osm:${i}`, 15));
+    const spread = new Set(Array.from({ length: 200 }, (_, i) => natureAsset('tree_detailed_fall', `osm:${i}`, 15)));
+    expect(spread.size).toBeGreaterThanOrEqual(3);
+    expect(spread.has('tree_willow')).toBe(false);
+    expect(natureTint('osm:3')).toEqual(natureTint('osm:3'));
   });
 
-  it('culls cells while keeping at most three draws per prototype, and releases generated resources', () => {
-    const { model, mesh } = trees();
+  it('scales library trees uniformly by height and bounds crown stretch', () => {
+    expect(natureScale(10, 3, 20, 5)).toEqual({ y: 0.5, xz: 0.6 });
+    expect(natureScale(10, 30, 20, 5).xz).toBeCloseTo(0.65);
+    expect(natureScale(10, 0.1, 20, 5).xz).toBeCloseTo(0.375);
+  });
+});
+
+describe('vegetation LOD', () => {
+  it('culls cells, packs one draw per library part and LOD, and releases generated resources', () => {
+    const { model, mesh } = tile();
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
-    const lod = new VegetationLod('medium');
+    const lod = new VegetationLod('medium', library);
     lod.add(model); lod.add(model); lod.update(camera);
-    const batches: THREE.InstancedMesh[] = [];
-    model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== mesh) batches.push(o as THREE.InstancedMesh); });
+    const batches = generated(model, mesh);
     expect(mesh.visible).toBe(false);
-    expect(batches).toHaveLength(3);
+    const species = new Set(batches.map(b => b.userData.nature));
+    // Per species: bark + leaves at LOD 0 and 1, LOD 1's bark + leaves as LOD 0's shadow proxy, the impostor at LOD 2.
+    expect(batches).toHaveLength(species.size * 7);
+    const source = (b: THREE.InstancedMesh) => library.asset(b.userData.nature).lods[b.userData.shadowProxy ? 1 : b.userData.level];
+    expect(batches.every(b => source(b).parts.some(p => p.geometry === b.geometry && p.material === b.material))).toBe(true);
     const visible = batches.filter(m => m.visible);
     expect(visible.length).toBeGreaterThan(0);
-    expect(visible.reduce((n, m) => n + m.count, 0)).toBeLessThan(mesh.count);
-    expect(batches.slice(1).every(m => !m.castShadow)).toBe(true);
+    expect(drawn(batches)).toBeLessThan(mesh.count);
+    // Only the shadow-layer proxies cast shadows; they never draw in colour passes.
+    expect(batches.filter(b => b.castShadow).every(b => b.userData.shadowProxy && b.layers.mask === 2)).toBe(true);
+    // Parts of one LOD share one matrix and one tint buffer.
+    for (const b of batches) {
+      const sibling = batches.find(o => o !== b && o.userData.nature === b.userData.nature && o.userData.level === b.userData.level && o.parent === b.parent);
+      if (sibling) { expect(sibling.instanceMatrix).toBe(b.instanceMatrix); expect(sibling.instanceColor).toBe(b.instanceColor); }
+    }
     const versions = batches.map(m => m.instanceMatrix.version);
     lod.update(camera);
     expect(batches.map(m => m.instanceMatrix.version)).toEqual(versions);
@@ -51,154 +82,74 @@ describe('vegetation LOD', () => {
   });
 
   it('uses smaller near-instance budgets at low quality', () => {
-    const { model, mesh } = trees();
-    const many = new THREE.InstancedMesh(mesh.geometry, mesh.material, 600);
-    many.userData = mesh.userData;
-    for (let i = 0; i < 600; i++) many.setMatrixAt(i, new THREE.Matrix4().makeTranslation(0, 0, -10));
-    model.clear(); model.add(many);
+    const { model, mesh } = tile(600, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -20));
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
     const nearCount = (tier: 'low' | 'medium') => {
-      const lod = new VegetationLod(tier); lod.add(model); lod.update(camera);
-      let count = 0;
-      model.traverse(o => { const m = o as THREE.InstancedMesh; if (m.isInstancedMesh && m.visible && m.castShadow) count += m.count; });
+      const lod = new VegetationLod(tier, library); lod.add(model); lod.update(camera);
+      const near = generated(model, mesh).filter(b => b.visible && b.userData.level === 0 && b.material === library.materials.leaves);
+      const count = near.filter(b => !b.userData.shadowProxy).reduce((n, b) => n + b.count, 0);
+      // Every near tree also casts its shadow through the proxy.
+      expect(near.filter(b => b.userData.shadowProxy).reduce((n, b) => n + b.count, 0)).toBe(count);
       lod.remove(model);
       return count;
     };
-    expect(nearCount('low')).toBe(384);
-    expect(nearCount('medium')).toBe(600);
+    expect(nearCount('low')).toBe(128);
+    expect(nearCount('medium')).toBe(300);
   });
 
-  it('shares a cheap clustered crown between mid and far cells', () => {
-    const scene = new THREE.Scene(), model = new THREE.Group();
-    const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 2);
-    mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage' };
-    mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, -100));
-    mesh.setMatrixAt(1, new THREE.Matrix4().makeTranslation(0, 0, -300));
-    model.add(mesh); scene.add(model);
-    const lod = new VegetationLod('medium'); lod.add(model);
+  it('draws far trees as impostors without shadows, and drops shrubs beyond their last LOD', () => {
+    const scene = new THREE.Scene(), trees = tile(2, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, i ? -400 : -100));
+    scene.add(trees.model);
+    const lod = new VegetationLod('medium', library);
+    lod.add(trees.model);
     lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
-    const batches: THREE.InstancedMesh[] = [];
-    model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== mesh) batches.push(o as THREE.InstancedMesh); });
-    expect(batches).toHaveLength(2);
-    expect(batches.filter(m => m.visible)).toEqual([batches[1]]);
-    expect(batches[1].count).toBe(2);
-    expect(batches[1].castShadow).toBe(false);
-    expect(batches[1].geometry.index!.count / 3).toBe(12);
-    lod.remove(model);
+    const visible = generated(trees.model, trees.mesh).filter(b => b.visible);
+    const far = visible.filter(b => b.material === library.materials.impostor);
+    expect(far.reduce((n, b) => n + b.count, 0)).toBe(1);
+    expect(far.every(b => !b.castShadow && !b.receiveShadow)).toBe(true);
+    lod.remove(trees.model);
+    const bushes = tile(1, 'tree_default_fall', () => new THREE.Vector3(0, 0, -400), 1.2);
+    bushes.mesh.userData.instance_object_ids = ['bush:1'];
+    scene.add(bushes.model); lod.add(bushes.model); lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
+    expect(generated(bushes.model, bushes.mesh).some(b => b.visible)).toBe(false);
+    lod.remove(bushes.model);
   });
 
-  it('combines matching opaque bark/crown placements while preserving their colours', () => {
-    const model = new THREE.Group(), scene = new THREE.Scene(); scene.add(model);
-    const bark = new THREE.MeshStandardMaterial({ color: 0x442211 });
-    const leaf = new THREE.MeshStandardMaterial({ color: 0xcc9900 });
-    const parts = [bark, leaf].map((material, i) => {
-      const mesh = new THREE.InstancedMesh(i ? new THREE.SphereGeometry(1, 12, 8) : new THREE.BoxGeometry(), material, 1);
-      mesh.userData = { layer: 'vegetation', material_key: i ? 'tree_foliage' : 'tree_bark' };
-      mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, -10));
-      model.add(mesh); return mesh;
-    });
-    const lod = new VegetationLod('medium'); lod.add(model);
-    const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
-    lod.update(camera);
-    const draws: THREE.InstancedMesh[] = [];
-    model.traverse(o => { const m = o as THREE.InstancedMesh; if (m.isInstancedMesh && m.visible) draws.push(m); });
-    expect(draws).toHaveLength(1);
-    expect(draws[0].castShadow).toBe(true);
-    expect(draws[0].geometry.index!.count).toBe(parts.reduce((count, mesh) => count + mesh.geometry.index!.count, 0));
-    const colors = draws[0].geometry.getAttribute('color');
-    expect(colors.getX(0)).toBeCloseTo(bark.color.r);
-    expect(colors.getX(colors.count - 1)).toBeCloseTo(leaf.color.r);
-    camera.position.set(0, 0, 300); lod.update(camera);
-    const far: THREE.InstancedMesh[] = [];
-    model.traverse(o => { const m = o as THREE.InstancedMesh; if (m.isInstancedMesh && m.visible) far.push(m); });
-    expect(far).toHaveLength(1);
-    expect((far[0].material as THREE.MeshStandardMaterial).vertexColors).toBe(false);
-    expect((far[0].material as THREE.MeshStandardMaterial).color.r).toBeCloseTo(leaf.color.r);
-    lod.remove(model);
-    expect(model.children).toEqual(parts);
-    expect(parts.every(mesh => mesh.visible)).toBe(true);
-    expect(bark.color.getHex()).toBe(0x442211);
-  });
-
-  it('preserves authored draft tree colours and part batching', () => {
-    const model = new THREE.Group(), scene = new THREE.Scene(); scene.add(model);
-    const original = new THREE.MeshStandardMaterial({ color: 0x996633 });
-    for (const key of ['tree_bark', 'tree_foliage']) {
-      const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), original, 1);
-      mesh.userData = { layer: 'vegetation', material_key: key };
-      mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, -10)); model.add(mesh);
-    }
-    tintDraft(model, {} as THREE.WebGPURenderer);
-    const tinted = (model.children[0] as THREE.InstancedMesh).material as THREE.MeshStandardMaterial;
-    expect(tinted.type).toBe('MeshStandardMaterial');
-    expect(tinted.color.toArray()).toEqual(original.color.toArray());
-    expect(tinted).toBe(original);
-    expect(original.color.getHex()).toBe(0x996633);
-    const lod = new VegetationLod('medium'); lod.add(model);
-    lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
-    let draws = 0;
-    model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o.visible) draws++; });
-    expect(draws).toBe(1);
-    lod.remove(model);
+  it('shares library geometry and materials across tiles and never disposes them on unload', () => {
+    const lod = new VegetationLod('medium', library), scene = new THREE.Scene();
+    const a = tile(4), b = tile(4);
+    scene.add(a.model, b.model); lod.add(a.model); lod.add(b.model);
+    const geometryOf = (model: THREE.Object3D, source: THREE.Object3D) => new Set(generated(model, source).map(m => m.geometry));
+    expect([...geometryOf(a.model, a.mesh)].every(g => geometryOf(b.model, b.mesh).has(g))).toBe(true);
+    const disposed = vi.fn();
+    library.materials.leaves.addEventListener('dispose', disposed);
+    lod.remove(a.model); lod.remove(b.model);
+    expect(disposed).not.toHaveBeenCalled();
   });
 
   it('never expands vegetation instances into a static tile shadow mesh', () => {
-    const { model, mesh } = trees();
+    const { model, mesh } = tile();
+    mesh.castShadow = false;
     expect(batchTileShadows(model)).toBeNull();
-    expect(mesh.castShadow).toBe(false);
   });
 });
 
 it('moving past equal-distance cells preserves packed matrices and object identities', () => {
-  const scene = new THREE.Scene(), model = new THREE.Group();
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 2);
-  mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage', instance_object_ids: ['west', 'east'] };
-  mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(-10, 0, -100));
-  mesh.setMatrixAt(1, new THREE.Matrix4().makeTranslation(10, 0, -100));
-  model.add(mesh); scene.add(model);
-  const lod = new VegetationLod('medium'), camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
+  const scene = new THREE.Scene();
+  const { model, mesh } = tile(2, 'tree_oak_fall', i => new THREE.Vector3(i ? 10 : -10, 0, -100));
+  mesh.userData.instance_object_ids = ['west', 'east'];
+  scene.add(model);
+  const lod = new VegetationLod('medium', library), camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
   lod.add(model); camera.position.x = -1; lod.update(camera);
-  const batches: THREE.InstancedMesh[] = [];
-  model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== mesh) batches.push(o as THREE.InstancedMesh); });
+  const batches = generated(model, mesh);
   const versions = batches.map(batch => batch.instanceMatrix.version);
-  const visible = batches.find(batch => batch.visible)!;
-  const ids = visible.userData.instance_object_ids;
-  expect(ids).toEqual(['west', 'east']);
-  expect(visible.count).toBe(2);
+  const ids = batches.filter(b => b.visible).flatMap(b => b.userData.instance_object_ids as string[]);
+  expect(new Set(ids)).toEqual(new Set(['west', 'east']));
   camera.position.x = 1; lod.update(camera);
   expect(batches.map(batch => batch.instanceMatrix.version)).toEqual(versions);
-  expect(visible.userData.instance_object_ids).toBe(ids);
-  expect(ids).toEqual(['west', 'east']);
   lod.remove(model);
 });
-
-it('reuses derived prototype geometry across decoded tiles and reloads, including merged bark/crown', () => {
-  const lod = new VegetationLod('medium');
-  const make = (changed = false) => {
-    const model = new THREE.Group();
-    for (const [i, key] of ['tree_bark', 'tree_foliage'].entries()) {
-      const geometry = i ? new THREE.SphereGeometry(changed ? 2 : 1, 24, 16) : new THREE.BoxGeometry();
-      const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial({ color: i ? 0x334422 : 0x554433 }), 2);
-      mesh.userData = { layer: 'vegetation', material_key: key };
-      model.add(mesh);
-    }
-    lod.add(model);
-    return model;
-  };
-  const geometries = (model: THREE.Group) => model.getObjectByName('vegetation-lod')!.children.map(o => (o as THREE.Mesh).geometry);
-  const first = make(), second = make(), original = geometries(first);
-  expect(original).toHaveLength(3);
-  geometries(second).forEach((geometry, i) => expect(geometry).toBe(original[i]));
-  lod.remove(first); lod.remove(second);
-  const reloaded = make();
-  geometries(reloaded).forEach((geometry, i) => expect(geometry).toBe(original[i]));
-  const changed = make(true);
-  expect(geometries(changed)[0]).not.toBe(original[0]);
-  expect(geometries(changed)[1]).not.toBe(original[1]);
-  lod.remove(reloaded); lod.remove(changed);
-});
-
 
 it('spreads streamed instance preparation across frames while preserving all placements', async () => {
   let time = 0, frames = 0;
@@ -207,36 +158,40 @@ it('spreads streamed instance preparation across frames while preserving all pla
     frames++; return setTimeout(() => callback(time), 0);
   });
   try {
-    const model = new THREE.Group(), scene = new THREE.Scene();
-    const tree = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 600);
-    tree.userData = { layer: 'vegetation', material_key: 'tree_foliage' };
-    for (let i = 0; i < tree.count; i++) tree.setMatrixAt(i, new THREE.Matrix4().makeTranslation(0, 0, -10));
-    model.add(tree);
-    const lod = new VegetationLod('medium');
+    const scene = new THREE.Scene();
+    const { model, mesh } = tile(600, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -100));
+    const lod = new VegetationLod('high', Promise.resolve(library));
     await lod.addAsync(model);
     expect(frames).toBeGreaterThan(3);
     scene.add(model); lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
-    const batches = model.getObjectByName('vegetation-lod')!.children as THREE.InstancedMesh[];
-    expect(batches.filter(batch => batch.visible).reduce((n, batch) => n + batch.count, 0)).toBe(600);
-    lod.remove(model); expect(model.children).toEqual([tree]);
+    expect(drawn(generated(model, mesh))).toBe(600);
+    lod.remove(model); expect(model.children).toEqual([mesh]);
   } finally { now.mockRestore(); vi.unstubAllGlobals(); }
 });
 
-
 it('screenshot distance admits distant foliage and Normal restores tier culling', () => {
-  const model = new THREE.Group(), scene = new THREE.Scene(); scene.add(model);
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 1);
-  mesh.userData = { layer: 'vegetation', material_key: 'tree_foliage' };
-  mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, 0, -2000)); model.add(mesh);
-  const lod = new VegetationLod('medium'); lod.add(model);
+  const scene = new THREE.Scene();
+  const { model, mesh } = tile(1, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -2000));
+  scene.add(model);
+  const lod = new VegetationLod('medium', library); lod.add(model);
   const camera = new THREE.PerspectiveCamera(65, 1, .1, 6000);
-  const count = () => {
-    let n = 0;
-    model.traverse(o => { const m = o as THREE.InstancedMesh; if (m !== mesh && m.isInstancedMesh && m.visible) n += m.count; });
-    return n;
-  };
+  const count = () => drawn(generated(model, mesh));
   lod.update(camera); expect(count()).toBe(0);
   lod.screenshotDistance = 3000; lod.update(camera); expect(count()).toBe(1);
   lod.screenshotDistance = 0; lod.update(camera); expect(count()).toBe(0);
   lod.remove(model);
+});
+
+it('plants willows only by the tile water', () => {
+  const scene = new THREE.Scene(), lod = new VegetationLod('medium', library);
+  const wet = tile(100, 'tree_detailed_fall', i => new THREE.Vector3(5, 0, i * 3));
+  const river = new THREE.Mesh(new THREE.PlaneGeometry(40, 400).rotateX(-Math.PI / 2).translate(-20, 0, 150), new THREE.MeshStandardMaterial());
+  river.userData = { layer: 'ground', material_key: 'water' };
+  wet.model.add(river); scene.add(wet.model); lod.add(wet.model);
+  expect(generated(wet.model, wet.mesh).some(b => b.userData.nature === 'tree_willow')).toBe(true);
+  lod.remove(wet.model);
+  const dry = tile(100, 'tree_detailed_fall', i => new THREE.Vector3(200, 0, i * 3));
+  dry.model.add(river.clone()); scene.add(dry.model); lod.add(dry.model);
+  expect(generated(dry.model, dry.mesh).some(b => b.userData.nature === 'tree_willow')).toBe(false);
+  lod.remove(dry.model);
 });
