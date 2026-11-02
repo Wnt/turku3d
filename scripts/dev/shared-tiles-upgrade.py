@@ -72,6 +72,18 @@ def main():
                                      '--port', str(args.port), '--workers', str(state['workers'])],
                                     stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                     start_new_session=True)
+        deadline = time.monotonic() + 5
+        ready = False
+        while time.monotonic() < deadline:
+            try:
+                ready = json.load(urlopen(url, timeout=1)).get('daemon_pid') == proc.pid
+                if ready:
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(.05)
+        if not ready:
+            raise RuntimeError('replacement daemon did not become ready; inspect service.log')
         print(json.dumps(dict(daemon=proc.pid, adopted=adopted, pending=len(pending))), flush=True)
     finally:
         if stopped and process_alive(pid):

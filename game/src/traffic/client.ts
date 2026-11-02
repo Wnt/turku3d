@@ -14,10 +14,11 @@ import type { Entry } from '../world/coarseContracts';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
 import { DAY_MS } from '../core/dayCycle';
-import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS } from './constants';
+import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
 import { enabledTiles, roadHash } from './gate';
+import { hash32 } from './hash';
 
-const STRIDE = 12;
+const STRIDE = TRAFFIC_STRIDE;
 const SYNC_MS = 250;
 /** Entering a moving car: the claim must arrive within this long. */
 const CLAIM_TIMEOUT_MS = 1500;
@@ -199,7 +200,7 @@ export class TrafficClient {
       car.vx = flat[o + 10]; car.vz = flat[o + 11];
       car.x = flat[o + 3] + car.vx * dt; car.y = flat[o + 4]; car.z = flat[o + 5] + car.vz * dt;
       car.q.x = flat[o + 6]; car.q.y = flat[o + 7]; car.q.z = flat[o + 8]; car.q.w = flat[o + 9];
-      this.instances.push({ seed: String(car.handle), model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q });
+      this.instances.push({ seed: String(flat[o + 12]), indicator: flat[o + 13] as -1|0|1, braking: !!flat[o + 14], speed: flat[o + 15], model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q });
     }
     // A just-claimed car is drawn here from its physics body until the parked batches include its record.
     for (const [id, claim] of this.claims) {
@@ -215,7 +216,7 @@ export class TrafficClient {
     this.handled.add(event.id);
     const [width, height, length] = event.size;
     const yaw = 2 * Math.atan2(event.rot.y, event.rot.w) + Math.PI / 2;
-    const visualModel = fleetAppearance(event.model, String(event.handle ?? event.id), { width, height, length }).id;
+    const visualModel = fleetAppearance(event.model, event.seed ?? String(hash32('appearance', event.key)), { width, height, length }).id;
     const record: ParkedVehicle = { object_id: event.id, model: visualModel, color: event.color,
       x: event.pos.x, y: event.pos.y - CHASSIS_LIFT, z: event.pos.z, yaw, width, length, height,
       clear_front_m: 10, clear_rear_m: 10 };
