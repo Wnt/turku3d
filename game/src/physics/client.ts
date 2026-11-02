@@ -157,6 +157,9 @@ export class PhysicsClient {
   traffic(config: Partial<TrafficConfig>) { this.send({ type: 'traffic', config }); }
   trafficTiles(add: TrafficTile[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'trafficTiles', add, remove }); }
   trafficClaim(handle: number) { this.send({ type: 'trafficClaim', handle }); }
+  trafficPedestrians(time: number, people: import('../traffic/pedestrians').TrafficPedestrian[]) {
+    this.send({ type: 'trafficPedestrians', time, people });
+  }
   /** Traffic tiles the worker holds (kept across hot swaps of the play session, like the worker itself). */
   readonly trafficResident = new Set<string>();
   /** Camera for the traffic population ring, sent with every frame's input. */

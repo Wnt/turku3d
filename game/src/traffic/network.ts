@@ -99,7 +99,13 @@ export class TrafficNetwork {
     const density = this.density;
     if (!density) return true;
     const a = lane.anchor, t = lane.origin.phase + (n - lane.shift) * H + a.offset;
-    return hash01('car', a.key, Math.round((t - a.phase) / H)) < slotShare(lane.flow, density.hourAt(t), density.multiplier);
+    return this.demandDraw(lane, n) < slotShare(lane.flow, density.hourAt(t), density.multiplier);
+  }
+
+  /** Stable demand quantile, retained by an interacting driver after it leaves its origin slot. */
+  demandDraw(lane: Lane, n: number): number {
+    const a = lane.anchor, t = lane.origin.phase + (n - lane.shift) * H + a.offset;
+    return hash01('car', a.key, Math.round((t - a.phase) / H));
   }
 
   /** Identity of a car: the slot on its chain's first lane in this tile (stable while it stays in the tile). */
