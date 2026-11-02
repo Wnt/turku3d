@@ -622,6 +622,12 @@ def produce(
             )
         )
         openings.add(meshes[-1], clearance)
+        if vaulted:
+            from .underpasses import foundation
+
+            support = foundation(key, meshes[-1], tile)
+            if support is not None:
+                meshes.append(support)
         meshes.append(tube.mesh(f"tunnel:{key}:roof", "wall"))
         meshes.extend(portals.dividers(key, tags, floor_height))
         if lamps.indices:
