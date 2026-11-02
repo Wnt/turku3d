@@ -1,10 +1,22 @@
 # Production / Gen 2 comparison
 
-Create the 60-second, 1920×1080, 60 fps film:
+Re-create the 60-second, 1920×1080, 60 fps film with this exact command:
 
 ```sh
-node tools/video/make-comparison.mjs --out ~/turku3d/video/2026-11-02
+cd ~/turku3d/wt/loops/video/repo
+node tools/video/make-comparison.mjs \
+  --left https://wnt.github.io/turku-game/ \
+  --right http://localhost:5220/ \
+  --shots tools/video/comparison-shots.json \
+  --out ~/turku3d/video/2026-11-02
 ```
+
+The delivered cut is `~/turku3d/video/2026-11-02/turku3d-before-after.mp4`.
+The previous 14:39 cut is preserved beside it as
+`turku3d-before-after-1439.mp4`. The final capture compares production `5a832712`
+with integration `f85e7de6`, using fresh tiles from `video-f85e7de6`.
+Re-running selects the integration commit current at that time. Choose a new
+`--out` directory to preserve the delivered cut and its capture receipts.
 
 Options: `--left URL`, `--right URL`, `--shots FILE`, `--out DIR`, `--preview`
 (previews only), `--skip-preview` (reuse a reviewed preview). Defaults use `main`
