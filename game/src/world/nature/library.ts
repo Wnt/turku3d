@@ -1,12 +1,12 @@
 // Turku3D environment asset library (public/assets/nature/nature.glb): species trees with LOD chains and impostors,
 // shrubs, hedge, grass, ground cover and the fence kit. Geometry and materials are shared by every user.
 import * as THREE from 'three/webgpu';
-import { summerFoliage } from './foliageCards';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { sharedKtx } from '../loadingKtx';
 import { textureUploads } from '../../render/textureUploads';
 import { NatureMaterials, type NatureLighting, type NatureSources } from './materials';
+import { hashId } from './species';
 
 export type NatureKind = 'tree' | 'shrub' | 'hedge' | 'grass' | 'fence';
 export interface NaturePart { geometry: THREE.BufferGeometry; material: THREE.MeshStandardNodeMaterial; triangles: number }
@@ -26,15 +26,47 @@ export interface NatureManifest {
 }
 
 export class NatureLibrary {
-  constructor(readonly assets: Map<string, NatureAsset>, readonly materials: NatureMaterials, readonly manifest: NatureManifest | null) {}
+  /** Seeded variants of one model (`tree_birch`, `tree_birch_v2`, ...) by base name. */
+  private variants = new Map<string, string[]>();
+  constructor(readonly assets: Map<string, NatureAsset>, readonly materials: NatureMaterials, readonly manifest: NatureManifest | null) {
+    for (const name of [...assets.keys()].sort()) {
+      const base = name.replace(/_v\d+$/, '');
+      if (!this.variants.has(base)) this.variants.set(base, []);
+      this.variants.get(base)!.push(name);
+    }
+  }
   asset(name: string): NatureAsset {
     const asset = this.assets.get(name);
     if (!asset) throw new Error(`nature library has no asset ${name}`);
     return asset;
   }
+  /** One of a base asset's variants, stable for a key (an inventory ID). */
+  variant(base: string, key: string): NatureAsset {
+    const names = this.variants.get(base);
+    if (!names) throw new Error(`nature library has no asset ${base}`);
+    return this.asset(names[hashId(`${key}:variant`) % names.length]);
+  }
 }
 
-export const NATURE_URL = `${import.meta.env.BASE_URL}assets/nature/`;
+/** Float positions/normals in asset space: dequantize normalized integer attributes and apply the node transform. */
+function bakeNode(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.BufferGeometry {
+  const quantized = ['position', 'normal'].some(name => {
+    const attribute = geometry.getAttribute(name);
+    return attribute && !(attribute.array instanceof Float32Array);
+  });
+  if (!quantized && matrix.equals(new THREE.Matrix4())) return geometry;
+  for (const name of ['position', 'normal']) {
+    const attribute = geometry.getAttribute(name);
+    if (!attribute || attribute.array instanceof Float32Array) continue;
+    const floats = new Float32Array(attribute.count * attribute.itemSize);
+    for (let i = 0; i < attribute.count; i++) for (let k = 0; k < attribute.itemSize; k++) floats[i * attribute.itemSize + k] = attribute.getComponent(i, k);
+    geometry.setAttribute(name, new THREE.BufferAttribute(floats, attribute.itemSize));
+  }
+  geometry.applyMatrix4(matrix);
+  return geometry;
+}
+
+export const NATURE_URL =`${import.meta.env.BASE_URL}assets/nature/`;
 
 /** Build the library from a parsed nature.glb scene (also used by tests with a synthetic scene). */
 export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLighting | null, deterministic: boolean, manifest: NatureManifest | null = null) {
@@ -49,11 +81,13 @@ export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLig
     const extras = o.userData as { asset?: string; lod?: number; kind?: NatureKind };
     if (extras.asset === undefined || extras.lod === undefined) return;
     const parts: NaturePart[] = [];
+    o.updateMatrix();
     o.traverse(m => {
       const mesh = m as THREE.Mesh;
       if (!mesh.isMesh) return;
-      const geometry = mesh.geometry;
-      if ((mesh.material as THREE.Material).name === "nature_leaves" && extras.kind === "tree") summerFoliage(geometry);
+      // Quantized positions carry their dequantization in the node transform: bake it into float geometry once.
+      mesh.updateMatrix();
+      const geometry = bakeNode(mesh.geometry, mesh === o ? o.matrix : new THREE.Matrix4().multiplyMatrices(o.matrix, mesh.matrix));
       geometry.computeBoundingSphere();
       const triangles = (geometry.index?.count ?? geometry.getAttribute('position').count) / 3;
       parts.push({ geometry, material: materials.forSource((mesh.material as THREE.Material).name), triangles });

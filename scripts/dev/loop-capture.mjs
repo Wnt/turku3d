@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { captureIdentity, residentTilesMatch } from './loop-capture-identity.mjs';
 const args = process.argv.slice(2);
 const opt = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const root = path.join(os.homedir(), 'turku3d');
@@ -63,6 +64,20 @@ const index = path.join(out, 'shots.json');
 const previous = fs.existsSync(index) ? JSON.parse(fs.readFileSync(index)) : { shots: [] };
 const shots = new Map(previous.shots.map(s => [s.file, s]));
 const build = execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
+const readJson = async url => {
+  const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+  if (!response.ok) throw new Error(`Capture inputs unavailable: ${response.status} ${url}`);
+  return response.json();
+};
+const nature = captureIdentity(await readJson(new URL('assets/nature/nature.json', base)));
+const sceneryIdentity = async footprint => {
+  const sources = [];
+  for (let i = 0; i < footprint.length; i += 256) {
+    const result = await readJson(new URL(`coarse/scenery?tiles=${footprint.slice(i, i + 256).join(',')}`, base));
+    sources.push(...result.tiles.map(s => `${s.tile}:${s.key}:${s.source_sha256}`));
+  }
+  return { footprint: [...footprint].sort(), sources: sources.sort() };
+};
 const scenerySettled = s => !s || (!s.cataloguePending && !s.pending && !s.errors && s.loaded === s.total);
 const valid = s => s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
   && !s.capture.failed_assets_final.length && scenerySettled(s.capture.scenery);
@@ -82,14 +97,24 @@ try {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
       const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.png`;
-      if (valid(shots.get(file))) continue;
+      const [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
+      const ci = Math.floor((E - 23459500) / 250), cj = Math.floor((6704500 - N) / 250);
+      const wanted = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
+      const expectedTiles = Object.fromEntries(await Promise.all(wanted.map(async id => {
+        const manifest = await readJson(new URL(`coarse/${id}/manifest.json`, base));
+        return [id, manifest.visual[id].sha256];
+      })));
+      const inputs = { build, nature, tiles: expectedTiles, pose: cam.cam, time: at, quality: 'high', viewport: [1920, 1200, 1] };
+      const old = shots.get(file);
+      if (valid(old) && old.inputs?.scenery?.footprint && old.identity === captureIdentity({ ...inputs,
+        scenery: await sceneryIdentity(old.inputs.scenery.footprint) })) continue;
       const guard = path.join(root, 'tools/chrome-guard/guard.py');
       if (fs.existsSync(guard)) {
         const touched = spawnSync('python3', [guard, 'touch', opt('--guard-owner', 'integrator')], { encoding: 'utf8' });
         if (touched.status === 2) console.log(touched.stdout.trim());
       }
       failures.length = 0;
-      const started = Date.now(), [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
+      const started = Date.now();
       console.log(`Starting ${file}`);
       const [h, m] = at.split(':').map(Number);
       const pose = { E, N, H, yaw, pitch, fov };
@@ -100,8 +125,6 @@ try {
       } else {
         await send('Page.navigate', { url });
       }
-      const ci = Math.floor((E - 23459500) / 250), cj = Math.floor((6704500 - N) / 250);
-      const wanted = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
       let state;
       let throttled = false;
       let settleRetries = 0;
@@ -124,7 +147,11 @@ try {
               full:e?.state === 'draft' && e?.pass === 'full' && !e?.preview && !!e?.model}; });
           return {ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
             azimuth:env?.sunAzimuth, clock:g?.dayClock?.snapshot(), hour:g?.dayClock?.hour, pose:window.__qaPose,
-            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress};
+            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress,
+            nature:g?.vegetation?.library?.manifest,
+            sceneryIdentity:g?.scenery ? {footprint:[...g.scenery.footprint].sort(),
+              sources:g.scenery.footprint.filter(id=>g.scenery.sources.has(id)).map(id=>{
+                const s=g.scenery.sources.get(id);return s.tile+':'+s.key+':'+s.source_sha256;}).sort()} : null};
         })()`);
         if (state.pose && state.hour !== undefined && (Math.abs(state.hour - (h + m / 60)) > 0.01 ||
           ['E', 'N', 'H', 'yaw', 'pitch', 'fov'].some(key => Math.abs(state.pose[key] - pose[key]) > 0.001))) {
@@ -142,7 +169,8 @@ try {
           continue;
         }
         if (state.error) throw new Error(`${cam.id}@${at}: ${state.error}`);
-        if (state.ready && state.tiles.every(t => t.full) && scenerySettled(state.scenery)
+        if (state.ready && state.nature && captureIdentity(state.nature) === nature
+          && residentTilesMatch(state.tiles, expectedTiles) && scenerySettled(state.scenery)
           && !assets.size && Date.now() - lastAsset > 2000) break;
         await delay(1000);
       }
@@ -151,10 +179,13 @@ try {
       const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       await evaluate('window.__render.beforeFrame = () => false');
       fs.writeFileSync(path.join(out, file), Buffer.from(screenshot.data, 'base64'));
-      const row = { file, time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
+      const capturedInputs = { ...inputs, scenery: state.sceneryIdentity };
+      const row = { file, inputs: capturedInputs, identity: captureIdentity(capturedInputs),
+        time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
         notes: cam.notes, url, build: `local/loop-integration@${build}`, capture: {
-          wall_s: (Date.now() - started) / 1000, qa_ready: state.ready, qa_error: state.error ?? null,
-          incomplete_tiles: state.tiles.filter(t => !t.full).map(t => t.id), failed_assets_final: [...new Set(failures)],
+          wall_s: (Date.now() - started) / 1000, qa_ready: state.ready,
+          qa_error: state.error ?? (state.nature && captureIdentity(state.nature) === nature ? null : 'Nature library differs from requested capture inputs'),
+          incomplete_tiles: state.tiles.filter(t => !t.full || t.visual_sha256 !== expectedTiles[t.id]).map(t => t.id), failed_assets_final: [...new Set(failures)],
           tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
           sun_azimuth_deg: state.azimuth, clock: state.clock,
           settle_retries: settleRetries,
