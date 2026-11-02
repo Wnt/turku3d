@@ -250,6 +250,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return {"points": np.zeros((4, 3)), "heights": np.zeros((129, 129))}
         if dataset == "walkable":
             return ["fitted-river-walk"]
+        if dataset == "street_profiles":
+            return ["fitted-street-kerb"]
         if dataset == "gardens":
             return {}
         if dataset in ("water", "boats", "barriers"):
@@ -282,8 +284,11 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "barriers",
         "tunnels",
         "stairs",
+        "street_profiles",
     ]
     assert result.walkable == ["fitted-river-walk"]
+    # Surveyed kerbs are structural just like the river walk and bridge heights.
+    assert result.street_profiles == ["fitted-street-kerb"]
     assert result.stairs == ((), ())
     assert result.parking == ((), ())
     assert result.kerbs is None
@@ -293,6 +298,8 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
     # Full preparation must reuse the identical structural bridge cache.
     roads_path, roads_key = inputs._entry(tmp_path, C.VisualTile(0, 0, 0), "roads", paths["roads"])
     assert inputs._load(roads_path, roads_key)["bridge_ways"][0]["id"] == "crossing"
+    profile_path, profile_key = inputs._entry(tmp_path, C.VisualTile(0, 0, 0), "street_profiles", paths["street_profiles"])
+    assert inputs._load(profile_path, profile_key) == result.street_profiles
 
 
 def test_fixed_producer_retries_a_failed_tile_without_old_backoff(tmp_path):

@@ -34,18 +34,6 @@ def main():
         os.kill(pid, signal.SIGSTOP)
         stopped = True
         pending = {(r['generation'], r['tile']): r for r in read_json(root / 'pending.json', [])}
-        if not pending:
-            for line in (root / 'events.jsonl').read_text().splitlines():
-                row = json.loads(line)
-                if row['event'] != 'queued':
-                    continue
-                key = (row['generation'], row['tile'])
-                if (root / 'products' / key[0] / key[1] / 'ready.json').exists():
-                    continue
-                integration = state['aliases'].get('integration')
-                pending[key] = dict(revision=row['revision'], generation=key[0], tile=key[1],
-                                    requested=row['t'], seen=time.time(), distance=10000,
-                                    explicit=row['revision'] != integration)
         adopted = []
         for process in Path('/proc').iterdir():
             if not process.name.isdigit():

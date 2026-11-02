@@ -2,8 +2,8 @@
 
 The LAN service at `http://192.168.1.114:7950` builds committed local revisions on demand.
 It never publishes to production. The server uses four workers (maximum four), a bounded
-128-tile queue, and a shared content-addressed stage/input cache. Explicit CLI requests and
-urgent camera tiles lead, then visible tiles, then background demand; revisions share turns.
+128-tile queue, and a shared content-addressed stage/input cache. Urgent camera tiles lead, then visible tiles, explicit CLI requests and background demand;
+revisions share turns within each category.
 Queued speculative requests expire after three minutes without requests or live demand. Identical requests join
 one job. Renderer-only revisions share completed products; generator edits reuse unchanged
 stage outputs, including packaging when emitted inputs are identical.
@@ -61,7 +61,8 @@ duplicate stage work. The farm owns shared-cache eviction rather than a per-bran
 
 `farm/events.jsonl` logs queued/completed/failed jobs, wall time and every stage's cache status/time.
 `/health` reports requests, finished-product hits, coalesced requests, stage hits/misses, failures,
-prepared-input hits/misses, the ordered queue and free disk. Per-build stdout is in `farm/logs`.
+prepared-input hits/misses, active revision/PID/runtime, the ordered queue and free disk.
+Build receipts separate queue wait from generator runtime, including adopted workers. Per-build stdout is in `farm/logs`.
 
 Admission reserves 2 GiB per active build above a 25 GiB floor. Eviction removes old unpinned
 products and their source snapshots, then idle shared intermediate entries in LRU order. Current aliases and active jobs
@@ -93,7 +94,8 @@ scripts/dev/shared-tiles register --alias ground --source-version HASH
 
 This returns a new immutable revision ID while retaining the original Git commit in metadata.
 The old revision and its payload URLs continue to reference their original data. Unchanged
-prepared inputs, stages and texture encodes are shared across source versions too.
+prepared inputs, stages and texture encodes are shared across source versions too. Advancing
+an existing alias inherits its source overlay unless another explicit source version is supplied.
 
 The pending queue and running worker PIDs survive daemon restarts. The owner can use
 `shared-tiles-upgrade.py` for a brief scheduler handoff: it preserves build sessions and the
@@ -108,3 +110,20 @@ Port Arthur survey uses `supplements/lidar-supplement/23458000_6704500.laz`.
 
 POST `/cancel` with `{"revision":"alias-or-id","tiles":["t0_0_0"]}` drops only queued jobs.
 It reports already-running tiles and lets those generators complete normally.
+
+The owner can add a known-broken Git revision and reason to `farm/retired.json`. Old clients
+then receive `revision-retired` (or a clearly marked retained full pair) instead of repeatedly
+queuing a deterministic failure. Already running work requires explicit owner handling.
+
+## Capture preparation without a browser
+
+Reserve a browser only after the required immutable tile revision is complete:
+
+```sh
+node scripts/dev/loop-wait-tiles.mjs --service http://192.168.1.114:7950 \
+  --version COMMIT_OR_SOURCE_REVISION --timeout 600 --out /tmp/ready-tiles.json t0_0_0 t0_-1_0
+```
+
+The command launches no browser. It waits through pending builds and complete but stale
+fallbacks, records served revisions and visual hashes, and fails if any requested tile cannot
+become fresh. The capture tool must still verify the actual resident hashes after loading.

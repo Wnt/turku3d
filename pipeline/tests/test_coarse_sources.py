@@ -77,6 +77,22 @@ def test_producer_identity_is_independent_of_symlink_entrypoint(tmp_path):
     assert module.code_hash() == packaging.code_hash()
 
 
+def test_street_texture_recipe_does_not_invalidate_prepared_buildings(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs, ground_finishes, street_materials
+
+    read = Path.read_bytes
+    changes = {}
+    monkeypatch.setattr(Path, "read_bytes", lambda p: changes.get(p, read(p)))
+    before = inputs._key([], "wfs")
+    textures = Path(ground_finishes.__file__)
+    changes[textures] = read(textures) + b"\n# Different stone palette and relief\n"
+    assert inputs._key([], "wfs") == before
+    classification = Path(street_materials.__file__)
+    changes[classification] = read(classification).replace(b'"kentt\xc3\xa4kivi"', b'"kentt\xc3\xa4kivi-new"')
+    assert inputs._key([], "wfs") != before
+
+
 def test_named_source_index_refreshes_changed_and_removed_summaries(tmp_path):
     import json
 

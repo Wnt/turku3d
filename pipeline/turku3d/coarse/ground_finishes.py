@@ -1,25 +1,6 @@
-"""Visual street finishes; collision retains the existing physical surface classes.
-
-The city distinguishes irregular fieldstone from sawn granite setts and explicitly
-records red asphalt. These ids are reserved for visual terrain only, never .col.
-Maps are original deterministic procedural surfaces, periodic over two metres.
-"""
+"""Original deterministic procedural street maps, periodic over two metres."""
 
 import numpy as np
-
-FIELDSTONE = 128
-RED_ASPHALT = 129
-FINISH_KEYS = {FIELDSTONE: "fieldstone", RED_ASPHALT: "asphalt_red"}
-
-
-def street_finish(surface):
-    value = surface.casefold() if isinstance(surface, str) else ""
-    if "kenttäkivi" in value:
-        return FIELDSTONE
-    if "asfalt" in value and "punai" in value:
-        return RED_ASPHALT
-    return None
-
 
 def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
