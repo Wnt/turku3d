@@ -89,7 +89,6 @@ DEPENDENCIES = {
     "surfaces": ("surfaces.py", "../spatial.py"),
     "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
     "boats": ("boat_inputs.py", "garden_inputs.py", "roofs.py", "../spatial.py"),
-    "ortho_canopy": ("ortho_cleanup.py", "../vegetation/trees.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
     "appearance": ("register.py", "../spatial.py"),
@@ -137,7 +136,6 @@ class Inputs:
     forests: list = ()
     vegetation_paths: list | None = None
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
-    ortho_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
@@ -477,7 +475,6 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         else [],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
         "boats": [osm, wfs[0][1], wfs[2][1]] if osm and all(f for f, _ in wfs[:3]) else [],
-        "ortho_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs[:3])
@@ -543,10 +540,6 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .garden_inputs import prepare as prepare_gardens
 
         return prepare_gardens(tile, paths[0], paths[2:], paths[1]) if paths else {}
-    if dataset == "ortho_canopy":
-        from .ortho_cleanup import canopy_points
-
-        return canopy_points(tile, paths)
     if dataset == "parking":
         from .parked import prepare as prepare_parking
 
@@ -687,7 +680,6 @@ def gather(
         if first_pass and dataset in {
             "parking",
             "kerb_parking",
-            "ortho_canopy",
             "trees",
             "forests",
             "vegetation_paths",
@@ -789,7 +781,6 @@ def gather(
         forests=values["forests"] or (),
         vegetation_paths=values["vegetation_paths"] or [],
         canopy=ground.get("canopy", np.empty((0, 3))),
-        ortho_canopy=values["ortho_canopy"] if not first_pass else np.empty((0, 3)),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
         stairs=values["stairs"] or ((), ()),

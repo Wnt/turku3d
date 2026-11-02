@@ -164,6 +164,8 @@ def test_mapped_setts_keep_their_stone_material():
         np.array([True]),
     )[0]
     assert mesh.extras["material_key"] == "draft_cobblestone"
+    assert mesh.image is None
+    assert "ground_ortho_size" not in mesh.extras
 
 
 def test_city_paving_selects_physical_texture_on_paths_and_carriageways():

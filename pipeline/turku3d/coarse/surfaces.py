@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-import io
 import json
 import subprocess
 import tempfile
@@ -190,13 +189,8 @@ def slope_fallback(positions, indices, materials):
     return result
 
 
-def visuals(tile, positions, indices, materials, keep, normals=None, ortho=None):
+def visuals(tile, positions, indices, materials, keep, normals=None):
     """Same terrain triangles/normals as collision; metric UVs on steep banks too."""
-    image = None
-    if ortho is not None:
-        encoded = io.BytesIO()
-        Image.fromarray(ortho).save(encoded, format="PNG")
-        image = encoded.getvalue()
     normal = vertex_normals(positions, indices) if normals is None else normals
     triangles = positions[indices]
     face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
@@ -228,12 +222,10 @@ def visuals(tile, positions, indices, materials, keep, normals=None, ortho=None)
                     normals=normal[ids],
                     uvs=uv,
                     color=(1, 1, 1, 1),
-                    image=image if projection == 1 else None,
                     extras=dict(
                         layer="ground",
                         object_id=f"ground_{tile.id}_{key}_{projection}",
                         material_key=key,
-                        **({"ground_ortho_size": tile.size} if image and projection == 1 else {}),
                     ),
                 )
             )
