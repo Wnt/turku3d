@@ -11,6 +11,7 @@ export class RainExposure {
   private dirty = true;
   private sequence = 0;
   private revision = 0;
+  private appliedRevision = -1;
   private requested = -1;
   private originX = Infinity;
   private originZ = Infinity;
@@ -31,11 +32,15 @@ export class RainExposure {
       this.pending = false;
       if (event.data.revision !== this.revision) { this.dirty = true; return; }
       this.texture.image.data = event.data.heights;
+      this.appliedRevision = event.data.revision;
       this.origin.set(event.data.x, event.data.z);
       weatherHeightField.origin.value.copy(this.origin); weatherHeightField.ready.value = 1;
       this.texture.needsUpdate = true;
     };
   }
+  get settled() { return !this.pending && !this.dirty && this.appliedRevision === this.revision; }
+  get progress() { return { models: this.models.size, revision: this.revision, appliedRevision: this.appliedRevision,
+    pending: this.pending, settled: this.settled }; }
   add(model: THREE.Object3D) {
     if (model.userData.scenery || this.models.has(model.uuid)) return;
     this.models.add(model.uuid); model.updateWorldMatrix(true, true);

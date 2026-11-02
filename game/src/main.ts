@@ -54,7 +54,7 @@ declare global {
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
-      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock;
+      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
@@ -111,7 +111,7 @@ const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params
 const dayClock = new DayClock(env, clockMode, !params.qa);
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
-window.__dev = { setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
+window.__dev = { get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
 if (!idPass) env.updateIBL();
@@ -178,7 +178,9 @@ if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
 if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   if (!next || !rain) return;
   const previous = rain; previous.dispose(true);
-  rain = new next.Rain(scene, params.quality === 'low' ? 2500 : 6000, previous.exposure, previous.scene, previous.sceneDepth.value as THREE.DepthTexture);
+  const replacement = new next.Rain(scene, params.quality === 'low' ? 2500 : 6000, previous.exposure, previous.scene, previous.sceneDepth.value as THREE.DepthTexture);
+  replacement.setPhaseSeconds(previous.fixedPhaseSeconds);
+  rain = replacement;
 });
 const renderFrame = () => {
   if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
@@ -348,13 +350,15 @@ async function runQa() {
       // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
       return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
         || scenery.loaded !== scenery.total)
-        || [...benchFetches.values()].some(start => performance.now() - start > 1500);
+        || [...benchFetches.values()].some(start => performance.now() - start > 1500)
+        || !!rain && weather.sample.wetness > .0001 && !rain.exposure.settled;
     },
     // Loading only: per-frame draw counts legitimately alternate (the river reflection's update cadence).
     signature: () => [renderer.info.memory.geometries, renderer.info.memory.textures,
       (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size].join('|'),
     info: () => ({ url: location.search, pose: window.__qaPose, settle: window.__game!.qa,
       scenery: distantCity?.progress,
+      weather: weather.sample, rainExposure: rain?.exposure.progress,
       drafts: [...coarse.entries].filter(([, e]) => e.state === 'draft').map(([id, e]) => ({ id, pass: e.pass ?? null })),
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio, three: THREE.REVISION }),
   }, params.bench, params.quality) : null;
@@ -387,6 +391,7 @@ async function runQa() {
     perf.reset();
   };
   window.__dev = {
+    get rainEffects() { return rain; },
     setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },

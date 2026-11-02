@@ -12,6 +12,7 @@ export class Rain {
   readonly mesh: THREE.Mesh;
   readonly splashes: THREE.Mesh;
   readonly exposure: RainExposure;
+  private phaseSeconds: number | null = null;
   private readonly origin = uniform(new THREE.Vector2());
   private readonly time = uniform(0);
   private readonly rain = uniform(0);
@@ -21,7 +22,6 @@ export class Rain {
   private readonly right = uniform(new THREE.Vector3(1, 0, 0));
   constructor(world: THREE.Scene, count = 6000, exposure = new RainExposure(), scene = new THREE.Scene(), depth = new THREE.DepthTexture(1, 1)) {
     this.exposure = exposure; this.scene = scene; this.scene.fog = world.fog;
-    if (import.meta.hot && window.__dev) Object.defineProperty(window.__dev, 'rainEffects', { value: this, configurable: true });
     this.sceneDepth.value = depth;
     const base = new THREE.PlaneGeometry(1, 1), geometry = new THREE.InstancedBufferGeometry();
     geometry.index = base.index;
@@ -76,7 +76,13 @@ export class Rain {
     this.splashes.name = 'weather surface splashes'; this.splashes.frustumCulled = false; this.splashes.renderOrder = 5;
     scene.add(this.splashes);
   }
+  get fixedPhaseSeconds() { return this.phaseSeconds; }
+  setPhaseSeconds(seconds: number | null) {
+    if (seconds !== null && !Number.isFinite(seconds)) throw new Error('Rain phase must be a finite shared-clock second');
+    this.phaseSeconds = seconds;
+  }
   update(camera: THREE.Camera, sample: WeatherSample, seconds: number, night: number) {
+    seconds = this.phaseSeconds ?? seconds;
     if (sample.rain > .0001 || sample.wetness > .0001) this.exposure.update(camera);
     this.origin.value.copy(this.exposure.origin);
     // Quantized fall rates complete whole cycles in16s; wrap in double precision before GPU upload.
