@@ -1,6 +1,8 @@
 """Identify moored ships before ordinary house facades and roof extrusion."""
 
 import json
+from functools import cache
+from pathlib import Path
 
 import numpy as np
 import shapely
@@ -8,6 +10,13 @@ import shapely
 from turku3d import config as C
 
 from .garden_inputs import polygon
+
+
+@cache
+def appearance_evidence():
+    """Reviewed vessel paint measurements; keep observations and their source identities."""
+    data = json.loads(Path(__file__).with_name("vessel_observations.json").read_text())
+    return {row["vessel_id"]: row for row in data["observations"] if row.get("appearance")}
 
 
 def prepare(tile, osm, buildings_path, water_path):
@@ -73,6 +82,15 @@ def prepare(tile, osm, buildings_path, water_path):
         ]
         if nearby:
             boat["tags"].update(min(nearby, key=lambda row: row[0])[1])
+        colour = boat["tags"].get("building:colour", "").strip().lower()
+        white_cabin = colour in ("white", "ivory", "cream", "#ffffff", "#fff")
+        boat["appearance"] = dict(
+            cabin_surface="white" if white_cabin else "wood",
+            source="osm:building:colour" if white_cabin else "fallback",
+        )
+        if evidence := appearance_evidence().get(boat["id"]):
+            boat["appearance"].update(evidence["appearance"], source="vision:" + evidence["id"],
+                                      reference=evidence["reference"])
         parts = [
             (g.intersection(shape), plane)
             for b in boat["buildings"]

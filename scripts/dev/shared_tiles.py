@@ -7,6 +7,7 @@ as if it belonged to a requested revision. This is a trusted LAN development ser
 from __future__ import annotations
 
 import argparse
+import ast
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
@@ -21,6 +22,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -29,6 +31,11 @@ REV = re.compile(r"[a-f0-9]{40,64}\Z")
 TILE = re.compile(r"t0_-?\d{1,5}_-?\d{1,5}\Z")
 ALIAS = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 HASHED = re.compile(r"[a-f0-9]{64}")
+RAW_CACHES = {
+    'vegetation': ('vegetation/trees.py',),
+    'coarse-roofs': ('buildings/reconstruct.py', 'buildings/inputs.py'),
+    'lidar': ('lidar/cache.py',),
+}
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'generation')
 GIB = 2**30
@@ -75,11 +82,17 @@ def process_started(ticks):
     """Recover a worker's wall-clock start when adopting it across daemon upgrades."""
     try:
         if ticks and int(ticks) > 0:
-            uptime = float(Path('/proc/uptime').read_text().split()[0])
-            return time.time() - uptime + int(ticks) / os.sysconf('SC_CLK_TCK')
+            return time.time() - time.monotonic() + int(ticks) / os.sysconf('SC_CLK_TCK')
     except (OSError, ValueError):
         pass
     return None
+
+
+def worker_elapsed(info):
+    started = info.get('started_monotonic')
+    if started is None and info.get('start_ticks') and int(info['start_ticks']) > 0:
+        started = int(info['start_ticks']) / os.sysconf('SC_CLK_TCK')
+    return max(0, time.monotonic() - started) if started is not None else 0
 
 
 class Farm:
@@ -93,6 +106,8 @@ class Farm:
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
         self.lock = threading.RLock()
+        self.adoption_lock = threading.Lock()
+        self.adopting = set()
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
@@ -129,8 +144,10 @@ class Farm:
             raise ValueError('invalid alias')
         # Advancing a branch must not silently discard its surveyed source profile.
         previous = self.aliases.get(alias)
-        if source_version is None and previous:
-            source_version = self.revision(previous).get('source_version')
+        if source_version is None:
+            source_version = meta.get('source_version')
+            if source_version is None and previous:
+                source_version = self.revision(previous).get('source_version')
         if meta.get('source_revision'):
             source_version = source_version or meta.get('source_version')
             revision = meta['source_revision']
@@ -207,13 +224,14 @@ class Farm:
 
     def status(self):
         with self.lock:
-            return dict(state='ready', api_version=2, version=self.version, aliases=self.aliases.copy(),
+            return dict(state='ready', api_version=2, daemon_pid=os.getpid(),
+                        version=self.version, aliases=self.aliases.copy(),
                         uptime_seconds=round(time.time() - self.started),
                         workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
                         building=[k[1] for k in self.dispatched],
                         active=[dict(revision=self.jobs[k], generation=k[0], tile=k[1],
                                      pid=self.queue_info[k].get('pid'),
-                                     seconds=round(time.time() - self.queue_info[k].get('build_started', time.time())))
+                                     seconds=round(worker_elapsed(self.queue_info[k])))
                                 for k in sorted(self.dispatched)],
                         queue=[dict(revision=self.jobs[k], tile=k[1], priority=self.priority(k)[:2],
                                     age=round(time.time()-self.queue_info[k]['requested']))
@@ -344,7 +362,10 @@ class Farm:
             # prepared inputs publish atomically. Lock only the final version/tile product.
             with file_lock(self.root / 'locks' / (generation + '-' + tile + '.lock')):
                 with self.lock:
-                    if not self.make_room(self.floor + self.reserve * (len(self.active) + 1)):
+                    # A recorded worker already owns its disk reservation. Recover its
+                    # monitoring even under pressure; run_build can stop it safely.
+                    if not self.queue_info[key].get('pid') and not self.make_room(
+                            self.floor + self.reserve * (len(self.active) + 1)):
                         raise RuntimeError('disk floor reservation unavailable')
                     self.active.add(key)
                 root = self.output(generation)
@@ -361,8 +382,7 @@ class Farm:
                 hit = sum(s.get('cached') is True for s in stages.values())
                 miss = sum(s.get('cached') is False for s in stages.values())
                 info = self.queue_info[key]
-                build_started = info.get('build_started') or process_started(info.get('start_ticks'))
-                seconds = round(time.time() - build_started if build_started else time.monotonic() - started, 3)
+                seconds = round(worker_elapsed(info) or time.monotonic() - started, 3)
                 queue_seconds = round(max(0, info.get('dispatched_at', info['requested']) - info['requested']), 3)
                 atomic_json(root / tile / 'ready.json', dict(revision=revision, generation=generation,
                             seconds=seconds, queue_seconds=queue_seconds,
@@ -386,6 +406,10 @@ class Farm:
                 self.metrics['failed'] += 1
             self.event('failed', **row)
         finally:
+            info = self.queue_info.get(key, {})
+            # Never release product/cache pins while a preserved worker can still write.
+            while info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
+                time.sleep(.1)
             with self.lock:
                 self.active.discard(key)
                 self.jobs.pop(key, None)
@@ -438,14 +462,18 @@ class Farm:
             info.setdefault('build_started', process_started(info.get('start_ticks')) or time.time())
             deadline = time.monotonic() + 1800
             while process_alive(info['pid'], info.get('start_ticks')):
-                if time.monotonic() > deadline:
-                    raise RuntimeError('adopted build exceeded timeout')
+                reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
+                          'build timeout' if worker_elapsed(info) > 1800 or time.monotonic() > deadline else None)
+                if reason:
+                    self.stop_worker(info, root / tile)
+                    raise RuntimeError(reason)
                 time.sleep(1)
             report = read_json(root / tile / 'stage-times.json', {})
             if report.get('_build', {}).get('status') != 'complete':
                 raise RuntimeError('adopted generator did not complete; retry will resume cached stages')
             return dict(returncode=0, adopted=True)
         repo = self.root / 'revisions' / revision / 'repo'
+        self.mount_intermediates(repo, root / 'work')
         env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
                    TURKU3D_WORK=str(root / 'work'))
         # Encoders already lock their content keys; share their results across revisions too.
@@ -458,14 +486,7 @@ class Farm:
         meta = self.revision(revision)
         if meta.get('data_root'):
             env['TURKU3D_DATA'] = meta['data_root']
-            supplements = Path(meta['data_root']) / 'supplements'
-            if supplements.is_dir():
-                work = Path(env['TURKU3D_WORK'])
-                work.mkdir(parents=True, exist_ok=True)
-                for source in supplements.iterdir():
-                    destination = work / source.name
-                    if not destination.exists():
-                        destination.symlink_to(source, target_is_directory=source.is_dir())
+            self.mount_supplements(Path(meta['data_root']), Path(env['TURKU3D_WORK']))
         logs = self.root / 'logs'
         logs.mkdir(exist_ok=True)
         with (logs / f'{revision}-{tile}.log').open('a') as log:
@@ -473,7 +494,8 @@ class Farm:
                                      tile, '--out', str(root / tile)], cwd=repo, env=env,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             with self.lock:
-                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid), build_started=time.time())
+                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid), build_started=time.time(),
+                            started_monotonic=time.monotonic())
                 self.save_queue(force=True)
             deadline = time.monotonic() + 1800
             while proc.poll() is None:
@@ -495,15 +517,159 @@ class Farm:
             raise RuntimeError(f'generator exit {proc.returncode}; see logs/{revision}-{tile}.log')
         return dict(returncode=0)
 
+    def stop_worker(self, info, output):
+        """Only stop a recorded farm session whose PID identity and output still match."""
+        pid = info['pid']
+        if not process_alive(pid, info.get('start_ticks')):
+            return
+        argv = Path(f'/proc/{pid}/cmdline').read_bytes().decode().strip('\0').split('\0')
+        if ('turku3d.coarse' not in argv or '--out' not in argv or os.getpgid(pid) != pid
+                or Path(argv[argv.index('--out') + 1]) != output):
+            raise RuntimeError('refusing to stop a process outside this recorded farm worker')
+        os.killpg(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while process_alive(pid, info.get('start_ticks')) and time.monotonic() < deadline:
+            time.sleep(.05)
+        if process_alive(pid, info.get('start_ticks')):
+            os.killpg(pid, signal.SIGKILL)
+        while process_alive(pid, info.get('start_ticks')):
+            time.sleep(.05)
+
+    def mount_supplements(self, data, work):
+        supplements = data / 'supplements'
+        if not supplements.is_dir():
+            return
+        with self.lock:
+            work.mkdir(parents=True, exist_ok=True)
+            for source in supplements.iterdir():
+                destination = work / source.name
+                if destination.exists() or destination.is_symlink():
+                    if destination.resolve() != source.resolve():
+                        raise RuntimeError('work supplement does not match the pinned source profile')
+                else:
+                    destination.symlink_to(source, target_is_directory=source.is_dir())
+
+    def intermediate_roots(self, repo):
+        """Whole-source decoding has its own producer identity, independent of tile geometry."""
+        base = repo / 'pipeline/turku3d'
+        result = {}
+        for name, sources in RAW_CACHES.items():
+            paths = [base / 'config.py', *(base / p for p in sources)]
+            if all(p.exists() for p in paths):
+                digest = hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
+                result[name] = self.root / 'cache/raw-derived' / name / digest
+        return result
+
+    def mount_intermediates(self, repo, work):
+        cache = work / 'cache'
+        cache.mkdir(parents=True, exist_ok=True)
+        with self.lock:
+            for name, shared in self.intermediate_roots(repo).items():
+                shared.mkdir(parents=True, exist_ok=True)
+                shared.touch()
+                local = cache / name
+                if not local.exists():
+                    local.symlink_to(shared, target_is_directory=True)
+                # Existing workers can still read a private cache. Keep their directory
+                # stable; new product generations use the shared immutable entries.
+
+    def seed_intermediates(self):
+        """Adopt complete private results using hard links, without touching existing workers."""
+        with self.adoption_lock:
+            with self.lock:
+                generations = {}
+                for snapshot in (self.root / 'revisions').glob('*/revision.json'):
+                    meta = read_json(snapshot, {})
+                    generations.setdefault(meta.get('generation'), snapshot.parent / 'repo')
+                self.adopting = set(generations) - {None}
+            try:
+                return self._seed_intermediates(generations)
+            finally:
+                with self.lock:
+                    self.adopting.clear()
+
+    @staticmethod
+    def validate_shards(directory):
+        manifest = read_json(directory / 'MANIFEST.json')
+        if not manifest or not isinstance(manifest.get('counts'), dict):
+            raise RuntimeError('invalid decoded lidar manifest')
+        expected = [('xyz', '<f8', (3,)), ('classification', '|u1'), ('return_number', '|u1'),
+                    ('number_of_returns', '|u1'), ('intensity', '<u2')]
+        files = [directory / 'MANIFEST.json']
+        for cell, count in manifest['counts'].items():
+            if not re.fullmatch(r'c_-?\d+_-?\d+', cell) or not isinstance(count, int) or count < 0:
+                raise RuntimeError('invalid decoded lidar cell')
+            path = directory / (cell + '.npy')
+            with path.open('rb') as stream:
+                if stream.read(6) != b'\x93NUMPY':
+                    raise RuntimeError('invalid decoded lidar array')
+                version = stream.read(2)
+                size = 2 if version == b'\x01\x00' else 4 if version in (b'\x02\x00', b'\x03\x00') else 0
+                if not size:
+                    raise RuntimeError('unknown decoded lidar array format')
+                length = int.from_bytes(stream.read(size), 'little')
+                if length > 65536:
+                    raise RuntimeError('oversized decoded lidar header')
+                header = ast.literal_eval(stream.read(length).decode())
+                if (header.get('shape') != (count,) or header.get('descr') != expected
+                        or header.get('fortran_order') is not False
+                        or path.stat().st_size != stream.tell() + count * 29):
+                    raise RuntimeError('incomplete decoded lidar shard')
+            files.append(path)
+        return files
+
+    def _seed_intermediates(self, generations):
+        linked = 0
+        for generation, repo in generations.items():
+            if not generation:
+                continue
+            for name, shared in self.intermediate_roots(repo).items():
+                local = self.output(generation) / 'work/cache' / name
+                if not local.exists() or local.is_symlink():
+                    continue
+                if name == 'lidar':
+                    # A source directory is published atomically only after its manifest.
+                    for manifest in (local / 'sources').glob('*/MANIFEST.json'):
+                        destination = shared / 'sources' / manifest.parent.name
+                        with file_lock(destination.with_suffix('.lock')):
+                            if (destination / 'MANIFEST.json').exists():
+                                continue
+                            temporary = Path(tempfile.mkdtemp(prefix='.seed-', dir=destination.parent))
+                            try:
+                                for source in self.validate_shards(manifest.parent):
+                                    os.link(source, temporary / source.name)
+                                self.validate_shards(temporary)
+                                temporary.rename(destination)
+                                linked += len(list(destination.iterdir()))
+                            finally:
+                                if temporary.exists():
+                                    shutil.rmtree(temporary)
+                    files = list((local / 'crops').glob('*.npy'))
+                else:
+                    files = list(local.glob('*.npz' if name == 'vegetation' else '*.class6.npy'))
+                for source in files:
+                    if source.name.startswith('.') or '.tmp.' in source.name:
+                        continue
+                    target = shared / source.relative_to(local)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        os.link(source, target)
+                        linked += 1
+                    except FileExistsError:
+                        pass
+        self.event('intermediates-adopted', files=linked)
+        return linked
+
     def make_room(self, target):
         """Evict unused generations then cache LRU. Never touch another loop's directories.
 
-        Active jobs pin all shared intermediates. Cache eviction happens between jobs only,
-        so an open stage lock or file cannot be unlinked underneath a builder.
+        Requested tiles pin their intermediates. Other old entries can be reclaimed while
+        workers run; their content-key locks protect concurrent readers and writers.
         """
         if self.free() >= target:
             return True
         pinned = {g for g, _ in self.jobs}
+        pinned.update(self.adopting)
         revisions = set(self.aliases.values()) | set(self.jobs.values())
         pinned.update(self.revision(rev)['generation'] for rev in revisions)
         for rev in list(revisions):
@@ -527,13 +693,47 @@ class Farm:
                     shutil.rmtree(snapshot)
             if self.free() >= target:
                 return True
+        cache = self.root / 'cache'
+        wanted_tiles = {tile for _, tile in self.jobs}
+        files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
+                        if p.relative_to(cache).parts[1] not in wanted_tiles),
+                       key=lambda p: p.stat().st_mtime)
+        for path in files:
+            try:
+                if time.time() - path.stat().st_mtime < self.grace_seconds:
+                    continue
+                with path.with_suffix('.lock').open('a') as lock:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    stat = path.stat()
+                    if time.time() - stat.st_mtime < self.grace_seconds:
+                        continue
+                    path.unlink()
+                    self.metrics['evicted_bytes'] += stat.st_size
+                    self.event('cache-evicted', path=str(path.relative_to(cache)), bytes=stat.st_size)
+            except FileNotFoundError:
+                continue
+            if self.free() >= target:
+                return True
+        # Texture encoders also maintain their own bounded cache. Reclaim additional
+        # old encodes only when no farm package can still be using the returned paths.
         if not self.jobs:
-            files = sorted((p for p in (self.root / 'cache').rglob('*')
-                            if p.is_file() and p.suffix in ('.pkl', '.ktx2', '.png', '.rgb')),
-                           key=lambda p: p.stat().st_mtime)
-            for path in files:
+            for path in sorted((cache / 'textures').glob('*'), key=lambda p: p.stat().st_mtime):
+                if path.suffix not in ('.ktx2', '.png', '.rgb') or time.time() - path.stat().st_mtime < self.grace_seconds:
+                    continue
                 self.metrics['evicted_bytes'] += path.stat().st_size
                 path.unlink()
+                if self.free() >= target:
+                    return True
+            for path in ([] if self.adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
+                if time.time() - path.stat().st_mtime < self.grace_seconds:
+                    continue
+                size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
+                shutil.rmtree(path)
+                self.metrics['evicted_bytes'] += size
+                self.event('raw-cache-evicted', path=str(path.relative_to(cache)), bytes=size)
                 if self.free() >= target:
                     return True
         return self.free() >= target
@@ -558,12 +758,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            if self.path not in ('/register', '/limits', '/cancel'):
+            if self.path not in ('/register', '/limits', '/cancel', '/seed'):
                 return self.json(404, dict(error='unknown endpoint'))
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 4096:
                 raise ValueError('invalid body size')
             body = json.loads(self.rfile.read(size))
+            if self.path == '/seed':
+                return self.json(200, dict(linked=self.server.farm.seed_intermediates()))
             if self.path == '/cancel':
                 return self.json(200, self.server.farm.cancel(body['revision'], body['tiles']))
             if self.path == '/limits':
