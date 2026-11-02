@@ -55,3 +55,33 @@ test('dequantizes meshopt positions before baking their world transform', () => 
   expect(merged.geometry.boundingBox!.min.toArray()).toEqual([1000,20,-2000]);
   expect(merged.geometry.boundingBox!.max.toArray()).toEqual([1500,270,-2000]);
 });
+
+test('stable residency never traverses sources again; invalidation discovers added meshes', () => {
+  const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();
+  const model = new THREE.Group(); scene.add(model);
+  const mesh = () => {
+    const result = new THREE.Mesh(new THREE.BoxGeometry(), material);
+    result.userData.layer = 'buildings'; return result;
+  };
+  model.add(mesh(), mesh());
+  const batches = new SceneryBatches(scene), entries: [string, THREE.Object3D][] = [['t0_0_0', model]];
+  batches.sync(entries);
+  const traverse = model.traverseVisible.bind(model);
+  let visits = 0;
+  model.traverseVisible = callback => { visits++; traverse(callback); };
+  for (let i = 0; i < 10; i++) batches.sync(entries);
+  expect(visits).toBe(0);
+  const added = mesh(); model.add(added);
+  batches.invalidate(model); batches.sync(entries);
+  expect(visits).toBe(1);
+  expect(added.layers.mask).toBe(0);
+  const merged = scene.children.find(c => c.name === 'distant-city-cell') as THREE.Mesh;
+  expect(merged.geometry.index!.count).toBe(108);
+  model.position.x = 50;
+  batches.invalidate(model); batches.sync(entries);
+  const moved = scene.children.find(c => c.name === 'distant-city-cell') as THREE.Mesh;
+  expect(moved.geometry.boundingBox!.min.x).toBe(49.5);
+  batches.sync([]);
+  expect(added.layers.mask).toBe(1);
+  expect(merged.parent).toBeNull();
+});
