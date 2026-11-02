@@ -54,7 +54,8 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   const baseRoughness = (material.roughnessNode ?? materialRoughness) as THREE.Node<'float'>;
   const surface = Fn(() => {
     const result = vec4(baseColor, baseRoughness).toVar();
-    const up = smoothstep(.8, .98, normalWorldGeometry.y).toVar();
+    // Facades have no pools: do not add an otherwise unused geometric-normal varying to their rich shader.
+    const up = facade ? float(0) : smoothstep(.8, .98, normalWorldGeometry.y).toVar();
     // No wet-noise sampling in dry weather. The branch is uniform across the whole draw.
     If(weatherUniforms.wetness.greaterThan(.0001), () => {
       const field = facade ? vec2(1, 0) : weatherSurface(positionWorld);
