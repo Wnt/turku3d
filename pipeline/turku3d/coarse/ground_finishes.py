@@ -1,4 +1,4 @@
-"""Original deterministic procedural street maps, periodic over two metres."""
+"""Original deterministic procedural street maps, periodic over metric surface tiles."""
 
 import numpy as np
 
@@ -6,7 +6,8 @@ def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
     from scipy.ndimage import gaussian_filter, distance_transform_edt
 
-    size = size or (1024 if key == "fieldstone" else 512)
+    size = size or (2048 if key == "fieldstone" else 512)
+    period = 4 if key == "fieldstone" else 2
     rng = np.random.default_rng(4817)
     grain = rng.normal(0, 1, (size, size))
     macro = gaussian_filter(grain, size / 32, mode="wrap")
@@ -22,14 +23,19 @@ def maps(key, size=None):
         # Toroidal dart throwing gives mixed stone sizes without the diagonal
         # rows of a jittered grid. Minimum spacing excludes tiny sliver stones.
         sites = []
-        for _ in range(10000):
+        for _ in range(50000):
             point = rng.random(2)
+            # Broad periodic density patches leave mixed small and large stones,
+            # rather than a uniformly spaced scatter across every metre.
+            patch = .5 + .5 * np.sin(2 * np.pi * (point[0] + point[1])) * np.sin(4 * np.pi * point[1])
+            if rng.random() > .28 + .72 * patch:
+                continue
             delta = abs(np.asarray(sites).reshape(-1, 2) - point)
             delta = np.minimum(delta, 1 - delta)
-            if len(delta) and np.min(np.linalg.norm(delta, axis=1)) < .016:
+            if len(delta) and np.min(np.linalg.norm(delta, axis=1)) < .008:
                 continue
             sites.append(point)
-            if len(sites) == 1100:
+            if len(sites) == 4400:
                 break
         sites = np.asarray(sites)
         offsets = np.array([(x, y) for x in (-1, 0, 1) for y in (-1, 0, 1)])
@@ -41,15 +47,15 @@ def maps(key, size=None):
         # Distance to the bisector between neighbouring sites, in metres.
         separation = np.linalg.norm(repeated[ids[:, 1]] - repeated[ids[:, 0]], axis=1)
         edge = ((distance[:, 1] ** 2 - distance[:, 0] ** 2)
-                / np.maximum(separation, 1e-6)).reshape(size, size)
-        # Open each cell by 12 mm, then restore 9 mm: round polygon corners and
+                / np.maximum(separation, 1e-6)).reshape(size, size) * (period / 2)
+        # Open each cell by 20 mm, then restore 17 mm: round worn stone shoulders and
         # leave sandy joints. Tiling the mask gives true periodic distances.
-        core = edge >= .012
-        outside = distance_transform_edt(~np.tile(core, (3, 3)))[size:2*size, size:2*size] * (2 / size)
-        footprint = outside <= .009
-        inner = distance_transform_edt(np.tile(footprint, (3, 3)))[size:2*size, size:2*size] * (2 / size)
-        crown = np.tanh(inner / .009)
-        coverage = np.clip((.011 - outside) / .004, 0, 1)
+        core = edge >= .020
+        outside = distance_transform_edt(~np.tile(core, (3, 3)))[size:2*size, size:2*size] * (period / size)
+        footprint = outside <= .017
+        inner = distance_transform_edt(np.tile(footprint, (3, 3)))[size:2*size, size:2*size] * (period / size)
+        crown = np.tanh(inner / .014)
+        coverage = np.clip((.019 - outside) / .004, 0, 1)
         # Finnish fieldstone mixes grey rock, pale granite, feldspar pink and
         # occasional dark stones; sandy joints stay lighter than deep cavities.
         palette = np.array([[85, 89, 86], [155, 154, 146], [121, 126, 122],
@@ -57,9 +63,9 @@ def maps(key, size=None):
         colours = palette[rng.choice(len(palette), len(sites), p=[.08, .17, .60, .07, .08])]
         colours = colours + rng.normal(0, 5, (len(sites), 1))
         rock = colours[nearest].reshape(size, size, 3)
-        dirt = np.array([104, 104, 96])
+        dirt = np.array([126, 124, 111])
         albedo = dirt + (rock - dirt) * coverage[..., None] + grain[..., None] * 5 + macro[..., None] * 2
-        relief = rng.uniform(.006, .011, len(sites))[nearest].reshape(size, size)
+        relief = rng.uniform(.004, .007, len(sites))[nearest].reshape(size, size)
         height = crown * relief + gaussian_filter(grain, .8, mode="wrap") * .0008
         ao = .9 + .1 * crown
         roughness = .94 - .13 * crown
@@ -67,8 +73,8 @@ def maps(key, size=None):
         raise ValueError(f"Unknown ground finish: {key}")
 
     # Periodic central differences in physical metres; tangent UV v points north.
-    dx = (np.roll(height, -1, 1) - np.roll(height, 1, 1)) / (4 / size)
-    dy = (np.roll(height, -1, 0) - np.roll(height, 1, 0)) / (4 / size)
+    dx = (np.roll(height, -1, 1) - np.roll(height, 1, 1)) / (2 * period / size)
+    dy = (np.roll(height, -1, 0) - np.roll(height, 1, 0)) / (2 * period / size)
     normal = np.stack([-dx, dy, np.ones_like(height)], axis=-1)
     normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
     orm = np.stack([ao, roughness, np.zeros_like(height)], axis=-1)
