@@ -86,8 +86,10 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
   wood, metal, granite and chain-link materials. Paint and steel colours are per instance; the chain-link wire is an
   alpha-tested 256 px tile drawn by our code (5 cm diamonds). The painted wood (albedo and normal map: grain, knots,
   flaked paint) is also drawn by our code: the ambientCG PaintedWood008A scan used before carried stencilled
-  lettering in its relief and was removed on 2026-11-02. Every remaining sourced set was checked by eye at full
-  resolution, as shipped (foliage atlas, bark atlas and normals, granite), for lettering, logos, stamps and rulers.
+  lettering in its relief and was removed on 2026-11-02. Every remaining sourced set was then checked by eye at full
+  resolution (sources and the shipped foliage atlas, bark atlas and normals, granite) for lettering, logos, stamps
+  and rulers: Bark010 has initials carved into the bark, and the build clones clean bark over them in both maps
+  (`clonePatch` in `scripts/nature/textures.mjs`); nothing else was found.
 
 ## Sources (all CC0 1.0)
 
@@ -105,7 +107,7 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
 | [ambientCG LeafSet020](https://ambientcg.com/view?id=LeafSet020) | dandelion rosette | ambientCG | CC0 1.0 |
 | [ambientCG PineNeedles001](https://ambientcg.com/view?id=PineNeedles001) | Scots pine needles | ambientCG | CC0 1.0 |
 | [ambientCG Foliage001](https://ambientcg.com/view?id=Foliage001), [Foliage006](https://ambientcg.com/view?id=Foliage006), [Foliage003](https://ambientcg.com/view?id=Foliage003) | grass blades (clump and lawn cards), weeds | ambientCG | CC0 1.0 |
-| [ambientCG Bark009](https://ambientcg.com/view?id=Bark009), [Bark004](https://ambientcg.com/view?id=Bark004), [Bark002](https://ambientcg.com/view?id=Bark002), [Bark010](https://ambientcg.com/view?id=Bark010) | birch, spruce, maple, smooth (rowan/shrubs) bark | ambientCG | CC0 1.0 |
+| [ambientCG Bark009](https://ambientcg.com/view?id=Bark009), [Bark004](https://ambientcg.com/view?id=Bark004), [Bark002](https://ambientcg.com/view?id=Bark002), [Bark010](https://ambientcg.com/view?id=Bark010) | birch, spruce, maple, smooth (rowan/shrubs) bark; Bark010's carved initials cloned out | ambientCG | CC0 1.0 |
 | [ambientCG Granite003B](https://ambientcg.com/view?id=Granite003B) | granite wall | ambientCG | CC0 1.0 |
 | [Poly Haven pine_bark](https://polyhaven.com/a/pine_bark) | Scots pine bark | Dimitrios Savva | [CC0 1.0](https://polyhaven.com/license) |
 | [Poly Haven jolcham_oak_bark_01](https://polyhaven.com/a/jolcham_oak_bark_01) | oak bark | Charlotte Baglioni | CC0 1.0 |
