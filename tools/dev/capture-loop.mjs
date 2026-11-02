@@ -122,7 +122,7 @@ try {
       let throttled = false;
       let settleRetries = 0;
       while (Date.now() - started < timeout) {
-        if (!compared && await evaluate(`!!window.__game?.vegetation?.library && !window.__game.vegetation.pending.size && ${JSON.stringify(wanted)}.every(id => { const e=window.__game.lights.source.entries.get(id); return e?.model && e.pass==='full'; })`)) {
+        if (!compared && await evaluate(`!!window.__game?.vegetation?.library && !window.__game.vegetation.pending.size && ${JSON.stringify(wanted)}.every(id => { const e=window.__game.lights?.source?.entries.get(id); return e?.model && e.pass==='full'; })`)) {
           if (opt('--setup-file', '')) await evaluate(fs.readFileSync(opt('--setup-file'), 'utf8'));
           compared = true;
         }
