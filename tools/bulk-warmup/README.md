@@ -82,7 +82,6 @@ Order matters; each step names where it runs. `BULK_HOST=root@<ip>` throughout.
   host; tiles must not be swapped in before them.
 - **Output.** x86 builds have the same generator version, input key, sizes and counts as OCI's
   arm64 builds; only the GLB content hash differs (floating point). Accepted.
-- **CPU steal** on the shared CloudNative plan was 13–43 %, so 64 vCPUs gave roughly 38–55 cores.
 - **OCI disk.** The panorama cache stores content in `streetlevel/.objects`; deleting the named
   files frees nothing until blobs with one link are removed (`find .objects -links 1 -delete`).
 - **Process control.** `pkill -f`/`pgrep -f` with your own pattern also matches your own shell;

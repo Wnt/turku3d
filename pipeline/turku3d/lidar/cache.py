@@ -11,6 +11,8 @@ import tempfile
 from functools import cached_property, lru_cache
 from pathlib import Path
 
+from turku3d import profiling
+
 import laspy
 import numpy as np
 from scipy.spatial import cKDTree
@@ -123,7 +125,7 @@ class TileStore:
             return dest
         dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.with_suffix(".lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            profiling.flock(lock, fcntl.LOCK_EX, "lidar")
             if (dest / "MANIFEST.json").exists():
                 return dest
             tmp = Path(tempfile.mkdtemp(prefix=".points-", dir=dest.parent))

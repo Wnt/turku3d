@@ -30,7 +30,7 @@ for p in (root/'state').glob('*.pid'):
  try:
   pid=int(p.read_text());cmd=Path(f'/proc/{pid}/cmdline').read_bytes()
  except (ValueError,OSError):continue
- if str(root).encode() in cmd and any(s in cmd for s in (b'prefetch.py',b'bulk.py')):
+ if str(root).encode() in cmd and any(s in cmd for s in (b'prefetch.py',b'bulk.py',b'freeze.py',b'prove-after-prefetch.sh')):
   raise SystemExit('Wait for active prefetch/build before pinning: '+p.name)
 '''
 subprocess.run(['ssh',a.host,'python3 -c '+q(check)+' '+q(a.root)],check=True)
@@ -42,9 +42,13 @@ if archive.wait() or result.returncode:raise RuntimeError('archive transfer fail
 with tempfile.NamedTemporaryFile('w') as f:
  json.dump(meta,f);f.flush()
  subprocess.run(['scp','-q',f.name,a.host+':'+target+'/revision.json'],check=True)
-activate='''import json,os,sys
+activate='''import fcntl,json,os,sys
 from pathlib import Path
 root=Path(sys.argv[1]);commit=sys.argv[2]
+locks=[]
+for name in ('prefetch','bulk','proof-driver'):
+ handle=(root/'state'/(name+'.lock')).open('a')
+ fcntl.flock(handle,fcntl.LOCK_EX|fcntl.LOCK_NB);locks.append(handle)
 repo=root/'repo'
 if repo.is_dir() and not repo.is_symlink():
  initial=(root/'state/COMMIT').read_text().strip()

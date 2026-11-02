@@ -128,7 +128,7 @@ and SHA verification; run with:
 
 Next: finish and audit coverage, freeze source identity/supplements, prove 2–3
 tiles on one worker, and compare farm payloads and input identities across hosts. Estimate
-64-core time only from those Gen 2 builds, discounting 13–43% CPU steal. The raw
+64-core time from measured CPU seconds, concurrency and serial/lock time. The raw
 source footprint will leave limited headroom on 300 GB: bound stage caches and
 pull/validate completed products before reclaiming their host copies. Never trim
 an active tile's stages or any unacknowledged finished product. No city build or
@@ -164,30 +164,60 @@ command, generation/source binding, cache mounts, collision and GLB validation, 
 atomic `ready.json` publication as the LAN farm. Completed or acknowledged tiles
 resume without rebuilding. Products go to `farm/products/<generation>/<tile>`.
 The batch holds the source lock and refuses unprefetched tiles or a changed fetch
-recipe. `state/bulk-result.json` includes CPU/wall seconds, CPU steal, peak child RSS,
+recipe. `state/bulk-result.json` includes CPU/wall seconds, peak child RSS,
 stage/cache metrics and failures. SIGTERM stops admission and finishes owned active
 workers. Only this dedicated host gets a higher thread-pool limit; LAN limits stay
 unchanged.
 
 The existing farm cache eviction runs under pressure: per-key locks protect stage
 entries, active jobs pin their inputs, and raw-derived caches are reclaimed only
-when all workers have finished reading them. The default 25 GiB floor and 1 GiB
+when all workers have finished reading them. The default 25 GiB floor and 0.5 GiB
 reservation per active worker stop admission before the disk fills. Exit 75 means
 pull/acknowledge finished output (or finish an interrupted batch), then resume.
 No unacknowledged tile is deleted.
 
-A provisional command for the eventual **64-vCPU plan**, after Jonni approves resize
-and the coordinator selects the revision, is below. Worker count/reservation must
-be finalized from the real proofs and remaining disk space; this has not been run:
+The eventual **64-vCPU run**, only after Jonni approves resize and the coordinator
+selects the revision, starts at 80 requested workers (not yet run):
 
 ```sh
 ROOT=/root/turku3d-bulk-gen2
-"$ROOT/run.sh" python "$ROOT/ops/bulk.py" "$ROOT"   --walk "$ROOT/state/walk.json" --workers 48 --reserve-gib 1
+"$ROOT/run.sh" python "$ROOT/ops/bulk.py" "$ROOT" --walk "$ROOT/state/walk.json" \
+  --workers 80 --reserve-gib .5 --worker-memory-gib 3
 ```
 
-48 workers reserve 73 GiB including the floor. If space is tighter, lower concurrency
-or pull output; never lower the 25 GiB floor. Merely selecting a 64-core plan does not
-make 64 concurrent scratch-heavy builders safe on this disk.
+The pool supports up to 96 workers on 64 cores. Admission reserves 3 GiB per tile
+from total RAM and holds an 8 GiB memory floor; existing tiles finish when memory
+pressure pauses new admission. The proofs peaked at 2.81 GiB RSS, so 80 is the
+initial target. Raising the target to 88–96 also requires measured RAM headroom;
+never lower the RAM reservation merely to reach a worker count. The 0.5 GiB disk
+reservation gives 65 GiB including the floor at 80 workers. Raw-derived caches
+are shared, kept on MaxIOPS and trimmed only after their readers finish.
+
+Live control (atomic file replacement, no process restart):
+
+```sh
+printf '{"workers":88}\n' > "$ROOT/state/workers.next"
+mv "$ROOT/state/workers.next" "$ROOT/state/workers.json"
+mpstat -P ALL 5 120 > "$ROOT/state/first-ten-minutes.txt"
+```
+
+For the first ten minutes, inspect `utilization.jsonl` alongside mpstat: aim for
+<5% idle, and distinguish I/O waits, memory admission and lock waits before raising
+concurrency. `--control PATH` selects another control file. Invalid or partial JSON
+retains the last valid limit. Centre tiles lead by a density prior; measured tile
+durations override it and longest work starts first. This prior is an ordering
+heuristic, not a claim that every outer tile is water or cheaper.
+
+A city run requires all three validated serial proof tiles for its exact generation;
+those warm compiled textures/vehicle assets. `warm.py` then populates every ground
+material channel before worker admission. The existing per-source fingerprint locks
+already avoid the legacy global hash index. No RAM disk or tmpfs is used.
+
+`stage-times.json` and `input-cache.json` now carry inclusive CPU seconds and named
+lock waits (fingerprint/input/stage/lidar/vegetation/surface). Linux live descendants
+are included, so persistent Node packagers contribute CPU before they exit. Nested
+stages overlap: do not sum parent and child rows. Texture compilation reports its
+own `lockWaitSeconds`. The batch's child CPU total remains the throughput estimate.
 
 Run the pull on **osgallery-dev**, initially into the owned proof farm. Copy only
 `transfer.py` there from the Mac. Read VERSION from the host's `state/sources.json`:
@@ -216,7 +246,7 @@ After the owned proof farm has passed comparison, the same tool can target
 to avoid duplicating its bytes. It installs farm-native revision metadata and ready
 products, without advancing the integration alias or touching production.
 
-Nine offline checks now pass: baseline registry immutability and independent locks;
+Ten offline checks now pass: baseline registry immutability and independent locks;
 source snapshot immutability and checksum rejection; portable VRTs retaining prior
 hard links; recipe invalidation; actual farm scheduling/resume with synthetic payloads;
 prefetch/build exclusion; corrupt shared payload rejection; and acknowledgement-bound
@@ -257,3 +287,79 @@ that lock is released; no sleep/poll loop or tile build is started. Its ownershi
 is `state/prefetch-resume.pid`, log `state/prefetch-resume.log`, and an exclusive
 `prefetch-resume.lock` prevents duplicate continuations. Do not also start a manual
 retry while this continuation is pending or running.
+
+
+### Small-plan OSM recovery and proof continuation
+
+The first pass exposed seven kernel OOM kills in concurrent `osmium extract`
+processes (1.0–1.5 GiB RSS each). The retry now takes one `osm-extract.lock` while
+clipping the cached Finland snapshot. WFS/lidar/imagery HTTP work remains parallel;
+no host resize is needed for this acquisition fix. The lock is regression-tested.
+
+`prove-after-prefetch.sh` is now waiting on the retry continuation's lock. It freezes
+sources only if complete coverage was published, then builds exactly `t0_0_0`,
+`t0_1_0`, `t0_-1_0` with **one worker**. Its PID/log are `state/proof.pid` and
+`state/proof.log`. Missing/failed coverage stops it before any build. It never starts
+a city-wide run. Do not launch a duplicate manual proof while it is pending.
+
+Reference metadata for those three tiles has been read from osgallery-dev's actual
+farm products under producer generation
+`f979f621e19dfb98dfe2015613967a194dd7b9fcbc9a1c052840dc14aa84de37`.
+That is the same producer as the staged code. The new frozen source profile adds a
+source-version binding, so its final farm generation identifier will differ. Keep
+this distinction explicit when comparing source keys and geometry/payload results.
+The references are saved on the Mac as `loops/bulkgen2/farm-reference.json`.
+
+Use `compare.py snapshot FARM GENERATION TILE...` on the producing host to capture
+small proof metadata, then `compare.py compare before.json after.json` on the Mac.
+It reports code identity, source/stage-key changes, payload hashes/bytes, visual
+triangle counts and collision-cell counts without requesting builds from the farm.
+
+Revision activation now also takes the acquisition/build/proof locks, so a final pin cannot race with source freezing or the queued proofs.
+
+### First completed proofs (2026-11-02)
+
+All 6,371 acquisition jobs completed; no failed or missing download remains.
+5,234 / 5,812 candidate full tiles (90.05%) have the required published ground
+coverage; the other 578 are explicit coverage exclusions represented by regional
+scenery, not failed downloads. The immutable source profile is 207.177 GB across
+177,306 files: raw 202.299 GB, textures 3.175 GB, facade assets 0.051 GB, approvals
+0.091 GB, characterization 1.380 GB, supplements 0.113 GB, regional 0.067 GB.
+
+The original three one-worker proofs used commit `e05e7a93`, source version
+`4f7320b8e0f5f06b44e50a6cac59f7716f540a07b44783fb069e696b31df8516`, and bound generation
+`c1e9c992dfae54f7c8c148be4585d94c5b9f08a74ea03818953f9d7b244366fb`.
+They passed farm validation in 207.524 / 153.514 / 62.346 seconds. Total CPU was
+370.516 seconds: **2.058 core-minutes per tile**, with 2.352 wall-minutes per tile.
+The simple 5,234-tile CPU extrapolation is 168 core-saturated minutes at 64 cores;
+this is a three-centre-tile baseline, not a final city forecast. Profiling and the
+first ten-minute ramp must establish serial/lock cost and class mix.
+
+Against the existing same-producer farm products, visual triangle differences are
+-7 / +15 / -13 and byte differences +756 / -68 / -200. 45 of 48 collision cells
+have identical hashes; three eastern cells differ by 24 bytes in total. Source keys
+changed in WFS/OSM-dependent datasets; the datasets are not identical snapshots.
+`loops/bulkgen2/proof-comparison.json` records every changed payload and source key.
+Do not describe these as bit-identical proofs. Same frozen-source receiver validation
+and the new profiling generation's proof comparison are still required.
+
+The direct osgallery pull is owned by `pull-proofs.sh`, its PID/log in
+`/home/wnt/turku3d-local/loops/bulkgen2/`. It checks the three proofs, receives and
+SHA-verifies the frozen sources, then validates/publishes products. No host product
+is pruned during proofs. New pulls should pass `--build-file saved-build.json` to
+`transfer.py`: this pins generation identity even when the host selects newer code.
+`bulk.py --report-dir PATH` isolates a later proof's reports while an older pull
+continues. It still takes the common acquisition/build locks.
+
+Current disk: 205 GiB used, 79 GiB free, including 4.1 GiB derived caches and 192 MiB
+proof products/shared assets. Complete city products will not fit alongside sources
+without continuous verified pull/pruning. Exit 75 preserves outputs and resumes once
+space is available. A final city disk forecast is pending payload-only measurement.
+
+The saved manifest provenance explains the original comparison more precisely:
+LAN proofs selected WFS `work-3x3`, while staged proofs select fully prefetched
+`coarse-23459500_6704500` / `coarse-23459000_6704500` blocks. Road inputs now include
+the complete neighbouring coarse spot-height blocks; t0_-1_0 also gains one
+classified-lidar neighbour absent from its old provenance. The same dated OSM clip
+is still selected. `compare.py` normalizes source paths relative to `raw/` and
+reports these selections, distinguishing actual source changes from host relocation.

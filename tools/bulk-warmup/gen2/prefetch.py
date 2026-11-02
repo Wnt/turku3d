@@ -8,6 +8,7 @@ only after all workers finish. Run after OCI rsync has completed, never alongsid
 import argparse
 import concurrent.futures
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -100,7 +101,11 @@ def fetch_job(job):
                     if report.get('status') not in ('ok','empty'):
                         raise RuntimeError(str(report))
         elif kind=='osm':
-            osm.fetch_area(osm_area(tile),log=messages.append)
+            # Finland smart-extract peaks above 1 GiB; keep the 4 GiB staging
+            # plan safe while preserving parallel HTTP acquisition for other kinds.
+            with (STATE/'osm-extract.lock').open('a') as extraction:
+                fcntl.flock(extraction,fcntl.LOCK_EX)
+                osm.fetch_area(osm_area(tile),log=messages.append)
         else:
             # Same ortho footprint and no-coverage handling as the service prefetcher.
             unavailable=fetch_imagery_block(tile,messages.append)

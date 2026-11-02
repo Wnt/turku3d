@@ -27,6 +27,8 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from turku3d import profiling
+
 from turku3d import config as C
 from turku3d.package.manifest import _atomic_write
 
@@ -83,7 +85,7 @@ def fingerprints(paths: dict[str, Path]) -> dict[str, dict]:
         state, value = identity(), read()
         if not matches(value, state):
             with cache.with_suffix(".lock").open("a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
+                profiling.flock(lock, fcntl.LOCK_EX, "fingerprint")
                 state, value = identity(), read()
                 if not matches(value, state):
                     with path.open("rb") as stream:

@@ -25,6 +25,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from turku3d import profiling
+
 import numpy as np
 import shapely
 
@@ -460,7 +462,7 @@ def _input_lock(path):
 
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.with_suffix('.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        profiling.flock(lock, fcntl.LOCK_EX, "input")
         yield
 
 
@@ -764,6 +766,7 @@ def gather(
             values[dataset] = None
             continue
         t = time.perf_counter()
+        profile = profiling.snapshot()
         cache_dataset = dataset + "-first" if first_pass and dataset == "wfs" else dataset
         path, key = _entry(root, tile, cache_dataset, paths)
         with _input_lock(path):
@@ -790,7 +793,8 @@ def gather(
         values[dataset] = value
         provenance[dataset] = [str(p) if p else None for p in paths]
         seconds[dataset] = time.perf_counter() - t
-        cache_metrics[dataset] = dict(key=key, cached=cached, seconds=round(seconds[dataset], 6))
+        cache_metrics[dataset] = dict(key=key, cached=cached, seconds=round(seconds[dataset], 6),
+                                      **profiling.elapsed(profile))
     if os.environ.get("TURKU3D_SHARED_CACHE"):
         report = root / tile.id / "input-cache.json"
         report.parent.mkdir(parents=True, exist_ok=True)
