@@ -1,3 +1,4 @@
+import { headingYaw } from '../../vehicle/math';
 import * as THREE from 'three/webgpu';
 import type { VehicleState, Quat, WheelState } from '../../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../../world/manifest';
@@ -13,9 +14,9 @@ import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetMaterial, fleetNight } from './material';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
-export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; indicator?: -1 | 0 | 1; braking?: boolean }
+export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
 interface Batch { wheels: THREE.InstancedMesh[]; mesh: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
-interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
+interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
 
@@ -153,7 +154,7 @@ export class ParkedCarVisuals {
     for(let i=0;i<4&&group.wheels.length;i++){
       const side=i%2?-1:1, wheel=group.wheels[i%2], index=group.count*2+(i<2?0:1);
       const state=draw.wheels?.[i],steer=state?.steer??(i<2?ackermann(draw.steer??0,draw.model.wheelbase,-side*(draw.model.width/2-.075)):0);
-      this.hubPosition.set(side*(draw.model.width/2-.075),state?(state.pos.y+CHASSIS_LIFT)/this.scale.y:draw.model.wheel,(i<2?1:-1)*draw.model.wheelbase/2);
+      this.hubPosition.set(side*(draw.model.width/2-.075),(state||draw.wheelY)?((state?.pos.y??draw.wheelY![i])+CHASSIS_LIFT)/this.scale.y:draw.model.wheel,(i<2?1:-1)*draw.model.wheelbase/2);
       this.hubEuler.set(state?.rotation??draw.spin??0,steer,0,'YXZ');this.hubRotation.setFromEuler(this.hubEuler);
       this.hubMatrix.compose(this.hubPosition,this.hubRotation,this.unitScale);
       this.wheelMatrix.multiplyMatrices(matrix,this.hubMatrix);
@@ -171,14 +172,14 @@ export class ParkedCarVisuals {
     for(const car of this.cars) {
       const pose=byId.get(car.object_id)??rest?.restingPose(car); if(!pose)continue;
       const def=this.definitions.get(car.object_id)!;
-      this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot,wheels:byId.get(car.object_id)?.wheels});
+      this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot,wheels:byId.get(car.object_id)?.wheels??pose.wheels});
     }
     for(let i=0;i<this.traffic.length;i++) {
       const car=this.traffic[i], id=car.seed??`${car.model}/${i}`;
       const key=car.model+'/'+id;
       let model=this.variants.get(key);
       if(!model){model=fleetModel(car.model,id);if(this.variants.size>512)this.variants.clear();this.variants.set(key,model);}
-      const yaw=Math.atan2(2*(car.q.w*car.q.y+car.q.x*car.q.z),1-2*(car.q.y*car.q.y+car.q.z*car.q.z));
+      const yaw=headingYaw(car.q);
       let motion=this.wheelMotion.get(id);
       if(!motion){motion={x:car.x,z:car.z,yaw,spin:0,steer:0};this.wheelMotion.set(id,motion);}
       const dx=car.x-motion.x,dz=car.z-motion.z,distance=Math.hypot(dx,dz);
@@ -189,7 +190,7 @@ export class ParkedCarVisuals {
         motion.steer=Math.max(-.65,Math.min(.65,Math.atan(model.wheelbase*turn/signed)));
       }else if(distance>=5){motion.spin=0;motion.steer=0;}
       motion.x=car.x;motion.z=car.z;motion.yaw=yaw;
-      this.draw({id,model,spin:motion.spin,steer:motion.steer,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
+      this.draw({id,model,wheelY:car.wheelY,spin:motion.spin,steer:motion.steer,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
     }
     const liveMotion=new Set(this.traffic.map((c,i)=>c.seed??`${c.model}/${i}`));
     for(const id of this.wheelMotion.keys())if(!liveMotion.has(id))this.wheelMotion.delete(id);

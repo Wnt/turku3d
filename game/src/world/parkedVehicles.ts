@@ -1,3 +1,5 @@
+import { wheelGroundProbes, wheelGroundPose } from '../vehicle/wheelGround';
+import { fleetModel } from '../actors/fleet/catalog';
 import type { ParkedCarVisuals } from '../actors/car';
 import type { SeatedVehicles } from '../actors/seatedVehicles';
 import { collisionTileAt, type V3 } from '../core/origin';
@@ -8,7 +10,7 @@ import { slotShown } from './parkedOccupancy';
 import { prerunnerPresent } from './prerunnerSchedule';
 
 /** Physics chassis pose: centre position and rotation, as the worker reports them. */
-export interface ParkedPose { pos: V3; rot: Quat }
+export interface ParkedPose { pos: V3; rot: Quat; wheels?: VehicleState['wheels'] }
 
 const SPAWN_RADIUS = 120, DESPAWN_RADIUS = 170;
 /** A capped body moves to a closer car only when that car is at least 15% and 4 m nearer. Undoing
@@ -44,6 +46,10 @@ export class ParkedVehicles {
   /** Draft slot poses, computed once per draft record (the visual reads one per car every frame). */
   private slots = new WeakMap<ParkedVehicle, ParkedPose>();
   private sharedKey = '';
+  private terrain=new WeakMap<ParkedVehicle,ParkedPose>();
+  private terrainPending=new Set<ParkedVehicle>();
+  private terrainRetry=new WeakMap<ParkedVehicle,number>();
+  private view={x:Infinity,z:Infinity};
   private shared = new Set<string>();
   private owned = new Set<string>();
   private inventory = '';
@@ -53,13 +59,13 @@ export class ParkedVehicles {
   private night = 0;
   private sharedUtcMs: number | undefined;
 
-  constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'>,
+  constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'> & Partial<Pick<PhysicsClient,'raycast'>>, 
     private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
     private readonly cap = 60) {}
 
   resetRound() {
     for (const id of new Set([...this.spawned.keys(), ...this.borrowed.keys()])) this.physics.removeVehicle(id);
-    this.spawned.clear(); this.borrowed.clear(); this.rest.clear(); this.shared.clear(); this.owned.clear();
+    this.spawned.clear(); this.borrowed.clear(); this.rest.clear(); this.terrain=new WeakMap();this.terrainRetry=new WeakMap(); this.shared.clear(); this.owned.clear();
     this.sharedKey = ''; this.last = -Infinity; this.saturated = false;
   }
 
@@ -96,7 +102,18 @@ export class ParkedVehicles {
     if (this.shared.has(id) || this.borrowed.has(id) || !this.shown(car)) return null;
     const rest = this.rest.get(id);
     if (rest) return rest;
-    return this.slot(car);
+    const sampled=this.terrain.get(car);
+    if(!sampled&&this.physics.raycast&&car.model!=='truck'&&!this.terrainPending.has(car)&&(this.terrainRetry.get(car)??0)<=Date.now()
+      &&this.terrainPending.size<4&&Math.hypot(car.x-this.view.x,car.z-this.view.z)<100&&this.supported(id,car)){
+      this.terrainPending.add(car);this.terrainRetry.set(car,Date.now()+2000);
+      const m=fleetModel(car.model,id),footprint={wheelbase:m.wheelbase,track:m.width-.15,radius:m.wheel};
+      const yaw=car.yaw-Math.PI/2,at={x:car.x,y:car.y,z:car.z};
+      void Promise.all(wheelGroundProbes(at,yaw,footprint).map(origin=>this.physics.raycast!(origin,{x:0,y:-1,z:0},4,'solid'))).then(hits=>{
+        const pose=wheelGroundPose(at,yaw,footprint,hits.map(hit=>hit?.point.y??null));
+        if(pose&&hits.every(Boolean))this.terrain.set(car,{pos:pose.pos,rot:pose.rot,wheels:pose.wheelY.map(y=>({pos:{x:0,y,z:0},steer:0,rotation:0,contact:true,suspension:0}))});
+      }).catch(()=>{}).finally(()=>this.terrainPending.delete(car));
+    }
+    return sampled??this.slot(car);
   }
 
   private slot(car: ParkedVehicle): ParkedPose {
@@ -109,6 +126,7 @@ export class ParkedVehicles {
   }
 
   update(x: number, z: number, driven: string | null, now: number) {
+    this.view.x=x;this.view.z=z;
     if (driven) {
       const car = this.manifest.vehicles?.find(v => v.object_id === driven) ?? this.spawned.get(driven);
       if (car) this.borrowed.set(driven, car);
@@ -184,7 +202,7 @@ export class ParkedVehicles {
   }
 
   private spawn(id: string, car: ParkedVehicle) {
-    const truck = car.model === 'truck', pose = this.rest.get(id) ?? this.slot(car);
+    const truck = car.model === 'truck', pose = this.rest.get(id) ?? this.terrain.get(car) ?? this.slot(car);
     const spec = { id, parked: true, kind: truck ? 'truck' as const : 'car' as const,
       ...(truck ? {} : { halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), rot: pose.rot };
     this.physics.spawnVehicle(pose.pos, car.yaw - Math.PI / 2, spec);
@@ -194,7 +212,7 @@ export class ParkedVehicles {
   /** The visual keeps the body's last pose; a later body resumes from it. */
   private despawn(id: string, states: ReadonlyMap<string | undefined, VehicleState>) {
     const state = states.get(id);
-    if (state) this.rest.set(id, { pos: { ...state.pos }, rot: { ...state.rot } });
+    if (state) this.rest.set(id, { pos: { ...state.pos }, rot: { ...state.rot }, wheels:state.wheels.map(w=>({...w,pos:{...w.pos}})) });
     this.physics.removeVehicle(id);
     this.spawned.delete(id);
   }
