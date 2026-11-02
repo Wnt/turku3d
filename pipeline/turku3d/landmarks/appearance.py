@@ -88,7 +88,7 @@ def material_wall_parts(building, walls, description):
 
 def wall_meshes(building, walls, origin, description=None):
     d = description or resolve(building)
-    if d is None:
+    if d is None or "wall" not in d.get("surfaces", ["wall", "roof"]):
         return None
     result = []
     for index, (vertices, band_kind) in enumerate(material_wall_parts(building, walls, d)):
@@ -164,7 +164,7 @@ def wall_meshes(building, walls, origin, description=None):
 
 def roof_mesh(building, roof, indices, origin, description=None):
     d = description or resolve(building)
-    if d is None:
+    if d is None or "roof" not in d.get("surfaces", ["wall", "roof"]):
         return None
     albedo, normal, orm = maps(
         *roof_surface(4, 4, d["roof"], 11),
