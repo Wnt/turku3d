@@ -9,11 +9,18 @@ const METAL: Surface = [0, .29, .8, 0], TRIM: Surface = [0, .62, .08, 0];
 const WHITE: V = [1, 1, 1], DARK: V = [.018, .023, .029], WINDOW: V = [.016, .030, .041];
 /** A compact merged mesh with per-vertex surface properties: every part uses one shared node material. */
 class Builder {
-  flip=false;
+  flip=false; glassBottom=0; glassTop=1;
   positions: number[] = []; colors: number[] = []; surfaces: number[] = [];
   tri(a: V, b: V, c: V, color: V = WHITE, surface = PAINT) {
     this.positions.push(...a, ...(this.flip?c:b), ...(this.flip?b:c));
-    for (let i = 0; i < 3; i++) { this.colors.push(...color); this.surfaces.push(...surface); }
+    const vertices=this.flip?[a,c,b]:[a,b,c];
+    for (const vertex of vertices) {
+      // Baked cabin shading gives opaque fleet glass depth without a transparency pass.
+      const t=THREE.MathUtils.clamp((vertex[1]-this.glassBottom)/(this.glassTop-this.glassBottom),0,1);
+      this.colors.push(...(surface===GLASS&&color===WINDOW
+        ? [.012+.045*t,.022+.055*t,.026+.060*t] : color));
+      this.surfaces.push(...surface);
+    }
   }
   quad(a: V, b: V, c: V, d: V, color: V = WHITE, surface = PAINT) { this.tri(a,b,c,color,surface); this.tri(a,c,d,color,surface); }
   box(x: number, y: number, z: number, w: number, h: number, d: number, color: V = WHITE, surface = PAINT) {
@@ -79,6 +86,7 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
 /** +Z forward, tyre bottoms at Y=0. No imported geometry, logos or photo textures. */
 export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeometry {
   const b = new Builder(), L=m.length, W=m.width/2, H=m.height, belt=m.belt, r=m.wheel;
+  b.glassBottom=belt; b.glassTop=H;
   const front=m.wheelbase/2, rear=-m.wheelbase/2, low=.25+(r-.315), arch=r+.055;
   const n=lod===0?28:lod===1?10:2;
   const zf=L*m.hood, zr=L*m.rear;
