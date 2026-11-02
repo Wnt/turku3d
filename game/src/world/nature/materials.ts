@@ -73,8 +73,8 @@ export class NatureMaterials {
       // Sunlight through thin leaves when looking towards the sun.
       const sunDir = uniform(lighting.sunDir), sunColor = uniform(lighting.sun.color);
       const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity);
-      const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 3);
-      this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.22);
+      const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 2);
+      this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
       this.grass.emissiveNode = this.leaves.emissiveNode;
     }
 

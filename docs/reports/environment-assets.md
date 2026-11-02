@@ -67,16 +67,16 @@ Raw dumps and keyword rules stay on the research host. The longer local note is
 
 | | GTA V (median) | Turku3D library |
 |---|---|---|
-| Near broadleaf tree | ~5,000 tris, ~3 draws, ~270 cluster cards of ~1.6 m | 2,400 to 7,300 tris (rowan to willow), 2 draws, 380 to 700 bent cards of 1.35 to 1.7 m; two seeded variants per species |
+| Near broadleaf tree | ~5,000 tris, ~3 draws, ~270 cluster cards of ~1.6 m | 3,600 to 9,800 tris (rowan to oak), 2 draws, 700 to 1,350 bent cluster cards of 1.0 to 1.25 m filling the crown volume; two seeded variants per species |
 | Near conifer | ~7,750 tris | Scots pine 2,400, Norway spruce 9,100 to 9,600 |
-| Mid level | 0.3 × near, same cards | 0.24 to 0.42 × near (median about 0.3), the same canopy as flat cards (spruce keeps 60 % of its cards, larger) |
-| Shadow caster | proxy at 0.4 to 0.5 × visible | LOD 1 on the shadow-only layer (0.24 to 0.42 ×) |
+| Mid level | 0.3 × near, same cards | 0.21 to 0.42 × near (median about 0.24): broadleaves keep 55 % of the clusters, larger and flat; spruce 60 % |
+| Shadow caster | proxy at 0.4 to 0.5 × visible | LOD 1 on the shadow-only layer (0.21 to 0.42 ×) |
 | Far | 2 to 4 crossed quads from 280 m, a shared billboard mesh | 3 crossed planes + 1 top plane (8 tris) from 180 m, angle-faded and dithered; 128×256 texel views |
 | LOD switches (medium) | 60 / 160 / 280 / 400 m | 50 / 180 / 650 m (`quality.ts`) |
 | Leaf texture | 512² to 1024² per species | one 2048² atlas, 512² per species card, shared by all |
 | Bark | 512×1024 + normal per species | one 4096×512 column atlas + 2048×256 normal, 8 barks |
 | Bush | ~400 tris | lilac 960 to 990, rose 660 to 690, juniper 1,450 to 1,620 (LOD 1: 330 to 810) |
-| Grass clump | ~86 tris, ~1.2 m apart, drawn to 100 m | 6 tris (3 crossed cards), rosette 2 tris; patch-noise placement at 2.5 candidates/m² on tile lawns, dissolving at 34 m (medium) |
+| Grass clump | ~86 tris, ~1.2 m apart, drawn to 100 m | a continuous lawn of 4-triangle lawn cards (two crossed 1 m bands of fine blades) at 2.5/m² on tile lawns; 6-triangle tufts and meadow flowers in noise patches, rosette 2 tris; dissolving at 34 m (medium) |
 | Fence | ~300 tris per 4 m module | 70 to 310 tris per 2 m module (picket, board, railing, park, chain-link, granite), LOD 1: 20 to 80; chain-link as an alpha-tested panel |
 | Sky | analytic dome + noise clouds + textured cloud hats | not on this branch (prototype: two noise cloud layers from one 256² tileable texture, handed to the sky loop) |
 | Wind | vertex weights + global wind | `_WIND` vertex weights (sway, flutter, phase) + global strength/direction uniforms |
@@ -84,11 +84,15 @@ Raw dumps and keyword rules stay on the research host. The longer local note is
 All trees, shrubs, grass and the hedge share **three materials**: bark, leaves (alpha-tested, double-sided,
 crown normals, back-light term) and impostor. The fence kit adds wood, metal and granite. All instances in a tile
 pack into one draw per asset part per LOD, so pipeline count does not grow with instance or species count. The
-library is a 6.6 MB GLB (33 assets) with KTX2, quantized positions/normals and meshopt.
+library is a 7.3 MB GLB (33 assets) with KTX2, quantized positions/normals and meshopt.
 
 Departures from GTA, and why:
-- **Mid level.** Our cards are cheap (2 to 4 triangles), so the mid level keeps every card flat and drops the
-  twigs. The silhouette does not change at the switch.
+- **Near level.** Our near broadleaves carry about twice GTA's card count, at a smaller card size. Review of
+  the first renders found GTA-like card counts read as a few big separate cards with see-through gaps; many
+  smaller overlapping clusters with crown-depth darkening read as a continuous canopy. LOD 0 is only drawn
+  to 50 m (300 instances at medium), so the cost is bounded.
+- **Mid level.** Our cards are cheap (2 to 4 triangles), so the mid level keeps over half the clusters, flat
+  and larger, and drops the twigs. The silhouette does not change at the switch.
 - **Far level.** The impostor goes further (650 m) instead of a batched parent billboard. Tiles are 250 m and a
   far tree costs 8 triangles.
 
