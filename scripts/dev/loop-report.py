@@ -50,6 +50,12 @@ def scoreboard(root, categories):
              'Absolute scores are noisy; use same-pose A/B judgments to accept improvements. '
              'Evening/night scores use daylight references and are tracked separately. '
              'Their lighting scores are not a reason to turn night into daylight.', '']
+    status = root / 'STATUS.md'
+    if status.exists():
+        current = next((line for line in status.read_text().splitlines() if line.strip() and not line.startswith('#')), '')
+        lines += ['## Current preview', '', current, '',
+                  '[Live integration status](integrator/STATUS.md). Scores below describe the recorded captures; '
+                  'they do not certify a newer preview build.', '']
     lines += ['## Daylight means', '', '| Iteration | Valid scored poses | ' + ' | '.join(categories) + ' |',
               '|---|---:|' + '|'.join(['---:'] * len(categories)) + '|']
     for iteration in sorted(root.glob('iter-*')):

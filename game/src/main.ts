@@ -117,7 +117,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   dayClock.setHour(hour);
 } };
 let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
-let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary) : null;
+let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
@@ -182,14 +182,20 @@ window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, t
 
 // Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
 // streamed tiles and physics worker alive throughout a visual iteration.
-window.__game.replaceVegetation = async (Renderer: typeof VegetationLod, replacement = natureLibrary) => {
-  if (!replacement || !vegetation) return;
-  natureLibrary = replacement;
-  const models = vegetation.loadedModels();
-  for (const model of models) vegetation.remove(model);
-  vegetation = new Renderer(params.quality, natureLibrary);
-  for (const model of models) await vegetation!.addAsync(model);
-  window.__game!.vegetation = vegetation;
+let vegetationReplacement = Promise.resolve();
+window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement = natureLibrary) => {
+  const install = async () => {
+    if (!replacement || !vegetation) return;
+    natureLibrary = replacement;
+    const models = vegetation.loadedModels();
+    vegetation.dispose();
+    const next = new Renderer(params.quality, natureLibrary, scene);
+    vegetation = next;
+    window.__game!.vegetation = next;
+    for (const model of models) await next.addAsync(model);
+  };
+  vegetationReplacement = vegetationReplacement.then(install, install);
+  return vegetationReplacement;
 };
 
 if (params.qa) runQa().catch(fail);
