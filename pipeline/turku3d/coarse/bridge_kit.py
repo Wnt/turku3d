@@ -140,7 +140,7 @@ def entrances(way, height_at, blocked, spec):
     return result
 
 
-def cross_section(way, station, inset=0):
+def cross_section(way, station, inset=0, polygon=None):
     """Local tangent and the containing deck section, including skew outlines."""
     from .bridge_details import deck_outline
 
@@ -150,9 +150,11 @@ def cross_section(way, station, inset=0):
     direction -= np.asarray(axis.interpolate(max(0, station - .2)).coords[0])
     direction /= np.linalg.norm(direction)
     normal = np.array([-direction[1], direction[0]])
-    ray = shapely.LineString([centre - normal * way["width"] * 2,
-                             centre + normal * way["width"] * 2])
-    sections = [p for p in shapely.get_parts(ray.intersection(deck_outline(way)))
+    outline = deck_outline(way) if polygon is None else polygon
+    bounds = np.asarray(outline.bounds).reshape(2, 2)
+    reach = np.linalg.norm(bounds[1] - bounds[0]) + np.linalg.norm(centre - bounds[0]) + 1
+    ray = shapely.LineString([centre - normal * reach, centre + normal * reach])
+    sections = [p for p in shapely.get_parts(ray.intersection(outline))
                 if p.geom_type == "LineString" and p.distance(shapely.Point(centre)) < .001]
     if len(sections) != 1 or sections[0].length <= 2 * inset + 1:
         return None
@@ -187,7 +189,24 @@ def rounded_pier(key, a, b, bottom, top, radius=.7, surface="stone"):
     return appearance(faces.mesh(key, "wall"), surface)
 
 
-def stayed_span(way, height_at, sample_ground, blocked, polygon, spec):
+def stay_clear(a, b, radius, height_at, polygon, obstacles):
+    """Check the swept rod, including its interior, against deck walking space."""
+    a, b = np.asarray(a), np.asarray(b)
+    line = shapely.LineString([a[[0, 2]], b[[0, 2]]])
+    swept = line.buffer(radius)
+    if not polygon.covers(swept) or any(swept.intersects(g) for g in obstacles):
+        return False
+    # Slice the whole rod at 10 cm intervals, including radius and a margin for
+    # the intervening segment. Endpoints alone miss a head-height intrusion.
+    t = np.linspace(0, 1, max(2, int(np.ceil(np.linalg.norm(b - a) / .1)) + 1))
+    points = a + t[:, None] * (b - a)
+    lift = points[:, 1] - height_at(points[:, [0, 2]])
+    head = points[(lift > .1 - radius) & (lift < 2.4 + radius)]
+    corridor = polygon.buffer(-.6 + radius + .1)
+    return not len(head) or not shapely.intersects_xy(corridor, head[:, 0], head[:, 2]).any()
+
+
+def stayed_span(way, height_at, sample_ground, blocked, polygon, spec, *, obstacles=()):
     """Paired towers, rods and low rounded footings in the measured deck frame.
 
     Surveyed pier stations take priority. Unsupported cable-stayed mappings use
@@ -195,6 +214,7 @@ def stayed_span(way, height_at, sample_ground, blocked, polygon, spec):
     Every tube and footing is shared with collision, without hidden wall planes.
     """
     from .bridge_details import tube
+    from .water import LEVEL
 
     axis = way["line"]
     if spec["structure"] != "cable-stayed" or way.get("landing") or axis.length < 20:
@@ -202,45 +222,57 @@ def stayed_span(way, height_at, sample_ground, blocked, polygon, spec):
     key = f"draft-bridge:{way['id']}:stays"
     survey = way.get("survey", {})
     measured = survey.get("pier_stations", [])
-    stations = sorted(float(s) for s in measured if axis.length * .1 < s < axis.length * .9)
-    if not stations:
-        stations = [axis.length * .2, axis.length * .8]
+    stations = [axis.length * f for f in spec.get("tower_fractions", (.2, .8))]
+    # Sparse returns fit a declared topology, never invent or remove towers.
+    available = set(float(s) for s in measured if axis.length * .1 < s < axis.length * .9)
+    for i, station in enumerate(stations):
+        if available:
+            nearest = min(available, key=lambda s: abs(s - station))
+            if abs(nearest - station) < axis.length * .15:
+                stations[i] = nearest
+                available.remove(nearest)
+    stations.sort()
     limits = [1., *[(a + b) / 2 for a, b in zip(stations[:-1], stations[1:], strict=True)],
               axis.length - 1.]
     height = spec.get("tower_height", min(12., max(4., axis.length * .085)))
     radius = spec.get("tower_radius", .17)
     meshes = []
     for i, station in enumerate(stations):
-        section = cross_section(way, station, radius + .08)
+        section = cross_section(way, station, radius + .08, polygon)
         if section is None:
-            continue
+            return []
         centre, direction, normal, edges = section
-        footprint = shapely.LineString(edges).buffer(.72)
+        footprint = shapely.union_all([shapely.Point(p).buffer(.8) for p in edges])
         if any(footprint.intersects(g) for g in blocked) or not polygon.buffer(.8).covers(footprint):
-            continue
+            return []
         deck_y = height_at(np.asarray(edges))
         base = float(np.min(sample_ground(np.asarray(edges)))) - .4
         for s, y in zip(measured, survey.get("pier_bases", []), strict=True):
             if abs(s - station) < 1:
                 base = min(base, float(y) - .3)
         # Water-level masonry cutwaters carry slender metal shafts to the deck.
-        footing_top = min(base + 1.65, float(deck_y.min()) - spec["thickness"] - .6)
+        footing_top = min(survey.get("water_level", LEVEL) + spec.get("pier_freeboard", 1.0),
+                          float(deck_y.min()) - spec["thickness"] - .6)
         if footing_top <= base:
-            continue
-        meshes.append(rounded_pier(key, *edges, base, footing_top, surface=spec["support"]))
+            return []
         for side, (p, y) in enumerate(zip(edges, deck_y, strict=True)):
+            meshes.append(rounded_pier(key, p - direction * .12, p + direction * .12,
+                                       base, footing_top, surface=spec["support"]))
             top = [p[0], y + height, p[1]]
             meshes.append(tube(key, [p[0], footing_top, p[1]], top, radius, "steel", "wall", 10))
             for target in limits[i:i + 2]:
-                anchor_section = cross_section(way, target, radius + .08)
+                anchor_section = cross_section(way, target, radius + .08, polygon)
                 if anchor_section is None:
-                    continue
+                    return []
                 anchor = anchor_section[3][side]
                 anchor_y = float(height_at(np.asarray([anchor]))[0]) + .18
                 # Two rods attach below the cap and travel along the outer edge.
                 for lift in (.35, .8):
-                    meshes.append(tube(key, [p[0], y + height - lift, p[1]],
-                                       [anchor[0], anchor_y, anchor[1]], .035, "steel", "railing"))
+                    a = [p[0], y + height - lift, p[1]]
+                    b = [anchor[0], anchor_y, anchor[1]]
+                    if not stay_clear(a, b, .035, height_at, polygon, obstacles):
+                        return []
+                    meshes.append(tube(key, a, b, .035, "steel", "railing"))
         # A slim header closes the portal above pedestrian head clearance.
         meshes.append(tube(key, [edges[0][0], deck_y[0] + height - .65, edges[0][1]],
                            [edges[1][0], deck_y[1] + height - .65, edges[1][1]],
