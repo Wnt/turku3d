@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
 import { quantize, reorder } from '@gltf-transform/functions';
@@ -264,4 +265,5 @@ if (fs.existsSync(readme)) {
   fs.writeFileSync(readme, text);
 }
 log(`nature.glb ${(glb.length / 1024 / 1024).toFixed(2)} MiB, ${assets.length} assets`);
+execFileSync('python3', [path.join(here, 'nature/calibrate-alpha.py'), out], { stdio: 'inherit' });
 
