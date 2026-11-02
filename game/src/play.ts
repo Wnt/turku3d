@@ -618,16 +618,17 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (multiplayerPlaying) minimap.setRemotes(remotePlayers.markers());
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });
-    const en = engineToEN(feet.x, feet.y, feet.z);
-    const tot = physics.totals();
-    const ct = collisionTileAt(feet.x, feet.z);
-    hud.set({
-      playerName: startScreen.active || positionHud.characterHidden || !devLayers.nameTagsVisible ? undefined : multiplayer?.state.you?.nick, backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
-      visTris: tiles.residentTris, visModels: tiles.residentModels,
-      colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
-      E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),
-      ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`, draft: coarse?.status,
-      lights: vs?.lights ?? 0, perf,
+    const playerName = startScreen.active || positionHud.characterHidden || !devLayers.nameTagsVisible ? undefined : multiplayer?.state.you?.nick;
+    hud.update(now, playerName, () => {
+      const en = engineToEN(feet.x, feet.y, feet.z);
+      const tot = physics.totals();
+      const ct = collisionTileAt(feet.x, feet.z);
+      return { backend, fps: 1000 / frameEma, frameMs: frameEma, physMs: physEma,
+        visTris: tiles.residentTris, visModels: tiles.residentModels,
+        colTiles: tot.tiles, colTris: tot.tris, colMB: tot.colBytes / 1e6, colWasmMB: tot.estWasmBytes / 1e6,
+        E: en.E, N: en.N, H: en.H, heading: yawToHeading(orbit.yaw), mode, speed: Math.hypot(vel.x, vel.z),
+        ground: MATERIALS[groundMat]?.name ?? String(groundMat), tile: `c_${ct.i}_${ct.j}`, draft: coarse?.status,
+        lights: vs?.lights ?? 0, perf };
     });
     input.setTouchContext(startScreen.active || fullscreen.blocking ? 'hidden'
       : menuOpen || missions.shop || pauseMenu.open ? 'menu' : paused ? 'paused' : recovery.lost ? 'lost' : mode);
