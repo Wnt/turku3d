@@ -6,6 +6,7 @@ import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { GameLighting } from '../../src/render/lighting';
 import { VehicleBeams } from '../../src/vehicle/beams';
+import { flattenFleetAsset } from '../../src/actors/fleet/authored';
 import { vehicleLamps } from '../../src/vehicle/lamps';
 import { nightUniforms } from '../../src/render/nightLights';
 import type { VehicleState } from '../../src/physics/protocol';
@@ -39,7 +40,7 @@ test('named lens materials are independent for each actor and off means no emiss
   const remote = source.clone(true);
   vehicleLamps(source, 'car', 2); vehicleLamps(remote, 'car', 0);
   expect((source.children[0] as T.Mesh).material).not.toBe((remote.children[0] as T.Mesh).material);
-  expect(((source.children[0] as T.Mesh).material as T.MeshStandardMaterial).emissiveIntensity).toBe(12);
+  expect(((source.children[0] as T.Mesh).material as T.MeshStandardMaterial).emissiveIntensity).toBe(6);
   expect(((remote.children[0] as T.Mesh).material as T.MeshStandardMaterial).emissiveIntensity).toBe(0);
 });
 
@@ -61,4 +62,17 @@ test('a long fleet chassis does not extinguish its beams, while the wall ahead s
     expect(depths[4]).toBeCloseTo(9.77, 1);
     expect(depths.every(d => d > 9 && d < 12)).toBe(true);
   } finally { beam.dispose(); world.world.free(); nightUniforms.night.value = 0; }
+});
+
+test('authored fleet GLBs retain named front and running-tail roles in their single draw', () => {
+  const root = new T.Group(), paint = new T.MeshStandardMaterial({ name: 'fleet_paint' });
+  const front = new T.Mesh(new T.BoxGeometry(), paint); front.name = 'lamp-front-left';
+  const tail = new T.Mesh(new T.BoxGeometry(), new T.MeshStandardMaterial({ name: 'lamp-tail-right' }));
+  root.add(front, tail);
+  const geometry = flattenFleetAsset(root), tags = geometry.getAttribute('fleetSurface');
+  const lamps = Array.from({ length: tags.count }, (_, i) => tags.getW(i));
+  expect(lamps.some(v => Math.abs(v - .55) < .001)).toBe(true);
+  expect(lamps).toContain(1);
+  expect(Array.from({ length: tags.count }, (_, i) => tags.getX(i)).every(v => v === 0)).toBe(true);
+  geometry.dispose();
 });

@@ -53,7 +53,7 @@ export class VehicleLightData extends T.Node {
       const high = forward.w.greaterThan(1.5);
       const vertical = select(high, v.sub(.01).div(.22), v.add(.04).div(.24));
       const ellipse = h.div(select(high, .48, .42)).pow(2).add(vertical.pow(2)).sqrt();
-      const cone = smoothstep(.65, 1, ellipse).oneMinus();
+      const cone = smoothstep(.45, 1, ellipse).oneMinus();
       const cutoff = select(high, 1, smoothstep(h.max(0).mul(.14).sub(.025), h.max(0).mul(.14).sub(.005), v).oneMinus());
       // Angular bins follow the horizontal ray fan; the centre retains its full street reach.
       const depth = select(h.lessThan(-.3675), depths.x, select(h.lessThan(-.2625), depths.y,

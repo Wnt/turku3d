@@ -223,10 +223,13 @@ only the locally driven vehicle allocates projected beams (two shadowless spotli
 
 GLB pipeline convention: name separate lens nodes **lamp-front-left**, **lamp-front-right**,
 **lamp-tail-left**, **lamp-tail-right**, or give their materials those names. Single `lamp-front` / `lamp-tail`
-works for a scooter. The vehicle frame is **+X forward, +Y up, +Z right**, measured from the chassis centre.
+works for a scooter. Keep the existing GLB axis convention of the model pipeline: names survive its loading
+transform. Mounted actors and fallback geometry use the physics frame **+X forward, +Y up, +Z right**,
+measured from the chassis centre.
 Materials must expose emissive colour/intensity; each actor clones only its lens materials. Current atlas-only
-sedan and scooter receive small attached lens meshes. KORPI uses its existing `led-optics` and `tail-lens`
-materials; the generated fleet keeps its existing `fleetSurface` vertex lamp tags and per-object lamp uniform.
+sedan and scooter receive attached lenses with dark housings and optical ribs. KORPI uses its existing `led-optics` and `tail-lens`
+materials; `fleet_headlamp` / `fleet_taillamp` remain supported in authored fleet GLBs. Named nodes or materials
+are baked into front/running-tail vertex tags when the fleet is flattened; the generated fleet keeps its existing `fleetSurface` vertex lamp tags and per-object lamp uniform.
 
 Driving lamps glow in daylight; dusk/night adds a warm, soft asymmetric 40 m dipped pool (raised on the
 right-hand verge). Long beams use a brighter, higher, wider 145 m cone with HDR lens emission for the

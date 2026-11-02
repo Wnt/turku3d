@@ -291,6 +291,7 @@ if (opt('--vehicle-video', '')) {
   try {
     await send('Page.setWebLifecycleState', {state:'active'});
     await send('Emulation.setFocusEmulationEnabled', {enabled:true});
+    await send('Page.bringToFront');
     await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
     const result=await evaluate(`(async()=>{
       const g=window.__game,r=window.__render;
@@ -304,7 +305,7 @@ if (opt('--vehicle-video', '')) {
       const canvas=r.renderer.domElement;
       if(canvas.width!==1280||canvas.height!==720)throw new Error('Video canvas must be 1280x720: '+canvas.width+'x'+canvas.height);
       const stream=canvas.captureStream(30),chunks=[],events=[];
-      const recorder=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp9',videoBitsPerSecond:5000000});
+      const recorder=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp8',videoBitsPerSecond:5000000});
       const ended=new Promise(resolve=>recorder.onstop=resolve);
       recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
       const at=performance.now(),start={...g.physics.latest.vehicle.pos};
@@ -345,7 +346,7 @@ if (opt('--eval-file', '')) {
   process.exit(0);
 }
 if (args.includes('--inspect')) {
-  console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress};})()`)));
+  console.log(JSON.stringify(await evaluate(`(() => {const g=window.__game; return {ready:window.__qaReady,error:window.__qaError,qa:g?.qa,play:g?.state?((s)=>({mode:s.mode,paused:s.paused,start:s.startScreen,loading:s.loading}))(g.state()):null,pose:window.__qaPose,params:g?.params,progress:g?.loadProgress?.(),frames:g?.clock?.frames,vegetationPending:g?.vegetation?.pending?.size,tiles:[...(g?.lights?.source?.entries??[])].map(([id,e])=>({id,state:e.state,pass:e.pass,hash:e.visualHash,model:!!e.model})),scenery:g?.scenery?.progress};})()`)));
   socket.close(); process.exit(0);
 }
 try {
