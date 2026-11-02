@@ -126,6 +126,9 @@ export class Environment {
     this.sunElevation = elevation; this.sunAzimuth = azimuth; this.hour = hour;
     const d = sunVector(azimuth, elevation);
     this.sunDir.set(d.x, d.y, d.z).normalize();
+    // A frozen QA camera and developer time edits may not call follow() again.
+    // Keep the shadow-casting light aligned with the sky at the existing focus.
+    this.follow(this.sun.target.position);
     this.sky.sunPosition.value.copy(this.sunDir);
     const s = this.sample = timecycle(elevation);
     // The sun stays visible and shadowed at night with zero intensity: toggling a light recompiles every material.
