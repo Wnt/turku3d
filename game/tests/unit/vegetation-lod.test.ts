@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { VegetationLod } from '../../src/world/vegetationLod';
+import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
 import { batchTileShadows } from '../../src/world/shadowBatch';
 import { natureFixture } from './natureFixture';
+// @ts-expect-error Internal r186 upload manager has no declaration; exercise the renderer's actual upload policy.
+import Attributes from 'three/src/renderers/common/Attributes.js';
+import { AttributeType } from 'three/src/renderers/common/Constants.js';
 
 const library = natureFixture();
 
@@ -302,4 +306,32 @@ it('cancels yielded preparation when its tile is removed', async () => {
   lod.remove(model); resume(); await pending;
   expect(generated(model, mesh)).toHaveLength(0); expect(mesh.visible).toBe(true);
   expect(lod.loadedModels()).toHaveLength(0); lod.dispose();
+});
+
+
+it('does not upload stationary trees or grass again through the actual WebGPU attribute manager', () => {
+  const scene = new THREE.Scene(), { model, mesh } = tile(2, 'tree_oak_fall', i => new THREE.Vector3(i ? 0 : 500, 0, -30));
+  scene.add(model); mesh.userData.instance_species = ['Tilia cordata', 'Tilia cordata'];
+  const lod = new VegetationLod('medium', library), camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
+  lod.add(model); lod.update(camera);
+  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(20, 20).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+  lawn.userData = { layer: 'ground', material_key: 'draft_grass' }; model.add(lawn);
+  const grass = new GrassField(library, 'medium');
+  const steps = grass.addSteps(model); while (!steps.next().done) { /* fixture */ }
+  grass.update(camera);
+  const updateAttribute = vi.fn();
+  const manager = new Attributes({ createAttribute() {}, updateAttribute } as never, { createAttribute() {} } as never);
+  const upload = () => {
+    const batches = [...generated(model, mesh), ...grass.root.children as THREE.InstancedMesh[]];
+    const attributes = new Set(batches.filter(m => m.visible).flatMap(m => [m.instanceMatrix, m.instanceColor!]));
+    for (const attribute of attributes) manager.update(attribute, AttributeType.VERTEX);
+  };
+  upload(); lod.update(camera); grass.update(camera); upload(); upload();
+  expect(updateAttribute).not.toHaveBeenCalled();
+  camera.position.x = 500; lod.update(camera); upload();
+  expect(updateAttribute).toHaveBeenCalled();
+  for (const batch of generated(model, mesh).filter(m => m.visible)) {
+    expect(batch.instanceMatrix.updateRanges).toEqual([{ start: 0, count: batch.count * 16 }]);
+  }
+  lod.dispose(); grass.dispose();
 });

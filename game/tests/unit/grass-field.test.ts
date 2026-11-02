@@ -21,3 +21,19 @@ it('shares one grass budget across species and keeps nearest selection independe
   };
   expect(sample(models)).toEqual(sample([...models].reverse()));
 });
+
+
+it('selects the same grass at a final pose regardless of the path into its camera cell', () => {
+  const library = natureFixture(), scene = new THREE.Scene(), model = new THREE.Group();
+  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(160, 160).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+  lawn.userData = { layer: 'ground', material_key: 'draft_grass' }; model.add(lawn); scene.add(model);
+  const sample = (start: number) => {
+    const field = new GrassField(library, 'medium'), camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
+    const steps = field.addSteps(model); while (!steps.next().done) { /* fixture */ }
+    camera.position.set(start, 0, start); field.update(camera);
+    camera.position.set(8, 0, 8); field.update(camera);
+    const result = (field.root.children as THREE.InstancedMesh[]).map(m => Array.from(m.instanceMatrix.array.slice(0, m.count * 16)));
+    field.dispose(); return result;
+  };
+  expect(sample(.1)).toEqual(sample(15.9));
+});

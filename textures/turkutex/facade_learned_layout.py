@@ -9,7 +9,7 @@ def expand(wall, floors, geometry):
     p = wall["learned_layout"]
     count = wall["bays"]["count"]
     pitch = wall["bays"]["pitch_m"]
-    width, height = wall["width_m"], wall["height_m"]
+    width, height = wall["width_m"], wall.get("layout_height_m", wall["height_m"])
     weights = [1.0] * floors
     weights[0] = p.get("ground_scale", 1.0)
     if floors > 1:

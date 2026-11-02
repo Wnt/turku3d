@@ -2,6 +2,7 @@
 import { float, floor, fract, max, min, mix, sqrt, step, vec2 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { facadeAttribute } from './facadeProgramAttributes';
+import { metricGlazing } from './facadeGlazing';
 
 function warp(t: Node<'float'>, lo: Node<'float'>, hi: Node<'float'>, a: Node<'float'>, b: Node<'float'>) {
   return t.lessThan(lo).select(t.div(max(lo, .001)).mul(a),
@@ -17,8 +18,12 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const above = metres.y.greaterThanEqual(size.y);
   const plain = detail.z.mod(2).greaterThan(.5).and(upper.lessThan(1));
   const selectedModule = layout.x.lessThan(42).and(above.or(plain)).select(blank, selected);
+  const special = upper.lessThan(1).and(selectedModule.mod(3).notEqual(0)).and(selectedModule.lessThan(42));
+  const door = special.and(selectedModule.mod(3).equal(1));
+  const shop = special.and(selectedModule.mod(3).equal(2));
   const phase = bays.x.floor().mod(2).mul(2).sub(1).mul(detail.x);
-  const x = fract(bays.x.add(phase)), y = fract(bays.y);
+  const shiftedBay = bays.x.add(special.select(float(0), phase));
+  const x = fract(shiftedBay), y = fract(bays.y);
   const glass = layout.x.div(6).floor().equal(5);
   const sourceWidth = glass.select(.92, layout.x.mod(6).greaterThanEqual(3).select(.65, .45));
   const sourceHeight = glass.select(.72, mix(.426, .5, upper));
@@ -29,12 +34,11 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const isPatch = detail.w.greaterThan(0);
   const shape = isPatch.select(detail.w.div(4).floor(),
     upper.lessThan(1).select(detail.z.div(2).floor(), detail.w.negate())).mul(float(layout.x.lessThan(42)));
-  const special = upper.lessThan(1).and(selectedModule.mod(3).notEqual(0)).and(selectedModule.lessThan(42));
   const floorSize = facadeAttribute('_kit_floors', 'vec3');
   const unitHeight = isPatch.select(size.y, mix(floorSize.x, floorSize.y, upper));
-  const windowWidth = isPatch.select(float(1), special.select(float(.49), opening.x));
-  const windowHeight = isPatch.select(float(1), special.select(float(.76), opening.y));
-  const bottom = isPatch.select(float(0), special.select(float(0), opening.z));
+  const windowWidth = isPatch.select(float(1), shop.select(float(.78), door.select(float(.49), opening.x)));
+  const windowHeight = isPatch.select(float(1), shop.select(float(.74), door.select(float(.76), opening.y)));
+  const bottom = isPatch.select(float(0), shop.select(float(.05 / 3.84), door.select(float(0), opening.z)));
   const half = windowWidth.mul(isPatch.select(size.x, layout.y)).div(2);
   const rise = min(half.mul(shape.equal(3).select(float(Math.sqrt(3)), shape.equal(2).select(float(1), float(.36)))), windowHeight.mul(unitHeight).mul(.5));
   const radius = half.mul(half).add(rise.mul(rise)).div(max(rise.mul(2), .001));
@@ -57,9 +61,23 @@ export function programLayout(bays: Node<'vec2'>, metres: Node<'vec2'>, layout: 
   const patch = patchKind.equal(2).select(vec2(x.sub(.5).mul(.49).add(.5), patchY.mul(.76)),
     vec2(x.sub(.5).mul(.45).add(.5), patchY.mul(.5).add(.21)));
   const local = cutout.select(vec2(.05, .95), isPatch.select(patch, ordinary));
+  const openingWidth = windowWidth.mul(isPatch.select(size.x, layout.y));
+  const openingHeight = windowHeight.mul(unitHeight);
+  const openingMetres = isPatch.select(metres,
+    vec2(x.sub(.5).mul(layout.y).add(openingWidth.div(2)), openingY.sub(bottom).mul(unitHeight)));
+  const glazing = metricGlazing(openingMetres, vec2(openingWidth, openingHeight),
+    top.sub(bottom).div(max(windowHeight, .001)));
+  // A smooth backing material is not a window. Blank modules, plain ground
+  // floors and pixels outside the true opening can never emit room light.
+  const doorLeaf = door.and(isPatch.not()).or(isPatch.and(patchKind.equal(2)));
+  const visibleOpening = float(module.lessThan(42).and(doorLeaf.not()));
   // The bay index that `x` wraps within: one lit-window cell per program bay.
-  const column = floor(bays.x.add(phase));
-  return { module, local, opening, detail, size, x, y, column };
+  const column = floor(shiftedBay);
+  return { module, local, opening, detail, size, x, y,
+    inside: glazing.inside.mul(visibleOpening), glass: glazing.glass.mul(visibleOpening),
+    column: column.mul(64).add(isPatch.and(size.x.greaterThan(3)).select(glazing.column.div(2).floor(), float(0))),
+    row: floor(bays.y),
+    rise: glazing.rise };
 }
 
 export function programPigment(metres: Node<'vec2'>, bays: Node<'vec2'>, upper: Node<'float'>, layout: Node<'vec3'>,
