@@ -2,7 +2,24 @@
 import argparse,json,subprocess,math
 from pathlib import Path
 from PIL import Image,ImageDraw
-p=argparse.ArgumentParser();p.add_argument('--out',required=True);a=p.parse_args();out=Path(a.out);video=out/'turku3d-before-after.mp4';review=out/'review';review.mkdir(exist_ok=True)
+p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--captures-only',action='store_true');a=p.parse_args();out=Path(a.out);video=out/'turku3d-before-after.mp4';review=out/'review';review.mkdir(exist_ok=True)
+receipts=[]
+for left in sorted((out/'clips').glob('*-left.json')):
+ l=json.loads(left.read_text());r=json.loads(Path(str(left).replace('-left.json','-right.json')).read_text())
+ assert l['frames']==r['frames']==240,(left,'frame count')
+ assert l['width']==r['width']==960 and l['height']==r['height']==1080
+ assert l['shot']==r['shot'],(left,'mismatched path')
+ right_frames={x['frame']:x for x in r['motion']}
+ assert len(right_frames)==240,(left,'missing frame coverage')
+ assert all(x['pose']==right_frames[x['frame']]['pose'] for x in l['motion']),(left,'mismatched camera')
+ assert all(x['coverage']['ready'] and x['coverage']['scenery']['ready'] for x in r['motion']),(left,'incomplete world')
+ assert all(not t['stale'] and t['pass']=='full' and t['revision']==r['sourceRevision'] for t in r['manifests']),(left,'stale new tiles')
+ assert r['scenery']['progress']['ready'],(left,'incomplete far source')
+ assert not r['errors'],(left,'page errors',r['errors'])
+ receipts.append(left.name)
+assert len(receipts)==15,receipts
+if a.captures_only:
+ print(json.dumps({'paired_clips':len(receipts),'new_frames_with_complete_coverage':len(receipts)*240,'fresh_manifests':True}));raise SystemExit(0)
 probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=width,height,avg_frame_rate,nb_read_frames,duration','-of','json',str(video)]))['streams'][0]
 assert (probe['width'],probe['height'],probe['avg_frame_rate'])==(1920,1080,'60/1'),probe
 assert 58<=float(probe['duration'])<=62,probe
@@ -12,15 +29,6 @@ frames=sorted(review.glob('frame-*.jpg'));sheet=Image.new('RGB',(480*5,300*math.
 for i,f in enumerate(frames):
  x,y=i%5*480,i//5*300;sheet.paste(Image.open(f),(x,y));d.text((x+10,y+276),f'{i*2:02d} seconds',fill='white')
 sheet.save(out/'contact-sheet.jpg',quality=92)
-receipts=[]
-for left in sorted((out/'clips').glob('*-left.json')):
- l=json.loads(left.read_text());r=json.loads(Path(str(left).replace('-left.json','-right.json')).read_text())
- assert l['frames']==r['frames']==240,(left,'frame count')
- assert l['width']==r['width']==960 and l['height']==r['height']==1080
- assert [x['pose'] for x in l['motion']]==[x['pose'] for x in r['motion']],(left,'mismatched camera')
- assert all(not t['stale'] and t['pass']=='full' for t in r['manifests']),(left,'stale new tiles')
- receipts.append(left.name)
-assert len(receipts)==15,receipts
 log=subprocess.run(['ffmpeg','-hide_banner','-i',str(video),'-vf','blackdetect=d=0.1:pix_th=0.05:pic_th=0.98','-an','-f','null','-'],capture_output=True,text=True,check=True).stderr
 black=[line for line in log.splitlines() if 'black_start:' in line]
 result={'video':str(video),'probe':probe,'black_intervals':black,'contact_sheet':str(out/'contact-sheet.jpg'),'manual_review_required':True}

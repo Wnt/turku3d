@@ -120,6 +120,15 @@ export function rectangularOpenings(geometry: THREE.BufferGeometry) {
 
 const prepared=new WeakSet<THREE.Object3D>(), budget=new PreparationBudget();
 
+/** The +Z cap faces into the opaque wall/glazing behind every kit member. */
+export function facadeModuleGeometry() {
+  const geometry=new THREE.BoxGeometry(1,1,1);
+  const index=Array.from(geometry.index!.array);
+  geometry.setIndex([...index.slice(0,24),...index.slice(30)]);
+  geometry.clearGroups();
+  return geometry;
+}
+
 /** One box family per spatial cell, instance colour supplies existing facade tints.
  * Profile dimensions are bounded kit priors, not new survey measurements. */
 function* moduleSteps(model: THREE.Object3D): Generator<void> {
@@ -140,7 +149,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
       if(openingCount++%32===0)yield;
       const { origin, tangent, normal, width:w, height:h } = opening;
       const basis = new THREE.Matrix4().makeBasis(tangent, up, normal.clone().negate());
-      // Five boxes / 60 triangles per opening. Frames sit in the existing reveal;
+      // Five capped profiles / 50 triangles per opening. Frames sit in the existing reveal;
       // a shallow metal sill extends past its outer face and sheds rain.
       const frame = Math.min(.055, w * .045);
       const depth = opening.recess;
@@ -161,7 +170,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
   prepared.add(model);
   if (!cells.size) return;
   const root = new THREE.Group(); root.name = 'facade-modules';
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const geometry = facadeModuleGeometry();
   const material = new THREE.MeshStandardMaterial({roughness:.62, metalness:.12});
   for (const rows of cells.values()) {
     const mesh = new THREE.InstancedMesh(geometry, material, rows.length);
@@ -187,7 +196,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     root.add(lod);
   }
   const instances=[...cells.values()].reduce((sum,rows)=>sum+rows.length,0);
-  root.userData = {instances, triangles:instances*12, cells:cells.size,
+  root.userData = {instances, triangles:instances*10, cells:cells.size,
     instanceBytes:instances*76};
   model.add(root);
 }

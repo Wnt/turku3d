@@ -9,6 +9,7 @@ import { LightSprites } from './sprites';
 import { LampPools, footprintSight, poolLamp, type PoolLamp } from './pools';
 import type { Footprint } from './tileScan';
 import { nightLevel, type NightInputs } from './night';
+import { GroundLampField } from './groundField';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
 const STEP_MS = 1.5;
@@ -25,6 +26,7 @@ export class StreetLights {
   readonly field = new LampField();
   /** Real light pools of the nearest lamps in the fixed point slots (none on mobile and low). */
   readonly pools: LampPools;
+  readonly ground: GroundLampField;
   night = 0;
   private tiles = new Map<string, readonly Lamp[]>();
   private footprints = new Map<string, Footprint>();
@@ -38,6 +40,7 @@ export class StreetLights {
   constructor(scene: THREE.Scene, tier: QualityTier, private override: number | null = null, slots: readonly THREE.PointLight[] = []) {
     this.sprites = new LightSprites(tier);
     this.pools = new LampPools(slots, footprintSight(() => this.footprints.values()));
+    this.ground = new GroundLampField(() => this.footprints.values());
     scene.add(this.posts.mesh);
     this.field.onTile = (id, lamps, footprint) => {
       if (lamps) this.tiles.set(id, lamps); else this.tiles.delete(id);
@@ -58,10 +61,12 @@ export class StreetLights {
       this.postsDirty = false;
       const all = [...this.tiles.values()].flat();
       this.posts.setLamps(all.filter(l => l.post));
+      this.ground.setLamps(all);
       if (this.pools.size) this.pools.setLamps(all.map(poolLamp).filter((l): l is PoolLamp => l !== null));
     }
     this.night = this.override ?? nightLevel(inputs);
     this.posts.night.value = this.night;
+    this.ground.update(camera.position.x, camera.position.z, this.night);
     this.posts.update(camera.position.x, camera.position.z, now);
     camera.getWorldDirection(this.forward);
     this.pools.update(camera.position.x, camera.position.z, this.forward.x, this.forward.z, this.night, now);
@@ -72,10 +77,10 @@ export class StreetLights {
   snapshot() {
     let lamps = 0, posts = 0;
     for (const list of this.tiles.values()) { lamps += list.length; posts += list.filter(l => l.post).length; }
-    return { tiles: this.tiles.size, pending: this.field.pending(), lamps, posts, postsDrawn: this.posts.drawn,
+    return { tiles: this.tiles.size, pending: this.field.pending() || this.ground.pending, lamps, posts, postsDrawn: this.posts.drawn,
       sprites: this.sprites.count, spriteCapacity: this.sprites.capacity, spritesDropped: this.sprites.dropped, night: this.night,
       pools: this.pools.snapshot() };
   }
 
-  dispose() { this.posts.mesh.removeFromParent(); this.posts.dispose(); this.sprites.dispose(); }
+  dispose() { this.posts.mesh.removeFromParent(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); }
 }
