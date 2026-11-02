@@ -49,7 +49,12 @@ export class VehicleBeams {
       const origin = light.getWorldPosition(new T.Vector3());
       return Promise.all([-.42, -.315, -.21, -.105, 0, .105, .21, .315, .42].map(angle => {
         const dir = new T.Vector3(Math.cos(angle), 0, Math.sin(angle)).applyQuaternion(this.q);
-        return this.physics.raycast(origin, dir, range, 'all').then(hit => hit ? hit.toi : range);
+        return this.physics.raycast(origin, dir, range, 'all').then(async hit => {
+          // A long fleet body's chassis can contain the sedan's lamp mount. Keep wall occlusion
+          // without allowing that vehicle's own box to extinguish its headlights.
+          if (hit && hit.toi < .02) hit = await this.physics.raycast(origin, dir, range, 'solid');
+          return hit ? hit.toi : range;
+        });
       }));
     });
     void Promise.all(jobs).then(depths => { if (generation === this.generation) this.depths = depths; })
