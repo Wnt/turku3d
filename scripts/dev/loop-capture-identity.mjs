@@ -10,7 +10,7 @@ export function residentTilesMatch(tiles, expected) {
   return Object.entries(expected).every(([id, hash]) => hash && tiles.some(t => t.id === id && t.full && t.visual_sha256 === hash));
 }
 
-/** The shared farm answers 202 while building; a partial pass is not a capture input. */
+/** A full stale fallback keeps play available, but is not evidence for the requested generator. */
 export async function waitForTileManifest(url, tile, timeoutMs, request = fetch,
   pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
   const deadline = Date.now() + timeoutMs;
@@ -19,7 +19,7 @@ export async function waitForTileManifest(url, tile, timeoutMs, request = fetch,
       signal: AbortSignal.timeout(Math.max(1, Math.min(20000, deadline - Date.now()))) });
     if (response.status === 200) {
       const manifest = await response.json();
-      if (manifest.pass_kind === 'full' && manifest.visual?.[tile]?.sha256) return manifest;
+      if (manifest.pass_kind === 'full' && !manifest.stale && manifest.visual?.[tile]?.sha256) return manifest;
     } else if (response.status !== 202 && response.status !== 429) {
       throw new Error(`Capture tile ${tile}: HTTP ${response.status}`);
     }

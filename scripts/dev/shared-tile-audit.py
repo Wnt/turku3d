@@ -51,7 +51,9 @@ def audit(base, tile):
                 visit(child)
     visit(manifest)
     return dict(tile=tile, revision=manifest.get('revision'), generation=manifest.get('generation'),
-                files=len(fetched), bytes=sum(fetched.values()), pass_kind=manifest.get('pass_kind'))
+                files=len(fetched), bytes=sum(fetched.values()), pass_kind=manifest.get('pass_kind'),
+                stale=manifest.get('stale'), requested_revision=manifest.get('requested_revision'),
+                source_kind=manifest.get('source_kind'))
 
 
 if __name__ == '__main__':

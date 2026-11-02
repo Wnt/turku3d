@@ -39,6 +39,8 @@ export class ScreenshotScenery {
   private footprintView: SceneryView | null = null;
   private nextView = 0;
   private catalogueRetry = 0;
+  private catalogueExpires = 0;
+  private generation?: string;
   get heading() { return this.view ? (Math.atan2(this.view.dx, -this.view.dz) * 180 / Math.PI + 360) % 360 : null; }
   constructor(private host: CoarseHost, private nearby: Map<string, Entry>,
     private request: (url: string) => Promise<Response>, private load: (url: string) => Promise<THREE.Object3D>,
@@ -52,6 +54,7 @@ export class ScreenshotScenery {
     this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = [];
     this.catalogueError = false; this.cataloguePending = false; this.unavailable.clear();
     this.footprintView = null; this.nextView = 0; this.catalogueRetry = 0;
+    this.catalogueExpires = 0; this.generation = undefined;
     this.view = this.radius > 1000 && view ? { ...view } : null;
     if (this.view) this.setView(this.view, this.clock);
   }
@@ -82,11 +85,13 @@ export class ScreenshotScenery {
 
   private readMissingSources() {
     if (this.cataloguePending || this.clock < this.catalogueRetry) return;
-    const missing = this.footprint.filter(id => !this.sources.has(id) && !this.unavailable.has(id));
-    if (missing.length) void this.catalogue(this.selection, missing);
+    // Refresh both positive and negative metadata: source coverage can arrive without a camera reset.
+    const refresh = this.clock >= this.catalogueExpires;
+    const missing = refresh ? this.footprint : this.footprint.filter(id => !this.sources.has(id) && !this.unavailable.has(id));
+    if (missing.length) void this.catalogue(this.selection, missing, refresh);
   }
 
-  private async catalogue(selection: number, tiles: string[]) {
+  private async catalogue(selection: number, tiles: string[], refresh = false) {
     this.cataloguePending = true;
     try {
       const batches: string[][] = [];
@@ -94,13 +99,26 @@ export class ScreenshotScenery {
       const results = await Promise.all(batches.map(async batch => {
         const response = await this.request(`${this.root}scenery?tiles=${batch.join(',')}`);
         if (!response.ok) throw new Error('Scenery catalogue unavailable');
-        return response.json() as Promise<{ tiles: ScenerySource[]; missing: string[] }>;
+        return response.json() as Promise<{ tiles: ScenerySource[]; missing: string[]; generation?: string; recipe?: string }>;
       }));
       if (selection !== this.selection) return;
-      for (const result of results) {
-        for (const source of result.tiles) this.sources.set(source.tile, source);
+      const generations = new Set(results.map(result => result.generation ?? result.recipe).filter(value => value !== undefined));
+      if (generations.size > 1) throw new Error('Scenery generation changed during catalogue loading');
+      const generation = [...generations][0];
+      const changed = generation !== undefined && generation !== this.generation;
+      if (changed) {
+        this.generation = generation;
+        this.sources.clear(); this.unavailable.clear();
       }
-      for (const id of tiles) if (!this.sources.has(id)) this.unavailable.add(id);
+      const returned = new Set<string>();
+      for (const result of results) for (const source of result.tiles) {
+        returned.add(source.tile);
+        const previous = this.sources.get(source.tile), entry = this.entries.get(source.tile);
+        if (entry && previous?.key !== source.key) { entry.complete = false; entry.next = 0; }
+        this.sources.set(source.tile, source); this.unavailable.delete(source.tile);
+      }
+      for (const id of tiles) if (!returned.has(id)) { this.sources.delete(id); this.unavailable.add(id); }
+      if (refresh || changed) this.catalogueExpires = this.clock + 30_000;
       this.catalogueError = false;
       // A turn during the request changes the wanted sector, not the validity of cached source metadata.
       this.refreshWanted();
@@ -172,6 +190,7 @@ export class ScreenshotScenery {
       if (res.status === 202 || res.status === 429) { e.complete = false; return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const fragment = await res.json() as CoarseFragment;
+      if (source && this.sources.get(id)?.key !== source.key) return;
       const visual = fragment.visual?.[id];
       if (!fragment.coarse || fragment.tile !== id || !visual) throw new Error('Missing scenery');
       e.complete = fragment.pass_kind === 'full' && !fragment.stale;
@@ -182,14 +201,15 @@ export class ScreenshotScenery {
         model.userData.scenery = true;
         styleScenery(model);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
-      if (this.entries.get(id) !== e || this.detailed(id)) return;
+      if (this.entries.get(id) !== e || this.detailed(id) || (source && this.sources.get(id)?.key !== source.key)) return;
       if (e.model) this.dispose(e.model, id);
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
     } catch (error) { e.error = String(error); e.complete = false; }
     finally {
       if (model) this.dispose(model, id);
-      e.next = source && e.complete ? Infinity : this.clock + (e.complete ? 30_000 : e.error ? 10_000 : 2000);
+      if (source && this.sources.get(id)?.key !== source.key) { e.complete = false; e.next = this.clock; }
+      else e.next = source && e.complete ? Infinity : this.clock + (e.complete ? 30_000 : e.error ? 10_000 : 2000);
       e.busy = false; this.active--;
     }
   }
