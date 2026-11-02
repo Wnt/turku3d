@@ -43,6 +43,35 @@ class ShardRegistry(OriginalRegistry):
         key = self.rel(path)
         return self.records().get(key) or self.base.get(key)
 
+def fetch_imagery_block(block, log):
+    from turku3d.coarse import imagery
+    unavailable={}
+    original=imagery.block_tiles
+    try:
+        for tile in block_tiles(block):
+            # The pipeline raises at the first unavailable quadrant. Scope each call
+            # to one quadrant so the other three are still fetched by the same code.
+            imagery.block_tiles=lambda _, tile=tile:[tile]
+            try:imagery.fetch(block,log=log)
+            except NoCoverage as error:unavailable[tile.id]=str(error)
+    finally:imagery.block_tiles=original
+    return unavailable
+
+
+def adopt_initial_receipts(state):
+    observed=json.loads((state/'acquisition.json').read_text())
+    if observed.get('origin')!='observed immutable initial prefetch snapshot' or observed['recipe']!=RECIPE:
+        raise RuntimeError('initial acquisition identity is not proven; rerun fetches normally')
+    adopted=0
+    for path in (state/'receipts').glob('*.json'):
+        row=json.loads(path.read_text())
+        if 'recipe' not in row:
+            row.update(recipe=RECIPE,no_coverage={})
+            temporary=path.with_suffix('.tmp');temporary.write_text(json.dumps(row)+'\n');temporary.replace(path)
+            adopted+=1
+    print(json.dumps(dict(adopted_initial_receipts=adopted)),flush=True)
+
+
 def fetch_job(job):
     global CONTEXT, STATE
     state, key = job
@@ -53,11 +82,11 @@ def fetch_job(job):
     if receipt.exists():
         # Content receipts describe every generated/downloaded file for this unit.
         row = json.loads(receipt.read_text())
-        if row.get('recipe')==RECIPE and all((C.data_root()/p).is_file() and (C.data_root()/p).stat().st_size == n for p,n in row['files'].items()):
-            return dict(unit=key, status='cached', seconds=0)
+        if row.get('recipe')==RECIPE and (not row.get('no_coverage') or time.time()-row.get('at',0)<wms.EMPTY_TTL_SECONDS) and all((C.data_root()/p).is_file() and (C.data_root()/p).stat().st_size == n for p,n in row['files'].items()):
+            return dict(unit=key, status='cached', seconds=0, no_coverage=row.get('no_coverage',{}))
     if shutil.disk_usage(C.data_root()).free < 35*2**30:
         return dict(unit=key,status='failed',error='35 GiB prefetch disk floor')
-    started=time.monotonic(); messages=[]
+    started=time.monotonic(); messages=[];unavailable={}
     try:
         kind,block=key.split('/')
         tile=C.LazTile.parse(block)
@@ -74,8 +103,7 @@ def fetch_job(job):
             osm.fetch_area(osm_area(tile),log=messages.append)
         else:
             # Same ortho footprint and no-coverage handling as the service prefetcher.
-            from turku3d.coarse.imagery import fetch as fetch_imagery
-            fetch_imagery(tile, log=messages.append)
+            unavailable=fetch_imagery_block(tile,messages.append)
         files={}
         for registry in (STATE/'registries'/CONTEXT).glob('*/MANIFEST.jsonl'):
             for line in registry.read_text().splitlines():
@@ -104,7 +132,7 @@ def fetch_job(job):
                         if f.is_file(): files[str(f.relative_to(C.data_root()))]=f.stat().st_size
         if not files:
             raise RuntimeError('fetch returned without any recorded files')
-        row=dict(unit=key,recipe=RECIPE,status='complete',seconds=round(time.monotonic()-started,2),files=files)
+        row=dict(unit=key,recipe=RECIPE,status='complete',at=time.time(),no_coverage=unavailable,seconds=round(time.monotonic()-started,2),files=files)
         temp=receipt.with_suffix('.tmp');temp.write_text(json.dumps(row)+'\n');temp.replace(receipt)
         return {k:v for k,v in row.items() if k!='files'}
     except Exception as error:
@@ -143,6 +171,7 @@ def main():
     p.add_argument('state',type=Path)
     p.add_argument('--workers',type=int,default=3)
     p.add_argument('--plan-only',action='store_true')
+    p.add_argument('--adopt-initial-receipts',action='store_true')
     p.add_argument('--unit',action='append',help='probe selected fetch units; never publishes complete')
     p.add_argument('--limit',type=int,help='prove a bounded number of fetches; never publishes complete')
     a=p.parse_args(); state=a.state.resolve()
@@ -154,25 +183,31 @@ def main():
     with (state/'prefetch.lock').open('a') as lock:
         import fcntl
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if a.adopt_initial_receipts:adopt_initial_receipts(state)
         (state/'PREFETCH_COMPLETE.json').unlink(missing_ok=True)
         (state/'acquisition.json').write_text(json.dumps(dict(recipe=RECIPE,started=time.time()))+'\n')
-        failures=[]
+        failures=[];image_gaps={}
         selected=a.unit or work[:a.limit]
         if any(key not in work for key in selected): raise ValueError('unit outside planned area')
         with (state/'prefetch-progress.jsonl').open('a') as log, concurrent.futures.ProcessPoolExecutor(max_workers=a.workers) as pool:
             for row in pool.map(fetch_job,[(str(state),key) for key in selected]):
                 log.write(json.dumps(row)+'\n');log.flush()
                 if row['status']=='failed': failures.append(row)
+                image_gaps.update(row.get('no_coverage',{}))
         merge_registries(state)
         summary=dict(recipe=RECIPE,jobs=len(work),completed=len(selected)-len(failures),failures=failures,at=time.time())
         if not a.limit and not a.unit and not failures:
-            sources=Sources(); uncovered=[];missing={}
+            from turku3d.coarse.imagery import ImagerySources
+            sources=ImagerySources(); uncovered={};missing={}
             for name in json.loads((state/'walk.json').read_text()):
                 try:
                     units=sources.missing_for_service(C.VisualTile.parse(name))
+                    if name in image_gaps and any(u.dataset=='ortho' for u in units):
+                        uncovered[name]=image_gaps[name]
+                        units=[u for u in units if u.dataset!='ortho']
                     if units: missing[name]=[u.key for u in units]
-                except NoCoverage: uncovered.append(name)
-            summary.update(outside_lidar_coverage=uncovered,missing_tiles=missing)
+                except NoCoverage as error: uncovered[name]=str(error)
+            summary.update(unavailable_tiles=uncovered,missing_tiles=missing)
             if not missing:
                 summary['jobs_sha256']=hashlib.sha256((state/'prefetch-jobs.json').read_bytes()).hexdigest()
                 (state/'PREFETCH_COMPLETE.json').write_text(json.dumps(summary)+'\n')

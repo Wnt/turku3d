@@ -216,7 +216,7 @@ After the owned proof farm has passed comparison, the same tool can target
 to avoid duplicating its bytes. It installs farm-native revision metadata and ready
 products, without advancing the integration alias or touching production.
 
-Eight offline checks now pass: baseline registry immutability and independent locks;
+Nine offline checks now pass: baseline registry immutability and independent locks;
 source snapshot immutability and checksum rejection; portable VRTs retaining prior
 hard links; recipe invalidation; actual farm scheduling/resume with synthetic payloads;
 prefetch/build exclusion; corrupt shared payload rejection; and acknowledgement-bound
@@ -226,3 +226,26 @@ pruning. These checks do **not** substitute for the outstanding real tile proofs
 /root/turku3d-bulk-gen2/run.sh python /root/turku3d-bulk-gen2/ops/test_ops.py
 /root/turku3d-bulk-gen2/run.sh python /root/turku3d-bulk-gen2/ops/test_prefetch.py
 ```
+
+
+### Coastal imagery gaps
+
+The first acquisition pass exposed `NoCoverage` at the first blank quadrant of some
+500 m coastal blocks. The revised wrapper scopes the unchanged pipeline fetcher to
+each of the four quadrants, so a blank first quadrant cannot hide imagery for the
+other three. It records typed coverage gaps separately from network/parse failures.
+Only tiles whose current generator requires the absent imagery are excluded from
+full builds; their regional terrain remains available. Coverage gaps are recorded
+per tile with the provider error, and are retried after the fetcher's empty-image TTL.
+
+After the initial process exits, the first retry command is:
+
+```sh
+ROOT=/root/turku3d-bulk-gen2
+"$ROOT/run.sh" python "$ROOT/ops/prefetch.py" "$ROOT/state"   --workers 3 --adopt-initial-receipts
+```
+
+This one-time migration requires the observed initial immutable acquisition identity
+to match. It binds its successful receipts to that recipe; failed/incomplete units
+have no successful receipt and are retried. Later resumes omit the adoption option.
+The running initial pass is left intact, so no paid transfer work is discarded.

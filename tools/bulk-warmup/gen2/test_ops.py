@@ -92,7 +92,7 @@ class Products(unittest.TestCase):
             write(base/'revision.json',dict(commit=commit,revision=commit,generation=gen))
             write(root/'farm/sources/versions'/version/'source-version.json',dict(version=version,files={}))
             write(state/'walk.json',['t0_0_0','t0_1_0'])
-            write(state/'PREFETCH_COMPLETE.json',dict(jobs_sha256='jobs',outside_lidar_coverage=[]))
+            write(state/'PREFETCH_COMPLETE.json',dict(jobs_sha256='jobs',unavailable_tiles={}))
             write(state/'sources.json',dict(version=version,prefetch_jobs_sha256='jobs',recipe=acquisition_recipe(repo),walk_sha256=freeze.digest(state/'walk.json')))
             # A deterministic stand-in exercises the real farm scheduler, file locks,
             # GLB external references, validation and atomic ready publication.
