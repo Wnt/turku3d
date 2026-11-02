@@ -35,7 +35,8 @@ for path in (root/'data/raw/ortho').rglob('*.vrt'):
     if target.startswith(old+'/'):target=new+target[len(old):];break
    if not Path(target).is_file():missing.append(dict(vrt=str(path),source=target));continue
    node.text=os.path.relpath(target,path.parent);node.set('relativeToVRT','1');changed=True
- if changed: tree.write(path,encoding='utf-8');rasters+=1
+ if changed:
+  temporary=path.with_suffix('.vrt.tmp');tree.write(temporary,encoding='utf-8');temporary.replace(path);rasters+=1
 report=dict(relocated_links=links,unresolved_links=broken,portable_vrts=rasters,missing_vrt_sources=missing)
 (root/'state/relocation.json').write_text(json.dumps(report,indent=2)+'\n')
 print(json.dumps({k:len(v) if isinstance(v,list) else v for k,v in report.items()}))

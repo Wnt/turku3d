@@ -15,6 +15,7 @@ import shutil
 import sys
 import time
 
+from recipe import EXTRA_WFS, acquisition_recipe
 from turku3d import config as C
 from turku3d.coarse.sources import Sources, Unit, NoCoverage, block_area, block_tiles, osm_area, WFS_LAYERS, OPTIONAL_WFS_LAYERS
 from turku3d.fetch import common, laz, wfs, wms, osm
@@ -24,6 +25,7 @@ OriginalRegistry = common.Registry
 BASE = {}
 CONTEXT = None
 STATE = None
+RECIPE = acquisition_recipe(Path(os.environ["REPO"]))
 
 class ShardRegistry(OriginalRegistry):
     def __init__(self, root):
@@ -51,7 +53,7 @@ def fetch_job(job):
     if receipt.exists():
         # Content receipts describe every generated/downloaded file for this unit.
         row = json.loads(receipt.read_text())
-        if all((C.data_root()/p).is_file() and (C.data_root()/p).stat().st_size == n for p,n in row['files'].items()):
+        if row.get('recipe')==RECIPE and all((C.data_root()/p).is_file() and (C.data_root()/p).stat().st_size == n for p,n in row['files'].items()):
             return dict(unit=key, status='cached', seconds=0)
     if shutil.disk_usage(C.data_root()).free < 35*2**30:
         return dict(unit=key,status='failed',error='35 GiB prefetch disk floor')
@@ -62,7 +64,7 @@ def fetch_job(job):
         if kind in ('pistepilvi','maanpinta'):
             laz.fetch_tiles([tile],(kind,),log=messages.append)
         elif kind=='wfs':
-            names=set(WFS_LAYERS)|set(OPTIONAL_WFS_LAYERS)|{'kanta:Rakennus','GIS:Rakennukset','kanta:Liikennevayla','kanta:Kevyenliikenteenvayla','kanta:Rakenne'}
+            names=set(WFS_LAYERS)|set(OPTIONAL_WFS_LAYERS)|EXTRA_WFS
             for layer in ALL_WFS:
                 if layer.name in names:
                     report=wfs.fetch_layer(layer,block_area(tile),log=messages.append)
@@ -102,7 +104,7 @@ def fetch_job(job):
                         if f.is_file(): files[str(f.relative_to(C.data_root()))]=f.stat().st_size
         if not files:
             raise RuntimeError('fetch returned without any recorded files')
-        row=dict(unit=key,status='complete',seconds=round(time.monotonic()-started,2),files=files)
+        row=dict(unit=key,recipe=RECIPE,status='complete',seconds=round(time.monotonic()-started,2),files=files)
         temp=receipt.with_suffix('.tmp');temp.write_text(json.dumps(row)+'\n');temp.replace(receipt)
         return {k:v for k,v in row.items() if k!='files'}
     except Exception as error:
@@ -153,6 +155,7 @@ def main():
         import fcntl
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         (state/'PREFETCH_COMPLETE.json').unlink(missing_ok=True)
+        (state/'acquisition.json').write_text(json.dumps(dict(recipe=RECIPE,started=time.time()))+'\n')
         failures=[]
         selected=a.unit or work[:a.limit]
         if any(key not in work for key in selected): raise ValueError('unit outside planned area')
@@ -161,7 +164,7 @@ def main():
                 log.write(json.dumps(row)+'\n');log.flush()
                 if row['status']=='failed': failures.append(row)
         merge_registries(state)
-        summary=dict(jobs=len(work),completed=len(selected)-len(failures),failures=failures,at=time.time())
+        summary=dict(recipe=RECIPE,jobs=len(work),completed=len(selected)-len(failures),failures=failures,at=time.time())
         if not a.limit and not a.unit and not failures:
             sources=Sources(); uncovered=[];missing={}
             for name in json.loads((state/'walk.json').read_text()):
