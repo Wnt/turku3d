@@ -1,3 +1,5 @@
+import { AUTHORED_MODELS } from './registry';
+
 /** Original fictional vehicles. Dimensions describe visual bodywork, in metres.
  * The existing parking/traffic record remains the authority for collision and placement. */
 export type BodyType = 'hatch' | 'estate' | 'sedan' | 'suv' | 'mpv' | 'van' | 'pickup' | 'classic';
@@ -29,7 +31,7 @@ export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, 
     belt: (body === 'van' ? 1.12 : body === 'suv' || body === 'pickup' ? 1.12 : body === 'mpv' ? 1.10 : .97) + (i % 3) * .025,
     face: i, accessory: t === 1 && i === 1 || t === 3 && i === 2 ? 'box' : t === 1 && i === 4 || t === 3 && i === 5 ? 'rack' : t === 2 && i === 5 || t === 4 && i === 1 ? 'taxi' : 'none',
     age: body === 'classic' ? .75 + i * .03 : i === 6 ? .5 : .06 + i * .04,
-  }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68 } : model);
+  }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68 } : model).concat(AUTHORED_MODELS.map(model => model.fleet));
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 export function fleetHash(value: string): number {
   let h = 2166136261;
@@ -38,11 +40,11 @@ export function fleetHash(value: string): number {
   h = Math.imul(h ^ h >>> 15, 0x846ca68b);
   return (h ^ h >>> 16) >>> 0;
 }
-export function fleetModel(model: string, seed: string): FleetModel {
+export function fleetModel(model: string, seed: string, includeAuthored=true): FleetModel {
   const exact = FLEET_BY_ID.get(model);
   if (exact) return exact;
   const family = model === 'suv-luxury' ? 'suv' : model;
-  const choices = FLEET.filter(m => model === 'sedan-sports' ? m.body === 'classic' : m.family === family);
+  const choices = FLEET.filter(m => (includeAuthored || !AUTHORED_MODELS.some(a => a.id === m.id)) && (model === 'sedan-sports' ? m.body === 'classic' : m.family === family));
   if(!choices.length)return FLEET[fleetHash(seed)%FLEET.length];
   const weight=(m:FleetModel)=>m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1;
   let pick=fleetHash(seed)/4294967296*choices.reduce((s,m)=>s+weight(m),0);

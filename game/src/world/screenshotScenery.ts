@@ -6,6 +6,7 @@ import { sceneryTiles, skylinePriority, type SceneryView, type ScenerySource } f
 import type { TreePlacements } from './treePlacements';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
+class TreePlacementsPending extends Error {}
 
 /** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
@@ -23,7 +24,7 @@ export class ScreenshotScenery {
   }
   private detailed(id: string) {
     const entry = this.nearby.get(id);
-    return !!entry?.model && !entry.preview;
+    return !!entry?.model && !entry.preview && entry.cachedAt === undefined;
   }
 
   /** The prepared scenery owns visuals until the full model is ready; collision previews are a fallback. */
@@ -31,8 +32,9 @@ export class ScreenshotScenery {
     const model = this.entries.get(id)?.model;
     if (!model) return;
     const nearby = this.nearby.get(id);
-    model.visible = !nearby?.model || !!nearby.preview;
-    if (nearby?.preview && nearby.model) nearby.model.visible = false;
+    const active = !!nearby?.model && nearby.cachedAt === undefined;
+    model.visible = !active || !!nearby?.preview;
+    if (active && nearby?.preview && nearby.model) nearby.model.visible = false;
   }
 
   private release(id: string, e: Scenery) {
@@ -47,10 +49,11 @@ export class ScreenshotScenery {
 
   private async prepareTrees(id: string, e: Scenery, model: THREE.Object3D, distance: number, source: ScenerySource) {
     if (!this.needsTrees(e,distance)) return;
-    if (!source.trees_url) return;
     // A camera approaching a cached far tile must never expose its skyline cones up close.
     for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
+    if (!source.trees_url) return;
     const response = await this.request(new URL(source.trees_url,new URL(this.root,this.page)).href);
+    if (response.status === 202) throw new TreePlacementsPending();
     if (!response.ok) throw new Error(`Tree placements: HTTP ${response.status}`);
     const data = await response.json() as TreePlacements;
     if (data.version !== 1 || !Array.isArray(data.nodes)) throw new Error('Tree placements pending');
@@ -200,7 +203,7 @@ export class ScreenshotScenery {
     }
     if (paused) return;
     for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
-      && this.needsTrees(e,distToL0(id,x,z)) && !e.busy) e.next = 0;
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,distToL0(id,x,z)) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
@@ -247,7 +250,7 @@ export class ScreenshotScenery {
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
       this.nearbyChanged(id);
-    } catch (error) { e.error = String(error); e.complete = false; }
+    } catch (error) { e.error = error instanceof TreePlacementsPending ? undefined : String(error); e.complete = false; }
     finally {
       if (model) this.dispose(model, id);
       if (source && this.sources.get(id)?.key !== source.key) { e.complete = false; e.next = this.clock; }

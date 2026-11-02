@@ -29,6 +29,8 @@ export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const POLL_MS = 1000;
+const RETURN_CACHE_TILES = 16;
+const RETURN_CACHE_MS = 30_000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -79,7 +81,10 @@ export class CoarseTiles {
   get visualPass() { return this.comparison.pass; }
   get comparisonStatus() { return this.comparison.status; }
   setVisualPass(pass: 'auto' | 'first' | 'full') { this.comparison.setPass(pass); }
-  private compare(id: string, e: Entry) { this.comparison.clock = this.clock; return this.comparison.compare(id, e); }
+  private compare(id: string, e: Entry) {
+    if (e.cachedAt !== undefined) return;
+    this.comparison.clock = this.clock; return this.comparison.compare(id, e);
+  }
 
   /** Optional remaining mission route, engine metres, ordered forward. Clear with null. Stays client-side. */
   setRouteHint(points: readonly { x: number; z: number }[] | null) {
@@ -165,9 +170,31 @@ export class CoarseTiles {
     }
   }
 
+  private cacheFull(e: Entry) {
+    if (this.host.detailRadius !== undefined || !e.model || e.preview || e.pass !== 'full' || !e.visualHash) return false;
+    e.cachedAt ??= this.clock;
+    this.comparison.clear(e);
+    e.model.visible = false;
+    e.model.removeFromParent();
+    return true;
+  }
+
+  private restoreCached(x: number, z: number) {
+    for (const id of this.wantedStarts(x,z)) {
+      const e = this.entries.get(id);
+      if (!e?.model || e.cachedAt === undefined) continue;
+      e.cachedAt = undefined;
+      e.model.visible = this.visualPass === 'auto' || e.pass === this.visualPass;
+      this.screenshotScenery.nearbyChanged(id);
+      this.host.scene.add(e.model);
+    }
+  }
+
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }) {
     this.clock = now;
+    // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
+    this.restoreCached(x,z);
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
     this.screenshotScenery.update(x, z, now);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
@@ -194,6 +221,14 @@ export class CoarseTiles {
         this.drop(e); this.entries.delete(id); continue;
       }
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
+      if (this.cacheFull(e)) continue;
+      this.drop(e); this.entries.delete(id);
+    }
+    const cached = [...this.entries].filter(([,e]) => e.cachedAt !== undefined)
+      .sort((a,b) => b[1].cachedAt! - a[1].cachedAt!);
+    for (let i=0;i<cached.length;i++) {
+      const [id,e] = cached[i];
+      if (i < RETURN_CACHE_TILES && now-e.cachedAt! <= RETURN_CACHE_MS) continue;
       this.drop(e); this.entries.delete(id);
     }
     if (this.outage) {
@@ -485,9 +520,9 @@ export class CoarseTiles {
     const old = e.model;
     old?.removeFromParent();
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
-    this.host.scene.add(model);
+    if (e.cachedAt === undefined) this.host.scene.add(model);
     this.comparison.clear(e); e.pass = fragment.pass_kind;
-    e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
+    e.model = model; model.visible = e.cachedAt === undefined && (this.visualPass === 'auto' || e.pass === this.visualPass); e.visualHash = fragment.visual[id].sha256;
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);

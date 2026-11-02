@@ -92,9 +92,11 @@ def wall_meshes(building, walls, origin, description=None):
         return None
     if d.get("elevations"):
         from .elevations import coordinates, select, texture
+        from .relief import meshes as relief_meshes
 
         result = []
-        for index, vertices in enumerate(visible_walls(building, walls)):
+        visible = visible_walls(building, walls)
+        for index, vertices in enumerate(visible):
             row = select(vertices, d["elevations"])
             if row is None:
                 albedo, normal, orm = material_maps(json.dumps(d, sort_keys=True), "wall")
@@ -114,6 +116,7 @@ def wall_meshes(building, walls, origin, description=None):
                             material_key="landmark_procedural", surface="wall",
                             texture_uv="normalized", landmark_description=d["content_hash"]),
             ))
+        result.extend(relief_meshes(building, visible, origin, d))
         groups = {}
         for mesh in result:
             groups.setdefault((mesh.image, mesh.repeat), []).append(mesh)
