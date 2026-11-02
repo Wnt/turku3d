@@ -116,7 +116,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-const natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
+let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary) : null;
 const furniture = idPass ? null : new PropLod();
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
@@ -182,8 +182,9 @@ window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, t
 
 // Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
 // streamed tiles and physics worker alive throughout a visual iteration.
-window.__game.replaceVegetation = async (Renderer: typeof VegetationLod) => {
-  if (!natureLibrary || !vegetation) return;
+window.__game.replaceVegetation = async (Renderer: typeof VegetationLod, replacement = natureLibrary) => {
+  if (!replacement || !vegetation) return;
+  natureLibrary = replacement;
   const models = vegetation.loadedModels();
   for (const model of models) vegetation.remove(model);
   vegetation = new Renderer(params.quality, natureLibrary);
