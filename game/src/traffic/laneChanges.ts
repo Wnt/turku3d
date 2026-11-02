@@ -4,6 +4,8 @@ import { hash01, hash32 } from './hash';
 import type { FlowCar } from './flow';
 import type { Lane } from './tileNetwork';
 
+export const LANE_CHANGE_SECONDS = 3.2;
+
 export interface LaneChange {
   from: Lane; direction: -1 | 1; progress: number; duration: number; rate: number;
 }
@@ -72,7 +74,7 @@ export class LaneChangePlanner {
       car.signal = { target, since: tick, reason }; return null;
     }
     if (tick - car.signal.since < 10) return null;
-    const s = car.s / lane.length * target.length, duration = 3.2;
+    const s = car.s / lane.length * target.length, duration = LANE_CHANGE_SECONDS;
     let front: FlowCar | undefined, rear: FlowCar | undefined;
     for (const other of byLane.get(target) ?? []) {
       if (other === car) continue;
