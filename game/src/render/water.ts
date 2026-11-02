@@ -7,6 +7,7 @@ import type { Environment } from './environment';
 import { riverSurface } from './riverSurface';
 
 const liveRivers = new Set<RiverMaterial>();
+let activeSurface = riverSurface;
 
 export class RiverMaterial {
   readonly material = new THREE.NodeMaterial();
@@ -47,7 +48,7 @@ export class RiverMaterial {
       };
       this.attach(mesh);
     }
-    this.setSurface(riverSurface);
+    this.setSurface(activeSurface);
     liveRivers.add(this);
     // Opaque colour, but exclude the river from the opaque normal/velocity prepass and its recursive reflection.
     this.material.transparent = true;
@@ -97,5 +98,8 @@ export class RiverMaterial {
 }
 
 if (import.meta.hot) import.meta.hot.accept('./riverSurface', next => {
-  if (next) for (const river of liveRivers) river.setSurface(next.riverSurface);
+  if (next) {
+    activeSurface = next.riverSurface;
+    for (const river of liveRivers) river.setSurface(activeSurface);
+  }
 });
