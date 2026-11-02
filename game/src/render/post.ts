@@ -1,4 +1,4 @@
-import { decodePrepassNormal } from './normalPrepass';
+import { decodePrepassNormal } from './normalDecode';
 import { PuddleReflections } from './weather/puddleReflections';
 import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';

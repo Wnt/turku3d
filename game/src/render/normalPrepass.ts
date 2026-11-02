@@ -1,8 +1,4 @@
 import * as THREE from 'three/webgpu';
-import { unpackRGBToNormal } from 'three/tsl';
-
-/** r186's unpack helper preserves input arity at runtime; exclude the receiver alpha explicitly. */
-export function decodePrepassNormal(value: THREE.Node<'vec4'>) { return unpackRGBToNormal(value.rgb); }
 
 /** AO and puddle rays need geometric normals; normal alpha separately marks wet mineral receivers.
  * AO needs geometric normals, not every facade's albedo/normal/ORM graph. Keep cutouts,

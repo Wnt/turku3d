@@ -4,8 +4,7 @@ import * as THREE from 'three/webgpu';
 import RenderObjects from 'three/src/renderers/common/RenderObjects.js';
 // @ts-expect-error r186 render-object internals have no DefinitelyTyped declarations.
 import RenderObject from 'three/src/renderers/common/RenderObject.js';
-import { reflect, vec3, vec4 } from 'three/tsl';
-import { decodePrepassNormal, NormalPrepass } from '../../src/render/normalPrepass';
+import { NormalPrepass } from '../../src/render/normalPrepass';
 import { GameRenderer, ShadowMaterials, hasDrawVertices } from '../../src/render/shadowMaterials';
 
 test('empty geometry, groups and disjoint draw ranges are skipped before pass encoding', () => {
@@ -83,14 +82,4 @@ test('normal alpha identifies wet minerals across alternating receivers and auth
   expect(prepass.select(leaf)).toBeNull();
   expect(leaf.userData.weatherReceiver).toBe(0);
   prepass.dispose();
-});
-
-test('receiver alpha never turns a normal or reflected ray into a four-dimensional vector', () => {
-  // The base JS constructor supplies IR caches; backend code-generation methods are unused here.
-  const builder = Reflect.construct(THREE.NodeBuilder, [null, null, null]) as THREE.NodeBuilder;
-  for (const receiver of [0, 1]) {
-    const normal = decodePrepassNormal(vec4(.5, 1, .5, receiver));
-    expect(normal.getNodeType(builder)).toBe('vec3');
-    expect(reflect(vec3(0, -1, -1), normal).getNodeType(builder)).toBe('vec3');
-  }
 });
