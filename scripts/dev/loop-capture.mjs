@@ -15,11 +15,16 @@ const refs = JSON.parse(fs.readFileSync(path.join(root, 'loops/refs.json')));
 const only = opt('--only', Object.keys(refs).join(',')).split(',');
 const times = opt('--at', '13:00,19:30,22:00').split(',');
 const timeout = Number(opt('--timeout', '300')) * 1000;
-const pages = await fetch(`${cdp}/json/list`).then(r => r.json());
+const pages = await fetch(`${cdp}/json/list`, { signal: AbortSignal.timeout(15000) }).then(r => r.json());
 const target = pages.find(p => p.type === 'page' && p.url.startsWith(base)) ?? pages.find(p => p.type === 'page' && p.url === 'about:blank');
 if (!target) throw new Error('No integration or blank page in the specified CDP browser');
 const socket = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => { socket.close(); reject(new Error('CDP connection timed out')); }, 15000);
+  socket.onopen = () => { clearTimeout(timer); resolve(); };
+  socket.onerror = error => { clearTimeout(timer); reject(error); };
+});
+console.log(`Connected to integration page ${target.id}`);
 let seq = 0;
 const pending = new Map(), assets = new Map(), failures = [];
 let lastAsset = 0;
@@ -44,7 +49,7 @@ socket.onmessage = ({ data }) => {
 };
 const send = (method, params = {}) => new Promise((resolve, reject) => {
   const id = ++seq;
-  const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, timeout);
+  const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, Math.min(timeout, 60000));
   pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params }));
 });
 const evaluate = async expression => {
@@ -74,6 +79,7 @@ try {
       if (valid(shots.get(file))) continue;
       failures.length = 0;
       const started = Date.now(), [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
+      console.log(`Starting ${file}`);
       const [h, m] = at.split(':').map(Number);
       const pose = { E, N, H, yaw, pitch, fov };
       const url = `${base}?cam=${cam.cam}&time=${at}&quality=high&hud=0&traffic=0&walkers=0`;
@@ -86,7 +92,19 @@ try {
       const ci = Math.floor((E - 23459500) / 250), cj = Math.floor((6704500 - N) / 250);
       const wanted = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
       let state;
+      let throttled = false;
       while (Date.now() - started < timeout) {
+        if (!throttled) throttled = await evaluate(`(() => {
+          if (!window.__render) return false;
+          let last = 0;
+          window.__render.beforeFrame = () => {
+            if (window.__qaReady) return true;
+            const now = performance.now();
+            if (now - last < 100) return false;
+            last = now; return true;
+          };
+          return true;
+        })()`);
         state = await evaluate(`(() => {
           const g = window.__game, env = window.__render?.environment;
           const tiles = ${JSON.stringify(wanted)}.map(id => { const e = g?.lights?.source?.entries.get(id);
@@ -101,6 +119,7 @@ try {
       await delay(2000);
       await evaluate(`document.querySelectorAll('body > *:not(canvas)').forEach(e => e.style.setProperty('display','none','important'));`);
       const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await evaluate('window.__render.beforeFrame = () => false');
       fs.writeFileSync(path.join(out, file), Buffer.from(screenshot.data, 'base64'));
       const row = { file, time: at, type: cam.type, place: cam.place, camera_height_m: cam.camera_height_m,
         notes: cam.notes, url, build: `local/loop-integration@${build}`, capture: {
