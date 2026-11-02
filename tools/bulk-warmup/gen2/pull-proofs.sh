@@ -26,7 +26,7 @@ print('Three validated small-plan proof products complete; source pull admitted'
 PY
 ssh "$BULK_HOST" "cat '$BULK_ROOT/state/build.json'" > "$RECEIVER_FARM/receipts/proof-build.json"
 python3 "$SCRIPT_DIR/transfer.py" --host "$BULK_HOST" --remote-root "$BULK_ROOT" \
-  --root "$RECEIVER_FARM" --sources "$SOURCE_VERSION" \
+  --root "$RECEIVER_FARM" --catalog "$SOURCE_VERSION" \
   --link-dest /home/wnt/turku3d-local/combined/data
 python3 "$SCRIPT_DIR/transfer.py" --host "$BULK_HOST" --remote-root "$BULK_ROOT" \
   --root "$RECEIVER_FARM" --build-file "$RECEIVER_FARM/receipts/proof-build.json" --tiles t0_0_0 t0_1_0 t0_-1_0

@@ -6,6 +6,9 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
+import shutil
+from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
@@ -43,6 +46,56 @@ class Products(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'source hash mismatch'):
                 transfer.validate_sources(profile,report['version'])
 
+    def test_catalog_validates_inventory_and_overlays_but_explicitly_omits_raw(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);overlay=root/'supplements/params.json'
+            overlay.parent.mkdir();overlay.write_bytes(b'{}')
+            files={'supplements/params.json':dict(bytes=2,sha256=hashlib.sha256(b'{}').hexdigest()),
+                   'raw/laz/source.laz':dict(bytes=3,sha256=hashlib.sha256(b'raw').hexdigest())}
+            version=hashlib.sha256(json.dumps(files,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            write(root/'source-version.json',dict(version=version,files=files))
+            transfer.validate_sources(root,version,raw=False)
+            with self.assertRaises(FileNotFoundError):transfer.validate_sources(root,version)
+            overlay.write_bytes(b'xx')
+            with self.assertRaisesRegex(ValueError,'source hash mismatch'):
+                transfer.validate_sources(root,version,raw=False)
+
+    def test_catalog_can_be_materialized_to_full_sources(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);remote=root/'remote';receiver=root/'receiver'
+            files={'raw/a':dict(bytes=3,sha256=hashlib.sha256(b'raw').hexdigest())}
+            version=hashlib.sha256(json.dumps(files,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            origin=remote/'farm/sources/versions'/version;write(origin/'source-version.json',dict(version=version,files=files))
+            (origin/'raw').mkdir();(origin/'raw/a').write_bytes(b'raw')
+            final=receiver/'sources/versions'/version;write(final/'source-version.json',dict(version=version,files=files))
+            receipt=receiver/'receipts/sources'/(version+'.json')
+            write(receipt,dict(version=version,mode='catalog',verified=True,raw_available=False))
+            class Local(transfer.Pull):
+                def json(self,path):return json.loads(Path(path).read_text())
+                def sync(self,source,dest,extra=()):shutil.copytree(source,dest,dirs_exist_ok=True)
+                def room(self,needed):pass
+            Local(SimpleNamespace(root=receiver,remote_root=str(remote),link_dest=None)).sources(version)
+            transfer.validate_sources(final,version)
+            self.assertTrue(json.loads(receipt.read_text())['raw_available'])
+            self.assertEqual((final/'raw/a').read_bytes(),b'raw')
+
+    def test_publication_follows_shared_glb_references_and_rejects_escape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);tile='t0_0_0';product=root/tile;product.mkdir()
+            shared=root/'shared';shared.mkdir();(shared/'map.ktx2').write_bytes(b'texture')
+            def glb(uri):
+                doc=json.dumps({'images':[{'uri':uri}]}).encode();doc+=b' '*(-len(doc)%4)
+                (product/'vis.hash.glb').write_bytes(b'glTF'+struct.pack('<II',2,20+len(doc))+struct.pack('<II',len(doc),0x4e4f534a)+doc)
+            glb('../shared/map.ktx2')
+            write(product/'manifest.json',{'visual':{tile:{'url':'vis.hash.glb'}}})
+            write(product/'ready.json',{'generation':'a'*64})
+            (product/'vis.glb').write_bytes(b'unpublished duplicate')
+            (product/'facade-programs.json').write_bytes(b'large rebuild-only report')
+            files=transfer.publication(root,tile)
+            self.assertEqual(set(files),{tile+'/manifest.json',tile+'/ready.json',tile+'/vis.hash.glb','shared/map.ktx2'})
+            glb('../../outside')
+            with self.assertRaisesRegex(ValueError,'outside generation'):transfer.publication(root,tile)
+
     def test_portable_vrt_preserves_an_earlier_frozen_link(self):
         with tempfile.TemporaryDirectory() as tmp:
             data=Path(tmp)/'data';ortho=data/'raw/ortho';ortho.mkdir(parents=True)
@@ -67,6 +120,26 @@ class Products(unittest.TestCase):
                 source.write_text('v2')
                 self.assertNotEqual(before,acquisition_recipe(repo))
 
+    def test_bulk_cache_pressure_preserves_unacknowledged_older_generation(self):
+        sys.path.insert(0,str(Path(os.environ['REPO'])/'scripts/dev'))
+        from shared_tiles import Farm
+        from runtime import preserve_products
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);generation='a'*64;revision='b'*40
+            write(root/'revisions'/revision/'revision.json',dict(revision=revision,generation=generation))
+            product=root/'products'/generation/'t0_0_0'
+            write(product/'ready.json',dict(revision=revision,generation=generation))
+            farm=Farm(root,root/'runner',free=lambda:0,grace_seconds=0)
+            try:
+                with farm.lock:
+                    self.assertFalse(preserve_products(farm,farm._make_room,1))
+                    self.assertTrue(product.exists());self.assertEqual(farm.aliases,{})
+                    # The ordinary LAN eviction policy would remove this unaliased
+                    # generation, proving the bulk-specific pin changes the outcome.
+                    farm._make_room(1)
+                    self.assertFalse(product.exists())
+            finally:farm.close()
+
     def test_prune_requires_matching_verified_copy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);gen='a'*64;tile='t0_0_0'
@@ -80,6 +153,11 @@ class Products(unittest.TestCase):
             self.assertTrue(product.exists())
             write(path,ack);transfer.prune(root,gen,tile)
             self.assertFalse(product.exists());self.assertTrue(path.exists())
+            write(product/'manifest.json',{'tile':tile})
+            write(product/'ready.json',{'generation':gen,'revision':'b'*64})
+            write(product.parent/'warm.json',{'channels':10})
+            transfer.prune(root,gen,tile)
+            self.assertTrue(product.exists(), 'verified warm seeds survive streaming/resume')
 
     def test_farm_runner_resumes_and_obeys_prefetch_interlock(self):
         repo=Path(os.environ['REPO']).resolve()

@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 from recipe import acquisition_recipe
-from runtime import Monitor, admission_cap, memory, ordered, target_workers, worker_limit
+from runtime import Monitor, admission_cap, memory, memory_stalled, ordered, preserve_products, target_workers, worker_limit
 
 
 def read(path,default=None):
@@ -74,7 +74,8 @@ def main():
         planned=read(state/'walk.json')
         if hashlib.sha256((state/'walk.json').read_bytes()).hexdigest()!=sources['walk_sha256'] or not set(selected)<=set(planned):
             raise RuntimeError('selection is outside the frozen acquisition plan')
-        order,timings=ordered([tile for tile in selected if tile not in outside],reports/'bulk-progress.jsonl')
+        order,timings=ordered([tile for tile in selected if tile not in outside],reports/'bulk-progress.jsonl',
+                              read(state/'tile-classes.json',{}).get('tiles',{}),read(state/'class-seconds.json',{}))
         wanted=deque(order if a.walk else [tile for tile in selected if tile not in outside])
         changed=threading.Event();stopping=threading.Event()
         def stop(*_):stopping.set();changed.set()
@@ -82,6 +83,8 @@ def main():
         # Dedicated bulk host only: leave the LAN daemon's 12-worker limit untouched.
         shared.MAX_WORKERS=maximum
         class BulkFarm(shared.Farm):
+            def _make_room(self,target):
+                return preserve_products(self,super()._make_room,target)
             def build(self,*args):
                 try:return super().build(*args)
                 finally:changed.set()  # Wake after Farm removes the completed job.
@@ -117,7 +120,7 @@ def main():
             subprocess.run([str(root/'run.sh'),'python',str(warm),str(root/'farm/products'/generation)],env=env,check=True)
 
         started=time.monotonic();before=resource.getrusage(resource.RUSAGE_CHILDREN);ticks0=cpu_ticks()
-        failed=[];already=[];pressure=False
+        failed=[];already=[];pressure=False;memory_pressure=False
         try:
             while wanted or farm.jobs:
                 changed.clear()
@@ -141,8 +144,12 @@ def main():
                         farm.validate(product.parent,tile,read(product/'manifest.json'))
                         already.append(tile);wanted.popleft();continue
                     if not count:
-                        # No readers remain: raw-derived caches can be evicted immediately.
+                        # Restore headroom for the whole requested wave while raw
+                        # caches have no readers. Otherwise a low-space resume would
+                        # refill a partial wave forever without reclaiming raw caches.
                         farm.grace_seconds=0
+                        if not farm.make_room(farm.floor+farm.reserve*cap):
+                            pressure=True;farm.grace_seconds=60;break
                     pressure=False
                     status,result=farm.request(revision,tile)
                     farm.grace_seconds=60
@@ -152,6 +159,8 @@ def main():
                     if status>=400:failed.append(dict(tile=tile,result=result))
                     with farm.lock:count=len(farm.jobs)
                 with farm.lock:active=len(farm.jobs)
+                if memory_stalled(cap,active,wanted):
+                    memory_pressure=True;break
                 if pressure and not active:break  # Pull/acknowledge outputs, then resume.
                 if active or (wanted and not cap):changed.wait(5)
 
@@ -165,9 +174,9 @@ def main():
                     cpu_steal_fraction=(ticks1[1]-ticks0[1])/max(1,ticks1[0]-ticks0[0]),
                     peak_child_rss_kib=after.ru_maxrss,metrics=farm.metrics,already_complete=len(already),
                     remaining=list(wanted),outside_coverage=len(set(selected)&outside),failures=failed,
-                    disk_pressure=pressure,interrupted=stopping.is_set())
+                    disk_pressure=pressure,memory_pressure=memory_pressure,interrupted=stopping.is_set())
         shared.atomic_json(reports/'bulk-result.json',report)
         print(json.dumps(report))
-        return 75 if pressure or stopping.is_set() else 1 if failed else 0
+        return 75 if pressure or memory_pressure or stopping.is_set() else 1 if failed else 0
 
 if __name__=='__main__':raise SystemExit(main())
