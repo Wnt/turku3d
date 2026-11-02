@@ -29,6 +29,11 @@ const pick = (id: number, salt: number, list: readonly number[]) => list[hash32(
 
 export function humanAppearance(id: number) {
   const model = HUMAN_MODELS[hash32(id, 8) % HUMAN_MODELS.length];
+  return appearanceForModel(model, id);
+}
+
+/** Preview and runtime use the same recipe's age and wardrobe when selecting its palette. */
+export function appearanceForModel(model: HumanRecipe, id: number) {
   const skin = pick(id, 20, PALETTE.skin);
   const top = pick(id, 21, PALETTE.top);
   return { model, variant: model.family, skin, top,
