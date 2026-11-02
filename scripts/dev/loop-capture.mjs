@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { captureIdentity, residentTilesMatch } from './loop-capture-identity.mjs';
+import { AssetTransfers } from './loop-capture-network.mjs';
 const args = process.argv.slice(2);
 const opt = (name, fallback) => args.includes(name) ? args[args.indexOf(name) + 1] : fallback;
 const root = path.join(os.homedir(), 'turku3d');
@@ -27,7 +28,8 @@ await new Promise((resolve, reject) => {
 });
 console.log(`Connected to integration page ${target.id}`);
 let seq = 0;
-const pending = new Map(), assets = new Map(), failures = [];
+const pending = new Map(), network = new AssetTransfers();
+const assets = network.pending, failures = network.failures;
 let lastAsset = 0;
 const asset = url => /\.(glb|bin|col|ktx2|png|jpg)(\?|$)/.test(url);
 socket.onmessage = ({ data }) => {
@@ -39,13 +41,12 @@ socket.onmessage = ({ data }) => {
     msg.error ? p.reject(new Error(JSON.stringify(msg.error))) : p.resolve(msg.result);
   }
   if (msg.method === 'Network.requestWillBeSent' && asset(msg.params.request.url)) {
-    assets.set(msg.params.requestId, msg.params.request.url); lastAsset = Date.now();
+    network.start(msg.params.requestId, msg.params.request.url); lastAsset = Date.now();
   }
-  if (msg.method === 'Network.responseReceived' && assets.has(msg.params.requestId) && msg.params.response.status >= 400)
-    failures.push(`${msg.params.response.status} ${assets.get(msg.params.requestId)}`);
+  if (msg.method === 'Network.responseReceived') network.response(msg.params.requestId, msg.params.response.status);
   if (['Network.loadingFinished', 'Network.loadingFailed'].includes(msg.method) && assets.has(msg.params.requestId)) {
-    if (msg.method === 'Network.loadingFailed') failures.push(`${msg.params.errorText} ${assets.get(msg.params.requestId)}`);
-    assets.delete(msg.params.requestId); lastAsset = Date.now();
+    network.finish(msg.params.requestId, msg.method === 'Network.loadingFailed' ? msg.params.errorText : undefined);
+    lastAsset = Date.now();
   }
 };
 const send = (method, params = {}) => new Promise((resolve, reject) => {
@@ -113,7 +114,7 @@ try {
         const touched = spawnSync('python3', [guard, 'touch', opt('--guard-owner', 'integrator')], { encoding: 'utf8' });
         if (touched.status === 2) console.log(touched.stdout.trim());
       }
-      failures.length = 0;
+      failures.clear();
       const started = Date.now();
       console.log(`Starting ${file}`);
       const [h, m] = at.split(':').map(Number);
@@ -185,7 +186,7 @@ try {
         notes: cam.notes, url, build: `local/loop-integration@${build}`, capture: {
           wall_s: (Date.now() - started) / 1000, qa_ready: state.ready,
           qa_error: state.error ?? (state.nature && captureIdentity(state.nature) === nature ? null : 'Nature library differs from requested capture inputs'),
-          incomplete_tiles: state.tiles.filter(t => !t.full || t.visual_sha256 !== expectedTiles[t.id]).map(t => t.id), failed_assets_final: [...new Set(failures)],
+          incomplete_tiles: state.tiles.filter(t => !t.full || t.visual_sha256 !== expectedTiles[t.id]).map(t => t.id), failed_assets_final: [...failures.values()],
           tiles: state.tiles, sun_elevation_deg: state.sun, quality: state.info?.quality, backend: state.info?.backend,
           sun_azimuth_deg: state.azimuth, clock: state.clock,
           settle_retries: settleRetries,

@@ -25,6 +25,7 @@ export class Atmosphere {
   readonly coverage = uniform(0.38);
   readonly cirrusStrength = uniform(0.15);
   readonly density = uniform(1);
+  readonly overcast = uniform(0);
   readonly zenith = uniform(new THREE.Color());
   readonly horizon = uniform(new THREE.Color());
   readonly cloudLit = uniform(new THREE.Color());
@@ -64,7 +65,15 @@ export class Atmosphere {
       // Thin high cloud streaks cross the gaps, independently of the cumulus deck.
       const high = texture(this.map, plane.mul(0.12).add(this.highWind));
       const cirrus = smoothstep(0.46, 0.75, high.g).mul(high.r).mul(this.cirrusStrength).mul(smoothstep(0.015, 0.12, view.y));
-      const skyColor = mix(mix(base, this.cloudLit, cirrus), aerial, alpha);
+      const fairSky = mix(mix(base, this.cloudLit, cirrus), aerial, alpha);
+      // A lower, continuous deck fills the gaps as weather closes in. Reuse the broad density sample;
+      // flatten its variation toward the horizon so distant fog can meet a stable grey band.
+      const sheet = mix(this.cloudShade, this.cloudLit, mix(field.r.mul(0.12).add(0.08), 0.14, horizonWeight))
+        .add(night.mul(0.6));
+      const grey = dot(sheet, vec3(0.2126, 0.7152, 0.0722));
+      const overcastSky = mix(sheet, vec3(grey), this.daylight.mul(0.75));
+      const deck = smoothstep(0, 0.85, this.overcast);
+      const skyColor = mix(fairSky, overcastSky, deck);
 
       // Sparse, stable directions: stars only emerge after twilight and disappear behind both cloud decks.
       const cell = view.mul(560);
@@ -73,13 +82,13 @@ export class Atmosphere {
       const hash = fract(dot(h, h.yzx.add(33.33)).mul(17.17));
       const point = float(1).sub(smoothstep(0.09, 0.3, length(fract(cell).sub(0.5))));
       const star = point.mul(smoothstep(0.9985, 1, hash)).mul(this.stars).mul(horizonFade)
-        .mul(float(1).sub(alpha)).mul(float(1).sub(cirrus));
+        .mul(float(1).sub(alpha)).mul(float(1).sub(cirrus)).mul(float(1).sub(deck));
       // A modest moon disc and soft halo; kept out of the direct-light system owned by lighting.
       const moonDot = dot(view, this.moonDirection);
       const moonDisc = smoothstep(0.999987, 0.999991, moonDot);
       const moonHalo = pow(max(moonDot, 0), 650).mul(0.018);
       const moon = moonDisc.mul(1.5).add(moonHalo).mul(this.stars).mul(horizonFade)
-        .mul(float(1).sub(alpha)).mul(float(1).sub(cirrus));
+        .mul(float(1).sub(alpha)).mul(float(1).sub(cirrus)).mul(float(1).sub(deck));
       return vec4(skyColor.add(vec3(0.7, 0.8, 1).mul(star))
         .add(vec3(0.75, 0.84, 1).mul(moon)), 1);
     })();
@@ -93,6 +102,12 @@ export class Atmosphere {
     this.wind.value.set(wrap(seconds * 0.0007), wrap(seconds * 0.00023));
     this.detailWind.value.set(wrap(seconds * 0.0007 * 2.7 + 0.31), wrap(seconds * (0.00023 * 2.7 - 0.00017)));
     this.highWind.value.set(0.61, wrap(seconds * -0.00009));
+  }
+
+  /** Structural subset of WeatherSample: the weather clock owns transitions, this hook never accumulates state. */
+  setWeather(sample: { cloudCover: number; overcast: number }) {
+    this.coverage.value = THREE.MathUtils.clamp(sample.cloudCover, 0, 1);
+    this.overcast.value = THREE.MathUtils.clamp(sample.overcast, 0, 1);
   }
 
   setSun(elevation: number, azimuth: number, sample: TimecycleSample) {

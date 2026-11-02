@@ -340,3 +340,26 @@ def test_live_stage_report_survives_failure_and_external_termination(tmp_path):
     assert report["pack"]["status"] == "cancelled"
     assert report["pack"]["seconds"] > 0
     assert report["_build"]["error"] == "SIGKILL"
+
+
+def test_shared_stage_store_reuses_across_worktrees_and_retains_multiple_versions(tmp_path, monkeypatch):
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    first = StageCache(tmp_path / 'one' / '.stages' / 't0_0_0', retain=True)
+    second = StageCache(tmp_path / 'two' / '.stages' / 't0_0_0', retain=True)
+    calls = []
+    for code in ('v1', 'v2', 'v3'):
+        assert first.run('walls', code, [], lambda: calls.append(code) or code) == code
+    assert second.run('walls', 'v1', [], lambda: 'incorrect') == 'v1'
+    assert second.metrics['walls']['cached']
+    assert len(list((tmp_path / 'shared/stages/t0_0_0/walls').glob('*.pkl'))) == 3
+    assert calls == ['v1', 'v2', 'v3']
+
+
+def test_shared_prepared_inputs_do_not_delete_other_versions(tmp_path, monkeypatch):
+    from turku3d.coarse.inputs import _save, _load
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path))
+    first, second = tmp_path / 'ground.one.pkl', tmp_path / 'ground.two.pkl'
+    _save(first, 'one', [1])
+    _save(second, 'two', [2])
+    assert _load(first, 'one') == [1]
+    assert _load(second, 'two') == [2]
