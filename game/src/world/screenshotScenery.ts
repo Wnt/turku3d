@@ -27,7 +27,8 @@ export class ScreenshotScenery {
     this.direction.normalize();
     const { x, y, z } = camera.position;
     this.setView({ x, y, z, dx: this.direction.x, dz: this.direction.z,
-      halfAngle }, performance.now());
+      halfAngle, focalPixels: (this.host.renderer.domElement?.height ?? 800)
+        * camera.projectionMatrix.elements[5] / 2 }, performance.now());
   }
   private detailed(id: string) {
     const entry = this.nearby.get(id);
@@ -124,10 +125,11 @@ export class ScreenshotScenery {
     const previous = this.footprintView;
     if (previous && (now < this.nextView || (Math.hypot(view.x - previous.x, view.z - previous.z) < 25
       && Math.abs(view.y - previous.y) < 10 && Math.abs(view.halfAngle - previous.halfAngle) < .01
+      && Math.abs((view.focalPixels ?? 600) - (previous.focalPixels ?? 600)) < 30
       && view.dx * previous.dx + view.dz * previous.dz > Math.cos(Math.PI / 180)))) return;
     this.nextView = now + 150;
     this.footprintView = { ...view };
-    this.footprint = [...new Set([...regionalTiles(view), ...sceneryTiles(this.radius, view)])];
+    this.footprint = [...new Set([...regionalTiles(view), ...sceneryTiles(this.radius, view, this.footprint)])];
     this.refreshWanted();
     this.readMissingSources();
   }

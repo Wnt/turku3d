@@ -28,7 +28,7 @@ export function sceneryBatchGroups(sources: Source[], byteLimit = 128 * 1024 * 1
   return groups;
 }
 
-/** Merge unchanged pigment geometry within kilometre cells; source models retain streaming ownership. */
+/** Merge pigment geometry at the selected LOD scale; source models retain streaming ownership. */
 export class SceneryBatches {
   private buckets = new Map<string, Bucket>();
   private masks = new WeakMap<THREE.Mesh, number>();
@@ -65,6 +65,9 @@ export class SceneryBatches {
       const groups = new Map<string, Source[]>();
       if (model.visible) {
         const b = sceneryBounds(id);
+        // Detailed facades keep kilometre culling. Low-poly survey shells and
+        // regional terrain need fewer draw submissions, including the prepass.
+        const cellSize = b.level >= 4 ? 8000 : b.level >= 2 ? 4000 : 1000;
         model.updateWorldMatrix(true, true);
         model.traverseVisible(object => {
           const mesh = object as THREE.Mesh;
@@ -74,7 +77,7 @@ export class SceneryBatches {
           const mask = this.masks.get(mesh) ?? mesh.layers.mask; this.masks.set(mesh, mask);
           const layout = Object.entries(mesh.geometry.attributes).map(([name,a]) =>
             `${name}:${a.itemSize}:${a.normalized}:${a.array.constructor.name}`).sort().join(';');
-          const key = `${Math.floor(b.x/1000)},${Math.floor(b.z/1000)}:${mesh.material.uuid}:${!!mesh.geometry.index}:${layout}`;
+          const key = `${cellSize}:${Math.floor(b.x/cellSize)},${Math.floor(b.z/cellSize)}:${mesh.material.uuid}:${!!mesh.geometry.index}:${layout}`;
           const group = groups.get(key) ?? []; group.push({mesh,mask,revision}); groups.set(key,group);
         });
       }

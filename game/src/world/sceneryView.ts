@@ -1,6 +1,6 @@
 import { VISUAL_L0 } from '../core/origin';
 
-export interface SceneryView { x: number; y: number; z: number; dx: number; dz: number; halfAngle: number }
+export interface SceneryView { x: number; y: number; z: number; dx: number; dz: number; halfAngle: number; focalPixels?: number }
 export interface ScenerySource { tile: string; key: string; h: [number, number]; source_sha256: string; trees_url?: string; coverage?: number; regional?: boolean }
 
 /** Ground-plane footprint of a pitched perspective camera. */
@@ -10,9 +10,16 @@ export function groundHalfAngle(vertical: number, horizontal: number, fov: numbe
     : Math.atan2(tangent * aspect, horizontal - tangent * vertical) + .15;
 }
 
+const boundsCache = new Map<string, Readonly<{x: number; z: number; size: number; level: number}>>();
 export function sceneryBounds(id: string) {
+  const cached = boundsCache.get(id);
+  if (cached) return cached;
   const [level, i, j] = id.slice(1).split('_').map(Number), size = VISUAL_L0 * 2 ** level;
-  return { x: i * size, z: j * size, size, level };
+  const bounds = Object.freeze({ x: i * size, z: j * size, size, level });
+  // Bound travel-session memory while retaining the complete current city cut.
+  if (boundsCache.size >= 4096) boundsCache.clear();
+  boundsCache.set(id, bounds);
+  return bounds;
 }
 export function sceneryDistance(id: string, x: number, z: number) {
   const b = sceneryBounds(id);
@@ -23,10 +30,22 @@ export function sceneryContains(parent: string, child: string) {
   return a.level >= b.level && b.x >= a.x && b.z >= a.z && b.x + b.size <= a.x + a.size && b.z + b.size <= a.z + a.size;
 }
 
+/** Project a 1.5 m facade feature into drawing-buffer pixels. Survey kilometre
+ * nodes retain roof silhouettes; authored facade detail refines only while it
+ * occupies two pixels. The near reserve covers the playable neighbourhood. */
+export function sceneryDetailDistance(view: SceneryView) {
+  return Math.max(350, Math.min(2000, (view.focalPixels ?? 600) * 1.5 / 2));
+}
+
 /** Non-overlapping quadtree cut: authored shells nearby, source-built kilometre groups farther out. */
-export function sceneryTiles(radius: number, view: SceneryView) {
+export function sceneryTiles(radius: number, view: SceneryView, previous: readonly string[] = []) {
   const length = Math.hypot(view.dx, view.dz) || 1, dx = view.dx / length, dz = view.dz / length;
   const result: string[] = [];
+  const detailDistance = sceneryDetailDistance(view);
+  const detailedParents = new Set(previous.filter(id => sceneryBounds(id).level === 0).map(id => {
+    const b = sceneryBounds(id);
+    return `t2_${Math.floor(b.x / 1000)}_${Math.floor(b.z / 1000)}`;
+  }));
   const visit = (level: number, i: number, j: number) => {
     const id = `t${level}_${i}_${j}`, size = VISUAL_L0 * 2 ** level;
     const distance = sceneryDistance(id, view.x, view.z);
@@ -37,7 +56,10 @@ export function sceneryTiles(radius: number, view: SceneryView) {
       <= view.halfAngle + Math.asin(Math.min(1, padding / centre));
     // Coarse city geometry remains around the camera during rapid turns. Refine only
     // the viewed middle distance; the old cut remains until all replacements load.
-    const refine = level === 4 ? distance < 4500 : level === 2 ? distance < 2000 && inView : false;
+    // A 20% hysteresis band avoids switching whole city blocks back and forth
+    // as adaptive resolution or a moving camera crosses the pixel threshold.
+    const detailLimit = detailDistance * (detailedParents.has(id) ? 1.2 : 1);
+    const refine = level === 4 ? distance < 4500 : level === 2 ? distance < detailLimit && inView : false;
     if (!refine) { result.push(id); return; }
     const childLevel = level - 2;
     for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) visit(childLevel, i * 4 + a, j * 4 + b);

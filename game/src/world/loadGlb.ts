@@ -57,7 +57,7 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
 }
 export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
   const load = async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer;
-  const key = /\/coarse\/t0_-?\d+_-?\d+\/vis\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
+  const key = /\/coarse\/.*\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
   const buffer = key ? await visualBuffers.get(key, load) : await load();
   // The worker owns and detaches its input; keep cached originals intact across revisits.
   return parseDecodedGlb(loader, await decode(key ? buffer.slice(0) : buffer), LoaderUtils.extractUrlBase(url));

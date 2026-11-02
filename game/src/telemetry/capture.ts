@@ -2,9 +2,9 @@ import { localFeature } from '../core/localOnly';
 
 // The recorder boundary also supports the QA replay host, which exposes the same state shape as play.
 type Host = Record<string, any>;
-type Rows = Record<'frames' | 'poses' | 'loaf' | 'stats' | 'marks' | 'js', any[]>;
+type Rows = Record<'frames' | 'poses' | 'loaf' | 'stats' | 'marks' | 'js' | 'network', any[]>;
 interface SelfProfiler { stop(): Promise<unknown>; addEventListener(type: string, fn: () => void): void }
-const empty = (): Rows => ({ frames: [], poses: [], loaf: [], stats: [], marks: [], js: [] });
+const empty = (): Rows => ({ frames: [], poses: [], loaf: [], stats: [], marks: [], js: [], network: [] });
 const R = (x: number | null | undefined, d = 3) => x == null ? null : Math.round(x * 10 ** d) / 10 ** d;
 export const captureAllowed = () => !import.meta.env.VITE_PUBLIC_RELEASE && localFeature(location, 'capture');
 const KEY = 'turku3d.performanceCapture';
@@ -17,6 +17,7 @@ export class DriveCapture {
   private active = true;
   private previous = window.__render!.afterFrame;
   private observer?: PerformanceObserver;
+  private resources?: PerformanceObserver;
   private profiler?: SelfProfiler;
   private profilerStart = 0;
   private profilerTimer?: ReturnType<typeof setTimeout>;
@@ -27,7 +28,7 @@ export class DriveCapture {
   private meta: Host;
   private metaDirty = true;
   error: string | null = null;
-  private tick = () => { this.previous?.(); this.frame(); };
+  private tick = () => { this.previous?.(); if (this.active) this.frame(); };
   private hide = () => { void this.rollProfiler(false).finally(() => this.flush(true)); this.flush(true); };
   constructor(private game: Host, extra: Host = {}) {
     const r = window.__render!, s = game.state();
@@ -47,6 +48,18 @@ export class DriveCapture {
             url: s.sourceURL.split('/').slice(-3).join('/'), pos: s.sourceCharPosition, inv: s.invoker, type: s.invokerType, forced: R(s.forcedStyleAndLayoutDuration, 1) })) });
       });
       this.observer.observe({ type: 'long-animation-frame', buffered: false });
+    }
+    if (PerformanceObserver.supportedEntryTypes?.includes('resource')) {
+      this.resources = new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) {
+          const e = entry as PerformanceResourceTiming;
+          if (e.name.includes('/__capture/')) continue;
+          this.rows.network.push({ t: R(e.startTime, 1), d: R(e.duration, 1), url: e.name, type: e.initiatorType,
+            status: e.responseStatus, transfer: e.transferSize, encoded: e.encodedBodySize, decoded: e.decodedBodySize,
+            responseStart: R(e.responseStart, 1), responseEnd: R(e.responseEnd, 1) });
+        }
+      });
+      this.resources.observe({ type: 'resource', buffered: false });
     }
     this.startProfiler();
     this.timer = setInterval(() => this.flush(), 5000);
@@ -76,7 +89,7 @@ export class DriveCapture {
       this.rows.stats.push({ t: R(t, 1), heap: (performance as any).memory?.usedJSHeapSize ?? null, geometries: m.geometries, textures: m.textures,
         visModels: s.visModels, visTris: s.visTris, tilesSettled: s.tilesSettled, frameEma: R(s.frameMs, 2),
         coarse: coarse?.entries ? [...coarse.entries.values()].reduce((o: Host, e: any) => (o[e.state] = (o[e.state] ?? 0) + 1, o), {}) : null,
-        pixelRatio: r.renderer.getPixelRatio(), viewport: [innerWidth, innerHeight] });
+        pixelRatio: r.renderer.getPixelRatio(), viewport: this.meta.viewport });
     }
   }
   private startProfiler() {
@@ -135,10 +148,11 @@ export class DriveCapture {
   }
   async stop() {
     this.active = false; clearInterval(this.timer); clearTimeout(this.profilerTimer);
-    this.observer?.disconnect(); removeEventListener('pagehide', this.hide);
+    this.observer?.disconnect(); this.resources?.disconnect(); removeEventListener('pagehide', this.hide);
     if (window.__render?.afterFrame === this.tick) window.__render.afterFrame = this.previous;
     await this.rollProfiler(false); this.flush();
     while (this.sending) await new Promise(resolve => setTimeout(resolve, 25));
+    if (this.pending.length) await this.send();
     if (this.pending.length) throw Error(this.error ?? 'Capture storage failed');
   }
 }
@@ -148,11 +162,13 @@ export function captureControl(game: Host, parent: HTMLElement) {
   marker.style.cssText = 'position:fixed;right:18px;top:14px;color:#ff6868;font:600 13px monospace;z-index:10;pointer-events:none';
   marker.hidden = true; parent.append(marker);
   let recorder: DriveCapture | null = null;
+  let lastRecorder: DriveCapture | null = null;
   const control = {
     get recorder() { return recorder; },
     get on() { return !!recorder; },
+    get lastRecorder() { return lastRecorder; },
     toggle() {
-      if (recorder) { void recorder.stop().catch(console.error); recorder = null; }
+      if (recorder) { lastRecorder = recorder; void recorder.stop().catch(console.error); recorder = null; }
       else recorder = new DriveCapture(game);
       marker.hidden = !recorder;
       try { sessionStorage.setItem(KEY, recorder ? '1' : '0'); } catch {}

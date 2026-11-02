@@ -26,6 +26,10 @@ export interface Entry extends DraftFreshness {
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
   version?: number; visualHash?: string; refreshing?: boolean;
+  /** Last successfully applied manifest body and adaptive resident revalidation interval. */
+  manifestHash?: string; unchangedPolls?: number;
+  /** Immutable road payload currently installed on the map. */
+  roadsKey?: string;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
   resident?: boolean; retries?: number;
   /** Recently detached GPU-ready full visual, retained briefly for reversals. */

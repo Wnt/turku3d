@@ -1,6 +1,7 @@
 // Street graph published by pipeline/turku3d/roads (format turku3d-roadgraph v1; revision 2 adds stable ids,
 // lanes, heights, junctions, signals and crossings: docs/specs/roads-json-v2.md).
 import type { Manifest } from '../world/manifest';
+import { readStreamingJson } from '../world/streamingJson';
 
 export const FOOT = 1, CAR = 2, ONEWAY = 4;
 const CLASS_SHIFT = 3;
@@ -396,5 +397,5 @@ export async function loadRoadGraphJson(manifest: Pick<Manifest, 'roads' | 'base
   const url = new URL(manifest.roads.url, manifest.baseUrl).href;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`road graph ${url}: HTTP ${res.status}`);
-  return await res.json() as RoadGraphJson;
+  return readStreamingJson<RoadGraphJson>(res);
 }
