@@ -37,3 +37,15 @@ test('a rapid turn has a complete coarse city cut in every direction', () => {
     expect(wanted.filter(id=>sceneryContains(id,leaf))).toHaveLength(1);
   }
 });
+
+test('projected detail refines for zoom and leaves two-kilometre cells coarse', () => {
+  const pose = {...view, x:125, z:125, dx:1, dz:0, halfAngle:.8, focalPixels:600};
+  const ordinary = sceneryTiles(4000, pose);
+  const zoomed = sceneryTiles(4000, {...pose, focalPixels:2400});
+  const count = (ids: string[]) => ids.filter(id => sceneryBounds(id).level === 0).length;
+  expect(count(ordinary)).toBeLessThan(count(zoomed));
+  expect(ordinary).toContain('t2_2_0');
+  expect(ordinary).toContain('t0_0_0');
+  for (const ids of [ordinary, zoomed]) for (const a of ids) for (const b of ids)
+    if (a !== b) expect(sceneryContains(a,b)).toBe(false);
+});
