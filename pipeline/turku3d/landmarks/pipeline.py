@@ -7,7 +7,7 @@ from pathlib import Path
 
 from turku3d import config as C
 
-from . import enrichment, measure, ranking, references
+from . import asset, enrichment, measure, ranking, references
 
 
 def main():
@@ -16,17 +16,24 @@ def main():
 
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, default=C.data_root() / "research/landmarks")
-    p.add_argument("--ranked", type=Path, help="Resume an already enriched and measured city inventory")
+    p.add_argument(
+        "--ranked", type=Path, help="Resume an already enriched and measured city inventory"
+    )
     p.add_argument("--cache-root", type=Path, action="append", default=[])
     p.add_argument("--limit", type=int, default=10000)
     p.add_argument("--descriptions", type=Path, default=C.data_root() / "landmark-descriptions")
     p.add_argument("--reference-retries", type=int, default=3)
+    p.add_argument(
+        "--assets", type=Path, help="Build described landmarks from prepared survey caches"
+    )
     p.add_argument(
         "--references-only",
         action="store_true",
         help="Gather images without invoking the vision runner",
     )
     a = p.parse_args()
+    if a.assets and not a.cache_root:
+        p.error("--assets requires --cache-root with prepared survey geometry")
     a.root.mkdir(parents=True, exist_ok=True)
     ranked = a.ranked or a.root / "ranked.json"
 
@@ -76,6 +83,19 @@ def main():
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             time.sleep(min(30, max(0, deadline - time.monotonic())))
+    if a.assets:
+        run(
+            asset,
+            [
+                "--ranked",
+                ranked,
+                "--out",
+                a.assets,
+                "--descriptions",
+                a.descriptions,
+                *[v for root in a.cache_root for v in ["--cache-root", root]],
+            ],
+        )
     print(
         json.dumps(
             dict(

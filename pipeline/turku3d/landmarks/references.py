@@ -309,16 +309,27 @@ def describe(reference, directory, output, model="gpt-6-astra"):
                 validate(d, key)
                 break
             except ValueError as error:
+                if d.get("building_id") == key and (
+                    d.get("reference_match") != "verified"
+                    or d.get("reference_confidence", 0) < 0.5
+                ):
+                    # Persist the negative finding too: an older automatic
+                    # estimate must not survive newly disproved identity.
+                    publish_description(d, reference, output)
                 if attempt or d.get("reference_match") != "verified":
                     raise
                 prompt += f"\nPrevious estimate failed physical validation: {error}. Correct this without inventing unseen features. Previous estimate: {json.dumps(d)}"
+    publish_description(d, reference, output)
+    return d
+
+
+def publish_description(d, reference, output):
     d["reference_hashes"] = [r["sha256"] for r in reference["images"]]
     d["evidence_hash"] = evidence_hash(reference)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
     temporary.replace(output)
-    return d
 
 
 def evidence_hash(reference):

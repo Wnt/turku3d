@@ -200,7 +200,6 @@ def test_landmark_description_invalidates_only_its_own_tiles(tmp_path, monkeypat
     )
 
 
-
 def test_reviewed_parameters_survive_automatic_reference_refresh(tmp_path, monkeypatch):
     from turku3d import config as C
     from turku3d.landmarks import descriptions
@@ -210,17 +209,23 @@ def test_reviewed_parameters_survive_automatic_reference_refresh(tmp_path, monke
     monkeypatch.setattr(descriptions, "ROOT", reviewed)
     data = C.data_root() / "landmark-descriptions"
     data.mkdir(parents=True)
-    automatic = dict(version=1, building_id="new", reference_match="rejected", reference_confidence=0)
+    automatic = dict(
+        version=1, building_id="new", reference_match="rejected", reference_confidence=0
+    )
     (data / "new.json").write_text(json.dumps(automatic))
     assert descriptions.resolve(building("new")) is None
     automatic.update(reference_match="verified", reference_confidence=0.8, colour=[4, 5, 6])
     (data / "new.json").write_text(json.dumps(automatic))
     assert descriptions.resolve(building("new"))["colour"] == [4, 5, 6]
-    (reviewed / "new.json").write_text(json.dumps(dict(version=1, building_id="new", colour=[1, 2, 3])))
+    (reviewed / "new.json").write_text(
+        json.dumps(dict(version=1, building_id="new", colour=[1, 2, 3]))
+    )
     assert descriptions.resolve(building("new"))["colour"] == [1, 2, 3]
     override = C.work_root() / "landmark-descriptions"
     override.mkdir(parents=True)
-    (override / "new.json").write_text(json.dumps(dict(version=1, building_id="new", colour=[7, 8, 9])))
+    (override / "new.json").write_text(
+        json.dumps(dict(version=1, building_id="new", colour=[7, 8, 9]))
+    )
     assert descriptions.resolve(building("new"))["colour"] == [7, 8, 9]
 
 
@@ -279,3 +284,45 @@ def test_atlas_batches_all_pbr_maps_without_losing_geometry_or_bleeding_edges():
             x, y = (m.uvs[i * 3] * atlas.size).astype(int)
             assert atlas.getpixel((x, y)) == colour
             assert atlas.getpixel((x - 4, y - 4)) == colour
+
+
+def test_asset_batch_continues_after_one_missing_description(tmp_path, monkeypatch):
+    import pickle
+    import sys
+    from turku3d.landmarks import asset
+
+    cache = tmp_path / "cache" / ".inputs" / "t0_0_0"
+    cache.mkdir(parents=True)
+    (cache / "wfs.test.pkl").write_bytes(
+        pickle.dumps({"value": {"buildings": [building("a"), building("b")]}})
+    )
+    ranked = tmp_path / "ranked.json"
+    ranked.write_text(
+        json.dumps({"buildings": [dict(id=k, tier="landmark") for k in ("a", "b", "c")]})
+    )
+
+    def candidate(b, root, description_root):
+        if b.facade_key == "a":
+            raise ValueError("No verified description")
+        return dict(building_id=b.facade_key, sha256="built")
+
+    monkeypatch.setattr(asset, "build", candidate)
+    output = tmp_path / "assets"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "asset",
+            "--ranked",
+            str(ranked),
+            "--cache-root",
+            str(tmp_path / "cache"),
+            "--out",
+            str(output),
+        ],
+    )
+    asset.main()
+    results = {r["building_id"]: r for r in json.loads((output / "batch-results.json").read_text())}
+    assert results["a"]["state"] == "deferred"
+    assert results["b"]["sha256"] == "built"
+    assert results["c"]["error"] == "No prepared survey geometry"
