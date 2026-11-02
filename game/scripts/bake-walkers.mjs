@@ -1,10 +1,12 @@
 // Ambient walker bodies: CC0 MakeHuman outfits retargeted into the CC0 Quaternius UAL rig (scripts/lib/character-outfit.mjs),
-// simplified with meshoptimizer and baked to one vertex animation texture (VAT) for UAL Walk_Loop and Idle_Loop.
+// simplified into two LODs with meshoptimizer and baked to one vertex animation texture (VAT) for UAL Walk_Loop and Idle_Loop.
 // Usage (from game/): node scripts/bake-walkers.mjs <source-directory> <UAL.glb> <output-directory>
 // Rebuild instructions: public/assets/walkers/README.md. Runtime decoder: src/world/walkers/asset.ts.
 import fs from 'node:fs';
+import { addWalkerAccessories } from './lib/walker-accessories.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
@@ -15,30 +17,26 @@ const [sourceDir, rigFile, outputDir] = process.argv.slice(2);
 if (!sourceDir || !rigFile || !outputDir) throw new Error('usage: bake-walkers.mjs <source-dir> <UAL.glb> <output-dir>');
 
 /** Body regions; the runtime tints each one per instance (src/world/walkers/asset.ts REGION). */
-const REGION = { skin: 0, top: 1, bottom: 2, shoes: 3, hair: 4, inner: 5, legwear: 6 };
+const REGION = { skin: 0, top: 1, bottom: 2, shoes: 3, hair: 4, inner: 5, legwear: 6, eyes: 7 };
 const MATERIAL_REGION = {
   Skin: REGION.skin, Cloth_hoodie: REGION.top, Cloth_jacket: REGION.top, Cloth_shirt: REGION.inner,
+  Accessory: REGION.shoes, AccessoryTrim: REGION.inner, Cloth_tshirt: REGION.top, Cloth_shorts: REGION.bottom, Cloth_dress: REGION.top, Eye: REGION.eyes, Iris: REGION.eyes,
   Cloth_jeans: REGION.bottom, Cloth_skirt: REGION.bottom, Cloth_shoes: REGION.shoes, Cloth_boots: REGION.shoes,
 };
 const region = name => name.startsWith('Hair_') ? REGION.hair : MATERIAL_REGION[name];
-/** Eyes, teeth, tongue and brows are a few pixels at walker distances; they are dropped, not tinted. */
-const DROPPED = new Set(['Eyebrow', 'Eyelash', 'Eye', 'Iris', 'Cornea', 'Teeth', 'Tongue']);
+/** Retain eyeballs and irises; remove translucent lashes/cornea and hidden mouth interiors. */
+const DROPPED = new Set(['Eyebrow', 'Eyelash', 'Cornea', 'Teeth', 'Tongue']);
 
-const VARIANTS = [
-  { id: 'hoodie', parts: ['base_body', 'clothing_hoodie', 'clothing_jeans', 'clothing_shoes', 'hair_short02'],
-    hidden: BODY_ZONES.feet | BODY_ZONES.legs | BODY_ZONES.hoodie, morphs: [[MORPHS.male, 0.65]] },
-  { id: 'jacket', parts: ['base_body', 'clothing_shirt', 'clothing_jacket', 'clothing_jeans', 'clothing_boots', 'hair_short04'],
-    hidden: BODY_ZONES.shirt | BODY_ZONES.jacket | BODY_ZONES.legs | BODY_ZONES.boots, morphs: [[MORPHS.male, 0.9]] },
-  // Bare skin below the skirt becomes its own region (tights or skin, chosen per instance).
-  { id: 'skirt', parts: ['base_body', 'clothing_shirt', 'clothing_jacket', 'clothing_skirt', 'clothing_boots', 'hair_ponytail01'],
-    hidden: BODY_ZONES.shirt | BODY_ZONES.jacket | BODY_ZONES.hips | BODY_ZONES.boots, morphs: [[MORPHS.female, 0.75]], legwearBelow: 0.8 },
-];
+const wardrobe = JSON.parse(fs.readFileSync(new URL('../src/world/walkers/wardrobe.json', import.meta.url)));
+const VARIANTS = wardrobe.families.map(f => ({ id: f.id, accessory: f.accessory, parts: ['base_body', ...f.parts],
+  hidden: f.hidden.reduce((mask, zone) => mask | BODY_ZONES[zone], 0), morphs: [[MORPHS[f.sex], f.weight], ...(f.faceMorphs ?? [])] }));
 const CLIPS = [{ id: 'walk', name: 'Walk_Loop' }, { id: 'idle', name: 'Idle_Loop' }];
 const FPS = 30;
 /** A sole vertex this close to y = 0 (the rig's ground) touches the ground. */
 const SOLE_CONTACT = 0.02;
-/** Texture width: every variant keeps at most this many vertices, so the VAT stays under 2 MB. */
-const MAX_VERTICES = 720;
+/** Texture width: every near mesh keeps at most this many vertices; all 96 recipes share twelve VAT families. */
+const MAX_VERTICES = 2800;
+const FAR_TRIANGLES = 650;
 /** Spherical Fibonacci normal directions; indices up to 2048 are exact in half floats. */
 const NORMAL_DIRECTIONS = 2048;
 const GOLDEN_FRACTION = Math.fround(0.3819660112501051); // 2 - golden ratio; the shader uses the same f32 constant
@@ -65,7 +63,7 @@ function encodeNormal(x, y, z) {
 
 /** One merged, welded, simplified body: bind positions/normals, joints/weights and a region per vertex. */
 function collectBody(doc, legwearBelow = 0) {
-  const position = [], normal = [], joints = [], weights = [], regions = [], indices = [];
+  const position = [], normal = [], joints = [], weights = [], regions = [], indices = [], uvs = [];
   const weld = new Map();
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
@@ -76,18 +74,24 @@ function collectBody(doc, legwearBelow = 0) {
       const material = region(name);
       if (material === undefined) throw new Error(`walker bake: no region for material ${name}`);
       const pos = primitive.getAttribute('POSITION'), norm = primitive.getAttribute('NORMAL');
+      const texcoord = primitive.getAttribute('TEXCOORD_0');
+      const tile = atlasTile(primitive.getMaterial());
       const ids = primitive.getAttribute('JOINTS_0'), w = primitive.getAttribute('WEIGHTS_0');
       const remap = new Uint32Array(pos.getCount());
       for (let i = 0; i < pos.getCount(); i++) {
         const p = pos.getElement(i, []);
         const r = material === REGION.skin && p[1] < legwearBelow ? REGION.legwear : material;
         // UV seams duplicate vertices; without UVs they are one vertex of their region.
-        const key = `${r}:${p.map(v => Math.round(v * 1e5)).join(',')}`;
+        const uv = texcoord ? texcoord.getElement(i, []) : [0.5, 0.5];
+        const key = `${r}:${tile}:${uv.map(v => Math.round(v * 1e5)).join(',')}:${p.map(v => Math.round(v * 1e5)).join(',')}`;
         let k = weld.get(key);
         if (k === undefined) {
           k = regions.length; weld.set(key, k);
           position.push(...p); normal.push(...norm.getElement(i, [])); joints.push(...ids.getElement(i, []));
           weights.push(...w.getElement(i, [])); regions.push(r);
+          // The atlas has a four-pixel extruded gutter; keep bilinear/mipmap sampling inside its cell.
+          uvs.push(((tile % ATLAS_COLUMNS) + (4 + uv[0] * 504) / 512) / ATLAS_COLUMNS,
+            (Math.floor(tile / ATLAS_COLUMNS) + (4 + uv[1] * 504) / 512) / ATLAS_ROWS);
         }
         remap[i] = k;
       }
@@ -95,7 +99,7 @@ function collectBody(doc, legwearBelow = 0) {
     }
   }
   return { position: new Float32Array(position), normal: new Float32Array(normal), joints: new Uint16Array(joints),
-    weights: new Float32Array(weights), regions: new Uint8Array(regions), indices: new Uint32Array(indices) };
+    weights: new Float32Array(weights), regions: new Uint8Array(regions), uvs: new Float32Array(uvs), indices: new Uint32Array(indices) };
 }
 
 /** Simplify to the largest triangle count whose compacted mesh fits MAX_VERTICES. */
@@ -139,6 +143,10 @@ function poseAt(clip, t) {
 /** Skinned positions and normals of the kept vertices for every frame of `clip`. */
 function bakeClip(doc, body, keep, clip) {
   const root = doc.getRoot(), skin = root.listSkins()[0], jointNodes = skin.listJoints();
+  // UAL's tightly clenched fingers over-fold the retargeted MakeHuman hands. Keep the shared arm/gait tracks,
+  // but use a relaxed 30% finger curl for civilian walking and standing.
+  const fingers = jointNodes.filter(n => /^DEF-(f_|thumb)/.test(n.getName()))
+    .map(node => ({ node, rest: new Quaternion().fromArray(node.getRotation()) }));
   const ibm = skin.getInverseBindMatrices();
   const inverseBind = jointNodes.map((_, j) => new Matrix4().fromArray(ibm.getElement(j, [])));
   const duration = Math.max(...clip.listSamplers().map(s => { const t = s.getInput().getArray(); return t[t.length - 1]; }));
@@ -147,6 +155,7 @@ function bakeClip(doc, body, keep, clip) {
   const result = [], matrices = jointNodes.map(() => new Matrix4()), p = new Vector3(), n = new Vector3(), acc = new Vector3(), accN = new Vector3();
   for (let f = 0; f < frames; f++) {
     poseAt(clip, f / FPS);
+    for (const { node, rest } of fingers) node.setRotation(rest.clone().slerp(new Quaternion().fromArray(node.getRotation()), 0.30).toArray());
     jointNodes.forEach((joint, j) => matrices[j].fromArray(joint.getWorldMatrix()).multiply(inverseBind[j]));
     const frame = new Float32Array(keep.length * 6);
     keep.forEach((v, i) => {
@@ -166,6 +175,23 @@ function bakeClip(doc, body, keep, clip) {
   return { frames: result };
 }
 
+const ATLAS_COLUMNS = 5, ATLAS_ROWS = 4;
+const atlasEntries = [];
+fs.mkdirSync(outputDir, { recursive: true });
+const atlasDir = path.join(sourceDir, 'atlas');
+fs.mkdirSync(atlasDir, { recursive: true });
+function atlasTile(material) {
+  const tex = material.getBaseColorTexture();
+  const key = tex ? createHash('sha256').update(tex.getImage()).digest('hex') : 'white';
+  let tile = atlasEntries.findIndex(e => e.key === key);
+  if (tile >= 0) return tile;
+  tile = atlasEntries.length;
+  if (tile >= ATLAS_COLUMNS * ATLAS_ROWS) throw new Error('walker atlas capacity exceeded');
+  const file = path.join(atlasDir, `${tile}.${tex?.getMimeType() === 'image/jpeg' ? 'jpg' : 'png'}`);
+  if (tex) fs.writeFileSync(file, tex.getImage());
+  atlasEntries.push({ key, file: tex ? file : null, name: material.getName(), tile });
+  return tile;
+}
 const variants = [], rows = [], provenance = new Map();
 let width = 0;
 for (const spec of VARIANTS) {
@@ -173,8 +199,11 @@ for (const spec of VARIANTS) {
   const rest = new Map(doc.getRoot().listNodes().map(node => [node, [node.getTranslation(), node.getRotation(), node.getScale()]]));
   const { sources } = await addOutfit(io, doc, { sourceDir, parts: spec.parts, hidden: spec.hidden, morphs: spec.morphs });
   for (const s of sources) provenance.set(s.file, s.sha256);
+  addWalkerAccessories(doc, spec);
   const body = collectBody(doc, spec.legwearBelow);
   const { order, indices } = simplifyBody(body);
+  const compactPositions = Float32Array.from(order.flatMap(v => Array.from(body.position.subarray(v * 3, v * 3 + 3))));
+  const [farIndices] = MeshoptSimplifier.simplify(indices, compactPositions, 3, FAR_TRIANGLES * 3, 1);
   width = Math.max(width, order.length);
   const clips = [], rowBase = rows.length;
   let metresPerLoop = 0;
@@ -184,16 +213,30 @@ for (const spec of VARIANTS) {
     for (const [node, [t, r, s]] of rest) node.setTranslation(t).setRotation(r).setScale(s);
     const baked = bakeClip(doc, body, order, clip);
     if (c.id === 'walk') {
-      // The in-place loop slides each planted sole backwards at the ground speed it was authored for: the median
-      // speed of shoe vertices touching the ground (the ankle joint understates it while the foot rolls).
-      const shoes = order.flatMap((v, i) => body.regions[v] === REGION.shoes ? [i] : []), frames = baked.frames, speeds = [];
-      frames.forEach((a, f) => {
-        const b = frames[(f + 1) % frames.length];
-        for (const i of shoes) if (a[6 * i + 1] < SOLE_CONTACT && b[6 * i + 1] < SOLE_CONTACT) speeds.push((a[6 * i + 2] - b[6 * i + 2]) * FPS);
-      });
-      if (!speeds.length) throw new Error('walker bake: no stance frames in the walk clip');
-      speeds.sort((x, y) => x - y);
-      metresPerLoop = speeds[speeds.length >> 1] * frames.length / FPS;
+      // Measure the rendered (half-float, interpolated) stance, not only authored frame boundaries.
+      // Shoe roll gives several velocity clusters; choose the narrowest relative interval containing half
+      // the planted samples. The ordinary median can sit between heel/toe clusters and make both slide.
+      const shoes = order.flatMap((v, i) => body.regions[v] === REGION.shoes ? [i] : []), frames = baked.frames;
+      const half = value => DataUtils.fromHalfFloat(DataUtils.toHalfFloat(value));
+      const at = (i, phase) => {
+        const f = phase * frames.length, a = Math.floor(f) % frames.length, b = (a + 1) % frames.length, t = f - Math.floor(f);
+        return [1, 2].map(k => half(frames[a][6 * i + k]) * (1 - t) + half(frames[b][6 * i + k]) * t);
+      };
+      const samples = 240, strides = [];
+      for (const i of shoes) for (let k = 0; k < samples; k++) {
+        const a = at(i, k / samples), b = at(i, ((k + 1) / samples) % 1);
+        if (a[0] < SOLE_CONTACT && b[0] < SOLE_CONTACT) strides.push((a[1] - b[1]) * samples);
+      }
+      if (!strides.length) throw new Error('walker bake: no stance frames in the walk clip');
+      strides.sort((a, b) => a - b);
+      const span = Math.floor(strides.length / 2);
+      let best = Infinity;
+      for (let i = 0; i + span < strides.length; i++) {
+        const lo = strides[i], hi = strides[i + span], mid = (lo + hi) / 2;
+        if (mid <= 0) continue;
+        const error = (hi - lo) / (hi + lo);
+        if (error < best) { best = error; metresPerLoop = mid; }
+      }
     }
     clips.push({ id: c.id, clip: c.name, row: rows.length - rowBase, frames: baked.frames.length, fps: FPS });
     rows.push(...baked.frames);
@@ -204,7 +247,7 @@ for (const spec of VARIANTS) {
   const regionCounts = Object.fromEntries(Object.entries(REGION).map(([name, r]) => [name, order.filter(v => body.regions[v] === r).length]));
   variants.push({ id: spec.id, parts: spec.parts, morphs: spec.morphs, vertices: order.length, triangles: indices.length / 3,
     sourceTriangles: body.indices.length / 3, rowBase, clips, height: Number(height.toFixed(3)), metresPerLoop: Number(metresPerLoop.toFixed(3)),
-    regions: regionCounts, indices, vertexRegions: Uint8Array.from(order, v => body.regions[v]) });
+    regions: regionCounts, indices, farIndices, uv: Float32Array.from(order.flatMap(v => Array.from(body.uvs.subarray(v * 2, v * 2 + 2)))), vertexRegions: Uint8Array.from(order, v => body.regions[v]) });
 }
 
 // RGBA16F: xyz = model-space position (metres, +Z forward, feet at y = 0), w = normal direction index.
@@ -223,16 +266,16 @@ const sections = [];
 let offset = 0;
 const add = (array) => { const at = offset; sections.push(array); offset += array.byteLength; offset += (4 - offset % 4) % 4; return { offset: at, length: array.length }; };
 const meta = {
-  format: 'turku3d-walkers', version: 1, fps: FPS,
+  format: 'turku3d-walkers', version: 2, fps: FPS, atlas: 'wardrobe.png',
   vat: { width, height: rows.length, format: 'rgba16float', normal: { encoding: 'spherical-fibonacci', directions: NORMAL_DIRECTIONS }, ...add(vat) },
   regions: Object.keys(REGION),
   variants: variants.map(v => ({ id: v.id, vertices: v.vertices, triangles: v.triangles, sourceTriangles: v.sourceTriangles,
     rowBase: v.rowBase, clips: v.clips, height: v.height, metresPerLoop: v.metresPerLoop, regionVertices: v.regions,
-    indices: add(Uint16Array.from(v.indices)), regionsOffset: add(v.vertexRegions) })),
+    indices: add(Uint16Array.from(v.indices)), farIndices: add(Uint16Array.from(v.farIndices)), uv: add(v.uv), regionsOffset: add(v.vertexRegions) })),
 };
 let json = Buffer.from(JSON.stringify(meta));
 json = Buffer.concat([json, Buffer.alloc((4 - json.length % 4) % 4, 0x20)]);
-const header = new Uint32Array([0x4b4c5754, 1, json.length]);
+const header = new Uint32Array([0x4b4c5754, 2, json.length]);
 const body = Buffer.alloc(offset);
 let at = 0;
 for (const s of sections) { Buffer.from(s.buffer, s.byteOffset, s.byteLength).copy(body, at); at += s.byteLength; at += (4 - at % 4) % 4; }
@@ -248,5 +291,8 @@ const report = {
   rig: { file: path.basename(rigFile), sha256: createHash('sha256').update(fs.readFileSync(rigFile)).digest('hex') },
   sources: [...provenance].sort().map(([f, h]) => ({ file: f, sha256: h })),
 };
+fs.writeFileSync(path.join(atlasDir, 'atlas.json'), JSON.stringify({ columns: ATLAS_COLUMNS, rows: ATLAS_ROWS, entries: atlasEntries }));
+execFileSync('python3', [new URL('./lib/walker-atlas.py', import.meta.url).pathname, path.join(atlasDir, 'atlas.json'), path.join(outputDir, 'wardrobe.png')]);
+report.atlas = { file: 'wardrobe.png', sha256: createHash('sha256').update(fs.readFileSync(path.join(outputDir, 'wardrobe.png'))).digest('hex'), sources: atlasEntries.map(({key,name})=>({sha256:key,material:name})) };
 fs.writeFileSync(path.join(outputDir, 'PROVENANCE.json'), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));

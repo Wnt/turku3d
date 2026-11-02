@@ -34,3 +34,16 @@ test('a failed farm build is surfaced without accepting a stale fallback', async
   await assert.rejects(waitForTileManifest('http://local/tile', 't0_0_0', 1000,
     async () => new Response('{}', { status: 422 })), /HTTP 422/);
 });
+
+
+test('complete stale farm fallback waits for the requested revision before capture', async () => {
+  const full = { pass_kind: 'full', visual: { t0_0_0: { sha256: 'new' } }, revision: 'current' };
+  const fallback = { ...full, stale: true, revision: 'older', requested_revision: 'current',
+    visual: { t0_0_0: { sha256: 'old' } } };
+  const replies = [new Response(JSON.stringify(fallback)), new Response(JSON.stringify(full))];
+  let waits = 0;
+  const result = await waitForTileManifest('http://local/tile', 't0_0_0', 1000,
+    async () => replies.shift(), async () => { waits++; });
+  assert.equal(result.visual.t0_0_0.sha256, 'new');
+  assert.equal(waits, 1);
+});
