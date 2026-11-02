@@ -55,7 +55,7 @@ export class Atmosphere {
       const field = texture(this.map, uv).toVar();
       const detail = texture(this.map, plane.mul(0.18 * 2.7).add(this.detailWind));
       const shape = field.r.mul(0.72).add(detail.r.mul(0.28)).toVar();
-      const threshold = float(0.79).sub(this.coverage.mul(0.55));
+      const threshold = float(0.834).sub(this.coverage.mul(0.55));
       const body = smoothstep(threshold, threshold.add(0.12), shape).toVar();
       const horizonFade = smoothstep(0.005, 0.13, view.y);
       const alpha = body.mul(this.density).mul(horizonFade).clamp(0, 0.96).toVar();
