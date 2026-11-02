@@ -33,7 +33,9 @@ export interface VehicleTuning {
   driven: readonly number[];
   topSpeed: number;
   reverseSpeed: number;
-  engineForce: number; // N per driven wheel
+  engineForce: number; // N per driven wheel before axle torque distribution
+  /** Maximum mechanical power delivered to all driven tyres (W). */
+  enginePower: number;
   brakeForce: number;
   maxSteer: number;
   /** Speed (m/s) at which the steering lock has fallen to half. */
@@ -70,6 +72,7 @@ export const CAR = {
   topSpeed: 27,
   reverseSpeed: 8,
   engineForce: 3200,
+  enginePower: 145000,
   brakeForce: 100,
   maxSteer: 0.55,
   steerHalfSpeed: 10,
@@ -101,6 +104,7 @@ export const SCOOTER = {
   topSpeed: 13.8,
   reverseSpeed: 2,
   engineForce: 600,
+  enginePower: 6000,
   brakeForce: 5,
   maxSteer: 0.7,
   steerHalfSpeed: 6,
@@ -116,8 +120,8 @@ export const SCOOTER = {
 } as const satisfies VehicleTuning;
 
 /** Trophy truck / prerunner: a heavy 4WD with big tyres on long-travel suspension (soft springs, strong damping,
- *  25 cm either way), high ride height and a 120 km/h top speed. The centre of mass sits low in the frame (engine,
- *  fuel cell and spare tyre) so the 1.9 m track does not roll over in a hard turn. */
+ *  36 cm either way), high ride height and a 120 km/h top speed. The centre of mass sits low in the frame (engine,
+ *  fuel cell and spare tyre) so the 2.3 m track does not roll over in a hard turn. */
 export const TRUCK = {
   halfExt: { x: 2.35, y: 0.4, z: 1.0 },
   mass: 2400,
@@ -130,9 +134,10 @@ export const TRUCK = {
   ],
   steered: [0, 1],
   driven: [0, 1, 2, 3],
-  topSpeed: 37.5,
+  topSpeed: 35.6,
   reverseSpeed: 9,
-  engineForce: 3700,
+  engineForce: 6500,
+  enginePower: 650000,
   brakeForce: 150,
   maxSteer: 0.5,
   steerHalfSpeed: 12,

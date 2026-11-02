@@ -34,13 +34,23 @@ export class WalkerMaterial extends THREE.MeshStandardNodeMaterial {
         select(region.lessThan(2.5), unpack(look.z),
           select(region.lessThan(3.5), unpack(trim.x),
             select(region.lessThan(4.5), unpack(look.w),
-              select(region.lessThan(5.5), unpack(trim.y), select(region.lessThan(6.5), unpack(trim.z), vec3(1))))))));
+              select(region.lessThan(5.5), unpack(trim.y), select(region.lessThan(6.5), unpack(trim.z), select(region.lessThan(7.5), vec3(1), vec3(0.075, 0.1, 0.075)))))))));
     this.colorNode = varying(tint, 'walkerTint');
     if (albedo) {
       const texel = texture(albedo);
       const gain = select(region.lessThan(0.5), float(1.6129), select(region.lessThan(6.5), float(2), float(1)));
-      this.colorNode = this.colorNode.mul(texel.rgb).mul(varying(gain));
-      this.opacityNode = texel.a;
+      const isHair = region.greaterThan(3.5).and(region.lessThan(4.5));
+      const isCloth = region.greaterThan(0.5).and(region.lessThan(6)).and(isHair.not());
+      const isShoes = region.greaterThan(2.5).and(region.lessThan(3.5));
+      const sole = float(1).sub(smoothstep(0.035, 0.065, varying(attribute('position', 'vec3').y)));
+      const secondary = select(isShoes, vec3(0.67, 0.65, 0.60), unpack(trim.y));
+      const opaqueTrim = texel.a.sub(128 / 255).mul(255 / 127).clamp(0, 1);
+      const trimWeight = select(isShoes, max(opaqueTrim, sole.mul(0.85)), opaqueTrim);
+      const colour = mix(this.colorNode, secondary, select(isCloth, trimWeight, float(0)));
+      this.colorNode = colour.mul(texel.rgb).mul(varying(gain));
+      this.opacityNode = select(isHair, texel.a, float(1));
+      this.roughnessNode = varying(select(region.lessThan(0.5), float(0.68),
+        select(isShoes, float(0.64), select(region.greaterThan(6.5), float(0.32), float(0.86)))));
       this.alphaTest = 0.35;
     }
   }

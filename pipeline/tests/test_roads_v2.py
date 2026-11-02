@@ -188,6 +188,7 @@ def test_rule_paint_follows_lanes_crossings_and_signals():
     items = road_paint.markings(b)
     kinds = road_paint.summary(items)
     assert kinds["centre"]["polygons"] > 0  # two-way tertiary main street
+    assert all(rgb == road_paint.WHITE for _, rgb, _, kind in items if kind == "centre")
     assert kinds["stop"]["polygons"] == 1  # signal stop position, forward lanes only
     assert "crosswalk" not in kinds  # the only crossing in t0_1_0 is unmarked
     a = road_paint.summary(road_paint.markings(tile_graph(TILE_A)))
@@ -291,7 +292,7 @@ def test_real_tiles_agree_on_shared_edges(monkeypatch):
 
 
 def test_paint_colours_survive_the_layer_round_trip(tmp_path):
-    """Yellow centre lines live in COLOR_0 of the one paint mesh; wall assembly re-reads layers."""
+    """Explicit paint colours survive COLOR_0 and layer reassembly."""
     import numpy as np
     from turku3d.layers import write_visual
     from turku3d.package.gltf import GlbMesh

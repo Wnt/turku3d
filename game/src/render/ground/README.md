@@ -52,7 +52,7 @@ Road paint is separate vector geometry, not baked into the library. W1-04 must i
 normals. Never drape paint over buildings or across water. The current extractor emits crossings
 only when OSM provides line geometry and clips to city carriageway polygons.
 
-Draft tiles add rule paint from their roads.json v2 (`pipeline/turku3d/roads/paint.py`, phase G3): yellow
+Draft tiles add rule paint from their roads.json v2 (`pipeline/turku3d/roads/paint.py`, phase G3): white
 dashed centre lines on two-way major and tertiary streets (and residential streets tagged with two or
 more lanes), white lane lines between same-direction lanes, white edge lines on 60+ km/h roads, zebras at
 OSM crossing points (not `crossing:markings=no`/`unmarked`, not where an OSM crossing way already
@@ -60,7 +60,7 @@ paints one) and stop lines at signal stop positions, set back before zebras. Lin
 setbacks and at zebras; no paint on unpaved, living-street, pedestrian or tunnel edges. Dash phases
 follow the logical edge so whole edges continue across tile seams. All paint stays one `ground_paint`
 mesh per tile (`layer: markings`, `material_key: road_paint`, 8 mm lift): COLOR_0 multiplies the shared
-off-white, giving the Finnish centre-line yellow without another draw. Paint for a bridge edge lies on
+off-white, preserving per-marking colour without another draw. Paint for a bridge edge lies on
 the built draft deck (its height profile + 12 mm, clipped to the tile; the bridge builder no longer paints
 its own lane dashes); ground paint never lands on deck triangles. Paint receives shadows and casts none.
 
