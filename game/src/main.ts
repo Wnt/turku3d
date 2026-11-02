@@ -41,6 +41,8 @@ import { startPlay, type PlayWorld } from './play';
 import { worldLoad } from './world/loadProgress';
 import { retireAfterFrame, frameSubmitted } from './render/retirement';
 import { CameraBench, benchPose } from './qa/bench';
+import { FrameClock } from './core/frameClock';
+import { ScenePopulation } from './world/scenePopulation';
 
 declare global {
   interface Window {
@@ -112,7 +114,8 @@ const env = new Environment(scene, renderer, params.quality);
 /** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
 const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params.hour }
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
-const dayClock = new DayClock(env, clockMode, !params.qa);
+const clock = new FrameClock(params.time.getTime());
+const dayClock = new DayClock(env, clockMode, !params.qa, () => params.qa ? clock.utcMs : Date.now());
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
 window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
@@ -230,7 +233,6 @@ addEventListener('resize', () => {
 // Test clock: rendered frames and simulated seconds (60 Hz physics steps in play mode, frame time clamped like the
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
-const clock = { frames: 0, simSeconds: 0 };
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
   lights, vegetation };
 
@@ -316,13 +318,26 @@ async function runQa() {
   document.body.classList.add('qa');
   applyQaCamera();
   // Fixed cameras need the same validated world geometry, but no simulation worker or Rapier startup.
-  const coarse = await draftVisuals(draftManifest(location.href), {
+  const qaManifest = draftManifest(location.href);
+  const coarse = await draftVisuals(qaManifest, {
     unloadCollision: () => {}, refreshCollision: () => {},
     checkCollision: async buffer => {
       const col = await readCol(buffer);
       if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
     },
   });
+  const population = !idPass && ((params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
+    ? new ScenePopulation(scene, coarse, camera, qaManifest, { quality: params.quality, traffic: params.traffic,
+      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
+  if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
+  window.__game!.population = population;
+  window.__game!.replay = {
+    reset: async ({ epochMs, seed = 20261102 }: { epochMs: number; seed?: number }) => {
+      clock.reset(epochMs); await population?.prepare(epochMs, seed);
+    },
+    seek: (seconds: number) => clock.seek(seconds),
+    snapshot: () => ({ seconds: clock.simSeconds, epochMs: clock.epochMs, population: population?.snapshot() }),
+  };
   window.__qaPose = { E: q.E, N: q.N, H: q.H, yaw: q.yawDeg, pitch: q.pitchDeg, roll: q.rollDeg, fov: q.fovDeg };
   window.__qaProject = (E: number, N: number, H: number) => {
     const p = enToEngine(E, N, H);
@@ -416,15 +431,13 @@ async function runQa() {
         yaw: pose.qa.yawDeg, pitch: pose.qa.pitchDeg, fov: pose.qa.fovDeg });
     } } : {}),
   };
-  let last = t0;
   renderer.setAnimationLoop(() => {
     if (window.__render?.beforeFrame?.() === false) return;
     const now = performance.now();
-    clock.frames++;
-    clock.simSeconds += Math.min(0.1, (now - last) / 1000); // the play loop's dt clamp
-    last = now;
+    clock.tick(now);
     perf.begin();
     coarse.update(camera.position.x, camera.position.z);
+    population?.update(clock.simSeconds);
     renderFrame();
     perf.end();
     window.__render?.afterFrame?.();
