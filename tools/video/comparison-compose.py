@@ -11,7 +11,7 @@ out=Path(a.out);c=json.loads(Path(a.shots).read_text());edit=out/'edit';edit.mkd
 stamp=datetime.now();date_label=stamp.strftime('%d %b %Y').upper();date_long=stamp.strftime('%d %B %Y')
 font='/System/Library/Fonts/Supplemental/Arial.ttf';bold='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
 def run(args):subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y',*map(str,args)],check=True)
-def encode():return ['-an','-c:v','libx264','-crf','16','-preset','fast','-threads','3','-pix_fmt','yuv420p','-r',fps,'-video_track_timescale',15360]
+def encode():return ['-an','-c:v','libx264','-crf','14','-preset','fast','-threads','3','-pix_fmt','yuv420p','-r',fps,'-video_track_timescale',15360]
 def text(d,xy,s,size=30,fill='#f4f5f4',heavy=False):d.text(xy,s,font=ImageFont.truetype(bold if heavy else font,size),fill=fill)
 def overlay(shot):
  im=Image.new('RGBA',(W,H));d=ImageDraw.Draw(im)

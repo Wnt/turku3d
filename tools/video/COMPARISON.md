@@ -51,7 +51,7 @@ labels, divider, title/end cards and credits are added only during editing.
 The film uses 15 × 4-second segments, 2.8/3.6-second title/end cards, and sixteen
 0.4-second crossfades (60 seconds total). Composition adds restrained grading,
 varied transitions and an original local synthesized ambient score. No external
-recordings, photographs or samples are used. H.264 intermediates use CRF 16.
+recordings, photographs or samples are used. H.264 capture intermediates use CRF 12; the edit uses CRF 14.
 
 Outputs: `turku3d-before-after.mp4`, `contact-sheet.jpg`, `review.json`, build and
 tile receipts, `preview/`, `clips/`, and `edit/`. Inspect the contact sheet before
