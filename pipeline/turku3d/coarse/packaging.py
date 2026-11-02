@@ -97,7 +97,14 @@ def producer_paths():
             Path(C.__file__),
             *[
                 Path(__file__).parents[1] / "landmarks" / name
-                for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py")
+                for name in (
+                    "appearance.py",
+                    "atlas.py",
+                    "descriptions.py",
+                    "layout.py",
+                    "procedural.py",
+                    "relief.py",
+                )
             ],
             Path(__file__).parents[1] / "layers.py",
             Path(__file__).parents[1] / "facade_assets.py",

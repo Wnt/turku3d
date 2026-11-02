@@ -111,8 +111,6 @@ def inventory(paths, enrichment=None):
             if g.area > 0:
                 evidence["compactness"] = 4 * math.pi * g.area / g.length**2
             result = rank(tags, evidence)
-            if result["tier"] == "ordinary":
-                continue
             p = g.representative_point()
             records[key] = dict(
                 id=key,

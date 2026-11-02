@@ -20,7 +20,20 @@ def merge(meshes, **changes):
         indices=np.concatenate(
             [m.indices + offset for m, offset in zip(meshes, offsets, strict=True)]
         ),
-        uvs=np.concatenate([m.uvs for m in meshes]),
+        uvs=np.concatenate([m.uvs for m in meshes]) if meshes[0].uvs is not None else None,
+        extras={
+            **meshes[0].extras,
+            "parts": [
+                dict(
+                    object_id=m.extras.get("object_id", m.name),
+                    index_start=int(start),
+                    index_count=len(m.indices) * 3,
+                )
+                for m, start in zip(
+                    meshes, np.cumsum([0, *[len(m.indices) * 3 for m in meshes[:-1]]]), strict=True
+                )
+            ],
+        },
         **changes,
     )
 
@@ -53,7 +66,7 @@ def batch(meshes, size=2048, padding=8):
             faces.append((mesh, maps))
     result = [merge(group) for group in repeated.values()]
     pages = []
-    for mesh, maps in sorted(faces, key=lambda item: item[1][0].height, reverse=True):
+    for mesh, maps in sorted(faces, key=lambda item: (-item[1][0].height, item[0].name)):
         w, h = maps[0].size
         packed_w, packed_h = w + 2 * padding, h + 2 * padding
         placed = False

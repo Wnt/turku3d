@@ -9,15 +9,20 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import time
 import urllib.parse
 from pathlib import Path
 
 import requests
 
 AGENT = "Turku3D-landmark-research/1.0 (architectural parameter estimation; local research)"
+_NEXT_REQUEST = 0
 
 
 def get_json(url, params=None):
+    global _NEXT_REQUEST
+    time.sleep(max(0, _NEXT_REQUEST - time.monotonic()))
+    _NEXT_REQUEST = time.monotonic() + 2
     r = requests.get(url, params=params, headers={"User-Agent": AGENT}, timeout=40)
     r.raise_for_status()
     return r.json()
@@ -276,19 +281,19 @@ def main():
     a = p.parse_args()
     rows = json.loads(a.ranked.read_text())["buildings"]
     done = []
-    for r in [r for r in rows if r["tier"] == "landmark" and (not a.id or r["id"] in a.id)][
+    queue = [r for r in rows if r["tier"] == "landmark" and (not a.id or r["id"] in a.id)][
         : a.limit
-    ]:
+    ]
+    for index, r in enumerate(queue):
         try:
             ref = gather(r, a.root)
             key = ref["building_id"]
             directory = a.root / r["id"].replace("/", "_")
             target = a.descriptions / (key.replace("/", "_") + ".json")
             existing = json.loads(target.read_text()) if target.exists() else {}
-            current = (
-                existing.get("reference_match") == "verified"
-                and existing.get("reference_hashes") == [r["sha256"] for r in ref["images"]]
-            )
+            current = existing.get("reference_match") == "verified" and existing.get(
+                "reference_hashes"
+            ) == [r["sha256"] for r in ref["images"]]
             if a.describe and not current:
                 describe(ref, directory, target)
             result = dict(
@@ -298,6 +303,24 @@ def main():
             )
         except Exception as error:
             result = dict(id=r["id"], error=str(error))
+            if isinstance(error, requests.HTTPError) and error.response.status_code == 429:
+                retry = error.response.headers.get("Retry-After", "120")
+                result["retry_after"] = retry
+                done.extend(
+                    [
+                        result,
+                        *[
+                            dict(
+                                id=item["id"],
+                                error="deferred: Commons rate limit",
+                                retry_after=retry,
+                            )
+                            for item in queue[index + 1 :]
+                        ],
+                    ]
+                )
+                print(json.dumps(result), flush=True)
+                break
         done.append(result)
         print(json.dumps(result), flush=True)
     (a.root / "pipeline-results.json").write_text(json.dumps(done, indent=2) + "\n")

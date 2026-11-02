@@ -17,6 +17,7 @@ def main():
     p.add_argument("--root", type=Path, default=C.data_root() / "research/landmarks")
     p.add_argument("--cache-root", type=Path, action="append", default=[])
     p.add_argument("--limit", type=int, default=10000)
+    p.add_argument("--descriptions", type=Path, default=C.data_root() / "landmark-descriptions")
     p.add_argument(
         "--references-only",
         action="store_true",
@@ -45,6 +46,8 @@ def main():
             a.root,
             "--limit",
             a.limit,
+            "--descriptions",
+            a.descriptions,
             *([] if a.references_only else ["--describe"]),
         ],
     )

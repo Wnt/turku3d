@@ -31,7 +31,8 @@ def test_cathedral_glb_has_physical_maps_and_height_aligned_uv():
     meshes = wall_meshes(b, wall, np.zeros(3))
     m = meshes[0]
     assert m.extras["landmark_tower"]
-    assert np.allclose(m.uvs, [[0, 1], [1, 1], [1, 0], [0, 0]])
+    assert np.all((m.uvs >= 0) & (m.uvs <= 1))
+    assert m.positions[:, 2].max() > 0.2
     data = build_glb(meshes)
     size = struct.unpack_from("<I", data, 12)[0]
     doc = json.loads(data[20 : 20 + size])
@@ -42,11 +43,60 @@ def test_cathedral_glb_has_physical_maps_and_height_aligned_uv():
     assert np.isfinite(m.positions).all()
 
 
+def test_opening_is_cut_from_front_wall_and_closed_by_recess():
+    import shapely
+    from turku3d.landmarks.relief import apply
+    from turku3d.package.gltf import GlbMesh
+
+    d = dict(
+        windows=dict(
+            type="gothic-lancet", width_m=2, height_m=4, spacing_m=5, sill_m=2, mullions=1
+        ),
+        trim_colour=[210, 204, 181],
+    )
+    mesh = GlbMesh(
+        "wall",
+        np.array([[0, 0, 0], [5, 0, 0], [5, 8, 0], [0, 8, 0]], float),
+        np.array([[0, 3, 2], [0, 2, 1]]),
+        uvs=np.array([[0, 1], [1, 1], [1, 0], [0, 0]]),
+    )
+    wall, reveals = apply(mesh, 0, d, False)
+    triangles = wall.positions[wall.indices]
+    front = triangles[np.all(np.abs(triangles[:, :, 2]) < 1e-8, axis=1)]
+    inset = triangles[np.all(triangles[:, :, 2] > 0.3, axis=1)]
+    sample = shapely.Point(2.5, 3)
+    assert not shapely.union_all(shapely.polygons(front[:, :, :2])).covers(sample)
+    assert shapely.union_all(shapely.polygons(inset[:, :, :2])).covers(sample)
+    assert reveals is not None and len(reveals.indices) > 20
+    assert np.isfinite(reveals.positions).all()
+
+
 def test_roof_triangle_projection_has_no_degenerate_spire_uv():
     b = building()
     p = np.array([[0, 65, 0], [4, 65, 0], [2, 90, 2]], float)
     mesh = roof_mesh(b, p, np.array([[0, 1, 2]]), np.zeros(3))
     assert np.linalg.det(np.stack([mesh.uvs[1] - mesh.uvs[0], mesh.uvs[2] - mesh.uvs[0]])) > 1
+
+
+def test_coplanar_roof_triangles_keep_continuous_seams():
+    p = np.array([[0, 10, 0], [4, 10, 0], [4, 15, 4], [0, 15, 4]], float)
+    mesh = roof_mesh(building(), p, np.array([[0, 1, 2], [0, 2, 3]]), np.zeros(3))
+    assert np.allclose(mesh.uvs[0], mesh.uvs[3])
+    assert np.allclose(mesh.uvs[2], mesh.uvs[4])
+
+
+def test_mixed_wall_material_mask_preserves_masonry_and_metal():
+    import io
+
+    from PIL import Image
+    from turku3d.landmarks.procedural import maps
+
+    metal = np.zeros((8, 8))
+    metal[:4] = 1
+    _, _, orm = maps(np.full((8, 8, 3), 100), np.zeros((8, 8)), 1, 1, metal=metal)
+    data = np.asarray(Image.open(io.BytesIO(orm)))
+    assert np.all(data[:4, :, 2] > 0) and np.all(data[4:, :, 2] == 0)
+    assert data[0, 0, 1] < data[7, 0, 1]
 
 
 def test_ranking_promotes_evidence_and_reports_unknowns():

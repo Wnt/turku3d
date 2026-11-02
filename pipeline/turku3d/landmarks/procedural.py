@@ -12,6 +12,8 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .layout import openings
+
 
 def png(array):
     stream = io.BytesIO()
@@ -152,13 +154,17 @@ def material_maps(description_json, kind):
 
 
 def maps(rgb, relief, width, height, metal=False):
+    from scipy.ndimage import maximum_filter
+
     dy, dx = np.gradient(relief, height / len(relief), width / relief.shape[1])
     normal = np.stack([-dx, dy, np.ones_like(dx)], axis=-1)
     normal /= np.linalg.norm(normal, axis=-1)[:, :, None]
-    # Unlit occlusion follows recess depth, not baked directional lighting.
-    ao = np.clip(1 + relief * 5, 0.65, 1)
-    roughness = np.full_like(ao, 0.73 if metal else 0.88)
-    orm = np.stack([ao, roughness, np.full_like(ao, 0.25 if metal else 0)], axis=-1)
+    # Local mortar cavities occlude slightly; no directional light is baked in.
+    cavity = maximum_filter(relief, size=3) - relief
+    ao = np.clip(1 + np.minimum(relief, 0) * 5 - cavity * 4, 0.65, 1)
+    metal = np.broadcast_to(np.asarray(metal, dtype=float), relief.shape)
+    roughness = 0.88 - 0.15 * metal
+    orm = np.stack([ao, roughness, 0.25 * metal], axis=-1)
     return png(np.clip(rgb, 0, 255)), png((normal * 0.5 + 0.5) * 255), png(orm * 255)
 
 
@@ -191,6 +197,7 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
     sy = ny / height
     # Raster y grows down; physical height grows up.
     heights = bottom + height - (np.arange(ny) + 0.5) / sy
+    metal_mask = np.zeros_like(relief)
     if tower:
         mask = heights < d["tower"]["stone_top_m"]
         stone, srelief = fieldstone(width, height, d["stone"], seed)
@@ -200,6 +207,8 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
         metal, mrelief = roof_surface(width, height, d["roof"], seed)
         rgb[mask] = metal[mask]
         relief[mask] = mrelief[mask]
+        if d["roof"]["material"] in ("copper", "metal", "zinc"):
+            metal_mask[mask] = 1
     else:
         mask = heights < 1.5
         stone, srelief = fieldstone(width, height, d["stone"], seed)
@@ -238,9 +247,6 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
             paint.line((xx, yy, xx, inner[3]), fill=(101, 105, 94), width=max(1, round(0.065 * sx)))
 
     if tower:
-        for low, w, h, count in d["tower"]["opening_rows"]:
-            for i in range(int(count)):
-                opening(width * (i + 1) / (count + 1), low, w, h, "gothic" in d["style"])
         for level in d["tower"]["cornices_m"]:
             if bottom < level < bottom + height:
                 rect = (
@@ -285,22 +291,7 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
                     fill=(215, 192, 110),
                     width=max(2, round(0.1 * sx)),
                 )
-        if d["roof"]["material"] == "copper" and bottom + height > d["tower"]["copper_start_m"] + 4:
-            opening(width / 2, d["tower"]["copper_start_m"] + 1, width * 0.42, 6, False)
-    else:
-        w = d["windows"]
-        pointed = (
-            True
-            if any(k in w["type"] for k in ("gothic", "pointed", "lancet"))
-            else False
-            if "arch" in w["type"]
-            else None
-        )
-        count = max(0, int(width / w["spacing_m"]))
-        for low in w.get("rows_m", [w["sill_m"]]):
-            for i in range(count):
-                opening(width * (i + 0.5) / count, low, w["width_m"], w["height_m"], pointed)
-    if d.get("show_entrance"):
-        entry = d["entrance"]
-        opening(width / 2, entry.get("sill_m", 0.1), entry["width_m"], entry["height_m"], True)
-    return maps(np.asarray(albedo), np.asarray(depth), width, height)
+    for cx, low, w, h, pointed in openings(width, height, bottom, d, tower):
+        opening(cx, low, w, h, pointed)
+    metal_mask[np.asarray(depth) < 0] = 0
+    return maps(np.asarray(albedo), np.asarray(depth), width, height, metal=metal_mask)

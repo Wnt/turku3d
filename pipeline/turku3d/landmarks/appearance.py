@@ -6,9 +6,10 @@ import numpy as np
 
 from turku3d.package.gltf import GlbMesh
 
-from .atlas import batch
+from .atlas import batch, merge
 from .descriptions import resolve
 from .procedural import maps, material_maps, roof_surface, wall_maps
+from .relief import apply as apply_relief
 
 
 def visible_walls(building, walls):
@@ -91,6 +92,7 @@ def wall_meshes(building, walls, origin, description=None):
     if d is None:
         return None
     result = []
+    relief = []
     for index, (vertices, band_kind) in enumerate(material_wall_parts(building, walls, d)):
         width = float(np.linalg.norm(vertices[1, [0, 2]] - vertices[0, [0, 2]]))
         low, high = float(vertices[:, 1].min()), float(vertices[:, 1].max())
@@ -159,7 +161,13 @@ def wall_meshes(building, walls, origin, description=None):
                 ),
             )
         )
-    return batch(result)
+        if not repeat:
+            result[-1], detail = apply_relief(
+                result[-1], building.base - origin[1], wall_description, tower
+            )
+            if detail is not None:
+                relief.append(detail)
+    return batch(result) + ([merge(relief)] if relief else [])
 
 
 def roof_mesh(building, roof, indices, origin, description=None):
@@ -172,15 +180,17 @@ def roof_mesh(building, roof, indices, origin, description=None):
         4,
         metal=d["roof"]["material"] in ("copper", "metal", "zinc"),
     )
-    # Per-triangle planar physical UVs keep seams on steep spires as well as roofs.
+    # Gravity and the plane normal define a common frame across coplanar triangles.
     triangles = roof[np.asarray(indices)]
     vertices = triangles.reshape(-1, 3)
     uv = []
     for tri in triangles:
-        axis = tri[1] - tri[0]
-        axis /= max(np.linalg.norm(axis), 1e-9)
-        normal_axis = np.cross(axis, tri[2] - tri[0])
+        normal_axis = np.cross(tri[1] - tri[0], tri[2] - tri[0])
         normal_axis /= max(np.linalg.norm(normal_axis), 1e-9)
+        axis = np.cross([0, 1, 0], normal_axis)
+        if np.linalg.norm(axis) < 1e-6:
+            axis = np.array([1.0, 0, 0])
+        axis /= np.linalg.norm(axis)
         vertical = np.cross(normal_axis, axis)
         uv.extend(np.column_stack((tri @ axis, tri @ vertical)) / 4)
     return GlbMesh(

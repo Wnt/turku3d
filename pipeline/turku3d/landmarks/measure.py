@@ -39,6 +39,8 @@ def measure(rows, roots):
     blds = list(buildings.values())
     polygons = [b.footprint for b in blds]
     tree = shapely.STRtree(polygons)
+    street_rows = list(streets.values())
+    street_tree = shapely.STRtree([geometry for geometry, _ in street_rows])
     for row in rows:
         p = shapely.Point(row["location_xz"])
         matches = tree.query(p, predicate="intersects")
@@ -69,10 +71,17 @@ def measure(rows, roots):
             e["skyline_prominence_m"] = round(
                 max(0, b.top - float(np.median([blds[j].top for j in neighbours]))), 2
             )
+        # Rank every footprint; expensive visibility only resolves buildings that
+        # could reach the candidate tier with the maximum twenty visibility points.
+        preliminary = rank(row["tags"], e)
+        if preliminary["score"] + 20 < 28:
+            row.update(preliminary)
+            continue
         seen = set()
         seen_streets = set()
         tested = set()
-        for geometry, name in streets.values():
+        for street_index in street_tree.query(p.buffer(300), predicate="intersects"):
+            geometry, name = street_rows[street_index]
             if (
                 geometry.geom_type not in ("LineString", "MultiLineString")
                 or geometry.distance(p) > 300
