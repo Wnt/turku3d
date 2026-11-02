@@ -20,9 +20,15 @@ saturation (a luminance-keyed uniform in the final grade): autumn crowns and pai
 All of these are uniforms: the sun is never hidden and no light is added or removed, so day and night share every
 pipeline (`tests/unit/night-pipelines.test.ts` builds the real r186 programs at 13:00 and 23:30 on both backends).
 At elevations of 12° and above, sun intensity 4.0, IBL 0.08 and neutral hemisphere fill 1.0 retain strong
-street-level sun–shade separation; exposure stays 0.65. Dawn, dusk and night keep their own keyed values.
+street-level sun–shade separation; daylight exposure 0.9 lifts shaded street detail. Dawn, dusk and night keep their own keyed values.
 Time edits also reposition the directional sun around its existing target, so a stationary QA camera gets the
 same lighting and shadow direction as the visible sky without requiring another camera move.
+Daylight PMREM omits the solar disc, avoiding a second unshadowed source of sunlight in rough reflections.
+The visible disc is unchanged; the bake blends to the established twilight behaviour between 12° and 6°.
+`Environment.setWeather()` derives sun, diffuse fill, exposure and fog from the clear timecycle sample on every
+change. Clear/broken cloud preserve that sample exactly; overcast shifts direct light into diffuse fill. Night
+light levels stay calibrated while fog can shorten visibility. Sky weather is forwarded to the atmosphere hook;
+the weather controller schedules IBL refreshes rather than baking on every render frame.
 `renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
 4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
 re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,
@@ -51,7 +57,7 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
   clones the first attachment when creating another MRT texture; inheriting the normal format clamps negative motion
   to zero and quantises small motion, leaving old car and wheel edges in temporal history.
 - TRAA runs at full output resolution with MSAA disabled. Daytime bloom is subdued (HDR threshold 1.5), followed by subtle
-  desaturation/warm grading and **AgX**, daytime exposure **0.65** (the timecycle raises both at night). Tone mapping and
+  desaturation/warm grading and **AgX**, daytime exposure **0.9** (the timecycle raises both at night). Tone mapping and
   sRGB conversion happen exactly once.
 - QA `pass=id` bypasses IBL generation, material styling and all post-processing; there is no AA, grading, exposure,
   fog or shadow modulation. Colour QA waits for 32 settled frames to let temporal history converge.
@@ -335,5 +341,11 @@ The visible atmosphere uses three samples of a generated, mipmapped density map 
 Wind UV phases come from shared UTC time, wrapped independently before float upload; QA fixes weather at zero.
 Sky brightness transitions to 0.45 above a 15-degree sun elevation, reducing the pale daytime veil without
 dimming clouds or changing dusk. PMREM temporarily restores brightness 1 so this visible-sky calibration does
-not retune ambient lighting. Night uses keyed blue gradients with sparse stars and an occluded moon. Fog follows
-the timecycle rather than the screenshot streaming radius. `atmosphere.ts` supports HMR without reloading the city.
+not retune ambient lighting. Night uses keyed blue gradients with sparse stars and an occluded moon. Daylight fog
+spans 500–12,000 m so the four-kilometre city retains distinct distance layers; deep-night fog converges to the
+city-lit sky horizon. Both interpolate through the timecycle independently of streaming radius. `atmosphere.ts`
+supports HMR without reloading the city.
+
+`Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
+local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck
+from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `0`) preserves the fair-sky defaults.
