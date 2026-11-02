@@ -111,7 +111,6 @@ class Farm:
         self.lock = threading.RLock()
         self.adoption_lock = threading.Lock()
         self.adopting = set()
-        self.bundle_lock = threading.Lock()
         self.bundles = OrderedDict()
         self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
@@ -199,6 +198,10 @@ class Farm:
 
     def retained(self, tile):
         """A complete old pair stays playable while the requested immutable version builds."""
+        with self.lock:
+            return self._retained(tile)
+
+    def _retained(self, tile):
         candidates = []
         for receipt in (self.root / 'products').glob(f'*/{tile}/ready.json'):
             value = read_json(receipt.parent / 'manifest.json')
@@ -207,8 +210,10 @@ class Farm:
                 candidates.append((value.get('built', ''), receipt.stat().st_mtime, value, ready))
         if candidates:
             _, _, manifest, ready = max(candidates, key=lambda r: r[:2])
+            root = self.output(ready['generation'])
+            os.utime(root, None)  # Lease starts when advertised, before the first payload GET.
             return manifest, f"/v/{ready['revision']}/coarse/{tile}/", dict(
-                revision=ready['revision'], generation=ready['generation'], source_kind='retained'), self.output(ready['generation'])
+                revision=ready['revision'], generation=ready['generation'], source_kind='retained'), root
         for token, root in self.fallback_roots().items():
             manifest = read_json(root / tile / 'manifest.json')
             if not manifest or manifest.get('pass_kind') != 'full':
@@ -234,14 +239,18 @@ class Farm:
             return None
         key = tuple((cell, entry['sha256'], entry['bytes']) for cell, entry in cells)
         directory = self.root / 'delivery/shared'
-        with self.bundle_lock:
+        with self.lock:
             if key in self.bundles:
                 descriptor = self.bundles[key]
                 path = directory / descriptor['url'].rsplit('/', 1)[-1]
-                if path.exists():
-                    path.touch()
-                    self.bundles.move_to_end(key)
-                    return descriptor
+                try:
+                    with path.open('rb') as source:
+                        if os.fstat(source.fileno()).st_size == descriptor['bytes']:
+                            os.utime(source.fileno(), None)
+                            self.bundles.move_to_end(key)
+                            return descriptor
+                except FileNotFoundError:
+                    pass
                 del self.bundles[key]
             bodies = []
             for _, entry in cells:
@@ -257,17 +266,43 @@ class Farm:
             name = f'bundle.{digest}.col'
             directory.mkdir(parents=True, exist_ok=True)
             target = directory / name
-            if not target.exists():
-                temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')
-                temporary.write_bytes(body)
-                temporary.replace(target)
-            target.touch()
+            # Replace even an existing invalid derivative; never preserve an empty file
+            # under an immutable hash URL after an interrupted older implementation.
+            temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')
+            temporary.write_bytes(body)
+            temporary.replace(target)
             descriptor = dict(url=f'/v/{BUNDLE_SOURCE}/coarse/shared/{name}', sha256=digest,
                               bytes=len(body), format='sorted-col-v1')
             self.bundles[key] = descriptor
             while len(self.bundles) > 256:
                 self.bundles.popitem(last=False)
             return descriptor
+
+    @contextmanager
+    def payload(self, root, rel):
+        """Pin an opened inode and renew its lease before allowing concurrent eviction."""
+        with self.lock:
+            path = (root / Path(*rel)).resolve()
+            if not path.is_relative_to(root.resolve()) or any(p.startswith('.') for p in rel):
+                raise ValueError('payload not found')
+            if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
+                raise ValueError('payload not public')
+            try:
+                source = path.open('rb')
+            except (FileNotFoundError, IsADirectoryError):
+                raise ValueError('payload not found') from None
+            try:
+                if root == self.root / 'delivery':
+                    os.utime(source.fileno(), None)
+                elif root.is_relative_to(self.root / 'products'):
+                    os.utime(root, None)
+            except BaseException:
+                source.close()
+                raise
+        try:
+            yield path, source
+        finally:
+            source.close()
 
     def status(self):
         with self.lock:
@@ -724,6 +759,10 @@ class Farm:
         Requested tiles pin their intermediates. Other old entries can be reclaimed while
         workers run; their content-key locks protect concurrent readers and writers.
         """
+        with self.lock:
+            return self._make_room(target)
+
+    def _make_room(self, target):
         if self.free() >= target:
             return True
         for path in sorted((self.root / 'delivery/shared').glob('bundle.*.col'), key=lambda p: p.stat().st_mtime):
@@ -912,45 +951,41 @@ class Handler(BaseHTTPRequestHandler):
         if TILE.fullmatch(rel[0]) and rel[1:] in (['manifest.json'], ['collision.json']):
             query = parse_qs(url.query)
             distance = max(0, min(100000, float(query['d'][0]))) if 'd' in query else None
-            status, value = farm.request(revision, rel[0], distance)
-            stale = status != 200
-            provenance = dict(revision=revision, generation=meta['generation'], source_kind='requested')
-            prefix = f'/v/{revision}/coarse/{rel[0]}/'
-            source_root = farm.output(meta['generation'])
-            if stale:
-                retained = farm.retained(rel[0])
-                if retained is None:
-                    return self.json(status, value)
-                manifest, prefix, provenance, source_root = retained
-            else:
-                manifest = read_json(farm.output(meta['generation']) / rel[0] / 'manifest.json')
-            value = {k: manifest[k] for k in PUBLIC if k in manifest}
-            def pin(obj):
-                if isinstance(obj, dict):
-                    return {k: (prefix + v if k == 'url' and isinstance(v, str)
-                                else pin(v)) for k, v in obj.items()}
-                if isinstance(obj, list):
-                    return [pin(v) for v in obj]
-                return obj
-            value = pin(value)
-            bundle = farm.collision_bundle(source_root, rel[0], manifest)
-            if bundle:
-                value['collision_bundle'] = bundle
-            value.update(**provenance, requested_revision=revision, stale=stale)
-            return self.json(200, value)
+            with farm.lock:
+                status, value = self.fragment(farm, revision, meta, rel[0], distance)
+            return self.json(status, value)
         return self.file(farm.output(meta['generation']), rel)
 
+    def fragment(self, farm, revision, meta, tile, distance):
+        status, value = farm.request(revision, tile, distance)
+        stale = status != 200
+        provenance = dict(revision=revision, generation=meta['generation'], source_kind='requested')
+        prefix = f'/v/{revision}/coarse/{tile}/'
+        source_root = farm.output(meta['generation'])
+        if stale:
+            retained = farm.retained(tile)
+            if retained is None:
+                return status, value
+            manifest, prefix, provenance, source_root = retained
+        else:
+            manifest = read_json(farm.output(meta['generation']) / tile / 'manifest.json')
+        value = {k: manifest[k] for k in PUBLIC if k in manifest}
+        def pin(obj):
+            if isinstance(obj, dict):
+                return {k: (prefix + v if k == 'url' and isinstance(v, str)
+                            else pin(v)) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [pin(v) for v in obj]
+            return obj
+        value = pin(value)
+        bundle = farm.collision_bundle(source_root, tile, manifest)
+        if bundle:
+            value['collision_bundle'] = bundle
+        value.update(**provenance, requested_revision=revision, stale=stale)
+        return 200, value
+
     def file(self, root, rel):
-        path = (root / Path(*rel)).resolve()
-        if not path.is_relative_to(root.resolve()) or not path.is_file() or any(p.startswith('.') for p in rel):
-            return self.json(404, dict(error='payload not found'))
-        if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
-            return self.json(404, dict(error='payload not public'))
-        with path.open('rb') as source:
-            if root == self.server.farm.root / 'delivery':
-                path.touch()
-            if root.is_relative_to(self.server.farm.root / 'products'):
-                root.touch()  # Old in-flight payload lease after aliases move.
+        with self.server.farm.payload(root, rel) as (path, source):
             self.send_response(200)
             self.send_header('Content-Type', mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
             self.send_header('Content-Length', str(os.fstat(source.fileno()).st_size))
