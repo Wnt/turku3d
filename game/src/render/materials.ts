@@ -1,3 +1,4 @@
+import { wetSurface } from './weather/surfaces';
 import { StyledMaterials } from './styledMaterials';
 import { reflectionSurface, REFLECTION_LAYER } from './reflections';
 import { modelTextures, textureUploads } from './textureUploads';
@@ -109,7 +110,12 @@ export class MaterialStyler {
           mesh.castShadow = false;
           return shared.river.material;
         }
-        if (kind === 'standard' || !(source as THREE.MeshStandardMaterial).isMeshStandardMaterial) return source;
+        if (!(source as THREE.MeshStandardMaterial).isMeshStandardMaterial) return source;
+        if (kind === 'standard') {
+          if (!/(?:concrete|stone|brick|road_paint|fieldstone)/.test(key)) return source;
+          return this.shared.acquire(source, `wet:${key}`, model, () =>
+            wetSurface(this.renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial));
+        }
         const cacheKey = `${source.uuid}:${kind}`;
         if (cache.has(cacheKey)) return cache.get(cacheKey)!;
         // NodeLibrary carries all glTF PBR fields over, including normalScale, vertex colours and UV transforms.
@@ -128,6 +134,7 @@ export class MaterialStyler {
             material.colorNode = material.colorNode.mul(mix(vec3(0.92, 0.93, 0.83), vec3(1.04, 1.02, 0.97), patches));
           }
           // Cobbles use the supplied library normal/ORM for their joints; extra grain never replaces stone relief.
+          if (kind !== 'grass') wetSurface(material);
           return material;
         });
         cache.set(cacheKey, material);

@@ -350,3 +350,15 @@ supports HMR without reloading the city.
 `Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
 local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck
 from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `0`) preserves the fair-sky defaults.
+
+Weather uses `render/weather/schedule.ts`: `weatherAt(sharedUtcMs, seed)` returns the same six-state summer front
+on every client without simulation history. Rain fades over two minutes and residual wetness dries over the next
+front. The developer time panel and `window.__dev.setWeather(name, seconds=8)` can select `clear`, `partly cloudy`,
+`overcast`, `light rain`, `heavy rain`, `fog`, or return to `live`; `window.__dev.weather.sample` exposes current values.
+Developer clock edits do not move the shared weather schedule.
+
+`weather/rain.ts` resolves two instanced draws after temporal AA, testing the scene depth and a nearby 32² roof
+height field. `exposure.worker.ts` builds per-model triangle buckets and queries the field off the render thread;
+distant scenery is excluded. Shader/material factories bind shared wetness uniforms once. Mineral surfaces get
+darker, smoother films and a procedural basin mask; facade runoff is restrained. The current basin mask is a
+material proxy, not measured drainage. Rain keeps its scene/depth bindings and roof cache through Vite HMR.

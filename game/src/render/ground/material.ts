@@ -1,3 +1,4 @@
+import { wetSurface } from '../weather/surfaces';
 // Ground material API for the tile assembler and W1-08 renderer. TSL supports both backends.
 import * as THREE from 'three/webgpu';
 import {
@@ -138,6 +139,7 @@ export function createGroundMaterial(spec: GroundTileSpec, maps: GroundTileTextu
   material.roughnessNode = clamp(mix(float(.9), orm.g, near), .45, 1);
   material.aoNode = mix(float(1), orm.r, near);
   material.metalness = 0;
+  wetSurface(material, false, float(1).sub(channels[5]).sub(channels[6]).clamp(0, 1));
   return material;
 }
 

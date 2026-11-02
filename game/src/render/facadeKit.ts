@@ -1,3 +1,4 @@
+import { wetSurface } from './weather/surfaces';
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
 import { color, float, floor, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
@@ -61,6 +62,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   // Glass modules (atlas row 5) are floor-to-ceiling panes: curtain walls and shopfronts.
   const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
   material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), floor(bays.y), fract(bays.y), glazing, pane);
+  wetSurface(material, true);
   return material;
 }
 
