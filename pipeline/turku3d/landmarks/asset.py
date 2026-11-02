@@ -74,8 +74,9 @@ def build(building, root, description_root=None):
     walls = assemble_walls([(building, shell)])[0]
     meshes = [
         roof_mesh(building, shell[0], shell[1], origin, description),
-        *wall_meshes(building, walls, origin, description),
+        *(wall_meshes(building, walls, origin, description) or []),
     ]
+    meshes = [mesh for mesh in meshes if mesh is not None]
     data = build_glb(
         meshes, root_translation=origin, root_name="landmark_" + str(building.facade_key)
     )
