@@ -8,6 +8,7 @@ from pathlib import Path
 from .packaging import producer_paths
 
 VISUAL_ONLY = {
+    "ground_finishes.py",
     "packaging.py",
     "facade_assets.py",
     "facade_programs.py",

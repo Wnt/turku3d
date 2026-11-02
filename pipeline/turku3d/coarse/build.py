@@ -491,7 +491,7 @@ def build(
         dry.indices,
         visual_materials,
         dry_keep,
-        [*visual_regions, *inputs.streets],
+        [*visual_regions, *inputs.streets, *inputs.street_finishes],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
