@@ -19,6 +19,20 @@ def png(array):
     return stream.getvalue()
 
 
+def joint_coverage(position, period, joint, footprint):
+    """Exact box-filter coverage of a periodic mortar strip in physical metres."""
+
+    def integral(value):
+        shifted = value + joint / 2
+        return np.floor(shifted / period) * joint + np.minimum(shifted % period, joint)
+
+    return np.clip(
+        (integral(position + footprint / 2) - integral(position - footprint / 2)) / footprint,
+        0,
+        1,
+    )
+
+
 def masonry(width, height, spec, seed, density=40):
     nx, ny = max(32, min(2048, round(width * density))), max(32, min(2048, round(height * density)))
     x, y = np.meshgrid((np.arange(nx) + 0.5) * width / nx, (np.arange(ny) + 0.5) * height / ny)
@@ -32,13 +46,16 @@ def masonry(width, height, spec, seed, density=40):
     bond = spec.get("bond", "running")
     if bond in ("monk", "flemish"):
         period = bw * (2.5 if bond == "monk" else 1.5)
-        phase = xx % period
-        boundaries = [0, bw, 2 * bw, period] if bond == "monk" else [0, bw, period]
-        horizontal = np.minimum.reduce([np.abs(phase - edge) for edge in boundaries])
+        boundaries = [0, bw, 2 * bw] if bond == "monk" else [0, bw]
+        vertical_joints = np.clip(
+            sum(joint_coverage(xx - edge, period, joint, width / nx) for edge in boundaries), 0, 1
+        )
     else:
-        horizontal = np.minimum(xx % bw, bw - xx % bw)
-    distance = np.minimum.reduce([horizontal, y % bh, bh - y % bh])
-    relief = np.clip((distance - joint / 2) / 0.009, 0, 1)
+        vertical_joints = joint_coverage(xx, bw, joint, width / nx)
+    bed_joints = joint_coverage(y, bh, joint, height / ny)
+    # Preserve physical mortar area when a joint is narrower than one texel.
+    # Point samples plus a fixed bevel made tall walls acquire pale zebra bands.
+    relief = (1 - vertical_joints) * (1 - bed_joints)
     rng = np.random.default_rng(seed)
     variation = np.sin(col * 127.1 + row * 311.7 + seed) * 43758.5453 % 1
     grain = rng.normal(0, 1.8, (ny, nx))

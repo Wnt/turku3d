@@ -1,3 +1,4 @@
+import { wetSurface } from './weather/surfaces';
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
 import { color, float, floor, fract, mix, normalMap, positionWorld, round, step, texture, uv, vec2, vec3 } from 'three/tsl';
@@ -79,6 +80,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
   material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), program?.row ?? floor(bays.y),
     program?.rise ?? fract(bays.y), glazing, pane);
+  wetSurface(material, true);
   return material;
 }
 
