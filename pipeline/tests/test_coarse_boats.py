@@ -154,3 +154,25 @@ def test_reviewed_vessel_paint_controls_cabin_fascia_and_rails_without_changing_
     assert boat["deck"] == 1.5
     meshes = boats.produce(C.VisualTile(0, 0, 0), records)
     assert not any(m.metadata["surface"] == "blue" for m in meshes)
+
+
+def test_floating_piers_and_boat_access_are_not_vessels(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    outline, _, _, _ = scene(tmp_path, monkeypatch)
+    path = tmp_path / "piers.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(osm_id="pier", tags=json.dumps({"man_made": "pier", "floating": "yes"}),
+             geometry_local=outline.wkb),
+        dict(osm_id="access", tags=json.dumps({"boat": "yes", "man_made": "pier"}),
+             geometry_local=outline.wkb),
+    ]), path)
+    tile = C.VisualTile(0, 0, 0)
+    records = boat_inputs.prepare(tile, path, None, tmp_path / "water.parquet")
+    assert len(records) == 1 and records[0]["kind"] == "pier"
+    assert records[0]["cabins"] == [] and records[0]["deck"] == 0.55
+    meshes = boats.produce(tile, records)
+    assert meshes and all(m.positions[:, 1].max() <= 0.55 for m in meshes)
+    assert all(m.extras["layer"] == "structures" and m.extras["material_key"].startswith("pier_")
+               for m in boats.visuals(tile, meshes))
