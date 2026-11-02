@@ -1,12 +1,14 @@
 /** Local vehicle gallery (vehicle-gallery.html): one canvas per fleet model, each on the wheel-articulation step
  *  block of the fleet workshop. The section in view gets the one live renderer and is driven with the game's own
- *  vehicle physics and bindings; the others keep a snapshot of their last frame. */
+ *  vehicle physics, input (keyboard, gamepad, click to capture the mouse) and chase camera; the others keep a
+ *  snapshot of their last frame. */
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { FLEET } from '../actors/fleet/catalog';
 import { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { draftManifest } from '../world/manifest';
-import { DEFAULT_BINDINGS, mapActions } from '../input/bindings';
+import { Input } from '../input';
+import { ChaseCamera } from '../vehicle/chaseCamera';
 
 const R = await import('@dimforge/rapier3d');
 const { Vehicle } = await import('../vehicle/vehicle');
@@ -34,6 +36,9 @@ floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 const block = new THREE.Mesh(new THREE.BoxGeometry(STEP.hx * 2, STEP.hy * 2, STEP.hz * 2), new THREE.MeshStandardMaterial({ color: 0x93938b, roughness: 0.9 }));
 block.position.set(STEP.x, STEP.y, STEP.z); block.receiveShadow = true; block.castShadow = true; scene.add(block);
 const camera = new THREE.PerspectiveCamera(43, 16 / 9, 0.1, 400);
+// The open test floor has nothing to collide with, so the chase camera keeps its full distance.
+const chase = new ChaseCamera(camera, { cameraCast: async (_origin, _dir, distance) => distance });
+const input = new Input(renderer.domElement);
 
 const list = document.getElementById('list')!;
 const views = FLEET.map((model, i) => {
@@ -71,7 +76,7 @@ async function activate(index: number) {
   for (let i = 0; i < 60; i++) { vehicle.step(1 / 60, null); world.step(); }
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
-  resize(); placeCamera(vehicle.state().pos, true);
+  resize(); chase.update(0, vehicle.state(), 0, 0, true); followSun(vehicle.state().pos);
   active = { index, world, vehicle, visuals }; pending = -1;
 }
 
@@ -82,15 +87,7 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-const forward = new THREE.Vector3(), target = new THREE.Vector3(), wanted = new THREE.Vector3();
-function placeCamera(pos: { x: number; y: number; z: number }, snap = false, rot?: { x: number; y: number; z: number; w: number }, dt = 1 / 60) {
-  forward.set(1, 0, 0);
-  if (rot) forward.applyQuaternion(new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w));
-  forward.y = 0; forward.normalize();
-  target.set(pos.x, pos.y + 0.6, pos.z);
-  wanted.copy(target).addScaledVector(forward, -6.5).add(new THREE.Vector3(1.5, 2.2, 3));
-  if (snap) camera.position.copy(wanted); else camera.position.lerp(wanted, 1 - Math.exp(-dt * 3));
-  camera.lookAt(target);
+function followSun(pos: { x: number; z: number }) {
   sun.position.set(pos.x + 10, 15, pos.z + 8); sun.target.position.set(pos.x, 0, pos.z);
 }
 
@@ -104,24 +101,22 @@ const observer = new IntersectionObserver(entries => {
 }, { threshold: [0, 0.25, 0.5, 0.75, 1] });
 for (const v of views) observer.observe(v.view);
 
-const keys = new Set<string>();
+// Arrow keys and Space drive the car; they must not scroll the page.
 const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
-addEventListener('keydown', e => { keys.add(e.code); if (DRIVE_KEYS.has(e.code)) e.preventDefault(); });
-addEventListener('keyup', e => keys.delete(e.code));
-addEventListener('blur', () => keys.clear());
+addEventListener('keydown', e => { if (DRIVE_KEYS.has(e.code)) e.preventDefault(); });
 
-let last = performance.now(), carry = 0, resetHeld = false;
+let last = performance.now(), carry = 0;
 renderer.setAnimationLoop(() => {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
+  input.update(dt);
   if (!active) return;
-  const pad = [...(navigator.getGamepads?.() ?? [])].find(p => p) ?? null;
-  const a = mapActions(pad, keys, DEFAULT_BINDINGS);
-  if (a.vehicleReset > 0.5 && !resetHeld) active.vehicle.reset(START, 0);
-  resetHeld = a.vehicleReset > 0.5;
-  const input = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5 };
-  for (carry += dt; carry >= 1 / 60; carry -= 1 / 60) { active.vehicle.step(1 / 60, input); active.world.step(); }
+  const a = input.actions;
+  if (input.consume('vehicleReset')) active.vehicle.reset(START, 0);
+  const drive = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5 };
+  for (carry += dt; carry >= 1 / 60; carry -= 1 / 60) { active.vehicle.step(1 / 60, drive); active.world.step(); }
   const state = { ...active.vehicle.state(), id: 'drive' };
-  placeCamera(state.pos, false, state.rot, dt);
+  chase.update(dt, state, input.lookX, input.lookY, input.consume('cameraReset'));
+  followSun(state.pos);
   active.visuals.setView(camera); active.visuals.update([state]);
   renderer.render(scene, camera);
 });
