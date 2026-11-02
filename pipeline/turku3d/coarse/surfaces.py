@@ -43,6 +43,8 @@ BINDINGS = {
 SURFACES = {
     "asphalt": "road",
     "paved": "paving_slab",
+    "brick": "paving_slab",
+    "bricks": "paving_slab",
     "paving_stones": "paving_slab",
     "concrete": "paving_slab",
     "concrete:plates": "paving_slab",

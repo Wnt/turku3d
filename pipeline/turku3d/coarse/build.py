@@ -303,6 +303,28 @@ def build(
     solid = stairs.cut_ground(solid, attachment_openings)
     stair_meshes = [*stair_meshes, *attachment_meshes]
     seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
+    from . import yard_cover
+    from turku3d.tile_layer import identities
+
+    yard_source = (inputs.sources.get("roads") or [None])[0]
+    yard_source = Path(yard_source) if yard_source else None
+    yard_parcels, play_areas = cache.run(
+        "yard_features", source_key(Path(yard_cover.__file__),
+                                    Path(__file__).with_name("garden_inputs.py"), base / "spatial.py"),
+        [tile, identities({"osm": yard_source})],
+        lambda: yard_cover.features(tile, yard_source),
+    ) if yard_source else (shapely.Polygon(), [])
+    yard_blocked = [*water, *[b.footprint for b in [*blds, *inputs.wall_context]]]
+    play_blocked = [*yard_blocked, *[g for g, m in [*inputs.streets, *inputs.surfaces]
+                     if m in (mat_id("road"), mat_id("sidewalk"), mat_id("paving_slab"),
+                              mat_id("bridge_deck"))]]
+    play_meshes = cache.run(
+        "playgrounds", source_key(Path(yard_cover.__file__), base / "structures/geometry.py",
+                                  Path(__file__).with_name("bridge_details.py")),
+        [tile, play_areas, grid_pos, dry.positions, play_blocked],
+        lambda: yard_cover.playgrounds(tile, play_areas, surface_sample, play_blocked),
+    )
+    stair_meshes.extend(play_meshes)
     from . import street_profiles
 
     if inputs.retaining:
@@ -412,10 +434,13 @@ def build(
     )
     seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
 
+    from . import hedges
+    measured_barriers = inputs.barriers if first_pass else hedges.prepare(cache, tile, inputs, ground_sources)
+
     def barrier_stage(directory):
         files = []
         value = fences.produce(
-            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z)
+            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z), measured_barriers
         )
         return value
 
@@ -430,7 +455,8 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, inputs.retaining],
+        [tile, measured_barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
+         inputs.retaining, inputs.vegetation_roads],
         stage,
         barrier_stage,
     )
@@ -533,14 +559,29 @@ def build(
     )
     t_surface = time.perf_counter()
     forest_paths = path_surfaces(inputs)
-    visual_regions = [*inputs.surfaces, *forest_paths]
+    lawn_regions = cache.run(
+        "yard_lawns", source_key(Path(yard_cover.__file__)),
+        [tile, inputs.ortho, yard_parcels, yard_blocked],
+        lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
+    )
+    from . import garden_finishes, garden_inputs
+    osm = ground_sources.osm_source(tile)
+    garden_areas = garden_inputs.features(tile, osm)[0] if osm else []
+    from turku3d.tile_layer import identities
+    paving_sources = identities({"osm": osm}) if osm else {}
+    paving_finishes = cache.run(
+        "garden_finishes", source_key(Path(garden_finishes.__file__), Path(garden_inputs.__file__)),
+        [tile, inputs.ortho, inputs.surfaces, garden_areas, paving_sources],
+        lambda: garden_finishes.regions(tile, inputs.ortho, inputs.surfaces, garden_areas, osm),
+    )
+    visual_regions = [*lawn_regions, *inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
         visual_materials,
         dry_keep,
         [*visual_regions, *inputs.streets, *inputs.street_finishes,
-         *street_profiles.material_regions(dry)],
+         *street_profiles.material_regions(dry), *paving_finishes],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
@@ -611,17 +652,10 @@ def build(
         )
     )
     if len(river.indices):
-        ground_meshes.append(
-            GlbMesh(
-                f"water_{tile.id}",
-                river.positions - origin,
-                river.indices,
-                uvs=river.positions[:, [0, 2]] * [1, -1],
-                extras=dict(
-                    layer="ground", object_id=f"water_{tile.id}", material_key="water", sensor=True
-                ),
-            )
-        )
+        from . import water_appearance
+
+        water_colours = water_appearance.prepare(cache, inputs, ground_sources)
+        ground_meshes.extend(water_appearance.visuals(tile, river, water_colours))
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
     if (stage / "fences.vis.glb").exists():

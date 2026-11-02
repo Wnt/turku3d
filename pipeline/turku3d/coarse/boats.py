@@ -16,6 +16,7 @@ from .geometry import clip_mesh
 
 COLOURS = {
     "hull": (31, 38, 42),
+    "grey": (125, 132, 129),
     "waterline": (76, 62, 48),
     "deck": (115, 110, 99),
     "wood": (126, 84, 48),
@@ -222,6 +223,16 @@ def furniture(key, boat, deck_area):
 def produce(tile, records):
     meshes = []
     for boat in records:
+        if boat["kind"] in ("crane", "mast", "tower"):
+            from .harbour import produce as harbour_produce
+
+            # Arms may cross tile boundaries: clip the complete source structure.
+            if boat["centre"].distance(shapely.box(*tile.bbox.as_tuple())) < 100:
+                for part in combine(harbour_produce(tile, boat), "harbour:" + boat["id"]):
+                    clipped = clip_mesh(part, tile.bbox)
+                    if clipped is not None:
+                        meshes.append(clipped)
+            continue
         outline = boat["outline"]
         if not outline.intersects(shapely.box(*tile.bbox.as_tuple())):
             continue
@@ -239,7 +250,8 @@ def produce(tile, records):
         key = "boat:" + boat["id"]
         deck = boat["deck"]
         water = boat["water"]
-        parts = [extrusion(key, outline, water - 0.7, deck, "hull", bottom_scale=0.88)]
+        parts = [extrusion(key, outline, water - 0.7, deck,
+                           boat["appearance"].get("hull_surface", "hull"), bottom_scale=0.88)]
         deck_faces = Faces()
         horizontal(deck_faces, outline.buffer(-0.08), deck + 0.015)
         parts.append(appearance(deck_faces.mesh(key, "bridge_deck"), "deck"))
@@ -274,7 +286,35 @@ def produce(tile, records):
             parts.append(
                 tube(key, [point.x, deck, point.y], [point.x, top, point.y], 0.055, "white")
             )
-        parts.extend(furniture(key, boat, outline.difference(cabins.buffer(0.6))))
+        # Multiple tall measured masts on a low-cabin hull describe sailing rigging.
+        tall = [(p, h) for p, h in boat["masts"] if h > deck + 10]
+        sailing = (len(tall) >= 3 or boat["tags"].get("building:material") == "wood"
+                   or boat["tags"].get("ship:type") in ("sailing", "sailboat", "tall_ship"))
+        if len(tall) >= 2 and sailing:
+            from .harbour import axis
+
+            direction = axis(outline)
+            normal = np.array([-direction[1], direction[0]])
+            beam = outline.minimum_rotated_rectangle.area / max(outline.length / 2, 1)
+            rigging_start = len(parts)
+            for point, top in tall:
+                xy = np.asarray(point.coords[0])
+                for fraction in (.48, .65, .8, .92):
+                    y = deck + (top-deck)*fraction
+                    half = beam * (1.15 - fraction*.65)
+                    a, b = xy-normal*half, xy+normal*half
+                    parts.append(tube(key, [a[0], y, a[1]], [b[0], y, b[1]], .065, "wood"))
+                for end in (-1, 1):
+                    anchor = xy + direction * end * min(12, (top-deck)*.45)
+                    if outline.buffer(.1).covers(shapely.Point(anchor)):
+                        for side in (-1, 1):
+                            foot = anchor + normal * side * beam*.35
+                            parts.append(tube(key, [point.x, top, point.y],
+                                              [foot[0], deck+.5, foot[1]], .018, "hull"))
+            for part in parts[rigging_start:]:
+                part.metadata["collision"] = False
+        if boat["tags"].get("amenity") in ("restaurant", "bar", "cafe", "pub", "nightclub"):
+            parts.extend(furniture(key, boat, outline.difference(cabins.buffer(0.6))))
         for part in combine(parts, key):
             clipped = clip_mesh(part, tile.bbox)
             if clipped is not None:
@@ -294,7 +334,7 @@ def visuals(tile, meshes):
             color=(1, 1, 1, 1),
             roughness=0.25 if m.metadata["surface"] == "glass" else 0.8,
             extras=dict(
-                layer="structures" if m.object_id.startswith("pier:") else "boats",
+                layer="structures" if m.object_id.startswith(("pier:", "harbour:")) else "boats",
                 object_id=m.object_id,
                 material_key=("pier_" if m.object_id.startswith("pier:") else "boat_") + m.metadata["surface"]
             ),
@@ -317,6 +357,7 @@ def stats(tile, records, meshes):
                 source_buildings=b["building_keys"],
                 source_facades=b["source_facades"],
                 appearance=b["appearance"],
+                survey=b.get("survey"),
             )
             for b in records
             if b["owner"] == tile.id and b["kind"] == "ship"
@@ -324,6 +365,9 @@ def stats(tile, records, meshes):
         piers=[dict(id=b["id"], deck_m=b["deck"], water_m=b["water"],
                     deck_source=b.get("deck_source"), floating=b.get("floating"))
                for b in records if b["owner"] == tile.id and b["kind"] == "pier"],
+        harbour=[dict(id=b["id"], kind=b["kind"], height_m=b["height"],
+                      reach_m=b["reach"], measured=b["measured"])
+                 for b in records if b["owner"] == tile.id and b["kind"] in ("crane", "mast", "tower")],
         triangles=sum(len(m.indices) for m in meshes),
     )
 
@@ -341,6 +385,7 @@ def stage(cache, tile, records):
             Path(__file__).with_name("geometry.py"),
             Path(__file__).with_name("bridge_details.py"),
             Path(__file__).with_name("gardens.py"),
+            Path(__file__).with_name("harbour.py"),
             Path(C.__file__),
             Path(__file__).parents[1] / "structures/geometry.py",
         ),

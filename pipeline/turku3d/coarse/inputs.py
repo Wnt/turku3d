@@ -74,6 +74,7 @@ DEPENDENCIES = {
         "../roads/__init__.py",
         "../roads/attributes.py",
         "../roads/tile_graph.py",
+        "../roads/access.py",
     ),
     "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
     "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
@@ -81,7 +82,7 @@ DEPENDENCIES = {
     "attachments": ("attachments.py", "retaining_survey.py", "retaining.py", "../lidar/cache.py", "../spatial.py"),
     "retaining": ("retaining_survey.py", "retaining.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
     "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
-    "barriers": ("fences.py", "../spatial.py"),
+    "barriers": ("fences.py", "fence_survey.py", "retaining_survey.py", "retaining.py", "../roads/access.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
     "vegetation_roads": ("tree_inputs.py", "../spatial.py"),
@@ -97,7 +98,7 @@ DEPENDENCIES = {
     "stairs": ("stairs.py", "stair_survey.py", "stair_rails.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
-    "boats": ("piers.py", "bridge_survey.py", "../ground/inputs.py", "boat_inputs.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../spatial.py"),
+    "boats": ("piers.py", "bridge_survey.py", "../ground/inputs.py", "boat_inputs.py", "harbour.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../lidar/cache.py", "../spatial.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
     "street_profiles": ("street_survey.py", "../spatial.py",
@@ -504,6 +505,7 @@ def _save(path: Path, key: str, value) -> None:
 def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
     from . import bridge_survey, street_survey, piers
+    from .harbour import source_paths as harbour_sources
 
     laz, missing = sources.lidar_paths(tile)
     ortho = None if first_pass else sources.ortho_source(tile)
@@ -519,7 +521,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "attachments": [wfs[0][1], *roofs.lidar_paths(tile)],
         "retaining": [sources.wfs_source("kanta:Rakenne", tile)[1], *bridge_survey.source_paths(tile)],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
-        "boats": [osm, wfs[0][1], wfs[2][1], *piers.source_paths(tile)] if osm and all(f for f, _ in wfs[:3]) else [],
+        "boats": [osm, wfs[0][1], wfs[2][1], *dict.fromkeys([*piers.source_paths(tile), *harbour_sources(tile)])] if osm and all(f for f, _ in wfs[:3]) else [],
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs[:3])
@@ -536,7 +538,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         if all(found for found, _ in wfs[3:5])
         else None,
         "trees": [osm, wfs[WFS_LAYERS.index("GIS:Puut")][1], wfs[1][1]] if osm else None,
-        "barriers": [osm] if osm else None,
+        "barriers": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
         "vegetation_roads": [wfs[1][1]] if wfs[1][0] else [],
@@ -658,8 +660,9 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         )
     if dataset == "barriers":
         from .fences import prepare as prepare_barriers
+        from .fence_survey import enrich
 
-        return prepare_barriers(tile, paths[0])
+        return enrich(tile, prepare_barriers(tile, paths[0]), paths[0], paths[1:]) if len(paths)>1 else prepare_barriers(tile, paths[0])
     if dataset == "forests":
         from .forests import read_areas
 
@@ -758,7 +761,6 @@ def gather(
             "vegetation_canopy",
             "forests",
             "vegetation_paths",
-            "vegetation_roads",
             "poles",
             "surfaces",
             "markings",

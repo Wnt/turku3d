@@ -17,6 +17,21 @@ def maps(key, size=None):
         height = gaussian_filter(grain, .6, mode="wrap") * .0005
         ao = np.ones((size, size))
         roughness = np.clip(.9 + grain * .02, .75, 1)
+    elif key == "brick_paving":
+        # Running bond, 200 x 100 mm bricks with narrow sand-filled joints.
+        y, x = (np.indices((size, size)) + .5) * (period / size)
+        row = np.floor(y / .1).astype(int)
+        bx = (x + (row % 2) * .1) % .2
+        by = y % .1
+        edge = np.minimum(np.minimum(bx, .2 - bx), np.minimum(by, .1 - by))
+        crown = np.clip((edge - .002) / .005, 0, 1)
+        cell = (np.floor((x + (row % 2) * .1) / .2).astype(int) % 10)
+        tones = rng.normal(0, 7, (20, 10))[row % 20, cell]
+        brick = np.array([160, 134, 122]) + tones[..., None] + grain[..., None] * 3
+        albedo = np.array([145, 132, 114]) + (brick - [145, 132, 114]) * crown[..., None]
+        height = crown * .003 + gaussian_filter(grain, .6, mode="wrap") * .0002
+        ao = .86 + .14 * crown
+        roughness = np.full((size, size), .88)
     elif key == "fieldstone":
         from scipy.spatial import cKDTree
 
