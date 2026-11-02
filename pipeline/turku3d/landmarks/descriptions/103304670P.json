@@ -39,7 +39,8 @@
     "June 2026 Look Around panorama 569620272610193160, 1.4 m from shot camera: north entrance datum N2000 5.10 m from shipped lidar terrain, 1.06 m above building minimum base. Elevation offsets preserve surveyed roof height and expose the door threshold.",
     "Current reference confirms muted red-brown brick, beige-grey trim, paired arched entrance lights, and a white concrete / dark ribbon-glass neighbour; the teal source sample was a metal doorway.",
     "June 2026 north-end perspective: central three clear openings are about 46 px wide and 142 px tall against an approximately 840 px facade width; retain a tall 3.2/1.05 aspect ratio after applying the street datum.",
-    "June2026 north facade: outer masonry piers occupy about18% of the width each. Door centres and paired sidelights sit near28%/72%, not at the facade edges; central window centres about42%/50%/58%. Corner pediments reach about69% of the total height. Projecting copings, alternating pier courses and shoulder arches are modeled from measured profiles; depth estimated0.12\u20130.30m, uncertain\u00b10.10m."
+    "June2026 north facade: outer masonry piers occupy about18% of the width each. Door centres and paired sidelights sit near28%/72%, not at the facade edges; central window centres about42%/50%/58%. Corner pediments reach about69% of the total height. Projecting copings, alternating pier courses and shoulder arches are modeled from measured profiles; depth estimated0.12\u20130.30m, uncertain\u00b10.10m.",
+    "June2026 front remeasurement: shoulder arches are red brick with four intermittent pale stone voussoirs per side, about0.32m wide in elevation. Left arch pixel path (475,444),(511,403),(553,380),(588,367), rectified approximately against x300..1154 and ground670/apex135. Source paths and individual blocks replace the earlier continuous cream stripe. Position uncertainty\u00b10.2m; projection depth\u00b10.1m."
   ],
   "uncertainty": "Photo-derived openings and trim dimensions approx \u00b120%; side repetition approximate; opposite end layout not separately measured. Survey shell remains authoritative.",
   "brick": {
@@ -1564,58 +1565,218 @@
         {
           "path_m": [
             [
-              3.3,
-              4.78
+              3.5553,
+              4.1821
             ],
             [
-              4.0,
-              5.36
+              4.2867,
+              4.9407
             ],
             [
-              5.0,
-              5.86
+              5.14,
+              5.3664
             ],
             [
-              5.8,
-              6.18
+              5.8511,
+              5.6069
             ]
           ],
+          "width_m": 0.32,
+          "depth_m": 0.22,
+          "offset_m": 0.04,
+          "material": "brick",
           "anchor_m": [
             4.5,
             3
-          ],
-          "width_m": 0.18,
-          "depth_m": 0.23,
-          "material": "trim",
-          "offset_m": 0.04
+          ]
         },
         {
           "path_m": [
             [
-              11.55,
-              6.18
+              3.6199,
+              4.2491
             ],
             [
-              12.35,
-              5.86
-            ],
-            [
-              13.35,
-              5.36
-            ],
-            [
-              14.05,
-              4.78
+              3.7587,
+              4.3931
             ]
           ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            4.5,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              4.1559,
+              4.805
+            ],
+            [
+              4.297,
+              4.9459
+            ]
+          ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            4.5,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              4.8338,
+              5.2136
+            ],
+            [
+              5.0127,
+              5.3029
+            ]
+          ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            4.5,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              5.5735,
+              5.513
+            ],
+            [
+              5.7629,
+              5.5771
+            ]
+          ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            4.5,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              13.7947,
+              4.1821
+            ],
+            [
+              13.0633,
+              4.9407
+            ],
+            [
+              12.21,
+              5.3664
+            ],
+            [
+              11.4989,
+              5.6069
+            ]
+          ],
+          "width_m": 0.32,
+          "depth_m": 0.22,
+          "offset_m": 0.04,
+          "material": "brick",
           "anchor_m": [
             12.7,
             3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              13.7301,
+              4.2491
+            ],
+            [
+              13.5913,
+              4.3931
+            ]
           ],
-          "width_m": 0.18,
-          "depth_m": 0.23,
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
           "material": "trim",
-          "offset_m": 0.04
+          "anchor_m": [
+            12.7,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              13.1941,
+              4.805
+            ],
+            [
+              13.053,
+              4.9459
+            ]
+          ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            12.7,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              12.5162,
+              5.2136
+            ],
+            [
+              12.3373,
+              5.3029
+            ]
+          ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            12.7,
+            3
+          ]
+        },
+        {
+          "path_m": [
+            [
+              11.7765,
+              5.513
+            ],
+            [
+              11.5871,
+              5.5771
+            ]
+          ],
+          "width_m": 0.37,
+          "depth_m": 0.27,
+          "offset_m": 0.05,
+          "material": "trim",
+          "anchor_m": [
+            12.7,
+            3
+          ]
         },
         {
           "polygon_m": [
