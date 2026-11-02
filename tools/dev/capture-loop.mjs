@@ -211,13 +211,69 @@ if (args.includes('--stream-flicker')) {
   }
   process.exit(0);
 }
+// Play-mode evidence uses this same owned CDP session and screenshot transport.
+if (opt('--navigate', '')) {
+  await send('Page.setWebLifecycleState', {state:'active'});
+  await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
+  await send('Page.navigate', {url:opt('--navigate')});
+  await delay(1500);
+  const started=Date.now();
+  while (!await evaluate('!!window.__game?.ready') && Date.now()-started<timeout) await delay(1000);
+}
+// Record a real-time, 1280x720 play-mode signal cycle in the existing browser (no second renderer).
+if (opt('--vehicle-video', '')) {
+  try {
+    await send('Page.setWebLifecycleState', {state:'active'});
+    await send('Emulation.setFocusEmulationEnabled', {enabled:true});
+    await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
+    const result=await evaluate(`(async()=>{
+      const g=window.__game,r=window.__render;
+      const key=(type,code)=>window.dispatchEvent(new KeyboardEvent(type,{code}));
+      r.beforeFrame=undefined;r.setHour(22);
+      if(g.state().paused){key('keydown','Escape');await new Promise(r=>setTimeout(r,150));key('keyup','Escape');}
+      key('keyup','Space');
+      g.input.bindings.throttle=[{kind:'key',code:'KeyW',scale:.08}];
+      g.vehicleSignals.lights=0;
+      await new Promise(r=>setTimeout(r,400));
+      const canvas=r.renderer.domElement;
+      if(canvas.width!==1280||canvas.height!==720)throw new Error('Video canvas must be 1280x720: '+canvas.width+'x'+canvas.height);
+      const stream=canvas.captureStream(30),chunks=[],events=[];
+      const recorder=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp9',videoBitsPerSecond:5000000});
+      const ended=new Promise(resolve=>recorder.onstop=resolve);
+      recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+      const at=performance.now(),start={...g.physics.latest.vehicle.pos};
+      const cycle=mode=>{g.vehicleSignals.lights=mode;events.push({seconds:(performance.now()-at)/1000,lights:mode});};
+      cycle(0);recorder.start(250);key('keydown','KeyW');
+      const timers=[setTimeout(()=>cycle(1),3000),setTimeout(()=>cycle(2),6500),
+        setTimeout(()=>key('keydown','KeyG'),8000),setTimeout(()=>key('keyup','KeyG'),9000)];
+      await new Promise(r=>setTimeout(r,10000));
+      key('keyup','KeyW');key('keyup','KeyG');key('keydown','Space');
+      timers.forEach(clearTimeout);recorder.stop();await ended;stream.getTracks().forEach(t=>t.stop());
+      const bytes=new Uint8Array(await new Blob(chunks,{type:recorder.mimeType}).arrayBuffer());
+      let raw='';for(let i=0;i<bytes.length;i+=32768)raw+=String.fromCharCode(...bytes.subarray(i,i+32768));
+      return {video:btoa(raw),events,duration:(performance.now()-at)/1000,start,end:g.physics.latest.vehicle.pos,speed:g.physics.latest.vehicle.speed,errors:g.errors};
+    })()`);
+    const {video,...metadata}=result;
+    fs.writeFileSync(opt('--vehicle-video'),Buffer.from(video,'base64'));
+    fs.writeFileSync(opt('--vehicle-video')+'.json',JSON.stringify(metadata,null,2)+'\n');
+    console.log(JSON.stringify(metadata));
+  } finally {await send('Page.setWebLifecycleState',{state:'frozen'});socket.close();}
+  process.exit(0);
+}
 if (opt('--eval-file', '')) {
   try {
     await send('Page.setWebLifecycleState', { state: 'active' });
     await send('Emulation.setFocusEmulationEnabled', { enabled: true });
-    console.log(JSON.stringify(await evaluate(fs.readFileSync(opt('--eval-file'), 'utf8'))));
+    await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
+    const result = await evaluate(fs.readFileSync(opt('--eval-file'), 'utf8'));
+    console.log(JSON.stringify(result));
+    if(opt('--result-file','')) fs.writeFileSync(opt('--result-file'),JSON.stringify(result,null,2)+'\n');
+    if(opt('--screenshot','')) {
+      const shot=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
+      fs.writeFileSync(opt('--screenshot'),Buffer.from(shot.data,'base64'));
+    }
   } finally {
-    await send('Page.setWebLifecycleState', { state: 'frozen' });
+    if (!args.includes('--keep-active')) await send('Page.setWebLifecycleState', { state: 'frozen' });
     socket.close();
   }
   process.exit(0);
