@@ -15,7 +15,9 @@ PATHS = {"footway", "cycleway", "path", "steps", "pedestrian", "bridleway"}
 # Permanent crossing identities, not tile-specific meshes. Public photo sources and
 # the distinction between surveyed decks and estimated details are in the README.
 PROFILES = {
-    "Q11853512": dict(body="steel", support="stone", rail_surface="paint"),
+    "Q11853512": dict(body="steel", support="stone", rail_surface="paint",
+                      entrance_height=4.8, entrance_width=1.05, entrance_inset=1.2,
+                      rail_pattern="heritage"),
     "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
 }
 
@@ -277,7 +279,7 @@ def railing_lines(ways):
     return result
 
 
-def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
+def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, obstacles=None):
     from .bridges import samples
 
     key = f"draft-bridge:{way['id']}"
@@ -319,7 +321,11 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                     )
                 )
             else:
-                for lift, depth in ((0.25, 0.05), (0.65, 0.04), (spec["rail_height"], 0.065)):
+                bands = ((0.25, 0.05), (0.65, 0.04), (spec["rail_height"], 0.065))
+                if spec.get("rail_pattern") == "heritage":
+                    bands = ((0.16, .035), (.42, .025), (.85, .025),
+                             (1.02, .025), (1.12, .025), (spec["rail_height"], .055))
+                for lift, depth in bands:
                     meshes.append(
                         wall(
                             key,
@@ -466,6 +472,13 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon):
                         "steel",
                     )
                 )
+    from .bridge_kit import entrances
+
+    # Lower quay passages constrain supports below the deck, not pylons above it.
+    # Only same-level building obstacles can conflict with an entrance ornament.
+    entrance_obstacles = obstacles if obstacles is not None else way.get("obstacles")
+    meshes.extend(entrances(way, height_at,
+                           [] if entrance_obstacles is None else [entrance_obstacles], spec))
     for point, tags in way.get("lamps", []):
         p = np.asarray(point)
         y = float(height_at(np.array([p]))[0])
@@ -523,9 +536,14 @@ def texture(surface):
         "ballast": (107, 103, 95),
         "paint": (224, 222, 206),
         "rock": (127, 128, 122),
+        "granite": (158, 153, 137),
+        "bronze": (64, 91, 80),
     }
     noise = rng.normal(0, 4 if surface != "steel" else 1, (128, 128))
-    if surface == "stone":
+    if surface == "granite":
+        noise += rng.normal(0, 8, (128, 128))
+        noise += 3 * np.cos(x * np.pi / 32) * np.cos(y * np.pi / 32)
+    elif surface == "stone":
         noise -= 25 * ((y % 32 < 2) | ((x + (y // 32 % 2) * 32) % 64 < 2))
     elif surface == "wood":
         noise += 4 * np.sin(x * np.pi / 2) - 24 * (x % 32 < 2)
