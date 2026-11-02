@@ -234,7 +234,7 @@ test('caps per quality tier and the ?walkers= override', () => {
   expect(() => parseParams('?walkers=-1')).toThrow(); expect(() => parseParams('?walkers=2.5')).toThrow(); expect(() => parseParams('?walkers=201')).toThrow();
 });
 
-const file = fs.readFileSync('public/assets/walkers/walkers.bin');
+const file = fs.readFileSync(process.env.WALKER_ASSET ?? 'public/assets/walkers/walkers.bin');
 const asset: WalkerAsset = parseWalkerAsset(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
 
 test('the committed VAT asset fits the budget', () => {

@@ -352,3 +352,5 @@ from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `
 Lighting can pass its final linear fog colour as `setWeather(sample, fogColor)` to join the overcast horizon
 to distance haze. Without that argument, the keyed timecycle fog colour is used. Rain darkens the ceiling
 above the horizon while the horizon retains the effective fog colour.
+The overcast ceiling combines the low density field with the independently drifting high field, producing
+broad light and dark banks without another texture sample. It keeps the effective fog join and night darkness.
