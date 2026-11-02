@@ -341,8 +341,10 @@ The visible atmosphere uses three samples of a generated, mipmapped density map 
 Wind UV phases come from shared UTC time, wrapped independently before float upload; QA fixes weather at zero.
 Sky brightness transitions to 0.45 above a 15-degree sun elevation, reducing the pale daytime veil without
 dimming clouds or changing dusk. PMREM temporarily restores brightness 1 so this visible-sky calibration does
-not retune ambient lighting. Night uses keyed blue gradients with sparse stars and an occluded moon. Fog follows
-the timecycle rather than the screenshot streaming radius. `atmosphere.ts` supports HMR without reloading the city.
+not retune ambient lighting. Night uses keyed blue gradients with sparse stars and an occluded moon. Daylight fog
+spans 500–12,000 m so the four-kilometre city retains distinct distance layers; deep-night fog converges to the
+city-lit sky horizon. Both interpolate through the timecycle independently of streaming radius. `atmosphere.ts`
+supports HMR without reloading the city.
 
 `Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
 local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck

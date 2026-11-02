@@ -466,6 +466,8 @@ def _save(path: Path, key: str, value) -> None:
     with open(tmp, "wb") as f:
         pickle.dump({"key": key, "value": value}, f, protocol=pickle.HIGHEST_PROTOCOL)
     tmp.replace(path)
+    if os.environ.get("TURKU3D_SHARED_CACHE"):
+        return  # The shared service owns retention across all revisions.
     for old in path.parent.glob(path.name.split(".", 1)[0] + ".*.pkl"):
         if old != path:
             old.unlink(missing_ok=True)
@@ -651,7 +653,9 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 def _entry(root: Path, tile: C.VisualTile, dataset: str, paths: list) -> tuple[Path, str]:
     """The cache file names its key, so checking for a current entry is one stat."""
     key = _key([p for p in paths if p], dataset)
-    return root / ".inputs" / tile.id / f"{dataset}.{key}.pkl", key
+    shared = os.environ.get("TURKU3D_SHARED_CACHE")
+    directory = Path(shared) / "inputs" if shared else root / ".inputs"
+    return directory / tile.id / f"{dataset}.{key}.pkl", key
 
 
 def prepare(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> dict:
