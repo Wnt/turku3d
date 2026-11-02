@@ -86,8 +86,8 @@ export class DevLayers {
     if (coarse && setViewDistance) {
       const distance = document.createElement('select'); distance.id = 'dev-view-distance';
       const row = document.createElement('label'); row.textContent = 'View distance '; row.style.display = 'block';
-      for (const radius of [0, 1000, 2000, 3000, 5000, 6000, 8000]) distance.append(Object.assign(document.createElement('option'), {
-        value: String(radius), textContent: radius ? `${radius / 1000} km · screenshot` : 'Normal',
+      for (const radius of [0, 1000, 2000, 2500, 3000, 4000, 5000, 6000, 8000]) distance.append(Object.assign(document.createElement('option'), {
+        value: String(radius), textContent: radius ? `${radius / 1000} km` : 'Short range',
       }));
       distance.value = String(coarse.screenshotScenery.radius);
       distance.onchange = () => {
@@ -111,7 +111,7 @@ export class DevLayers {
     if (length < .01) return undefined;
     return { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z,
       dx: direction.x / length, dz: direction.z / length,
-      halfAngle: Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect) };
+      halfAngle: Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect) + .15 };
   }
 
   private save() {

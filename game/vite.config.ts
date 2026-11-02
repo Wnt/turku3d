@@ -27,7 +27,7 @@ export default defineConfig({
   build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000 },
   optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
   // /coarse/* reaches the localhost coarse tile service (tools/dev/coarse-tiles) same-origin, as through serve-dist.
-  server: { port: port(), strictPort: true, headers: isolation, proxy: { '/coarse': { target: `http://127.0.0.1:${port(5)}`, configure: (proxy) => proxy.on('error', (_err, req, res) => {
+  server: { port: port(), strictPort: true, headers: isolation, proxy: { '/coarse': { target: process.env.TURKU3D_COARSE_PROXY ?? `http://127.0.0.1:${port(5)}`, configure: (proxy) => proxy.on('error', (_err, req, res) => {
     // Same contract as serve-dist: an offline service is a 200 answer on /coarse/status, never a page console error.
     if (!('writeHead' in res) || res.headersSent) return;
     res.writeHead(req.url?.split('?')[0] === '/coarse/status' ? 200 : 503, { 'Content-Type': 'application/json' });
