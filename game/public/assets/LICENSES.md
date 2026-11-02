@@ -89,3 +89,15 @@ and driving specification sources are recorded in `spec.json`; estimated power
 and torque are identified there. Editable local source and build settings live
 under `data/assets-src/cars/model-y/`. Four hub-centred wheels and four named
 lamp material roles are preserved. This model remains a visual prototype.
+
+## RAV4 XA50 study — original Blender fleet model
+
+`cars/rav4-xa50/lod{0,1,2}.glb`: original geometry authored through parameterised
+Blenderwright tools in Blender 5.2 (2026). Copyright 2026 Jonni Madekivi; MIT,
+as the repository. Fictional Vire Ranta H4 badge and plate artwork. No downloaded
+mesh, reference photographs or manufacturer artwork is included. Public vehicle
+specifications and their manufacturer source are recorded in `spec.json`.
+Editable local source: `data/assets-src/cars/rav4-xa50/rav4-delivery.blend`;
+reproducible MCP build settings: adjacent `model.json`. Four hub-centred wheel
+objects and four front/tail lamp material roles survive all three meshopt LODs.
+Included under Jonni's explicit approval on 2026-11-02.
