@@ -330,3 +330,10 @@ varyings on WebGPU and WebGL2. Perspective interpolation can perturb an integer 
 `floor`, modulo or equality boundaries, selecting different atlas cells at adjacent pixels
 and causing severe black speckling/flicker on iPhone GPUs. Surface UVs remain interpolated;
 the original facade instructions, textures and atlas derivatives are preserved.
+
+The visible atmosphere uses three samples of a generated, mipmapped density map for drifting cumulus and cirrus.
+Wind UV phases come from shared UTC time, wrapped independently before float upload; QA fixes weather at zero.
+Sky brightness transitions to 0.45 above a 15-degree sun elevation, reducing the pale daytime veil without
+dimming clouds or changing dusk. PMREM temporarily restores brightness 1 so this visible-sky calibration does
+not retune ambient lighting. Night uses keyed blue gradients with sparse stars and an occluded moon. Fog follows
+the timecycle rather than the screenshot streaming radius. `atmosphere.ts` supports HMR without reloading the city.
