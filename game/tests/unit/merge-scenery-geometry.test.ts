@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { interleaveProgram } from '../../src/render/facadeProgramAttributes';
@@ -35,7 +35,18 @@ test('direct batch buffers retain transformed meshopt vertices, normals, tangent
   const expected = mergeGeometries(baked)!;
   const originalPositions = meshes.map(mesh => mesh.geometry.attributes.position.array.slice());
   for (const mesh of meshes) mesh.geometry.clone = () => { throw new Error('source clone allocates another entire facade'); };
-  const actual = mergeSceneryGeometry(meshes);
+  const forbidden = () => { throw Error('per-element accessor in scenery merge'); };
+  const guards = [
+    vi.spyOn(THREE.BufferAttribute.prototype,'getComponent').mockImplementation(forbidden),
+    vi.spyOn(THREE.BufferAttribute.prototype,'setComponent').mockImplementation(forbidden),
+    vi.spyOn(THREE.BufferAttribute.prototype,'getX').mockImplementation(forbidden),
+    vi.spyOn(THREE.InterleavedBufferAttribute.prototype,'getComponent').mockImplementation(forbidden),
+    vi.spyOn(THREE.InterleavedBufferAttribute.prototype,'setComponent').mockImplementation(forbidden),
+    vi.spyOn(THREE.Vector3.prototype,'fromBufferAttribute').mockImplementation(forbidden),
+  ];
+  let actual: THREE.BufferGeometry;
+  try { actual = mergeSceneryGeometry(meshes); }
+  finally { for (const guard of guards) guard.mockRestore(); }
   expect([...actual.index!.array]).toEqual([...expected.index!.array]);
   for (const [name,attribute] of Object.entries(expected.attributes)) {
     const result = actual.attributes[name];
@@ -67,4 +78,36 @@ test('unindexed scenery retains its triangle order without allocating an index',
   expect(merged.boundingBox!.min.x).toBe(-.5);
   expect(merged.boundingBox!.max.x).toBe(250.5);
   merged.dispose(); a.geometry.dispose();
+});
+
+
+test('strided quantized attributes and differently ordered packed fields retain their decoded values', () => {
+  const meshes = [0,1].map(i => {
+    const geometry = new THREE.BufferGeometry();
+    const positions = new THREE.InterleavedBuffer(new Int16Array([99,-32768,12345,32767,99,32767,0,12345,99,0,32767,-32768]),4);
+    geometry.setAttribute('position',new THREE.InterleavedBufferAttribute(positions,3,1,true));
+    const values = i ? [20,21,1,2,20,21,1,2,20,21,1,2] : [1,2,20,21,1,2,20,21,1,2,20,21];
+    const program = new THREE.InterleavedBuffer(new Float32Array(values),4);
+    geometry.setAttribute('_kit_opening',new THREE.InterleavedBufferAttribute(program,2,i ? 2 : 0));
+    geometry.setAttribute('_kit_wall',new THREE.InterleavedBufferAttribute(program,2,i ? 0 : 2));
+    const colours = new THREE.InterleavedBuffer(new Uint8Array([77,128,255,77,255,64,77,32,0]),3);
+    geometry.setAttribute('color',new THREE.InterleavedBufferAttribute(colours,2,1,true));
+    geometry.setIndex([0,1,2]);
+    const mesh = new THREE.Mesh(geometry); mesh.position.x=i*250; mesh.updateMatrixWorld();
+    return mesh;
+  });
+  const merged=mergeSceneryGeometry(meshes);
+  for (let n=0;n<2;n++) for (let i=0;i<3;i++) {
+    const source=meshes[n].geometry;
+    for (const name of ['_kit_opening','_kit_wall','color']) for (let c=0;c<2;c++)
+      expect(merged.attributes[name].getComponent(n*3+i,c)).toBeCloseTo(source.attributes[name].getComponent(i,c),6);
+    expect(merged.attributes.position.getX(n*3+i)).toBeCloseTo(source.attributes.position.getX(i)+n*250,4);
+    expect(merged.attributes.position.getY(n*3+i)).toBeCloseTo(source.attributes.position.getY(i),6);
+    expect(merged.attributes.position.getZ(n*3+i)).toBeCloseTo(source.attributes.position.getZ(i),6);
+  }
+  expect([...merged.index!.array]).toEqual([0,1,2,3,4,5]);
+  for (let i=0;i<merged.attributes.position.count;i++)
+    expect(merged.boundingSphere!.containsPoint(new THREE.Vector3().fromBufferAttribute(merged.attributes.position,i))).toBe(true);
+  merged.dispose();
+  for (const mesh of meshes) { mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); }
 });
