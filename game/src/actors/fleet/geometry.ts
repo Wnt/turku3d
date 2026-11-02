@@ -1,10 +1,10 @@
 import * as THREE from 'three/webgpu';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { FleetModel } from './catalog';
+import { fleetHash, type FleetModel } from './catalog';
 
 type V = [number, number, number];
 type Surface = [number, number, number, number]; // paint mask, roughness, metalness, lamp emission
-const PAINT: Surface = [1, .26, .32, 0], RUBBER: Surface = [0, .91, 0, 0], GLASS: Surface = [0, .12, .25, 0];
+const PAINT: Surface = [1, .26, .32, 0], RUBBER: Surface = [0, .91, 0, 0], GLASS: Surface = [0, .10, 0, 0];
 const METAL: Surface = [0, .29, .8, 0], TRIM: Surface = [0, .62, .08, 0];
 const WHITE: V = [1, 1, 1], DARK: V = [.018, .023, .029], WINDOW: V = [.016, .030, .041];
 /** A compact merged mesh with per-vertex surface properties: every part uses one shared node material. */
@@ -46,26 +46,35 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
   const n = lod === 0 ? 20 : lod === 1 ? 10 : 6, w=.205, rim=r*.64;
   const point = (xx: number, rr: number, angle: number): V => [xx,y+Math.sin(angle)*rr,z+Math.cos(angle)*rr];
   for (let i=0;i<n;i++) {
+    b.flip=false;
     const a=i/n*Math.PI*2-Math.PI/2, c=(i+1)/n*Math.PI*2-Math.PI/2;
-    b.quad(point(x-w/2,r,a),point(x+w/2,r,a),point(x+w/2,r,c),point(x-w/2,r,c),DARK,RUBBER);
+    const profile=[[-w/2,r*.93],[-w*.34,r],[w*.34,r],[w/2,r*.93]];
+    for(let j=0;j<profile.length-1;j++){
+      const [xa,ra]=profile[j],[xb,rb]=profile[j+1];
+      b.quad(point(x+xa,ra,a),point(x+xb,rb,a),point(x+xb,rb,c),point(x+xa,ra,c),DARK,RUBBER);
+    }
     for (const s of [-1,1]) {
       b.flip=s<0;
       const outside=x+s*w/2, lip=x+s*(w/2+.018);
-      if(lod===2){b.tri([outside,y,z],point(outside,r,a),point(outside,r,c),[.04,.045,.05],RUBBER);continue;}
-      b.quad(point(outside,r,a),point(lip,r*.85,a),point(lip,r*.85,c),point(outside,r,c),DARK,RUBBER);
+      if(lod===2){b.tri([outside,y,z],point(outside,r,c),point(outside,r,a),[.04,.045,.05],RUBBER);continue;}
+      b.quad(point(outside,r*.93,a),point(lip,r*.85,a),point(lip,r*.85,c),point(outside,r*.93,c),DARK,RUBBER);
       b.quad(point(lip,r*.85,a),point(lip,rim,a),point(lip,rim,c),point(lip,r*.85,c),[.028,.031,.035],RUBBER);
-      b.tri([lip,y,z],point(lip,rim,a),point(lip,rim,c),lod===2?[.28,.3,.32]:[.055,.06,.065],METAL);
+      const recess=lip-s*.035;
+      b.quad(point(lip,rim,a),point(recess,rim*.88,a),point(recess,rim*.88,c),point(lip,rim,c),[.38,.41,.44],METAL);
+      b.tri([recess,y,z],point(recess,rim*.88,c),point(recess,rim*.88,a),[.055,.06,.065],METAL);
     }
   }
   b.flip=false;
-  if (lod === 0) {
-    const outside=x+side*(w/2+.023), spokes=face%3===0?5:face%3===1?10:7;
+  if (lod < 2) {
+    b.flip=side>0;
+    const outside=x+side*(w/2+.010), spokes=lod===1?5:face%3===0?5:face%3===1?10:7;
     for(let i=0;i<spokes;i++) {
       const a=i/spokes*Math.PI*2, d=.10;
       b.quad(point(outside,rim*.22,a-d*2),point(outside,rim*.94,a-d),point(outside,rim*.94,a+d),point(outside,rim*.22,a+d*2),[.52,.55,.59],METAL);
     }
     b.rod([outside-.008,y,z],[outside+.008,y,z],rim*.23,[.32,.35,.38],METAL,8);
   }
+  b.flip=false;
 }
 /** +Z forward, tyre bottoms at Y=0. No imported geometry, logos or photo textures. */
 export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeometry {
@@ -133,17 +142,36 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
       const a=rr+(rf-rr)*j/4,c=rr+(rf-rr)*(j+1)/4;
       b.quad([s*roofW,roofEdge-.012,a],[s*roofW,roofEdge-.012,c],[s*roofW,roofAt(c)-.06,c],[s*roofW,roofAt(a)-.06,a],WHITE,PAINT);
     }
-    if(m.body==='van') {
-      b.quad([s*baseW,topAt(-.05),-.05],[s*baseW,baseY,zf],[s*roofW,roofEdge,rf],[s*roofW,roofEdge,-.05],WINDOW,GLASS);
-      b.quad([s*baseW,rearY,zr],[s*baseW,topAt(-.05),-.05],[s*roofW,roofEdge,-.05],[s*roofW,roofEdge,rr],[.9,.91,.92],PAINT);
-    } else b.quad([s*baseW,rearY,zr],[s*baseW,baseY,zf],[s*roofW,roofEdge,rf],[s*roofW,roofEdge,rr],WINDOW,GLASS);
+    // Connected painted side with real openings, inset glass and seals. Shared boundaries
+    // prevent a dark continuous glass strip or floating cylindrical pillars.
+    const mid=rr+(rf-rr)*.57, quarter=rr+(rf-rr)*.22;
+    const outer=[new THREE.Vector2(zr,rearY),new THREE.Vector2(zf,baseY),new THREE.Vector2(rf,roofEdge),new THREE.Vector2(rr,roofEdge)];
+    type P=[number,number];
+    const panes:P[][]=[[[mid+.05,baseY+.04],[zf-.12,baseY+.04],[rf-.075,roofEdge-.04],[mid+.05,roofEdge-.04]]];
+    if(m.body!=='van'){
+      if(m.body==='estate'||m.body==='suv'||m.body==='mpv'){
+        panes.push([[quarter+.06,baseY+.04],[mid-.05,baseY+.04],[mid-.05,roofEdge-.04],[quarter+.06,roofEdge-.04]]);
+        panes.push([[zr+.17,rearY+.045],[quarter-.055,baseY+.04],[quarter-.055,roofEdge-.04],[rr+.085,roofEdge-.04]]);
+      }else panes.push([[zr+.22,rearY+.045],[mid-.05,baseY+.04],[mid-.05,roofEdge-.04],[rr+.12,roofEdge-.04]]);
+    }
+    const holes=panes.map(pane=>pane.map(([z,y])=>new THREE.Vector2(z,y)));
+    const points=[...outer,...holes.flat()];
+    const sidePoint=(p:THREE.Vector2,inset=0):V=>[s*(baseW+(roofW-baseW)*(p.y-baseY)/(roofEdge-baseY)-inset),p.y,p.x];
+    for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(outer,holes))b.tri(sidePoint(points[a]),sidePoint(points[c]),sidePoint(points[d]));
+    for(const pane of holes){
+      const center=pane.reduce((sum,p)=>sum.add(p),new THREE.Vector2()).multiplyScalar(1/pane.length);
+      const inner=pane.map(p=>p.clone().lerp(center,Math.min(.08,.015/p.distanceTo(center))));
+      for(let i=0;i<pane.length;i++){
+        const j=(i+1)%pane.length;
+        b.quad(sidePoint(pane[i]),sidePoint(pane[j]),sidePoint(inner[j],.024),sidePoint(inner[i],.024),DARK,TRIM);
+      }
+      for(const [a,c,d] of THREE.ShapeUtils.triangulateShape(inner,[]))b.tri(sidePoint(inner[a],.024),sidePoint(inner[c],.024),sidePoint(inner[d],.024),WINDOW,GLASS);
+    }
+    // The B pillar is a flat painted/black frame, bounded by the adjacent openings.
+    if(m.body!=='van')b.quad(sidePoint(new THREE.Vector2(mid-.047,baseY+.025),-.002),sidePoint(new THREE.Vector2(mid+.047,baseY+.025),-.002),
+      sidePoint(new THREE.Vector2(mid+.047,roofEdge-.018),-.002),sidePoint(new THREE.Vector2(mid-.047,roofEdge-.018),-.002),DARK,TRIM);
     if(lod<2) {
-      // A, B and C pillars, lower window seals, chrome waist trim, door seams and handles.
-      b.rod([s*baseW,baseY,zf],[s*roofW,roofEdge,rf],.035,WHITE,PAINT);
-      b.rod([s*baseW,rearY,zr],[s*roofW,roofEdge,rr],m.body==='estate'?.065:.05,WHITE,PAINT);
-      const mid=(rf+rr)*.5;
-      b.quad([s*(baseW+.003),baseY,mid-.045],[s*(baseW+.003),baseY,mid+.045],[s*(roofW+.003),roofAt(mid)-.06,mid+.045],[s*(roofW+.003),roofAt(mid)-.06,mid-.045],DARK,TRIM);
-      if(m.body==='estate'||m.body==='mpv'||m.body==='suv') b.rod([s*baseW,baseY,rr+.26],[s*roofW,roofAt(rr+.26)-.06,rr+.26],.025,DARK,TRIM);
+      // Waist seals, door seams and handles follow the authored openings.
       b.rod([s*baseW,rearY,zr],[s*baseW,baseY,zf],.014,[.38,.4,.42],METAL);
       if(lod===0)for(const z of [mid,zf-.1,zr+.2]) b.rod([s*(widthAt(z)+.004),belt-.12,z],[s*(widthAt(z)+.004),Math.max(low+.05,bottomAt(z)),z],.006,[.08,.09,.10],TRIM,4);
       if(lod===0)for(const z of [mid+.13,Math.max(zr+.3,mid-.6)]) b.box(s*(widthAt(z)+.012),belt-.12,z,.025,.035,.15,[.45,.47,.48],METAL);
@@ -184,14 +212,20 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
       b.box(0,low+.18,z+end*.04,.51,.11,.018,[.9,.92,.87],[0,.55,0,0]);
       b.box(-.225,low+.18,z+end*.051,.045,.10,.004,[.02,.08,.36],TRIM);
       // Close-range fictional identifiers. These geometric strokes are removed beyond LOD0.
-      const digits=[m.face+2,3,5,1,m.face%5+2,7];
-      for(let k=0;k<6;k++) {
-        const x=-.17+k*.064;
-        b.box(x,low+.18,z+end*.053,.008,.065,.003,DARK,TRIM);
-        b.box(x+.015,low+.207,z+end*.053,.032,.007,.003,DARK,TRIM);
-        if(digits[k]%2) b.box(x+.028,low+.18,z+end*.053,.007,.060,.003,DARK,TRIM);
-        b.box(x+.014,low+.153,z+end*.053,.03,.007,.003,DARK,TRIM);
+      const registration=['AVK','KRA','NRD','VRE','SLO','VLO','RTA'][m.face]+String(100+fleetHash(m.id)%900);
+      const segments:Record<string,string>={
+        '0':'abcedf','1':'bc','2':'abged','3':'abgcd','4':'fgbc','5':'afgcd','6':'afgecd','7':'abc','8':'abcdefg','9':'abfgcd',
+        A:'abcefg',V:'hi',K:'fjk',N:'efbl',R:'abefgk',D:'abcedf',E:'afged',S:'afgcd',L:'fed',O:'abcdef',T:'am',
+      };
+      const lines:Record<string,number[]>={a:[0,1,1,1],b:[1,1,1,.5],c:[1,.5,1,0],d:[0,0,1,0],e:[0,0,0,.5],f:[0,.5,0,1],g:[0,.5,1,.5],
+        h:[0,1,.5,0],i:[.5,0,1,1],j:[0,.5,1,1],k:[0,.5,1,0],l:[0,1,1,0],m:[.5,0,.5,1]};
+      for(let k=0;k<registration.length;k++)for(const key of segments[registration[k]]){
+        const [x0,y0,x1,y1]=lines[key],x=-.182+k*.058+(k>=3?.015:0),y=low+.148,zz=z+end*.053;
+        const dx=(x1-x0)*.034,dy=(y1-y0)*.064,len=Math.hypot(dx,dy),ox=-dy/len*.0025,oy=dx/len*.0025;
+        b.quad([x+x0*.034+ox,y+y0*.064+oy,zz],[x+x1*.034+ox,y+y1*.064+oy,zz],
+          [x+x1*.034-ox,y+y1*.064-oy,zz],[x+x0*.034-ox,y+y0*.064-oy,zz],DARK,TRIM);
       }
+      b.box(0,low+.18,z+end*.052,.020,.005,.002,DARK,TRIM);
       // Fictional diamond badge, deliberately no real brand mark.
       b.box(0,lampY-.04,z+end*.031,.055,.045,.008,[.55,.59,.62],METAL);
     }

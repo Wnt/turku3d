@@ -126,9 +126,11 @@ async function handle(msg: ToWorker) {
     case 'cameraCast':
       post({ type: 'cameraCastResult', id: msg.id, distance: pw.cameraCast(msg.origin, msg.dir, msg.distance) });
       break;
-    case 'raycast':
-      post({ type: 'raycastResult', id: msg.id, hit: pw.raycast(msg.origin, msg.dir, msg.maxToi, msg.filter) });
+    case 'raycast': {
+      const world = pw;
+      post({ type: 'raycastResult', id: msg.id, hits: msg.rays.map(ray => world.raycast(ray.origin, ray.dir, ray.maxToi, ray.filter)) });
       break;
+    }
     case 'stats':
       post({ type: 'statsResult', id: msg.id, tiles: pw.tileStats(), ...pw.totals() });
       break;

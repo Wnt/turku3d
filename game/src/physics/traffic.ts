@@ -12,8 +12,8 @@ import type * as RAPIER_NS from '@dimforge/rapier3d';
 import { DAY_MS, cycleHour } from '../core/dayCycle';
 import type { V3 } from '../core/origin';
 import { GROUP } from '../shared/col/materials';
-import { CHASSIS_LIFT, MODEL_SIZE, MODEL_WEIGHTS, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS } from '../traffic/constants';
-import { hash01, pick } from '../traffic/hash';
+import { CHASSIS_LIFT, MODEL_SIZE, MODEL_WEIGHTS, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from '../traffic/constants';
+import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
@@ -25,7 +25,7 @@ import type { Quat, TrafficClaimEvent, TrafficConfig, TrafficTile } from './prot
 type R = typeof RAPIER_NS;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 /** Numbers per car in the published flat array. */
-export const TRAFFIC_STRIDE = 12;
+export { TRAFFIC_STRIDE };
 /** Height samples along a lane (m). */
 const SAMPLE_STEP = 4;
 /** Worker time per physics step for sampling lane surfaces (ms): a long lane is sampled over several steps.
@@ -55,6 +55,7 @@ export interface TrafficHost {
 }
 
 interface ActiveCar {
+  appearanceSeed: number;
   handle: number;
   lane: Lane; n: number; key: string;
   model: number; paint: number;
@@ -238,7 +239,7 @@ export class TrafficSim {
     this.claims.addLocal(car.key);
     this.deactivate(car);
     this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel });
-    this.events.push({ revision: 0, handle, id, key: car.key, model, color: TRAFFIC_PAINTS[car.paint],
+    this.events.push({ revision: 0, handle, id, key: car.key, seed: String(car.appearanceSeed), model, color: TRAFFIC_PAINTS[car.paint],
       size: [w, h, l], pos, rot, linvel });
     this.stats.claims++;
     return id;
@@ -265,7 +266,7 @@ export class TrafficSim {
       if (!Number.isFinite(p.y)) continue;
       const q = chassisRotation(p);
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
-        round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed));
+        round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed), car.appearanceSeed, 0, 0, round(p.speed));
     }
     return out;
   }
@@ -312,7 +313,7 @@ export class TrafficSim {
     for (const c of candidates) {
       if (this.active.size >= this.config.cap) break;
       if (this.byKey.has(c.key)) continue;
-      const car: ActiveCar = { handle: this.nextHandle++, lane: c.lane, n: c.n, key: c.key,
+      const car: ActiveCar = { appearanceSeed: hash32('appearance', c.key), handle: this.nextHandle++, lane: c.lane, n: c.n, key: c.key,
         model: pick(hash01('model', c.key), MODEL_WEIGHTS), paint: pick(hash01('paint', c.key), PAINT_WEIGHTS),
         pose: blankPose(), body: null, visible: false };
       this.network.pose(car.lane, car.n, t, this.height, car.pose);
