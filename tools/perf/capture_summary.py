@@ -22,6 +22,7 @@ def rows(directory, name):
 
 
 def segments(poses, marks):
+    poses = sorted(poses, key=lambda p: p['t'])
     result = []
     edges = sorted((m for m in marks if m.get('k') in ('pause', 'resume')), key=lambda m: m['t'])
     if edges:

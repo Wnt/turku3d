@@ -2,7 +2,7 @@ import { test, expect, vi, afterEach } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { DriveBench, type LoadedDrive, type DrivePose } from '../../src/qa/drive';
 const captures = vi.hoisted(() => ({ stops: [] as ReturnType<typeof vi.fn>[] }));
-vi.mock('../../src/telemetry/capture', () => ({ DriveCapture: class {
+vi.mock('../../src/telemetry/capture', () => ({ captureAllowed: () => true, DriveCapture: class {
   id = 'test-capture'; stop = vi.fn().mockResolvedValue(undefined);
   constructor() { captures.stops.push(this.stop); }
 } }));
