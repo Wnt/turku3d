@@ -19,6 +19,8 @@ The night grade keeps lamps, windows and their pools in colour but lets dim ligh
 saturation (a luminance-keyed uniform in the final grade): autumn crowns and painted walls no longer glow in the dark.
 All of these are uniforms: the sun is never hidden and no light is added or removed, so day and night share every
 pipeline (`tests/unit/night-pipelines.test.ts` builds the real r186 programs at 13:00 and 23:30 on both backends).
+Time edits also reposition the directional sun around its existing target, so a stationary QA camera gets the
+same lighting and shadow direction as the visible sky without requiring another camera move.
 `renderer.lighting` is r186 `DynamicLighting` (`lighting.ts`) with fixed point-light slots per tier (0 mobile, 0 low,
 4 medium, 8 high) in `Environment.lamps.point`; only slots with intensity > 0 enter the shader loop. Its lights node
 re-adds the material lightings (scene IBL, light maps, GTAO and material AO) that r186's `DynamicLightsNode` drops,
