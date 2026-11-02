@@ -26,6 +26,10 @@ Walking and driving use deterministic camera/actor rigs on surveyed street
 alignments, with the game's own character and sedan assets. They do not measure
 live input latency or vehicle physics. The character animates at fixed steps;
 vehicle wheels turn with the scripted route distance.
+QA mode omits parked vehicles, so capture restores each build's native parked-car
+renderer using that side's streamed vehicle records. Gen 2 retains its occupancy
+rules and resting-slot transforms; production retains its nearby-body range.
+No parking positions are invented. Trucks and moving ambient traffic are omitted.
 
 The command registers the integration commit as `video-<sha>`, requests every
 path tile plus a one-tile ring, and adds any extra detailed resident tiles observed
@@ -100,6 +104,18 @@ Focused checks:
 node --test tools/video/comparison.test.mjs
 node --check tools/video/comparison-capture.mjs
 ```
+
+Capture one full-resolution midpoint for a same-pose review (servers must already
+be running; `--revision` is the pinned tile/source revision):
+
+```sh
+node tools/video/comparison-capture.mjs --still --only street-drive --side right \
+  --revision <pinned-sha> --out ~/turku3d/loops/video/review
+```
+
+Use `--side left` or `--side both` as needed. The still uses the full clip's exact
+midpoint pose and animation frame, warms temporal history there, and writes
+`stills/<shot>-<side>-still.jpg` plus a receipt containing native parked IDs.
 
 The older explainer/showcase pipeline and its `shots.json` are independent; see
 [README.md](README.md).

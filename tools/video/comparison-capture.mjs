@@ -8,19 +8,22 @@ import {once} from 'node:events';
 import {chromium} from '../../game/node_modules/playwright-core/index.mjs';
 import {launch,lease} from './comparison-browser.mjs';
 import {poseAt,tilesForShot} from './paths.mjs';
+import {installParked} from './comparison-parked.mjs';
 const args=process.argv.slice(2), opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d;
 const config=JSON.parse(fs.readFileSync(opt('--shots',new URL('./comparison-shots.json',import.meta.url))));
 const out=path.resolve(opt('--out',path.join(os.homedir(),'turku3d/video/2026-11-02')));
-const preview=args.includes('--preview'), width=preview?480:960,height=preview?540:1080;
+const preview=args.includes('--preview'),still=args.includes('--still'), width=preview?480:960,height=preview?540:1080;
+const sides=opt('--side','both')==='both'?[0,1]:[opt('--side')==='left'?0:1];
+if(!['both','left','right'].includes(opt('--side','both')))throw Error('--side must be both, left, or right');
 const selected=opt('--only','').split(',').filter(Boolean);
 const urls=[opt('--left','http://127.0.0.1:5960/'),opt('--right','http://localhost:5220/')];
 const cdpURL=opt('--cdp',''),sourceRevision=opt('--revision','');
-const captureCodeHash=createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).update(fs.readFileSync(new URL('./paths.mjs',import.meta.url))).digest('hex');
+const captureCodeHash=createHash('sha256').update(fs.readFileSync(new URL(import.meta.url))).update(fs.readFileSync(new URL('./paths.mjs',import.meta.url))).update(fs.readFileSync(new URL('./comparison-parked.mjs',import.meta.url))).digest('hex');
 const browser=cdpURL?await chromium.connectOverCDP(cdpURL):null;
 const ctx=browser?browser.contexts()[0]:await launch(width,height);
 await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[]}));
 const pages=[], sessions=[], records=[new Map(),new Map()], failures=[[],[]], inflight=[new Set(),new Set()];
-const dir=path.join(out,preview?'preview':'clips');fs.mkdirSync(dir,{recursive:true});
+const dir=path.join(out,still?'stills':preview?'preview':'clips');fs.mkdirSync(dir,{recursive:true});
 const iso=shot=>`${shot.date??"2026-09-08"}T${String(Math.floor(shot.hour)).padStart(2,'0')}:${String(Math.round(shot.hour%1*60)).padStart(2,'0')}:00+03:00`;
 const log=m=>console.log(new Date().toISOString(),m);
 async function setup(side,shot){
@@ -119,6 +122,7 @@ async function frame(side,shot,u,frame){
   if(g.dayClock.sharedNow)g.dayClock.sharedNow=()=>v.baseDate+(frame+60)*1000/fps;
   window.__dev?.rainEffects?.setPhaseSeconds?.((frame+60)/fps);
   window.__qaMove(pose);
+  v.updateParked?.();
   if(v.actor){
    const THREE=v.THREE,a=pose.yaw*Math.PI/180,d=mode==='walk'?5:9;
    const x=pose.E-23459500+Math.sin(a)*d,z=6704500-pose.N-Math.cos(a)*d,y=v.ground(x,z);
@@ -137,17 +141,19 @@ try{
  // One browser, two long-lived, paused pages. Capture a segment's sides back to back.
  for(const old of ctx.pages())await old.evaluate(()=>{if(window.__render)window.__render.beforeFrame=()=>false;}).catch(()=>{});
  for(const shot of config.shots.filter(s=>!selected.length||selected.includes(s.id))){
-  for(let side=0;side<2;side++){
+  for(const side of sides){
    const name=`${shot.id}-${side?'right':'left'}`, file=path.join(dir,`${name}.mp4`),receipt=path.join(dir,`${name}.json`);
    const previous=fs.existsSync(receipt)?JSON.parse(fs.readFileSync(receipt)):null;
-   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&(preview||(previous.sourceRevision===sourceRevision&&previous.captureCodeHash===captureCodeHash&&previous.fps===config.fps&&previous.frames===Math.round(config.duration*config.fps)&&previous.url===urls[side]))&&!args.includes('--force')){log(`reuse ${name}`);continue;}
+   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&previous.captureCodeHash===captureCodeHash&&(preview||(previous.sourceRevision===sourceRevision&&previous.fps===config.fps&&previous.frames===Math.round(config.duration*config.fps)&&previous.url===urls[side]))&&!args.includes('--force')){log(`reuse ${name}`);continue;}
    lease('touch');for(let other=0;other<2;other++)if(pages[other]&&other!==side)await sessions[other].send('Page.setWebLifecycleState',{state:'frozen'});if(!pages[side])await setup(side,shot);
    for(let other=0;other<2;other++)if(pages[other])await sessions[other].send('Page.setWebLifecycleState',{state:other===side?'active':'frozen'});
    log(`settling ${name}`);
    // Inspect both endpoints and return to the first. Avoid reloads and reuse compiled meshes.
    for(const u of [1,0])await settle(side,shot,u);
+   const parked=await installParked(pages[side],shot);
    const actors=await installActor(side,shot);
-   for(let k=-32;k<0;k++)await frame(side,shot,0,k);
+   const middle=Math.floor(config.duration*config.fps/2),midpoint=middle/(Math.round(config.duration*config.fps)-1);
+   for(let k=-32;k<0;k++)await frame(side,shot,still?midpoint:0,still?middle+k:k);
    const resident=await pages[side].evaluate(()=>[...window.__videoCoarse.entries].filter(([,e])=>e.model).map(([id,e])=>({id,hash:e.visualHash,pass:e.pass,preview:!!e.preview})));
    const manifests=[];
    for(const tile of [...new Set([...tilesForShot(shot),...resident.map(r=>r.id)])]){
@@ -159,19 +165,20 @@ try{
     if(side===1&&!preview&&!resident.some(r=>r.id===tile&&r.hash===manifest.visual?.[tile]?.sha256))throw Error(`${name}: resident hash mismatch ${tile}`);
     manifests.push({tile,revision:manifest.revision,stale:manifest.stale??false,pass:manifest.pass_kind,hash:manifest.visual?.[tile]?.sha256});
    }
-   const count=preview?3:Math.round(config.duration*config.fps),motion=[];
+   const count=still?1:preview?3:Math.round(config.duration*config.fps),motion=[];
    let encoder,closed;
-   if(!preview){encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(config.fps),'-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','12','-pix_fmt','yuv420p','-threads','3',file],{stdio:['pipe','inherit','inherit']});closed=once(encoder,'close');encoder.stdin.on('error',()=>{});}
+   if(!preview&&!still){encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(config.fps),'-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','12','-pix_fmt','yuv420p','-threads','3',file],{stdio:['pipe','inherit','inherit']});closed=once(encoder,'close');encoder.stdin.on('error',()=>{});}
    for(let f=0;f<count;f++){
-    const u=f/(count-1),state=await frame(side,shot,u,preview?Math.round(u*config.duration*config.fps):f);
+    const u=still?midpoint:f/(count-1),state=await frame(side,shot,u,still?middle:preview?Math.round(u*config.duration*config.fps):f);
     const png=await sessions[side].send('Page.captureScreenshot',{format:'jpeg',quality:97,captureBeyondViewport:false});
     const bytes=Buffer.from(png.data,'base64');
-    if(preview||f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${name}-${preview?f:'sample'}.jpg`),bytes);
+    if(preview||f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${name}-${still?'still':preview?f:'sample'}.jpg`),bytes);
     if(encoder&&!encoder.stdin.write(bytes))await once(encoder.stdin,'drain');
     if(f%60===0||preview)motion.push({frame:f,...state});
    }
    if(encoder){encoder.stdin.end();if((await closed)[0])throw Error('ffmpeg capture failed');}
-   fs.writeFileSync(receipt,JSON.stringify({shot,sourceRevision,captureCodeHash,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
+   const parkedView=await pages[side].evaluate(()=>window.__video.parked?.snapshot?.()??{nearbyStates:window.__video.parkedStates?.filter(s=>Math.hypot(s.pos.x-window.__render.camera.position.x,s.pos.z-window.__render.camera.position.z)<=120).length});
+   fs.writeFileSync(receipt,JSON.stringify({shot,sourceRevision,captureCodeHash,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,parked:{...parked,view:parkedView},motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
    log(`captured ${name}: ${count} frames`);await sessions[side].send('Page.setWebLifecycleState',{state:'frozen'});
   }
  }
