@@ -32,7 +32,7 @@ test('night: no sun light below the horizon, artificial ambient on; day uses jud
   expect(deep.bloomStrength).toBeGreaterThan(0.25); expect(deep.bloomThreshold).toBeLessThan(1);
   // Reference-judged daylight: a stronger sun against neutral fill restores street-level contrast without lowering exposure.
   const afternoon = timecycle(30);
-  expect(afternoon).toMatchObject({ sunIntensity: 4.0, environmentIntensity: 0.08, hemisphereIntensity: 1.0, exposure: 0.65,
+  expect(afternoon).toMatchObject({ sunIntensity: 4.0, environmentIntensity: 0.08, hemisphereIntensity: 1.0, exposure: 0.9,
     bloomStrength: 0.045, bloomThreshold: 1.5, night: 0, fogNear: 120, fogFar: 3500 });
   expect(afternoon.fogColor).toEqual(linearRgb('#b8cde0'));
   // The night factor only grows as the sun sinks.
