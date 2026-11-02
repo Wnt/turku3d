@@ -669,23 +669,34 @@ def produce(tile, grid_pos, inputs):
             )
         )
         # Blend only the approaches into the ground. The entire span below stays traversable.
-        corridor = line.buffer(width / 2 + 2, cap_style="flat")
+        # The centreline can reach road level while the outside of a skew
+        # abutment is still on the lower bank. A flat cap drops those raised
+        # corners straight back into the TIN, leaving a ditch beside the road.
+        # Fade the fill over two ground cells beyond each landward join too.
+        from .inputs import CELLS
+
+        feather = 2 * tile.size / CELLS
+        join_line = extended(line, feather)
+        corridor = join_line.buffer(width / 2 + 2, cap_style="flat")
         candidates = np.flatnonzero(shapely.contains_xy(corridor, grid_pos[:, 0], grid_pos[:, 2]))
         blocked_approaches = obstacles.buffer(width / 2)
         for i in candidates:
             p = shapely.Point(grid_pos[i, [0, 2]])
-            t = line.project(p)
+            t = join_line.project(p) - feather
             if (
                 way.get("stair_access")
                 or start_ramp <= t <= start_ramp + axis.length
+                or (t < 0 and not start_ramp)
+                or (t > line.length and not end_ramp)
                 or blocked_approaches.covers(p)
                 or any(g.covers(p) for g in blocked)
             ):
                 continue
-            lateral = max(0.0, line.distance(p) - width / 2)
+            lateral = max(0.0, join_line.distance(p) - width / 2)
             target = float(np.interp(t, ss, hh)) - 0.02
+            blend = (1 - lateral / 2) * np.clip(1 + min(t, line.length - t) / feather, 0, 1)
             grid_pos[i, 1] = max(
-                grid_pos[i, 1], target * (1 - lateral / 2) + grid_pos[i, 1] * lateral / 2
+                grid_pos[i, 1], target * blend + grid_pos[i, 1] * (1 - blend)
             )
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
         if meshes:

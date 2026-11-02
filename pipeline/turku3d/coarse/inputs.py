@@ -81,6 +81,7 @@ DEPENDENCIES = {
     "barriers": ("fences.py", "../spatial.py"),
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
+    "vegetation_roads": ("tree_inputs.py", "../spatial.py"),
     "tunnels": (
         "road_top.py",
         "tunnels.py",
@@ -142,6 +143,7 @@ class Inputs:
     barriers: list = ()  # OSM barrier geometries, tags and deliberate road membership
     forests: list = ()
     vegetation_paths: list | None = None
+    vegetation_roads: list = ()  # functional carriageways, independent of paving material
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     kerbs: object = None
@@ -530,6 +532,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "barriers": [osm] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
+        "vegetation_roads": [wfs[1][1]] if wfs[1][0] else [],
         "tunnels": [osm] if osm else None,
         "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm, *(p for _, p in wfs[6:])]
@@ -650,6 +653,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .forest_paths import read_paths
 
         return read_paths(tile, paths[0])
+    if dataset == "vegetation_roads":
+        from .tree_inputs import carriageways
+
+        return carriageways(tile, paths[0]) if paths else []
     if dataset == "trees":
         return prepare_trees(tile, *paths)
     if dataset == "poles":
@@ -736,6 +743,7 @@ def gather(
             "vegetation_canopy",
             "forests",
             "vegetation_paths",
+            "vegetation_roads",
             "poles",
             "surfaces",
             "markings",
@@ -847,6 +855,7 @@ def gather(
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),
         vegetation_paths=values["vegetation_paths"] or [],
+        vegetation_roads=values["vegetation_roads"] or (),
         canopy=ground.get("canopy", np.empty((0, 3))),
         vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
         trees=values["trees"] or (),

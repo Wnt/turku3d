@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { SceneryCutState } from './sceneryCutState';
 import { SceneryCoverage } from '../render/sceneryCoverage';
 import { SceneryBatches } from '../render/sceneryBatches';
 import { styleScenery } from '../render/sceneryMaterial';
@@ -15,6 +16,10 @@ class TreePlacementsPending extends Error {}
 export class ScreenshotScenery {
   radius = 0;
   private readonly coverage = new SceneryCoverage();
+  private readonly cutState = new SceneryCutState();
+  private committed = new Set<string>();
+  private nextCutExpiry = Infinity;
+  private batchModels: [string, THREE.Object3D][] = [];
   private readonly batches: SceneryBatches;
   private readonly direction = new THREE.Vector3();
 
@@ -106,7 +111,7 @@ export class ScreenshotScenery {
   setRadius(radius: number, view?: SceneryView) {
     this.radius = Number.isFinite(radius) ? Math.max(0, Math.min(15000, radius)) : 0;
     ++this.selection;
-    this.batches.clear();
+    this.batches.clear(); this.cutState.clear(); this.committed.clear(); this.nextCutExpiry = Infinity; this.batchModels = [];
     for (const [id, e] of this.entries) this.release(id,e);
     for (const entry of this.nearby.values()) if (entry.preview && entry.model) entry.model.visible = true;
     this.coverage.update([]);
@@ -217,6 +222,7 @@ export class ScreenshotScenery {
   }).slice(0, 64); }
 
   update(x: number, z: number, now: number, paused = false) {
+    const previousUpdate = this.clock;
     this.clock = now;
     if (!this.radius) return;
     if (!this.view) this.wanted = startupDraftTiles([{ x, z }], this.radius)
@@ -226,31 +232,11 @@ export class ScreenshotScenery {
       this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
       this.readMissingSources();
     }
-    const keep = new Set(this.wanted);
-    const outside: [string, Scenery][] = [];
-    // Keep the old cut during refinement AND coarsening until its replacement is ready.
-    const fallback = new Set<string>();
-    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id)
-      && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
-        && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
-    for (const [id, e] of this.entries) {
-      if (keep.has(id) || fallback.has(id)) e.seen = now;
-      else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
-      else { this.release(id,e); this.entries.delete(id); }
-    }
-    // A bounded five-second tail makes brief look-backs instant without retaining a whole 360° world.
-    outside.sort((a, b) => b[1].seen - a[1].seen);
-    for (const [id, e] of outside.slice(128)) {
-      this.release(id,e);
-      this.entries.delete(id);
-    }
-    for (const [id, e] of this.entries) if (e.model) {
-      const hiddenByParent = [...fallback].some(parent => sceneryContains(parent, id) && parent !== id);
-      e.model.visible = !hiddenByParent && (keep.has(id) || fallback.has(id));
-    }
-    this.updateCoverage();
-    this.batches.sync([...this.entries].flatMap(([id,e])=>e.model?[[id,e.model] as [string,THREE.Object3D]]:[]));
-    if (paused) return;
+    if (now >= this.nextCutExpiry || this.cutState.changed(this.wanted, this.entries, this.nearby, this.sources))
+      this.commitCut(now, previousUpdate);
+    this.batches.sync(this.batchModels);
+    const concurrency = this.view ? 4 : 2;
+    if (paused || this.active >= concurrency) return;
     for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
       && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z)) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
@@ -261,13 +247,49 @@ export class ScreenshotScenery {
       && (this.view ? this.sources.has(id) : demand.has(id) || this.entries.get(id)?.complete))
       .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
     for (const id of due) {
-      if (this.active >= (this.view ? 4 : 2)) break;
+      if (this.active >= concurrency) break;
       let e = this.entries.get(id);
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
       if (e.busy || now < e.next) continue;
       e.busy = true; this.active++;
       void this.poll(id, e, sceneryDistance(id, x, z), this.sources.get(id));
     }
+  }
+
+  private commitCut(now: number, previousUpdate: number) {
+    const keep = new Set(this.wanted);
+    this.nextCutExpiry = Infinity;
+    const outside: [string, Scenery][] = [];
+    // Keep the old cut during refinement AND coarsening until its replacement is ready.
+    const fallback = new Set<string>();
+    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id)
+      && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
+        && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
+    for (const [id, e] of this.entries) {
+      // Stable cuts no longer touch seen every frame. Preserve the last frame
+      // that still owned this tile, including long suspended-tab time gaps.
+      if (this.committed.has(id)) e.seen = previousUpdate;
+      if (keep.has(id) || fallback.has(id)) e.seen = now;
+      else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
+      else { this.release(id,e); this.entries.delete(id); }
+    }
+    // A bounded five-second tail makes brief look-backs instant without retaining a whole 360° world.
+    outside.sort((a, b) => b[1].seen - a[1].seen);
+    for (const [id, e] of outside.slice(128)) {
+      this.release(id,e);
+      this.entries.delete(id);
+    }
+    for (const [, e] of outside.slice(0,128)) this.nextCutExpiry = Math.min(this.nextCutExpiry, e.seen + 5000);
+    const parents = [...fallback];
+    for (const [id, e] of this.entries) if (e.model) {
+      const hiddenByParent = parents.some(parent => sceneryContains(parent, id) && parent !== id);
+      e.model.visible = !hiddenByParent && (keep.has(id) || fallback.has(id));
+    }
+    this.committed = new Set([...keep, ...fallback]);
+    this.updateCoverage();
+    this.batchModels = [];
+    for (const [id, entry] of this.entries) if (entry.model) this.batchModels.push([id, entry.model]);
+    this.cutState.capture(this.wanted, this.entries, this.nearby, this.sources);
   }
 
   private async poll(id: string, e: Scenery, distance: number, source?: ScenerySource) {

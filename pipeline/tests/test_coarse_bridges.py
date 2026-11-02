@@ -386,6 +386,40 @@ def test_join_does_not_end_on_a_bank_lip_before_a_depression():
     assert approach_lengths(deck, [6, 6], ground, shapely.GeometryCollection())[1] == 12
 
 
+def test_skew_bank_fill_fades_past_both_approach_caps_without_filling_the_span(monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d.coarse.bridges import produce
+    from turku3d.coarse.inputs import CELLS
+
+    monkeypatch.setattr("turku3d.coarse.tunnels.ground_sampler", lambda sample: sample)
+    deck = way("bridge", [(20, 30), (60, 30)], width=8)
+    deck.update(approaches=[], under=[], survey={"stations": [0, 40], "heights": [6, 6]})
+    inputs = SimpleNamespace(
+        points=np.array([[0, 6, 20], [100, 6, 20], [0, 6, 40], [100, 6, 40]]),
+        roads={"bridge_ways": [deck]}, buildings=[],
+    )
+    # The axis joins the road at 6 m, but the side of each approach is on a
+    # lower bank. Check immediately across the old flat caps at x=17 and 63.
+    feather = 2 * C.VISUAL_TILE_SIZE / CELLS
+    xs = [17 - 1e-5, 17 + 1e-5, 63 - 1e-5, 63 + 1e-5,
+          17 - feather / 2, 63 + feather / 2, 17 - feather, 63 + feather, 40]
+    positions = np.array([[x, 2.0, 33] for x in xs])
+    produce(C.VisualTile(0, 0, 0), positions, inputs)
+    np.testing.assert_allclose(positions[:4, 1], 6, atol=2e-5)
+    np.testing.assert_allclose(positions[4:6, 1], 4, atol=1e-9)
+    np.testing.assert_allclose(positions[6:, 1], 2, atol=1e-9)
+    # A mapped lower passage remains open even inside the new end feather.
+    deck["approach_under"] = [way("quay", [(15, 25), (15, 35)], bridge=False, width=1)]
+    passage = np.array([[15.0, 2, 33]])
+    produce(C.VisualTile(0, 0, 0), passage, inputs)
+    assert passage[0, 1] == 2
+    deck["landing"] = True
+    positions[:, 1] = 2
+    produce(C.VisualTile(0, 0, 0), positions, inputs)
+    np.testing.assert_array_equal(positions[:, 1], 2)
+
+
 def test_cathedral_arch_has_open_spandrels_between_rib_and_deck():
     from turku3d.coarse.bridge_details import furniture
 

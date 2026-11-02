@@ -7,6 +7,26 @@ afterEach(() => vi.unstubAllGlobals());
 const W = 844;
 
 describe('touch pad', () => {
+  test('idle samples keep released taps and motion one-shot, including release before the frame', () => {
+    const pad = new TouchPad();
+    const idle = pad.sample();
+    pad.press(1, 'jump'); pad.up(1);
+    expect(pad.sample().taps.has('jump')).toBe(true);
+    expect(pad.sample().taps.size).toBe(0);
+    pad.down(2, 600, 200, W); pad.move(2, 640, 215); pad.up(2);
+    expect(pad.active).toBe(false);
+    expect(pad.sample()).toMatchObject({ lookX: 40, lookY: 15 });
+    expect(pad.sample()).toMatchObject({ lookX: 0, lookY: 0, zoom: 0 });
+    expect(idle.actions.jump).toBe(0);
+    expect(idle.taps.size).toBe(0);
+    expect(idle.lookX).toBe(0);
+    pad.press(3, 'throttle');
+    expect(pad.sample().actions.throttle).toBe(1);
+    pad.clear();
+    expect(pad.sample().actions.throttle).toBe(0);
+    expect(idle.actions.throttle).toBe(0);
+  });
+
   test('the square stick has independent axes, saturates and never moves its initial origin', () => {
     const pad = new TouchPad();
     pad.down(1, 150, 250, W);
