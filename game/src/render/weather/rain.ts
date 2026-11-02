@@ -2,7 +2,7 @@
 import * as THREE from 'three/webgpu';
 import { attribute, cameraFar, cameraNear, cameraPosition, float, fract, length, max, mix, pass, perspectiveDepthToViewZ, positionLocal, positionView, screenUV, smoothstep, texture, uniform, uv, vec2, vec3 } from 'three/tsl';
 import { isPrecompiling } from '../compileModel';
-import { puddleMask, weatherUniforms } from './surfaces';
+import { puddleMask, weatherNoise, weatherUniforms } from './surfaces';
 import { RainExposure } from './exposure';
 import type { WeatherSample } from './schedule';
 
@@ -11,6 +11,9 @@ export class Rain {
   readonly sceneDepth = texture(new THREE.DepthTexture(1, 1));
   readonly mesh: THREE.Mesh;
   readonly splashes: THREE.Mesh;
+  readonly mist: THREE.Mesh;
+  /** Weather-owned A/B: remove the losing ground-mist path before promoting this increment. */
+  readonly mistGain = uniform(1);
   readonly exposure: RainExposure;
   private phaseSeconds: number | null = null;
   private readonly origin = uniform(new THREE.Vector2());
@@ -75,6 +78,29 @@ export class Rain {
     this.splashes = new THREE.Mesh(splashGeometry, splash);
     this.splashes.name = 'weather surface splashes'; this.splashes.frustumCulled = false; this.splashes.renderOrder = 5;
     scene.add(this.splashes);
+    const mistGeometry = geometry.clone(); mistGeometry.instanceCount = 36;
+    const mistMaterial = new THREE.MeshBasicNodeMaterial({ transparent: true, depthTest: false, depthWrite: false,
+      side: THREE.DoubleSide });
+    const mistXZ = fract(seed.xz.add(drift).sub(cameraPosition.xz.div(64))).mul(64).add(cameraPosition.xz).sub(32);
+    const mistGround = texture(this.exposure.texture, mistXZ.sub(this.origin).div(64));
+    const mistCentre = vec3(mistXZ.x, mistGround.r.add(.32), mistXZ.y);
+    mistMaterial.positionNode = mistCentre.add(this.right.mul(positionLocal.x).mul(seed.w.mul(4).add(3)))
+      .add(vec3(0, positionLocal.y.mul(.65), 0));
+    mistMaterial.colorNode = vec3(.55, .61, .65).mul(this.brightness);
+    const mistUV = uv();
+    const body = float(1).sub(smoothstep(.15, .5, mistUV.x.sub(.5).abs()))
+      .mul(float(1).sub(smoothstep(.1, .5, mistUV.y.sub(.5).abs())));
+    const turbulence = texture(weatherNoise(), mistUV.mul(vec2(.12, .17)).add(seed.xz)
+      .add(drift.mul(vec2(2, 4)))).r;
+    const life = float(1).sub(fract(seed.y.add(this.time.mul(.125))).sub(.5).abs().mul(2));
+    const mistDistance = length(mistCentre.sub(cameraPosition));
+    mistMaterial.opacityNode = body.mul(turbulence).mul(life).mul(mistGround.g).mul(unoccluded)
+      .mul(smoothstep(2, 7, mistDistance)).mul(float(1).sub(smoothstep(22, 32, mistDistance)))
+      .mul(smoothstep(.35, 1, this.rain)).mul(.14).mul(this.mistGain);
+    mistMaterial.fog = true;
+    this.mist = new THREE.Mesh(mistGeometry, mistMaterial);
+    this.mist.name = 'weather windblown ground mist'; this.mist.frustumCulled = false; this.mist.renderOrder = 4;
+    scene.add(this.mist);
   }
   get fixedPhaseSeconds() { return this.phaseSeconds; }
   setPhaseSeconds(seconds: number | null) {
@@ -92,6 +118,7 @@ export class Rain {
     this.drift.value.set(wrap(seconds * .009765625), wrap(seconds * .0036163330078125));
     this.rain.value = sample.rain;
     this.wind.value = sample.wind;
+    this.mist.visible = sample.rain > .35 && this.mistGain.value > 0;
     this.brightness.value = .2 + (1 - night) * .5;
     this.right.value.setFromMatrixColumn(camera.matrixWorld, 0);
     this.scene.userData.rain = sample.rain;
@@ -110,7 +137,7 @@ export class Rain {
     return { color: layer.getTextureNode().rgb, resource: layer };
   }
   dispose(keepExposure = false) {
-    for (const mesh of [this.mesh, this.splashes]) { mesh.removeFromParent(); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); }
+    for (const mesh of [this.mesh, this.splashes, this.mist]) { mesh.removeFromParent(); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); }
     if (!keepExposure) this.exposure.dispose();
   }
 }
