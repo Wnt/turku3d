@@ -22,7 +22,7 @@ export function natureFixture(): NatureLibrary {
     }
     root.add(group);
   };
-  for (const name of TREES) {
+  for (const name of [...TREES, 'tree_birch_v2']) {
     node(name, 0, 'tree', ['nature_bark', 'nature_leaves'], 15); node(name, 1, 'tree', ['nature_bark', 'nature_leaves'], 15); node(name, 2, 'tree', ['nature_impostor'], 15);
   }
   for (const name of SHRUBS) { node(name, 0, 'shrub', ['nature_bark', 'nature_leaves'], 2); node(name, 1, 'shrub', ['nature_leaves'], 2); }

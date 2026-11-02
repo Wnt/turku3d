@@ -144,10 +144,24 @@ export function deciduous(sp, seed) {
 }
 
 /** Keep at most n anchors, preferring the outer crown. */
+/**
+ * Keep at most n anchors: the same share of every 1/10 height band of the crown (no bare lower crown, no hollow
+ * top), and within a band the ones further out from the trunk (the visible shell).
+ */
 function thin(anchors, n, r) {
   if (anchors.length <= n) return anchors;
-  const scored = anchors.map(a => ({ a, s: r() * 0.6 + Math.hypot(a.p[0], a.p[2]) * 0.1 }));
-  return scored.sort((x, y) => y.s - x.s).slice(0, n).map(x => x.a);
+  let lo = Infinity, hi = -Infinity;
+  for (const a of anchors) { lo = Math.min(lo, a.p[1]); hi = Math.max(hi, a.p[1]); }
+  const bands = Array.from({ length: 10 }, () => []);
+  for (const a of anchors) bands[Math.min(9, Math.floor((a.p[1] - lo) / Math.max(1e-6, hi - lo) * 10))].push(a);
+  const kept = [];
+  for (const band of bands) {
+    if (!band.length) continue;
+    const reach = Math.max(...band.map(a => Math.hypot(a.p[0], a.p[2]))) || 1;
+    const quota = Math.round(n * band.length / anchors.length);
+    kept.push(...band.map(a => ({ a, s: r() * 0.5 + Math.hypot(a.p[0], a.p[2]) / reach })).sort((x, y) => y.s - x.s).slice(0, quota).map(x => x.a));
+  }
+  return kept;
 }
 
 export function conifer(sp, seed) {
@@ -287,7 +301,7 @@ export function meshTree(sk, sp, lod, seed) {
   const r = rng(seed + 1000 * lod), bark = new MeshBuilder(), leaves = new MeshBuilder();
   const { yc, hc, R } = sk.crown;
   const crownDepth = p => Math.min(1.4, Math.hypot(p[0] / R, (p[1] - yc) / hc, p[2] / R));
-  const ao = p => (0.32 + 0.68 * Math.min(1, Math.pow(crownDepth(p), 1.6))) * (0.82 + 0.18 * Math.min(1, Math.max(0, (p[1] - sk.crown.y0) / (2 * hc))));
+  const ao = p => (0.26 + 0.74 * Math.min(1, Math.pow(crownDepth(p), 1.8))) * (0.82 + 0.18 * Math.min(1, Math.max(0, (p[1] - sk.crown.y0) / (2 * hc))));
   const barkAo = p => p[1] < sk.crown.y0 ? 1 : 0.75 + 0.25 * Math.min(1, crownDepth(p));
   const radial = sk.conifer
     ? p => V.norm([p[0], (p[1] - yc) * 0.25 + 0.35 * R, p[2]])
@@ -332,17 +346,17 @@ export function meshTree(sk, sp, lod, seed) {
 const tree = o => ({ kind: 'deciduous', segs: [10, 6, 3, 0], ...o });
 export const SPECIES = {
   birch: tree({ cell: 'birch', bark: 'birch', height: 15, radius: 3.2, trunk: 0.17, crownBase: 0.28, leader: 0.95, crownCentre: 0.5, shape: 0.6, lean: 0.015,
-    n1: 30, elev: [38, 62], ratio: 0.42, d2: 3.6, a2: 42, l2ratio: 0.55, l2max: 2.4, d3: 2.2, droop2: 0.55, droop3: 0.9, card: 1.05, cardSpacing: 0.42, cards: 560, cardUp: -0.35, cardAlong: 0.9, cardOut: 0.35 }),
+    n1: 30, elev: [38, 62], ratio: 0.42, d2: 3.6, a2: 42, l2ratio: 0.55, l2max: 2.4, d3: 2.2, droop2: 0.55, droop3: 0.9, card: 1.35, cardSpacing: 0.4, cards: 620, cardUp: -0.35, cardAlong: 0.9, cardOut: 0.35 }),
   linden: tree({ cell: 'linden', bark: 'linden', height: 16, radius: 4.6, trunk: 0.3, crownBase: 0.22, leader: 0.9, crownCentre: 0.45, shape: 0.55, lean: 0.01,
-    n1: 30, elev: [28, 58], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 2.6, d3: 2.0, droop2: 0.12, card: 1.35, cardSpacing: 0.42, cards: 640 }),
+    n1: 30, elev: [28, 58], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 2.6, d3: 2.0, droop2: 0.12, card: 1.7, cardSpacing: 0.4, cards: 700 }),
   maple: tree({ cell: 'maple', bark: 'maple', height: 14, radius: 4.8, trunk: 0.28, crownBase: 0.22, leader: 0.82, crownCentre: 0.46, shape: 0.45, lean: 0.02,
-    n1: 26, elev: [30, 55], ratio: 0.55, d2: 3.0, a2: 42, l2ratio: 0.55, l2max: 2.6, d3: 2.0, droop2: 0.1, card: 1.35, cardSpacing: 0.42, cards: 600 }),
+    n1: 26, elev: [30, 55], ratio: 0.55, d2: 3.0, a2: 42, l2ratio: 0.55, l2max: 2.6, d3: 2.0, droop2: 0.1, card: 1.7, cardSpacing: 0.4, cards: 680 }),
   oak: tree({ cell: 'oak', bark: 'oak', height: 14, radius: 5.6, trunk: 0.38, crownBase: 0.25, leader: 0.72, crownCentre: 0.42, shape: 0.4, lean: 0.03,
-    n1: 22, elev: [12, 42], ratio: 0.62, d2: 3.0, a2: 50, l2ratio: 0.55, l2max: 2.8, d3: 2.2, noise: 0.35, droop1: 0.06, droop2: 0.08, card: 1.35, cardSpacing: 0.42, cards: 640 }),
+    n1: 22, elev: [12, 42], ratio: 0.62, d2: 3.0, a2: 50, l2ratio: 0.55, l2max: 2.8, d3: 2.2, noise: 0.35, droop1: 0.06, droop2: 0.08, card: 1.7, cardSpacing: 0.4, cards: 700 }),
   rowan: tree({ cell: 'rowan', bark: 'smooth', height: 8, radius: 2.6, trunk: 0.13, crownBase: 0.3, leader: 0.88, crownCentre: 0.5, shape: 0.55, lean: 0.03,
-    n1: 18, elev: [40, 68], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 1.6, d3: 1.5, droop2: 0.15, card: 1.05, cardSpacing: 0.4, cards: 320 }),
+    n1: 18, elev: [40, 68], ratio: 0.5, d2: 3.2, a2: 40, l2ratio: 0.5, l2max: 1.6, d3: 1.5, droop2: 0.15, card: 1.35, cardSpacing: 0.38, cards: 380 }),
   willow: tree({ cell: 'willow', bark: 'willow', height: 12, radius: 5.0, trunk: 0.38, crownBase: 0.22, leader: 0.7, crownCentre: 0.5, shape: 0.5, lean: 0.04,
-    n1: 22, elev: [45, 70], ratio: 0.55, d2: 2.6, a2: 25, l2ratio: 0.85, l2max: 4.5, d3: 1.2, up1: 0.04, droop1: 0.22, droop2: 1.6, droop3: 1.4, card: 1.3, cardSpacing: 0.42, cards: 600,
+    n1: 22, elev: [45, 70], ratio: 0.55, d2: 2.6, a2: 25, l2ratio: 0.85, l2max: 4.5, d3: 1.2, up1: 0.04, droop1: 0.22, droop2: 1.6, droop3: 1.4, card: 1.6, cardSpacing: 0.42, cards: 600,
     cardUp: -1.4, cardAlong: 1.0, cardOut: 0.15, cardAspect: 0.75, cardRoll: 1.3 }),
   pine: { kind: 'pine', cell: 'pine', bark: 'pine', height: 17, radius: 3.6, trunk: 0.24, crownBase: 0.58, whorl: 0.75, perWhorl: [3, 5], elev: [8, 38], ratio: 0.4,
     up1: 0.12, droop1: 0.04, noise: 0.18, d2: 1.6, l2ratio: 0.45, hang: 0.0, droop2: 0.05, card: 1.05, cards: 300, segs: [10, 5, 3, 0],

@@ -17,17 +17,28 @@ Triangles per LOD; LOD 0 is drawn to 50 m, LOD 1 to 180 m and the impostor to 65
 | Asset | Species / kind | Height (m) | LOD 0 | LOD 1 | LOD 2 |
 |---|---|---|---|---|---|
 <!-- table:begin -->
-| `tree_birch` | birch | 16.92 | 3,568 | 1,500 | 8 |
-| `tree_linden` | linden | 17.84 | 6,960 | 1,970 | 8 |
-| `tree_maple` | maple | 17.33 | 6,212 | 1,820 | 8 |
-| `tree_oak` | oak | 13.94 | 7,008 | 2,202 | 8 |
-| `tree_rowan` | rowan | 10.56 | 2,128 | 860 | 8 |
-| `tree_willow` | willow | 18.8 | 7,316 | 2,074 | 8 |
-| `tree_pine` | pine | 19.09 | 2,390 | 996 | 8 |
-| `tree_spruce` | spruce | 17.19 | 9,634 | 2,348 | 8 |
+| `tree_birch` | birch | 17.35 | 3,804 | 1,618 | 8 |
+| `tree_birch_v2` | birch | 16.9 | 3,816 | 1,618 | 8 |
+| `tree_linden` | linden | 18.78 | 7,196 | 2,088 | 8 |
+| `tree_linden_v2` | linden | 18.67 | 7,184 | 2,082 | 8 |
+| `tree_maple` | maple | 18.21 | 6,536 | 1,982 | 8 |
+| `tree_maple_v2` | maple | 17.47 | 6,620 | 1,964 | 8 |
+| `tree_oak` | oak | 14.35 | 7,244 | 2,320 | 8 |
+| `tree_oak_v2` | oak | 15.26 | 7,144 | 2,324 | 8 |
+| `tree_rowan` | rowan | 11.12 | 2,364 | 978 | 8 |
+| `tree_rowan_v2` | rowan | 11.23 | 2,364 | 978 | 8 |
+| `tree_willow` | willow | 18.28 | 7,316 | 2,074 | 8 |
+| `tree_willow_v2` | willow | 16.47 | 7,244 | 2,080 | 8 |
+| `tree_pine` | pine | 19.01 | 2,386 | 994 | 8 |
+| `tree_pine_v2` | pine | 19.05 | 2,412 | 1,008 | 8 |
+| `tree_spruce` | spruce | 16.8 | 9,630 | 2,346 | 8 |
+| `tree_spruce_v2` | spruce | 16.66 | 9,060 | 2,088 | 8 |
 | `shrub_lilac` | lilac | 4 | 988 | 502 | - |
+| `shrub_lilac_v2` | lilac | 3.87 | 964 | 490 | - |
 | `shrub_rose` | rose | 1.76 | 660 | 330 | - |
+| `shrub_rose_v2` | rose | 1.58 | 692 | 346 | - |
 | `shrub_juniper` | juniper | 3.71 | 1,618 | 814 | - |
+| `shrub_juniper_v2` | juniper | 3.58 | 1,454 | 732 | - |
 | `hedge` | privet | 1.2 | 1,206 | 226 | - |
 | `grass_clump` | grass | 0.42 | 6 | - | - |
 | `grass_wide` | grass | 0.5 | 6 | - | - |

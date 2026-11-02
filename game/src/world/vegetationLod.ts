@@ -139,8 +139,7 @@ export class VegetationLod {
         const id = ids?.[i] ?? `${variant}:${i}`;
         inModel.copy(t).applyMatrix4(toModel);
         const nearWater = water.has(waterCell(inModel.x, inModel.z));
-        const name = natureAsset(variant, String(id), s.y, nearWater);
-        const asset = library.asset(name);
+        const asset = library.variant(natureAsset(variant, String(id), s.y, nearWater), String(id)), name = asset.name;
         const scale = natureScale(s.y, Math.max(s.x, s.z), asset.height, asset.radius);
         place(byAsset, name, new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz)), natureTint(String(id)), ids?.[i]);
       }

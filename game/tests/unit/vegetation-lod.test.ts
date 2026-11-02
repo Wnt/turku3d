@@ -36,6 +36,13 @@ describe('species mapping', () => {
     expect(natureTint('osm:3')).toEqual(natureTint('osm:3'));
   });
 
+  it('spreads one species over its seeded variants, stably per tree', () => {
+    const picks = Array.from({ length: 200 }, (_, i) => library.variant('tree_birch', `osm:${i}`).name);
+    expect(new Set(picks)).toEqual(new Set(['tree_birch', 'tree_birch_v2']));
+    expect(library.variant('tree_birch', 'osm:7').name).toBe(picks[7]);
+    expect(library.variant('tree_oak', 'osm:7').name).toBe('tree_oak');
+  });
+
   it('scales library trees uniformly by height and bounds crown stretch', () => {
     expect(natureScale(10, 3, 20, 5)).toEqual({ y: 0.5, xz: 0.6 });
     expect(natureScale(10, 30, 20, 5).xz).toBeCloseTo(0.65);

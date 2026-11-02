@@ -115,6 +115,8 @@ function forest(lib: NatureLibrary, count: number) {
 const assets = [...library.assets.values()];
 let subject = library.assets.get(query.get('asset') ?? 'tree_birch') ?? assets[0];
 let lodParam = query.get('lod') ?? 'auto';
+/** Camera set by a scripted show(); otherwise ?cam= or the view's default. */
+let camOverride: number[] | undefined;
 let vegetation: VegetationLod | null = null;
 const target = new THREE.Vector3();
 
@@ -218,7 +220,6 @@ function loop() {
 renderer.info.autoReset = false;
 requestAnimationFrame(loop);
 /** Scripted views for the bitmap gallery (scripts/nature/gallery.mjs): rebuild without a reload. */
-let camOverride: number[] | undefined;
 function show(options: { view: string; asset?: string; lod?: string; cam?: number[]; fov?: number }) {
   view = options.view; lodParam = options.lod ?? 'auto';
   if (options.asset) subject = library.asset(options.asset);

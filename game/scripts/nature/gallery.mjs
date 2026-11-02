@@ -47,7 +47,11 @@ const MADE = {
 
 const guardTool = path.join(os.homedir(), 'turku3d/tools/chrome-guard/guard.py');
 const guard = command => fs.existsSync(guardTool) ? spawnSync('python3', [guardTool, command, 'assets-nature'], { stdio: 'inherit' }).status : 0;
-if (guard('acquire') === 3) { console.error('chrome-guard: all browser slots are taken; queued, retry in a few minutes'); process.exit(3); }
+// Queue for a slot (exit 3 = queued) for up to 30 minutes, then launch at once while the reservation holds.
+for (let waited = 0; guard('acquire') === 3; waited += 20) {
+  if (waited >= 1800) { console.error('chrome-guard: no browser slot within 30 min'); process.exit(3); }
+  await new Promise(resolve => setTimeout(resolve, 20000));
+}
 const context = await chromium.launchPersistentContext(opt('--profile', path.join(os.homedir(), 'turku3d/work/assets-nature/chrome-gallery')), {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
   viewport: { width: 1280, height: 860 }, deviceScaleFactor: 1,
@@ -122,10 +126,10 @@ for (const [file, title, note] of [
   ['foliage.png', 'Foliage card atlas', '2048² ETC1S + alpha: 16 cards (8 trees, 4 shrubs, grass, wide grass, meadow, rosette) composed from CC0 leaf scans'],
   ['bark.png', 'Bark column atlas', '4096×512 ETC1S: birch, Scots pine, spruce, oak, linden, maple, smooth, willow; 448 px columns with wrap gutters'],
   ['bark-normal.png', 'Bark normals', '2048×256 UASTC (shipped at half the albedo resolution)'],
-  ['impostor-albedo.png', 'Impostor atlas', '2048² ETC1S + alpha: 8 species × (3 side views + top view), baked on the CPU from LOD 0'],
-  ['impostor-normal.png', 'Impostor normals', '1024² UASTC, plane tangent space'],
+  ['impostor-albedo.png', 'Impostor atlas', 'ETC1S + alpha: every tree model × (3 side views + top view), baked on the CPU from LOD 0'],
+  ['impostor-normal.png', 'Impostor normals', 'UASTC at half resolution, plane tangent space'],
   ['wood.png', 'Painted wood', '512² ETC1S, desaturated; paint colour per instance'], ['woodNormal.png', 'Wood normal', '512² UASTC'],
-  ['granite.png', 'Granite', '512² ETC1S'], ['graniteNormal.png', 'Granite normal', '512² UASTC'],
+  ['granite.png', 'Granite', '512² ETC1S'], ['graniteNormal.png', 'Granite normal', '512² UASTC'], ['chain.png', 'Chain-link wire', '256² ETC1S + alpha, drawn by our code'],
 ]) {
   const src = path.join(previews, file);
   if (!fs.existsSync(src)) continue;

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
-import { reorder } from '@gltf-transform/functions';
+import { quantize, reorder } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
 import { encodeToKTX2 } from 'ktx2-encoder';
 import { Img, toRGBA8, savePng, blit, dilate, half } from './nature/image.mjs';
@@ -37,7 +37,8 @@ const bark = await barkAtlas(src);
 const props = await propTiles(src);
 
 // ------------------------------------------------------------------ vegetation geometry + impostors
-const IMP_W = 256, IMP_H = 512, IMP_COLS = 8, IMP_ROWS = 4;
+// 16 tree models (8 species x 2 variants) x (3 side views + top view): 128 x 256 cells, a 2048 x 1024 atlas.
+const IMP_W = 128, IMP_H = 256, IMP_COLS = 16, IMP_ROWS = 4;
 const impostorAlbedo = new Img(IMP_W * IMP_COLS, IMP_H * IMP_ROWS), impostorNormal = new Img(IMP_W * IMP_COLS, IMP_H * IMP_ROWS);
 for (let i = 0; i < impostorNormal.w * impostorNormal.h; i++) impostorNormal.data.set([0.5, 0.5, 1, 1], i * 4);
 const assets = [];
@@ -84,22 +85,24 @@ function bakeImpostor(index, parts, R, top) {
 }
 
 const SEED = { birch: 11, linden: 23, maple: 31, oak: 47, rowan: 53, willow: 61, pine: 71, spruce: 83, lilac: 97, rose: 101, juniper: 107 };
-for (const [index, name] of TREES.entries()) {
-  const sp = SPECIES[name], sk = skeleton(name, SEED[name]);
-  const lod0 = meshTree(sk, sp, 0, SEED[name]), lod1 = meshTree(sk, sp, 1, SEED[name]);
+/** Two seeded variants per species (`tree_birch`, `tree_birch_v2`): neighbouring trees of one species differ. */
+const VARIANTS = 2, variantName = (base, v) => v ? `${base}_v${v + 1}` : base;
+for (const [i, name] of TREES.entries()) for (let v = 0; v < VARIANTS; v++) {
+  const sp = SPECIES[name], seed = SEED[name] + 1000 * v, sk = skeleton(name, seed), index = i * VARIANTS + v;
+  const lod0 = meshTree(sk, sp, 0, seed), lod1 = meshTree(sk, sp, 1, seed);
   const { R, top } = radialExtent([lod0.bark, lod0.leaves]);
   bakeImpostor(index, [{ mesh: lod0.bark, texture: bark.albedo, cutout: false }, { mesh: lod0.leaves, texture: foliage.atlas, cutout: true }], R, top);
   const lod2 = impostorLod(index, R, top, sk.crown.yc);
-  assets.push({ name: `tree_${name}`, kind: 'tree', species: name, height: top, radius: R, crownBase: sk.crown.y0,
+  assets.push({ name: variantName(`tree_${name}`, v), kind: 'tree', species: name, height: top, radius: R, crownBase: sk.crown.y0,
     lods: [{ bark: lod0.bark, leaves: lod0.leaves }, { bark: lod1.bark, leaves: lod1.leaves }, { impostor: lod2 }] });
-  log(`tree ${name}: lod0 ${lod0.bark.triangles + lod0.leaves.triangles} tris, lod1 ${lod1.bark.triangles + lod1.leaves.triangles}, H ${top.toFixed(1)} R ${R.toFixed(1)}`);
+  log(`tree ${variantName(name, v)}: lod0 ${lod0.bark.triangles + lod0.leaves.triangles} tris, lod1 ${lod1.bark.triangles + lod1.leaves.triangles}, H ${top.toFixed(1)} R ${R.toFixed(1)}`);
 }
-for (const name of SHRUBS) {
-  const sp = SPECIES[name], sk = skeleton(name, SEED[name]);
-  const lod0 = meshTree(sk, sp, 0, SEED[name]), lod1 = meshTree(sk, sp, 1, SEED[name]);
+for (const name of SHRUBS) for (let v = 0; v < VARIANTS; v++) {
+  const sp = SPECIES[name], seed = SEED[name] + 1000 * v, sk = skeleton(name, seed);
+  const lod0 = meshTree(sk, sp, 0, seed), lod1 = meshTree(sk, sp, 1, seed);
   const { R, top } = radialExtent([lod0.bark, lod0.leaves]);
-  assets.push({ name: `shrub_${name}`, kind: 'shrub', species: name, height: top, radius: R, lods: [{ bark: lod0.bark, leaves: lod0.leaves }, { bark: lod1.bark, leaves: lod1.leaves }] });
-  log(`shrub ${name}: lod0 ${lod0.bark.triangles + lod0.leaves.triangles} tris, lod1 ${lod1.bark.triangles + lod1.leaves.triangles}`);
+  assets.push({ name: variantName(`shrub_${name}`, v), kind: 'shrub', species: name, height: top, radius: R, lods: [{ bark: lod0.bark, leaves: lod0.leaves }, { bark: lod1.bark, leaves: lod1.leaves }] });
+  log(`shrub ${variantName(name, v)}: lod0 ${lod0.bark.triangles + lod0.leaves.triangles} tris, lod1 ${lod1.bark.triangles + lod1.leaves.triangles}`);
 }
 {
   const h0 = hedge(131, 0), h1 = hedge(131, 1);
@@ -241,7 +244,8 @@ for (const asset of assets) {
 }
 scene.setExtras({ nature: { version: 1 } });
 await MeshoptEncoder.ready;
-await doc.transform(reorder({ encoder: MeshoptEncoder }));
+// Positions (14 bit) and normals (10 bit) quantized per mesh; the runtime bakes the dequantizing node transform.
+await doc.transform(reorder({ encoder: MeshoptEncoder }), quantize({ pattern: /^(POSITION|NORMAL)$/, quantizePosition: 14, quantizeNormal: 10, quantizationVolume: 'mesh' }));
 doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.QUANTIZE });
 const glbPath = path.join(out, 'nature.glb');
 await io.write(glbPath, doc);
