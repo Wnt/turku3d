@@ -30,6 +30,7 @@ DEFAULTS = {
     "handrail": 1.0,
     "bollard": 0.9,
     "gate": 1.6,
+    "railing": 1.1,
 }
 # prototype -> collision material, thickness and linear RGB colour
 STYLES = {
@@ -51,7 +52,7 @@ def style(tags):
         return "hedge"
     if kind == "bollard":
         return "bollard"
-    if kind in ("guard_rail", "handrail"):
+    if kind in ("guard_rail", "handrail", "railing"):
         return "rail"
     if kind in ("wall", "city_wall", "retaining_wall"):
         return "brick" if material == "brick" else "stone"
@@ -245,6 +246,9 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
                     continue  # The retaining stage owns this below-grade wall.
             bottom = min(sample(*p), sample(*q), sample(*mid))
             top = max(sample(*p), sample(*q), sample(*mid)) + h
+            if "_lidar_base" in tags:
+                bottom = float(tags["_lidar_base"])
+                top = bottom+h
             out.append(
                 Segment(
                     kind,
@@ -409,7 +413,10 @@ def produce(tile, inputs, stage, layer_files, sample):
     import time
 
     started = time.perf_counter()
-    batch = place(tile, inputs.barriers, inputs.streets, sample, inputs.water, inputs.tunnels)
+    # Surveyed fences can stand on paved verges and sidewalk boundaries. Only
+    # functional carriageways exclude them; paving material is not access.
+    batch = place(tile, inputs.barriers, [(g,0) for g in inputs.vegetation_roads], sample,
+                  inputs.water, inputs.tunnels)
     if batch:
         path = stage / "fences.vis.glb"
         write_instances(path, tile, batch)
