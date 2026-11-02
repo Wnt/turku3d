@@ -38,3 +38,13 @@ Original parametric geometry and painted artwork in `src/actors/prerunner/` (202
 Copyright 2026 Jonni Madekivi; MIT, as the repository. No downloaded vehicle mesh,
 commercial-game asset, photograph, badge or sponsor artwork is included. Local KOH
 photographic references stay outside the repository under `data/research/prerunner/`.
+
+## Vire estate — original Blender fleet
+
+`cars/aava-estate/estate_lod{0,1,2}.glb`: original fictional estate model authored
+with Blenderwright in Blender 5.2 (2026). Copyright 2026 Jonni Madekivi; MIT,
+as the repository. Fictional diamond badge and TKU-247 plate. No downloaded mesh
+or photographic pixels are included. The local reference plane is excluded from exports.
+Editable sources: `data/assets-src/cars/estate/estate.blend` and `estate-lods.blend`.
+Run `node game/scripts/prepare-fleet.mjs <source-directory> <output-directory>`
+to pack the three exported LODs with meshopt.

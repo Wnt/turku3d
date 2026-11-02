@@ -8,6 +8,7 @@ import { CHASSIS_LIFT, PAINT_WEIGHTS, TRAFFIC_MODELS, TRAFFIC_PAINTS } from './c
 import { hash01, hash32, pick } from './hash';
 import { TrafficNetwork } from './network';
 import { FLOW_STEP, TrafficFlow, interpolateFlowPose } from './flow';
+import { vehicleLights } from './lights';
 import { trafficRoads } from './roads';
 import { buildTileTraffic } from './tileNetwork';
 import { tileBounds } from '../render/lights/tileLights';
@@ -33,22 +34,19 @@ export async function startTrafficPreview() {
   const network = new TrafficNetwork();
   network.density = { hourAt: () => 16, multiplier: 1 };
   let flow = new TrafficFlow(network), at = 0, running = false, mode = 'flow', last = performance.now(), cap = 30;
-  const updateTiles = () => {
-    for (const [id, entry] of source.entries) if (entry.roads && !network.tiles.has(id)) {
-      network.setTile(buildTileTraffic(id, trafficRoads(entry.roads), tileBounds(id)!, 'evidence'));
-    }
-  };
-  updateTiles();
   // Pin one road-data footprint for an A/B, independent of asynchronous visual residency.
   const ci = Math.floor(render.camera.position.x / 250), cj = Math.floor(render.camera.position.z / 250);
   const tileIds = Array.from({ length: 9 }, (_, k) => `t0_${ci - 1 + k % 3}_${cj - 1 + Math.floor(k / 3)}`);
   const roads = await Promise.all(tileIds.map(async id => {
     const response = await fetch(`/coarse/${id}/roads.json`);
     if (!response.ok) throw new Error(`Traffic evidence roads ${id}: ${response.status}`);
-    return { id, json: await response.json() };
+    const text = await response.text();
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    const hash = [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2, '0')).join('');
+    return { id, json: JSON.parse(text), hash };
   }));
-  for (const { id, json } of roads) {
-    network.setTile(buildTileTraffic(id, trafficRoads(json), tileBounds(id)!, 'evidence'));
+  for (const { id, json, hash } of roads) {
+    network.setTile(buildTileTraffic(id, trafficRoads(json), tileBounds(id)!, hash));
     signals.setTile(id, json);
   }
   const height = (lane: import('./tileNetwork').Lane, s: number) => {
@@ -66,7 +64,7 @@ export async function startTrafficPreview() {
         const p = interpolateFlowPose(car, (at - flow.tick * FLOW_STEP) / FLOW_STEP, height);
         if (!Number.isFinite(p.y)) continue;
         instances.push({ seed: String(hash32('appearance', car.key)), model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[pick(hash01('paint', car.key), PAINT_WEIGHTS)],
-          x: p.x, y: p.y + CHASSIS_LIFT, z: p.z, q: chassisRotation(p) });
+          x: p.x, y: p.y + CHASSIS_LIFT, z: p.z, q: chassisRotation(p), ...vehicleLights(car, at) });
       }
     } else {
       network.enumerate(render.camera.position.x, render.camera.position.z, 250, at, (lane, n) => {
@@ -87,22 +85,25 @@ export async function startTrafficPreview() {
     return instances.length;
   };
   const api = {
-    network, get flow() { return flow; }, root, signals,
+    network, tileIds, get flow() { return flow; }, root, signals,
     setCap(value: number) { cap = Math.max(0, Math.min(160, value)); draw(); },
     setMode(value: 'flow' | 'baseline') { mode = value; draw(); },
     seek(t: number) {
       at = t;
       if (mode === 'flow') {
-        if (t < flow.tick * 0.1) flow.reset(Math.floor(t / 3600) * 3600 - 90);
+        if (t < flow.tick * 0.1) flow.reset(0);
         flow.update(t);
       }
       return draw();
     },
+    reset(epoch = 0) { at = epoch; flow.reset(epoch); draw(); },
     play(value = true) { running = value; last = performance.now(); },
-    snapshot() { return { at, mode, lanes: [...network.tiles.values()].reduce((n, tile) => n + tile.lanes.length, 0),
-      drawn: draw(), flow: flow.stats, cars: flow.cars.size, signals: signals.count }; },
+    snapshot() { const drawn = draw(), state = flow.checkpoint(); return { at, mode, lanes: [...network.tiles.values()].reduce((n, tile) => n + tile.lanes.length, 0),
+      drawn, flow: flow.stats, cars: flow.cars.size, signals: signals.count,
+      epoch: state.epoch, stateHash: hash32(JSON.stringify(state)),
+      roads: roads.map(r => [r.id, r.hash]), pose: window.__qaPose, hour: (game.dayClock as { hour: number }).hour }; },
     replace(Flow: typeof TrafficFlow) { flow = new Flow(network); flow.reset(0); flow.update(at); draw(); },
-    dispose() { running = false; render.beforeFrame = undefined; signals.dispose(); root.removeFromParent(); },
+    dispose() { running = false; render.beforeFrame = undefined; signals.dispose(); visuals.dispose(); root.removeFromParent(); },
   };
   render.beforeFrame = () => {
     const now = performance.now();
