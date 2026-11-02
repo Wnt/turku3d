@@ -1,34 +1,30 @@
 // Read-only source conversion. Derived distant geometry never replaces a source tile or its textures.
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { createRequire } from 'node:module';
-const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.join(os.homedir(), 'turku3d/tools/npm'), 'package.json'));
-const { Document, NodeIO } = require('@gltf-transform/core');
-const { ALL_EXTENSIONS } = require('@gltf-transform/extensions');
-const { meshopt } = require('@gltf-transform/functions');
-const { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } = await import(require.resolve('meshoptimizer'));
-await Promise.all([MeshoptDecoder.ready, MeshoptEncoder.ready, MeshoptSimplifier.ready]);
-const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder, 'meshopt.encoder': MeshoptEncoder });
+import { require, io, readSource, world } from './scenery-source.mjs';
+import { openingKind, openingAtlas, programFields, transformedUv, reduceFacade } from './scenery-openings.mjs';
+const { Document } = require('@gltf-transform/core');
+const { reorder, quantize } = require('@gltf-transform/functions');
+const { EXTMeshoptCompression } = require('@gltf-transform/extensions');
+const { MeshoptEncoder, MeshoptSimplifier } = await import(require.resolve('meshoptimizer'));
+const sharp = require('sharp');
+await Promise.all([MeshoptEncoder.ready, MeshoptSimplifier.ready]);
+io.registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 const [source, output] = process.argv.slice(2);
 if (!source || !output || path.resolve(source) === path.resolve(output)) throw new Error('Distinct source and derivative output required');
-const started = performance.now(), raw = fs.readFileSync(source), length = raw.readUInt32LE(12);
-const json = JSON.parse(raw.subarray(20, 20 + length).toString());
-const resources = { '@glb.bin': raw.subarray(28 + length) };
-if (json.buffers?.[0] && !json.buffers[0].uri) json.buffers[0].uri = '@glb.bin';
-for (const buffer of json.buffers ?? []) if (buffer.uri && buffer.uri !== '@glb.bin') resources[buffer.uri] = fs.readFileSync(path.resolve(path.dirname(source), buffer.uri));
-// Textures are deliberately not read or modified. Authored pigments are retained as vertex colours.
-for (const image of json.images ?? []) if (image.uri) resources[image.uri] = new Uint8Array(4);
-const input = await io.readJSON({ json, resources });
+const started = performance.now(), raw = fs.readFileSync(source);
+const input = await readSource(source);
 const doc = new Document(), buffer = doc.createBuffer(), scene = doc.createScene('distant-scenery');
 const material = doc.createMaterial('scenery').setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(1).setMetallicFactor(0);
 const groups = new Map();
+const mapped = input.getRoot().listNodes().filter(node => ['buildings','buildings_outer','landmarks'].includes(node.getExtras().layer))
+  .flatMap(node => node.getMesh()?.listPrimitives().filter(prim => openingKind(prim,node.getExtras())==='mapped') ?? []);
+const atlas = await openingAtlas(doc,mapped,sharp);
 let sourceTriangles = 0;
 const bucket = name => {
-  if (!groups.has(name)) groups.set(name, { positions: [], colours: [], indices: [] });
+  if (!groups.has(name)) groups.set(name, { positions: [], colours: [], indices: [], fields: new Map() });
   return groups.get(name);
 };
-const world = (m, p) => [0, 1, 2].map(k => m[k] * p[0] + m[k + 4] * p[1] + m[k + 8] * p[2] + m[k + 12]);
 const groundColours = { asphalt: [.16, .17, .18], grass: [.22, .29, .12], gravel: [.36, .32, .25], water: [.10, .19, .24], concrete: [.43, .43, .40], stone: [.35, .34, .32] };
 for (const node of input.getRoot().listNodes()) {
   const mesh = node.getMesh(); if (!mesh) continue;
@@ -67,6 +63,32 @@ for (const node of input.getRoot().listNodes()) {
       }
       continue;
     }
+    const kind = ground ? 'none' : openingKind(primitive, extras);
+    if (kind !== 'none') {
+      // Keep the wall's UV-to-world mapping and constant instructions intact.
+      // Shell/terrain simplification must never move or re-phase an opening.
+      const group = bucket(`buildings-${kind}`), base=group.positions.length/3;
+      const fields=kind==='program' ? ['TEXCOORD_0',...programFields] : ['TEXCOORD_0','_FAR_RECT','_FAR_REPEAT'];
+      const entry=atlas.byMaterial.get(primitive.getMaterial());
+      const reduced=reduceFacade(primitive,matrix,MeshoptSimplifier);
+      for(const i of reduced.vertices) {
+        group.positions.push(...world(matrix,position.getElement(i,[])));
+        group.colours.push(...(kind==='program'?[1,1,1]:colour));
+        for(const key of fields){
+          let values;
+          if(key==='_FAR_RECT')values=entry.rect;
+          else if(key==='_FAR_REPEAT')values=entry.repeat;
+          else if(key==='_KIT_GLAZING'&&!primitive.getAttribute(key))values=[0,0,0,-1];
+          else if(key==='_KIT_FRAME'&&!primitive.getAttribute(key))values=[...primitive.getAttribute('_KIT_TRIM').getElement(i,[]),0];
+          else values=primitive.getAttribute(key).getElement(i,[]);
+          if(key==='TEXCOORD_0'&&kind==='mapped') values=transformedUv(primitive.getMaterial().getBaseColorTextureInfo(),values);
+          if(!group.fields.has(key))group.fields.set(key,{size:values.length,values:[]});
+          group.fields.get(key).values.push(...values);
+        }
+      }
+      for(const i of reduced.indices)group.indices.push(base+i);
+      continue;
+    }
     // Weld discarded normal/UV seams before simplifying; retain authored colour discontinuities.
     const positions = [], colours = [], remap = [], welded = new Map();
     let high = -Infinity;
@@ -94,17 +116,20 @@ for (const node of input.getRoot().listNodes()) {
     }
   }
 }
-let triangles = 0;
+let triangles = 0, draws = 0;
 for (const [layer, data] of groups) {
   if (!data.indices.length) continue;
-  triangles += data.indices.length / 3;
+  triangles += data.indices.length / 3; draws++;
   const attr = (name, type, array) => doc.createAccessor(name).setBuffer(buffer).setType(type).setArray(array);
   const primitive = doc.createPrimitive().setAttribute('POSITION', attr('position', 'VEC3', new Float32Array(data.positions)))
     .setAttribute('COLOR_0', attr('colour', 'VEC3', new Float32Array(data.colours)))
-    .setIndices(attr('index', 'SCALAR', new Uint32Array(data.indices))).setMaterial(material);
+    .setIndices(attr('index', 'SCALAR', new Uint32Array(data.indices))).setMaterial(layer==='buildings-mapped'?atlas.material:material);
+  for(const [key,field] of data.fields)primitive.setAttribute(key,attr(key,`VEC${field.size}`,new Float32Array(field.values)));
   scene.addChild(doc.createNode(layer).setExtras({ layer, scenery: true }).setMesh(doc.createMesh(layer).addPrimitive(primitive)));
 }
-await doc.transform(meshopt({ encoder: MeshoptEncoder, level: 'medium', quantizePosition: 16, quantizeColor: 8 }));
+await doc.transform(reorder({encoder:MeshoptEncoder,target:'size'}),
+  quantize({quantizePosition:16,quantizeColor:8,pattern:/^(POSITION|COLOR_0)$/}));
+doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({method:EXTMeshoptCompression.EncoderMethod.QUANTIZE});
 await io.write(output, doc);
-console.log(JSON.stringify({ sourceTriangles, triangles, draws: groups.size, sourceBytes: raw.length,
-  bytes: fs.statSync(output).size, seconds: (performance.now() - started) / 1000 }));
+console.log(JSON.stringify({ sourceTriangles, triangles, draws, sourceBytes: raw.length,
+  atlasBytes:atlas.bytes??0, mappedMaterials:atlas.entries??0, bytes: fs.statSync(output).size, seconds: (performance.now() - started) / 1000 }));
