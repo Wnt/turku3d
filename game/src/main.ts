@@ -305,7 +305,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
     distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
-    env.setCityDistance(camera, distantCity.radius);
+    env.setCityDistance(camera, 15000);
     window.__game!.scenery = distantCity;
   }
   return coarse;
@@ -355,8 +355,7 @@ async function runQa() {
     busy: () => {
       const scenery = distantCity?.progress;
       // Derivative generation returns quick 202s between downloads; a quiet network is not a settled skyline.
-      return !!scenery && (scenery.cataloguePending || scenery.pending > 0 || scenery.errors > 0
-        || scenery.loaded !== scenery.total)
+      return !!scenery && !scenery.ready
         || [...benchFetches.values()].some(start => performance.now() - start > 1500)
         || !!rain && weather.sample.wetness > .0001 && !rain.exposure.settled;
     },
