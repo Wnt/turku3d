@@ -14,15 +14,15 @@ export class PerformanceMonitor {
   private start = 0;
   private previousStart: number | null = null;
   private frame = 0;
-  private calls = 0;
-  private triangles = 0;
+  calls = 0;
+  triangles = 0;
   private totalFrames = 0;
   private timer: GpuFrameTimer;
   private minimumFrame = 0;
   private skippedAtReset = 0;
-  private lastCpu = 0;
-  private lastGpu = 0;
-  private lastGpuFrame = -1;
+  lastCpu = 0;
+  lastGpu = 0;
+  lastGpuFrame = -1;
 
   /** CPU and GPU overlap; use the limiting stage, not their sum or the capped RAF interval. */
   get frameCostMs() { return Math.max(this.lastCpu, this.lastGpu); }
