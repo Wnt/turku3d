@@ -69,3 +69,23 @@ test('a ready worker is never restarted by the startup watchdog', async () => {
   expect(FakeWorker.instances).toHaveLength(1);
   expect(worker.terminate).not.toHaveBeenCalled();
 });
+
+test('a rejected replacement retains acknowledged coverage until an explicit unload', async () => {
+  const client = new PhysicsClient(), worker = FakeWorker.instances[0];
+  worker.ready(); await client.ready;
+  const stats = { id: 'c_0_0', tris: 1, prims: 0, bytes: 16, buildMs: 1, colliders: 1 };
+  const initial = client.loadTile('c_0_0', new ArrayBuffer(16));
+  worker.onmessage!({ data: { type: 'tileLoaded', stats } });
+  await initial;
+  const replacement = expect(client.loadTile('c_0_0', new ArrayBuffer(8))).rejects.toThrow('bad replacement');
+  worker.onmessage!({ data: { type: 'tileError', id: 'c_0_0', error: 'bad replacement', permanent: true } });
+  await replacement;
+  expect(client.loaded.get('c_0_0')).toBe(stats);
+  // A failed first load still has no acknowledged coverage.
+  const missing = expect(client.loadTile('c_1_0', new ArrayBuffer(8))).rejects.toThrow('bad first load');
+  worker.onmessage!({ data: { type: 'tileError', id: 'c_1_0', error: 'bad first load', permanent: true } });
+  await missing;
+  expect(client.loaded.has('c_1_0')).toBe(false);
+  client.unloadTile('c_0_0');
+  expect(client.loaded.has('c_0_0')).toBe(false);
+});
