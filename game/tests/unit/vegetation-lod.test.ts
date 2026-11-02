@@ -263,3 +263,41 @@ it('grows instanced grass on tile grass surfaces near the camera only', () => {
   camera.position.set(0, 0, 0); lod.remove(model); lod.update(camera);
   expect(count()).toBe(0);
 });
+
+it('keeps far barriers visible on their last mesh without taking tree budgets', () => {
+  const { model, mesh } = tile(900, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -20));
+  mesh.userData.instance_species = Array(900).fill('Tilia cordata');
+  const fence = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial(), 1500);
+  fence.userData = { layer: 'structures', material_key: 'draft_wood' };
+  for (let i = 0; i < fence.count; i++) fence.setMatrixAt(i, new THREE.Matrix4().compose(
+    new THREE.Vector3((i % 10) - 5, 0, -230), new THREE.Quaternion(), new THREE.Vector3(2, 1, .12)));
+  model.add(fence); const scene = new THREE.Scene(); scene.add(model);
+  const lod = new VegetationLod('medium', library); lod.add(model); lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+  const visible = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy);
+  expect(visible.filter(b => b.userData.nature === 'picket_fence').reduce((n, b) => n + b.count, 0)).toBe(1500);
+  expect(visible.filter(b => b.userData.nature === 'tree_linden' && b.material === library.materials.leaves).reduce((n, b) => n + b.count, 0)).toBe(900);
+  lod.dispose();
+});
+
+it('does not attach grass or trees after disposal while the library is pending', async () => {
+  let resolve!: (value: typeof library) => void;
+  const promise = new Promise<typeof library>(r => { resolve = r; });
+  const scene = new THREE.Scene(), { model, mesh } = tile(); scene.add(model);
+  const lod = new VegetationLod('medium', promise, scene), pending = lod.addAsync(model);
+  expect(lod.loadedModels()).toEqual([model]);
+  lod.dispose(); resolve(library); await pending;
+  expect(scene.getObjectByName('nature-grass')).toBeUndefined();
+  expect(generated(model, mesh)).toHaveLength(0); expect(mesh.visible).toBe(true);
+});
+
+it('cancels yielded preparation when its tile is removed', async () => {
+  const scene = new THREE.Scene(), { model, mesh } = tile(); scene.add(model);
+  const lod = new VegetationLod('medium', library, scene);
+  let resume!: () => void;
+  (lod as unknown as { budget: { checkpoint(): Promise<void> } }).budget.checkpoint = () => new Promise<void>(r => { resume = r; });
+  const pending = lod.addAsync(model); await Promise.resolve();
+  expect(resume).toBeDefined();
+  lod.remove(model); resume(); await pending;
+  expect(generated(model, mesh)).toHaveLength(0); expect(mesh.visible).toBe(true);
+  expect(lod.loadedModels()).toHaveLength(0); lod.dispose();
+});

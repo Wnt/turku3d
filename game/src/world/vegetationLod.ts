@@ -27,6 +27,7 @@ interface Bucket {
 }
 interface Selection { bucket: Bucket; offset: number; count: number }
 interface Draw {
+  barrier: boolean;
   root: THREE.Group;
   /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer. */
   levels: THREE.InstancedMesh[][];
@@ -69,9 +70,12 @@ export class VegetationLod {
   private library: NatureLibrary | null = null;
   private grass: GrassField | null = null;
   private readonly ready: Promise<void>;
+  private disposed = false;
+  private pending = new Map<THREE.Object3D, { cancelled: boolean; promise: Promise<void> }>();
   /** With a scene, tile grass surfaces also grow instanced grass near the camera (world-space draws under it). */
   constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, scene?: THREE.Object3D) {
     const loaded = (lib: NatureLibrary) => {
+      if (this.disposed) return;
       this.library = lib;
       if (scene && QUALITY[tier].grass.density > 0) { this.grass = new GrassField(lib, tier); scene.add(this.grass.root); }
     };
@@ -79,26 +83,39 @@ export class VegetationLod {
     else { loaded(library); this.ready = Promise.resolve(); }
   }
 
-  loadedModels() { return [...this.models.keys()]; }
+  loadedModels() { return [...new Set([...this.models.keys(), ...this.pending.keys()])]; }
 
   dispose() {
+    this.disposed = true;
     for (const model of this.loadedModels()) this.remove(model);
     this.grass?.dispose();
   }
 
   add(model: THREE.Object3D) {
+    if (this.disposed) return;
     if (!this.library) throw new Error('VegetationLod.add before the nature library loaded');
     const steps = this.addSteps(model, this.library);
     while (!steps.next().done) { /* Synchronous fixture/startup caller. */ }
   }
 
   async addAsync(model: THREE.Object3D) {
-    await this.ready;
-    const steps = this.addSteps(model, this.library!);
-    while (!steps.next().done) {
-      const pending = this.budget.checkpoint();
-      if (pending) await pending;
-    }
+    if (this.disposed) return;
+    const existing = this.pending.get(model);
+    if (existing) return existing.promise;
+    const job = { cancelled: false, promise: Promise.resolve() };
+    this.pending.set(model, job);
+    job.promise = (async () => {
+      await this.ready;
+      if (job.cancelled || this.disposed) return;
+      const steps = this.addSteps(model, this.library!);
+      try {
+        while (!job.cancelled && !this.disposed && !steps.next().done) {
+          const pending = this.budget.checkpoint();
+          if (pending) await pending;
+        }
+      } finally { steps.return(undefined); }
+    })().finally(() => { if (this.pending.get(model) === job) this.pending.delete(model); });
+    return job.promise;
   }
 
   private *addSteps(model: THREE.Object3D, library: NatureLibrary): Generator<void> {
@@ -116,8 +133,8 @@ export class VegetationLod {
       data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow });
       if (kit) fences.push({ mesh, key: key! });
     });
-    if (this.grass) yield* this.grass.addSteps(model);
     this.models.set(model, data);
+    if (this.grass) yield* this.grass.addSteps(model);
     if (!data.sources.length) return;
     for (const { mesh } of data.sources) { mesh.visible = false; mesh.castShadow = false; }
     // Bark and crown prototypes of one variant share their placements: one representative per variant and parent.
@@ -227,7 +244,7 @@ export class VegetationLod {
       return parts;
     });
     source.parent!.add(root);
-    return { root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
+    return { barrier: !shadows, root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
   }
 
   update(camera: THREE.PerspectiveCamera) {
@@ -258,8 +275,17 @@ export class VegetationLod {
     this.visible.sort((a, b) => a.distance - b.distance);
     const remaining = this.remaining;
     remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = this.screenshotDistance ? Infinity : q.farInstances;
+    let barriers = q.barrierInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
+      if (bucket.draw.barrier) {
+        // Barriers have no impostor, but their last mesh remains visible to the far limit.
+        // Keep their modules out of the tree budgets, including distant fences with colliders.
+        const count = Math.min(bucket.count, barriers);
+        barriers -= count;
+        if (count) bucket.draw.selections[Math.min(level, bucket.draw.levels.length - 1)].push({ bucket, offset: 0, count });
+        continue;
+      }
       // A partially filled near/mid budget must demote the rest of a cell, not
       // erase its trees. Ranges are disjoint so no tree draws at two LODs.
       let offset = 0;
@@ -309,6 +335,8 @@ export class VegetationLod {
   }
 
   remove(model: THREE.Object3D) {
+    const pending = this.pending.get(model);
+    if (pending) { pending.cancelled = true; this.pending.delete(model); }
     this.grass?.remove(model);
     const data = this.models.get(model);
     if (!data) return;
@@ -361,3 +389,9 @@ function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
 function assetSphere(asset: NatureAsset) {
   return new THREE.Sphere(new THREE.Vector3(0, asset.height / 2, 0), Math.hypot(asset.radius, asset.height / 2));
 }
+
+// Update resident models without restarting the streamed world.
+if (import.meta.hot) import.meta.hot.accept(module => {
+  const replace = window.__game?.replaceVegetation as ((Renderer: typeof VegetationLod) => Promise<void>) | undefined;
+  if (module && replace) void replace(module.VegetationLod);
+});

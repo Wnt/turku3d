@@ -12,7 +12,7 @@ const CELL = 16;
 /** Clump kinds and their shares of the candidates. */
 const KINDS = [['grass_clump', 0.6], ['grass_wide', 0.22], ['grass_meadow', 0.06], ['groundcover_rosette', 0.12]] as const;
 
-interface TileGrass { cells: Map<string, { points: number[]; kinds: number[] }> }
+interface TileGrass { key: string; cells: Map<string, { points: number[]; kinds: number[] }> }
 
 /** Smoothed value noise in [0, 1], contrast-stretched into patches; the same on every client. */
 function patchNoise(x: number, z: number) {
@@ -60,7 +60,7 @@ export class GrassField {
   /** Sample a tile's grass triangles (area-weighted, seeded by the tile's position). */
   *addSteps(model: THREE.Object3D): Generator<void> {
     if (this.tiles.has(model) || this.settings.density <= 0) return;
-    const tile: TileGrass = { cells: new Map() };
+    const tile: TileGrass = { key: '', cells: new Map() };
     this.tiles.set(model, tile);
     model.updateWorldMatrix(true, true);
     const meshes: THREE.Mesh[] = [];
@@ -71,6 +71,7 @@ export class GrassField {
       if (key && surfaceStyle(key) === 'grass') meshes.push(mesh);
     });
     const origin = new THREE.Vector3().setFromMatrixPosition(model.matrixWorld);
+    tile.key = `${origin.x},${origin.y},${origin.z}:${model.name}`;
     let seed = hashId(`${origin.x.toFixed(1)},${origin.z.toFixed(1)}`) || 1;
     const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
@@ -125,25 +126,31 @@ export class GrassField {
     const key = `${cx},${cz}:${active.map(([model]) => model.id).join(',')}`;
     if (key === this.selection) return;
     this.selection = key;
-    const counts = this.draws.map(() => 0), cap = this.settings.instances;
+    const counts = this.draws.map(() => 0);
+    const candidates: { cell: { points: number[]; kinds: number[] }; distance: number; key: string }[] = [];
     for (const [, tile] of active) {
       for (let dz = -reach; dz <= reach; dz++) for (let dx = -reach; dx <= reach; dx++) {
-        const cell = tile.cells.get(`${cx + dx},${cz + dz}`);
+        const x = cx + dx, z = cz + dz, cell = tile.cells.get(`${x},${z}`);
         if (!cell) continue;
-        // Cells whose nearest point is beyond the range are skipped.
-        const nx = Math.max(0, Math.abs(dx) - 1) * CELL, nz = Math.max(0, Math.abs(dz) - 1) * CELL;
-        if (Math.hypot(nx, nz) > range) continue;
-        for (let i = 0; i < cell.kinds.length; i++) {
-          const kind = cell.kinds[i], parts = this.draws[kind], n = counts[kind];
-          if (n >= cap) continue;
-          const o = i * 5, s = cell.points[o + 4];
-          this.matrix.compose(this.at.set(cell.points[o], cell.points[o + 1], cell.points[o + 2]),
-            this.quaternion.setFromAxisAngle(this.up, cell.points[o + 3]), this.scale.set(s, s, s));
-          this.matrix.toArray(parts[0].instanceMatrix.array, n * 16);
-          const shade = 0.82 + 0.3 * ((cell.points[o + 3] * 7.13) % 1);
-          (parts[0].instanceColor!.array as Float32Array).set([shade, shade, shade * 0.96], n * 3);
-          counts[kind] = n + 1;
-        }
+        const distance = Math.hypot((x + .5) * CELL - p.x, (z + .5) * CELL - p.z);
+        if (distance > range + CELL * Math.SQRT1_2) continue;
+        candidates.push({ cell, distance, key: `${x},${z}:${tile.key}` });
+      }
+    }
+    candidates.sort((a, b) => a.distance - b.distance || a.key.localeCompare(b.key));
+    // One shared budget across all four kinds, nearest cells first, independent of tile arrival order.
+    let remaining = this.settings.instances;
+    for (const { cell } of candidates) {
+      if (!remaining) break;
+      for (let i = 0; i < cell.kinds.length && remaining; i++) {
+        const kind = cell.kinds[i], parts = this.draws[kind], n = counts[kind];
+        const o = i * 5, s = cell.points[o + 4];
+        this.matrix.compose(this.at.set(cell.points[o], cell.points[o + 1], cell.points[o + 2]),
+          this.quaternion.setFromAxisAngle(this.up, cell.points[o + 3]), this.scale.set(s, s, s));
+        this.matrix.toArray(parts[0].instanceMatrix.array, n * 16);
+        const shade = 0.82 + 0.3 * ((cell.points[o + 3] * 7.13) % 1);
+        (parts[0].instanceColor!.array as Float32Array).set([shade, shade, shade * 0.96], n * 3);
+        counts[kind] = n + 1; remaining--;
       }
     }
     for (const [k, parts] of this.draws.entries()) {
