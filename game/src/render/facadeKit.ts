@@ -1,8 +1,8 @@
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
-import { color, float, floor, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { color, float, floor, fract, mix, normalMap, positionWorld, round, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
-import { draftWindows, facadeKey, glassMask, quantise, wallFrame, windowEmission } from './nightLights';
+import { draftWindows, facadeKey, kitGlassMask, quantise, wallFrame, windowEmission } from './nightLights';
 import { facadeAttribute, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
 
@@ -45,22 +45,36 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const tint = (p.version ?? 1) >= 3
     ? vec3(1).add(wall.sub(1).mul(float(1).sub(sample.a.mul(2)).clamp(0, 1))).add(trim.sub(1).mul(sample.a.mul(2).sub(1).clamp(0, 1)))
     : mix(mix(vec3(1), trim, step(0.25, albedo.r)), wall, step(0.72, albedo.r));
-  material.colorNode = paint ? mix(albedo.mul(tint).mul(float(1).sub(paint.balcony)), paint.trim, paint.band) : albedo.mul(tint);
+  const facadeColour = paint ? mix(albedo.mul(tint).mul(float(1).sub(paint.balcony)), paint.trim, paint.band) : albedo.mul(tint);
+  const opening = program && paint ? program.inside.mul(float(1).sub(paint.band)) : float(0);
+  // Physical frame bars stay centimetres wide even on a 20 m ribbon or a tall
+  // lancet. The old 128 px window bitmap remains only on legacy kit versions.
+  const glazingColour = program ? mix(trim.mul(.9),
+    vec3(.016, .028, .04).mul(mix(.8, 1.35, program.rise)), program.glass) : albedo.mul(tint);
+  material.colorNode = mix(facadeColour, glazingColour, opening);
   const normal = texture(original.normalMap, coord).grad(dx, dy).xyz;
-  material.normalNode = normalMap(paint ? mix(normal, vec3(.5, .5, 1), paint.band) : normal, vec2(0.65));
-  material.roughnessNode = paint ? mix(orm.g, float(.85), paint.band) : orm.g;
-  material.metalnessNode = paint ? mix(orm.b, float(0), paint.band) : orm.b;
-  material.aoNode = orm.r;
+  material.normalNode = normalMap(mix(paint ? mix(normal, vec3(.5, .5, 1), paint.band) : normal,
+    vec3(.5, .5, 1), opening), vec2(0.65));
+  material.roughnessNode = mix(paint ? mix(orm.g, float(.85), paint.band) : orm.g,
+    program ? mix(.65, .1, program.glass) : float(.65), opening);
+  material.metalnessNode = mix(paint ? mix(orm.b, float(0), paint.band) : orm.b, float(0), opening);
+  material.aoNode = mix(orm.r, float(.85), opening);
   // Night windows: kit glass, one cell per bay and storey. The wall's own constants (exact per triangle) name it;
   // v1 has none, so its world-space wall plane does.
-  const extent = p.version === 4 ? facadeAttribute('_kit_extent', 'vec4') : null;
-  const identity = (p.version ?? 1) >= 2 ? facadeKey([quantise(origin.x, 64), quantise(origin.y, 64),
-    quantise(layout.y, 4096), quantise(layout.z, 4096), quantise(extent?.z ?? float(0), 64), quantise(extent?.w ?? float(0), 64),
-    quantise(wallColour.r, 1024), quantise(wallColour.g, 1024), quantise(wallColour.b, 1024)]) : wallFrame().plane;
-  const glazing = paint ? glassMask(orm.g).mul(float(1).sub(paint.band)).mul(float(1).sub(paint.balcony)) : glassMask(orm.g);
+  const frame = wallFrame();
+  // The unclipped world opening origin survives passage/roof splits and pigment
+  // edits. Round at quarter-metre precision to suppress interpolant roundoff.
+  const identity = p.version === 4 ? facadeKey([
+    round(frame.along.sub(metres.x).mul(4)), round(positionWorld.y.sub(metres.y).mul(4)),
+    quantise(layout.y, 4096), quantise(layout.z, 4096)]).bitXor(frame.plane)
+    : (p.version ?? 1) >= 2 ? facadeKey([quantise(origin.x, 64), quantise(origin.y, 64),
+      quantise(layout.y, 4096), quantise(layout.z, 4096)]) : frame.plane;
+  const glazing = program && paint ? program.glass.mul(float(1).sub(paint.band)).mul(float(1).sub(paint.balcony))
+    : kitGlassMask(orm.g).mul(float(module.lessThan(42)));
   // Glass modules (atlas row 5) are floor-to-ceiling panes: curtain walls and shopfronts.
   const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
-  material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), floor(bays.y), fract(bays.y), glazing, pane);
+  material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), program?.row ?? floor(bays.y),
+    program?.rise ?? fract(bays.y), glazing, pane);
   return material;
 }
 

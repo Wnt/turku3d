@@ -9,6 +9,7 @@ from turku3d.col.format import MIN_TRI_AREA
 from turku3d.col.materials import mat_id
 from turku3d.ground.mesh import Mesh
 from turku3d.ground.water import add_river_bed
+from turku3d.landmarks.descriptions import manifest_current
 
 
 def current(builder, tile):
@@ -32,6 +33,8 @@ def current(builder, tile):
 
                 if value.get("facade_params") != parameter_hash(value["building_keys"]):
                     continue
+            if not manifest_current(value):
+                continue
             key = key_for(tile)
             if key is not None and value.get("inputs") != key:
                 continue

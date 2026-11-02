@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "building_id": "103371570S",
+  "name": "Turku Cathedral",
+  "style": "medieval-brick-cathedral",
+  "provenance": [
+    {
+      "source": "local-plaza-lookaround.jpg",
+      "method": "vision-parameter-estimation",
+      "confidence": 0.72
+    },
+    {
+      "source": "commons-116003940.jpg",
+      "method": "vision-parameter-estimation",
+      "confidence": 0.84
+    }
+  ],
+  "observations": [
+    "Both photographs show the west entrance and tower; the portrait photograph includes the complete spire and cross.",
+    "No measured height is supplied. All metre values are approximate visual estimates using entrance and masonry proportions; dimensional confidence is approximately 0.45.",
+    "The tower has an irregular rubble-stone lower face transitioning unevenly into weathered red brick. Adjacent west-front wings have lower rubble-stone plinths.",
+    "Two tall, pale, arched window recesses sit above the pointed entrance portal.",
+    "Above the stone zone, three narrow tower openings form the lowest brick-stage row, followed by one central arched opening. Higher openings are staggered among pale blind recesses and circular decorations.",
+    "Tower opening_rows approximate visible openings on the front face only; sill heights use the entrance terrace as the provisional datum and exclude the descending plaza steps.",
+    "Black clock faces with gold detailing occupy adjacent tower faces below a projecting pale corbelled cornice and a red-brick decorative parapet.",
+    "The dark, faceted belfry has large recessed Gothic louvred openings. The tapering copper spire has greener patina, visible seams, a small dormer, and a ball-and-cross finial.",
+    "Copper roof parameters primarily describe the visible spire. Main nave roof coverage and material cannot be established confidently from these views.",
+    "General window parameters approximate the visible west-front side-wing windows. Nave window dimensions, repetition, and mullion counts are obscured and should not be inferred from the tower.",
+    "Brick bond is provisionally monk; repairs and mixed masonry make a consistent bond uncertain.",
+    "Colours estimate neutral material albedo rather than shaded pixel values. Material-colour confidence is approximately 0.7; masonry unit sizes and seam spacing have lower confidence.",
+    "Tower minimum_height_m and maximum_width_m are approximate classification thresholds, not measurements of total tower height.",
+    "LOD2 Building_1156587 calibration: base 13.538m N2000, masonry tower top 64.51-64.56m, copper belfry top 78.26m, finial 102.528m. Heights in program are metres above base. Clock and bands scaled to masonry stage.",
+    "West entrance portal estimated 2.1m wide by4.3m tall above terrace; retain separate from nave windows."
+  ],
+  "brick": {
+    "colour": [
+      145,
+      94,
+      77
+    ],
+    "size_m": [
+      0.29,
+      0.09
+    ],
+    "mortar_m": 0.016,
+    "mortar_colour": [
+      174,
+      162,
+      142
+    ],
+    "bond": "monk",
+    "variation": 0.24
+  },
+  "stone": {
+    "colour": [
+      132,
+      124,
+      109
+    ],
+    "size_m": [
+      0.46,
+      0.3
+    ],
+    "mortar_m": 0.038,
+    "mortar_colour": [
+      177,
+      168,
+      148
+    ]
+  },
+  "trim_colour": [
+    210,
+    204,
+    181
+  ],
+  "roof": {
+    "material": "copper",
+    "colour": [
+      78,
+      104,
+      94
+    ],
+    "patina": 0.72,
+    "seam_m": 0.55
+  },
+  "windows": {
+    "type": "arched-recessed-leaded",
+    "width_m": 1.8,
+    "height_m": 4.6,
+    "spacing_m": 8.0,
+    "sill_m": 4.5,
+    "mullions": 1
+  },
+  "tower": {
+    "minimum_height_m": 35,
+    "maximum_width_m": 22,
+    "stone_top_m": 15,
+    "copper_start_m": 50.8,
+    "clock_height_m": 44.5,
+    "clock_radius_m": 2.0,
+    "cornices_m": [
+      28,
+      39,
+      50.1
+    ],
+    "opening_rows": [
+      [
+        8,
+        1.3,
+        4.7,
+        2
+      ],
+      [
+        20,
+        0.7,
+        2.8,
+        3
+      ],
+      [
+        26,
+        0.95,
+        2.0,
+        1
+      ],
+      [
+        29,
+        0.8,
+        2.3,
+        2
+      ],
+      [
+        33,
+        1.4,
+        2.8,
+        1
+      ],
+      [
+        35,
+        0.8,
+        1.7,
+        2
+      ]
+    ]
+  },
+  "weathering": 0.27,
+  "reference_hashes": [
+    "5b37c3f843a2551deeeabee0b0516f5d3d7465b3c77ff190da36ece52da425ab",
+    "99bf5e0cfe791f489e101e41398a40eb89d1f5fad89430d074c218cf122280c1"
+  ],
+  "entrance": {
+    "width_m": 2.1,
+    "height_m": 4.3,
+    "sill_m": 0.35,
+    "facade": "west"
+  }
+}

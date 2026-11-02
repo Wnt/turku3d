@@ -349,3 +349,6 @@ supports HMR without reloading the city.
 `Atmosphere.setWeather({ cloudCover, overcast })` accepts the weather clock's current sample without integrating
 local state. Cloud cover drives the existing cumulus threshold; overcast fills the sky with a lower grey deck
 from the same density sample and hides celestial bodies. Partly cloudy (`.38`, `0`) preserves the fair-sky defaults.
+Lighting can pass its final linear fog colour as `setWeather(sample, fogColor)` to join the overcast horizon
+to distance haze. Without that argument, the keyed timecycle fog colour is used. Rain darkens the ceiling
+above the horizon while the horizon retains the effective fog colour.

@@ -36,6 +36,8 @@ class GlbMesh:
     repeat: bool = False  # Texture wraps (REPEAT) instead of clamping to its edge
     extras: dict = field(default_factory=dict)
     emissive: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    normal_image: bytes | None = None
+    orm_image: bytes | None = None
     colors: np.ndarray | None = None  # (N,3) linear RGB multiplying ``color`` (COLOR_0)
 
 
@@ -150,11 +152,35 @@ def build_glb(
             )
             pbr["baseColorTexture"] = {"index": len(gltf["textures"]) - 1}
             pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
+        extra_maps = {}
+        for slot, data in (("normal", m.normal_image), ("orm", m.orm_image)):
+            if data is None:
+                continue
+            if m.uvs is None:
+                raise ValueError(f"{m.name}: {slot} texture without uvs")
+            gltf.setdefault("images", []).append(
+                {"bufferView": view(data, None), "mimeType": _mime(data)}
+            )
+            wrap = 10497 if m.repeat else 33071
+            sampler = {"magFilter": 9729, "minFilter": 9987, "wrapS": wrap, "wrapT": wrap}
+            samplers = gltf.setdefault("samplers", [])
+            if sampler not in samplers:
+                samplers.append(sampler)
+            gltf.setdefault("textures", []).append(
+                {"sampler": samplers.index(sampler), "source": len(gltf["images"]) - 1}
+            )
+            extra_maps[slot] = {"index": len(gltf["textures"]) - 1}
+        if "orm" in extra_maps:
+            pbr["metallicRoughnessTexture"] = extra_maps["orm"]
+            pbr["metallicFactor"] = 1.0
+            pbr["roughnessFactor"] = 1.0
         gltf["materials"].append(
             {
                 "name": f"{m.name}_mat",
                 "pbrMetallicRoughness": pbr,
                 "emissiveFactor": list(m.emissive),
+                **({"normalTexture": extra_maps["normal"]} if "normal" in extra_maps else {}),
+                **({"occlusionTexture": extra_maps["orm"]} if "orm" in extra_maps else {}),
             }
         )
         prim = {

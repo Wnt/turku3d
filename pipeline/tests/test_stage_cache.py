@@ -409,6 +409,61 @@ def test_ground_producer_identity_ignores_cache_telemetry_but_tracks_interpolati
     assert producer_code('ground') != before
 
 
+def test_prepared_wfs_ignores_texture_pixels_but_tracks_visual_material_assignment(tmp_path, monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs, ground_finishes
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    before = inputs._key([], 'wfs')
+    original = Path.read_bytes
+    source = Path(ground_finishes.__file__)
+    def pixels(path):
+        data = original(path)
+        return data.replace(b'def maps(key, size=None):', b'def maps(key, size=256):') if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', pixels)
+    assert inputs._key([], 'wfs') == before
+    monkeypatch.setattr(ground_finishes, 'FIELDSTONE', 130)
+    assert inputs._key([], 'wfs') != before
+
+
+def test_registering_unrelated_dataset_helper_preserves_existing_inputs(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import input_keys
+    before = input_keys.producer_code('ground')
+    original = Path.read_bytes
+    source = Path(input_keys.__file__)
+    def extra_helper(path):
+        data = original(path)
+        return data.replace(b'HELPERS = {', b'HELPERS = {"new_dataset": ("new_helper",),') if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', extra_helper)
+    assert input_keys.producer_code('ground') == before
+
+
+def test_shared_preparation_reads_published_result_after_waiting_for_another_version(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    import time
+    from turku3d.coarse.inputs import _input_lock, _load, _save, _ABSENT
+    target = tmp_path / 'shared/inputs/t0_0_0/wfs.same-key.pkl'
+    started = threading.Event()
+    prepared = []
+    def prepare():
+        with _input_lock(target):
+            value = _load(target, 'same-key')
+            if value is _ABSENT:
+                prepared.append(1)
+                started.set()
+                time.sleep(.03)
+                _save(target, 'same-key', {'buildings': [1, 2]})
+                value = _load(target, 'same-key')
+            return value
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(prepare)
+        assert started.wait(2)
+        second = pool.submit(prepare)
+        assert first.result() == second.result() == {'buildings': [1, 2]}
+    assert len(prepared) == 1
+
+
 def test_building_layer_uses_mesh_content_not_upstream_producer_key(tmp_path):
     from turku3d import config as C
     from turku3d.package.gltf import GlbMesh

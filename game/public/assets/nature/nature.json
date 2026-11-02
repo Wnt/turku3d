@@ -440,20 +440,20 @@
   "tree_spruce": {
    "kind": "tree",
    "species": "spruce",
-   "height": 17.87,
-   "radius": 4.68,
+   "height": 17.09,
+   "radius": 4.12,
    "lods": [
     {
-     "triangles": 11990,
-     "vertices": 13423,
+     "triangles": 10334,
+     "vertices": 11881,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 3026,
-     "vertices": 4316,
+     "triangles": 2686,
+     "vertices": 3968,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -471,20 +471,20 @@
   "tree_spruce_v2": {
    "kind": "tree",
    "species": "spruce",
-   "height": 17.33,
-   "radius": 4.54,
+   "height": 17.19,
+   "radius": 4.21,
    "lods": [
     {
-     "triangles": 11424,
-     "vertices": 12949,
+     "triangles": 9458,
+     "vertices": 11107,
      "draws": [
       "nature_bark",
       "nature_leaves"
      ]
     },
     {
-     "triangles": 2816,
-     "vertices": 4086,
+     "triangles": 2498,
+     "vertices": 3762,
      "draws": [
       "nature_bark",
       "nature_leaves"
@@ -665,7 +665,7 @@
   "grass_clump": {
    "kind": "grass",
    "height": 0.42,
-   "radius": 0.28,
+   "radius": 0.33,
    "lods": [
     {
      "triangles": 6,
@@ -679,7 +679,7 @@
   "grass_lawn": {
    "kind": "grass",
    "height": 0.36,
-   "radius": 0.63,
+   "radius": 0.66,
    "lods": [
     {
      "triangles": 6,
@@ -693,7 +693,7 @@
   "grass_meadow": {
    "kind": "grass",
    "height": 0.75,
-   "radius": 0.35,
+   "radius": 0.37,
    "lods": [
     {
      "triangles": 6,
@@ -706,8 +706,8 @@
   },
   "groundcover_rosette": {
    "kind": "grass",
-   "height": 0.05,
-   "radius": 0.21,
+   "height": 0.03,
+   "radius": 0.3,
    "lods": [
     {
      "triangles": 2,
@@ -875,13 +875,13 @@
   "nature_impostor": {
    "width": 2048,
    "height": 1024,
-   "bytes": 538990,
+   "bytes": 539908,
    "format": "ETC1S"
   },
   "nature_impostor_normal": {
    "width": 1024,
    "height": 512,
-   "bytes": 347285,
+   "bytes": 345370,
    "format": "UASTC+zstd"
   },
   "nature_wood": {
@@ -916,7 +916,7 @@
   }
  },
  "glb": {
-  "bytes": 7928228,
-  "sha256": "d4837e080fe8568f173a24898a07b1198c45e0d362ac4f0c3b41ef1068ba2f37"
+  "bytes": 7840112,
+  "sha256": "3485c454854d534a8452491d97d29fa284abd174034d656926446a901c61d9d9"
  }
 }
