@@ -6,13 +6,14 @@ import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
 import { FLEET, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry } from './geometry';
+import { AUTHORED_ESTATE, loadAuthoredFleet } from './authored';
 import { fleetLamps } from './lamps';
 import { fleetMaterial, fleetNight } from './material';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
-export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string }
-interface Batch { mesh: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; count: number; dirty: boolean }
-interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; size?: ParkedVehicle; powered?: boolean }
+export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; indicator?: -1 | 0 | 1; braking?: boolean }
+interface Batch { mesh: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
+interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
 
@@ -36,6 +37,7 @@ export class ParkedCarVisuals {
   private rotation=new THREE.Quaternion(); private scale=new THREE.Vector3(1,1,1);
   private loading: Promise<void>=Promise.resolve();
   private loaded=false;
+  private remoteRequests=new Map<string,Promise<void>>();
   constructor(private readonly scene: THREE.Object3D, private readonly prepare: (model: THREE.Object3D)=>Promise<void> = async()=>{}) {}
   reserveTraffic(count:number) { this.reserve=Math.max(0,count); }
   trafficModels(): string[] { return this.loaded ? [...TRAFFIC_MODELS] : []; }
@@ -66,10 +68,14 @@ export class ParkedCarVisuals {
         const key=`${model.id}/${lod}`, required=(counts.get(model.id)??0)+this.reserve;
         if((this.groups.get(key)?.mesh.instanceMatrix.count??0)>=required) continue;
         const capacity=Math.max(16,2**Math.ceil(Math.log2(Math.max(1,required))));
+        if(!this.geometries.has(key)) {
+          const authored=await loadAuthoredFleet(model.id,lod);
+          if(authored)this.geometries.set(key,authored);
+        }
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
         mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
-        const batch={mesh,model,lod,paints:[],lamps:[],count:0,dirty:true}; replacements.push([key,batch]);
+        const batch={mesh,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true}; replacements.push([key,batch]);
         await this.prepare(mesh);
       }
     } catch(error) { for(const [,b] of replacements) b.mesh.dispose(); throw error; }
@@ -93,9 +99,17 @@ export class ParkedCarVisuals {
     const actor=this.actor(def.model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);
     this.cars=this.cars.filter(c=>c.object_id!==id);
   }
-  requestRemoteModel(_key:string) { /* The code-authored fleet is resident; no network asset request. */ }
+  requestRemoteModel(key:string) {
+    const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
+    if(model.id!==AUTHORED_ESTATE||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
+    this.remoteRequests.set(geometryKey,loadAuthoredFleet(model.id,0).then(geometry=>{
+      if(geometry)this.geometries.set(geometryKey,geometry);
+    }).catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
+  }
   remoteModel(key:string):THREE.Mesh|null {
-    const [model,color]=key.split('/'); return this.actor(fleetModel(model,key),color??'silver',`remote/${key}`);
+    const [id,color]=key.split('/'), model=fleetModel(id,key);
+    if(model.id===AUTHORED_ESTATE&&!this.geometries.has(`${model.id}/0`))return null;
+    return this.actor(model,color??'silver',`remote/${key}`);
   }
   private transform(draw:Draw) {
     this.position.set(draw.pos.x,draw.pos.y-CHASSIS_LIFT,draw.pos.z);
@@ -116,7 +130,8 @@ export class ParkedCarVisuals {
     let changed=false;
     for(let i=0;i<16;i++)if(array[offset+i]!==Math.fround(matrix.elements[i])){changed=true;break;}
     if(changed){group.mesh.setMatrixAt(group.count,matrix);group.dirty=true;}
-    group.paints[group.count]=draw.color;group.lamps[group.count++]=draw.powered?1:0;
+    group.paints[group.count]=draw.color;group.indicators[group.count]=draw.indicator??0;
+    group.brakes[group.count]=draw.braking?1:0;group.lamps[group.count++]=draw.powered?1:0;
   }
   update(states:VehicleState[],rest?:ParkedRest) {
     const byId=new Map(states.map(s=>[s.id,s]));
@@ -131,13 +146,13 @@ export class ParkedCarVisuals {
       const key=car.model+'/'+id;
       let model=this.variants.get(key);
       if(!model){model=fleetModel(car.model,id);if(this.variants.size>512)this.variants.clear();this.variants.set(key,model);}
-      this.draw({id,model,color:car.color,pos:car,rot:car.q,powered:true});
+      this.draw({id,model,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
     }
     for(const b of this.groups.values()) {
       const changedCount=b.mesh.count!==b.count;
       b.mesh.count=b.count;b.mesh.visible=b.count>0;
       if(!b.count)continue;
-      b.paints.length=b.count;b.lamps.length=b.count;paintInstances(b.mesh,b.paints);fleetLamps(b.mesh,b.lamps);
+      b.paints.length=b.count;b.lamps.length=b.count;b.indicators.length=b.count;b.brakes.length=b.count;paintInstances(b.mesh,b.paints);fleetLamps(b.mesh,b.lamps,b.indicators,b.brakes);
       if(b.dirty)b.mesh.instanceMatrix.needsUpdate=true;
       if(b.dirty||changedCount)b.mesh.computeBoundingSphere();
     }

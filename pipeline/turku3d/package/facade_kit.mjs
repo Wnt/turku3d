@@ -50,8 +50,8 @@ export function bindFacadeKit(doc, request, material, prim, e, texture) {
     const c = parseInt(v, 16) / 255;
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
-  const version = p.opening ? 4 : (request.facadeKit.version ?? 2);
-  if (version === 4) {
+  const version = p.opening ? 5 : (request.facadeKit.version ?? 2);
+  if (version === 5) {
     bindProgram(doc, prim, e, p, linear);
   } else {
     attribute('_KIT_LAYOUT', 'VEC3', [p.module, p.bay, p.storey]);

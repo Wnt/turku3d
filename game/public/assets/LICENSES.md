@@ -3,6 +3,7 @@
 | File | Source | Licence | Notes |
 |---|---|---|---|
 | `character/player.glb` | MakeHuman assets exported by [Kasper Olesen / CharacterCreator](https://github.com/kblood/CharacterCreator/tree/852e48f316b90a0937234886630e4fb4cdfd1f78/output), plus Quaternius *Universal Animation Library [Standard]* | **CC0 1.0** | Textured autumn player; offline skin retarget to UAL, KTX2 and meshopt. [Licence, provenance and exact rebuild](character/README.md). |
+| `walkers/source/hair_short02_swept_m*.glb` | CC0 CharacterCreator `hair_short02`, edited in Blender through Blenderwright MCP; original Turku3D lattice deformation | **CC0 1.0** | Swept short crop, fitted to two male recipes. Photo references are local only; no photo pixels are used. |
 | `walkers/walkers.bin`, `walkers/wardrobe.png` | Pinned CharacterCreator MakeHuman body, clothing, hair and textures; Quaternius UAL rig; original Turku3D parametric bags/caps | **CC0 1.0** source assets; original accessory geometry | 96 anatomical/wardrobe recipes, shared texture atlas and two mesh LODs. [Provenance and reproducible build](walkers/README.md). |
 | Runtime Finnish fleet (`src/actors/fleet/`) | Original parametric geometry and surface details authored for Turku3D | Project-owned | 56 fictional models, three LODs, shared materials; no external vehicle geometry, logos or reference pixels. [Implementation and provenance](../../src/actors/fleet/README.md). |
 | `car/sedan.glb` | Kenney, *Car Kit 3.1*, `Models/GLB format/sedan.glb` + its `Textures/colormap.png` from [Car Kit](https://kenney.nl/assets/car-kit) | **CC0 1.0** ([original license](car/KENNEY-LICENSE.txt)) | Embedded palette with `scripts/prepare-car.mjs`; body/wheel transforms adapted at runtime to the physics dimensions. Separate authored wheel meshes follow suspension, steering and rotation. |
@@ -38,3 +39,13 @@ Original parametric geometry and painted artwork in `src/actors/prerunner/` (202
 Copyright 2026 Jonni Madekivi; MIT, as the repository. No downloaded vehicle mesh,
 commercial-game asset, photograph, badge or sponsor artwork is included. Local KOH
 photographic references stay outside the repository under `data/research/prerunner/`.
+
+## Vire estate — original Blender fleet
+
+`cars/aava-estate/estate_lod{0,1,2}.glb`: original fictional estate model authored
+with Blenderwright in Blender 5.2 (2026). Copyright 2026 Jonni Madekivi; MIT,
+as the repository. Fictional diamond badge and TKU-247 plate. No downloaded mesh
+or photographic pixels are included. The local reference plane is excluded from exports.
+Editable sources: `data/assets-src/cars/estate/estate.blend` and `estate-lods.blend`.
+Run `node game/scripts/prepare-fleet.mjs <source-directory> <output-directory>`
+to pack the three exported LODs with meshopt.

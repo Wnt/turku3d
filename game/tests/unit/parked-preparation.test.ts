@@ -1,3 +1,4 @@
+import './fleet-assets.fixture';
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { ParkedCarVisuals } from '../../src/actors/car';

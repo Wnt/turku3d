@@ -17,7 +17,8 @@ PATHS = {"footway", "cycleway", "path", "steps", "pedestrian", "bridleway"}
 PROFILES = {
     "Q11853512": dict(body="steel", support="stone", rail_surface="paint",
                       entrance_height=4.8, entrance_width=1.05, entrance_inset=1.2,
-                      rail_pattern="heritage"),
+                      rail_pattern="heritage", material_set="weathered"),
+    "Q6947737": dict(pier_fractions=(1 / 3, 2 / 3), pier_radius=.8, pier_width=.5),
     "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
     "Q5408563": dict(structure="cable-stayed", body="steel", support="stone",
                      thickness=.32, tower_height=5.6, tower_radius=.17,
@@ -411,10 +412,29 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 nearest = int(np.argmin(np.abs(np.asarray(stations) - measured_station)))
                 if abs(stations[nearest] - measured_station) < axis.length * 0.15:
                     stations[nearest] = measured_station
+    if spec.get("pier_fractions") and not way.get("landing") and not road_footbridge:
+        # Photo-supported span count; snap only qualified nearby survey returns.
+        stations = [axis.length * fraction for fraction in spec["pier_fractions"]]
+        measured = set(way.get("survey", {}).get("pier_stations", []))
+        for i, station in enumerate(stations):
+            if measured:
+                nearest = min(measured, key=lambda value: (abs(value - station), value))
+                if abs(nearest - station) < axis.length * .12:
+                    stations[i] = nearest
+                    measured.remove(nearest)
     for station in stations:
         p = np.asarray(axis.interpolate(float(station)).coords[0])
         line = np.array([p - normal * width * 0.32, p + normal * width * 0.32])
-        support = shapely.LineString(line).buffer(0.8)
+        radius = spec.get("pier_radius", .8)
+        if spec.get("pier_radius"):
+            from .bridge_kit import cross_section, rounded_pier
+
+            section = cross_section(way, station, radius + .15, polygon)
+            if section is None:
+                continue
+            centre, _, _, edges = section
+            line = centre + (np.asarray(edges) - centre) * spec["pier_width"]
+        support = shapely.LineString(line).buffer(radius)
         if any(support.intersects(g) for g in blocked) or not polygon.buffer(0.2).covers(support):
             continue
         top = height_at(line) - spec["thickness"]
@@ -426,6 +446,10 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
             if abs(station - measured_station) < 3:
                 bottom = np.minimum(bottom, measured_base)
         if np.min(top - bottom) < 1:
+            continue
+        if spec.get("pier_radius"):
+            meshes.append(rounded_pier(key, *line, float(np.min(bottom)),
+                                       float(np.min(top)), radius, spec["support"]))
             continue
         meshes.append(wall(key, line, bottom, top, 1.2 if spec["foot"] else 1.8, spec["support"]))
         meshes.append(

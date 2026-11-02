@@ -3769,7 +3769,7 @@
           "register_height_conflict": false,
           "excluded_rectangles_m": [],
           "colour_space": "sRGB photo appearance; not calibrated albedo",
-          "notes": "Five visible ribbon bands, with a recessed balcony interrupting the second band. Pale horizontal spandrels, glass railing over retail arcade. Seven registered floors retained; crop top is incomplete. Five structural bays, not a reliable individual-window count.",
+          "notes": "Five visible ribbon bands, with a recessed balcony interrupting the second band. Pale horizontal spandrels, glass railing over retail arcade. Seven registered floors retained; crop top is incomplete. Five structural bays, not a reliable individual-window count. Lowest ribbon at 4.029 m is the fine-grid commercial strip above the arcade; its pane treatment remains separate from the broader upper residential ribbons. Rechecked source crop 2026-11-02: pale vertical frames divide upper glazing into broad/narrow pairs; fine commercial-grid ribbon and recessed square-column arcade remain distinct. Relative pane widths are estimates, not surveyed dimensions. Native A/B 2026-11-02 preferred broad upper panes but found the band at 6.993 m too coarse. Keep its previous finer grid as unreviewed pending clearer photo-to-storey alignment; apply the broad/narrow prior only to higher observed rows. Second native A/B retained the lower grid but lost some narrow paired panes at street distance. Paired meeting stiles use two 45 mm frame profiles as an uncertain physical-scale prior; source crop shows distinctly pale paired vertical framing. Third native A/B still lost narrow divisions with five pairs, even after wider stiles. Reinspection distinguishes approximately 14\u201318 individual upper panes from five structural bays; use eight broad/narrow pairs as a regular approximation, with exact irregular clustering unresolved.",
           "opening_extent": "observed only; omitted areas are unknown"
         },
         "split": {
@@ -3879,10 +3879,10 @@
           },
           "divisions": {
             "value": [
-              5,
+              8,
               1
             ],
-            "source": "assistant direct crop review",
+            "source": "source crop reinspection: approximately 14\u201318 individual upper panes across the frontage; eight broad/narrow pairs, not five structural bays",
             "support": 0.6
           },
           "recess_m": {
@@ -3893,6 +3893,37 @@
           "head_shape": {
             "value": "flat",
             "source": "assistant direct crop review",
+            "support": 0.8
+          },
+          "transom_fraction": {
+            "value": 0,
+            "source": "same-wall crop review: upper ribbon panes have no horizontal transom",
+            "support": 0.8
+          },
+          "pane_split_fraction": {
+            "value": 0.7,
+            "source": "same-wall crop review: broad/narrow vertical pane pairs; approximate relative proportion",
+            "support": 0.7
+          },
+          "pane_span_m": {
+            "value": [
+              1.901,
+              22.47
+            ],
+            "source": "retained upper ribbon extent anchors eight approximate pane pairs independently of structural bays",
+            "support": 0.6
+          },
+          "opening_roles": [
+            "window",
+            "window",
+            "unreviewed",
+            "base",
+            "window",
+            "window"
+          ],
+          "pane_scope": {
+            "value": "window",
+            "source": "same-wall crop review: upper residential ribbons use broad/narrow pairs; lowest ribbon at 4.029 m has finer commercial glazing",
             "support": 0.8
           }
         },
@@ -34754,9 +34785,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34772,9 +34805,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34790,9 +34825,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34808,9 +34845,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34826,9 +34865,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34844,9 +34885,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "middle"
+              "role": "middle",
+              "opening_class": "wide"
             },
             {
               "bays": [
@@ -34862,9 +34905,11 @@
                 "bay_count": 0.8,
                 "bay_kinds": 0.8,
                 "head": 0.9,
-                "surround": 0.8
+                "surround": 0.8,
+                "opening_class": 0.7
               },
-              "role": "top"
+              "role": "top",
+              "opening_class": "wide"
             }
           ],
           "material": null,
@@ -35207,19 +35252,32 @@
             "support": 0.0
           },
           "frame_colour": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
+            "value": "#b8c1c4",
+            "source": "same-wall crop review: pale grey frame appearance, uncalibrated estimate",
+            "support": 0.65
           },
           "divisions": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
+            "value": [
+              2,
+              1
+            ],
+            "source": "same-wall crop review: paired upper panes with one central vertical bar",
+            "support": 0.8
           },
           "recess_m": {
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "transom_fraction": {
+            "value": 0,
+            "source": "same-wall crop review: no horizontal transom in upper window panes",
+            "support": 0.8
+          },
+          "pane_scope": {
+            "value": "window",
+            "source": "paired panes observed in regular upper rows; lower ribbon/shop openings excluded",
+            "support": 0.8
           }
         },
         "base": {
