@@ -1,14 +1,18 @@
 // Distant facades use the surveyed shell and its pigment, with a texture-free window rhythm.
 import * as THREE from 'three/webgpu';
-import { float, floor, fract, fwidth, luminance, max, mix, positionWorld, smoothstep, vec3, vertexColor } from 'three/tsl';
+import { float, floor, fract, fwidth, luminance, max, mix, positionWorld, smoothstep, texture, vec3, vertexColor } from 'three/tsl';
 import { wallFrame, windowEmission } from './nightLights';
+import type { SharedMaterials } from './sharedMaterials';
 
-export function sceneryMaterial(layer: string) {
+const source = new THREE.MeshStandardMaterial({ name: 'distant-city-pigment', roughness: 1, metalness: 0 });
+
+export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture) {
   // colorNode owns the authored pigment; vertexColors=true would multiply it a second time.
   const material = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   material.colorNode = vertexColor().rgb;
   material.name = `distant-city-${layer}`;
   material.flatShading = true;
+  if (layer === 'regional' && coverage) material.maskNode = texture(coverage, positionWorld.xz.div(250 * 256).add(.5)).r.lessThan(.5);
   // The old cached tree prototypes carry autumn pigments. Match the city's summer canopy,
   // retaining their tonal variation without turning the far skyline into bright orange spikes.
   if (layer === 'vegetation') material.colorNode = vec3(.45, .78, .30).mul(luminance(vertexColor().rgb));
@@ -28,7 +32,7 @@ export function sceneryMaterial(layer: string) {
   return material;
 }
 
-export function styleScenery(model: THREE.Object3D) {
+export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, coverage?: THREE.DataTexture) {
   const originals = new Set<THREE.Material>();
   const materials = new Map<string, THREE.MeshStandardNodeMaterial>();
   model.traverse(object => {
@@ -37,11 +41,15 @@ export function styleScenery(model: THREE.Object3D) {
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) originals.add(material);
     const layer = String(mesh.userData.layer ?? mesh.name);
     let material = materials.get(layer);
-    if (!material) { material = sceneryMaterial(layer); materials.set(layer, material); }
+    if (!material) {
+      material = (shared ? shared.styled.acquire(source, `distant-city-${layer}`, model, () => sceneryMaterial(layer, coverage))
+        : sceneryMaterial(layer, coverage)) as THREE.MeshStandardNodeMaterial;
+      materials.set(layer, material);
+    }
     mesh.material = material;
     mesh.castShadow = false; mesh.receiveShadow = false;
   });
-  for (const material of originals) material.dispose();
+  for (const material of originals) if (!shared?.styled.has(material)) material.dispose();
 }
 
 // Material experiments are applied explicitly to resident scenery through the dev session.

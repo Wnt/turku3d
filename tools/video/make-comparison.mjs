@@ -2,16 +2,18 @@
 // One command, no production writes. All products and browser state live outside git.
 import fs from 'node:fs';import path from 'node:path';import os from 'node:os';
 import {spawn,spawnSync,execFileSync} from 'node:child_process';import {once} from 'node:events';
+import {owner} from './comparison-browser.mjs';
 import {fileURLToPath} from 'node:url';import {allTiles} from './paths.mjs';
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),root=path.join(os.homedir(),'turku3d');
 const args=process.argv.slice(2);
-if(args.includes('--help')){console.log('Usage: node tools/video/make-comparison.mjs [--left URL] [--right URL] [--shots FILE] [--out DIR] [--preview | --skip-preview]');process.exit(0);}
+if(args.includes('--help')){console.log('Usage: node tools/video/make-comparison.mjs [--left URL] [--right URL] [--shots FILE] [--out DIR] [--preview | --skip-preview] [--resume]');process.exit(0);}
 const opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d;
 const out=path.resolve(opt('--out',path.join(root,'video',new Date().toISOString().slice(0,10))));fs.mkdirSync(out,{recursive:true});
 const shots=path.resolve(opt('--shots',path.join(repo,'tools/video/comparison-shots.json'))),config=JSON.parse(fs.readFileSync(shots));
-const integration=path.join(root,'wt/loop-integration/repo'),state=path.join(root,'loops/video'),owned=[];
+const integration=path.join(root,'wt/loop-integration/repo'),state=path.join(root,'loops',owner),owned=[];
 const git=(cwd,...a)=>execFileSync('git',a,{cwd,encoding:'utf8'}).trim();
-const ref=git(integration,'rev-parse','HEAD'),alias=`video-${ref.slice(0,8)}`,production=git(repo,'rev-parse','main');
+const saved=args.includes('--resume')?JSON.parse(fs.readFileSync(path.join(out,'builds.json'))):null;
+const ref=saved?.integration??git(integration,'rev-parse','HEAD'),alias=`${owner}-${ref.slice(0,8)}`,production=saved?.production??git(repo,'rev-parse','main');
 const serviceConfig=path.join(root,'loops/integrator/tile-service.json'),service=JSON.parse(fs.readFileSync(serviceConfig));
 let left=opt('--left','http://127.0.0.1:5960/'),right=opt('--right','http://localhost:5220/');
 if(new URL(left).hostname==='wnt.github.io'&&/^\/turku-game\/?$/.test(new URL(left).pathname))left='http://127.0.0.1:5960/';
@@ -33,6 +35,20 @@ async function prepareProduction(){
  await start(path.join(modules,'.bin/vite'),['--host','127.0.0.1'],path.join(snapshot,'game'),{TURKU3D_PORT_BASE:'5960',TURKU3D_WORK:path.join(state,'production-output')},left);
  fs.writeFileSync(marker,JSON.stringify({revision:production,snapshot}));
 }
+async function prepareIntegration(){
+ if(!['localhost','127.0.0.1'].includes(new URL(right).hostname)||new URL(right).port!=='5220')return;
+ const snapshot=path.join(state,'integration',ref);
+ if(!fs.existsSync(path.join(snapshot,'game/package.json'))){
+  fs.mkdirSync(snapshot,{recursive:true});
+  const ar=spawn('git',['archive',ref],{cwd:repo,stdio:['ignore','pipe','inherit']});
+  const unpack=spawn('tar',['-x','-C',snapshot],{stdio:['pipe','inherit','inherit']});ar.stdout.pipe(unpack.stdin);
+  if((await once(unpack,'close'))[0])throw Error('Integration snapshot extraction failed');
+ }
+ const modules=path.join(snapshot,'game/node_modules');if(!fs.existsSync(modules))fs.symlinkSync(path.join(integration,'game/node_modules'),modules);
+ right='http://127.0.0.1:5961/';
+ await start(path.join(modules,'.bin/vite'),['--host','127.0.0.1'],path.join(snapshot,'game'),
+  {TURKU3D_PORT_BASE:'5961',TURKU3D_WORK:path.join(state,'integration-output'),TURKU3D_COARSE_PROXY:'http://127.0.0.1:5966'},right);
+}
 async function requestTiles(tiles){for(let i=0;i<tiles.length;i+=4)await Promise.all(tiles.slice(i,i+4).map(async tile=>{const r=await fetch(`${service.service}/v/${alias}/coarse/${tile}/manifest.json`,{signal:AbortSignal.timeout(30000)});return r.json();}));}
 async function waitFresh(tiles){
  const start=Date.now();let last='';
@@ -51,6 +67,8 @@ try{
  if(left.includes(':5960'))await prepareProduction();
  const tileProxy=path.join(state,'tile-service.json');fs.writeFileSync(tileProxy,JSON.stringify({...service,version:alias}));
  await start('node',[path.join(repo,'scripts/dev/shared-tile-proxy.mjs'),'5966',tileProxy],repo,{},'http://127.0.0.1:5966/coarse/status');
+ await prepareIntegration();
+ fs.writeFileSync(path.join(out,'builds.json'),JSON.stringify({pipeline:git(repo,'rev-parse','HEAD'),production,integration:ref,alias,left,right,created:new Date().toISOString()},null,2));
  const capture=[path.join(repo,'tools/video/comparison-capture.mjs'),'--left',left,'--right',right,'--shots',shots,'--out',out,'--revision',ref];
  if(!args.includes('--skip-preview'))await run('node',[...capture,'--preview','--right-tiles','http://127.0.0.1:5966']);
  // The real resident window can exceed the minimum safety ring. Rebuild every observed detailed tile too.
@@ -59,10 +77,11 @@ try{
  if(args.includes('--preview')){await run('bash',['pipeline/env/run.sh','python',path.join(repo,'tools/video/comparison-compose.py'),'--out',out,'--shots',shots,'--preview']);}
  else{
   await waitFresh(tiles);
-  if(git(integration,'rev-parse','HEAD')!==ref)throw Error('Integration source changed; re-run to pin a coherent source/tile revision');
+  // The capture uses the immutable snapshot above; unrelated integration merges cannot reload a shot.
   const latest=JSON.parse(fs.readFileSync(serviceConfig));latest.version=alias;fs.writeFileSync(serviceConfig,JSON.stringify(latest,null,2)+'\n');
   await run('node',[path.join(repo,'tools/video/verify-integration.mjs')]);
   await run('node',capture);
+  await run('bash',['pipeline/env/run.sh','python',path.join(repo,'tools/video/comparison-review.py'),'--out',out,'--captures-only']);
   await run('bash',['pipeline/env/run.sh','python',path.join(repo,'tools/video/comparison-compose.py'),'--out',out,'--shots',shots]);
   await run('bash',['pipeline/env/run.sh','python',path.join(repo,'tools/video/comparison-review.py'),'--out',out]);
  }

@@ -10,24 +10,25 @@ import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-TILE = re.compile(r'^t0_-?\d+_-?\d+$')
+TILE = re.compile(r'^t[024]_-?\d+_-?\d+$')
 KEY = re.compile(r'^[a-f0-9]{64}$')
 VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
 
 
 class Scenery:
-    def __init__(self, root, cache=None):
+    def __init__(self, root, cache=None, survey=None):
         self.root = Path(root)
         self.cache = Path(cache) if cache else self.root / '.scenery'
         self.script = Path(__file__).with_suffix('.mjs')
         self.tree_script = Path(__file__).with_name('scenery-trees.mjs')
         self.recipe = hashlib.sha256(self.script.read_bytes()).hexdigest()
+        self.survey = survey
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
         self.pending = {}
         self.lock = threading.Lock()
 
     def catalogue(self, tiles):
-        """No Builder access, freshness checks, raw-data reads or source writes on this path."""
+        """Prefer retained visuals; optional surveys prepare identities, never street tiles or source writes."""
         rows, missing = [], []
         self.cache.mkdir(parents=True, exist_ok=True)
         for tile in dict.fromkeys(tiles):
@@ -46,7 +47,13 @@ class Scenery:
                 except (OSError, ValueError, KeyError, TypeError):
                     continue
             if source is None:
-                missing.append(tile)
+                row = self.survey.describe(tile) if self.survey else None
+                if row:
+                    self._write(self.cache / f"{row['key']}.source.json", json.dumps(row).encode())
+                    rows.append({**{k: row[k] for k in ('tile', 'key', 'h', 'source_sha256')},
+                                 'coverage': row.get('coverage', 1), 'regional':row.get('regional',False)})
+                else:
+                    missing.append(tile)
                 continue
             key = hashlib.sha256(f"{self.recipe}:{tile}:{source['sha256']}".encode()).hexdigest()
             row = dict(tile=tile, key=key, source_sha256=source['sha256'], source_url=source['url'],
@@ -56,7 +63,8 @@ class Scenery:
                 self._write(mapping, json.dumps(row).encode())
             rows.append(dict(tile=tile, key=key, h=row['h'], source_sha256=row['source_sha256'],
                              trees_url=f'scenery/{key}.trees.json'))
-        return dict(tiles=rows, missing=missing, recipe=self.recipe)
+        return dict(tiles=rows, missing=missing, recipe=self.recipe,
+                    generation=hashlib.sha256((self.recipe + (self.survey.recipe if self.survey else "")).encode()).hexdigest())
 
     @staticmethod
     def _write(path, data):
@@ -89,7 +97,7 @@ class Scenery:
             return 200, value
         except TimeoutError:
             return 202, {'state': 'preparing'}
-        except (OSError, ValueError, subprocess.SubprocessError):
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
             return 503, {'state': 'failed'}
         finally:
             if future.done():
@@ -99,6 +107,30 @@ class Scenery:
 
     def _build(self, key):
         row = json.loads((self.cache / f'{key}.source.json').read_text())
+        if row.get('kind') == 'survey':
+            if not self.survey or not TILE.fullmatch(row['tile']) or row['key'] != key:
+                raise ValueError('Invalid survey source')
+            output = self.cache / f'lod.{key}.glb'
+            temporary = self.cache / f'lod.{key}.{os.getpid()}.{threading.get_ident()}.glb'
+            try:
+                try:
+                    stats = self.survey.build(row, temporary)
+                except RuntimeError as error:
+                    from turku3d import config as C
+                    from turku3d.coarse.sources import NoCoverage
+                    if not isinstance(error, NoCoverage):
+                        raise
+                    fallback = self.survey.regional_row(C.VisualTile.parse(row['tile']))
+                    if not fallback:
+                        raise
+                    # The survey recipe already includes the immutable regional
+                    # grid hash. Resolve empty sea cells in the worker, never by
+                    # decoding lidar synchronously in the HTTP catalogue.
+                    stats = {**self.survey.build(fallback, temporary), 'fallback': 'regional'}
+                temporary.replace(output)
+            finally:
+                temporary.unlink(missing_ok=True)
+            return self._descriptor(key, row, output, stats)
         if not TILE.fullmatch(row['tile']) or not VISUAL.fullmatch(row['source_url']):
             raise ValueError('Invalid derivative source')
         # Local source unions use directory symlinks. Resolve before conversion so
@@ -115,7 +147,10 @@ class Scenery:
             temporary.replace(output)
         finally:
             temporary.unlink(missing_ok=True)
-        value = dict(coarse=True, scenery=True, tile=row['tile'], pass_kind='full',
+        return self._descriptor(key, row, output, stats)
+
+    def _descriptor(self, key, row, output, stats):
+        value = dict(coarse=True, scenery=True, tile=row['tile'], pass_kind='full', scenery_stats=stats,
                      source_sha256=row['source_sha256'], visual={row['tile']: dict(
                          url=f'../scenery/lod.{key}.glb', sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
                          bytes=stats['bytes'], tris=stats['triangles'], h=row['h'])})

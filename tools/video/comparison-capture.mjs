@@ -24,6 +24,7 @@ const ctx=browser?browser.contexts()[0]:await launch(width,height);
 await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[]}));
 const pages=[], sessions=[], records=[new Map(),new Map()], failures=[[],[]], inflight=[new Set(),new Set()];
 const dir=path.join(out,still?'stills':preview?'preview':'clips');fs.mkdirSync(dir,{recursive:true});
+const browserTurnStarted=Date.now();
 const iso=shot=>`${shot.date??"2026-09-08"}T${String(Math.floor(shot.hour)).padStart(2,'0')}:${String(Math.round(shot.hour%1*60)).padStart(2,'0')}:00+03:00`;
 const log=m=>console.log(new Date().toISOString(),m);
 async function setup(side,shot){
@@ -42,33 +43,34 @@ async function setup(side,shot){
  await p.waitForFunction(()=>!!window.__qaMove,null,{timeout:300000});
  await p.addStyleTag({content:'body > :not(canvas){display:none!important}html,body,canvas{cursor:none!important}'});
  // Recover the existing streaming instance without replacing any game code or product.
- await p.evaluate(async()=>{
+ await p.evaluate(async side=>{
   if(window.__game.lights?.source){window.__videoCoarse=window.__game.lights.source;return;}
+  if(side===1)throw Error('The new build must expose its streaming instance');
   const {CoarseTiles}=await import('/src/world/coarseTiles.ts');
   const update=CoarseTiles.prototype.update;
   CoarseTiles.prototype.update=function(...a){window.__videoCoarse=this;return update.apply(this,a);};
   window.__render.beforeFrame=undefined;
- });
+ },side);
  await p.waitForFunction(()=>!!window.__videoCoarse,null,{timeout:30000});
- await p.evaluate(()=>{
+ await p.evaluate(side=>{
   const c=window.__videoCoarse;
   window.__video={nativeNow:performance.now.bind(performance),baseNow:performance.now(),baseDate:Date.UTC(2026,8,8,12),time:0,locked:false,update:c.update.bind(c),actor:null};
-  c.update=(x,z)=>{if(!window.__video.locked)return window.__video.update(x,z,performance.now(),{x:0,z:0});};
+  if(side===0)c.update=(x,z)=>{if(!window.__video.locked)return window.__video.update(x,z,performance.now(),{x:0,z:0});};
   window.__render.beforeFrame=()=>false;
- });
+ },side);
 }
 async function settle(side,shot,u){
  const p=pages[side];
- await p.evaluate(({pose,time,weather,coverage})=>{
+ await p.evaluate(({pose,time,weather,coverage,side})=>{
   const v=window.__video;v.locked=false;performance.now=v.nativeNow;window.__game.clock.simSeconds=0;
   const c=window.__videoCoarse;
-  if(c.preload)c.preload(coverage.map(id=>{const [,i,j]=id.split('_').map(Number);return{x:i*250+125,z:j*250+125};}),0);
+  if(side===0&&c.preload)c.preload(coverage.map(id=>{const [,i,j]=id.split('_').map(Number);return{x:i*250+125,z:j*250+125};}),0);
   // The initial camera can leave collision-only lookahead meshes outside this route.
   // Remove those obsolete entries; the preloaded route retains every required tile.
-  for(const [id,e] of c.entries)if(!coverage.includes(id)){c.drop(e);c.entries.delete(id);}
+  if(side===0)for(const [id,e] of c.entries)if(!coverage.includes(id)){c.drop(e);c.entries.delete(id);}
   window.__render.beforeFrame=undefined;window.__render.setTime(time);
   window.__dev?.setWeather?.(weather,0);window.__qaMove(pose);
- },{pose:poseAt(shot,u),time:iso(shot),weather:shot.weather,coverage:tilesForShot(shot)});
+ },{pose:poseAt(shot,u),time:iso(shot),weather:shot.weather,coverage:tilesForShot(shot),side});
  const start=Date.now(),timeout=preview?1800000:600000;let state,settled=false;
  while(Date.now()-start<timeout){
   state=await p.evaluate(()=>({ready:window.__qaReady,error:window.__qaError,
@@ -78,7 +80,7 @@ async function settle(side,shot,u){
   else if(state.error)throw Error(`${shot.id} side ${side}: ${state.error}`);
   const wanted=tilesForShot({...shot,from:Object.values(poseAt(shot,u)),to:Object.values(poseAt(shot,u))});
   const full=wanted.every(id=>state.tiles.some(e=>e.id===id&&e.model&&e.pass==='full'&&!e.preview&&(preview||side===0||!e.stale)));
-  const s=state.scenery,scenery=!s||(!s.cataloguePending&&!s.pending&&!s.errors&&s.loaded===s.total);
+  const s=state.scenery,scenery=!s||(side===1?s.ready:(!s.cataloguePending&&!s.pending&&!s.errors&&s.loaded===s.total));
   if(state.ready&&full&&!state.vegetation&&scenery&&!inflight[side].size){settled=true;break;}
   await p.waitForTimeout(1000);
  }
@@ -116,9 +118,9 @@ async function frame(side,shot,u,frame){
  const lo=Math.max(0,u-.0001),hi=Math.min(1,u+.0001),a=poseAt(shot,lo),b=poseAt(shot,hi);
  const speed=Math.hypot(b.E-a.E,b.N-a.N)/((hi-lo)*config.duration);
  const pose=poseAt(shot,u),distance=Math.hypot(pose.E-shot.from[0],pose.N-shot.from[1]);
- return pages[side].evaluate(({pose,frame,fps,mode,distance,speed})=>new Promise((resolve,reject)=>{
+ return pages[side].evaluate(({pose,frame,fps,mode,distance,speed,side})=>new Promise((resolve,reject)=>{
   const v=window.__video,r=window.__render,g=window.__game;
-  v.locked=true;v.time=v.baseNow+10000+(frame+60)*1000/fps;performance.now=()=>v.time;
+  v.locked=true;v.time=v.baseNow+10000+(frame+60)*1000/fps;if(side===0)performance.now=()=>v.time;
   if(g.dayClock.sharedNow)g.dayClock.sharedNow=()=>v.baseDate+(frame+60)*1000/fps;
   window.__dev?.rainEffects?.setPhaseSeconds?.((frame+60)/fps);
   window.__qaMove(pose);
@@ -134,8 +136,8 @@ async function frame(side,shot,u,frame){
   }
   const timer=setTimeout(()=>reject(Error('Frame submission timeout')),30000);
   r.beforeFrame=()=>{g.clock.simSeconds=(frame+60)/fps-1/fps;return true;};
-  r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);resolve({pose,simSeconds:g.clock.simSeconds,frames:g.clock.frames});};
- }),{pose,frame,fps:config.fps,mode:shot.mode,distance,speed});
+  r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);resolve({pose,simSeconds:g.clock.simSeconds,frames:g.clock.frames,coverage:side===1?window.__videoCoarse.viewStatus(r.camera.position.x,r.camera.position.z):undefined});};
+ }),{pose,frame,fps:config.fps,mode:shot.mode,distance,speed,side});
 }
 try{
  // One browser, two long-lived, paused pages. Capture a segment's sides back to back.
@@ -144,8 +146,10 @@ try{
   for(const side of sides){
    const name=`${shot.id}-${side?'right':'left'}`, file=path.join(dir,`${name}.mp4`),receipt=path.join(dir,`${name}.json`);
    const previous=fs.existsSync(receipt)?JSON.parse(fs.readFileSync(receipt)):null;
-   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&previous.captureCodeHash===captureCodeHash&&(preview||(previous.sourceRevision===sourceRevision&&previous.fps===config.fps&&previous.frames===Math.round(config.duration*config.fps)&&previous.url===urls[side]))&&!args.includes('--force')){log(`reuse ${name}`);continue;}
-   lease('touch');for(let other=0;other<2;other++)if(pages[other]&&other!==side)await sessions[other].send('Page.setWebLifecycleState',{state:'frozen'});if(!pages[side])await setup(side,shot);
+   if(((preview&&fs.existsSync(path.join(dir,`${name}-2.jpg`)))||(!preview&&fs.existsSync(file)))&&previous&&JSON.stringify(previous.shot)===JSON.stringify(shot)&&previous.width===width&&previous.height===height&&previous.captureCodeHash===captureCodeHash&&((previous.sourceRevision===sourceRevision&&previous.fps===config.fps&&previous.frames===(still?1:preview?3:Math.round(config.duration*config.fps))&&previous.url===urls[side]))&&!args.includes('--force')){log(`reuse ${name}`);continue;}
+   if(lease('touch')===2&&Date.now()-browserTurnStarted>=10*60*1000)
+    throw Error('Browser turn complete; completed clips are saved. Release and resume the same output with --resume.');
+   for(let other=0;other<2;other++)if(pages[other]&&other!==side)await sessions[other].send('Page.setWebLifecycleState',{state:'frozen'});if(!pages[side])await setup(side,shot);
    for(let other=0;other<2;other++)if(pages[other])await sessions[other].send('Page.setWebLifecycleState',{state:other===side?'active':'frozen'});
    log(`settling ${name}`);
    // Inspect both endpoints and return to the first. Avoid reloads and reuse compiled meshes.
@@ -154,7 +158,7 @@ try{
    const actors=await installActor(side,shot);
    const middle=Math.floor(config.duration*config.fps/2),midpoint=middle/(Math.round(config.duration*config.fps)-1);
    for(let k=-32;k<0;k++)await frame(side,shot,still?midpoint:0,still?middle+k:k);
-   const resident=await pages[side].evaluate(()=>[...window.__videoCoarse.entries].filter(([,e])=>e.model).map(([id,e])=>({id,hash:e.visualHash,pass:e.pass,preview:!!e.preview})));
+   const resident=await pages[side].evaluate(()=>[...window.__videoCoarse.entries].filter(([,e])=>e.model&&!e.preview).map(([id,e])=>({id,hash:e.visualHash,pass:e.pass,preview:!!e.preview})));
    const manifests=[];
    for(const tile of [...new Set([...tilesForShot(shot),...resident.map(r=>r.id)])]){
     // Read the exact endpoint actually used by this page; evidence includes both resident and served hashes.
@@ -162,23 +166,40 @@ try{
     if((side===1&&(manifest.stale||(sourceRevision&&manifest.revision!==sourceRevision)))||manifest.pass_kind!=='full'){
      if(!preview)throw Error(`${name}: rejected ${tile}: stale=${manifest.stale} pass=${manifest.pass_kind}`);
     }
-    if(side===1&&!preview&&!resident.some(r=>r.id===tile&&r.hash===manifest.visual?.[tile]?.sha256))throw Error(`${name}: resident hash mismatch ${tile}`);
+    if(side===1&&!preview&&resident.some(r=>r.id===tile&&r.hash!==manifest.visual?.[tile]?.sha256))throw Error(`${name}: resident hash mismatch ${tile}`);
     manifests.push({tile,revision:manifest.revision,stale:manifest.stale??false,pass:manifest.pass_kind,hash:manifest.visual?.[tile]?.sha256});
    }
    const count=still?1:preview?3:Math.round(config.duration*config.fps),motion=[];
    let encoder,closed;
    if(!preview&&!still){encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(config.fps),'-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','12','-pix_fmt','yuv420p','-threads','3',file],{stdio:['pipe','inherit','inherit']});closed=once(encoder,'close');encoder.stdin.on('error',()=>{});}
    for(let f=0;f<count;f++){
-    const u=still?midpoint:f/(count-1),state=await frame(side,shot,u,still?middle:preview?Math.round(u*config.duration*config.fps):f);
+    const u=still?midpoint:f/(count-1),index=still?middle:preview?Math.round(u*config.duration*config.fps):f;
+    let state=await frame(side,shot,u,index);
+    if(side===1&&!state.coverage.ready){await settle(side,shot,u);state=await frame(side,shot,u,index);}
+    if(side===1&&!state.coverage.ready)throw Error(`${name}: frame ${f} has incomplete world coverage`);
     const png=await sessions[side].send('Page.captureScreenshot',{format:'jpeg',quality:97,captureBeyondViewport:false});
     const bytes=Buffer.from(png.data,'base64');
     if(preview||f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${name}-${still?'still':preview?f:'sample'}.jpg`),bytes);
     if(encoder&&!encoder.stdin.write(bytes))await once(encoder.stdin,'drain');
-    if(f%60===0||preview)motion.push({frame:f,...state});
+    if(side===1||f%60===0||preview)motion.push({frame:f,...state});
    }
    if(encoder){encoder.stdin.end();if((await closed)[0])throw Error('ffmpeg capture failed');}
+   if(side===1&&!preview){
+    const observed=new Map();
+    for(const row of motion)for(const tile of row.coverage.near){
+     if(!tile.ready)throw Error(`${name}: incomplete ${tile.id}`);
+     if(observed.has(tile.id)&&observed.get(tile.id)!==tile.hash)throw Error(`${name}: source changed during capture ${tile.id}`);
+     observed.set(tile.id,tile.hash);
+    }
+    for(const [tile,hash] of observed){
+     const manifest=await pages[side].evaluate(async id=>{const c=window.__videoCoarse;return await(await fetch(new URL(`${id}/manifest.json`,new URL(c.root,location.href)))).json();},tile);
+     if(manifest.stale||manifest.pass_kind!=='full'||manifest.revision!==sourceRevision||manifest.visual?.[tile]?.sha256!==hash)throw Error(`${name}: final manifest mismatch ${tile}`);
+     if(!manifests.some(m=>m.tile===tile))manifests.push({tile,revision:manifest.revision,stale:false,pass:'full',hash});
+    }
+   }
    const parkedView=await pages[side].evaluate(()=>window.__video.parked?.snapshot?.()??{nearbyStates:window.__video.parkedStates?.filter(s=>Math.hypot(s.pos.x-window.__render.camera.position.x,s.pos.z-window.__render.camera.position.z)<=120).length});
-   fs.writeFileSync(receipt,JSON.stringify({shot,sourceRevision,captureCodeHash,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,parked:{...parked,view:parkedView},motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
+   const scenery=side===1?await pages[side].evaluate(()=>window.__game.scenery.snapshot()):undefined;
+   fs.writeFileSync(receipt,JSON.stringify({scenery,shot,sourceRevision,captureCodeHash,url:urls[side],width,height,fps:config.fps,frames:count,manifests,resident,actors,parked:{...parked,view:parkedView},motion,errors:failures[side],weather:side===0?'clear (production has no weather selector)':shot.weather,season:config.season},null,2));
    log(`captured ${name}: ${count} frames`);await sessions[side].send('Page.setWebLifecycleState',{state:'frozen'});
   }
  }

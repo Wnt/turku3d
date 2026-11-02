@@ -3,6 +3,9 @@ import * as THREE from 'three/webgpu';
 import { Fn, If, float, materialColor, materialRoughness, mix, normalWorldGeometry, positionWorld, smoothstep, texture, vec2, vec4 } from 'three/tsl';
 
 import { weatherHeightField, weatherUniforms } from './surfaceState';
+import { mappedGroundLight } from '../lights/groundField';
+import IrradianceNode from 'three/src/nodes/lighting/IrradianceNode.js';
+import { materialLightMap } from 'three/tsl';
 export { weatherUniforms } from './surfaceState';
 let detail: THREE.DataTexture | undefined;
 export function weatherNoise() {
@@ -50,6 +53,12 @@ export function puddleMask(position: THREE.Node<'vec3'>, wet: THREE.Node<'float'
 export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = false, mineral: THREE.Node<'float'> = float(1)) {
   if (material.userData.weatherWetness) return material;
   material.userData.weatherWetness = true;
+  if (!facade) {
+    // Streaming precompiles and beauty/reflection builders must see the same graph.
+    const irradiance = new IrradianceNode(material.lightMap
+      ? materialLightMap.add(mappedGroundLight()) : mappedGroundLight());
+    material.setupLightMap = () => irradiance;
+  }
   const baseColor = (material.colorNode ?? materialColor.rgb) as THREE.Node<'vec3'>;
   const baseRoughness = (material.roughnessNode ?? materialRoughness) as THREE.Node<'float'>;
   const surface = Fn(() => {

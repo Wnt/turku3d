@@ -1,8 +1,11 @@
 import * as THREE from 'three/webgpu';
+import { SceneryCoverage } from '../render/sceneryCoverage';
+import { SceneryBatches } from '../render/sceneryBatches';
 import { styleScenery } from '../render/sceneryMaterial';
+import type { SharedMaterials } from '../render/sharedMaterials';
 import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
-import { sceneryTiles, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
+import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
@@ -11,30 +14,42 @@ class TreePlacementsPending extends Error {}
 /** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
   radius = 0;
+  private readonly coverage = new SceneryCoverage();
+  private readonly batches: SceneryBatches;
   private readonly direction = new THREE.Vector3();
 
   /** Follow every rendered camera, including play and fixed QA poses. */
   follow(camera: THREE.PerspectiveCamera) {
     camera.getWorldDirection(this.direction);
+    const vertical = Math.abs(this.direction.y), horizontal = Math.hypot(this.direction.x, this.direction.z);
+    const halfAngle = groundHalfAngle(vertical, horizontal, camera.fov, camera.aspect);
     this.direction.y = 0;
     this.direction.normalize();
     const { x, y, z } = camera.position;
     this.setView({ x, y, z, dx: this.direction.x, dz: this.direction.z,
-      halfAngle: Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect) + .15 }, performance.now());
+      halfAngle }, performance.now());
   }
   private detailed(id: string) {
     const entry = this.nearby.get(id);
     return !!entry?.model && !entry.preview && entry.cachedAt === undefined;
   }
 
-  /** The prepared scenery owns visuals until the full model is ready; collision previews are a fallback. */
+  /** Apply ownership synchronously when a near visual or prepared scenery model becomes resident. */
   nearbyChanged(id: string) {
     const model = this.entries.get(id)?.model;
-    if (!model) return;
-    const nearby = this.nearby.get(id);
-    const active = !!nearby?.model && nearby.cachedAt === undefined;
-    model.visible = !active || !!nearby?.preview;
-    if (active && nearby?.preview && nearby.model) nearby.model.visible = false;
+    if (model && this.detailed(id)) model.visible = false;
+    this.updateCoverage();
+  }
+
+  private updateCoverage() {
+    const city = [...this.entries].filter(([id, e]) => e.model?.visible && !this.sources.get(id)?.regional);
+    // Preserve the collision preview until richer city geometry is actually prepared.
+    for (const [id, entry] of this.nearby) if (entry.preview && entry.model)
+      entry.model.visible = !city.some(([parent]) => sceneryContains(parent, id));
+    this.coverage.update([
+      ...[...this.nearby].filter(([, e]) => e.model?.visible).map(([id]) => id),
+      ...city.map(([id]) => id),
+    ]);
   }
 
   private release(id: string, e: Scenery) {
@@ -81,12 +96,17 @@ export class ScreenshotScenery {
   constructor(private host: CoarseHost, private nearby: Map<string, Entry>,
     private request: (url: string) => Promise<Response>, private load: (url: string) => Promise<THREE.Object3D>,
     private style: (model: THREE.Object3D) => void, private dispose: (model: THREE.Object3D, id: string) => void,
-    private root: string, private page: string) {}
+    private root: string, private page: string, private shared?: SharedMaterials) {
+    this.batches = new SceneryBatches(host.scene, host.retire);
+  }
 
   setRadius(radius: number, view?: SceneryView) {
-    this.radius = Number.isFinite(radius) ? Math.max(0, Math.min(8000, radius)) : 0;
+    this.radius = Number.isFinite(radius) ? Math.max(0, Math.min(15000, radius)) : 0;
     ++this.selection;
+    this.batches.clear();
     for (const [id, e] of this.entries) this.release(id,e);
+    for (const entry of this.nearby.values()) if (entry.preview && entry.model) entry.model.visible = true;
+    this.coverage.update([]);
     this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = [];
     this.catalogueError = false; this.cataloguePending = false; this.unavailable.clear();
     this.footprintView = null; this.nextView = 0; this.catalogueRetry = 0;
@@ -105,7 +125,7 @@ export class ScreenshotScenery {
       && view.dx * previous.dx + view.dz * previous.dz > Math.cos(Math.PI / 180)))) return;
     this.nextView = now + 150;
     this.footprintView = { ...view };
-    this.footprint = sceneryTiles(this.radius, view);
+    this.footprint = [...new Set([...regionalTiles(view), ...sceneryTiles(this.radius, view)])];
     this.refreshWanted();
     this.readMissingSources();
   }
@@ -113,7 +133,8 @@ export class ScreenshotScenery {
   private refreshWanted() {
     const priorities = new Map(this.footprint.map(id => {
       const source = this.sources.get(id);
-      return [id, source ? skylinePriority(source, this.view!) : -Infinity];
+      return [id, source?.regional ? 100 - sceneryDistance(id, this.view!.x, this.view!.z) / 1000
+        : source ? skylinePriority(source, this.view!) : -Infinity];
     }));
     this.footprint.sort((a, b) => priorities.get(b)! - priorities.get(a)!);
     this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
@@ -164,10 +185,24 @@ export class ScreenshotScenery {
   }
 
   get progress() {
-    return { loaded: this.wanted.filter(id => this.entries.get(id)?.model).length, total: this.wanted.length,
-      pending: this.wanted.filter(id => !this.entries.get(id)?.complete).length,
-      errors: this.wanted.filter(id => this.entries.get(id)?.error).length + Number(this.catalogueError),
-      missing: this.footprint.filter(id => this.unavailable.has(id)).length, cataloguePending: this.cataloguePending };
+    const coveredSquareKm = this.footprint.reduce((area, id) => {
+      const source = this.sources.get(id);
+      return area + (source && !source.regional ? (source.coverage ?? 1) * sceneryBounds(id).size ** 2 / 1e6 : 0);
+    }, 0);
+    const partial = this.wanted.filter(id => (this.sources.get(id)?.coverage ?? 1) < 1).length;
+    const loaded = this.wanted.filter(id => this.entries.get(id)?.model).length;
+    const pending = this.wanted.filter(id => !this.entries.get(id)?.complete || this.entries.get(id)?.busy).length;
+    const errors = this.wanted.filter(id => this.entries.get(id)?.error).length + Number(this.catalogueError);
+    const missing = this.footprint.filter(id => this.unavailable.has(id) && !this.detailed(id)).length;
+    const batching = this.batches.pending;
+    const committed = this.wanted.every(id=>this.entries.get(id)?.model?.visible);
+    return { ready: committed && !batching && !partial && !pending && !errors && !missing && !this.cataloguePending && loaded === this.wanted.length,
+      coveredSquareKm, partial, loaded, total: this.wanted.length, pending, errors, missing, batching, cataloguePending: this.cataloguePending };
+  }
+
+  snapshot() {
+    return { progress: this.progress, tiles: this.wanted.map(id => ({ id, source: this.sources.get(id),
+      hash: this.entries.get(id)?.hash, complete: this.entries.get(id)?.complete })) };
   }
 
   /** A bounded advancing demand window; completed scenery no longer occupies the service's 128-id lease. */
@@ -189,9 +224,13 @@ export class ScreenshotScenery {
     }
     const keep = new Set(this.wanted);
     const outside: [string, Scenery][] = [];
+    // Keep the old cut during refinement AND coarsening until its replacement is ready.
+    const fallback = new Set<string>();
+    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id)
+      && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
+        && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
     for (const [id, e] of this.entries) {
-      this.nearbyChanged(id);
-      if (keep.has(id)) e.seen = now;
+      if (keep.has(id) || fallback.has(id)) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { this.release(id,e); this.entries.delete(id); }
     }
@@ -201,9 +240,15 @@ export class ScreenshotScenery {
       this.release(id,e);
       this.entries.delete(id);
     }
+    for (const [id, e] of this.entries) if (e.model) {
+      const hiddenByParent = [...fallback].some(parent => sceneryContains(parent, id) && parent !== id);
+      e.model.visible = !hiddenByParent && (keep.has(id) || fallback.has(id));
+    }
+    this.updateCoverage();
+    this.batches.sync([...this.entries].flatMap(([id,e])=>e.model?[[id,e.model] as [string,THREE.Object3D]]:[]));
     if (paused) return;
     for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
-      && this.sources.get(id)?.trees_url && this.needsTrees(e,distToL0(id,x,z)) && !e.busy) e.next = 0;
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z)) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
@@ -217,7 +262,7 @@ export class ScreenshotScenery {
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
       if (e.busy || now < e.next) continue;
       e.busy = true; this.active++;
-      void this.poll(id, e, distToL0(id, x, z), this.sources.get(id));
+      void this.poll(id, e, sceneryDistance(id, x, z), this.sources.get(id));
     }
   }
 
@@ -241,12 +286,13 @@ export class ScreenshotScenery {
       model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href);
       if (source) {
         model.userData.scenery = true;
-        styleScenery(model);
+        styleScenery(model, this.shared, this.coverage.texture);
         e.treesReady = false;
         await this.prepareTrees(id,e,model,distance,source);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
       if (this.entries.get(id) !== e || this.detailed(id) || (source && this.sources.get(id)?.key !== source.key)) return;
       if (e.model) this.dispose(e.model, id);
+      if (this.view) model.visible = false; // Visibility is committed with the cut on the next update.
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
       this.nearbyChanged(id);
