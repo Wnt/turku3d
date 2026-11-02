@@ -4,8 +4,12 @@ import path from 'node:path';
 export async function captureFlight({send,evaluate,delay,out,timeout}) {
  fs.mkdirSync(out,{recursive:true});
  await send('Page.setWebLifecycleState',{state:'active'});
- await evaluate(`(()=>{if(!window.__game?.ready||!window.__game.coarse)throw Error('Fly tour requires ready play mode');window.__render.beforeFrame=undefined;document.querySelector('#start-screen [data-option="new"]')?.click();})()`);
  const start=Date.now();
+ await evaluate('window.__render.beforeFrame=undefined');
+ while(!await evaluate(`window.__game?.ready && window.__game.loadProgress?.().phase==='ready' && document.querySelector('#start-screen [data-option="new"]')?.getAttribute('aria-disabled')==='false'`)) {
+  if(Date.now()-start>timeout)throw Error('Play menu readiness timed out');await delay(500);
+ }
+ await evaluate(`document.querySelector('#start-screen [data-option="new"]').click()`);
  while(await evaluate('window.__game.state().startScreen || window.__game.state().loading')) {
   if(Date.now()-start>timeout)throw Error('Play startup timed out');await delay(500);
  }
