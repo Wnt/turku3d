@@ -535,9 +535,9 @@ def build(
         source_key(Path(ground_weathering.__file__), surfaces.split_boundaries,
                    walkable.coordinates, street_profiles.HeightQuery,
                    base / "package/gltf.py", *common),
-        [surface_pos, surface_idx, surface_ids, inputs.street_profiles],
+        [surface_pos, surface_idx, surface_ids, inputs.street_profiles, surface_normals],
         lambda: ground_weathering.surface(surface_pos, surface_idx, surface_ids,
-                                           inputs.street_profiles),
+                                           inputs.street_profiles, surface_normals),
     )
     surface_pos, surface_idx, surface_ids, surface_normals, surface_colours, drains = weathered
     seconds["ground_weathering"] = cache.metrics["ground_weathering"]["seconds"]

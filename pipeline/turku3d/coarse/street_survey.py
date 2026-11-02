@@ -80,13 +80,15 @@ def measure(lines, points, window):
                 return
             centre = np.array([p for _, p, _ in chain])
             heights = np.array([h for _, _, h in chain])
+            source_stations = np.array([d for d, _, _ in chain])
             # Orient every patch so its high side is left of its centreline.
             if np.median(heights[:, 1] - heights[:, 0]) < 0:
                 centre, heights = centre[::-1], heights[::-1, ::-1]
+                source_stations = source_stations[::-1]
             knots = np.r_[0, np.cumsum(np.linalg.norm(np.diff(centre, axis=0), axis=1))]
             if np.all(np.diff(knots) > .1):
                 result.append(dict(key=f"{key}:{chain[0][0]:g}", line=shapely.LineString(centre),
-                                   knots=knots, heights=heights))
+                                   knots=knots, heights=heights, source_stations=source_stations))
             chain.clear()
 
         for d, centre in zip(distances[selected], centres[selected], strict=True):

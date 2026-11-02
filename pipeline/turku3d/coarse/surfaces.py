@@ -536,6 +536,7 @@ def split_boundaries(
     fallback_materials=None,
     *,
     preserve_materials=False,
+    normals=None,
 ):
     """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals."""
     import mapbox_earcut
@@ -560,7 +561,7 @@ def split_boundaries(
                     )
             return np.asarray(result, dtype=object)
 
-    normals = vertex_normals(positions, indices)
+    normals = vertex_normals(positions, indices) if normals is None else normals
     if not regions:
         return positions, indices[keep], materials[keep], normals
     selected = np.flatnonzero(keep)
