@@ -25,7 +25,8 @@ def fake_build(_revision, tile, root):
     (directory / 'ground.col').write_bytes(b'col')
     m = dict(coarse=True, tile=tile, pass_kind='full',
              visual={tile: dict(url='mesh.glb', bytes=4)},
-             collision={str(i): dict(url='ground.col', bytes=3) for i in range(16)})
+             collision={f'c_{int(tile.split("_")[1])*4+x}_{int(tile.split("_")[2])*4+z}':
+                        dict(url='ground.col', bytes=3) for x in range(4) for z in range(4)})
     farm_module.atomic_json(directory / 'manifest.json', m)
     farm_module.atomic_json(directory / 'stage-times.json', dict(ground={'cached': True}, walls={'cached': False}))
     return {'returncode': 0}
@@ -80,6 +81,38 @@ class FarmTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(farm.metrics['stage_hits'], 1)
         self.assertEqual(farm.metrics['stage_misses'], 1)
+
+    def test_distinct_versions_of_same_tile_use_both_workers(self):
+        entered, release = threading.Barrier(3), threading.Event()
+        def build(rev, tile, root):
+            entered.wait(timeout=2)
+            release.wait(2)
+            return fake_build(rev, tile, root)
+        farm = self.farm(execute=build, workers=2)
+        farm.request(REV, 't0_0_0')
+        farm.request(REV2, 't0_0_0')
+        try:
+            entered.wait(timeout=2)
+        finally:
+            release.set()
+        self.wait(farm)
+        self.assertEqual(farm.metrics['builds'], 2)
+
+    def test_cancel_drops_only_queued_work(self):
+        entered, release = threading.Event(), threading.Event()
+        def build(rev, tile, root):
+            entered.set()
+            release.wait(2)
+            return fake_build(rev, tile, root)
+        farm = self.farm(execute=build, workers=1)
+        farm.request(REV, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV, 't0_0_1')
+        result = farm.cancel(REV, ['t0_0_0', 't0_0_1'])
+        self.assertEqual(result, dict(cancelled=['t0_0_1'], running=['t0_0_0']))
+        release.set()
+        self.wait(farm)
+        self.assertEqual(farm.metrics['builds'], 1)
 
     def test_changed_generation_never_serves_old_tile(self):
         farm = self.farm()
@@ -142,6 +175,19 @@ class FarmTests(unittest.TestCase):
         self.assertEqual(farm.request(REV, 't0_0_0')[0], 200)
         self.assertEqual(farm.metrics['builds'], 1)
 
+    def test_completed_orphan_is_adopted_without_running_a_second_generator(self):
+        fake_build(REV, 't0_0_0', self.root / 'products' / GEN)
+        farm_module.atomic_json(self.root / 'products' / GEN / 't0_0_0/stage-times.json',
+                                {'_build': {'status': 'complete'}})
+        farm_module.atomic_json(self.root / 'pending.json', [dict(revision=REV, generation=GEN,
+            tile='t0_0_0', requested=time.time(), seen=time.time(), explicit=True, distance=0,
+            pid=2147483647, start_ticks='0')])
+        farm = self.farm(execute=None)
+        self.wait(farm)
+        receipt = farm_module.read_json(farm.output(GEN) / 't0_0_0/ready.json')
+        self.assertTrue(receipt['result']['adopted'])
+        self.assertEqual(farm.metrics['builds'], 1)
+
     def test_recent_unpinned_payloads_get_a_grace_lease(self):
         farm = self.farm(grace_seconds=900)
         fake_build(REV, 't0_0_0', farm.output(GEN))
@@ -174,6 +220,35 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(farm.output(GEN).exists())
         self.assertTrue((self.root / 'revisions' / REV / 'revision.json').exists())
 
+    def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
+        release = threading.Event()
+        def build(revision, tile, root):
+            release.wait(3)
+            return fake_build(revision, tile, root)
+        accepted = self.root / 'accepted'
+        fake_build(REV, 't0_0_0', accepted)
+        farm_module.atomic_json(self.root / 'fallbacks.json', [str(accepted)])
+        before = (accepted / 't0_0_0/mesh.glb').stat().st_mtime_ns
+        farm = self.farm(execute=build)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            manifest = json.load(urlopen(base + f'/v/{REV}/coarse/t0_0_0/manifest.json'))
+            self.assertTrue(manifest['stale'])
+            self.assertEqual(manifest['requested_revision'], REV)
+            self.assertIsNone(manifest['revision'])
+            self.assertEqual(manifest['source_kind'], 'accepted-fallback')
+            self.assertEqual(urlopen(base + manifest['visual']['t0_0_0']['url']).read(), b'mesh')
+            self.assertEqual((accepted / 't0_0_0/mesh.glb').stat().st_mtime_ns, before)
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
     def test_http_pins_manifest_urls_and_serves_both_revisions(self):
         farm = self.farm()
         farm.register(REV, 'integration')
@@ -190,7 +265,10 @@ class FarmTests(unittest.TestCase):
             self.assertEqual(url, f'/v/{REV}/coarse/t0_0_0/mesh.glb')
             farm.register(REV2, 'integration')
             self.assertEqual(urlopen(base + url).read(), b'mesh')
-            self.assertEqual(urlopen(base + '/v/integration/coarse/t0_0_0/manifest.json').status, 202)
+            stale = json.load(urlopen(base + '/v/integration/coarse/t0_0_0/manifest.json'))
+            self.assertTrue(stale['stale'])
+            self.assertEqual(stale['requested_revision'], REV2)
+            self.assertEqual(stale['revision'], REV)
         finally:
             server.shutdown()
             server.server_close()

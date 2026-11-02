@@ -35,6 +35,18 @@ class OverlayTests(unittest.TestCase):
             self.assertEqual((base / 'raw/laz/old.laz').read_bytes(), b'old')
             self.assertEqual(module.publish(base, overlay, [first, second]), b)
 
+    def test_supplement_is_content_versioned_without_modifying_raw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, owned = root / 'base', root / 'owned'
+            base.mkdir()
+            source = owned / 'supplements/lidar-supplement/block.laz'
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b'survey')
+            output = module.publish(base, root / 'overlay', [owned])
+            self.assertEqual((output / source.relative_to(owned)).read_bytes(), b'survey')
+            self.assertFalse((base / 'supplements').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
