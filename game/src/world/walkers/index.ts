@@ -8,7 +8,7 @@ import type { V3 } from '../../core/origin';
 import { loadWalkerAsset, type WalkerAsset } from './asset';
 import { GroundHeights } from './heights';
 import { buildWalkNetwork, hash32, type WalkNetwork } from './network';
-import { Population, type Walker } from './population';
+import { Population, type BirthClock, type Walker } from './population';
 import { RING, Ring, type RingView } from './ring';
 import { WalkerMeshes, packColour, type WalkerInstance } from './visuals';
 
@@ -40,6 +40,8 @@ interface WalkerOptions {
   raycast: Raycast;
   /** Shared UTC milliseconds (the day clock synchronised to the multiplayer server). */
   now: () => number;
+  /** The clock hour births sample (population.ts BirthClock); the shared cycle when absent. */
+  birthHour?: BirthClock;
   /** Resident road graphs (CoarseTiles.roadGraphs). */
   graphs: () => readonly RoadGraphJson[];
 }
@@ -109,7 +111,7 @@ export class Walkers {
 
   private install(network: WalkNetwork, ms: number) {
     this.network = network;
-    this.population = new Population(network);
+    this.population = new Population(network, this.options.birthHour);
     this.heights.retain(new Set(network.chains.map(c => c.id)));
     this.buildMs = ms;
     this.lastScan = -Infinity;

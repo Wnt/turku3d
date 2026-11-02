@@ -740,7 +740,7 @@ class's peak (`PEAK`: centre or residential, kerb or lot; the centre is within 1
 square) and records `zone`, `occ` and `priority`. The client shows it while the draw is below the
 class's occupancy at the shared clock's night level (`game/src/world/parkedOccupancy.ts`: the
 centre empties at night, residential streets fill up; inferred kerbs empty first), so every
-client shows the same cars. A SHA-256 draw per viable tile/slot selects the larger trophy truck
+multiplayer client shows the same cars (single player follows its own view clock). A SHA-256 draw per viable tile/slot selects the larger trophy truck
 with probability 1/1000; an unfitting truck waits for the next fitting bay. Tests can inject
 `parked.truck_slot`; the existing Developer menu can spawn a truck for a drive check.
 

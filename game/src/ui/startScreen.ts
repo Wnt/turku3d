@@ -37,7 +37,7 @@ export class StartScreen implements MenuHost {
       <p>Explore on foot. Your car is parked nearby.</p>
       <p id="gamepad-status" role="status"></p>
       <dl id="start-bindings"></dl>
-      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · R flip car · M map · Esc pause · F10 fullscreen${devToolsEnabled(location) ? '<br>P position readout · V hide/show character · L copy camera position · F4 / LB layers' : ''}</p>
+      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · R flip car · M map · Esc pause · F10 fullscreen${devToolsEnabled(location) ? '<br>P position readout · V hide/show character · L copy camera position · F4 / LB layers · T time of day' : ''}</p>
       <p class="start-touch">Touch: left thumb moves and drives · drag right to look · pinch to zoom · buttons bottom right</p>
       <p class="start-fullscreen" hidden></p>
       <p class="start-hint">Loading the world…</p>

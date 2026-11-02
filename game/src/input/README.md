@@ -32,6 +32,15 @@ The HUD button uses the same toggle. Esc exits fullscreen through the browser; f
 `flyUp` (Xbox X, RT, Space) and `flyDown` (Xbox B, LT, Q) are held values read only while the developer fly mode
 is on (localhost only, `gameplay/flyMode.ts`, `ui/README.md`); a double tap of `jump` toggles it.
 
+## Developer panels
+
+`timePanel` (T) shows the developer time panel (`ui/timePanel.ts`); `timePause` (0), `timeSpeed1`–`timeSpeed4` (1–4),
+`timeHourBack` / `timeHourForward` (BracketLeft / BracketRight: `[` `]`, Å ¨ on a Finnish keyboard),
+`timeMinutesBack` / `timeMinutesForward` (Comma / Period) and `timeLive` (B) act only while it shows; the gamepad
+reaches the same controls through Developer → Time of day. A focused control in `#dev-layers` or `#time-panel` keeps
+its own keys (a slider's arrows): only the panels' keys reach the actions there, and a mouse drag that starts in a
+panel never turns the camera.
+
 ## Haptics
 
 `play.ts` feeds `Haptics.update` once per render frame (driven vehicle state and input, or the character's
