@@ -1,5 +1,5 @@
 import type { ParkedVehicle } from './manifest';
-import { dayCycle } from '../core/dayCycle';
+import { cycleAt, dayCycle } from '../core/dayCycle';
 
 /** Occupancy of each slot class by day (night 0) and at full night (night 1), as in a GTA-style
  * time-of-day car generator: the centre empties in the evening, residential streets fill up. The
@@ -14,10 +14,11 @@ export const OCCUPANCY: Readonly<Record<string, { day: number; night: number }>>
 /** Inferred kerbs (priority 0) empty first. */
 export const LOW_PRIORITY = 0.85;
 
-/** Night level 0..1 of the shared cycle at a shared-clock instant. Deliberately not the rendered sky: a frozen
- * local view (?time=, the developer clock, ?cycle=) must not change which cars stand in a multiplayer world. */
-export function parkedNight(sharedUtcMs: number): number {
-  return dayCycle(sharedUtcMs).night;
+/** Night level 0..1 at a shared-clock instant: the shared cycle's, or with `viewHour` (single player's
+ * DayClock.hourAt: ?time=, ?cycle=, the developer time panel) the cycle's night at the hour this browser shows. A
+ * multiplayer client passes none, so a local view never changes which cars stand in the shared world. */
+export function parkedNight(sharedUtcMs: number, viewHour?: (sharedUtcMs: number) => number): number {
+  return viewHour ? cycleAt(viewHour(sharedUtcMs)).night : dayCycle(sharedUtcMs).night;
 }
 
 export function occupancy(zone: string, night: number): number {
