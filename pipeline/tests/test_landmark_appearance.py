@@ -115,6 +115,46 @@ def test_ranking_promotes_evidence_and_reports_unknowns():
     assert rank({"building": "apartments"})["tier"] == "ordinary"
 
 
+def test_ranked_buildings_consolidate_way_and_relation_without_double_treatment():
+    from turku3d.landmarks.measure import consolidate
+
+    rows = [
+        dict(id="way/1", building_id="city-1", name="Castle", tags={"name": "Castle"}, score=100),
+        dict(id="relation/2", building_id="city-1", name="relation/2", tags={}, score=90),
+    ]
+    result = consolidate(rows)
+    assert len(result) == 1 and result[0]["id"] == "way/1"
+    assert result[0]["aliases"] == ["relation/2"]
+
+
+def test_footprint_rarity_compares_shapes_with_the_city_population():
+    from shapely.geometry import box
+    from turku3d.landmarks.ranking import footprint_rarity
+
+    rows = [
+        dict(
+            footprint_wkt=box(i * 30, 0, i * 30 + 10, 10).wkt, tags={"building": "yes"}, evidence={}
+        )
+        for i in range(100)
+    ]
+    rows.append(dict(footprint_wkt=box(0, 0, 80, 10).wkt, tags={"building": "yes"}, evidence={}))
+    footprint_rarity(rows)
+    assert rows[-1]["score"] > rows[0]["score"]
+    assert rows[-1]["evidence"]["footprint_rarity"]["matching_shapes"] == 1
+
+
+def test_vision_parameters_reject_mixed_region_overlapping_window_rows():
+    from turku3d.landmarks.descriptions import ROOT
+    from turku3d.landmarks.references import validate
+
+    d = json.loads((ROOT / "103371570S.json").read_text())
+    d["windows"]["rows_m"] = [4, 6]
+    with pytest.raises(ValueError, match="rows overlap"):
+        validate(d, d["building_id"])
+    d["windows"]["rows_m"] = [4, 10]
+    validate(d, d["building_id"])
+
+
 def test_internal_roof_closure_is_trimmed_without_mutating_collision_shell():
     from shapely.geometry import box
     from turku3d.landmarks.appearance import visible_walls

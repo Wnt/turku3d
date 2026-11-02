@@ -16,6 +16,19 @@ import shapely
 from .ranking import rank
 
 
+def consolidate(rows):
+    """OSM ways and relations can describe one surveyed building: treat it once."""
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row.get("building_id") or row["id"], []).append(row)
+    result = []
+    for members in grouped.values():
+        primary = max(members, key=lambda row: (bool(row["tags"].get("name")), row["score"]))
+        primary["aliases"] = sorted({row["id"] for row in members if row["id"] != primary["id"]})
+        result.append(primary)
+    return sorted(result, key=lambda row: (-row["score"], row["id"]))
+
+
 def measure(rows, roots):
     buildings = {}
     streets = {}
@@ -130,7 +143,8 @@ def main():
     data = json.loads(a.ranked.read_text())
     report = measure(data["buildings"], a.cache_root)
     data["geometry_coverage"] = report
-    data["buildings"].sort(key=lambda r: (-r["score"], r["id"]))
+    data["coverage"]["osm_footprints_before_consolidation"] = len(data["buildings"])
+    data["buildings"] = consolidate(data["buildings"])
     a.ranked.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "sources"}))
 

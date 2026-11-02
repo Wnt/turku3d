@@ -7,6 +7,7 @@ Optional register/lidar/visibility/Wikimedia evidence is keyed by OSM identity.
 import argparse
 import json
 import math
+from collections import Counter
 from pathlib import Path
 
 
@@ -46,12 +47,16 @@ def rank(tags, evidence=None):
     )
     prominence = e.get("skyline_prominence_m")
     add("skyline_prominence", min(18, max(0, prominence or 0) * 0.4), prominence)
-    compactness = e.get("compactness")
-    add(
-        "footprint_uniqueness",
-        min(8, max(0, 0.65 - (compactness or 1)) * 20),
-        compactness if compactness and compactness < 0.65 else None,
-    )
+    rarity = e.get("footprint_rarity")
+    if rarity:
+        add("footprint_uniqueness", 8 * rarity["rarity"], rarity)
+    else:
+        compactness = e.get("compactness")
+        add(
+            "footprint_complexity",
+            min(8, max(0, 0.65 - (compactness or 1)) * 20),
+            compactness if compactness and compactness < 0.65 else None,
+        )
     streets = e.get("visible_streets")
     views = e.get("visible_viewpoints")
     add("visible_streets", min(10, 2 * (streets or 0)), streets)
@@ -75,6 +80,33 @@ def rank(tags, evidence=None):
             if k not in e
         ],
     )
+
+
+def footprint_rarity(rows):
+    """Empirical shape rarity across the inventory, rather than complexity alone."""
+    import shapely
+
+    descriptors = []
+    for row in rows:
+        g = shapely.from_wkt(row["footprint_wkt"])
+        compactness = 4 * math.pi * g.area / g.length**2
+        descriptor = (
+            int(math.log2(max(20, g.area)) / 2),
+            min(9, int(compactness * 10)),
+            min(6, int(math.log2(max(4, len(shapely.get_coordinates(g)) - 1)))),
+        )
+        descriptors.append(descriptor)
+    counts = Counter(descriptors)
+    for row, descriptor in zip(rows, descriptors, strict=True):
+        frequency = counts[descriptor] / len(rows)
+        row["evidence"]["footprint_rarity"] = dict(
+            rarity=round(min(1, max(0, (-math.log10(frequency) - 1) / 3)), 4),
+            matching_shapes=counts[descriptor],
+            population=len(rows),
+            descriptor=list(descriptor),
+            method="city frequency of log-area, compactness decile and log-corner-count bins",
+        )
+        row.update(rank(row["tags"], row["evidence"]))
 
 
 def inventory(paths, enrichment=None):
@@ -114,7 +146,14 @@ def inventory(paths, enrichment=None):
             p = g.representative_point()
             records[key] = dict(
                 id=key,
-                name=tags.get("name", key),
+                name=(
+                    tags.get("name")
+                    or tags.get("addr:housename")
+                    or tags.get("wikipedia", "").partition(":")[2]
+                    or tags.get("description:en")
+                    or tags.get("description")
+                    or key
+                ),
                 tags=tags,
                 location_xz=[p.x, p.y],
                 footprint_wkt=g.wkt,
@@ -122,7 +161,9 @@ def inventory(paths, enrichment=None):
                 evidence=evidence,
                 **result,
             )
-    return sorted(records.values(), key=lambda r: (-r["score"], r["id"]))
+    rows = list(records.values())
+    footprint_rarity(rows)
+    return sorted(rows, key=lambda r: (-r["score"], r["id"]))
 
 
 def main():

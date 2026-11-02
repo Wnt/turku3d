@@ -7,6 +7,8 @@ never textures; only procedural.py turns these measurements into game pixels.
 import argparse
 import hashlib
 import json
+import math
+import shutil
 import subprocess
 import tempfile
 import time
@@ -28,6 +30,48 @@ def get_json(url, params=None):
     return r.json()
 
 
+def local_reference_views(record, root, directory):
+    """Find nearby, facing local panoramas/3D views without building-specific lists."""
+    from turku3d import config as C
+
+    poses = root.parent / "turku3d-compare/cameras.json"
+    if not poses.exists():
+        return []
+    e = C.ORIGIN_E + record["location_xz"][0]
+    n = C.ORIGIN_N - record["location_xz"][1]
+    candidates = []
+    for pose in json.loads(poses.read_text())["cameras"]:
+        pe, pn, _h, yaw, _pitch, fov = map(float, pose["cam"].split(",")[:6])
+        distance = math.hypot(e - pe, n - pn)
+        bearing = math.degrees(math.atan2(e - pe, n - pn))
+        error = abs((bearing - yaw + 180) % 360 - 180)
+        horizontal = math.degrees(math.atan(math.tan(math.radians(fov / 2)) * 16 / 9))
+        if distance > 300 or error > horizontal - 5:
+            continue
+        for subdir, suffix in (("streetview", "jpg"), ("google3d", "png")):
+            for image in (root.parent / "google3d-compare" / subdir).glob(
+                f"*-{pose['id']}-*.{suffix}"
+            ):
+                candidates.append((distance, error, image, pose))
+    images = []
+    for distance, error, image, pose in sorted(candidates, key=lambda item: item[:2])[:3]:
+        target = directory / ("local-" + image.name)
+        if not target.exists():
+            shutil.copyfile(image, target)
+        images.append(
+            dict(
+                file=target.name,
+                url="local:" + str(image),
+                sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
+                licence="reference-only; never distribute",
+                pose=pose["cam"],
+                distance_m=round(distance, 1),
+                bearing_error_deg=round(error, 1),
+            )
+        )
+    return images
+
+
 def gather(record, root, limit=4):
     directory = root / record["id"].replace("/", "_")
     directory.mkdir(parents=True, exist_ok=True)
@@ -41,13 +85,28 @@ def gather(record, root, limit=4):
         ):
             old["record"] = record
             old["building_id"] = record.get("building_id", record["id"])
+            known = {image["sha256"] for image in old["images"]}
+            old["images"].extend(
+                image
+                for image in local_reference_views(record, root, directory)
+                if image["sha256"] not in known
+            )
             manifest.write_text(json.dumps(old, indent=2, ensure_ascii=False) + "\n")
             return old
     tags = record.get("tags", {})
     name = tags.get("name:en") or record["name"]
     names = list(
         dict.fromkeys(
-            filter(None, [name, record["name"], tags.get("alt_name:en"), tags.get("alt_name")])
+            filter(
+                None,
+                [
+                    name,
+                    record["name"],
+                    tags.get("alt_name:en"),
+                    tags.get("alt_name"),
+                    tags.get("name:sv"),
+                ],
+            )
         )
     )
     data = get_json(
@@ -92,23 +151,8 @@ def gather(record, root, limit=4):
             data.setdefault("query", {}).setdefault("pages", {}).update(
                 photos.get("query", {}).get("pages", {})
             )
-    images = []
+    images = local_reference_views(record, root, directory)
     errors = []
-    if record["id"] == "way/437169589":
-        import shutil
-
-        source = root.parent / "google3d-compare/streetview/10-pano-plaza-lookaround.jpg"
-        if source.exists():
-            target = directory / "local-plaza-lookaround.jpg"
-            shutil.copyfile(source, target)
-            images.append(
-                dict(
-                    file=target.name,
-                    url="local:" + str(source),
-                    sha256=hashlib.sha256(target.read_bytes()).hexdigest(),
-                    licence="reference-only; never distribute",
-                )
-            )
     for page in sorted(
         data.get("query", {}).get("pages", {}).values(), key=lambda r: r.get("index", 0)
     ):
@@ -196,7 +240,7 @@ def describe(reference, directory, output, model="gpt-6-astra"):
         "First verify that the photos depict this named building. Set reference_match to verified only if they do; otherwise rejected, with reference_confidence=0 and explain the mismatch in observations. No invented parameter defaults for rejected photos will be published. "
         "Use the supplied height evidence where present. Colours are estimated neutral albedo, not shadow pixels. "
         "All size_m and colour arrays must be finite positive numeric arrays of length 2 and 3 respectively. "
-        "wall_material is brick, stone, render, wood, or concrete; brick.colour supplies main wall colour even for render. windows.type is rectangular, round-arched, or gothic-lancet. windows.rows_m lists all observed sill elevations above ground, not just one row. Roof material is copper, metal, zinc, slate, or tile. brick.bond is running, monk, or flemish. tower opening_rows are [sill_m,width_m,height_m,count]. "
+        "wall_material is brick, stone, render, wood, or concrete; brick.colour supplies main wall colour even for render. windows.type is rectangular, round-arched, or gothic-lancet. windows.rows_m describes ONLY the main nave or primary building body, with the SAME window height on every row. NEVER mix tower, belfry, clerestory, turrets and side-wings into this global array. Successive rows must differ by at least windows.height_m. Keep uncertain global rows empty and record region-specific observations in prose instead. Roof material is copper, metal, zinc, slate, or tile. brick.bond is running, monk, or flemish. tower opening_rows are [sill_m,width_m,height_m,count]. "
         "Set tower.minimum_height_m high if there is no tower. Roof material must match actual evidence. "
         f"building_id must be {json.dumps(key)}. version=1. Example schema: {json.dumps(template)}\n"
         f"Building evidence: {json.dumps(reference)}"
@@ -222,20 +266,39 @@ def describe(reference, directory, output, model="gpt-6-astra"):
         ]
         for image in reference["images"]:
             cmd += ["-i", str(directory / image["file"])]
-        run = subprocess.run(cmd + ["-"], input=prompt, text=True, capture_output=True, timeout=600)
-        if run.returncode or not result.exists():
-            raise RuntimeError(f"Vision extraction failed: exit {run.returncode}")
-        text = result.read_text()
-        (directory / "vision-response.txt").write_text(text)
-        d = json.loads(text[text.find("{") : text.rfind("}") + 1])
-    (directory / "vision-observation.json").write_text(
-        json.dumps(d, indent=2, ensure_ascii=False) + "\n"
-    )
-    validate(d, key)
+        for attempt in range(2):
+            run = subprocess.run(
+                cmd + ["-"], input=prompt, text=True, capture_output=True, timeout=600
+            )
+            if run.returncode or not result.exists():
+                raise RuntimeError(f"Vision extraction failed: exit {run.returncode}")
+            text = result.read_text()
+            (directory / f"vision-response-{attempt}.txt").write_text(text)
+            d = json.loads(text[text.find("{") : text.rfind("}") + 1])
+            (directory / f"vision-observation-{attempt}.json").write_text(
+                json.dumps(d, indent=2, ensure_ascii=False) + "\n"
+            )
+            (directory / "vision-observation.json").write_text(
+                json.dumps(d, indent=2, ensure_ascii=False) + "\n"
+            )
+            try:
+                validate(d, key)
+                break
+            except ValueError as error:
+                if attempt or d.get("reference_match") != "verified":
+                    raise
+                prompt += f"\nPrevious estimate failed physical validation: {error}. Correct this without inventing unseen features. Previous estimate: {json.dumps(d)}"
     d["reference_hashes"] = [r["sha256"] for r in reference["images"]]
+    d["evidence_hash"] = evidence_hash(reference)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
     return d
+
+
+def evidence_hash(reference):
+    return hashlib.sha256(
+        json.dumps(reference["record"].get("evidence", {}), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def validate(d, key):
@@ -260,6 +323,11 @@ def validate(d, key):
     for field in ("width_m", "height_m", "spacing_m"):
         if not 0.1 <= d["windows"][field] <= 30:
             raise ValueError(f"Invalid window {field}")
+    rows = sorted(d["windows"].get("rows_m", [d["windows"]["sill_m"]]))
+    if any(b - a < d["windows"]["height_m"] for a, b in zip(rows[:-1], rows[1:], strict=True)):
+        raise ValueError(
+            "Global window rows overlap: use main-body rows only; move other architectural regions into observations"
+        )
     if not 0 <= d["windows"]["mullions"] <= 8:
         raise ValueError("Invalid mullion count")
     for row in d["tower"]["opening_rows"]:
@@ -291,9 +359,11 @@ def main():
             directory = a.root / r["id"].replace("/", "_")
             target = a.descriptions / (key.replace("/", "_") + ".json")
             existing = json.loads(target.read_text()) if target.exists() else {}
-            current = existing.get("reference_match") == "verified" and existing.get(
-                "reference_hashes"
-            ) == [r["sha256"] for r in ref["images"]]
+            current = (
+                existing.get("reference_match") == "verified"
+                and existing.get("evidence_hash") == evidence_hash(ref)
+                and existing.get("reference_hashes") == [r["sha256"] for r in ref["images"]]
+            )
             if a.describe and not current:
                 describe(ref, directory, target)
             result = dict(
