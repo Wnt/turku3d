@@ -465,7 +465,7 @@ async function runQa() {
       await (window.__game!.replay as any).reset({ epochMs: driveEpoch(drive), seed: drive.meta.replay?.seed ?? 20261102,
         mode: driveClockMode(drive.meta) });
     },
-    seek: seconds => clock.seek(seconds),
+    seek: seconds => clock.seek(seconds), begin: () => perf.reset(),
   }) : null;
   if (driveBench) {
     window.__game!.driveBench = driveBench; benchSettled = () => driveBench.settled;
