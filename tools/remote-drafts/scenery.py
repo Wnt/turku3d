@@ -20,6 +20,7 @@ class Scenery:
         self.root = Path(root)
         self.cache = Path(cache) if cache else self.root / '.scenery'
         self.script = Path(__file__).with_suffix('.mjs')
+        self.tree_script = Path(__file__).with_name('scenery-trees.mjs')
         self.recipe = hashlib.sha256(self.script.read_bytes()).hexdigest()
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
         self.pending = {}
@@ -53,7 +54,8 @@ class Scenery:
             mapping = self.cache / f'{key}.source.json'
             if not mapping.exists():
                 self._write(mapping, json.dumps(row).encode())
-            rows.append(dict(tile=tile, key=key, h=row['h'], source_sha256=row['source_sha256']))
+            rows.append(dict(tile=tile, key=key, h=row['h'], source_sha256=row['source_sha256'],
+                             trees_url=f'scenery/{key}.trees.json'))
         return dict(tiles=rows, missing=missing, recipe=self.recipe)
 
     @staticmethod
@@ -120,6 +122,46 @@ class Scenery:
         self._write(self.cache / f'{key}.json', json.dumps(value).encode())
         return value
 
+    def trees(self, key):
+        """Decode only mapped instance transforms; source geometry/textures remain untouched."""
+        if not KEY.fullmatch(key):
+            return 404, {'state': 'missing'}
+        recipe = hashlib.sha256(self.tree_script.read_bytes()).hexdigest()
+        target = self.cache / f'{key}.trees.{recipe}.json'
+        if target.is_file():
+            return 200, json.loads(target.read_text())
+        job = f'trees:{key}:{recipe}'
+        with self.lock:
+            self.pending = {k: v for k, v in self.pending.items() if not v.done()}
+            future = self.pending.get(job)
+            if future is None:
+                if len(self.pending) >= 16:
+                    return 202, {'state': 'queued'}
+                future = self.pool.submit(self._build_trees, key, target)
+                self.pending[job] = future
+        try:
+            return 200, future.result(timeout=.8)
+        except TimeoutError:
+            return 202, {'state': 'preparing'}
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+            return 503, {'state': 'trees unavailable'}
+
+    def _build_trees(self, key, target):
+        row = json.loads((self.cache / f'{key}.source.json').read_text())
+        if not TILE.fullmatch(row['tile']) or not VISUAL.fullmatch(row['source_url']):
+            raise ValueError('Invalid tree source')
+        source = (self.root / row['tile'] / row['source_url']).resolve()
+        if hashlib.sha256(source.read_bytes()).hexdigest() != row['source_sha256']:
+            raise ValueError('Tree source changed')
+        temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')
+        try:
+            subprocess.run(['node', str(self.tree_script), str(source), str(temporary)],
+                           check=True, capture_output=True, timeout=30)
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return json.loads(target.read_text())
+
 
 def serve(handler, scenery, url, bounds=(-64, -64, 64, 64)):
     """Shared local/public read-only routes; return True after a handled request."""
@@ -136,7 +178,9 @@ def serve(handler, scenery, url, bounds=(-64, -64, 64, 64)):
     if not url.path.startswith('/coarse/scenery/'):
         return False
     name = url.path.removeprefix('/coarse/scenery/')
-    if name.endswith('.json') and KEY.fullmatch(name[:-5]):
+    if name.endswith('.trees.json') and KEY.fullmatch(name[:-11]):
+        handler._json(*scenery.trees(name[:-11]))
+    elif name.endswith('.json') and KEY.fullmatch(name[:-5]):
         handler._json(*scenery.descriptor(name[:-5]))
     elif name.startswith('lod.') and name.endswith('.glb') and KEY.fullmatch(name[4:-4]):
         file = scenery.cache / name

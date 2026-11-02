@@ -13,7 +13,7 @@ export interface CharacterInput {
    *  vertically, keeping real collisions but ignoring playable-area edge walls. Absent: walking. */
   fly?: { vy: number };
 }
-export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean }
+export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean; lights?: import('../vehicle/signals').LightState; horn?: boolean }
 
 /** `water`: only the water sensor surfaces (the river), which every other filter passes through. */
 export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water';
@@ -28,7 +28,7 @@ export interface CurbStrikeState { id: number; wheel: number; height: number; sp
  *  ground path (m, + up, - down; 0 when only the suspension jolted), `jolt` the peak suspension compression speed
  *  (m/s; 0 below the floor), `speed` the horizontal vehicle speed (m/s). */
 export interface BumpState { id: number; wheel: number; height: number; jolt: number; speed: number }
-export interface VehicleState { id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
+export interface VehicleState { lights?: import('../vehicle/signals').LightState; horn?: boolean; id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
 export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
 export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }

@@ -176,6 +176,7 @@ def publish(
     cache=None,
     gardens=None,
     boats=None,
+    trees=(),
 ):
     from .build import _entry, _write
     from .collision_key import code_hash
@@ -204,6 +205,7 @@ def publish(
         buildings=buildings,
         gardens=gardens or {},
         boats=boats or {},
+        vegetation=tree_placements(tile, trees),
         collision=collision,
         roads=roads_entry,
         visual={tile.id: _entry(url, data, level=0, tris=triangles, h=height, coarse=True)},
@@ -214,7 +216,7 @@ def publish(
     _write(
         out / "first.json",
         json.dumps(
-            {k: record[k] for k in ("coarse", "tile", "pass_kind", "code", "inputs", "visual")}
+            {k: record[k] for k in ("coarse", "tile", "pass_kind", "code", "inputs", "visual", "vegetation")}
         ).encode(),
     )
     _write(out / "collision.json", json.dumps(record).encode())
@@ -222,3 +224,20 @@ def publish(
 
     submit(out, record["visual"][tile.id])
     return record
+
+
+def tree_placements(tile, trees):
+    """Known mapped trees are render placements in the first pass, never cone geometry."""
+    nodes = []
+    for variant in sorted({tree.variant for tree in trees}):
+        batch = [tree for tree in trees if tree.variant == variant]
+        angles = [int(hashlib.sha256(t.object_id.encode()).hexdigest()[:8], 16) / 2**32 * np.pi for t in batch]
+        nodes.append(dict(
+            variant=variant,
+            matrix=[1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, *tile.origin, 1],
+            positions=[[t.x-tile.origin[0], t.y, t.z-tile.origin[2]] for t in batch],
+            scales=[[t.crown_radius, t.height, t.crown_radius] for t in batch],
+            rotations=[[0, float(np.sin(a)), 0, float(np.cos(a))] for a in angles],
+            ids=[t.object_id for t in batch], species=[t.species for t in batch],
+        ))
+    return dict(version=1, nodes=nodes)

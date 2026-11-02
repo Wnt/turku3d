@@ -2,7 +2,7 @@ import { distToL0, startupDraftTiles } from './coarseRegion';
 import { VISUAL_L0 } from '../core/origin';
 
 export interface SceneryView { x: number; y: number; z: number; dx: number; dz: number; halfAngle: number }
-export interface ScenerySource { tile: string; key: string; h: [number, number]; source_sha256: string }
+export interface ScenerySource { tile: string; key: string; h: [number, number]; source_sha256: string; trees_url?: string }
 
 /** Live camera footprint, padded by each tile's bounding circle at the frustum edges. */
 export function sceneryTiles(radius: number, view: SceneryView) {

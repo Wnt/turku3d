@@ -8,6 +8,8 @@ export function validPose(m) {
       || (m.wheels !== undefined && (!Array.isArray(m.wheels) || m.wheels.length > 4 || m.wheels.some(w =>
         !w || !w.pos || !['x', 'y', 'z'].every(k => finite(w.pos[k], 10)) || !finite(w.steer, Math.PI * 2)
         || !finite(w.rotation, Number.MAX_SAFE_INTEGER) || !finite(w.suspension, 10) || typeof w.contact !== 'boolean')))
+      || (m.lights !== undefined && ![0, 1, 2].includes(m.lights))
+      || (m.horn !== undefined && typeof m.horn !== 'boolean')
       || !['vE', 'vN', 'vH'].every(k => finite(m[k], 200))
       || !['foot', 'car', 'scooter', 'truck'].includes(m.mode) || typeof m.carrying !== 'boolean'
       || !(m.mode === 'foot' ? m.vehicle === null : m.mode === 'scooter' || m.mode === 'truck' ? m.vehicle === m.mode
@@ -21,7 +23,7 @@ const vector = v => ({ x: rounded(v.x), y: rounded(v.y), z: rounded(v.z) });
 export function cleanPose(m) {
   const { t, E, N, H, yaw, vE, vN, vH, mode, vehicle, carrying, rot, wheels } = m;
   return { t: Math.round(t), E: rounded(E), N: rounded(N), H: rounded(H), yaw: rounded(yaw),
-    vE: rounded(vE), vN: rounded(vN), vH: rounded(vH), mode, vehicle, carrying,
+    vE: rounded(vE), vN: rounded(vN), vH: rounded(vH), mode, vehicle, carrying, lights: m.lights ?? 0, horn: m.horn === true,
     ...(rot ? { rot: { ...vector(rot), w: rounded(rot.w) } } : {}),
     ...(wheels ? { wheels: wheels.map(({ pos, steer, rotation, contact, suspension, tyre }) => ({
       pos: vector(pos), steer: rounded(steer), rotation: rounded(rotation), contact, suspension: rounded(suspension),

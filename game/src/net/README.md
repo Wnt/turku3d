@@ -60,3 +60,9 @@ The hourly leaderboard displays **Earned** cash from validated delivery pay, tip
 bonuses. Wallet fines and purchases do not reduce it. Ties use deliveries, then the
 earliest result. Legacy archives retain their recorded net totals and ranks. Reload
 open multiplayer tabs after this score schema deployment.
+
+Vehicle/player poses carry `lights` (0 off, 1 driving, 2 long beams) and `horn` (held boolean).
+Both participate in stationary pose dirty detection and shared-vehicle fingerprints. `server/pose.js`
+validates and preserves them in full and delta snapshots. Remote visuals apply the same lamp convention;
+remote horn emitters join `GameAudio`'s vehicle bus and expire after 1.5 s without a pose refresh.
+Remote projected road beams are omitted to keep the local two-light budget bounded.
