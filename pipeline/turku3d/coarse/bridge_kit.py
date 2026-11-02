@@ -29,8 +29,8 @@ def tapered_post(key, centre, direction, levels, surface="granite"):
         rings.append(np.c_[xz[:, 0], np.full(4, centre[1] + height), xz[:, 1]])
     faces = Faces()
     # XZ counterclockwise is downward in engine XYZ.
-    faces.face(rings[0])
-    faces.face(rings[-1][::-1])
+    faces.face(rings[0], rings[0][:, [0, 2]] - centre[[0, 2]])
+    faces.face(rings[-1][::-1], rings[-1][::-1][:, [0, 2]] - centre[[0, 2]])
     for bottom, top in zip(rings[:-1], rings[1:], strict=True):
         for i in range(4):
             j = (i + 1) % 4
@@ -138,3 +138,111 @@ def entrances(way, height_at, blocked, spec):
                     endpoints.append([c[0], y + lift, c[1]])
                 result.append(tube(key, *endpoints, .018, "bronze", "wall", sides=4))
     return result
+
+
+def cross_section(way, station, inset=0):
+    """Local tangent and the containing deck section, including skew outlines."""
+    from .bridge_details import deck_outline
+
+    axis = way["line"]
+    centre = np.asarray(axis.interpolate(station).coords[0])
+    direction = np.asarray(axis.interpolate(min(axis.length, station + .2)).coords[0])
+    direction -= np.asarray(axis.interpolate(max(0, station - .2)).coords[0])
+    direction /= np.linalg.norm(direction)
+    normal = np.array([-direction[1], direction[0]])
+    ray = shapely.LineString([centre - normal * way["width"] * 2,
+                             centre + normal * way["width"] * 2])
+    sections = [p for p in shapely.get_parts(ray.intersection(deck_outline(way)))
+                if p.geom_type == "LineString" and p.distance(shapely.Point(centre)) < .001]
+    if len(sections) != 1 or sections[0].length <= 2 * inset + 1:
+        return None
+    offsets = (np.asarray(sections[0].coords) - centre) @ normal
+    edges = [centre + normal * (offsets.min() + inset),
+             centre + normal * (offsets.max() - inset)]
+    return centre, direction, normal, edges
+
+
+def rounded_pier(key, a, b, bottom, top, radius=.7, surface="stone"):
+    """Closed cutwater pier: a transverse stadium plan with round river ends."""
+    from .bridge_details import appearance
+
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    direction = (b - a) / np.linalg.norm(b - a)
+    normal = np.array([-direction[1], direction[0]])
+    angle = np.linspace(-np.pi / 2, np.pi / 2, 9)
+    arc = radius * (np.cos(angle)[:, None] * direction + np.sin(angle)[:, None] * normal)
+    ring = np.concatenate([b + arc, a - arc])
+    lower = np.c_[ring[:, 0], np.full(len(ring), bottom), ring[:, 1]]
+    upper = lower.copy()
+    upper[:, 1] = top
+    faces = Faces()
+    faces.face(lower, ring - a)
+    faces.face(upper[::-1], (ring - a)[::-1])
+    perimeter = np.r_[0, np.cumsum(np.linalg.norm(np.diff(np.r_[ring, ring[:1]], axis=0), axis=1))]
+    for i in range(len(ring)):
+        j = (i + 1) % len(ring)
+        faces.face([lower[j], lower[i], upper[i], upper[j]],
+                   [[perimeter[i + 1], bottom], [perimeter[i], bottom],
+                    [perimeter[i], top], [perimeter[i + 1], top]])
+    return appearance(faces.mesh(key, "wall"), surface)
+
+
+def stayed_span(way, height_at, sample_ground, blocked, polygon, spec):
+    """Paired towers, rods and low rounded footings in the measured deck frame.
+
+    Surveyed pier stations take priority. Unsupported cable-stayed mappings use
+    conservative fifth-span estimates; all dimensions are source/profile driven.
+    Every tube and footing is shared with collision, without hidden wall planes.
+    """
+    from .bridge_details import tube
+
+    axis = way["line"]
+    if spec["structure"] != "cable-stayed" or way.get("landing") or axis.length < 20:
+        return []
+    key = f"draft-bridge:{way['id']}:stays"
+    survey = way.get("survey", {})
+    measured = survey.get("pier_stations", [])
+    stations = sorted(float(s) for s in measured if axis.length * .1 < s < axis.length * .9)
+    if not stations:
+        stations = [axis.length * .2, axis.length * .8]
+    limits = [1., *[(a + b) / 2 for a, b in zip(stations[:-1], stations[1:], strict=True)],
+              axis.length - 1.]
+    height = spec.get("tower_height", min(12., max(4., axis.length * .085)))
+    radius = spec.get("tower_radius", .17)
+    meshes = []
+    for i, station in enumerate(stations):
+        section = cross_section(way, station, radius + .08)
+        if section is None:
+            continue
+        centre, direction, normal, edges = section
+        footprint = shapely.LineString(edges).buffer(.72)
+        if any(footprint.intersects(g) for g in blocked) or not polygon.buffer(.8).covers(footprint):
+            continue
+        deck_y = height_at(np.asarray(edges))
+        base = float(np.min(sample_ground(np.asarray(edges)))) - .4
+        for s, y in zip(measured, survey.get("pier_bases", []), strict=True):
+            if abs(s - station) < 1:
+                base = min(base, float(y) - .3)
+        # Water-level masonry cutwaters carry slender metal shafts to the deck.
+        footing_top = min(base + 1.65, float(deck_y.min()) - spec["thickness"] - .6)
+        if footing_top <= base:
+            continue
+        meshes.append(rounded_pier(key, *edges, base, footing_top, surface=spec["support"]))
+        for side, (p, y) in enumerate(zip(edges, deck_y, strict=True)):
+            top = [p[0], y + height, p[1]]
+            meshes.append(tube(key, [p[0], footing_top, p[1]], top, radius, "steel", "wall", 10))
+            for target in limits[i:i + 2]:
+                anchor_section = cross_section(way, target, radius + .08)
+                if anchor_section is None:
+                    continue
+                anchor = anchor_section[3][side]
+                anchor_y = float(height_at(np.asarray([anchor]))[0]) + .18
+                # Two rods attach below the cap and travel along the outer edge.
+                for lift in (.35, .8):
+                    meshes.append(tube(key, [p[0], y + height - lift, p[1]],
+                                       [anchor[0], anchor_y, anchor[1]], .035, "steel", "railing"))
+        # A slim header closes the portal above pedestrian head clearance.
+        meshes.append(tube(key, [edges[0][0], deck_y[0] + height - .65, edges[0][1]],
+                           [edges[1][0], deck_y[1] + height - .65, edges[1][1]],
+                           .085, "steel", "wall"))
+    return meshes
