@@ -1,13 +1,30 @@
-import type * as THREE from 'three/webgpu';
+import * as THREE from 'three/webgpu';
+import { styleScenery } from '../render/sceneryMaterial';
 import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 
-/** Optional photo scenery: authored visuals without distant collision, roads or parked-car simulation. */
+/** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
   radius = 0;
+  private readonly direction = new THREE.Vector3();
+
+  /** Follow every rendered camera, including play and fixed QA poses. */
+  follow(camera: THREE.PerspectiveCamera) {
+    camera.getWorldDirection(this.direction);
+    this.direction.y = 0;
+    this.direction.normalize();
+    const { x, y, z } = camera.position;
+    this.setView({ x, y, z, dx: this.direction.x, dz: this.direction.z,
+      halfAngle: Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect) + .15 }, performance.now());
+  }
+  private detailed(id: string) {
+    const entry = this.nearby.get(id);
+    return !!entry?.model && !entry.preview;
+  }
+
   private entries = new Map<string, Scenery>();
   private active = 0;
   private clock = 0;
@@ -60,7 +77,7 @@ export class ScreenshotScenery {
       return [id, source ? skylinePriority(source, this.view!) : -Infinity];
     }));
     this.footprint.sort((a, b) => priorities.get(b)! - priorities.get(a)!);
-    this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.nearby.get(id)?.model);
+    this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
   }
 
   private readMissingSources() {
@@ -110,17 +127,17 @@ export class ScreenshotScenery {
     this.clock = now;
     if (!this.radius) return;
     if (!this.view) this.wanted = startupDraftTiles([{ x, z }], this.radius)
-      .filter(id => !this.nearby.get(id)?.model)
+      .filter(id => !this.detailed(id))
       .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z));
     if (this.view) {
-      this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.nearby.get(id)?.model);
+      this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
       this.readMissingSources();
     }
     const keep = new Set(this.wanted);
     const outside: [string, Scenery][] = [];
     for (const [id, e] of this.entries) {
       if (keep.has(id)) e.seen = now;
-      else if (this.view && !this.nearby.get(id)?.model && now - e.seen < 5000) outside.push([id, e]);
+      else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { if (e.model) this.dispose(e.model, id); this.entries.delete(id); }
     }
     // A bounded five-second tail makes brief look-backs instant without retaining a whole 360° world.
@@ -134,11 +151,11 @@ export class ScreenshotScenery {
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
     // The legacy full-detail view still rotates polling fairly across source generation.
-    const due = this.wanted.filter(id => (!this.nearby.get(id)?.model || this.nearby.get(id)?.preview)
+    const due = this.wanted.filter(id => !this.detailed(id)
       && (this.view ? this.sources.has(id) : demand.has(id) || this.entries.get(id)?.complete))
       .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
     for (const id of due) {
-      if (this.active >= (this.view ? 16 : 2)) break;
+      if (this.active >= (this.view ? 4 : 2)) break;
       let e = this.entries.get(id);
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
       if (e.busy || now < e.next) continue;
@@ -163,12 +180,9 @@ export class ScreenshotScenery {
       model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href);
       if (source) {
         model.userData.scenery = true;
-        model.traverse(object => {
-          const mesh = object as THREE.Mesh;
-          if (mesh.isMesh) { mesh.castShadow = false; mesh.receiveShadow = false; }
-        });
+        styleScenery(model);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
-      if (this.entries.get(id) !== e || this.nearby.get(id)?.model) return;
+      if (this.entries.get(id) !== e || this.detailed(id)) return;
       if (e.model) this.dispose(e.model, id);
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;

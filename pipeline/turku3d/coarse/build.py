@@ -332,6 +332,7 @@ def build(
             "vegetation",
             source_key(
                 Path(__file__).with_name("forests.py"),
+                Path(__file__).with_name("canopy_trees.py"),
                 Path(__file__).with_name("forest_paths.py"),
                 base / "vegetation/trees.py",
                 base / "vegetation/visual.py",
@@ -348,6 +349,7 @@ def build(
                 inputs.streets,
                 inputs.roads,
                 inputs.canopy,
+                inputs.vegetation_canopy,
                 inputs.forests,
                 inputs.vegetation_paths,
                 inputs.trees,

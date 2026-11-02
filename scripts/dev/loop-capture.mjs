@@ -63,7 +63,9 @@ const index = path.join(out, 'shots.json');
 const previous = fs.existsSync(index) ? JSON.parse(fs.readFileSync(index)) : { shots: [] };
 const shots = new Map(previous.shots.map(s => [s.file, s]));
 const build = execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim();
-const valid = s => s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length && !s.capture.failed_assets_final.length;
+const scenerySettled = s => !s || (!s.cataloguePending && !s.pending && !s.errors && s.loaded === s.total);
+const valid = s => s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
+  && !s.capture.failed_assets_final.length && scenerySettled(s.capture.scenery);
 const save = () => {
   fs.writeFileSync(`${index}.tmp`, JSON.stringify({ generated: new Date().toISOString(), viewport: '1920x1200',
     device_scale_factor: 1, shots: [...shots.values()] }, null, 1) + '\n');
@@ -121,7 +123,7 @@ try {
             return {id, pass:e?.pass, full:e?.state === 'draft' && e?.pass === 'full' && !e?.preview && !!e?.model}; });
           return {ready:!!window.__qaReady,error:window.__qaError,tiles,qa:g?.qa, sun:env?.sunElevation,
             azimuth:env?.sunAzimuth, clock:g?.dayClock?.snapshot(), hour:g?.dayClock?.hour, pose:window.__qaPose,
-            info:window.__qaInfo,night:g?.dayClock?.night};
+            info:window.__qaInfo,night:g?.dayClock?.night,scenery:g?.scenery?.progress};
         })()`);
         if (state.pose && state.hour !== undefined && (Math.abs(state.hour - (h + m / 60)) > 0.01 ||
           ['E', 'N', 'H', 'yaw', 'pitch', 'fov'].some(key => Math.abs(state.pose[key] - pose[key]) > 0.001))) {
@@ -139,7 +141,8 @@ try {
           continue;
         }
         if (state.error) throw new Error(`${cam.id}@${at}: ${state.error}`);
-        if (state.ready && state.tiles.every(t => t.full) && !assets.size && Date.now() - lastAsset > 2000) break;
+        if (state.ready && state.tiles.every(t => t.full) && scenerySettled(state.scenery)
+          && !assets.size && Date.now() - lastAsset > 2000) break;
         await delay(1000);
       }
       await delay(2000);
@@ -155,6 +158,7 @@ try {
           sun_azimuth_deg: state.azimuth, clock: state.clock,
           settle_retries: settleRetries,
           effective_hour: state.hour, effective_pose: state.pose,
+          scenery: state.scenery,
           vis_tris: state.qa?.visTris, load_ms: state.qa?.loadMs, night_level: state.night } };
       shots.set(file, row); save();
       console.log(JSON.stringify({file,valid:valid(row),seconds:row.capture.wall_s}));

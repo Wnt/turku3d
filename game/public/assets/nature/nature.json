@@ -1,0 +1,574 @@
+{
+ "version": 1,
+ "generated": "scripts/build-nature-assets.mjs",
+ "units": "metres, +Y up, base at origin",
+ "assets": {
+  "tree_birch": {
+   "kind": "tree",
+   "species": "birch",
+   "height": 16.92,
+   "radius": 4.84,
+   "lods": [
+    {
+     "triangles": 3568,
+     "vertices": 4369,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 1500,
+     "vertices": 2582,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_linden": {
+   "kind": "tree",
+   "species": "linden",
+   "height": 17.84,
+   "radius": 6.3,
+   "lods": [
+    {
+     "triangles": 6960,
+     "vertices": 7921,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 1970,
+     "vertices": 3252,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_maple": {
+   "kind": "tree",
+   "species": "maple",
+   "height": 17.33,
+   "radius": 6.33,
+   "lods": [
+    {
+     "triangles": 6212,
+     "vertices": 7125,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 1820,
+     "vertices": 3024,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_oak": {
+   "kind": "tree",
+   "species": "oak",
+   "height": 13.94,
+   "radius": 7.51,
+   "lods": [
+    {
+     "triangles": 7008,
+     "vertices": 8033,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 2202,
+     "vertices": 3612,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_rowan": {
+   "kind": "tree",
+   "species": "rowan",
+   "height": 10.56,
+   "radius": 4.45,
+   "lods": [
+    {
+     "triangles": 2128,
+     "vertices": 2545,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 860,
+     "vertices": 1472,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_willow": {
+   "kind": "tree",
+   "species": "willow",
+   "height": 18.8,
+   "radius": 9.05,
+   "lods": [
+    {
+     "triangles": 7316,
+     "vertices": 8261,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 2074,
+     "vertices": 3388,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_pine": {
+   "kind": "tree",
+   "species": "pine",
+   "height": 19.09,
+   "radius": 4.73,
+   "lods": [
+    {
+     "triangles": 2390,
+     "vertices": 2713,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 996,
+     "vertices": 1557,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "tree_spruce": {
+   "kind": "tree",
+   "species": "spruce",
+   "height": 17.19,
+   "radius": 4.45,
+   "lods": [
+    {
+     "triangles": 9634,
+     "vertices": 9889,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 2348,
+     "vertices": 2960,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 8,
+     "vertices": 16,
+     "draws": [
+      "nature_impostor"
+     ]
+    }
+   ]
+  },
+  "shrub_lilac": {
+   "kind": "shrub",
+   "species": "lilac",
+   "height": 4,
+   "radius": 3.3,
+   "lods": [
+    {
+     "triangles": 988,
+     "vertices": 1314,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 502,
+     "vertices": 868,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "shrub_rose": {
+   "kind": "shrub",
+   "species": "rose",
+   "height": 1.76,
+   "radius": 1.77,
+   "lods": [
+    {
+     "triangles": 660,
+     "vertices": 990,
+     "draws": [
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 330,
+     "vertices": 660,
+     "draws": [
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "shrub_juniper": {
+   "kind": "shrub",
+   "species": "juniper",
+   "height": 3.71,
+   "radius": 1.85,
+   "lods": [
+    {
+     "triangles": 1618,
+     "vertices": 2322,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 814,
+     "vertices": 1543,
+     "draws": [
+      "nature_bark",
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "hedge": {
+   "kind": "hedge",
+   "species": "privet",
+   "height": 1.2,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 1206,
+     "vertices": 1812,
+     "draws": [
+      "nature_leaves"
+     ]
+    },
+    {
+     "triangles": 226,
+     "vertices": 452,
+     "draws": [
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "grass_clump": {
+   "kind": "grass",
+   "height": 0.42,
+   "radius": 0.28,
+   "lods": [
+    {
+     "triangles": 6,
+     "vertices": 12,
+     "draws": [
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "grass_wide": {
+   "kind": "grass",
+   "height": 0.5,
+   "radius": 0.3,
+   "lods": [
+    {
+     "triangles": 6,
+     "vertices": 12,
+     "draws": [
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "grass_meadow": {
+   "kind": "grass",
+   "height": 0.75,
+   "radius": 0.35,
+   "lods": [
+    {
+     "triangles": 6,
+     "vertices": 12,
+     "draws": [
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "groundcover_rosette": {
+   "kind": "grass",
+   "height": 0.05,
+   "radius": 0.21,
+   "lods": [
+    {
+     "triangles": 2,
+     "vertices": 4,
+     "draws": [
+      "nature_leaves"
+     ]
+    }
+   ]
+  },
+  "picket_fence": {
+   "kind": "fence",
+   "height": 1.1,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 294,
+     "vertices": 560,
+     "draws": [
+      "nature_wood"
+     ]
+    },
+    {
+     "triangles": 64,
+     "vertices": 112,
+     "draws": [
+      "nature_wood"
+     ]
+    }
+   ]
+  },
+  "board_fence": {
+   "kind": "fence",
+   "height": 1.65,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 264,
+     "vertices": 528,
+     "draws": [
+      "nature_wood"
+     ]
+    },
+    {
+     "triangles": 28,
+     "vertices": 56,
+     "draws": [
+      "nature_wood"
+     ]
+    }
+   ]
+  },
+  "metal_railing": {
+   "kind": "fence",
+   "height": 1,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 256,
+     "vertices": 490,
+     "draws": [
+      "nature_metal"
+     ]
+    },
+    {
+     "triangles": 80,
+     "vertices": 160,
+     "draws": [
+      "nature_metal"
+     ]
+    }
+   ]
+  },
+  "park_fence": {
+   "kind": "fence",
+   "height": 0.55,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 102,
+     "vertices": 104,
+     "draws": [
+      "nature_metal"
+     ]
+    },
+    {
+     "triangles": 36,
+     "vertices": 72,
+     "draws": [
+      "nature_metal"
+     ]
+    }
+   ]
+  },
+  "granite_wall": {
+   "kind": "fence",
+   "height": 0.6,
+   "radius": 1,
+   "module": 2,
+   "lods": [
+    {
+     "triangles": 308,
+     "vertices": 672,
+     "draws": [
+      "nature_granite"
+     ]
+    },
+    {
+     "triangles": 20,
+     "vertices": 36,
+     "draws": [
+      "nature_granite"
+     ]
+    }
+   ]
+  }
+ },
+ "textures": {
+  "nature_foliage": {
+   "width": 2048,
+   "height": 2048,
+   "bytes": 746934,
+   "format": "ETC1S"
+  },
+  "nature_bark": {
+   "width": 4096,
+   "height": 512,
+   "bytes": 436506,
+   "format": "ETC1S"
+  },
+  "nature_bark_normal": {
+   "width": 2048,
+   "height": 256,
+   "bytes": 553242,
+   "format": "UASTC+zstd"
+  },
+  "nature_impostor": {
+   "width": 2048,
+   "height": 2048,
+   "bytes": 859130,
+   "format": "ETC1S"
+  },
+  "nature_impostor_normal": {
+   "width": 1024,
+   "height": 1024,
+   "bytes": 570658,
+   "format": "UASTC+zstd"
+  },
+  "nature_wood": {
+   "width": 512,
+   "height": 512,
+   "bytes": 59798,
+   "format": "ETC1S"
+  },
+  "nature_wood_normal": {
+   "width": 512,
+   "height": 512,
+   "bytes": 286758,
+   "format": "UASTC+zstd"
+  },
+  "nature_granite": {
+   "width": 512,
+   "height": 512,
+   "bytes": 79614,
+   "format": "ETC1S"
+  },
+  "nature_granite_normal": {
+   "width": 512,
+   "height": 512,
+   "bytes": 292539,
+   "format": "UASTC+zstd"
+  }
+ },
+ "glb": {
+  "bytes": 6532792,
+  "sha256": "14b939429ea921582ad35cdba3c4df2e55ec5325cfa23143948212db9ee39c63"
+ }
+}
