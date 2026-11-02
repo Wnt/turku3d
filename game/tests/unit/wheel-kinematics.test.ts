@@ -34,6 +34,20 @@ test('near fleet wheels batch four hubs per car and distant cars stay a single d
   visuals.dispose();expect(scene.children).toHaveLength(0);
 });
 
+test('traffic wheel instance transforms advance by travelled distance divided by tyre radius',async()=>{
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/'),model=FLEET[0];
+  manifest.vehicles=[{object_id:'preload',model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}];
+  await visuals.load(manifest);
+  const car={seed:'moving',model:model.id,color:'blue',x:0,y:.75,z:0,q:{x:0,y:0,z:0,w:1}};
+  visuals.setTraffic([car]);visuals.update([]);
+  const wheel=scene.getObjectByName(`wheels/${model.id}/0/1`) as THREE.InstancedMesh;
+  const first=new THREE.Matrix4(),second=new THREE.Matrix4();wheel.getMatrixAt(0,first);
+  car.x=model.wheel*Math.PI/2;visuals.update([]);wheel.getMatrixAt(0,second);
+  const a=new THREE.Quaternion().setFromRotationMatrix(first),b=new THREE.Quaternion().setFromRotationMatrix(second);
+  expect(a.angleTo(b)).toBeCloseTo(Math.PI/2,5);
+  visuals.dispose();
+});
+
 test('one circumference is one signed wheel revolution for every fleet tyre', () => {
   for(const model of FLEET)for(const sign of [-1,1])expect(wheelRotation(sign*2*Math.PI*model.wheel,model.wheel)).toBeCloseTo(sign*2*Math.PI);
 });
