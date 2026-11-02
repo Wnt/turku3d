@@ -12,30 +12,58 @@ ROOT = Path(__file__).with_name("descriptions")
 def source_paths():
     return [
         Path(__file__).with_name(name)
-        for name in ("appearance.py", "descriptions.py", "procedural.py")
+        for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py")
     ]
 
 
-def parameter_hash(buildings):
-    values = [(str(b.facade_key), resolve(b)) for b in buildings]
+def building_refs(buildings):
+    return sorted(
+        [[str(b.facade_key), getattr(b, "attributes", {}).get("osm_id", "")] for b in buildings]
+    )
+
+
+def fingerprint(refs):
+    from types import SimpleNamespace
+
+    values = [
+        (key, resolve(SimpleNamespace(facade_key=key, attributes={"osm_id": osm})))
+        for key, osm in sorted(refs)
+    ]
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
+def parameter_hash(buildings):
+    return fingerprint(building_refs(buildings))
+
+
+def manifest_current(manifest):
+    return "landmark_buildings" not in manifest or manifest.get("landmark_params") == fingerprint(
+        manifest["landmark_buildings"]
+    )
 
 
 def resolve(building):
     key = str(building.facade_key)
-    # Reviewed local measurements override distributed parameters without erasing them.
+    # Automatically estimated parameters seed new landmarks. Reviewed distributed
+    # parameters win until a deliberate local development override is supplied.
     osm = getattr(building, "attributes", {}).get("osm_id", "").replace("/", "_")
     paths = [
-        ROOT / f"{key}.json",
         C.data_root() / "landmark-descriptions" / f"{osm}.json",
         C.data_root() / "landmark-descriptions" / f"{key}.json",
+        ROOT / f"{key}.json",
         C.work_root() / "landmark-descriptions" / f"{osm}.json",
         C.work_root() / "landmark-descriptions" / f"{key}.json",
     ]
     result = None
     for path in paths:
         if path.is_file():
-            result = json.loads(path.read_text())
+            candidate = json.loads(path.read_text())
+            if path.parent == C.data_root() / "landmark-descriptions" and (
+                candidate.get("reference_match") != "verified"
+                or candidate.get("reference_confidence", 0) < 0.5
+            ):
+                continue
+            result = candidate
     if result is not None:
         if (
             result.get("building_id")

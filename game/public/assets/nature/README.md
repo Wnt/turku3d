@@ -129,3 +129,7 @@ node scripts/build-nature-assets.mjs                       # writes nature.glb a
 ```
 
 The build is deterministic (seeded); previews of the atlases go to `~/turku3d/data/assets-src/nature/build/previews`.
+
+Both spruce variants expose their lower trunks and drooping branches with smaller, less horizontal foliage cards.
+Their matching reduced meshes and impostors are rebuilt together; measured world height and crown radius remain independent.
+Grass metadata uses the actual vertex height and radial extent, rounded outwards for conservative placement bounds.

@@ -34,18 +34,6 @@ def main():
         os.kill(pid, signal.SIGSTOP)
         stopped = True
         pending = {(r['generation'], r['tile']): r for r in read_json(root / 'pending.json', [])}
-        if not pending:
-            for line in (root / 'events.jsonl').read_text().splitlines():
-                row = json.loads(line)
-                if row['event'] != 'queued':
-                    continue
-                key = (row['generation'], row['tile'])
-                if (root / 'products' / key[0] / key[1] / 'ready.json').exists():
-                    continue
-                integration = state['aliases'].get('integration')
-                pending[key] = dict(revision=row['revision'], generation=key[0], tile=key[1],
-                                    requested=row['t'], seen=time.time(), distance=10000,
-                                    explicit=row['revision'] != integration)
         adopted = []
         for process in Path('/proc').iterdir():
             if not process.name.isdigit():
@@ -84,6 +72,18 @@ def main():
                                      '--port', str(args.port), '--workers', str(state['workers'])],
                                     stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                     start_new_session=True)
+        deadline = time.monotonic() + 5
+        ready = False
+        while time.monotonic() < deadline:
+            try:
+                ready = json.load(urlopen(url, timeout=1)).get('daemon_pid') == proc.pid
+                if ready:
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(.05)
+        if not ready:
+            raise RuntimeError('replacement daemon did not become ready; inspect service.log')
         print(json.dumps(dict(daemon=proc.pid, adopted=adopted, pending=len(pending))), flush=True)
     finally:
         if stopped and process_alive(pid):

@@ -7,6 +7,7 @@ as if it belonged to a requested revision. This is a trusted LAN development ser
 from __future__ import annotations
 
 import argparse
+import ast
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
@@ -21,6 +22,7 @@ import shutil
 import signal
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -29,6 +31,11 @@ REV = re.compile(r"[a-f0-9]{40,64}\Z")
 TILE = re.compile(r"t0_-?\d{1,5}_-?\d{1,5}\Z")
 ALIAS = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 HASHED = re.compile(r"[a-f0-9]{64}")
+RAW_CACHES = {
+    'vegetation': ('vegetation/trees.py',),
+    'coarse-roofs': ('buildings/reconstruct.py', 'buildings/inputs.py'),
+    'lidar': ('lidar/cache.py',),
+}
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'generation')
 GIB = 2**30
@@ -71,6 +78,23 @@ def process_alive(pid, ticks=None):
         return False
 
 
+def process_started(ticks):
+    """Recover a worker's wall-clock start when adopting it across daemon upgrades."""
+    try:
+        if ticks and int(ticks) > 0:
+            return time.time() - time.monotonic() + int(ticks) / os.sysconf('SC_CLK_TCK')
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def worker_elapsed(info):
+    started = info.get('started_monotonic')
+    if started is None and info.get('start_ticks') and int(info['start_ticks']) > 0:
+        started = int(info['start_ticks']) / os.sysconf('SC_CLK_TCK')
+    return max(0, time.monotonic() - started) if started is not None else 0
+
+
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
                  reserve_gib=2, grace_seconds=900, execute=None, free=None):
@@ -82,13 +106,16 @@ class Farm:
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
         self.lock = threading.RLock()
-        self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix='tile')
+        self.adoption_lock = threading.Lock()
+        self.adopting = set()
+        self.pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
+        self.started = time.time()
         self.aliases = read_json(self.root / 'aliases.json', {})
         for row in read_json(self.root / 'pending.json', []):
             key = (row['generation'], row['tile'])
@@ -113,6 +140,18 @@ class Farm:
 
     def register(self, revision, alias=None, source_version=None):
         meta = self.revision(revision)
+        if alias is not None and not ALIAS.fullmatch(alias):
+            raise ValueError('invalid alias')
+        # Advancing a branch must not silently discard its surveyed source profile.
+        previous = self.aliases.get(alias)
+        if source_version is None:
+            source_version = meta.get('source_version')
+            if source_version is None and previous:
+                source_version = self.revision(previous).get('source_version')
+        if meta.get('source_revision'):
+            source_version = source_version or meta.get('source_version')
+            revision = meta['source_revision']
+            meta = self.revision(revision)
         if source_version is not None:
             if not re.fullmatch(r"[a-f0-9]{64}", source_version):
                 raise ValueError('invalid source version')
@@ -133,8 +172,6 @@ class Farm:
                                 'commit': meta.get('commit', source_revision), 'source_revision': source_revision,
                                 'generation': generation, 'source_version': source_version, 'data_root': str(data)})
             meta = self.revision(revision)
-        if alias is not None and not ALIAS.fullmatch(alias):
-            raise ValueError('invalid alias')
         with self.lock:
             if alias:
                 self.aliases[alias] = revision
@@ -151,11 +188,51 @@ class Farm:
     def output(self, generation):
         return self.root / 'products' / generation
 
+    def fallback_roots(self):
+        return {hashlib.sha256(str(Path(p).resolve()).encode()).hexdigest(): Path(p).resolve()
+                for p in read_json(self.root / 'fallbacks.json', [])}
+
+    def retained(self, tile):
+        """A complete old pair stays playable while the requested immutable version builds."""
+        candidates = []
+        for receipt in (self.root / 'products').glob(f'*/{tile}/ready.json'):
+            value = read_json(receipt.parent / 'manifest.json')
+            ready = read_json(receipt, {})
+            if value and ready.get('revision'):
+                candidates.append((value.get('built', ''), receipt.stat().st_mtime, value, ready))
+        if candidates:
+            _, _, manifest, ready = max(candidates, key=lambda r: r[:2])
+            return manifest, f"/v/{ready['revision']}/coarse/{tile}/", dict(
+                revision=ready['revision'], generation=ready['generation'], source_kind='retained')
+        for token, root in self.fallback_roots().items():
+            manifest = read_json(root / tile / 'manifest.json')
+            if not manifest or manifest.get('pass_kind') != 'full':
+                continue
+            # The existing accepted servers already validated these artifacts. Check the
+            # complete visual/collision pair and lengths before exposing a fallback manifest.
+            entries = [*manifest.get('visual', {}).values(), *manifest.get('collision', {}).values()]
+            if tile not in manifest.get('visual', {}) or len(manifest.get('collision', {})) != 16:
+                continue
+            try:
+                if not all((root / tile / e['url']).stat().st_size == e['bytes'] for e in entries):
+                    continue
+            except (OSError, KeyError):
+                continue
+            return manifest, f'/v/{token}/coarse/{tile}/', dict(
+                revision=None, generation=manifest.get('code', token), source_kind='accepted-fallback')
+        return None
+
     def status(self):
         with self.lock:
-            return dict(state='ready', api_version=2, version=self.version, aliases=self.aliases.copy(),
+            return dict(state='ready', api_version=2, daemon_pid=os.getpid(),
+                        version=self.version, aliases=self.aliases.copy(),
+                        uptime_seconds=round(time.time() - self.started),
                         workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
                         building=[k[1] for k in self.dispatched],
+                        active=[dict(revision=self.jobs[k], generation=k[0], tile=k[1],
+                                     pid=self.queue_info[k].get('pid'),
+                                     seconds=round(worker_elapsed(self.queue_info[k])))
+                                for k in sorted(self.dispatched)],
                         queue=[dict(revision=self.jobs[k], tile=k[1], priority=self.priority(k)[:2],
                                     age=round(time.time()-self.queue_info[k]['requested']))
                                for k in sorted(self.jobs, key=self.priority) if k not in self.dispatched], metrics=self.metrics.copy(),
@@ -168,6 +245,10 @@ class Farm:
         meta = self.revision(revision)
         generation = meta['generation']
         key = (generation, tile)
+        retired = read_json(self.root / 'retired.json', {})
+        reason = retired.get(meta.get('commit', revision)) or retired.get(revision)
+        if reason:
+            return 422, dict(state='revision-retired', revision=revision, error=reason)
         with self.lock:
             self.metrics['requests'] += 1
             root = self.output(generation)
@@ -210,18 +291,18 @@ class Farm:
     def priority(self, key):
         info = self.queue_info[key]
         if info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
-            return (-1, 0, 0, info['requested'])  # Adopt existing work before starting anything new.
-        category, distance = (0 if info.get('explicit') else 3), info.get('distance', 0)
+            return (-2, 0, 0, info['requested'])  # Adopt existing work before starting anything new.
+        category, distance = (1 if info.get('explicit') else 3), info.get('distance', 0)
         for (generation, _client), demand in self.demands.items():
             if generation == key[0] and time.time() - demand['seen'] < 120 and key[1] in demand['tiles']:
                 category = min(category, demand['tiles'][key[1]])
-        return (category, self.turns.get(key[0], 0), distance, info['requested'])
+        return (category, max(self.turns.get(key[0], 0), info['requested']), distance, info['requested'])
 
     def demand(self, revision, client, tiles, urgent, visible):
         generation = self.revision(revision)['generation']
         with self.lock:
             self.demands[(generation, client[:128])] = dict(seen=time.time(),
-                tiles={tile: 0 if tile in urgent else 1 if tile in visible else 2 for tile in tiles})
+                tiles={tile: -1 if tile in urgent else 0 if tile in visible else 2 for tile in tiles})
             self.demands = {k:v for k,v in self.demands.items() if time.time() - v['seen'] < 120}
             self.pump()
         return self.status()
@@ -242,9 +323,30 @@ class Farm:
                 break
             key = min(pending, key=self.priority)
             self.dispatched.add(key)
-            self.turns[key[0]] = self.turns.get(key[0], 0) + 1
+            self.queue_info[key].setdefault('dispatched_at', time.time())
+            if not self.queue_info[key].get('pid'):
+                self.turns[key[0]] = time.time()
             self.pool.submit(self.build, self.jobs[key], key[1], key[0])
         self.save_queue(force=True)
+
+    def cancel(self, revision, tiles):
+        """Drop queued work only; an already running generator keeps its output."""
+        generation = self.revision(self.resolve(revision))['generation']
+        if not isinstance(tiles, list) or not all(TILE.fullmatch(t) for t in tiles):
+            raise ValueError('invalid tile list')
+        removed, running = [], []
+        with self.lock:
+            for tile in tiles:
+                key = (generation, tile)
+                if key in self.dispatched:
+                    running.append(tile)
+                elif key in self.jobs:
+                    self.jobs.pop(key)
+                    self.queue_info.pop(key)
+                    removed.append(tile)
+            self.save_queue(force=True)
+            self.event('cancelled', revision=revision, tiles=removed, running=running)
+        return dict(cancelled=removed, running=running)
 
     def close(self):
         with self.lock:
@@ -256,11 +358,14 @@ class Farm:
         key = (generation, tile)
         started = time.monotonic()
         try:
-            # A tile's prepared datasets are shared even between revisions. Serializing its
-            # preparation also prevents legacy input writers racing on the same raw-derived file.
-            with file_lock(self.root / 'locks' / (tile + '.lock')):
+            # Versions can build concurrently: stage keys lock their own writers and
+            # prepared inputs publish atomically. Lock only the final version/tile product.
+            with file_lock(self.root / 'locks' / (generation + '-' + tile + '.lock')):
                 with self.lock:
-                    if not self.make_room(self.floor + self.reserve * (len(self.active) + 1)):
+                    # A recorded worker already owns its disk reservation. Recover its
+                    # monitoring even under pressure; run_build can stop it safely.
+                    if not self.queue_info[key].get('pid') and not self.make_room(
+                            self.floor + self.reserve * (len(self.active) + 1)):
                         raise RuntimeError('disk floor reservation unavailable')
                     self.active.add(key)
                 root = self.output(generation)
@@ -276,9 +381,12 @@ class Farm:
                 input_misses = sum(s.get('cached') is False for s in prepared.values())
                 hit = sum(s.get('cached') is True for s in stages.values())
                 miss = sum(s.get('cached') is False for s in stages.values())
-                seconds = round(time.monotonic() - started, 3)
+                info = self.queue_info[key]
+                seconds = round(worker_elapsed(info) or time.monotonic() - started, 3)
+                queue_seconds = round(max(0, info.get('dispatched_at', info['requested']) - info['requested']), 3)
                 atomic_json(root / tile / 'ready.json', dict(revision=revision, generation=generation,
-                            seconds=seconds, stage_hits=hit, stage_misses=miss, result=result))
+                            seconds=seconds, queue_seconds=queue_seconds,
+                            stage_hits=hit, stage_misses=miss, result=result))
                 with self.lock:
                     self.metrics['builds'] += 1
                     self.metrics['stage_hits'] += hit
@@ -288,7 +396,8 @@ class Farm:
                     self.failures.pop(key, None)
                     self.version += 1
                 self.event('built', revision=revision, generation=generation, tile=tile,
-                           seconds=seconds, stage_hits=hit, stage_misses=miss, stages=stages,
+                           seconds=seconds, queue_seconds=queue_seconds,
+                           stage_hits=hit, stage_misses=miss, stages=stages,
                            input_hits=input_hits, input_misses=input_misses, prepared=prepared)
         except Exception as error:
             row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
@@ -297,6 +406,10 @@ class Farm:
                 self.metrics['failed'] += 1
             self.event('failed', **row)
         finally:
+            info = self.queue_info.get(key, {})
+            # Never release product/cache pins while a preserved worker can still write.
+            while info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
+                time.sleep(.1)
             with self.lock:
                 self.active.discard(key)
                 self.jobs.pop(key, None)
@@ -310,7 +423,10 @@ class Farm:
                    *manifest.get('vehicle_models', {}).values()]
         if manifest.get('roads'):
             entries.append(manifest['roads'])
-        if not entries or tile not in manifest.get('visual', {}) or len(manifest.get('collision', {})) != 16:
+        _, i, j = tile.split('_')
+        cells = {f'c_{int(i)*4+x}_{int(j)*4+z}' for x in range(4) for z in range(4)}
+        if (not manifest.get('coarse') or manifest.get('tile') != tile
+                or tile not in manifest.get('visual', {}) or set(manifest.get('collision', {})) != cells):
             raise RuntimeError('incomplete visual/collision pair')
         checked = set()
         def verify(path, size=None, digest=None):
@@ -343,16 +459,21 @@ class Farm:
     def run_build(self, revision, tile, root):
         info = self.queue_info[(root.name, tile)]
         if info.get('pid'):
+            info.setdefault('build_started', process_started(info.get('start_ticks')) or time.time())
             deadline = time.monotonic() + 1800
             while process_alive(info['pid'], info.get('start_ticks')):
-                if time.monotonic() > deadline:
-                    raise RuntimeError('adopted build exceeded timeout')
+                reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
+                          'build timeout' if worker_elapsed(info) > 1800 or time.monotonic() > deadline else None)
+                if reason:
+                    self.stop_worker(info, root / tile)
+                    raise RuntimeError(reason)
                 time.sleep(1)
             report = read_json(root / tile / 'stage-times.json', {})
             if report.get('_build', {}).get('status') != 'complete':
                 raise RuntimeError('adopted generator did not complete; retry will resume cached stages')
             return dict(returncode=0, adopted=True)
         repo = self.root / 'revisions' / revision / 'repo'
+        self.mount_intermediates(repo, root / 'work')
         env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
                    TURKU3D_WORK=str(root / 'work'))
         # Encoders already lock their content keys; share their results across revisions too.
@@ -365,6 +486,7 @@ class Farm:
         meta = self.revision(revision)
         if meta.get('data_root'):
             env['TURKU3D_DATA'] = meta['data_root']
+            self.mount_supplements(Path(meta['data_root']), Path(env['TURKU3D_WORK']))
         logs = self.root / 'logs'
         logs.mkdir(exist_ok=True)
         with (logs / f'{revision}-{tile}.log').open('a') as log:
@@ -372,7 +494,8 @@ class Farm:
                                      tile, '--out', str(root / tile)], cwd=repo, env=env,
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             with self.lock:
-                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid))
+                info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid), build_started=time.time(),
+                            started_monotonic=time.monotonic())
                 self.save_queue(force=True)
             deadline = time.monotonic() + 1800
             while proc.poll() is None:
@@ -394,15 +517,159 @@ class Farm:
             raise RuntimeError(f'generator exit {proc.returncode}; see logs/{revision}-{tile}.log')
         return dict(returncode=0)
 
+    def stop_worker(self, info, output):
+        """Only stop a recorded farm session whose PID identity and output still match."""
+        pid = info['pid']
+        if not process_alive(pid, info.get('start_ticks')):
+            return
+        argv = Path(f'/proc/{pid}/cmdline').read_bytes().decode().strip('\0').split('\0')
+        if ('turku3d.coarse' not in argv or '--out' not in argv or os.getpgid(pid) != pid
+                or Path(argv[argv.index('--out') + 1]) != output):
+            raise RuntimeError('refusing to stop a process outside this recorded farm worker')
+        os.killpg(pid, signal.SIGTERM)
+        deadline = time.monotonic() + 5
+        while process_alive(pid, info.get('start_ticks')) and time.monotonic() < deadline:
+            time.sleep(.05)
+        if process_alive(pid, info.get('start_ticks')):
+            os.killpg(pid, signal.SIGKILL)
+        while process_alive(pid, info.get('start_ticks')):
+            time.sleep(.05)
+
+    def mount_supplements(self, data, work):
+        supplements = data / 'supplements'
+        if not supplements.is_dir():
+            return
+        with self.lock:
+            work.mkdir(parents=True, exist_ok=True)
+            for source in supplements.iterdir():
+                destination = work / source.name
+                if destination.exists() or destination.is_symlink():
+                    if destination.resolve() != source.resolve():
+                        raise RuntimeError('work supplement does not match the pinned source profile')
+                else:
+                    destination.symlink_to(source, target_is_directory=source.is_dir())
+
+    def intermediate_roots(self, repo):
+        """Whole-source decoding has its own producer identity, independent of tile geometry."""
+        base = repo / 'pipeline/turku3d'
+        result = {}
+        for name, sources in RAW_CACHES.items():
+            paths = [base / 'config.py', *(base / p for p in sources)]
+            if all(p.exists() for p in paths):
+                digest = hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
+                result[name] = self.root / 'cache/raw-derived' / name / digest
+        return result
+
+    def mount_intermediates(self, repo, work):
+        cache = work / 'cache'
+        cache.mkdir(parents=True, exist_ok=True)
+        with self.lock:
+            for name, shared in self.intermediate_roots(repo).items():
+                shared.mkdir(parents=True, exist_ok=True)
+                shared.touch()
+                local = cache / name
+                if not local.exists():
+                    local.symlink_to(shared, target_is_directory=True)
+                # Existing workers can still read a private cache. Keep their directory
+                # stable; new product generations use the shared immutable entries.
+
+    def seed_intermediates(self):
+        """Adopt complete private results using hard links, without touching existing workers."""
+        with self.adoption_lock:
+            with self.lock:
+                generations = {}
+                for snapshot in (self.root / 'revisions').glob('*/revision.json'):
+                    meta = read_json(snapshot, {})
+                    generations.setdefault(meta.get('generation'), snapshot.parent / 'repo')
+                self.adopting = set(generations) - {None}
+            try:
+                return self._seed_intermediates(generations)
+            finally:
+                with self.lock:
+                    self.adopting.clear()
+
+    @staticmethod
+    def validate_shards(directory):
+        manifest = read_json(directory / 'MANIFEST.json')
+        if not manifest or not isinstance(manifest.get('counts'), dict):
+            raise RuntimeError('invalid decoded lidar manifest')
+        expected = [('xyz', '<f8', (3,)), ('classification', '|u1'), ('return_number', '|u1'),
+                    ('number_of_returns', '|u1'), ('intensity', '<u2')]
+        files = [directory / 'MANIFEST.json']
+        for cell, count in manifest['counts'].items():
+            if not re.fullmatch(r'c_-?\d+_-?\d+', cell) or not isinstance(count, int) or count < 0:
+                raise RuntimeError('invalid decoded lidar cell')
+            path = directory / (cell + '.npy')
+            with path.open('rb') as stream:
+                if stream.read(6) != b'\x93NUMPY':
+                    raise RuntimeError('invalid decoded lidar array')
+                version = stream.read(2)
+                size = 2 if version == b'\x01\x00' else 4 if version in (b'\x02\x00', b'\x03\x00') else 0
+                if not size:
+                    raise RuntimeError('unknown decoded lidar array format')
+                length = int.from_bytes(stream.read(size), 'little')
+                if length > 65536:
+                    raise RuntimeError('oversized decoded lidar header')
+                header = ast.literal_eval(stream.read(length).decode())
+                if (header.get('shape') != (count,) or header.get('descr') != expected
+                        or header.get('fortran_order') is not False
+                        or path.stat().st_size != stream.tell() + count * 29):
+                    raise RuntimeError('incomplete decoded lidar shard')
+            files.append(path)
+        return files
+
+    def _seed_intermediates(self, generations):
+        linked = 0
+        for generation, repo in generations.items():
+            if not generation:
+                continue
+            for name, shared in self.intermediate_roots(repo).items():
+                local = self.output(generation) / 'work/cache' / name
+                if not local.exists() or local.is_symlink():
+                    continue
+                if name == 'lidar':
+                    # A source directory is published atomically only after its manifest.
+                    for manifest in (local / 'sources').glob('*/MANIFEST.json'):
+                        destination = shared / 'sources' / manifest.parent.name
+                        with file_lock(destination.with_suffix('.lock')):
+                            if (destination / 'MANIFEST.json').exists():
+                                continue
+                            temporary = Path(tempfile.mkdtemp(prefix='.seed-', dir=destination.parent))
+                            try:
+                                for source in self.validate_shards(manifest.parent):
+                                    os.link(source, temporary / source.name)
+                                self.validate_shards(temporary)
+                                temporary.rename(destination)
+                                linked += len(list(destination.iterdir()))
+                            finally:
+                                if temporary.exists():
+                                    shutil.rmtree(temporary)
+                    files = list((local / 'crops').glob('*.npy'))
+                else:
+                    files = list(local.glob('*.npz' if name == 'vegetation' else '*.class6.npy'))
+                for source in files:
+                    if source.name.startswith('.') or '.tmp.' in source.name:
+                        continue
+                    target = shared / source.relative_to(local)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        os.link(source, target)
+                        linked += 1
+                    except FileExistsError:
+                        pass
+        self.event('intermediates-adopted', files=linked)
+        return linked
+
     def make_room(self, target):
         """Evict unused generations then cache LRU. Never touch another loop's directories.
 
-        Active jobs pin all shared intermediates. Cache eviction happens between jobs only,
-        so an open stage lock or file cannot be unlinked underneath a builder.
+        Requested tiles pin their intermediates. Other old entries can be reclaimed while
+        workers run; their content-key locks protect concurrent readers and writers.
         """
         if self.free() >= target:
             return True
         pinned = {g for g, _ in self.jobs}
+        pinned.update(self.adopting)
         revisions = set(self.aliases.values()) | set(self.jobs.values())
         pinned.update(self.revision(rev)['generation'] for rev in revisions)
         for rev in list(revisions):
@@ -426,13 +693,47 @@ class Farm:
                     shutil.rmtree(snapshot)
             if self.free() >= target:
                 return True
+        cache = self.root / 'cache'
+        wanted_tiles = {tile for _, tile in self.jobs}
+        files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
+                        if p.relative_to(cache).parts[1] not in wanted_tiles),
+                       key=lambda p: p.stat().st_mtime)
+        for path in files:
+            try:
+                if time.time() - path.stat().st_mtime < self.grace_seconds:
+                    continue
+                with path.with_suffix('.lock').open('a') as lock:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    stat = path.stat()
+                    if time.time() - stat.st_mtime < self.grace_seconds:
+                        continue
+                    path.unlink()
+                    self.metrics['evicted_bytes'] += stat.st_size
+                    self.event('cache-evicted', path=str(path.relative_to(cache)), bytes=stat.st_size)
+            except FileNotFoundError:
+                continue
+            if self.free() >= target:
+                return True
+        # Texture encoders also maintain their own bounded cache. Reclaim additional
+        # old encodes only when no farm package can still be using the returned paths.
         if not self.jobs:
-            files = sorted((p for p in (self.root / 'cache').rglob('*')
-                            if p.is_file() and p.suffix in ('.pkl', '.ktx2', '.png', '.rgb')),
-                           key=lambda p: p.stat().st_mtime)
-            for path in files:
+            for path in sorted((cache / 'textures').glob('*'), key=lambda p: p.stat().st_mtime):
+                if path.suffix not in ('.ktx2', '.png', '.rgb') or time.time() - path.stat().st_mtime < self.grace_seconds:
+                    continue
                 self.metrics['evicted_bytes'] += path.stat().st_size
                 path.unlink()
+                if self.free() >= target:
+                    return True
+            for path in ([] if self.adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
+                if time.time() - path.stat().st_mtime < self.grace_seconds:
+                    continue
+                size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
+                shutil.rmtree(path)
+                self.metrics['evicted_bytes'] += size
+                self.event('raw-cache-evicted', path=str(path.relative_to(cache)), bytes=size)
                 if self.free() >= target:
                     return True
         return self.free() >= target
@@ -457,12 +758,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            if self.path != '/register':
+            if self.path not in ('/register', '/limits', '/cancel', '/seed'):
                 return self.json(404, dict(error='unknown endpoint'))
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 4096:
                 raise ValueError('invalid body size')
             body = json.loads(self.rfile.read(size))
+            if self.path == '/seed':
+                return self.json(200, dict(linked=self.server.farm.seed_intermediates()))
+            if self.path == '/cancel':
+                return self.json(200, self.server.farm.cancel(body['revision'], body['tiles']))
+            if self.path == '/limits':
+                workers = body.get('workers')
+                if not isinstance(workers, int) or not 1 <= workers <= 4:
+                    raise ValueError('worker cap must be 1..4')
+                farm = self.server.farm
+                with farm.lock:
+                    farm.workers = workers
+                    farm.pump()
+                    farm.event('worker-cap', workers=workers)
+                return self.json(200, farm.status())
             self.json(200, self.server.farm.register(body['revision'], body.get('alias'), body.get('source_version')))
         except (ValueError, KeyError) as error:
             self.json(400, dict(error=str(error)))
@@ -489,6 +804,10 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError('invalid path')
         if parts == ['health'] or parts == ['status']:
             return self.json(200, farm.status())
+        if len(parts) >= 4 and parts[0] == 'v' and parts[2] == 'coarse':
+            root = farm.fallback_roots().get(parts[1])
+            if root is not None:
+                return self.file(root, parts[3:])
         # /v/<commit-or-alias>/coarse/<path> supports the existing game's URL layout.
         if len(parts) < 4 or parts[0] != 'v' or parts[2] != 'coarse':
             return self.json(404, dict(error='use /v/<revision-or-alias>/coarse/'))
@@ -507,29 +826,38 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             distance = max(0, min(100000, float(query['d'][0]))) if 'd' in query else None
             status, value = farm.request(revision, rel[0], distance)
-            if status != 200:
-                return self.json(status, value)
-            manifest = read_json(farm.output(meta['generation']) / rel[0] / 'manifest.json')
+            stale = status != 200
+            provenance = dict(revision=revision, generation=meta['generation'], source_kind='requested')
+            prefix = f'/v/{revision}/coarse/{rel[0]}/'
+            if stale:
+                retained = farm.retained(rel[0])
+                if retained is None:
+                    return self.json(status, value)
+                manifest, prefix, provenance = retained
+            else:
+                manifest = read_json(farm.output(meta['generation']) / rel[0] / 'manifest.json')
             value = {k: manifest[k] for k in PUBLIC if k in manifest}
-            # Absolute revision URLs survive alias changes and reach the same shared assets.
             def pin(obj):
                 if isinstance(obj, dict):
-                    return {k: (f'/v/{revision}/coarse/{rel[0]}/' + v if k == 'url' and isinstance(v, str)
+                    return {k: (prefix + v if k == 'url' and isinstance(v, str)
                                 else pin(v)) for k, v in obj.items()}
                 if isinstance(obj, list):
                     return [pin(v) for v in obj]
                 return obj
             value = pin(value)
-            value.update(revision=revision, generation=meta['generation'], stale=False)
+            value.update(**provenance, requested_revision=revision, stale=stale)
             return self.json(200, value)
-        root = farm.output(meta['generation'])
+        return self.file(farm.output(meta['generation']), rel)
+
+    def file(self, root, rel):
         path = (root / Path(*rel)).resolve()
         if not path.is_relative_to(root.resolve()) or not path.is_file() or any(p.startswith('.') for p in rel):
             return self.json(404, dict(error='payload not found'))
         if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
             return self.json(404, dict(error='payload not public'))
         with path.open('rb') as source:
-            root.touch()  # Keep a grace lease for old in-flight payloads after aliases move.
+            if root.is_relative_to(self.server.farm.root / 'products'):
+                root.touch()  # Old in-flight payload lease after aliases move.
             self.send_response(200)
             self.send_header('Content-Type', mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
             self.send_header('Content-Length', str(os.fstat(source.fileno()).st_size))

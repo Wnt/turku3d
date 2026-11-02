@@ -88,7 +88,9 @@ const SEED = { birch: 11, linden: 23, maple: 31, oak: 47, rowan: 53, willow: 61,
 /** Two seeded variants per species (`tree_birch`, `tree_birch_v2`): neighbouring trees of one species differ. */
 const VARIANTS = 2, variantName = (base, v) => v ? `${base}_v${v + 1}` : base;
 for (const [i, name] of TREES.entries()) for (let v = 0; v < VARIANTS; v++) {
-  const sp = SPECIES[name], seed = SEED[name] + 1000 * v, sk = skeleton(name, seed), index = i * VARIANTS + v;
+  // Mature spruce exposes its drooping scaffold; smaller cards avoid solid triangular shelves.
+  const sp = name === 'spruce' ? { ...SPECIES[name], crownBase: v ? .20 : .15, card: .85, flatCards: .10 } : SPECIES[name];
+  const seed = SEED[name] + 1000 * v, sk = skeleton(name, seed, sp), index = i * VARIANTS + v;
   const lod0 = meshTree(sk, sp, 0, seed), lod1 = meshTree(sk, sp, 1, seed);
   const { R, top } = radialExtent([lod0.bark, lod0.leaves]);
   bakeImpostor(index, [{ mesh: lod0.bark, texture: bark.albedo, cutout: false }, { mesh: lod0.leaves, texture: foliage.atlas, cutout: true }], R, top);
@@ -110,7 +112,8 @@ for (const name of SHRUBS) for (let v = 0; v < VARIANTS; v++) {
 }
 for (const kind of ['grass', 'lawn', 'meadow', 'rosette']) {
   const c = clump(kind, 140 + kind.length);
-  assets.push({ name: kind === 'rosette' ? 'groundcover_rosette' : `grass_${kind === 'grass' ? 'clump' : kind === 'lawn' ? 'lawn' : 'meadow'}`, kind: 'grass', height: c.height, radius: c.radius, lods: [{ leaves: c.leaves }] });
+  const footprint = radialExtent([c.leaves]);
+  assets.push({ name: kind === 'rosette' ? 'groundcover_rosette' : `grass_${kind === 'grass' ? 'clump' : kind === 'lawn' ? 'lawn' : 'meadow'}`, kind: 'grass', height: footprint.top, radius: Math.ceil(footprint.R * 100) / 100, lods: [{ leaves: c.leaves }] });
 }
 
 // ------------------------------------------------------------------ fence kit (modelled in Blender through MCP)

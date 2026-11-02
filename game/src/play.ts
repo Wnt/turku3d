@@ -489,6 +489,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       }
       traffic.update(now, camera, st);
       audio.emit({ type: 'traffic', ...traffic.audible(camera.position, TRAFFIC_VOICES) });
+      parkedVisuals.setView(camera, world.dayClock.night);
       parkedVisuals.update(st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
@@ -621,6 +622,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       remotePlayers.dispose();
       tyreEffects.dispose();
       walkers.dispose();
+      parkedVisuals.dispose();
       poles.dispose();
       scoreboard.dispose(); rounds.dispose();
       listeners.abort();
