@@ -76,7 +76,7 @@ export class DriveCapture {
       this.rows.stats.push({ t: R(t, 1), heap: (performance as any).memory?.usedJSHeapSize ?? null, geometries: m.geometries, textures: m.textures,
         visModels: s.visModels, visTris: s.visTris, tilesSettled: s.tilesSettled, frameEma: R(s.frameMs, 2),
         coarse: coarse?.entries ? [...coarse.entries.values()].reduce((o: Host, e: any) => (o[e.state] = (o[e.state] ?? 0) + 1, o), {}) : null,
-        pixelRatio: r.renderer.getPixelRatio(), viewport: [innerWidth, innerHeight] });
+        pixelRatio: r.renderer.getPixelRatio(), viewport: this.meta.viewport });
     }
   }
   private startProfiler() {
