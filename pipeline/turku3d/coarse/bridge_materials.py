@@ -109,7 +109,9 @@ def maps(surface):
     height, color, orm = fields(surface)
     dx = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * SIZE / (2 * METRES)
     dy = (np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * SIZE / (2 * METRES)
-    normal = np.stack([-dx, -dy, np.ones_like(dx)], axis=-1)
+    # GLTFLoader flips normalScale.y for derivative tangents. Image rows and
+    # our metric UVs both increase downward, so encode the compensating green.
+    normal = np.stack([-dx, dy, np.ones_like(dx)], axis=-1)
     normal /= np.linalg.norm(normal, axis=-1)[..., None]
     return dict(image=_png(color), normal_image=_png(np.uint8((normal * .5 + .5) * 255)),
                 orm_image=_png(orm))

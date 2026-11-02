@@ -67,3 +67,39 @@ def test_stairs_and_quay_vaults_use_the_same_pbr_export():
     for visual in (stair, vault):
         assert visual.image and visual.normal_image and visual.orm_image
         assert np.allclose(visual.uvs, mesh.uvs / material.METRES)
+
+
+def test_normal_green_compensates_loader_derivative_tangents(monkeypatch):
+    size = material.SIZE
+    y, x = np.mgrid[:size, :size] * material.METRES / size
+    height = .001 * np.sin(x * np.pi) + .002 * np.cos(y * np.pi)
+    monkeypatch.setattr(material, 'fields', lambda _: (height, np.full((size, size, 3), 128, np.uint8),
+                                                       np.zeros((size, size, 3), np.uint8)))
+    material.maps.cache_clear()
+    normal = np.asarray(Image.open(BytesIO(material.maps('probe')['normal_image']))).astype(float) / 127.5 - 1
+    # Loader uses normalScale=(1,-1) for this export (no TANGENT accessor).
+    normal[..., 1] *= -1
+    dx = np.roll(height, -1, 1) - np.roll(height, 1, 1)
+    dy = np.roll(height, -1, 0) - np.roll(height, 1, 0)
+    assert np.sum(normal[..., 0] * dx) < 0
+    assert np.sum(normal[..., 1] * dy) < 0
+    material.maps.cache_clear()
+
+
+def test_library_asphalt_keeps_metric_uvs_before_packager_transform(tmp_path):
+    from turku3d.coarse.bridge_kit import tapered_post
+    from turku3d.coarse.bridges import visual
+
+    mesh = tapered_post('road', [10, 5, 10], [1, 0], [(0, 2, 2), (.2, 2, 2)], 'asphalt')
+    visual([SimpleNamespace(meshes=[mesh])], C.VisualTile(0, 0, 0), tmp_path, [])
+    data = (tmp_path / 'bridges.vis.glb').read_bytes()
+    length = struct.unpack_from('<I', data, 12)[0]
+    gltf = json.loads(data[20:20 + length])
+    prim = gltf['meshes'][0]['primitives'][0]
+    accessor = gltf['accessors'][prim['attributes']['TEXCOORD_0']]
+    view = gltf['bufferViews'][accessor['bufferView']]
+    offset = 28 + length + view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
+    uvs = np.frombuffer(data, dtype='<f4', count=accessor['count'] * 2, offset=offset).reshape(-1, 2)
+    # Shared ground_asphalt adds the library's 0.5 repeat transform at packaging.
+    assert np.allclose(uvs, mesh.uvs)
+    assert any(n.get('extras', {}).get('material_key') == 'ground_asphalt' for n in gltf['nodes'])

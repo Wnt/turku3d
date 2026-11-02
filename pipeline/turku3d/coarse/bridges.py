@@ -707,7 +707,7 @@ def visual(decks, tile, stage, layer_files):
                 m.object_id,
                 m.positions - tile.origin,
                 m.indices,
-                uvs=m.uvs / METRES,
+                uvs=m.uvs if m.metadata.get("surface") == "asphalt" else m.uvs / METRES,
                 **maps(m.metadata.get("surface", "concrete")),
                 color=(1, 1, 1, 1),
                 repeat=True,
