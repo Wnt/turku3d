@@ -17,7 +17,7 @@ const types: [BodyType, string, string, number, number, number, number, number, 
   ['suv', 'Vaara', 'suv', 4.53, 1.90, 1.72, 2.68, .25, -.42],
   ['mpv', 'Perhe', 'van', 4.59, 1.85, 1.78, 2.77, .30, -.43],
   ['van', 'Kuorma', 'van', 5.03, 1.98, 2.08, 3.02, .35, -.46],
-  ['pickup', 'Louhi', 'suv', 5.15, 1.94, 1.81, 3.10, .25, -.06],
+  ['pickup', 'Louhi', 'suv', 5.15, 1.94, 1.81, 3.10, .25, -.17],
   ['classic', 'Muisto', 'sedan', 4.44, 1.76, 1.43, 2.61, .19, -.26],
 ];
 export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, l, w, h, wb, hood, rear], t) =>
@@ -41,8 +41,8 @@ export function fleetHash(value: string): number {
 export function fleetModel(model: string, seed: string): FleetModel {
   const exact = FLEET_BY_ID.get(model);
   if (exact) return exact;
-  const family = model === 'suv-luxury' ? 'suv' : model;
-  const choices = FLEET.filter(m => model === 'sedan-sports' ? m.body === 'classic' : m.family === family);
+  const family = model === 'suv-luxury' ? 'suv' : model === 'sedan-sports' ? 'sedan' : model;
+  const choices = FLEET.filter(m => m.family === family);
   if(!choices.length)return FLEET[fleetHash(seed)%FLEET.length];
   const weight=(m:FleetModel)=>m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1;
   let pick=fleetHash(seed)/4294967296*choices.reduce((s,m)=>s+weight(m),0);

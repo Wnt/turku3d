@@ -136,13 +136,15 @@ export class ParkedCarVisuals {
       const def=this.definitions.get(car.object_id)!;
       this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot});
     }
+    const moving=new Set<string>();
     for(let i=0;i<this.traffic.length;i++) {
       const car=this.traffic[i], id=car.seed??`${car.model}/${i}`;
-      const key=car.model+'/'+id;
+      moving.add(id);const key=car.model+'/'+id;
       let model=this.variants.get(key);
       if(!model){model=fleetAppearance(car.model,id);if(this.variants.size>512)this.variants.clear();this.variants.set(key,model);}
       this.draw({id,model,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
     }
+    for(const id of this.transforms.keys())if(!this.definitions.has(id)&&!moving.has(id))this.transforms.delete(id);
     for(const b of this.groups.values()) {
       const changedCount=b.mesh.count!==b.count;
       b.mesh.count=b.count;b.mesh.visible=b.count>0;

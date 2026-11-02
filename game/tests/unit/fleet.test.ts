@@ -83,3 +83,18 @@ test('traffic lamps distinguish powered, turn and brake state without re-gating 
   expect(lampState(false)).toEqual([0,0,0,0]);expect(lampState(true,-1,true)).toEqual([1,1,0,1]);
   expect(lampState(true,1,false)).toEqual([1,0,1,0]);
 });
+
+test('stationary transforms remain untouched and a moving tail uploads only its changed range',async()=>{
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  const model=fleetAppearance('fleet-estate-0','shared');
+  manifest.vehicles=[{object_id:'parked',model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,...FLEET_SIZE.sedan,clear_front_m:5,clear_rear_m:5}];
+  visuals.reserveTraffic(1);await visuals.load(manifest);
+  const rest={restingPose:()=>({pos:{x:0,y:.75,z:0},rot:{x:0,y:0,z:0,w:1}})};
+  const moving={seed:'traffic-source',model:model.id,color:'black',x:2,y:.75,z:0,q:{x:0,y:0,z:0,w:1}};
+  visuals.setTraffic([moving]);visuals.update([],rest);
+  const batch=scene.getObjectByName(`parked/${model.id}/0`) as THREE.InstancedMesh;
+  const version=batch.instanceMatrix.version;batch.instanceMatrix.clearUpdateRanges();
+  visuals.update([],rest);expect(batch.instanceMatrix.version).toBe(version);expect(batch.instanceMatrix.updateRanges).toEqual([]);
+  moving.x=3;visuals.update([],rest);expect(batch.instanceMatrix.version).toBe(version+1);
+  expect(batch.instanceMatrix.updateRanges).toEqual([{start:16,count:16}]);visuals.dispose();
+});
