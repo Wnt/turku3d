@@ -32,3 +32,13 @@ test('reflection-layer models remain available to the mirrored camera', () => {
   mesh.layers.enable(REFLECTION_LAYER); model.add(mesh); model.position.z = -1000;
   cull.follow(camera, new THREE.Fog(0, 100, 450)); expect(cull.visible(model)).toBe(true);
 });
+
+test('shadow casters and materials outside opaque fog keep their pass contribution', () => {
+  const cull = new SceneryFog(); cull.follow(new THREE.PerspectiveCamera(), new THREE.Fog(0, 100, 450));
+  for (const kind of ['shadow', 'fog-opt-out', 'transparent']) {
+    const material = new THREE.MeshBasicMaterial({ fog: kind !== 'fog-opt-out', transparent: kind === 'transparent' });
+    const model = new THREE.Mesh(new THREE.BoxGeometry(100, 100, 100), material);
+    model.position.z = -1000; model.castShadow = kind === 'shadow';
+    expect(cull.visible(model)).toBe(true);
+  }
+});

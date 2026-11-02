@@ -8,9 +8,9 @@ export function nearestFogDepth(box: THREE.Box3, eye: THREE.Vector3, forward: TH
     + (forward.z >= 0 ? box.min.z - eye.z : box.max.z - eye.z) * forward.z;
 }
 
-/** Static scenery only. Keep reflected surfaces: their mirrored view depth can be shorter. */
+/** Static opaque scenery only. Reflections, shadow casters and fog opt-outs retain their other-pass work. */
 export class SceneryFog {
-  private bounds = new WeakMap<THREE.Object3D, { box: THREE.Box3; reflected: boolean }>();
+  private bounds = new WeakMap<THREE.Object3D, { box: THREE.Box3; retained: boolean }>();
   private eye = new THREE.Vector3();
   private forward = new THREE.Vector3();
   private far = Infinity;
@@ -25,13 +25,17 @@ export class SceneryFog {
     if (!Number.isFinite(this.far)) return true;
     let entry = this.bounds.get(model);
     if (!entry) {
-      let reflected = false;
+      let retained = false;
       model.traverse(object => {
-        if ((object as THREE.Mesh).isMesh && object.layers.isEnabled(REFLECTION_LAYER)) reflected = true;
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        retained ||= mesh.castShadow || mesh.layers.isEnabled(REFLECTION_LAYER)
+          || materials.some(material => (material as THREE.Material & { fog?: boolean }).fog === false || material.transparent);
       });
-      entry = { box: new THREE.Box3().setFromObject(model), reflected };
+      entry = { box: new THREE.Box3().setFromObject(model), retained };
       this.bounds.set(model, entry);
     }
-    return entry.reflected || entry.box.isEmpty() || nearestFogDepth(entry.box, this.eye, this.forward) <= this.far;
+    return entry.retained || entry.box.isEmpty() || nearestFogDepth(entry.box, this.eye, this.forward) <= this.far;
   }
 }
