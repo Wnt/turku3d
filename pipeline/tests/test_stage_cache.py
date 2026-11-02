@@ -388,3 +388,40 @@ def test_shared_source_hashes_reuse_across_revisions_and_detect_same_size_edits(
     os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     assert identities({'source': source}) != first
     assert len(calls) == 2
+
+
+def test_ground_producer_identity_ignores_cache_telemetry_but_tracks_interpolation(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs
+    from turku3d.coarse.input_keys import producer_code
+    before = producer_code('ground')
+    original = Path.read_bytes
+    source = Path(inputs.__file__)
+    def telemetry(path):
+        data = original(path)
+        return data + b'\n# extra cache metrics\n' if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', telemetry)
+    assert producer_code('ground') == before
+    def geometry(path):
+        data = original(path)
+        return data.replace(b'h[missing] = points[nearest, 1]', b'h[missing] = points[nearest, 1] + 0.01') if path == source else data
+    monkeypatch.setattr(Path, 'read_bytes', geometry)
+    assert producer_code('ground') != before
+
+
+def test_building_layer_uses_mesh_content_not_upstream_producer_key(tmp_path):
+    from turku3d import config as C
+    from turku3d.package.gltf import GlbMesh
+    from turku3d.wall_assembly import assemble_layers
+    tile = C.VisualTile(0, 0, 0)
+    cache = StageCache(tmp_path / '.stages' / tile.id)
+    out = tmp_path / tile.id
+    stage = out / '.stage'
+    stage.mkdir(parents=True)
+    for producer in ('one', 'two'):
+        cache.metrics['building_visual'] = {'key': producer}
+        mesh = GlbMesh('wall', np.array([[0., 0, 0], [10, 0, 0], [0, 10, 0]]),
+                       np.array([[0, 1, 2]]), extras={'building_id': 'building', 'layer': 'buildings',
+                                                       'object_id': 'wall', 'material_key': 'plaster'})
+        assemble_layers(tile, [], [mesh], [], out, stage, cache)
+        assert cache.metrics['building_layer']['cached'] == (producer == 'two')

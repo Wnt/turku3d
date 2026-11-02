@@ -448,10 +448,12 @@ class Sources:
         )
         h = hashlib.sha256(b"osm" if osm else b"no-osm")
         from .roofs import lidar_paths
+        from .street_survey import source_paths as street_survey_paths
 
         paths = [
             *laz,
             *lidar_paths(tile),
+            *street_survey_paths(tile),
             *imagery,
             *(p for _, p in wfs if p),
             *(p for p in registers if p),

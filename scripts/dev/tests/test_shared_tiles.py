@@ -34,7 +34,7 @@ def fake_build(_revision, tile, root):
 class FarmTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.farms = []
         for rev, gen in ((REV, GEN), (REV2, GEN2)):
             farm_module.atomic_json(self.root / 'revisions' / rev / 'revision.json',
@@ -42,12 +42,13 @@ class FarmTests(unittest.TestCase):
 
     def tearDown(self):
         for farm in self.farms:
-            farm.pool.shutdown(wait=True)
+            farm.close()
         self.temp.cleanup()
 
     def farm(self, **kw):
         farm = farm_module.Farm(self.root, self.root / 'run.sh', execute=kw.pop('execute', fake_build),
-                                free=kw.pop('free', lambda: 100 * farm_module.GIB), **kw)
+                                free=kw.pop('free', lambda: 100 * farm_module.GIB),
+                                grace_seconds=kw.pop('grace_seconds', 0), **kw)
         self.farms.append(farm)
         return farm
 
@@ -113,6 +114,65 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(farm.output(GEN2).exists())
         self.assertEqual(farm.request(REV, 't0_1_0')[0], 507)
         self.assertFalse(farm.jobs)
+
+    def test_explicit_candidate_precedes_background_from_another_revision(self):
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+        def build(revision, tile, root):
+            calls.append((revision, tile))
+            if len(calls) == 1:
+                entered.set()
+                release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0', 0)
+        self.assertTrue(entered.wait(2))
+        farm.request(REV, 't0_1_0', 500)
+        farm.request(REV2, 't0_2_0')
+        release.set()
+        self.wait(farm)
+        self.assertEqual(calls, [(REV, 't0_0_0'), (REV2, 't0_2_0'), (REV, 't0_1_0')])
+
+    def test_pending_requests_resume_after_restart(self):
+        row = dict(revision=REV, generation=GEN, tile='t0_0_0', requested=time.time(),
+                   seen=time.time(), distance=0, explicit=True)
+        farm_module.atomic_json(self.root / 'pending.json', [row])
+        farm = self.farm()
+        self.wait(farm)
+        self.assertEqual(farm.request(REV, 't0_0_0')[0], 200)
+        self.assertEqual(farm.metrics['builds'], 1)
+
+    def test_recent_unpinned_payloads_get_a_grace_lease(self):
+        farm = self.farm(grace_seconds=900)
+        fake_build(REV, 't0_0_0', farm.output(GEN))
+        farm.free = lambda: 24 * farm_module.GIB
+        self.assertFalse(farm.make_room(27 * farm_module.GIB))
+        self.assertTrue(farm.output(GEN).exists())
+        import os
+        os.utime(farm.output(GEN), (time.time() - 901, time.time() - 901))
+        farm.make_room(27 * farm_module.GIB)
+        self.assertFalse(farm.output(GEN).exists())
+
+    def test_source_overlay_registration_pins_data_without_retargeting_old_revision(self):
+        farm = self.farm()
+        source = 'e' * 64
+        farm_module.atomic_json(self.root / 'sources/versions' / source / 'source-version.json',
+                                dict(version=source, files={}))
+        farm.register(REV, 'integration')
+        result = farm.register(REV, 'integration', source)
+        self.assertNotEqual(result['revision'], REV)
+        self.assertNotEqual(result['generation'], GEN)
+        self.assertEqual(result['commit'], REV)
+        self.assertEqual(farm.revision(REV)['generation'], GEN)
+        self.assertEqual(farm.resolve('integration'), result['revision'])
+        self.assertEqual(farm.revision(result['revision'])['data_root'],
+                         str(self.root / 'sources/versions' / source))
+        self.assertEqual(farm.register(REV, 'integration', source), result)
+        fake_build(REV, 't0_0_0', farm.output(GEN))
+        farm.free = lambda: 24 * farm_module.GIB
+        farm.make_room(27 * farm_module.GIB)
+        self.assertFalse(farm.output(GEN).exists())
+        self.assertTrue((self.root / 'revisions' / REV / 'revision.json').exists())
 
     def test_http_pins_manifest_urls_and_serves_both_revisions(self):
         farm = self.farm()
