@@ -1,0 +1,110 @@
+{
+  "assetBase": "/assets/cars/rav4-xa50",
+  "fleet": {
+    "id": "rav4-xa50",
+    "name": "Vire Ranta H4",
+    "body": "suv",
+    "family": "suv",
+    "length": 4.6,
+    "width": 1.855,
+    "height": 1.685,
+    "wheelbase": 2.69,
+    "hood": 0.25,
+    "rear": -0.08,
+    "taper": 0.84,
+    "wheel": 0.3636,
+    "belt": 1.1,
+    "face": 2,
+    "accessory": "none",
+    "age": 0.12
+  },
+  "id": "rav4-xa50",
+  "wheels": {
+    "radius": 0.3636,
+    "width": 0.225,
+    "pivots": {
+      "wheel_FL": [
+        -0.805,
+        0.3636,
+        1.39
+      ],
+      "wheel_FR": [
+        0.805,
+        0.3636,
+        1.39
+      ],
+      "wheel_RL": [
+        -0.82,
+        0.3636,
+        -1.3
+      ],
+      "wheel_RR": [
+        0.82,
+        0.3636,
+        -1.3
+      ]
+    }
+  },
+  "triangles": [
+    37994,
+    9497,
+    1845
+  ],
+  "spec": {
+    "id": "rav4-xa50",
+    "fictionalName": "Vire Ranta H4",
+    "referenceModel": "Toyota RAV4 XA50 2.5 Hybrid AWD-i",
+    "modelYear": 2020,
+    "massKg": 1650,
+    "lengthM": 4.6,
+    "widthM": 1.855,
+    "heightM": 1.685,
+    "wheelbaseM": 2.69,
+    "trackFrontM": 1.61,
+    "trackRearM": 1.64,
+    "tyreSize": "225/60R18",
+    "wheelRadiusM": 0.3636,
+    "wheelWidthM": 0.225,
+    "rideHeightM": 0.195,
+    "powerKw": 163,
+    "torqueNm": 221,
+    "drivetrain": "AWD",
+    "fuel": "petrol-hybrid",
+    "turningCircleM": 11,
+    "drivingCharacter": "Comfortable tall hybrid with prompt electric assistance, mild front-led understeer and measured body roll.",
+    "sources": [
+      {
+        "url": "https://media.toyota.co.uk/wp-content/uploads/sites/5/pdf/241127-RAV4-Tech-Specs.pdf",
+        "fields": "dimensions, masses, axle tracks, tyres, power, engine torque, acceleration, speed, turning radius",
+        "notes": "Manufacturer UK XA50 hybrid specification; minimum AWD-i kerb mass selected. 221 Nm is combustion-engine torque, not summed hybrid system torque; front/rear motors separately 202/121 Nm. Turning circle derived as twice tyre turning radius. Ride height uses published ground clearance."
+      }
+    ],
+    "wheelNodes": [
+      "wheel_FL",
+      "wheel_FR",
+      "wheel_RL",
+      "wheel_RR"
+    ],
+    "referenceObservations": {
+      "silhouette": "Flat roof between axles; windshield begins behind front axle; upright rear hatch, rising beltline.",
+      "arches": "Angular trapezoid black cladding, almost-flat top above circular tyre.",
+      "front": "Narrow swept headlamps sit above broad trapezoidal grille; separate vertical fog recesses.",
+      "side": "Heavy rear D pillar; narrow black B/C pillars; high-set mirrors; dark rocker and roof rails.",
+      "source": "2019 Toyota Europe launch photos; perspective views, not calibrated orthographic drawings."
+    },
+    "status": "owner-approved",
+    "lampContract": "lamp-front-left/right and lamp-tail-left/right",
+    "minutes": null,
+    "zeroTo100Seconds": 8.1,
+    "topSpeedKmh": 180,
+    "gearCount": 1,
+    "transmissionNote": "Power-split hybrid e-CVT; single effective ratio in runtime profile.",
+    "approval": "Jonni explicitly requested inclusion on2026-11-02; no new visual judgement required."
+  },
+  "accepted": true,
+  "approval": {
+    "by": "Jonni",
+    "date": "2026-11-02",
+    "basis": "Explicit one-off inclusion request; replaces visual acceptance."
+  }
+}
