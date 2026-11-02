@@ -133,6 +133,28 @@ def gather(record, root, limit=4):
     return result
 
 
+def parameter_schema(value):
+    if isinstance(value, dict):
+        return dict(
+            type="object",
+            properties={k: parameter_schema(v) for k, v in value.items()},
+            required=list(value),
+            additionalProperties=False,
+        )
+    if isinstance(value, list):
+        item = (
+            {"type": "number"}
+            if value and all(isinstance(v, (int, float)) for v in value)
+            else parameter_schema(value[0])
+            if value
+            else {"type": "number"}
+        )
+        return dict(type="array", items=item)
+    if isinstance(value, str):
+        return {"type": "string"}
+    return {"type": "integer" if isinstance(value, int) else "number"}
+
+
 def describe(reference, directory, output, model="gpt-6-astra"):
     from .descriptions import ROOT
 
@@ -156,6 +178,8 @@ def describe(reference, directory, output, model="gpt-6-astra"):
     )
     with tempfile.TemporaryDirectory() as scratch:
         result = Path(scratch) / "description.json"
+        schema = Path(scratch) / "schema.json"
+        schema.write_text(json.dumps(parameter_schema(template)))
         cmd = [
             "codex",
             "exec",
@@ -164,6 +188,8 @@ def describe(reference, directory, output, model="gpt-6-astra"):
             "-s",
             "read-only",
             "--skip-git-repo-check",
+            "--output-schema",
+            str(schema),
             "-C",
             scratch,
             "-o",
@@ -193,6 +219,8 @@ def validate(d, key):
     if d.get("version") != 1 or d.get("building_id") != key:
         raise ValueError("Description identity mismatch")
     for material in ("brick", "stone"):
+        for field in ("colour", "mortar_colour"):
+            d[material][field] = [round(v) for v in d[material][field]]
         for field, count in [("size_m", 2), ("colour", 3), ("mortar_colour", 3)]:
             a = d[material][field]
             if len(a) != count or not all(
@@ -201,6 +229,7 @@ def validate(d, key):
                 raise ValueError(f"Invalid {material}.{field}")
         if not 0 < d[material]["mortar_m"] < min(d[material]["size_m"]):
             raise ValueError("Invalid mortar width")
+    d["trim_colour"] = [round(v) for v in d["trim_colour"]]
     for field in ("width_m", "height_m", "spacing_m"):
         if not 0.1 <= d["windows"][field] <= 30:
             raise ValueError(f"Invalid window {field}")

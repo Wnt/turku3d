@@ -80,3 +80,22 @@ def test_arch_survives_anisotropic_texture_density():
     arch(ImageDraw.Draw(image), (10, 5, 210, 55), (255, 255, 255), False, rise=20)
     assert image.getpixel((110, 6)) == (255, 255, 255)
     assert image.getpixel((10, 5)) == (0, 0, 0)
+
+
+def test_landmark_description_invalidates_only_its_own_tiles(tmp_path, monkeypatch):
+    from turku3d.landmarks import descriptions
+
+    monkeypatch.setattr(descriptions, "ROOT", tmp_path)
+    a = descriptions.fingerprint([["landmark-a", ""]])
+    b = descriptions.fingerprint([["landmark-b", ""]])
+    (tmp_path / "landmark-a.json").write_text(
+        json.dumps(dict(version=1, building_id="landmark-a", colour=[1, 2, 3]))
+    )
+    assert descriptions.fingerprint([["landmark-a", ""]]) != a
+    assert descriptions.fingerprint([["landmark-b", ""]]) == b
+    assert not descriptions.manifest_current(
+        dict(landmark_buildings=[["landmark-a", ""]], landmark_params=a)
+    )
+    assert descriptions.manifest_current(
+        dict(landmark_buildings=[["landmark-b", ""]], landmark_params=b)
+    )

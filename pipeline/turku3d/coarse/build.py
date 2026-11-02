@@ -593,10 +593,14 @@ def build(
         _write(stage / "props.vis.glb", street["glb"])
         layer_files.append(stage / "props.vis.glb")
     from turku3d.facade_programs import source_paths as facade_program_sources
-
+    from turku3d.landmarks.descriptions import (
+        building_refs as landmark_refs,
+    )
+    from turku3d.landmarks.descriptions import (
+        parameter_hash as landmark_hash,
+    )
     from turku3d.landmarks.descriptions import (
         source_paths as landmark_sources,
-        parameter_hash as landmark_hash,
     )
 
     building_meshes = cache.run(
@@ -721,6 +725,8 @@ def build(
             dict(building=b.key, parts=len(b.roof_parts), evidence=b.height_evidence) for b in blds
         ],
         facade_params=facade_params,
+        landmark_buildings=landmark_refs(blds),
+        landmark_params=landmark_hash(blds),
         trees=len(trees),
         poles=len(poles),
         lights=street["lights"],
