@@ -12,9 +12,10 @@ import type * as RAPIER_NS from '@dimforge/rapier3d';
 import { DAY_MS, cycleHour } from '../core/dayCycle';
 import type { V3 } from '../core/origin';
 import { GROUP } from '../shared/col/materials';
-import { CHASSIS_LIFT, MODEL_SIZE, MODEL_WEIGHTS, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS } from '../traffic/constants';
-import { hash01, pick } from '../traffic/hash';
+import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from '../traffic/constants';
+import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
+import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
 import { ClaimSet } from '../traffic/claims';
@@ -25,7 +26,7 @@ import type { Quat, TrafficClaimEvent, TrafficConfig, TrafficTile } from './prot
 type R = typeof RAPIER_NS;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 /** Numbers per car in the published flat array. */
-export const TRAFFIC_STRIDE = 12;
+export { TRAFFIC_STRIDE };
 /** Height samples along a lane (m). */
 const SAMPLE_STEP = 4;
 /** Worker time per physics step for sampling lane surfaces (ms): a long lane is sampled over several steps.
@@ -55,6 +56,7 @@ export interface TrafficHost {
 }
 
 interface ActiveCar {
+  motion: FlowCar;
   handle: number;
   lane: Lane; n: number; key: string;
   model: number; paint: number;
@@ -65,6 +67,7 @@ interface ActiveCar {
 
 export class TrafficSim {
   readonly network = new TrafficNetwork();
+  readonly flow = new TrafficFlow(this.network);
   private config: TrafficConfig = { cap: 0, offsetMs: 0, shared: false, enabled: null, claims: [], density: 1,
     clock: { kind: 'cycle', periodMs: DAY_MS } };
   private active = new Map<number, ActiveCar>();
@@ -122,7 +125,7 @@ export class TrafficSim {
 
   configure(change: Partial<TrafficConfig>) {
     if (change.enabled !== undefined) this.network.setEnabled(change.enabled ? new Set(change.enabled) : null);
-    if (change.claims) this.claims.setRemote(change.claims);
+    if (change.claims) { this.claims.setRemote(change.claims); for (const key of change.claims) this.flow.suppress(key); }
     this.config = { ...this.config, ...change };
     this.network.density!.multiplier = Math.max(0, this.config.density);
     this.resync();
@@ -152,6 +155,7 @@ export class TrafficSim {
   beforeStep(t: number) {
     const t0 = performance.now();
     this.time = t;
+    this.flow.update(t);
     if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; this.stats.active = this.stats.bodies = 0; return; }
     if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) {
       const a0 = performance.now();
@@ -162,18 +166,10 @@ export class TrafficSim {
     const player = this.host.player();
     let bodies = 0;
     for (const car of this.active.values()) {
-      const at = this.network.advance(car.lane, car.n, t);
-      if (!at) { this.deactivate(car); continue; }
-      if (at.lane !== car.lane) {
-        car.lane = at.lane; car.n = at.n;
-        const key = this.network.key(at.lane, at.n);
-        if (key !== car.key) {
-          this.byKey.delete(car.key); car.key = key;
-          if (this.claims.has(key) || this.byKey.has(key)) { this.deactivate(car); continue; }
-          this.byKey.set(key, car);
-        }
-      } else car.n = at.n;
-      this.network.pose(car.lane, car.n, t, this.height, car.pose);
+      const motion = this.flow.cars.get(car.key);
+      if (!motion) { this.deactivate(car); continue; }
+      car.motion = motion; car.lane = motion.lane; car.n = motion.n;
+      interpolateFlowPose(motion, (t - this.flow.tick * FLOW_STEP) / FLOW_STEP, this.height, car.pose);
       const near = player && Number.isFinite(car.pose.y)
         ? Math.hypot(car.pose.x - player.x, car.pose.z - player.z) < (car.body ? RING.bodyOff : RING.bodyOn) : false;
       if (near && !car.body) this.addBody(car);
@@ -236,9 +232,10 @@ export class TrafficSim {
     const yaw = Math.atan2(-car.pose.hz, car.pose.hx);
     const linvel = { x: car.pose.hx * car.pose.speed, y: 0, z: car.pose.hz * car.pose.speed };
     this.claims.addLocal(car.key);
+    this.flow.suppress(car.key);
     this.deactivate(car);
     this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel });
-    this.events.push({ revision: 0, handle, id, key: car.key, model, color: TRAFFIC_PAINTS[car.paint],
+    this.events.push({ revision: 0, handle, id, key: car.key, seed: String(hash32('appearance', car.key)), model, color: TRAFFIC_PAINTS[car.paint],
       size: [w, h, l], pos, rot, linvel });
     this.stats.claims++;
     return id;
@@ -264,8 +261,14 @@ export class TrafficSim {
       const p = car.pose;
       if (!Number.isFinite(p.y)) continue;
       const q = chassisRotation(p);
+      const motion = car.motion, turn = motion.route.connector?.turn ?? 0;
+      const preparing = motion.route.length - motion.s < Math.max(22, p.speed * 3);
+      const signalling = preparing && Math.abs(turn) > 0.5 && Math.floor(this.time * 3) % 2 === 0;
+      const indicator = signalling ? turn < 0 ? -1 : 1 : 0;
+      const braking = motion.previous.speed - motion.speed > 0.04 || motion.speed < 0.2;
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
-        round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed));
+        round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed),
+        hash32('appearance', car.key), indicator, braking ? 1 : 0, round(p.speed));
     }
     return out;
   }
@@ -285,14 +288,13 @@ export class TrafficSim {
     if (!view) return;
     if (this.lastView && Math.hypot(view.x - this.lastView.x, view.z - this.lastView.z) > 150) this.fill = true;
     this.lastView = { ...view };
-    this.claims.follow(t);
     this.stats.hour = this.hourAt(t);
     let deferred = 0;
     for (const car of this.active.values()) {
       if (!this.network.isEnabled(car.lane.tile) || this.claims.has(car.key)) { this.deactivate(car); continue; }
       const d = Math.hypot(car.pose.x - view.x, car.pose.z - view.z);
       car.visible = inView(view, car.pose.x, car.pose.z);
-      const present = this.network.present(car.lane, car.n);
+      const present = this.flow.cars.has(car.key);
       // A car on an emptied slot goes where a new one could appear: out of view, or in view beyond the creation
       // minimum (so a busier chain's cars do not add to the next street's own beyond it).
       if (mustRemove(d, car.visible) || (!present && (!car.visible || this.fill || d > RING.createInViewMin))) this.deactivate(car);
@@ -300,22 +302,23 @@ export class TrafficSim {
     }
     this.stats.deferred = deferred;
     if (this.active.size >= this.config.cap) { this.fill = false; return; }
-    const candidates: { lane: Lane; n: number; d: number; key: string }[] = [];
-    this.network.enumerate(view.x, view.z, RING.createInViewMax, t, (lane, n, x, z) => {
-      const key = this.network.key(lane, n);
-      if (this.byKey.has(key) || this.claims.has(key)) return;
+    const candidates: { motion: FlowCar; lane: Lane; n: number; d: number; key: string }[] = [];
+    for (const motion of this.flow.cars.values()) {
+      const { key, lane, n } = motion;
+      if (this.byKey.has(key) || this.claims.has(key)) continue;
+      const { x, z } = motion.pose;
       const d = Math.hypot(x - view.x, z - view.z);
-      if (!mayCreate(d, inView(view, x, z), this.fill) || !this.host.resident(x, z)) return;
-      candidates.push({ lane, n, d, key });
-    });
+      if (!mayCreate(d, inView(view, x, z), this.fill) || !this.host.resident(x, z)) continue;
+      candidates.push({ motion, lane, n, d, key });
+    }
     candidates.sort((a, b) => a.d - b.d || (a.key < b.key ? -1 : 1));
     for (const c of candidates) {
       if (this.active.size >= this.config.cap) break;
       if (this.byKey.has(c.key)) continue;
-      const car: ActiveCar = { handle: this.nextHandle++, lane: c.lane, n: c.n, key: c.key,
-        model: pick(hash01('model', c.key), MODEL_WEIGHTS), paint: pick(hash01('paint', c.key), PAINT_WEIGHTS),
+      const car: ActiveCar = { motion: c.motion, handle: this.nextHandle++, lane: c.lane, n: c.n, key: c.key,
+        model: c.motion.model, paint: pick(hash01('paint', c.key), PAINT_WEIGHTS),
         pose: blankPose(), body: null, visible: false };
-      this.network.pose(car.lane, car.n, t, this.height, car.pose);
+      interpolateFlowPose(car.motion, (t - this.flow.tick * FLOW_STEP) / FLOW_STEP, this.height, car.pose);
       this.active.set(car.handle, car); this.byKey.set(car.key, car);
     }
     this.fill = false;

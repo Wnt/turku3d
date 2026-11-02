@@ -13,10 +13,10 @@ import type { Entry } from '../world/coarseContracts';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
 import { DAY_MS } from '../core/dayCycle';
-import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS } from './constants';
+import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
 import { enabledTiles, roadHash } from './gate';
 
-const STRIDE = 12;
+const STRIDE = TRAFFIC_STRIDE;
 const SYNC_MS = 250;
 /** Entering a moving car: the claim must arrive within this long. */
 const CLAIM_TIMEOUT_MS = 1500;
@@ -186,8 +186,6 @@ export class TrafficClient {
   /** Drawn cars from the worker, moved on by their velocity to this frame (the worker publishes at 60 Hz). */
   private read(state: PhysicsState) {
     const flat = state.traffic ?? [];
-    const dt = state.publishedAt === undefined ? 0
-      : Math.min(0.1, Math.max(0, (performance.timeOrigin + performance.now() - state.publishedAt) / 1000));
     const count = flat.length / STRIDE;
     this.drawn.length = count;
     this.instances.length = 0;
@@ -196,9 +194,12 @@ export class TrafficClient {
       const car = this.drawn[i] ??= { handle: 0, model: 0, paint: 0, x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0 };
       car.handle = flat[o]; car.model = flat[o + 1]; car.paint = flat[o + 2];
       car.vx = flat[o + 10]; car.vz = flat[o + 11];
-      car.x = flat[o + 3] + car.vx * dt; car.y = flat[o + 4]; car.z = flat[o + 5] + car.vz * dt;
+      car.x = flat[o + 3]; car.y = flat[o + 4]; car.z = flat[o + 5];
       car.q.x = flat[o + 6]; car.q.y = flat[o + 7]; car.q.z = flat[o + 8]; car.q.w = flat[o + 9];
-      this.instances.push({ model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q });
+      const instance: TrafficInstance & { seed: string; indicator: -1 | 0 | 1; braking: boolean; speed: number } = {
+        seed: String(flat[o + 12]), indicator: flat[o + 13] as -1 | 0 | 1, braking: flat[o + 14] === 1, speed: flat[o + 15],
+        model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q };
+      this.instances.push(instance);
     }
     // A just-claimed car is drawn here from its physics body until the parked batches include its record.
     for (const [id, claim] of this.claims) {

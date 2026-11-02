@@ -18,6 +18,7 @@
 //   (TrafficNetwork.present): the seam it enters or leaves the tile by, so a car keeps its presence across the
 //   seam, or else its origin lane.
 import { VISUAL_L0 } from '../core/origin';
+import { EVENT, NODE } from '../gameplay/roadGraph';
 import { TRAFFIC } from './constants';
 import { hash01, hash32, hex32, mod } from './hash';
 import type { TrafficEdge, TrafficRoads } from './roads';
@@ -37,15 +38,28 @@ export interface LaneEnd {
   seam: SeamKey | null;
 }
 
-export interface Connector { points: Float64Array; cum: Float64Array; length: number }
+export interface Connector {
+  points: Float64Array; cum: Float64Array; length: number;
+  /** Signed turn in engine x/z: positive is right. */
+  turn: number;
+  /** Curvature-limited crossing speed (m/s). */
+  speed: number;
+}
 
 export interface Lane {
   tile: string;
   /** Stable 8-hex id within the tile. */
   id: string;
   index: number;
-  /** Lane number within its direction (0 = kerb side). */
+  /** Lane number within its direction (0 = centre/divider side). */
   k: number;
+  /** Same carriageway and direction; adjacent lanes share this key. */
+  carriageway: string;
+  laneCount: number;
+  signal: string | null;
+  priority: 'normal' | 'give-way' | 'stop';
+  /** Mapped crossing positions along this lane, in metres. */
+  crossings: { s: number; signal: boolean }[];
   /** x,z pairs in travel order, offset from the centreline and trimmed at junctions. */
   points: Float64Array;
   cum: Float64Array;
@@ -108,6 +122,7 @@ interface Stretch {
   flow: number;
   /** Edge keys in start → end order. */
   keys: string[];
+  events: { s: number; code: number }[];
 }
 
 export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Bounds, hash: string): TileTraffic {
@@ -144,7 +159,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   const stretches: Stretch[] = [];
   const walk = (from: number, first: number) => {
     const s: Stretch = { start: from, end: from, points: [], ys: [], forward: 0, backward: 0, width: 0, setStart: 0, setEnd: 0, speed: Infinity,
-      flow: Infinity, keys: [] };
+      flow: Infinity, keys: [], events: [] };
     let node = from, e = first;
     for (;;) {
       visited.add(e);
@@ -156,6 +171,12 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
         s.width = edge.width; s.setStart = forward ? edge.setbackA : edge.setbackB;
       }
       s.setEnd = forward ? edge.setbackB : edge.setbackA;
+      const distance = polylineLength(s.points), edgeLength = polylineLength(Array.from(edge.points));
+      for (const event of edge.events) {
+        const code = forward ? event.code : (event.code & ~(EVENT.FORWARD | EVENT.BACKWARD))
+          | (event.code & EVENT.FORWARD ? EVENT.BACKWARD : 0) | (event.code & EVENT.BACKWARD ? EVENT.FORWARD : 0);
+        s.events.push({ s: distance + (forward ? event.s : edgeLength - event.s), code });
+      }
       for (let i = s.points.length ? 1 : 0; i < n; i++) {
         const k = forward ? i : n - 1 - i;
         s.points.push(edge.points[2 * k], edge.points[2 * k + 1]);
@@ -228,9 +249,25 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
         const n = points.length / 2;
         const start = endOf(startNode, points[2] - points[0], points[3] - points[1]);
         const end = endOf(endNode, points[2 * n - 2] - points[2 * n - 4], points[2 * n - 1] - points[2 * n - 3]);
-        const lane: Lane = { tile, id, index: lanes.length, k, points, cum, length, ys: trimmedYs, speed: s.speed, flow: s.flow,
+        const lane: Lane = { tile, id, index: lanes.length, k, carriageway: keys.join('|'), laneCount: m,
+          signal: roads.signals.has(endNode) ? roads.signals.get(endNode) || `${tile}:${endNode}` : null,
+          priority: 'normal', crossings: [],
+          points, cum, length, ys: trimmedYs, speed: s.speed, flow: s.flow,
           vEff: s.speed, tau: length / s.speed, start, end, phase: 0, next: null, connector: null, wait: 0, delta: 0, prev: null,
           seamNext: null, seamPrev: null, origin: null as unknown as Lane, shift: 0, cycle: 0, anchor: NO_ANCHOR, bbox: bboxOf(points) };
+        const centreLength = polylineLength(s.points);
+        for (const event of s.events) {
+          const kind = event.code & 15;
+          const along = dir > 0 ? event.s : centreLength - event.s;
+          const alongLane = Math.max(0, Math.min(length, (along / Math.max(0.01, centreLength)) * full - r0));
+          if (kind === EVENT.CROSSING) lane.crossings.push({ s: alongLane, signal: !!(event.code & EVENT.SIGNALISED) });
+          const direction = dir > 0 ? EVENT.FORWARD : EVENT.BACKWARD;
+          if (!(event.code & direction) || centreLength - along > 40) continue;
+          if (kind === EVENT.STOP) lane.priority = 'stop';
+          else if (kind === EVENT.GIVE_WAY && lane.priority !== 'stop') lane.priority = 'give-way';
+        }
+        if (roads.nodeFlags[endNode] & NODE.STOP) lane.priority = 'stop';
+        else if (roads.nodeFlags[endNode] & NODE.GIVE_WAY && lane.priority !== 'stop') lane.priority = 'give-way';
         lanes.push(lane);
       }
     }
@@ -254,10 +291,15 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       const [ax, az] = tangentAtEnd(a), [bx, bz] = tangentAtStart(b);
       const theta = Math.atan2(ax * bz - az * bx, ax * bx + az * bz);
       const uTurn = Math.abs(theta) > 2.6;
+      // Keep parallel straight movements parallel. A greedy hash-only match used to send the inside lane
+      // across the outside lane in the junction. Prepare turns from the appropriate side of the road.
       let cost = Math.abs(theta) < 0.5 ? 0 : theta > 0 ? 0.35 : 0.5;
       if (uTurn) cost = deadEnd ? 0 : 4;
       else if (Math.abs(theta) > 2.0) cost = 1.5;
       cost += MISMATCH * Math.abs(Math.log2(Math.max(1, a.flow) / Math.max(1, b.flow)));
+      if (!deadEnd && Math.abs(theta) > 0.5) cost += 5 * (theta > 0 ? a.laneCount - 1 - a.k : a.k);
+      if (Math.abs(theta) < 0.5) cost += 4 * Math.abs(a.k - b.k);
+      else cost += 2 * Math.abs((theta > 0 ? b.laneCount - 1 : 0) - b.k);
       pairs.push({ cost: cost + 0.8 * hash01('turn', tile, node, a.id, b.id), a, b });
     }
     pairs.sort((p, q) => p.cost - q.cost || cmp(p.a.id, q.a.id) || cmp(p.b.id, q.b.id));
@@ -310,7 +352,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
     let progress = false;
     for (const plan of [...pending]) {
       if (!plan.main || !known.has(plan.main)) continue;
-      const m = plan.main, arrival = m.phase + m.tau + m.connector!.length / m.next!.speed;
+      const m = plan.main, arrival = m.phase + m.tau + m.connector!.length / m.connector!.speed;
       resolve(plan, arrival - slot(plan, m.next!));
       pending.delete(plan); progress = true;
     }
@@ -334,7 +376,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   }
   for (const lane of lanes) {
     if (!lane.next || !lane.connector) continue;
-    lane.delta = lane.connector.length / lane.next.speed;
+    lane.delta = lane.connector.length / lane.connector.speed;
     const wait = mod(lane.next.phase - lane.delta - lane.phase - lane.tau, H);
     lane.wait = wait > H - 1e-6 ? 0 : wait;
     // The next car of the lane reaches the stop line H after this one did. A wait close to H would let it roll
@@ -483,20 +525,30 @@ function tangentAtStart(l: Lane): [number, number] {
 }
 
 /** Cubic Bézier from the in-lane's stop line to the out-lane's start, tangent to both. */
-function connector(a: Lane, b: Lane): Connector {
+export function connector(a: Lane, b: Lane): Connector {
   const n = a.points.length / 2;
   const x0 = a.points[2 * n - 2], z0 = a.points[2 * n - 1], x3 = b.points[0], z3 = b.points[1];
   const [ax, az] = tangentAtEnd(a), [bx, bz] = tangentAtStart(b);
   const d = Math.hypot(x3 - x0, z3 - z0), k = Math.max(1.2, d * 0.4);
   const x1 = x0 + ax * k, z1 = z0 + az * k, x2 = x3 - bx * k, z2 = z3 - bz * k;
-  const steps = 10, points = new Float64Array(2 * (steps + 1));
+  const steps = Math.max(16, Math.ceil(d * 1.5)), points = new Float64Array(2 * (steps + 1));
   for (let i = 0; i <= steps; i++) {
     const t = i / steps, u = 1 - t;
     points[2 * i] = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3;
     points[2 * i + 1] = u * u * u * z0 + 3 * u * u * t * z1 + 3 * u * t * t * z2 + t * t * t * z3;
   }
   const cum = cumulative(points);
-  return { points, cum, length: Math.max(0.01, cum[steps]) };
+  const turn = Math.atan2(ax * bz - az * bx, ax * bx + az * bz);
+  let curvature = 0;
+  for (let i = 1; i < steps; i++) {
+    const ux = points[2 * i] - points[2 * i - 2], uz = points[2 * i + 1] - points[2 * i - 1];
+    const vx = points[2 * i + 2] - points[2 * i], vz = points[2 * i + 3] - points[2 * i + 1];
+    const chord = Math.hypot(ux + vx, uz + vz);
+    curvature = Math.max(curvature, 2 * Math.abs(ux * vz - uz * vx) / Math.max(1e-6, Math.hypot(ux, uz) * Math.hypot(vx, vz) * chord));
+  }
+  // About 0.2 g lateral acceleration: tight city corners read as deliberate turns, not motorway fly-bys.
+  const speed = Math.min(a.speed, b.speed, Math.abs(turn) > 0.5 ? 7 : Infinity, Math.sqrt(2 / Math.max(0.001, curvature)));
+  return { points, cum, length: Math.max(0.01, cum[steps]), turn, speed: Math.max(1.5, speed) };
 }
 
 function bboxOf(...lists: ArrayLike<number>[]): [number, number, number, number] {
