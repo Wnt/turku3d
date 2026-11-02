@@ -1,10 +1,11 @@
 import * as THREE from 'three/webgpu';
 import { mergeSceneryGeometry } from './mergeSceneryGeometry';
+import { shareSceneryProgram } from './shareSceneryProgram';
 import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
 
 interface Source { mesh: THREE.Mesh; mask: number; revision?: number }
-interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; queuedAt: number; readyAt: number }
+interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; releaseProgram?: () => void; queuedAt: number; readyAt: number }
 interface ModelSources { model: THREE.Object3D; visible: boolean; groups: Map<string, Source[]> }
 
 /** Bound merged allocations below WebGPU's default 256 MiB buffer limit. Facade
@@ -43,6 +44,7 @@ export class SceneryBatches {
   constructor(private scene: THREE.Scene, private retire: (release: () => void) => void = release => release()) {}
 
   private release(bucket: Bucket) {
+    bucket.releaseProgram?.();
     for (const source of bucket.sources) source.mesh.layers.mask = source.mask;
     if (!bucket.mesh) return;
     const mesh = bucket.mesh; mesh.removeFromParent();
@@ -127,6 +129,7 @@ export class SceneryBatches {
       mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;
       this.scene.add(mesh); bucket.mesh = mesh;
       for (const source of bucket.sources) source.mesh.layers.mask = 0;
+      bucket.releaseProgram = shareSceneryProgram(bucket.sources.map(source => source.mesh), geometry);
     }
     this.pending = this.waiting.length;
   }
