@@ -12,7 +12,7 @@ UV-triangle coverage: the entire proposed window must lie on surviving wall.
 Arches and partial reviewed openings retain their existing treatment.
 
 The shared box family has five instances per window: four frame members and a
-sill, totalling 50 triangles and 380 bytes of instance transforms/colours. The
+sill, totalling 50 triangles and 460 bytes of instance transforms/colours/planes. The
 wall-facing cap is omitted from each member. Frame
 width (up to 55 mm) and sill projection are bounded appearance priors, rather
 than survey measurements. Pools occupy 32 m spatial cells; detail disappears
@@ -26,3 +26,9 @@ instance-buffer assembly yield in bounded chunks; the measured CPU time, maximum
 slice and elapsed time are retained on the pool root. Recentring a cell translates
 its existing bounds instead of rescanning every box. A 1 mm conservative margin
 covers the second Float32 transform upload.
+
+World-space UV chart anchors and orientation keep disconnected coplanar wall
+fragments separate. Mirrored UV charts retain positive profile transforms. Each
+instance carries its backing plane into the shared material: colour and shadow
+cameras behind that plane discard the kit, matching the one-sided wall instead
+of exposing unsupported interior frame geometry.

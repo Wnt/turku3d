@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { PreparationBudget } from './preparationBudget';
+import { attribute, cameraPosition, dot, modelWorldMatrixInverse, vec4 } from 'three/tsl';
 
 interface Opening {
   origin: THREE.Vector3; tangent: THREE.Vector3; normal: THREE.Vector3;
@@ -37,20 +38,36 @@ function* openingSteps(geometry: THREE.BufferGeometry): Generator<void,Opening[]
   const a = geometry.attributes;
   if (!a._kit_detail || !a._kit_extent || !a._kit_frame || !a._kit_layout || !a._kit_trim || !a.uv || !a.normal) return [];
   const groups = new Map<string, number[]>();
+  const index=geometry.index, direction=new Int8Array(a.position.count);
+  // Program dimensions can repeat on disconnected coplanar buildings. Recover
+  // each chart's metric U orientation before grouping by its world-space anchor.
+  for(let t=0;t<(index?.count??a.position.count);t+=3){
+    if(t%3072===0)yield;
+    const ia=index?index.getX(t):t,ib=index?index.getX(t+1):t+1,ic=index?index.getX(t+2):t+2;
+    if(Math.abs(a.normal.getY(ia))>.01)continue;
+    const next=Math.abs(a.uv.getX(ib)-a.uv.getX(ia))>Math.abs(a.uv.getX(ic)-a.uv.getX(ia))?ib:ic;
+    const du=a.uv.getX(next)-a.uv.getX(ia);if(Math.abs(du)<.00001)continue;
+    const nx=a.normal.getX(ia),nz=a.normal.getZ(ia),length=Math.hypot(nx,nz);
+    const metric=(-nz*(a.position.getX(next)-a.position.getX(ia))+nx*(a.position.getZ(next)-a.position.getZ(ia)))/(length*du);
+    if(Math.abs(Math.abs(metric)-1)>.02)continue;
+    direction[ia]=direction[ib]=direction[ic]=metric>0?1:-1;
+  }
   const owners: (number[] | undefined)[] = new Array(a.position.count);
   for (let i = 0; i < a.position.count; i++) {
     if(i%512===0)yield;
-    if (![0, 1].includes(a._kit_detail.getW(i)) || a._kit_layout.getX(i) >= 42 || Math.abs(a.normal.getY(i)) > .01) continue;
+    if (!direction[i] || ![0, 1].includes(a._kit_detail.getW(i)) || a._kit_layout.getX(i) >= 42 || Math.abs(a.normal.getY(i)) > .01) continue;
     const normal = new THREE.Vector3().fromBufferAttribute(a.normal, i);
     const point = new THREE.Vector3().fromBufferAttribute(a.position, i);
+    const horizontal=Math.hypot(normal.x,normal.z);
+    const anchor=(-normal.z*point.x+normal.x*point.z)/horizontal-direction[i]*a.uv.getX(i);
     const key = [a._kit_extent.getX(i), a._kit_extent.getY(i), a._kit_extent.getZ(i), a._kit_extent.getW(i),
-      normal.x, normal.z, normal.dot(point), a._kit_detail.getW(i), a._kit_layout.getX(i), a._kit_layout.getY(i)]
+      normal.x, normal.z, normal.dot(point),anchor,point.y-a.uv.getY(i),direction[i],a._kit_detail.getW(i),a._kit_layout.getX(i),a._kit_layout.getY(i)]
       .map(v => Math.round(v * 1000)).join('/');
     const group = groups.get(key);
     if (group) group.push(i); else groups.set(key, [i]);
     owners[i]=groups.get(key);
   }
-  const triangles=new Map<number[],number[]>(), index=geometry.index;
+  const triangles=new Map<number[],number[]>();
   for(let t=0;t<(index?.count??a.position.count);t+=3){
     if(t%3072===0)yield;
     const ia=index?index.getX(t):t, group=owners[ia];
@@ -64,6 +81,7 @@ function* openingSteps(geometry: THREE.BufferGeometry): Generator<void,Opening[]
   const openings: Opening[] = [];
   for (const indices of groups.values()) {
     yield;
+    if(!triangles.has(indices))continue;
     const i = indices[0], u = a._kit_extent.getX(i), v = a._kit_extent.getY(i);
     const width = a._kit_extent.getZ(i), height = a._kit_extent.getW(i);
     const sampled = a._kit_detail.getW(i) === 1;
@@ -129,13 +147,23 @@ export function facadeModuleGeometry() {
   return geometry;
 }
 
+/** Match the one-sided backing facade, including cameras temporarily inside it. */
+export function facadeModuleMaterial(source: THREE.MeshStandardMaterial) {
+  const material=new THREE.MeshStandardNodeMaterial({roughness:source.roughness,metalness:source.metalness});
+  material.color.copy(source.color);material.userData={...source.userData};
+  const plane=attribute('_facade_plane','vec4');
+  const eye=modelWorldMatrixInverse.mul(vec4(cameraPosition,1)).xyz;
+  material.maskNode=dot(plane.xyz,eye).greaterThanEqual(plane.w);
+  return material;
+}
+
 /** One box family per spatial cell, instance colour supplies existing facade tints.
  * Profile dimensions are bounded kit priors, not new survey measurements. */
 function* moduleSteps(model: THREE.Object3D): Generator<void> {
   if (model.userData.scenery || prepared.has(model) || model.getObjectByName('facade-modules')) return;
   model.updateWorldMatrix(true, true);
   const inverse = model.matrixWorld.clone().invert();
-  const cells = new Map<string, { matrix: THREE.Matrix4; colour: THREE.Color }[]>();
+  const cells = new Map<string, { matrix: THREE.Matrix4; colour: THREE.Color; plane: THREE.Plane }[]>();
   const up = new THREE.Vector3(0, 1, 0), scale = new THREE.Vector3();
   const sources: THREE.Mesh[]=[];
   model.traverse(object => {
@@ -148,7 +176,11 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     for (const opening of yield* openingSteps(source.geometry)) {
       if(openingCount++%32===0)yield;
       const { origin, tangent, normal, width:w, height:h } = opening;
-      const basis = new THREE.Matrix4().makeBasis(tangent, up, normal.clone().negate());
+      // Box profiles are X-symmetric; derive their orientation from the wall
+      // normal so mirrored UVs never create unsupported negative instances.
+      const basis = new THREE.Matrix4().makeBasis(normal.clone().cross(up).normalize(),up,normal.clone().negate());
+      const wallNormal=normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(transform));
+      const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(wallNormal,origin.clone().applyMatrix4(transform));
       // Five capped profiles / 50 triangles per opening. Frames sit in the existing reveal;
       // a shallow metal sill extends past its outer face and sheds rain.
       const frame = Math.min(.055, w * .045);
@@ -163,7 +195,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
         const p = new THREE.Vector3().setFromMatrixPosition(matrix);
         const key = `${Math.floor(p.x/32)}/${Math.floor(p.z/32)}`;
         const rows = cells.get(key) ?? []; if (!cells.has(key)) cells.set(key, rows);
-        rows.push({matrix, colour:sill ? opening.trim : opening.frame});
+        rows.push({matrix, colour:sill ? opening.trim : opening.frame,plane});
       }
     }
   }
@@ -171,9 +203,15 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
   if (!cells.size) return;
   const root = new THREE.Group(); root.name = 'facade-modules';
   const geometry = facadeModuleGeometry();
+  geometry.computeBoundingBox();geometry.computeBoundingSphere();
   const material = new THREE.MeshStandardMaterial({roughness:.62, metalness:.12});
+  material.userData.facadeModules=true;
   for (const rows of cells.values()) {
-    const mesh = new THREE.InstancedMesh(geometry, material, rows.length);
+    const cellGeometry=new THREE.BufferGeometry();cellGeometry.index=geometry.index;
+    cellGeometry.attributes={...geometry.attributes};cellGeometry.boundingBox=geometry.boundingBox;cellGeometry.boundingSphere=geometry.boundingSphere;
+    const planes=new THREE.InstancedBufferAttribute(new Float32Array(rows.length*4),4);
+    cellGeometry.setAttribute('_facade_plane',planes);
+    const mesh = new THREE.InstancedMesh(cellGeometry, material, rows.length);
     mesh.name = 'facade-frame-sill'; mesh.userData.facadeModules = true;
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
@@ -185,6 +223,8 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
       mesh.setMatrixAt(i,rows[i].matrix.premultiply(shift));
+      const p=rows[i].plane;
+      planes.setXYZW(i,p.normal.x,p.normal.y,p.normal.z,-p.constant-p.normal.dot(centre));
     }
     // Translation preserves the existing bounds. One millimetre covers the
     // second Float32 instance upload without scanning every prototype again.
@@ -197,7 +237,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
   }
   const instances=[...cells.values()].reduce((sum,rows)=>sum+rows.length,0);
   root.userData = {instances, triangles:instances*10, cells:cells.size,
-    instanceBytes:instances*76};
+    instanceBytes:instances*92};
   model.add(root);
 }
 
