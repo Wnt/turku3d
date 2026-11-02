@@ -266,7 +266,9 @@ if (args.includes('--vehicle-perf')) {
     await send('Page.setWebLifecycleState',{state:'active'});
     await send('Emulation.setFocusEmulationEnabled',{enabled:true});
     await send('Emulation.setDeviceMetricsOverride',{width:1280,height:720,deviceScaleFactor:1,mobile:false});
-    await evaluate('window.__carLightStreamingUpdate=window.__game.coarse.update;window.__game.coarse.update=()=>{}');
+    await evaluate(`(() => {const c=window.__game.coarse;let release;const gate=new Promise(r=>release=r);
+      window.__carLightStreamingHold={update:c.update,prepare:c.prepareModel,release};
+      const prepare=c.prepareModel;c.update=()=>{};c.prepareModel=async function(...args){await gate;return prepare.apply(this,args)};})()`);
     for(let round=0;round<3;round++)for(const mode of [0,2]) {
       const row=await evaluate(`(async()=>{
         const g=window.__game,r=window.__render;g.vehicleSignals.lights=${mode};r.setHour(22);
@@ -278,13 +280,14 @@ if (args.includes('--vehicle-perf')) {
           r.afterFrame=()=>{previous?.();const now=performance.now();if(frames++>5)samples.push(now-last);last=now;
             if(samples.length===60){r.afterFrame=previous;clearTimeout(timer);resolve();}};});
         await r.perf.flush();const mean=samples.reduce((a,b)=>a+b,0)/samples.length;
-        return {round:${round},lights:${mode},meanMs:mean,fps:1000/mean,perf:r.perf.snapshot(),residency:before,residencyStable:before===residency()};
+        return {round:${round},lights:${mode},pose:g.state().vehicle.pos,camera:r.camera.position.toArray(),hour:g.dayClock.hour,quality:g.params.quality,meanMs:mean,fps:1000/mean,perf:r.perf.snapshot(),residency:before,residencyStable:before===residency()};
       })()`);
       rows.push(row);console.log(JSON.stringify({round,mode,ms:row.meanMs,fps:row.fps,gpuMs:row.perf.gpuMs.p50}));
     }
     fs.writeFileSync(path.join(out,'frame-times-interleaved.json'),JSON.stringify({startedAt,finishedAt:new Date().toISOString(),loadBefore,loadAfter:os.loadavg(),uptimeSeconds:os.uptime(),rows},null,2)+'\n');
   } finally {
-    await evaluate('if(window.__carLightStreamingUpdate){window.__game.coarse.update=window.__carLightStreamingUpdate;delete window.__carLightStreamingUpdate}').catch(()=>{});
+    await evaluate(`(() => {const h=window.__carLightStreamingHold;if(!h)return;
+      Object.assign(window.__game.coarse,{update:h.update,prepareModel:h.prepare});h.release();delete window.__carLightStreamingHold;})()`).catch(()=>{});
     await send('Page.setWebLifecycleState',{state:'frozen'});socket.close();
   }
   process.exit(0);
