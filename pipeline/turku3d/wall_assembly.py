@@ -372,7 +372,7 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
                 source_key(
                     Path(__file__).with_name("layers.py"), Path(__file__).parent / "package/gltf.py"
                 ),
-                [tile, cache.metrics.get("building_visual", {}).get("key", building_meshes)],
+                [tile, building_meshes],
                 stage,
                 buildings,
             )
