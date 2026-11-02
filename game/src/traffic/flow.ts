@@ -5,7 +5,7 @@ import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants'
 import { hash01, pick } from './hash';
 import { blankPose, entryTime, pointAt, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
 import { connector, cumulative, type Lane } from './tileNetwork';
-import { LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
+import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
 import { pedestrianStop, type PedestrianFrame, type TrafficPedestrian } from './pedestrians';
@@ -313,7 +313,13 @@ export class TrafficFlow {
           } else stop = lane.length - car.length / 2 - 0.8;
         }
       }
-      if (car.change) stop = lane.length - 8;
+      if (car.change) {
+        stop = lane.length - 8;
+        // Slow early enough to finish the lateral move before the junction buffer. Braking only
+        // against that buffer could strand a fast entrant with a few percent still to complete.
+        const timeLeft = car.change.duration * (1 - car.change.progress);
+        desired = Math.min(desired, Math.max(3, (stop - car.s - 2) / Math.max(FLOW_STEP, timeLeft)));
+      }
       if (this.pedestrians?.people.length || this.player) {
         const roadY = dataHeight(lane, car.s);
         const path = (s: number) => car.change ? sampleFlowPose({ ...car, s }, 0, () => 0) : routePoint(lane, s);
@@ -425,7 +431,7 @@ export class TrafficFlow {
   private beginChange(car: FlowCar, target: Lane) {
     const from = car.lane, list = this.byLane.get(from), direction = target.k > from.k ? 1 : -1;
     if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
-    car.change = { from, direction, progress: 0, duration: 3.2, rate: 0 };
+    car.change = { from, direction, progress: 0, duration: LANE_CHANGE_SECONDS, rate: 0 };
     car.s = car.s / from.length * target.length; car.lane = target; car.route = this.chooseRoute(target, car.key, car.hops);
     const to = this.byLane.get(target);
     if (to) { to.push(car); to.sort((a, b) => b.s - a.s); } else this.byLane.set(target, [car]);

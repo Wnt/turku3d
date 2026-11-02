@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, mix, sRGBTransferEOTF, uniform } from 'three/tsl';
+import { attribute, mix, select, sRGBTransferEOTF, uniform } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { fleetLampNode } from './lamps';
 import { paintNode } from '../parkedPaint';
@@ -16,6 +16,11 @@ export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
   material.colorNode=mix(color,decode(paintNode()).mul(color),surface.x);
   material.roughnessNode=surface.y;
   material.metalnessNode=surface.z;
-  material.emissiveNode=color.mul(surface.w).mul(fleetNight.mul(.9).add(.1)).mul(fleetLampNode()).mul(3);
+  const lamps=fleetLampNode();
+  // Surface tags: running lamps <2, left amber=2, right amber=3, rear brake lens=4.
+  const emission=select(surface.w.greaterThan(3.5),lamps.y.mul(2.5),
+    select(surface.w.greaterThan(2.5),lamps.w,
+      select(surface.w.greaterThan(1.5),lamps.z,surface.w.mul(fleetNight.mul(.9).add(.1)))));
+  material.emissiveNode=color.mul(emission).mul(lamps.x).mul(3);
   return shared=material;
 }

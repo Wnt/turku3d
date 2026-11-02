@@ -21,12 +21,12 @@ if (!sourceDir || !rigFile || !outputDir) throw new Error('usage: bake-walkers.m
 const REGION = { skin: 0, top: 1, bottom: 2, shoes: 3, hair: 4, inner: 5, legwear: 6, eyes: 7, iris: 8 };
 const MATERIAL_REGION = {
   Skin: REGION.skin, Cloth_hoodie: REGION.top, Cloth_jacket: REGION.top, Cloth_shirt: REGION.inner,
-  Accessory: REGION.shoes, AccessoryTrim: REGION.inner, Cloth_tshirt: REGION.top, Cloth_shorts: REGION.bottom, Cloth_dress: REGION.top, Eye: REGION.eyes, Iris: REGION.iris,
+  Accessory: REGION.shoes, AccessoryTrim: REGION.inner, Cloth_tshirt: REGION.top, Cloth_shorts: REGION.bottom, Cloth_dress: REGION.top, Eye: REGION.eyes, Iris: REGION.iris, Eyebrow: REGION.hair,
   Cloth_jeans: REGION.bottom, Cloth_skirt: REGION.bottom, Cloth_shoes: REGION.shoes, Cloth_boots: REGION.shoes,
 };
 const region = name => name.startsWith('Hair_') ? REGION.hair : MATERIAL_REGION[name];
-/** Retain eyeballs and irises; remove translucent lashes/cornea and hidden mouth interiors. */
-const DROPPED = new Set(['Eyebrow', 'Eyelash', 'Cornea', 'Teeth', 'Tongue']);
+/** Retain eyeballs, irises and brows; remove translucent lashes/cornea and hidden mouth interiors. */
+const DROPPED = new Set(['Eyelash', 'Cornea', 'Teeth', 'Tongue']);
 
 const wardrobe = JSON.parse(fs.readFileSync(new URL('../src/world/walkers/wardrobe.json', import.meta.url)));
 const VARIANTS = wardrobe.families.map(f => ({ id: f.id, accessory: f.accessory, parts: ['base_body', ...f.parts],
@@ -63,7 +63,7 @@ function encodeNormal(x, y, z) {
 }
 
 /** One merged, welded, simplified body: bind positions/normals, joints/weights and a region per vertex. */
-function collectBody(doc, legwearBelow = 0) {
+function collectBody(doc, legwearBelow = 0, browsOnly = false) {
   const position = [], normal = [], joints = [], weights = [], regions = [], indices = [], uvs = [];
   const weld = new Map();
   for (const node of doc.getRoot().listNodes()) {
@@ -71,7 +71,7 @@ function collectBody(doc, legwearBelow = 0) {
     if (!mesh) continue;
     for (const primitive of mesh.listPrimitives()) {
       const name = primitive.getMaterial()?.getName() ?? '';
-      if (DROPPED.has(name)) continue;
+      if ((name === 'Eyebrow') !== browsOnly || (DROPPED.has(name) && !browsOnly)) continue;
       const material = region(name);
       if (material === undefined) throw new Error(`walker bake: no region for material ${name}`);
       const pos = primitive.getAttribute('POSITION'), norm = primitive.getAttribute('NORMAL');
@@ -228,9 +228,22 @@ for (const spec of VARIANTS) {
   for (const s of sources) provenance.set(s.file, s.sha256);
   addWalkerAccessories(doc, spec);
   const body = collectBody(doc, spec.legwearBelow);
-  const { order, indices } = simplifyBody(body);
+  let { order, indices } = simplifyBody(body);
   const compactPositions = Float32Array.from(order.flatMap(v => Array.from(body.position.subarray(v * 3, v * 3 + 3))));
   const [farIndices] = MeshoptSimplifier.simplify(indices, compactPositions, 3, FAR_TRIANGLES * 3, 1);
+  // Append the complete 124-vertex CC0 brow surface after simplifying the accepted body.
+  // The original near/far indices and all existing vertices therefore remain untouched.
+  const brows = collectBody(doc, spec.legwearBelow, true), vertexOffset = body.regions.length;
+  if (brows.regions.length > 124) throw new Error('walker bake: eyebrow source exceeds 124 vertices');
+  const firstBrow = order.length;
+  const sourceBrowIndices = Uint32Array.from(brows.indices, i => vertexOffset + i);
+  body.indices = Uint32Array.from([...body.indices, ...sourceBrowIndices]);
+  for (const field of ['position', 'normal', 'joints', 'weights', 'regions', 'uvs']) {
+    const a = body[field], b = brows[field], joined = new a.constructor(a.length + b.length);
+    joined.set(a); joined.set(b, a.length); body[field] = joined;
+  }
+  order.push(...Array.from({ length: brows.regions.length }, (_, i) => vertexOffset + i));
+  indices = Uint32Array.from([...indices, ...Array.from(brows.indices, i => firstBrow + i)]);
   width = Math.max(width, order.length);
   const clips = [], rowBase = rows.length;
   let metresPerLoop = 0;

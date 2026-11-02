@@ -220,7 +220,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
         for(let k=0;k<contour.length;k++)b.tri([cx,lampY,zl],contour[k],contour[(k+1)%contour.length],color,surface);
       };
       lamp(lw+.045,lh+.035,0,[.012,.016,.02],TRIM);
-      lamp(lw,lh,.006,end>0?[.10,.15,.18]:[.16,.004,.003],[0,.12,.08,0]);
+      lamp(lw,lh,.006,end>0?[.10,.15,.18]:[.16,.004,.003],[0,.12,.08,end>0?0:4]);
       if(lod<2&&end>0){
         const projectorX=cx-s*lw*.20,pr=lh*.29,pz=zz+end*.010;
         for(let k=0;k<8;k++){

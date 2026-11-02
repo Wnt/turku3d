@@ -29,6 +29,12 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
+class TileHTTPServer(ThreadingHTTPServer):
+    # Several browsers burst hundreds of independent near/scenery payloads.
+    # The stdlib default of five drops connections before a handler can accept.
+    request_queue_size = 256
+
+
 REV = re.compile(r"[a-f0-9]{40,64}\Z")
 TILE = re.compile(r"t0_-?\d{1,5}_-?\d{1,5}\Z")
 ALIAS = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
@@ -929,7 +935,7 @@ class Handler(BaseHTTPRequestHandler):
                     farm.workers = workers
                     farm.pump()
                     farm.event('worker-cap', workers=workers)
-                return self.json(200, farm.status())
+                return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
             self.json(200, self.server.farm.register(body['revision'], body.get('alias'), body.get('source_version')))
         except (ValueError, KeyError) as error:
             self.json(400, dict(error=str(error)))
@@ -955,7 +961,7 @@ class Handler(BaseHTTPRequestHandler):
         if any(p in ('.', '..') or '\\' in p for p in parts):
             raise ValueError('invalid path')
         if parts == ['health'] or parts == ['status']:
-            return self.json(200, farm.status())
+            return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
         if len(parts) >= 4 and parts[0] == 'v' and parts[2] == 'coarse':
             if parts[1] == BUNDLE_SOURCE:
                 return self.file(farm.root / 'delivery', parts[3:])
@@ -1034,7 +1040,7 @@ def main():
     args = parser.parse_args()
     with file_lock(args.root / 'service.lock'):
         farm = Farm(args.root, args.runner, workers=args.workers)
-        server = ThreadingHTTPServer((args.host, args.port), Handler)
+        server = TileHTTPServer((args.host, args.port), Handler)
         server.farm = farm
         (args.root / 'service.pid').write_text(str(os.getpid()) + '\n')
         farm.event('started', port=args.port, workers=args.workers, pid=os.getpid())
