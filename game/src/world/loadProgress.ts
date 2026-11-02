@@ -9,6 +9,7 @@ interface LoadProgress {
   collision: { loaded: number; total: number };
   compile: { done: number; total: number };
   errors: string[];
+  timings: Record<string, number>;
 }
 
 class WorldLoad {
@@ -16,7 +17,7 @@ class WorldLoad {
   private finished: number | null = null;
   private state: LoadProgress = { phase: 'loading', elapsedMs: 0, bytesLoaded: 0,
     visual: { loaded: 0, total: 0 }, textures: { loaded: 0, pending: 0 },
-    collision: { loaded: 0, total: 0 }, compile: { done: 0, total: 0 }, errors: [] };
+    collision: { loaded: 0, total: 0 }, compile: { done: 0, total: 0 }, errors: [], timings: {} };
 
   constructor() {
     new PerformanceObserver(list => {
@@ -33,7 +34,7 @@ class WorldLoad {
   snapshot(): LoadProgress {
     return { ...this.state, elapsedMs: Math.round((this.finished ?? performance.now()) - this.started),
       visual: { ...this.state.visual }, textures: { ...this.state.textures }, collision: { ...this.state.collision },
-      compile: { ...this.state.compile }, errors: [...this.state.errors] };
+      compile: { ...this.state.compile }, timings: { ...this.state.timings }, errors: [...this.state.errors] };
   }
 }
 

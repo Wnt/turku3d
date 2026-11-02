@@ -103,3 +103,18 @@ test('glTF publication waits for uploads with final map settings and deduplicate
     expect(initTexture).toHaveBeenCalledTimes(2);
   } finally { vi.unstubAllGlobals(); }
 });
+
+
+test('startup texture selection follows visibility, layers and the first camera while retaining required actors', () => {
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, .1, 100);
+  const maps = Array.from({ length: 5 }, () => new THREE.Texture());
+  const meshes = maps.map(map => new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ map })));
+  for (const mesh of meshes) mesh.position.z = -5;
+  meshes[1].position.z = 5;
+  meshes[2].layers.set(1);
+  const hidden = new THREE.Group(); hidden.visible = false; hidden.add(meshes[3]);
+  meshes[4].position.z = 5; meshes[4].frustumCulled = false;
+  scene.add(meshes[0], meshes[1], meshes[2], hidden, meshes[4]);
+  expect(modelTextures(scene, camera)).toEqual(new Set([maps[0], maps[4]]));
+  expect(modelTextures(scene)).toEqual(new Set(maps));
+});

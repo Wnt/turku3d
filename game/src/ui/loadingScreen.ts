@@ -38,9 +38,10 @@ export class LoadingScreen {
   }
 
   /** Ready for menu input: keep the technical log in a compact dock while choosing Multiplayer. */
-  ready(multiplayerReady = true) {
+  ready(multiplayerReady: boolean | null = true) {
     this.menuReady = true;
-    if (!multiplayerReady) this.readyMessage = 'World ready · Multiplayer unavailable';
+    this.readyMessage = multiplayerReady === null ? 'World ready · Multiplayer connecting…'
+      : multiplayerReady ? 'Ready · choose Multiplayer to enter the city' : 'World ready · Multiplayer unavailable';
     this.element.classList.add('menu-ready');
     this.draw();
   }

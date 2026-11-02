@@ -22,6 +22,7 @@ def rows(directory, name):
 
 
 def segments(poses, marks):
+    poses = sorted(poses, key=lambda p: p['t'])
     result = []
     edges = sorted((m for m in marks if m.get('k') in ('pause', 'resume')), key=lambda m: m['t'])
     if edges:
@@ -89,6 +90,18 @@ def js_functions(traces, start, end):
     return own, inclusive, total_samples
 
 
+def render_settings(meta, stats, start, end):
+    stats = sorted(stats, key=lambda row: row['t'])
+    preceding = [row for row in stats if row['t'] <= start]
+    anchor = preceding[-1] if preceding else stats[0] if stats else {}
+    settings = {key: meta.get(key, meta.get('params', {}).get(key)) for key in ['quality', 'backend', 'commit']}
+    for key in ['pixelRatio', 'viewport']:
+        settings[key] = anchor.get(key, meta.get(key))
+    samples = [anchor, *[row for row in stats if start < row['t'] <= end]]
+    resolutions = {json.dumps([row.get('pixelRatio', meta.get('pixelRatio')), row.get('viewport', meta.get('viewport'))]) for row in samples}
+    return settings, len(resolutions) > 1
+
+
 def analyse(directory, segment=None):
     directory = Path(directory)
     meta = json.loads((directory / 'meta.json').read_text())
@@ -103,6 +116,7 @@ def analyse(directory, segment=None):
         if not 1 <= segment <= len(spans):
             raise ValueError(f'{directory}: segment {segment} missing; {len(spans)} available')
         start, end = spans[segment - 1]
+    settings, resolution_changed = render_settings(meta, rows(directory, 'stats'), start, end)
     frames = [f for f in frames if start <= f[0] <= end]
     intervals = [(b[0], b[0] - a[0]) for a, b in zip(frames, frames[1:]) if b[0] > a[0]]
     gpu, seen = [], set()
@@ -147,7 +161,7 @@ def analyse(directory, segment=None):
             scripts[key][2] += script.get('forced', 0)
     network = [r for r in rows(directory, 'network') if start <= r['t'] <= end]
     own, inclusive, sample_count = js_functions(rows(directory, 'js'), start, end)
-    return dict(directory=str(directory), meta=meta, start=start, end=end, segments=spans, frames=len(frames), gpu_samples=len(gpu), metrics=metrics,
+    return dict(directory=str(directory), meta=meta, settings=settings, resolution_changed=resolution_changed, start=start, end=end, segments=spans, frames=len(frames), gpu_samples=len(gpu), metrics=metrics,
                 worst=worst, loaf=loaf, scripts=scripts, network=network, own=own, inclusive=inclusive, sample_count=sample_count)
 
 
@@ -158,6 +172,7 @@ def number(value):
 def show(result):
     m = result['metrics']
     print(f"{result['directory']} | {result['frames']} frames / {(result['end'] - result['start']) / 1000:.2f} s | {len(result['segments'])} unpaused segments")
+    print(f"Render at start: quality={result['settings']['quality']} viewport={result['settings']['viewport']} pixelRatio={result['settings']['pixelRatio']}; resolution changed={result['resolution_changed']}")
     print(f"FPS {number(m['fps'])}; interval ms p50/p95/p99 {number(m['interval_p50'])} / {number(m['interval_p95'])} / {number(m['interval_p99'])}")
     print(f"CPU ms p50/p95 {number(m['cpu_p50'])} / {number(m['cpu_p95'])}; GPU ms p50/p95 {number(m['gpu_p50'])} / {number(m['gpu_p95'])} ({result['gpu_samples']} unique readbacks)")
     print(f"Draws p50/p95 {number(m['draws_p50'])} / {number(m['draws_p95'])}; tris p50/p95 {number(m['tris_p50'])} / {number(m['tris_p95'])}")
@@ -195,7 +210,12 @@ def compare(a, b):
     print(f"{'LoAF >100ms':<19} {sum(e['d'] > 100 for e in a['loaf']):>14} {sum(e['d'] > 100 for e in b['loaf']):>14}")
     print(f"{'resource responses':<19} {len(a['network']):>14} {len(b['network']):>14}")
     for key in ['quality', 'pixelRatio', 'viewport', 'backend', 'commit']:
-        print(f"  {key}: {a['meta'].get(key, a['meta'].get('params', {}).get(key))} -> {b['meta'].get(key, b['meta'].get('params', {}).get(key))}")
+        print(f"  {key}: {a['settings'][key]} -> {b['settings'][key]}")
+    changed = [key for key in ['quality', 'pixelRatio', 'viewport', 'backend'] if a['settings'][key] != b['settings'][key]]
+    if changed:
+        print(f"  Different render settings: {', '.join(changed)}")
+    if a['resolution_changed'] or b['resolution_changed']:
+        print('  Resolution changed within a measured window; replay holds its starting resolution fixed.')
     print('  Replay uses the QA render path; live driving also includes physics, input and HUD work. Compare replay against replay to isolate build changes.')
     if b['meta'].get('populationFallback'):
         print('  Original has no replay snapshot; ambient population uses the documented fallback seed, not the original actor state.')

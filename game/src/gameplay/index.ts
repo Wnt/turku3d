@@ -23,11 +23,14 @@ class StreetMap {
   private sha: string | undefined;
   private chain = Promise.resolve();
   private revision = 0;
+  private appliedPublished: RoadGraphJson | null;
+  private appliedDrafts: readonly RoadGraphJson[] = [];
   updates = 0;
 
   constructor(private readonly manifest: GameplayManifest, published: RoadGraphJson | null,
     private readonly router: StreetRouter, private readonly minimap: Minimap, private readonly cityWide = false) {
     this.published = published;
+    this.appliedPublished = published;
     this.sha = manifest.roads?.sha256;
   }
 
@@ -46,13 +49,19 @@ class StreetMap {
     this.chain = this.chain.then(async () => {
       if (revision !== this.revision) return;
       if (this.manifest.roads?.sha256 !== this.sha) {
-        this.sha = this.manifest.roads?.sha256;
+        const sha = this.manifest.roads?.sha256;
         this.published = await loadRoadGraphJson(this.manifest);
+        this.sha = sha;
       }
+      if (revision !== this.revision) return;
+      if (this.published === this.appliedPublished && drafts.length === this.appliedDrafts.length
+        && drafts.every((part, index) => part === this.appliedDrafts[index])) return;
       const graph = await mergeRoadGraphsAsync([...this.published ? [this.published] : [], ...drafts]);
       if (revision !== this.revision) return;
       this.router.setGraph(graph);
       this.minimap.setGraph(graph);
+      this.appliedPublished = this.published;
+      this.appliedDrafts = [...drafts];
       this.updates++;
     }).catch(e => console.warn(`[map] ${(e as Error).message}`));
     return this.chain;

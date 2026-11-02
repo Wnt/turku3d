@@ -78,13 +78,14 @@ try {
 }
 let initialDrive: LoadedDrive | null = null;
 if (params.drive) {
+  window.__bench = { phase: 'loading', done: false, replayOf: params.drive.capture, segment: params.drive.segment };
   try {
     initialDrive = await loadDrive(params.drive.capture, params.drive.segment);
     params.qa = driveQaPose(initialDrive.poses[0]); params.motion = true;
     if (initialDrive.meta.params) {
       for (const key of ['traffic', 'walkers', 'trafficDensity', 'quality', 'aa'] as const) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
     }
-  } catch (e) { window.__qaError = String(e); throw e; }
+  } catch (e) { window.__qaError = String(e); Object.assign(window.__bench!, { phase: 'error', error: String(e) }); throw e; }
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
 /** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
@@ -218,7 +219,7 @@ const renderFrame = () => {
   weatherUniforms.seconds.value = (dayClock.sharedNow() / 1000) % 4096;
   rain?.update(camera, weatherSample, dayClock.sharedNow() / 1000, env.nightFactor);
   refreshWeatherIBL(weatherSample);
-  distantCity?.follow(camera);
+  if (params.qa || worldLoad.snapshot().phase === 'ready') distantCity?.follow(camera);
   // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
   const sharedSeconds = dayClock.sharedNow() / 1000;
   env.atmosphere.setTime(params.qa ? 0 : sharedSeconds);
@@ -320,7 +321,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   if (!idPass) {
     distantCity = coarse.screenshotScenery;
     distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
-    distantCity.follow(camera);
+    if (params.qa) distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
     window.__game!.scenery = distantCity;
@@ -527,7 +528,7 @@ async function runPlay() {
   let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
   while (!placed) {
     if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
-    coarse.update(requested.x, requested.z);
+    coarse.update(requested.x, requested.z, undefined, undefined, false);
     streamer.update(requested.x, requested.z);
     const progress = coarse.progressAt(requested.x, requested.z);
     worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total } });

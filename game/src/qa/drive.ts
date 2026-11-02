@@ -1,7 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { E0, N0 } from '../core/origin';
-import { localFeature } from '../core/localOnly';
-import { DriveCapture } from '../telemetry/capture';
+import { DriveCapture, captureAllowed } from '../telemetry/capture';
 import { CarVisual } from '../actors/car';
 import type { LightState } from '../vehicle/signals';
 import { CAR } from '../physics/constants';
@@ -16,6 +15,8 @@ export interface DrivePose {
 export interface DriveSegment { start: number; end: number; poses: DrivePose[] }
 /** Marks delimit precise new captures; pose transitions cover the coordinator's original drive format. */
 export function driveSegments(poses: DrivePose[], marks: { k: string; t: number }[] = []): DriveSegment[] {
+  // Final beacons can arrive ahead of an earlier ordinary POST. Timestamps define the drive order.
+  poses = poses.toSorted((a, b) => a.t - b.t);
   if (!poses.length) return [];
   const edges = marks.filter(m => m.k === 'pause' || m.k === 'resume').sort((a, b) => a.t - b.t);
   const segments: DriveSegment[] = [];
@@ -43,7 +44,7 @@ export function driveSegments(poses: DrivePose[], marks: { k: string; t: number 
 }
 const jsonl = (text: string) => text.split('\n').filter(Boolean).map(line => JSON.parse(line));
 export async function loadDrive(id: string, segment = 1) {
-  if (!localFeature(location, 'capture') || import.meta.env.VITE_PUBLIC_RELEASE) throw Error('Drive bench is local only');
+  if (!captureAllowed()) throw Error('Drive bench is local only');
   if (!/^[\w-]{1,80}$/.test(id)) throw Error('Invalid capture id');
   const get = async (name: string) => {
     const response = await fetch(`/__capture/${id}/${name}`);
@@ -54,7 +55,8 @@ export async function loadDrive(id: string, segment = 1) {
   const meta = JSON.parse(metaText), segments = driveSegments(jsonl(poseText), jsonl(markText));
   const selected = segments[segment - 1];
   if (!selected) throw Error(`No segment ${segment}; ${id} has ${segments.length} unpaused segments (numbered from 1)`);
-  const stats = jsonl(statText), stat = stats.find((s: any) => s.t >= selected.start) ?? stats[0];
+  const stats = jsonl(statText).sort((a, b) => a.t - b.t);
+  const stat = stats.findLast((s: any) => s.t <= selected.start) ?? stats[0];
   const settings = { pixelRatio: stat?.pixelRatio ?? meta.pixelRatio ?? null, viewport: stat?.viewport ?? meta.viewport ?? null };
   return { id, segment, meta, settings, ...selected };
 }

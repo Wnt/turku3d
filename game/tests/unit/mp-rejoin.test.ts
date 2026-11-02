@@ -57,8 +57,11 @@ function setup(kind: VehicleKind, seated: boolean, source: string | null = null)
   const first = new MultiplayerClient('ws://localhost:5573', storage);
   clients.push(first); first.connect(); Socket.current.welcome([vehicle]); first.disconnect();
   // A reload constructs both classes from scratch, retaining only browser storage.
-  const { client, ready } = prepareMultiplayer();
+  const prepared = prepareMultiplayer();
+  const { client, ready } = prepared;
+  expect(prepared.position).toBeUndefined();
   clients.push(client); client.connect(); Socket.current.welcome([vehicle]);
+  expect(prepared.position).toBeDefined();
   expect(Socket.current.sent[0]).toMatchObject({ type: 'hello', session: 'a'.repeat(64) });
   const latest = { vehicles: [] as VehicleState[], character: { pos: { x: 720, y: 4, z: 800 } } };
   const physics = { latest, loaded: new Map(), step: vi.fn(),
@@ -177,5 +180,19 @@ test('multiplayer rejoin restores the saved mission but keeps the server vehicle
   expect(h.physics.latest.character.pos).toMatchObject({ x: 720, z: 800 });
   expect(h.physics.latest.vehicles.find(v => v.id === 'player')?.pos).toEqual(h.state.pos);
   expect(h.enterVehicle).toHaveBeenCalledWith('player');
+  h.save.dispose();
+});
+
+
+test('offline multiplayer exposes pending state without holding world startup', async () => {
+  const h = setup('car', false);
+  const prepared = prepareMultiplayer();
+  clients.push(prepared.client);
+  expect(prepared.position).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(9999);
+  expect(prepared.position).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(await prepared.ready).toBeNull();
+  expect(prepared.position).toBeNull();
   h.save.dispose();
 });
