@@ -55,6 +55,29 @@ test('normal residency takes over scenery; reset invalidates an in-flight model'
   expect(late.parent).toBeNull(); expect(dispose).toHaveBeenCalledWith(late, expect.any(String));
 });
 
+test('collision previews exclude scenery surfaces immediately but retain its vegetation until full detail', async () => {
+  const { scene, nearby, scenery, load } = setup();
+  load.mockImplementation(async () => {
+    const model = new THREE.Group();
+    for (const layer of ['ground', 'buildings', 'vegetation']) {
+      const child = new THREE.Group(); child.userData.layer = layer; model.add(child);
+    }
+    return model;
+  });
+  scenery.setRadius(1000); scenery.update(125, 125, 0); await settle();
+  const source = scene.children[0];
+  const entry: Entry = { model: new THREE.Group(), preview: {coarse:true,tile:'t0_0_0',visual:{},collision:{}}, state: 'draft', nextPoll: 0, collision: new Map() };
+  nearby.set('t0_0_0', entry);
+  scenery.nearbyChanged('t0_0_0');
+  expect(source.visible).toBe(true);
+  expect(source.children.map(c => c.visible)).toEqual([false, false, true]);
+  delete entry.preview;
+  scenery.nearbyChanged('t0_0_0');
+  expect(source.visible).toBe(false);
+  scenery.update(125, 125, 1000); await settle();
+  expect(source.parent).toBeNull();
+});
+
 test('5 km from the supplied east-city viewpoint includes the cathedral and farther scenery', () => {
   const { scenery } = setup();
   scenery.setRadius(5000); scenery.update(3749.71, 436.7, 0, true);

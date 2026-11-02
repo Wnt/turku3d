@@ -2,7 +2,7 @@
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
 import { recordFreshness } from './coarseFreshness';
-import { VisualPassComparison } from './visualPass';
+import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
@@ -415,6 +415,7 @@ export class CoarseTiles {
   private async applyFragment(id: string, e: Entry, fragment: CoarseFragment) {
     const state = e.state;
     if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: invalid draft fragment`);
+    if (e.model && !e.preview && !acceptsVisualPass(e.pass, fragment.pass_kind)) return;
     const visualChanged = !e.model || fragment.visual[id].sha256 !== e.visualHash;
     const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
     if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
@@ -448,6 +449,7 @@ export class CoarseTiles {
       if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
+      this.screenshotScenery.nearbyChanged(id);
       recordFreshness(e, fragment); this.host.scene.add(model);
       return;
     }
@@ -481,6 +483,7 @@ export class CoarseTiles {
     this.comparison.clear(e); e.pass = fragment.pass_kind;
     e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
+    this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }

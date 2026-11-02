@@ -25,6 +25,16 @@ export class ScreenshotScenery {
     return !!entry?.model && !entry.preview;
   }
 
+  /** Preview surfaces and scenery shells are coplanar. Only vegetation may fill the preview's gaps. */
+  nearbyChanged(id: string) {
+    const model = this.entries.get(id)?.model;
+    if (!model) return;
+    const nearby = this.nearby.get(id);
+    const resident = !!nearby?.model;
+    model.visible = !resident || !!nearby.preview;
+    for (const child of model.children) child.visible = !resident || child.userData.layer === 'vegetation';
+  }
+
   private entries = new Map<string, Scenery>();
   private active = 0;
   private clock = 0;
@@ -154,6 +164,7 @@ export class ScreenshotScenery {
     const keep = new Set(this.wanted);
     const outside: [string, Scenery][] = [];
     for (const [id, e] of this.entries) {
+      this.nearbyChanged(id);
       if (keep.has(id)) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { if (e.model) this.dispose(e.model, id); this.entries.delete(id); }
@@ -205,6 +216,7 @@ export class ScreenshotScenery {
       if (e.model) this.dispose(e.model, id);
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
+      this.nearbyChanged(id);
     } catch (error) { e.error = String(error); e.complete = false; }
     finally {
       if (model) this.dispose(model, id);
