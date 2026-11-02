@@ -60,6 +60,9 @@ async function settle(side,shot,u){
   const v=window.__video;v.locked=false;performance.now=v.nativeNow;window.__game.clock.simSeconds=0;
   const c=window.__videoCoarse;
   if(c.preload)c.preload(coverage.map(id=>{const [,i,j]=id.split('_').map(Number);return{x:i*250+125,z:j*250+125};}),0);
+  // The initial camera can leave collision-only lookahead meshes outside this route.
+  // Remove those obsolete entries; the preloaded route retains every required tile.
+  for(const [id,e] of c.entries)if(!coverage.includes(id)){c.drop(e);c.entries.delete(id);}
   window.__render.beforeFrame=undefined;window.__render.setTime(time);
   window.__dev?.setWeather?.(weather,0);window.__qaMove(pose);
  },{pose:poseAt(shot,u),time:iso(shot),weather:shot.weather,coverage:tilesForShot(shot)});
