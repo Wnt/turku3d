@@ -255,13 +255,15 @@ def describe(reference, directory, output, model="gpt-6-astra"):
     template["wall_material"] = "brick"
     template["reference_match"] = "verified"
     template["reference_confidence"] = 0.8
+    template["reference_images_used"] = [reference["images"][0]["file"]]
+    template["reference_images_rejected"] = [reference["images"][0]["file"]]
     template["windows"]["rows_m"] = [template["windows"]["sill_m"]]
     prompt = (
         "Estimate architectural parameters of the ONE named building in the supplied exterior photos. "
         "Return JSON only with this exact structure, changing values to this building. No painting or image generation. "
         "Physical dimensions are estimates: record confidence, source filenames, what is measured versus uncertain, "
         "and facade observations. Never transplant the example cathedral window arrangement to a different building. "
-        "First verify that the photos depict this named building. Set reference_match to verified only if they do; otherwise rejected, with reference_confidence=0 and explain the mismatch in observations. No invented parameter defaults for rejected photos will be published. "
+        "First identify which supplied images clearly depict this named building. Put their exact filenames in reference_images_used; put unrelated, ambiguous or obstructed images in reference_images_rejected. A search may include nearby buildings: never transfer their features to this one. Use only the verified subset. Set reference_match to verified only when at least one image clearly identifies the named building; otherwise rejected, with reference_confidence=0 and explain the mismatch in observations. No invented parameter defaults for rejected photos will be published. "
         "Use the supplied height evidence where present. Colours are estimated neutral albedo, not shadow pixels. "
         "All size_m and colour arrays must be finite positive numeric arrays of length 2 and 3 respectively. "
         "wall_material is brick, stone, render, wood, or concrete; brick.colour supplies main wall colour even for render. windows.type is rectangular, round-arched, or gothic-lancet. windows.rows_m describes ONLY the main nave or primary building body, with the SAME window height on every row. NEVER mix tower, belfry, clerestory, turrets and side-wings into this global array. Successive rows must differ by at least windows.height_m. Keep uncertain global rows empty and record region-specific observations in prose instead. Roof material is copper, metal, zinc, slate, or tile. brick.bond is running, monk, or flemish. tower opening_rows are [sill_m,width_m,height_m,count]. "
@@ -306,12 +308,20 @@ def describe(reference, directory, output, model="gpt-6-astra"):
                 json.dumps(d, indent=2, ensure_ascii=False) + "\n"
             )
             try:
+                filenames = {image["file"] for image in reference["images"]}
+                used = set(d.get("reference_images_used", []))
+                rejected = set(d.get("reference_images_rejected", []))
+                if d.get("reference_match") == "verified" and (
+                    not used or not used <= filenames or used & rejected
+                ):
+                    raise ValueError(
+                        "Verified reference subset must name supplied, unambiguous images"
+                    )
                 validate(d, key)
                 break
             except ValueError as error:
                 if d.get("building_id") == key and (
-                    d.get("reference_match") != "verified"
-                    or d.get("reference_confidence", 0) < 0.5
+                    d.get("reference_match") != "verified" or d.get("reference_confidence", 0) < 0.5
                 ):
                     # Persist the negative finding too: an older automatic
                     # estimate must not survive newly disproved identity.
@@ -396,11 +406,14 @@ def main():
             directory = a.root / r["id"].replace("/", "_")
             target = a.descriptions / (key.replace("/", "_") + ".json")
             existing = json.loads(target.read_text()) if target.exists() else {}
-            current = (
-                existing.get("reference_match") == "verified"
-                and existing.get("evidence_hash") == evidence_hash(ref)
-                and existing.get("reference_hashes") == [r["sha256"] for r in ref["images"]]
-            )
+            same_evidence = existing.get("evidence_hash") == evidence_hash(ref) and existing.get(
+                "reference_hashes"
+            ) == [r["sha256"] for r in ref["images"]]
+            current = existing.get("reference_match") == "verified" and same_evidence
+            if a.describe and same_evidence and existing.get("reference_match") == "rejected":
+                raise ValueError(
+                    "Cached identity rejection; additional reference evidence is needed"
+                )
             if a.describe and not current:
                 describe(ref, directory, target)
             result = dict(

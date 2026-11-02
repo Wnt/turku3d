@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import pickle
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,22 @@ from turku3d.stage_cache import content_key, source_key
 
 from .appearance import roof_mesh, wall_meshes
 from .descriptions import resolve, source_paths
+
+
+def publish(path, data):
+    """Readers only observe complete immutable assets and cache records."""
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".landmark-", delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(data)
+            stream.flush()
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def publish_json(path, value):
+    publish(path, (json.dumps(value, indent=2) + "\n").encode())
 
 
 def build(building, root, description_root=None):
@@ -48,7 +65,7 @@ def build(building, root, description_root=None):
     record = directory / f"{key}.json"
     if record.exists():
         result = json.loads(record.read_text())
-        (directory / "manifest.json").write_text(json.dumps(result, indent=2) + "\n")
+        publish_json(directory / "manifest.json", result)
         return result
     p = building.footprint.centroid
     tile = C.VisualTile.at(p.x, p.y)
@@ -64,7 +81,7 @@ def build(building, root, description_root=None):
     )
     digest = hashlib.sha256(data).hexdigest()
     path = directory / f"{digest}.glb"
-    path.write_bytes(data)
+    publish(path, data)
     result = dict(
         building_id=str(building.facade_key),
         recipe_hash=key,
@@ -76,8 +93,8 @@ def build(building, root, description_root=None):
         description_hash=description["content_hash"],
         origin=list(map(float, origin)),
     )
-    record.write_text(json.dumps(result, indent=2) + "\n")
-    (directory / "manifest.json").write_text(json.dumps(result, indent=2) + "\n")
+    publish_json(record, result)
+    publish_json(directory / "manifest.json", result)
     return result
 
 
@@ -125,7 +142,7 @@ def main():
         for key in sorted(pending)
     )
     a.out.mkdir(parents=True, exist_ok=True)
-    (a.out / "batch-results.json").write_text(json.dumps(outcomes, indent=2) + "\n")
+    publish_json(a.out / "batch-results.json", outcomes)
 
 
 if __name__ == "__main__":
