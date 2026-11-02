@@ -56,3 +56,21 @@ test('late old-generation geometry cannot overwrite the refreshed source', async
   expect(f.load).toHaveBeenLastCalledWith('http://test/coarse/scenery/new.glb');
   expect(f.scenery.progress.loaded).toBe(1);
 });
+
+
+test('a new source clears an old failure while its replacement is preparing', async () => {
+  const f = fixture(); await settle(); f.state.available = true;
+  const request = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async url => url.includes('scenery?') ? request(url)
+    : new Response('{}', { status: f.state.key === 'old' ? 503 : 202 }));
+  f.scenery.update(0, 0, 30001); await settle(); f.scenery.update(0, 0, 30017); await settle();
+  expect(f.scenery.progress.errors).toBe(1);
+  f.state.key = 'new';
+  f.scenery.update(0, 0, 60002); await settle();
+  f.scenery.update(0, 0, 60018); await settle();
+  expect(f.scenery.progress.errors).toBe(0);
+  const requests = () => f.request.mock.calls.filter(([url]) => url.endsWith('/new.json')).length;
+  expect(requests()).toBe(1);
+  f.scenery.update(0, 0, 62019); await settle();
+  expect(requests()).toBe(2);
+});

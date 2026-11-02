@@ -93,6 +93,14 @@ def main():
         e["protected"] = [
             layers["suojellut_rakennukset_piste"][i]["properties"] for i in matches
         ] or False
+        if row["name"] == row["id"] and e["protected"]:
+            item = e["protected"][0]
+            row["name"] = (
+                " ".join(
+                    str(item.get(k, "")).strip() for k in ("kohdenimi", "rakennusnimi")
+                ).strip()
+                or row["id"]
+            )
         e["heritage_source"] = WFS
         e["protected_match"] = "register point inside building footprint with 3m location tolerance"
         article = row["tags"].get("wikipedia")

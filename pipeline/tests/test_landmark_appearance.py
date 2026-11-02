@@ -110,6 +110,30 @@ def test_landmark_description_invalidates_only_its_own_tiles(tmp_path, monkeypat
     )
 
 
+
+def test_reviewed_parameters_survive_automatic_reference_refresh(tmp_path, monkeypatch):
+    from turku3d import config as C
+    from turku3d.landmarks import descriptions
+
+    reviewed = tmp_path / "reviewed"
+    reviewed.mkdir()
+    monkeypatch.setattr(descriptions, "ROOT", reviewed)
+    data = C.data_root() / "landmark-descriptions"
+    data.mkdir(parents=True)
+    automatic = dict(version=1, building_id="new", reference_match="rejected", reference_confidence=0)
+    (data / "new.json").write_text(json.dumps(automatic))
+    assert descriptions.resolve(building("new")) is None
+    automatic.update(reference_match="verified", reference_confidence=0.8, colour=[4, 5, 6])
+    (data / "new.json").write_text(json.dumps(automatic))
+    assert descriptions.resolve(building("new"))["colour"] == [4, 5, 6]
+    (reviewed / "new.json").write_text(json.dumps(dict(version=1, building_id="new", colour=[1, 2, 3])))
+    assert descriptions.resolve(building("new"))["colour"] == [1, 2, 3]
+    override = C.work_root() / "landmark-descriptions"
+    override.mkdir(parents=True)
+    (override / "new.json").write_text(json.dumps(dict(version=1, building_id="new", colour=[7, 8, 9])))
+    assert descriptions.resolve(building("new"))["colour"] == [7, 8, 9]
+
+
 def test_narrow_tower_wall_keeps_copper_above_its_stage():
     from turku3d.landmarks.appearance import material_wall_parts
     from turku3d.landmarks.descriptions import resolve

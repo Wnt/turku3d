@@ -2,21 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
-import inspect
 import json
-import subprocess
-import tempfile
 from pathlib import Path
 
 import numpy as np
 import shapely
-from PIL import Image
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
 from turku3d.package.gltf import GlbMesh, vertex_normals
-from . import ground_finishes
+from . import street_materials
 
 KEYS = (
     "asphalt_fresh",
@@ -27,7 +22,7 @@ KEYS = (
     "grass",
     "gravel",
     "quay_stone",
-    *ground_finishes.FINISH_KEYS.values(),
+    *street_materials.FINISH_KEYS.values(),
 )
 BINDINGS = {
     "road": 1,
@@ -200,7 +195,7 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
     channels = np.full(len(materials), 4)
     for name, channel in BINDINGS.items():
         channels[materials == mat_id(name)] = channel
-    for material, name in ground_finishes.FINISH_KEYS.items():
+    for material, name in street_materials.FINISH_KEYS.items():
         channels[materials == material] = KEYS.index(name)
     meshes = []
     for channel in np.unique(channels[keep]):
@@ -287,98 +282,9 @@ def channels(meshes):
 
 
 def library(root: Path, base: Path, channels):
-    """Retain native albedo detail at 1024 px/2 m; cache and share maps across tiles."""
-    sources = [C.work_root() / "textures/library", C.data_root() / "textures/library"]
-    source = next(
-        (
-            p
-            for p in sources
-            if all((p / f"{s}.array.ktx2").exists() for s in ("albedo", "normal", "orm"))
-        ),
-        None,
-    )
-    identity = [
-        str(base.resolve()),
-        KEYS,
-        *(inspect.getsource(f) for f in (library, fallback, neutral_asphalt)),
-        inspect.getsource(ground_finishes),
-    ]
-    if source:
-        identity.extend(
-            f"{p}:{p.stat().st_size}:{p.stat().st_mtime_ns}"
-            for p in sorted(source.glob("*.array.ktx2"))
-        )
-    key = hashlib.sha256(repr(identity).encode()).hexdigest()[:16]
-    target = root / f".surface-library-{key}"
-    target.mkdir(parents=True, exist_ok=True)
-    if base.exists():
-        for p in base.iterdir():
-            dest = target / p.name
-            if not dest.exists():
-                try:
-                    dest.symlink_to(p.resolve(), target_is_directory=p.is_dir())
-                except FileExistsError:
-                    pass
-    for channel in channels:
-        dest = target / ("draft_" + KEYS[channel])
-        if dest.exists():
-            continue
-        with tempfile.TemporaryDirectory(dir=target) as tmp:
-            stage = Path(tmp)
-            finish_maps = (
-                ground_finishes.maps(KEYS[channel])
-                if KEYS[channel] in ground_finishes.FINISH_KEYS.values() else None
-            )
-            for slot in ("albedo", "normal", "orm"):
-                output = stage / f"{slot}.png"
-                if finish_maps is not None:
-                    Image.fromarray(finish_maps[slot]).save(output)
-                elif source:
-                    subprocess.run(
-                        [
-                            "ktx",
-                            "extract",
-                            "--transcode",
-                            "rgba8",
-                            "--layer",
-                            str(channel),
-                            "--level",
-                            "0" if slot == "albedo" else "1" if slot == "normal" else "2",
-                            str(source / f"{slot}.array.ktx2"),
-                            str(output),
-                        ],
-                        check=True,
-                        capture_output=True,
-                    )
-                else:
-                    pixels = (
-                        fallback(channel)
-                        if slot == "albedo"
-                        else np.full(
-                            (256, 256, 3),
-                            (128, 128, 255) if slot == "normal" else (255, 230, 0),
-                            np.uint8,
-                        )
-                    )
-                    Image.fromarray(pixels).save(output)
-                if slot == "albedo" and channel in (0, 1):
-                    with Image.open(output) as image:
-                        pixels = neutral_asphalt(np.asarray(image.convert("RGB")))
-                    Image.fromarray(pixels).save(output)
-            (stage / "material.json").write_text(
-                json.dumps(
-                    dict(
-                        uv_scale=[0.5, 0.5],
-                        source="procedural" if finish_maps or not source else "own ground library",
-                    )
-                )
-            )
-            try:
-                stage.rename(dest)
-            except OSError:
-                if not dest.exists():
-                    raise
-    return target
+    from .surface_library import library as shared_library
+
+    return shared_library(root, base, channels)
 
 
 def mapped_paint(tile, path):

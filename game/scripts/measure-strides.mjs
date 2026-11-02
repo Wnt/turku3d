@@ -30,7 +30,7 @@ for (const name of ['Walk_Loop', 'Walk_Formal_Loop', 'Jog_Fwd_Loop', 'Sprint_Loo
   const clip = gltf.animations.find(c => c.name === name);
   if (!clip) throw new Error(`Missing ${name}`);
   mixer.stopAllAction(); const action = mixer.clipAction(clip).play();
-  const count = Math.ceil(clip.duration * 120), frames = [];
+  const count = Math.ceil(clip.duration * 120), frames = [], ankles = [], hipHeights = [];
   for (let f = 0; f <= count; f++) {
     action.time = f / count * clip.duration; mixer.update(0); model.updateMatrixWorld(true);
     const values = [];
@@ -41,6 +41,8 @@ for (const name of ['Walk_Loop', 'Walk_Formal_Loop', 'Jog_Fwd_Loop', 'Sprint_Loo
       }
     }
     frames.push(values);
+    hipHeights.push(model.getObjectByName('DEF-hips').getWorldPosition(new Vector3()).y);
+    ankles.push(['L', 'R'].map(side => model.getObjectByName(`DEF-foot${side}`).getWorldPosition(new Vector3()).toArray()));
   }
   const speeds = [], dt = clip.duration / count;
   for (let f = 0; f < count; f++) {
@@ -54,6 +56,9 @@ for (const name of ['Walk_Loop', 'Walk_Formal_Loop', 'Jog_Fwd_Loop', 'Sprint_Loo
   if (!speeds.length) throw new Error(`No planted soles in ${name}`);
   result.clips[name] = { metresPerLoop: +(speeds[speeds.length >> 1] * clip.duration).toFixed(4),
     duration: clip.duration, samples: speeds.length,
-    speedP10: +speeds[Math.floor(speeds.length * 0.1)].toFixed(3), speedP90: +speeds[Math.floor(speeds.length * 0.9)].toFixed(3) };
+    hips: { meanY: hipHeights.reduce((sum, y) => sum + y, 0) / hipHeights.length, minY: Math.min(...hipHeights), maxY: Math.max(...hipHeights) },
+    speedP10: +speeds[Math.floor(speeds.length * 0.1)].toFixed(3), speedP90: +speeds[Math.floor(speeds.length * 0.9)].toFixed(3),
+    ankles: ['L', 'R'].map((side, i) => ({ side, minY: Math.min(...ankles.map(a => a[i][1])), maxY: Math.max(...ankles.map(a => a[i][1])),
+      minZ: Math.min(...ankles.map(a => a[i][2])), maxZ: Math.max(...ankles.map(a => a[i][2])), maxForwardPhase: ankles.map(a => a[i][2]).indexOf(Math.max(...ankles.map(a => a[i][2]))) / count })) };
 }
 console.log(JSON.stringify(result, null, 2));

@@ -61,10 +61,10 @@ def producer_code(dataset):
     for node in selected:
         h.update(ast.dump(node, include_attributes=False).encode())
     if dataset == 'wfs':
-        from . import ground_finishes
+        from . import street_materials
 
         # WFS assigns visual material IDs; texture pixels do not affect surveyed shells.
-        finish = definitions(Path(ground_finishes.__file__).read_bytes())['street_finish']
+        finish = definitions(Path(street_materials.__file__).read_bytes())['street_finish']
         h.update(ast.dump(finish, include_attributes=False).encode())
-        h.update(repr((ground_finishes.FIELDSTONE, ground_finishes.RED_ASPHALT)).encode())
+        h.update(repr((street_materials.FIELDSTONE, street_materials.RED_ASPHALT)).encode())
     return h.digest()

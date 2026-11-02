@@ -100,7 +100,7 @@ def layout(description: dict, width_m: float, height_m: float) -> dict:
     if storeys > 1 and description["material"] != "glass":
         if columns < 1 or not BAY_RANGE_M[0] <= width_m / columns <= BAY_RANGE_M[1]:
             columns = max(0, round(width_m / 2.8)) if columns else 0
-    if description["material"] == "glass":
+    if description["material"] == "glass" and (columns or description["ground_floor"] != "plain"):
         columns = max(1, columns or round(width_m / 1.5))
     bay = width_m / columns if columns else width_m
     ww = float(np.clip(description["window_width"] or 0.45, 0.2, 0.85)) * bay

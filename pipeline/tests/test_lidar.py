@@ -80,6 +80,25 @@ def test_tile_cache_mmap_buffer_invalidation(tmp_path, monkeypatch):
         store.tile("c_1_1", buffer=-1)
 
 
+def test_point_shards_share_identical_source_bytes_across_overlays(tmp_path, monkeypatch):
+    import shutil
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    first, second, cache = (tmp_path / name for name in ('first', 'second', 'cache'))
+    first.mkdir()
+    second.mkdir()
+    name = '23459500_6704500.laz'
+    write_laz(first / name, np.array([[63, 4.1, 63], [64, 4, 64]]))
+    shutil.copyfile(first / name, second / name)
+    a, b = TileStore(first, cache), TileStore(second, cache)
+    tile = C.LazTile.parse(name.removesuffix('.laz'))
+    assert a._source(tile)[1] == b._source(tile)[1]
+    assert len(a.tile('c_1_1')) == 2
+    def fail(*args, **kwargs):
+        raise AssertionError('identical overlay must reuse decoded shards')
+    monkeypatch.setattr(laspy, 'open', fail)
+    assert len(b.tile('c_1_1')) == 2
+
+
 def test_profile_removes_slope_and_recovers_signed_step():
     cloud = step_cloud()
     surface = Surface(cloud.points)

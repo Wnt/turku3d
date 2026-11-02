@@ -2,11 +2,12 @@ import { expect, test, vi } from 'vitest';
 import { ColFormatError } from '../../src/shared/col/colFormat';
 import type { ToWorker } from '../../src/physics/protocol';
 
-const mocks = vi.hoisted(() => ({ step:vi.fn(), loadTile:vi.fn() }));
+const mocks = vi.hoisted(() => ({ step:vi.fn(), loadTile:vi.fn(), raycast:vi.fn() }));
 vi.mock('@dimforge/rapier3d', () => ({ version:()=>'test' }));
 vi.mock('../../src/physics/world', () => ({ PhysicsWorld:class {
   step = mocks.step;
   loadTile = mocks.loadTile;
+  raycast = mocks.raycast;
   characterState() { return null; }
   vehicleState() { return null; }
   vehicleStates() { return []; }
@@ -19,6 +20,10 @@ test('worker reports failed step sequence, continues its queue, and marks corrup
   try {
     await import('../../src/physics/worker');
     mocks.step.mockImplementationOnce(()=>{throw new Error('step failed');}).mockReturnValue(1);
+    mocks.raycast.mockReturnValueOnce({ toi: 1 }).mockReturnValueOnce(null);
+    const ray = { origin: { x: 0, y: 2, z: 0 }, dir: { x: 0, y: -1, z: 0 }, maxToi: 3, filter: 'foot' as const };
+    context.onmessage!({data:{type:'raycast',id:99,rays:[ray,{...ray,maxToi:0.5}]}});
+    await vi.waitFor(()=>expect(context.postMessage).toHaveBeenCalledWith({type:'raycastResult',id:99,hits:[{toi:1},null]},[]));
     const step = {type:'step',seq:7,dt:1/60,character:{vx:0,vz:0,jump:false},vehicle:null} as const;
     context.onmessage!({data:step});
     context.onmessage!({data:{...step,seq:8}});

@@ -83,3 +83,37 @@ test('shared latest is read synchronously without any worker state message', asy
     expect(worker.postMessage).toHaveBeenCalledTimes(1);
   } finally { vi.unstubAllGlobals(); }
 });
+
+
+test('same-turn foot probes share one worker snapshot and retain result order and input values', async () => {
+  class FakeWorker {
+    static instance: FakeWorker;
+    onmessage?: (e: { data: FromWorker }) => void;
+    postMessage = vi.fn();
+    constructor() { FakeWorker.instance = this; }
+  }
+  vi.stubGlobal('Worker', FakeWorker); vi.stubGlobal('crossOriginIsolated', false);
+  try {
+    const client = new PhysicsClient(), worker = FakeWorker.instance;
+    worker.onmessage!({ data: { type: 'ready', rapier: 'test', colReader: 'test' } });
+    await client.ready;
+    const origin = { x: 1, y: 2, z: 3 }, direction = { x: 0, y: -1, z: 0 };
+    const results = Array.from({ length: 24 }, (_, i) => { origin.x = i; return client.raycast(origin, direction, 1.3, 'foot'); });
+    origin.x = 999; direction.y = 1;
+    await Promise.resolve();
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    const message = worker.postMessage.mock.calls[0][0];
+    expect(message.rays.map((r: any) => r.origin.x)).toEqual(Array.from({ length: 24 }, (_, i) => i));
+    expect(message.rays.every((r: any) => r.dir.y === -1 && r.filter === 'foot')).toBe(true);
+    const hits = message.rays.map((r: any, i: number) => i % 2 ? null : { toi: 1, point: r.origin,
+      normal: { x: 0, y: 1, z: 0 }, material: 17, tile: 'c_0_0' });
+    worker.onmessage!({ data: { type: 'raycastResult', id: message.id, hits } });
+    expect(await Promise.all(results)).toEqual(hits);
+    const later = client.raycast({ x: 25, y: 2, z: 0 }, { x: 0, y: -1, z: 0 }, 1);
+    await Promise.resolve();
+    expect(worker.postMessage).toHaveBeenCalledTimes(2);
+    const second = worker.postMessage.mock.calls[1][0];
+    worker.onmessage!({ data: { type: 'raycastResult', id: second.id, hits: [null] } });
+    expect(await later).toBeNull();
+  } finally { vi.unstubAllGlobals(); }
+});
