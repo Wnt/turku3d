@@ -139,6 +139,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
     from .build import grid_height
     from .extrusion import extrude
     from .inputs import CELLS
+    from .input_keys import producer_code
     from .stages import kerb_inputs
 
     base = Path(__file__).parents[1]
@@ -169,12 +170,11 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
             Path(__file__).with_name("bridge_details.py"),
             Path(kerbs.__file__),
             surfaces.grid_height,
-            Path(__file__).with_name("inputs.py"),
             Path(__file__).with_name("geometry.py"),
             base / "structures/geometry.py",
             Path(__file__).with_name("extrusion.py"),
             Path(__file__).with_name("roofs.py"),
-        ),
+        ) + producer_code("ground").hex(),
         [
             tile,
             inputs.tunnels,

@@ -225,6 +225,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
         "surfaces",
         "markings",
         "kerbs",
+        "street_profiles",
         "appearance",
         "register",
         "parking",
@@ -252,7 +253,7 @@ def test_first_pass_keeps_structural_collision_inputs_without_preparing_decorati
             return []
         if dataset == "wfs":
             assert len(sources) == 3
-            return {"buildings": [building], "streets": [], "water": []}
+            return {"buildings": [building], "streets": [], "street_finishes": [], "water": []}
         if dataset == "roads":
             assert sources == [source, lidar, spot]
             return {"bridge_ways": [{"id": "crossing"}]}

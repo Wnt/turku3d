@@ -6,11 +6,12 @@ from turku3d import config as C
 from turku3d.package.gltf import GlbMesh
 from turku3d.tile_layer import identities
 
-from .stored_facades import assemble_walls, wall_meshes
+from .stored_facades import assemble_walls, facade_layouts, wall_meshes
 
 
 def building_visual(tile, shells, ortho, first_pass, wall_context=()):
     from .build import jpeg, ortho_uv
+    from turku3d.landmarks.appearance import roof_mesh, wall_meshes as landmark_walls
 
     if not shells:
         return []
@@ -20,6 +21,10 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
     image = jpeg(photo) if photo is not None and np.all(valid_roof_pixels(photo)) else None
     for b, (roof, ridx, _, _, _walls, _wuv, _widx) in shells:
         if not len(ridx):
+            continue
+        custom_roof = roof_mesh(b, roof, ridx, origin)
+        if custom_roof is not None:
+            meshes.append(custom_roof)
             continue
         uv = ortho_uv(tile, roof)
         # OSM material/heritage tags must never bypass usable roof imagery.
@@ -45,8 +50,10 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
                 ),
             )
         )
+    layouts = facade_layouts(shells)
     for (b, _), walls in zip(shells, assemble_walls(shells, wall_context), strict=True):
-        walls = wall_meshes(b, walls, origin)
+        custom_walls = landmark_walls(b, walls, origin)
+        walls = custom_walls if custom_walls is not None else wall_meshes(b, walls, origin, layouts.get(b.key))
         for mesh in walls:
             if b.attributes.get("address"):
                 mesh.extras["address"] = b.attributes["address"]
