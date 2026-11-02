@@ -69,11 +69,22 @@ def test_landing_bend_has_supported_wall_faces_and_both_ground_aprons():
     levels = np.tile([1.2, 2.0], (len(centres), 1))
     record = (line, {"barrier": "retaining_wall", "_survey": dict(
         centres=centres, left=left, right=right, heights=levels, outer=levels)}, False)
-    meshes, cuts = retaining.produce(VisualTile(0, 0, 0), [record], lambda x,z: -99)
+    meshes, cuts = retaining.produce(VisualTile(0, 0, 0), [record], lambda x,z: 1.2)
     assert any(not m.metadata.get("terrain") for m in meshes)
     assert any(m.metadata.get("terrain") for m in meshes)
     assert cuts
     assert max(m.positions[:, 1].max() for m in meshes) == 2
+
+
+def test_apron_outer_rails_match_existing_terrain_instead_of_extrapolating_a_plane():
+    survey = records()
+    sample = lambda x,z: 4 + 0.01*x + 0.1*z*z
+    meshes, _ = retaining.produce(VisualTile(0, 0, 0), survey, sample)
+    apron = next(m for m in meshes if m.metadata.get("terrain"))
+    outer = np.isclose(abs(apron.positions[:, 2]), 2.5)
+    assert outer.any()
+    p = apron.positions[outer]
+    np.testing.assert_allclose(p[:, 1], [sample(x,z) for x,_,z in p])
 
 
 def test_missing_or_one_sided_lidar_does_not_invent_a_ledge():

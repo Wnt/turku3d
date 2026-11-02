@@ -61,12 +61,11 @@ def measure(line, points):
         normals /= np.linalg.norm(normals, axis=1)[:, None]
         shifted = centres[run] + np.array([f.shift for f in chosen])[:, None] * normals
         levels = median_filter(np.array([f.heights for f in chosen]), size=(3, 1), mode="nearest")
-        slopes = median_filter(np.array([f.slopes for f in chosen]), size=(3, 1), mode="nearest")
         # Use the same mitered sections in the emitter, including mapped bends.
         offsets = (right[run] - left[run]) / 2
         runs.append((shapely.LineString(shifted), dict(
             centres=shifted, left=shifted-offsets, right=shifted+offsets,
-            heights=levels, outer=levels + slopes * np.array([-2.5, 2.5]),
+            heights=levels,
         )))
 
     for i, fit in enumerate(fits):
