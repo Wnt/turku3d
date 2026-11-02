@@ -5,7 +5,8 @@ python -m turku3d.geometry_qa --sweep CACHE --out reports/city
 
 Thresholds are engineering heuristics, not proof of road drivability. Sibling
 roads.json adds directional grade, cross-slope and shared-edge step checks.
-Bridge approach/clearance and enclosed holes remain outside this first version.
+Bridge clearance remains outside this audit. Quay-floor edges are checked for
+missing supports where a terrain cut meets open water.
 """
 from __future__ import annotations
 
@@ -112,6 +113,60 @@ def road_context(graph, points):
     return selected >= 0, tangents, selected
 
 
+def quay_floor_gaps(meshes, epsilon=.015):
+    """Locate water-facing passage floors with no surface immediately below them."""
+    import shapely
+
+    water, vertical, floors = [], [], []
+    for mesh in meshes:
+        t = mesh.vertices[mesh.indices]
+        if not len(t):
+            continue
+        normal = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        length = np.linalg.norm(normal, axis=1)
+        vertical.extend(t[(length > 1e-8) & (abs(normal[:, 1]) < .2 * length)])
+        if mesh.metadata.get('material_key') == 'water':
+            water.extend(t[:, :, [0, 2]])
+        if mesh.name.startswith('tunnel:') and mesh.name.endswith(':floor') and mesh.metadata.get('material_key') == 'draft_bridge_stone':
+            floors.append((mesh, t))
+    if not water or not floors:
+        return []
+    wet = shapely.STRtree(shapely.polygons(np.asarray(water)))
+    walls = np.asarray(vertical).reshape(-1, 3, 3)
+    lo, hi = walls.min(axis=1), walls.max(axis=1)
+    tree = shapely.STRtree(shapely.box(lo[:, 0]-epsilon, lo[:, 2]-epsilon,
+                                    hi[:, 0]+epsilon, hi[:, 2]+epsilon))
+    result = []
+    for mesh, triangles in floors:
+        footprint = shapely.union_all(shapely.polygons(triangles[:, :, [0, 2]]))
+        edges = np.concatenate([triangles[:, pair] for pair in ([0, 1], [1, 2], [2, 0])])
+        centres = edges.mean(axis=1)
+        boundary = shapely.distance(shapely.points(centres[:, [0, 2]]), footprint.boundary) < epsilon
+        for edge, centre in zip(edges[boundary], centres[boundary], strict=True):
+            if centre[1] < .3 or np.linalg.norm(edge[1]-edge[0]) < .1:
+                continue
+            # A tile edge is closed by the neighbouring tile, not a local skirt.
+            if any(np.all(abs(edge[:, axis] / 250 - round(centre[axis] / 250)) < 1e-6) for axis in (0, 2)):
+                continue
+            point = shapely.Point(centre[[0, 2]])
+            if not len(wet.query(point, predicate='dwithin', distance=.08)):
+                continue
+            q = centre.copy(); q[1] -= .25
+            ids = tree.query(point)
+            supported = False
+            for tri in walls[ids]:
+                a, b = tri[1]-tri[0], tri[2]-tri[0]
+                n = np.cross(a, b)
+                if abs((q-tri[0]) @ n) > epsilon * np.linalg.norm(n):
+                    continue
+                uv = np.linalg.lstsq(np.stack([a, b], axis=1), q-tri[0], rcond=None)[0]
+                if uv.min() >= -.01 and uv.sum() <= 1.01:
+                    supported = True; break
+            if not supported:
+                result.append((mesh.name, q))
+    return result
+
+
 def audit(meshes, *, epsilon=.003, overlap_area=.01, graph=None):
     findings = []
     triangles, owners = [], []
@@ -120,6 +175,8 @@ def audit(meshes, *, epsilon=.003, overlap_area=.01, graph=None):
         findings.append(dict(kind=kind, severity=severity, mesh=mesh,
                              position=p.tolist(), world_enh=[23459500 + float(p[0]),
                              6704500 - float(p[2]), float(p[1])], **detail))
+    for name, point in quay_floor_gaps(meshes):
+        emit('quay_floor_unsealed', 'high', point, name)
     road_count = 0; contextual_road_count = 0; road_edges = defaultdict(list)
     for mi, mesh in enumerate(meshes):
         tri = mesh.vertices[mesh.indices]
