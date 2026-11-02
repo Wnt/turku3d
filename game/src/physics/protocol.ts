@@ -39,7 +39,7 @@ export interface TileStats { curbTris?: number; id: string; tris: number; prims:
 /** Ambient traffic (physics/traffic.ts). A tile's road graph as CoarseTiles holds it, with its agreed hash. */
 export interface TrafficTile { tile: string; hash: string; bounds: [number, number, number, number]; roads: unknown }
 /** The clock the traffic density follows: the shared day cycle (with ?cycle='s period in single player) or a frozen
- *  clock hour (?time=, the developer time menu; single player only). */
+ *  clock hour (?time=, the developer clock, also while it runs; single player only). */
 export type TrafficClock = { kind: 'cycle'; periodMs: number } | { kind: 'hour'; hour: number };
 /** `enabled`: tiles whose lanes may carry cars (null: all); `claims`: slot keys other clients claimed; `density`:
  *  multiplier on every street's flow (?trafficDensity=, 1 by default); `clock`: see TrafficClock (multiplayer

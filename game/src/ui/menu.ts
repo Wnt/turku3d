@@ -80,6 +80,9 @@ export interface MenuPage {
   items: MenuItem[];
   /** Menu back on this page, or null where back does nothing. */
   back: (() => void) | null;
+  /** The row selected when the page shows (an item id); the first enabled row otherwise. A page that re-shows itself
+   *  after a pick passes the picked row, so repeated picks stay on it. */
+  select?: string;
 }
 
 /** Where a flow shows its pages. */
@@ -115,7 +118,8 @@ export class MenuPanel implements MenuHost {
 
   show(page: MenuPage) {
     this.page = page;
-    this.render(Math.max(0, page.items.findIndex(i => i.enabled)));
+    const picked = page.select === undefined ? -1 : page.items.findIndex(i => i.id === page.select && i.enabled);
+    this.render(picked >= 0 ? picked : Math.max(0, page.items.findIndex(i => i.enabled)));
   }
 
   /** Per frame while the menu is visible. Returns whether menu back was pressed. */

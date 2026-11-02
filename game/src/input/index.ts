@@ -5,6 +5,11 @@ export type InputSource = 'keyboard' | 'gamepad' | 'touch';
 
 /** Radians of camera turn per CSS px of mouse movement or look drag. */
 const LOOK_PER_PX = 0.0025;
+/** Developer panels (ui/devLayers.ts, ui/timePanel.ts): their controls keep their keys and drags. */
+const PANELS = '#dev-layers, #time-panel';
+/** Developer panel toggles and shortcuts, which work while focus is inside a panel. */
+const PANEL_ACTIONS: readonly Action[] = ['layerPanel', 'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3',
+  'timeSpeed4', 'timeHourBack', 'timeHourForward', 'timeMinutesBack', 'timeMinutesForward', 'timeLive'];
 
 /** The only browser input owner. Gameplay sees actions, never keys or device indices. */
 export class Input {
@@ -22,6 +27,8 @@ export class Input {
   /** Non-consuming press activity for help learning, including either axis direction and mouse look starts. */
   readonly activity = new Set<Action>();
   private mouseLooking = false;
+  /** The mouse button went down in a developer panel (a slider drag): its moves never look around. */
+  private panelDrag = false;
   private mouseX = 0;
   private mouseY = 0;
   private wheel = 0;
@@ -39,7 +46,8 @@ export class Input {
     const options = { signal: this.listeners.signal };
     if ((navigator.maxTouchPoints ?? 0) > 0) this.enableTouch();
     addEventListener('keydown', e => {
-      if ((e.target as HTMLElement)?.closest?.('#dev-layers') && e.code !== 'F4') return;
+      // A focused developer panel control keeps its own keys (a slider's arrows); only the panels' keys pass.
+      if ((e.target as HTMLElement)?.closest?.(PANELS) && !this.panelKey(e.code)) return;
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
       if (e.code === 'F10') {
@@ -57,8 +65,10 @@ export class Input {
     addEventListener('gamepaddisconnected', e => { if (this.pad?.index === e.gamepad.index) { this.pad = null; this.clear(); } }, options);
     addEventListener('pointerdown', e => {
       if (e.pointerType === 'touch') this.enableTouch(); else if (e.pointerType === 'mouse') this.source = 'keyboard';
+      this.panelDrag = !!(e.target as HTMLElement)?.closest?.(PANELS);
       this.activate();
     }, options);
+    addEventListener('pointerup', () => { this.panelDrag = false; }, options);
     // Touch: the game element is the stick (left half) and look/pinch (right half) area; buttons are in the overlay.
     // Touch pointers are captured by their pointerdown target, so moves and lifts arrive on the same element.
     // index.html gives the canvas `touch-action: none`, so the browser neither scrolls nor zooms on these drags.
@@ -78,7 +88,7 @@ export class Input {
       if ((e as PointerEvent).pointerType !== 'touch' && document.pointerLockElement !== el) void el.requestPointerLock?.()?.catch(() => {});
     }, options);
     addEventListener('mousemove', e => {
-      if ((e.target as HTMLElement)?.closest?.('#dev-layers')) return;
+      if (this.panelDrag || (e.target as HTMLElement)?.closest?.(PANELS)) return;
       if (document.pointerLockElement === el || e.buttons & 1) {
         this.mouseX += e.movementX; this.mouseY += e.movementY; this.source = 'keyboard';
       }
@@ -146,6 +156,9 @@ export class Input {
     const shown = this.source === 'touch' ? context : 'hidden';
     if (shown === 'hidden') this.touch.clear();
     this.overlay?.setContext(shown);
+  }
+  private panelKey(code: string) {
+    return PANEL_ACTIONS.some(action => this.bindings[action].some(b => b.kind === 'key' && b.code === code));
   }
   get connected() { return this.pad !== null; }
   get gamepadName() { return this.pad?.id ?? null; }

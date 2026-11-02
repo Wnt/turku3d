@@ -44,7 +44,7 @@ export function sunPath(hour: number): { azimuth: number; elevation: number } {
   return { azimuth: ((south + 180) % 360 + 360) % 360, elevation };
 }
 
-/** The cycle's state at a fixed clock hour (the ?time=HH:MM view and the developer time menu). */
+/** The cycle's state at a fixed clock hour (the ?time=HH:MM view and the developer clock). */
 export function cycleAt(hour: number): CycleState {
   const h = ((hour % 24) + 24) % 24;
   const sun = sunPath(h);
@@ -80,15 +80,16 @@ export function localHour(date: Date): number {
   return part('hour') + part('minute') / 60 + (part('second') + date.getUTCMilliseconds() / 1000) / 3600;
 }
 
-export type DayPhase = 'dawn' | 'noon' | 'dusk' | 'night';
-export const DAY_PHASES: readonly DayPhase[] = ['dawn', 'noon', 'dusk', 'night'];
-/** Developer time menu: representative clock hours of the cycle (sunrise, high sun, sunset, deep night). */
-export const PHASE_HOURS: Record<DayPhase, number> = { dawn: 6.5, noon: 13.25, dusk: 19.75, night: 23.5 };
-
 /** `HH:MM` (or `H:MM`) as a clock hour, or null when the text is not a clock time. */
 export function parseClockHour(text: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
   if (!m) return null;
   const hour = Number(m[1]), minute = Number(m[2]);
   return hour < 24 && minute < 60 ? hour + minute / 60 : null;
+}
+
+/** A clock hour as `HH:MM` (to the nearest minute, wrapping at 24): the inverse of parseClockHour. */
+export function formatClock(hour: number): string {
+  const minutes = ((Math.round(hour * 60) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }

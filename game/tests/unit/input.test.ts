@@ -134,3 +134,45 @@ test('photo shortcuts use free controls and clipboard runs in the original key g
   expect(copy).toHaveBeenCalledTimes(1);
   input.dispose();
 });
+
+test('developer time keys use free codes and pass a focused time panel control; other keys stay with the control', () => {
+  const time = ['timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3', 'timeSpeed4', 'timeHourBack', 'timeHourForward',
+    'timeMinutesBack', 'timeMinutesForward', 'timeLive'] as const;
+  const codes = (actions: readonly string[]) => actions.flatMap(a => DEFAULT_BINDINGS[a as keyof typeof DEFAULT_BINDINGS])
+    .flatMap(b => b.kind === 'key' ? [b.code] : []);
+  const others = new Set(codes(ACTIONS.filter(a => !(time as readonly string[]).includes(a))));
+  expect(codes(time).filter(code => others.has(code))).toEqual([]);
+  expect(new Set(codes(time)).size).toBe(time.length);
+  const events = new EventTarget();
+  vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
+  vi.stubGlobal('navigator', { getGamepads: () => [] });
+  const input = new Input(new EventTarget() as HTMLElement);
+  const inPanel = { closest: (selector: string) => selector.includes('#time-panel') ? {} : null };
+  const key = (code: string, target: unknown) => {
+    const e = Object.assign(new Event('keydown', { cancelable: true }), { code, repeat: false });
+    Object.defineProperty(e, 'target', { value: target });
+    events.dispatchEvent(e);
+    events.dispatchEvent(Object.assign(new Event('keyup'), { code }));
+  };
+  key('ArrowRight', inPanel); key('KeyW', inPanel); key('BracketRight', inPanel); key('Digit4', inPanel);
+  input.update(1 / 60);
+  expect(input.consume('timeHourForward')).toBe(true); expect(input.consume('timeSpeed4')).toBe(true);
+  expect(input.consume('menuDown')).toBe(false); expect(input.consume('menuUp')).toBe(false);
+  key('KeyW', null);
+  input.update(1 / 60);
+  expect(input.consume('menuUp')).toBe(true);
+  // A slider drag that starts in the panel never turns the camera, even where the pointer leaves the panel.
+  vi.stubGlobal('document', { pointerLockElement: null });
+  const pointer = (type: string, target: unknown, fields: object = {}) => {
+    const e = Object.assign(new Event(type), { pointerType: 'mouse', buttons: 1, movementX: 40, movementY: 0, ...fields });
+    Object.defineProperty(e, 'target', { value: target });
+    events.dispatchEvent(e);
+  };
+  pointer('pointerdown', inPanel); pointer('mousemove', inPanel); pointer('mousemove', null);
+  input.update(1 / 60);
+  expect(input.lookX).toBe(0);
+  pointer('pointerup', null, { buttons: 0 }); pointer('pointerdown', null); pointer('mousemove', null);
+  input.update(1 / 60);
+  expect(input.lookX).toBeGreaterThan(0);
+  input.dispose();
+});
