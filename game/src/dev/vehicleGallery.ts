@@ -83,7 +83,7 @@ const views = ENTRIES.map((entry, i) => {
 });
 
 type Visual = { update(state: VehicleState, dt: number): void; dispose(): void };
-type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: InstanceType<typeof Vehicle>; visual: Visual };
+type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: InstanceType<typeof Vehicle>; visual: Visual; start: typeof START };
 
 async function makeVisual(entry: Entry, index: number): Promise<Visual> {
   if (entry.kind === 'car') {
@@ -119,9 +119,12 @@ async function activate(index: number) {
   const entry = ENTRIES[index], world = new R.World({ x: 0, y: -9.81, z: 0 }); world.timestep = 1 / 60;
   const groups = (GROUP.STATIC_SOLID << 16) | GROUP.VEHICLE;
   world.createCollider(R.ColliderDesc.cuboid(200, 0.5, 200).setTranslation(0, -0.5, 0).setCollisionGroups(groups));
-  world.createCollider(R.ColliderDesc.cuboid(STEP.hx, STEP.hy, STEP.hz).setTranslation(STEP.x, STEP.y, STEP.z).setCollisionGroups(groups));
+  // The trophy truck gets a 75 cm platform (5× the car step) with only its front-right wheel on the corner.
+  const height = entry.kind === 'truck' ? 0.75 : STEP.hy * 2;
+  world.createCollider(R.ColliderDesc.cuboid(STEP.hx, height / 2, STEP.hz).setTranslation(STEP.x, height / 2, STEP.z).setCollisionGroups(groups));
+  block.scale.y = height / (STEP.hy * 2); block.position.y = height / 2;
   const kind = entry.kind === 'fleet' ? 'car' : entry.kind;
-  const start = kind === 'truck' ? { ...START, y: START.y + 0.5 } : START;
+  const start = kind === 'truck' ? { x: -1.0, y: 1.8, z: 1.75 } : START;
   const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind });
   const visual = await makeVisual(entry, index);
   if (pending !== index) { visual.dispose(); world.free(); return; }
@@ -129,7 +132,7 @@ async function activate(index: number) {
   const { view } = views[index]; view.append(renderer.domElement);
   for (const v of views) v.view.classList.toggle('active', v.view === view);
   resize(); openingView(vehicle.state()); followSun(vehicle.state().pos); signals.enter();
-  active = { index, world, vehicle, visual }; pending = -1;
+  active = { index, world, vehicle, visual, start }; pending = -1;
 }
 
 function resize() {
@@ -174,7 +177,7 @@ renderer.setAnimationLoop(() => {
   input.update(dt);
   if (!active) return;
   const a = input.actions;
-  if (input.consume('vehicleReset')) { active.vehicle.reset(START, 0); openingView(active.vehicle.state()); }
+  if (input.consume('vehicleReset')) { active.vehicle.reset(active.start, 0); openingView(active.vehicle.state()); }
   signals.update(true, input.consume('lights'), a.horn > 0.5);
   const drive = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5, lights: signals.lights, horn: signals.horn };
   for (carry += dt; carry >= 1 / 60; carry -= 1 / 60) { active.vehicle.step(1 / 60, drive); active.world.step(); }
