@@ -224,7 +224,8 @@ class Farm:
 
     def status(self):
         with self.lock:
-            return dict(state='ready', api_version=2, version=self.version, aliases=self.aliases.copy(),
+            return dict(state='ready', api_version=2, daemon_pid=os.getpid(),
+                        version=self.version, aliases=self.aliases.copy(),
                         uptime_seconds=round(time.time() - self.started),
                         workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
                         building=[k[1] for k in self.dispatched],
