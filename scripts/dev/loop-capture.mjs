@@ -19,7 +19,12 @@ const pages = await fetch(`${cdp}/json/list`, { signal: AbortSignal.timeout(1500
 const target = pages.find(p => p.type === 'page' && p.url.startsWith(base)) ?? pages.find(p => p.type === 'page' && p.url === 'about:blank');
 if (!target) throw new Error('No integration or blank page in the specified CDP browser');
 const socket = new WebSocket(target.webSocketDebuggerUrl);
-await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => { socket.close(); reject(new Error('CDP connection timed out')); }, 15000);
+  socket.onopen = () => { clearTimeout(timer); resolve(); };
+  socket.onerror = error => { clearTimeout(timer); reject(error); };
+});
+console.log(`Connected to integration page ${target.id}`);
 let seq = 0;
 const pending = new Map(), assets = new Map(), failures = [];
 let lastAsset = 0;
@@ -44,7 +49,7 @@ socket.onmessage = ({ data }) => {
 };
 const send = (method, params = {}) => new Promise((resolve, reject) => {
   const id = ++seq;
-  const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, timeout);
+  const timer = setTimeout(() => { pending.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, Math.min(timeout, 60000));
   pending.set(id, { resolve, reject, timer }); socket.send(JSON.stringify({ id, method, params }));
 });
 const evaluate = async expression => {
@@ -74,6 +79,7 @@ try {
       if (valid(shots.get(file))) continue;
       failures.length = 0;
       const started = Date.now(), [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
+      console.log(`Starting ${file}`);
       const [h, m] = at.split(':').map(Number);
       const pose = { E, N, H, yaw, pitch, fov };
       const url = `${base}?cam=${cam.cam}&time=${at}&quality=high&hud=0&traffic=0&walkers=0`;
