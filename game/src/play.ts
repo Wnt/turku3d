@@ -314,6 +314,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
+  window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
+    population: { traffic: traffic.snapshot(), walkers: walkers.snapshot() } }) };
   const capture = captureAllowed() ? captureControl(window.__game!, document.body) : null;
   if (capture) { pauseMenu.capture = capture; window.__game!.capture = capture; }
 
