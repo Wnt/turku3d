@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from types import SimpleNamespace
 spec=importlib.util.spec_from_file_location('bulk_prefetch',Path(__file__).with_name('prefetch.py'))
 prefetch=importlib.util.module_from_spec(spec);spec.loader.exec_module(prefetch)
 
@@ -32,6 +34,18 @@ class Ledgers(unittest.TestCase):
    p.write_bytes(b'222')
    self.assertFalse(one.is_complete(p,verify=True))
    self.assertIsNone(two.get(p))
+ def test_imagery_checks_every_quadrant_when_some_have_no_coverage(self):
+  from turku3d.coarse import imagery
+  tiles=[SimpleNamespace(id='tile-'+str(n)) for n in range(4)]
+  visited=[];original=imagery.block_tiles
+  def fetch(block,log):
+   tile=imagery.block_tiles(block)[0];visited.append(tile.id)
+   if tile.id in ('tile-0','tile-2'):raise prefetch.NoCoverage('observed blank imagery')
+  with patch.object(prefetch,'block_tiles',return_value=tiles),patch.object(imagery,'fetch',side_effect=fetch):
+   gaps=prefetch.fetch_imagery_block(None,lambda *_:None)
+  self.assertEqual(visited,[t.id for t in tiles])
+  self.assertEqual(set(gaps),{'tile-0','tile-2'})
+  self.assertIs(imagery.block_tiles,original)
  def test_import_does_not_patch_parent_registry(self):
   self.assertIs(prefetch.common.Registry,prefetch.OriginalRegistry)
 

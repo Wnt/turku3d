@@ -58,7 +58,7 @@ def main():
         if complete['jobs_sha256']!=sources['prefetch_jobs_sha256']:
             raise RuntimeError('frozen sources and prefetch plan differ')
         meta=read(state/'revision.json');commit=meta['commit']
-        outside=set(complete.get('outside_lidar_coverage',[]))
+        outside=set(complete.get('unavailable_tiles',[]))
         selected=list(dict.fromkeys(a.tiles or read(a.walk)))
         if any(not shared.TILE.fullmatch(tile) for tile in selected):raise ValueError('invalid L0 tile')
         if a.tiles and outside.intersection(selected):raise ValueError('proof selection lacks source coverage')
