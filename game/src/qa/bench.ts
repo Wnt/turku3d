@@ -92,6 +92,9 @@ export class CameraBench {
   private instances = 0;
   private others = new Map<string, number>();
   private pipelinesAtStart: number | null = null;
+  private measurementChanges = 0;
+  private measurementSignature = '';
+  private measurementBusy = false;
   result: Record<string, unknown> | null = null;
 
   constructor(private host: BenchHost, private pose: BenchPose, private quality: string,
@@ -132,6 +135,9 @@ export class CameraBench {
     this.instances = 0;
     this.others.clear();
     this.pipelinesAtStart = null;
+    this.measurementChanges = 0;
+    this.measurementSignature = '';
+    this.measurementBusy = false;
     this.result = null;
   }
 
@@ -159,10 +165,18 @@ export class CameraBench {
       this.host.perf.reset();
       this.measureStart = this.host.now();
       this.pipelinesAtStart = this.host.pipelines();
+      this.measurementSignature = this.host.signature();
+      this.measurementChanges = Number(this.measurementSignature !== this.settle.last);
+      this.measurementBusy = !!this.host.busy?.();
       this.counting = true;
       return null;
     }
-    if (this.phase !== 'measure' || ++this.frames < this.measure) return null;
+    if (this.phase !== 'measure') return null;
+    const signature = this.host.signature();
+    if (signature !== this.measurementSignature) this.measurementChanges++;
+    this.measurementSignature = signature;
+    this.measurementBusy ||= !!this.host.busy?.();
+    if (++this.frames < this.measure) return null;
     this.counting = false;
     this.phase = 'drain';
     const measureMs = this.host.now() - this.measureStart;
@@ -171,11 +185,15 @@ export class CameraBench {
     const s = this.host.perf.snapshot();
     const per = (n: number) => Math.round((n / this.measure) * 10) / 10;
     const pipelines = this.host.pipelines();
+    const afterMeasure = this.host.signature();
+    const measurementStable = !this.settle.timedOut && !this.measurementBusy && this.measurementChanges === 0
+      && afterMeasure === this.measurementSignature && pipelines === this.pipelinesAtStart;
     this.result = {
       id: this.pose.id, at: this.pose.at, quality: this.quality, backend: s.backend,
       settleMs: this.settle.ms, settleTimedOut: this.settle.timedOut,
       settleSignature: { changes: this.settle.changes, first: this.settle.first, last: this.settle.last,
-        afterMeasure: this.host.signature(), parts: 'geometries|textures|pipelines', timeline: this.settle.timeline },
+        afterMeasure, parts: 'geometries|textures|pipelines', timeline: this.settle.timeline },
+      measurementStable, measurementChanges: this.measurementChanges, measurementBusy: this.measurementBusy,
       warmFrames: this.warm, frames: this.measure, windowFrames: s.windowFrames,
       measureMs, fps: measureMs > 0 ? this.measure * 1000 / measureMs : null,
       submittedDraws: {

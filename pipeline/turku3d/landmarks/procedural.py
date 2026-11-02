@@ -300,4 +300,7 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
         for low in w.get("rows_m", [w["sill_m"]]):
             for i in range(count):
                 opening(width * (i + 0.5) / count, low, w["width_m"], w["height_m"], pointed)
+    if d.get("show_entrance"):
+        entry = d["entrance"]
+        opening(width / 2, entry.get("sill_m", 0.1), entry["width_m"], entry["height_m"], True)
     return maps(np.asarray(albedo), np.asarray(depth), width, height)
