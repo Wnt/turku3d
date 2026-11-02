@@ -12,13 +12,25 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .layout import openings
-
 
 def png(array):
     stream = io.BytesIO()
     Image.fromarray(np.asarray(array, np.uint8)).save(stream, format="PNG")
     return stream.getvalue()
+
+
+def joint_coverage(position, period, joint, footprint):
+    """Exact box-filter coverage of a periodic mortar strip in physical metres."""
+
+    def integral(value):
+        shifted = value + joint / 2
+        return np.floor(shifted / period) * joint + np.minimum(shifted % period, joint)
+
+    return np.clip(
+        (integral(position + footprint / 2) - integral(position - footprint / 2)) / footprint,
+        0,
+        1,
+    )
 
 
 def masonry(width, height, spec, seed, density=40):
@@ -34,13 +46,16 @@ def masonry(width, height, spec, seed, density=40):
     bond = spec.get("bond", "running")
     if bond in ("monk", "flemish"):
         period = bw * (2.5 if bond == "monk" else 1.5)
-        phase = xx % period
-        boundaries = [0, bw, 2 * bw, period] if bond == "monk" else [0, bw, period]
-        horizontal = np.minimum.reduce([np.abs(phase - edge) for edge in boundaries])
+        boundaries = [0, bw, 2 * bw] if bond == "monk" else [0, bw]
+        vertical_joints = np.clip(
+            sum(joint_coverage(xx - edge, period, joint, width / nx) for edge in boundaries), 0, 1
+        )
     else:
-        horizontal = np.minimum(xx % bw, bw - xx % bw)
-    distance = np.minimum.reduce([horizontal, y % bh, bh - y % bh])
-    relief = np.clip((distance - joint / 2) / 0.009, 0, 1)
+        vertical_joints = joint_coverage(xx, bw, joint, width / nx)
+    bed_joints = joint_coverage(y, bh, joint, height / ny)
+    # Preserve physical mortar area when a joint is narrower than one texel.
+    # Point samples plus a fixed bevel made tall walls acquire pale zebra bands.
+    relief = (1 - vertical_joints) * (1 - bed_joints)
     rng = np.random.default_rng(seed)
     variation = np.sin(col * 127.1 + row * 311.7 + seed) * 43758.5453 % 1
     grain = rng.normal(0, 1.8, (ny, nx))
@@ -189,7 +204,7 @@ def arch(draw, box, fill, pointed=True, rise=None):
 
 
 @lru_cache(maxsize=96)
-def wall_maps(width, height, bottom, description_json, tower, seed=7):
+def wall_maps(width, height, bottom, description_json, tower, plan_json, seed=7):
     d = json.loads(description_json)
     rgb, relief = wall_surface(width, height, d, seed)
     ny, nx = relief.shape
@@ -233,8 +248,6 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
         )
 
     def opening(cx, low, w, h, pointed):
-        if w + 0.32 > width or low < bottom + 0.3 or low + h > bottom + height - 0.3:
-            return
         outer = box(cx, low - 0.16, w + 0.32, h + 0.32)
         arch(paint, outer, tuple(d["trim_colour"]), pointed, (w + 0.32) * 0.5 * sy)
         arch(bump, outer, 0.035, pointed, (w + 0.32) * 0.5 * sy)
@@ -291,7 +304,7 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
                     fill=(215, 192, 110),
                     width=max(2, round(0.1 * sx)),
                 )
-    for cx, low, w, h, pointed in openings(width, height, bottom, d, tower):
+    for cx, low, w, h, pointed in json.loads(plan_json):
         opening(cx, low, w, h, pointed)
     metal_mask[np.asarray(depth) < 0] = 0
     return maps(np.asarray(albedo), np.asarray(depth), width, height, metal=metal_mask)

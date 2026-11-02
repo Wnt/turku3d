@@ -8,6 +8,8 @@ from turku3d.package.gltf import GlbMesh
 
 from .atlas import batch, merge
 from .descriptions import resolve
+from .faces import Face, architectural_faces
+from .layout import accepted_openings
 from .procedural import maps, material_maps, roof_surface, wall_maps
 from .relief import apply as apply_relief
 
@@ -56,35 +58,28 @@ def visible_walls(building, walls):
 
 
 def material_wall_parts(building, walls, description):
-    """Narrow fragments share maps, but never stretch spire metal below its stage."""
+    """Plan whole connected facades before splitting narrow material bands."""
     import shapely
 
-    from turku3d.wall_surfaces import trapezoids
-
     d = description
-    for q in visible_walls(building, walls):
-        start = q[0, [0, 2]]
-        direction = q[1, [0, 2]] - start
-        width = np.linalg.norm(direction)
-        if width >= 3:
-            yield q, None
+    for face in architectural_faces(visible_walls(building, walls)):
+        if face.width >= 3:
+            yield face, None
             continue
-        if width < 0.001:
-            continue
-        direction /= width
-        low, high = q[:, 1].min(), q[:, 1].max()
+        low, high = face.low, face.high
         tower = high - building.base > d["tower"]["minimum_height_m"]
         stone = building.base + (d["tower"]["stone_top_m"] if tower else 1.5)
         copper = building.base + d["tower"]["copper_start_m"]
         levels = sorted(set([low, high, *[v for v in (stone, copper) if low < v < high]]))
-        face = shapely.Polygon(np.c_[[0, width, width, 0], q[:, 1]])
         for lo, hi in zip(levels[:-1], levels[1:], strict=True):
             kind = "roof" if lo >= copper - 0.001 else "stone" if hi <= stone + 0.001 else "wall"
-            for xy in trapezoids(face.intersection(shapely.box(0, lo, width, hi))):
-                points = np.empty((4, 3))
-                points[:, [0, 2]] = start + xy[:, :1] * direction
-                points[:, 1] = xy[:, 1]
-                yield points, kind
+            clipped = face.polygon.intersection(shapely.box(0, lo, face.width, hi))
+            for polygon in shapely.get_parts(clipped):
+                if polygon.geom_type == "Polygon" and polygon.area > 0.001:
+                    yield (
+                        Face(polygon, face.start, face.direction, face.identity + f"_{lo:.3f}"),
+                        kind,
+                    )
 
 
 def wall_meshes(building, walls, origin, description=None):
@@ -93,7 +88,8 @@ def wall_meshes(building, walls, origin, description=None):
         return None
     result = []
     relief = []
-    for index, (vertices, band_kind) in enumerate(material_wall_parts(building, walls, d)):
+    for index, (face, band_kind) in enumerate(material_wall_parts(building, walls, d)):
+        vertices = face.rectangle()
         width = float(np.linalg.norm(vertices[1, [0, 2]] - vertices[0, [0, 2]]))
         low, high = float(vertices[:, 1].min()), float(vertices[:, 1].max())
         if width < 0.08 or high - low < 0.08:
@@ -102,12 +98,21 @@ def wall_meshes(building, walls, origin, description=None):
             high - building.base > d["tower"]["minimum_height_m"]
             and width < d["tower"]["maximum_width_m"]
         )
-        repeat = width < 3 or high - low < 1.5
         direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
         outward = np.array([direction[1], -direction[0]]) / width
         wall_description = dict(
             d, show_entrance=bool(d.get("entrance") and tower and outward[0] < -0.9)
         )
+        plan = accepted_openings(
+            width,
+            high - low,
+            low - building.base,
+            wall_description,
+            tower,
+            face.polygon,
+            building.base,
+        )
+        repeat = not plan and (width < 3 or high - low < 1.5)
         albedo, normal, orm = (
             (None, None, None)
             if repeat
@@ -117,6 +122,7 @@ def wall_meshes(building, walls, origin, description=None):
                 round(low - building.base, 3),
                 json.dumps(wall_description, sort_keys=True),
                 tower,
+                json.dumps(plan),
             )
         )
         uv = np.array(
@@ -127,7 +133,6 @@ def wall_meshes(building, walls, origin, description=None):
                 [0, (high - vertices[3, 1]) / (high - low)],
             ]
         )
-        repeat = width < 3 or high - low < 1.5
         if repeat:
             kind = band_kind or (
                 "roof"
@@ -137,8 +142,6 @@ def wall_meshes(building, walls, origin, description=None):
                 else "wall"
             )
             albedo, normal, orm = material_maps(json.dumps(d, sort_keys=True), kind)
-            uv[:, 0] *= width / 4
-            uv[:, 1] = (high - uv[:, 1] * (high - low)) / 4
         result.append(
             GlbMesh(
                 f"landmark_{building.key}_{index}",
@@ -158,15 +161,25 @@ def wall_meshes(building, walls, origin, description=None):
                     texture_uv="normalized",
                     landmark_description=d["content_hash"],
                     landmark_tower=tower,
+                    landmark_face=face.identity,
                 ),
             )
         )
-        if not repeat:
-            result[-1], detail = apply_relief(
-                result[-1], building.base - origin[1], wall_description, tower
-            )
-            if detail is not None:
-                relief.append(detail)
+        from shapely.affinity import translate
+
+        result[-1], detail = apply_relief(
+            result[-1],
+            building.base - origin[1],
+            wall_description,
+            tower and not repeat,
+            translate(face.polygon, yoff=-origin[1]),
+            plan,
+        )
+        if repeat:
+            result[-1].uvs[:, 0] *= width / 4
+            result[-1].uvs[:, 1] = (high - result[-1].uvs[:, 1] * (high - low)) / 4
+        if detail is not None:
+            relief.append(detail)
     return batch(result) + ([merge(relief)] if relief else [])
 
 

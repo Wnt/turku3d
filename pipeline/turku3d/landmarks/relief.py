@@ -8,24 +8,10 @@ import shapely
 from turku3d.package.gltf import GlbMesh
 from turku3d.wall_surfaces import trapezoids
 
-from .layout import openings
+from .layout import arch_polygon
 
 
-def arch_polygon(cx, low, width, height, pointed, segments=12):
-    left, right, top = cx - width / 2, cx + width / 2, low + height
-    if pointed is None:
-        return shapely.box(left, low, right, top)
-    rise = min(height, width / 2)
-    if pointed:
-        x = np.linspace(left, right, segments + 1)
-        y = top - rise * (abs(x - cx) / (width / 2)) ** 1.6
-    else:
-        angle = np.linspace(np.pi, 0, segments + 1)
-        x, y = cx + width / 2 * np.cos(angle), top - rise + rise * np.sin(angle)
-    return shapely.Polygon([(left, low), *zip(x, y, strict=True), (right, low)])
-
-
-def apply(mesh, base, description, tower):
+def apply(mesh, base, description, tower, polygon, plan):
     """The wall and its inset use the original PBR atlas; all stone returns share one material."""
     d = description
     v = mesh.positions
@@ -37,14 +23,8 @@ def apply(mesh, base, description, tower):
     direction /= width
     normal = np.array([direction[2], 0, -direction[0]])
     origin = v[0].copy()
-    face = shapely.Polygon(np.c_[[0, width, width, 0], v[:, 1]])
-    rows = openings(width, height, low - base, d, tower)
-    holes = []
-    for cx, sill, w, h, pointed in rows:
-        polygon = arch_polygon(cx, base + sill, w, h, pointed)
-        # A whole opening must fit the actual sloped wall, not just its bounds.
-        if face.covers(polygon):
-            holes.append(polygon)
+    face = polygon
+    holes = [arch_polygon(cx, base + sill, w, h, pointed) for cx, sill, w, h, pointed in plan]
     painted, stone = [], []
 
     def points(xy, depth=0):

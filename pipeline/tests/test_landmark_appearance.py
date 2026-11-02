@@ -60,7 +60,11 @@ def test_opening_is_cut_from_front_wall_and_closed_by_recess():
         np.array([[0, 3, 2], [0, 2, 1]]),
         uvs=np.array([[0, 1], [1, 1], [1, 0], [0, 0]]),
     )
-    wall, reveals = apply(mesh, 0, d, False)
+    from turku3d.landmarks.layout import accepted_openings
+
+    polygon = shapely.box(0, 0, 5, 8)
+    plan = accepted_openings(5, 8, 0, d, False, polygon, 0)
+    wall, reveals = apply(mesh, 0, d, False, polygon, plan)
     triangles = wall.positions[wall.indices]
     front = triangles[np.all(np.abs(triangles[:, :, 2]) < 1e-8, axis=1)]
     inset = triangles[np.all(triangles[:, :, 2] > 0.3, axis=1)]
@@ -239,7 +243,7 @@ def test_narrow_tower_wall_keeps_copper_above_its_stage():
     parts = list(material_wall_parts(b, wall, d))
     assert {kind for _, kind in parts} == {"stone", "wall", "roof"}
     assert all(
-        v[:, 1].min() >= b.base + d["tower"]["copper_start_m"] - 0.001
+        v.low >= b.base + d["tower"]["copper_start_m"] - 0.001
         for v, kind in parts
         if kind == "roof"
     )
@@ -289,6 +293,7 @@ def test_atlas_batches_all_pbr_maps_without_losing_geometry_or_bleeding_edges():
 def test_asset_batch_continues_after_one_missing_description(tmp_path, monkeypatch):
     import pickle
     import sys
+
     from turku3d.landmarks import asset
 
     cache = tmp_path / "cache" / ".inputs" / "t0_0_0"

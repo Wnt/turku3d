@@ -16,6 +16,7 @@ def source_paths():
             "appearance.py",
             "atlas.py",
             "descriptions.py",
+            "faces.py",
             "layout.py",
             "procedural.py",
             "relief.py",

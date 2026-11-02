@@ -103,6 +103,7 @@ def producer_paths():
                 Path(__file__).parents[1] / "landmarks" / name
                 for name in (
                     "appearance.py",
+                    "faces.py",
                     "atlas.py",
                     "descriptions.py",
                     "layout.py",
