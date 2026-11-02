@@ -29,7 +29,7 @@ const region = name => name.startsWith('Hair_') ? REGION.hair : MATERIAL_REGION[
 const DROPPED = new Set(['Eyelash', 'Cornea', 'Teeth', 'Tongue']);
 
 const wardrobe = JSON.parse(fs.readFileSync(new URL('../src/world/walkers/wardrobe.json', import.meta.url)));
-const VARIANTS = wardrobe.families.map(f => ({ id: f.id, accessory: f.accessory, parts: ['base_body', ...f.parts],
+const VARIANTS = wardrobe.families.map(f => ({ id: f.id, accessory: f.accessory, hairSculpt: f.hairSculpt, parts: ['base_body', ...f.parts],
   hidden: f.hidden.reduce((mask, zone) => mask | BODY_ZONES[zone], 0), morphs: [[MORPHS[f.sex], f.weight], ...(f.faceMorphs ?? [])] }));
 const CLIPS = [{ id: 'walk', name: 'Walk_Loop' }, { id: 'idle', name: 'Idle_Loop' }];
 const FPS = 30;
@@ -63,8 +63,8 @@ function encodeNormal(x, y, z) {
 }
 
 /** One merged, welded, simplified body: bind positions/normals, joints/weights and a region per vertex. */
-function collectBody(doc, legwearBelow = 0, browsOnly = false) {
-  const position = [], normal = [], joints = [], weights = [], regions = [], indices = [], uvs = [];
+function collectBody(doc, legwearBelow = 0, browsOnly = false, sourceOnly = false) {
+  const position = [], normal = [], joints = [], weights = [], regions = [], indices = [], uvs = [], sourceUvs = [];
   const weld = new Map();
   for (const node of doc.getRoot().listNodes()) {
     const mesh = node.getMesh();
@@ -76,7 +76,7 @@ function collectBody(doc, legwearBelow = 0, browsOnly = false) {
       if (material === undefined) throw new Error(`walker bake: no region for material ${name}`);
       const pos = primitive.getAttribute('POSITION'), norm = primitive.getAttribute('NORMAL');
       const texcoord = primitive.getAttribute('TEXCOORD_0');
-      const tile = atlasTile(primitive.getMaterial());
+      const tile = sourceOnly ? 0 : atlasTile(primitive.getMaterial());
       const ids = primitive.getAttribute('JOINTS_0'), w = primitive.getAttribute('WEIGHTS_0');
       const remap = new Uint32Array(pos.getCount());
       for (let i = 0; i < pos.getCount(); i++) {
@@ -88,6 +88,7 @@ function collectBody(doc, legwearBelow = 0, browsOnly = false) {
         let k = weld.get(key);
         if (k === undefined) {
           k = regions.length; weld.set(key, k);
+          sourceUvs.push(...uv);
           position.push(...p); normal.push(...norm.getElement(i, [])); joints.push(...ids.getElement(i, []));
           weights.push(...w.getElement(i, [])); regions.push(r);
           // The atlas has a four-pixel extruded gutter; keep bilinear/mipmap sampling inside its cell.
@@ -100,7 +101,7 @@ function collectBody(doc, legwearBelow = 0, browsOnly = false) {
     }
   }
   return { position: new Float32Array(position), normal: new Float32Array(normal), joints: new Uint16Array(joints),
-    weights: new Float32Array(weights), regions: new Uint8Array(regions), uvs: new Float32Array(uvs), indices: new Uint32Array(indices) };
+    weights: new Float32Array(weights), regions: new Uint8Array(regions), sourceUvs: new Float32Array(sourceUvs), uvs: new Float32Array(uvs), indices: new Uint32Array(indices) };
 }
 
 /** Simplify to the largest triangle count whose compacted mesh fits MAX_VERTICES. */
@@ -231,6 +232,32 @@ for (const spec of VARIANTS) {
   let { order, indices } = simplifyBody(body);
   const compactPositions = Float32Array.from(order.flatMap(v => Array.from(body.position.subarray(v * 3, v * 3 + 3))));
   const [farIndices] = MeshoptSimplifier.simplify(indices, compactPositions, 3, FAR_TRIANGLES * 3, 1);
+  if (spec.hairSculpt) {
+    const sculpt = await loadRig(io, rigFile, new Set(CLIPS.map(c => c.name)));
+    const edit = await addOutfit(io, sculpt, { sourceDir, parts: [spec.hairSculpt], hidden: 0, morphs: [] });
+    for (const source of edit.sources) provenance.set(source.file, source.sha256);
+    const edited = collectBody(sculpt, 0, false, true);
+    const uvKey = (array, i) => `${Math.round(array[i * 2] * 1e4)}:${Math.round(array[i * 2 + 1] * 1e4)}`;
+    const buckets = new Map();
+    for (let i = 0; i < edited.regions.length; i++) {
+      const key = uvKey(edited.sourceUvs, i);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(i);
+    }
+    for (let i = 0; i < body.regions.length; i++) {
+      if (body.regions[i] !== REGION.hair) continue;
+      const choices = buckets.get(uvKey(body.sourceUvs, i));
+      if (!choices?.length) throw new Error(`walker sculpt: UV missing for ${spec.id}:${i}`);
+      let nearest = -1, distance = Infinity;
+      for (const candidate of choices) {
+        const d = [0, 1, 2].reduce((sum, k) => sum + (body.position[i * 3 + k] - edited.position[candidate * 3 + k]) ** 2, 0);
+        if (d < distance) { nearest = candidate; distance = d; }
+      }
+      if (distance > .08 ** 2) throw new Error(`walker sculpt: correspondence too distant for ${spec.id}:${i}`);
+      body.position.set(edited.position.subarray(nearest * 3, nearest * 3 + 3), i * 3);
+      body.normal.set(edited.normal.subarray(nearest * 3, nearest * 3 + 3), i * 3);
+    }
+  }
   // Append the complete 124-vertex CC0 brow surface after simplifying the accepted body.
   // The original near/far indices and all existing vertices therefore remain untouched.
   const brows = collectBody(doc, spec.legwearBelow, true), vertexOffset = body.regions.length;

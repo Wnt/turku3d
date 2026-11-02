@@ -42,8 +42,8 @@ export async function createHumanStudy(world: StudyWorld, url: string) {
 }
 
 /** A reproducible lineup at a surveyed street location, useful for comparing the same bodies at 2–15 m. */
-export async function createHumanLineup(world: StudyWorld, url: string, origin: [number, number, number], count = 8, columns = count) {
-  const asset = await loadWalkerAsset(url), meshes = new WalkerMeshes(asset, count);
+export async function createHumanLineup(world: StudyWorld, url: string, origin: [number, number, number], count = 8, columns = count, MeshConstructor = WalkerMeshes) {
+  const asset = await loadWalkerAsset(url), meshes = new MeshConstructor(asset, count);
   const ground: THREE.Object3D[] = [];
   world.scene.traverse(o => { if (o instanceof THREE.Mesh && (o.name === 'ground-batch' || ['ground', 'roads'].includes(o.userData.layer))) ground.push(o); });
   const ray = new THREE.Raycaster();

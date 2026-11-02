@@ -6,7 +6,7 @@
     "height": 1380,
     "format": "rgba16float"
   },
-  "sha256": "c2b2b9cdc0e9cf0367b85d6de3abbbcf5df8f79af169bead9dda687de016e1e7",
+  "sha256": "ed0d57d7b9d381414e2d04092a2379a0aa7a950356cffeaf2f9ad99189ab9780",
   "variants": [
     {
       "id": "tee-denim-crop",
@@ -210,6 +210,14 @@
     {
       "file": "hair_short02.glb",
       "sha256": "eb341c197acf3948dac1f41f7722e9dad31018149541504a13ebcc8b6aa9d5aa"
+    },
+    {
+      "file": "hair_short02_swept_m055.glb",
+      "sha256": "e76137249f26ec3afce7324e0c3f1359075cda49f314a47678145a6d3c6087ef"
+    },
+    {
+      "file": "hair_short02_swept_m070.glb",
+      "sha256": "b899065fbe29908ccdc878b9343611af911b468ebc15c906f1427f93a5388cd4"
     },
     {
       "file": "hair_short04.glb",
