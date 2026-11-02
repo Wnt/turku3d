@@ -89,6 +89,44 @@ def test_description_does_not_squeeze_a_window_into_a_narrow_roof_strip():
     assert compile_wall(p["walls"][0], 3)["module"] >= 42
 
 
+def test_zero_column_description_is_blank_only_on_its_located_source_wall():
+    from turku3d.facade_programs import describe
+    from turkutex.facade_archetypes import sample
+    from turku3d.facade_kit import renderer
+
+    p = sample("scoped-blank", dict(levels=3), [dict(width_m=12, height_m=9)] * 2)
+    original = copy.deepcopy(p["walls"][1])
+    d = renderer().register_description("test", "test", {}, 12, 9)
+    d.update(window_columns=0, window_width=0, window_height=0, ground_floor="plain", wall_visible=True)
+    describe(p, d, 12, blank_walls={0})
+    assert p["walls"][0]["bays"]["count"] == 0
+    assert p["walls"][1]["bays"] == original["bays"]
+    assert p["walls"][1]["windows"] == original["windows"]
+    assert p["walls"][1]["base"]["variant"] == original["base"]["variant"]
+    assert compile_wall(p["walls"][1], 3)["module"] < 42
+    hidden = copy.deepcopy(p)
+    describe(p, {**d, "wall_visible": False}, 12, blank_walls={1})
+    assert p == hidden
+
+
+def test_blank_description_requires_source_geometry_coverage_and_visible_wall(monkeypatch):
+    from turku3d.facade_programs import described_blank_walls
+    from turku3d import facade_assets
+
+    source = dict(coordinates=[[C.ORIGIN_E, C.ORIGIN_N], [C.ORIGIN_E+12, C.ORIGIN_N]],
+                  normal=[0, 0, -1], base_height=0,
+                  metadata=dict(facade_id="source", height_m=9))
+    monkeypatch.setattr(facade_assets, "building", lambda _: dict(facades=[source]))
+    front = np.array([[0, 0, 0], [12, 0, 0], [12, 9, 0], [0, 9, 0]], float)
+    back = front + [0, 0, 5]
+    above = front + [0, 9, 0]
+    vertices = np.concatenate([front, back, above])
+    d = dict(facade_id="source", window_columns=0, wall_visible=True)
+    assert described_blank_walls("owner", vertices, d) == {0}
+    assert described_blank_walls("owner", vertices, {**d, "facade_id": "unknown"}) == set()
+    assert described_blank_walls("owner", vertices, {**d, "wall_visible": False}) == set()
+
+
 def test_passage_solids_share_original_base_frontage_and_floor_grid(monkeypatch):
     from turku3d.coarse.stored_facades import facade_layouts
     from turku3d import facade_programs as fp, facade_learning
@@ -133,6 +171,39 @@ def test_learned_rules_keep_shared_floor_and_window_dimensions(monkeypatch):
         assert a["ground"] == b["ground"] and a["upper"] == b["upper"]
         assert a["opening"] == b["opening"]
         assert p["walls"][0]["windows"]["rectangles_m"] == p["walls"][1]["windows"]["rectangles_m"]
+
+
+def test_reviewed_glazing_pattern_and_frame_colour_survive_compilation():
+    from turkutex.facade_archetypes import sample
+    from turkutex.facade_program import value
+
+    wall = sample("panes", dict(levels=3), [dict(width_m=12, height_m=10)])["walls"][0]
+    wall["windows"].update(
+        divisions=value([5, 1], "reviewed window groups", .8),
+        frame_colour=value("#b5c3bd", "uncalibrated frame appearance", .65),
+        pane_split_fraction=value(.7, "reviewed broad/narrow groups", .7),
+        transom_fraction=value(0, "no horizontal transom in observed panes", .8),
+    )
+    style = compile_wall(wall, 3)
+    assert style["glazing"] == [5, 1, .7, 0]
+    assert style["frame"] == "#b5c3bd"
+    wall["windows"]["divisions"]["support"] = .2
+    assert compile_wall(wall, 3)["glazing"][:2] == [0, 0]
+
+
+def test_recompiling_floor_structure_preserves_later_pane_and_frame_observations():
+    from turkutex.facade_program import value
+
+    row, form = fixture()
+    wall = compile_structure(row, form, 2)
+    wall["structure"] = form
+    observed = dict(divisions=value([2, 1], "later pane review", .8),
+                    frame_colour=value("#b8c1c4", "later frame review", .7),
+                    transom_fraction=value(0, "later pane review", .8))
+    wall["windows"].update(observed)
+    p = prepare(dict(building_id="later-review", storeys={"value": 2}, walls=[wall]))
+    assert all(p["walls"][0]["windows"][k] == v for k, v in observed.items())
+    assert compile_wall(p["walls"][0], 2)["glazing"] == [2, 1, 0, 0]
 
 
 def test_subdividing_a_shorter_wall_does_not_change_building_floor_height(monkeypatch):
