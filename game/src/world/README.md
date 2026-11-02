@@ -39,6 +39,18 @@ Both paths use `VegetationLod`: cells cull and pack instances, while each tree's
 3D camera distance chooses full mesh, reduced mesh or impostor. Exhausting the full-mesh
 budget uses reduced meshes within the mesh range, preserving nearby trees.
 
+Distant building derivatives retain the same facade instructions (metric UVs, bays,
+floors, blank modules and measured patches) as detailed models. Both LODs call the
+same opening layout and night-light identity. Texture-backed walls use a bounded
+RGBA atlas of the authored albedo and glazing mask; shells without opening evidence
+stay unlit. Prepared native tiles can take precedence over retained older sources
+with the far service's `--preferred-source` directory. Source tiles remain immutable.
+`tools/remote-drafts/scenery-window-audit.mjs --root SOURCES --tiles t0_0_0,t0_3_-1
+--out before.json` scores the previous analytic grid. Add `--derivatives OWNED_DIR`
+to generate render derivatives and compare them with the same detailed source.
+Reports rank buildings by invented/missing opening area and metric UV alignment;
+1024 deterministic area-stratified samples per building exclude centimetre frame bars.
+
 Motion from physics drives prediction, including 288 m/s dev flight. The scan runs
 at least four times per tile crossing. A bounded corridor prepares up to eight
 future tiles with four concurrent surface preparations. Remaining slots maintain a

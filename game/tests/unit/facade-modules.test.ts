@@ -17,6 +17,47 @@ function patch(kind = 1, clipped = false) {
   return geometry;
 }
 
+it('keeps disconnected coplanar UV charts separate instead of projecting windows into their gap', () => {
+  const pieces=[patch(0),patch(0)];
+  pieces.forEach((g,part)=>{
+    for(let i=0;i<4;i++){
+      const right=i===1||i===2,u=right?(part===0?.5:4):0;
+      g.getAttribute('position').setX(i,(part===0?10:20)+u);g.getAttribute('uv').setX(i,u);
+      g.getAttribute('_kit_extent').setZ(i,4);
+    }
+    g.setAttribute('_kit_floors',new THREE.Float32BufferAttribute(Array(4).fill([1,1,0]).flat(),3));
+    g.setAttribute('_kit_opening',new THREE.Float32BufferAttribute(Array(4).fill([.5,.6,.2,0]).flat(),4));
+  });
+  const merged=new THREE.BufferGeometry();
+  for(const [name,a]of Object.entries(pieces[0].attributes))merged.setAttribute(name,new THREE.Float32BufferAttribute([...a.array,...pieces[1].getAttribute(name).array],a.itemSize));
+  merged.setIndex([...pieces[0].index!.array,...Array.from(pieces[1].index!.array,i=>i+4)]);
+  const windows=rectangularOpenings(merged);
+  expect(windows).toHaveLength(6);
+  expect(windows.every(w=>w.origin.x>=20.5&&w.origin.x<=22.5)).toBe(true);
+});
+
+it('uses positive instance transforms on horizontally mirrored facade UVs', () => {
+  const geometry=patch(1);
+  for(let i=0;i<4;i++)geometry.getAttribute('uv').setX(i,2-geometry.getAttribute('uv').getX(i));
+  const model=new THREE.Group();model.add(new THREE.Mesh(geometry));addFacadeModules(model);
+  const matrix=new THREE.Matrix4();
+  model.traverse(o=>{const mesh=o as THREE.InstancedMesh;if(mesh.isInstancedMesh)for(let i=0;i<mesh.count;i++){mesh.getMatrixAt(i,matrix);expect(matrix.determinant()).toBeGreaterThan(0);}});
+});
+
+it('retains the backing plane through cell recentering for front-side masking', () => {
+  const model=new THREE.Group(),source=new THREE.Mesh(patch());source.position.set(100,5,80);model.add(source);addFacadeModules(model);model.updateMatrixWorld(true);
+  model.traverse(o=>{
+    const mesh=o as THREE.InstancedMesh;if(!mesh.isInstancedMesh)return;
+    const plane=mesh.geometry.getAttribute('_facade_plane');expect((plane as THREE.InstancedBufferAttribute).isInstancedBufferAttribute).toBe(true);expect(plane.count).toBe(mesh.count);
+    const inverse=mesh.matrixWorld.clone().invert();
+    for(let i=0;i<mesh.count;i++){
+      const n=new THREE.Vector3(plane.getX(i),plane.getY(i),plane.getZ(i));
+      expect(n.dot(new THREE.Vector3(101,6,79).applyMatrix4(inverse))-plane.getW(i)).toBeGreaterThan(.99);
+      expect(n.dot(new THREE.Vector3(101,6,81).applyMatrix4(inverse))-plane.getW(i)).toBeLessThan(-.99);
+    }
+  });
+});
+
 it('keeps every outward silhouette face while omitting only the wall-facing cap', () => {
   const geometry=facadeModuleGeometry(),index=geometry.index!,normal=geometry.getAttribute('normal');
   expect(index.count).toBe(30);

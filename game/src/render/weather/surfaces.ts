@@ -4,7 +4,6 @@ import { Fn, If, float, materialColor, materialRoughness, mix, normalWorldGeomet
 
 import { weatherHeightField, weatherUniforms } from './surfaceState';
 import { mappedGroundLight } from '../lights/groundField';
-import IrradianceNode from 'three/src/nodes/lighting/IrradianceNode.js';
 import { materialLightMap } from 'three/tsl';
 export { weatherUniforms } from './surfaceState';
 let detail: THREE.DataTexture | undefined;
@@ -55,7 +54,7 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   material.userData.weatherWetness = true;
   if (!facade) {
     // Streaming precompiles and beauty/reflection builders must see the same graph.
-    const irradiance = new IrradianceNode(material.lightMap
+    const irradiance = new THREE.IrradianceNode(material.lightMap
       ? materialLightMap.add(mappedGroundLight()) : mappedGroundLight());
     material.setupLightMap = () => irradiance;
   }

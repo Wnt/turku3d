@@ -79,6 +79,7 @@ export interface Walker {
 }
 
 const tmp = { x: 0, z: 0, dx: 0, dz: 0, y: 0 };
+const beforeTurn = { ...tmp }, afterTurn = { ...tmp };
 
 export class Population {
   private routes = new Map<number, { route: Route; used: number }>();
@@ -152,7 +153,12 @@ export class Population {
     const walked = leg.idle ? 0 : Math.min(elapsed * route.speed, (leg.t1 - leg.t0) * route.speed);
     const s = leg.s0 + leg.dir * walked;
     pointAt(chain, s, tmp);
-    const fx = tmp.dx * leg.dir, fz = tmp.dz * leg.dir;
+    // A segment normal jumps at each polyline corner. Average the tangent over an arc-length window
+    // instead: the keep-right displacement remains continuous, shrinking naturally at a tight U-turn.
+    const loS = Math.max(0, s - WALKER.taper / 2), hiS = Math.min(chain.length, s + WALKER.taper / 2);
+    pointAt(chain, loS, beforeTurn); pointAt(chain, hiS, afterTurn);
+    const span = Math.max(1e-6, hiS - loS);
+    const fx = (afterTurn.x - beforeTurn.x) / span * leg.dir, fz = (afterTurn.z - beforeTurn.z) / span * leg.dir;
     let side = route.offset;
     if (!leg.idle) {
       const length = (leg.t1 - leg.t0) * route.speed;
@@ -181,14 +187,13 @@ export class Population {
     let s = forward ? piece.s0 + along : piece.s0 + piece.length - along;
     const towardsLarger = (hash32(id, 5) & 1) === 1;
     let dir: 1 | -1 = towardsLarger === forward ? 1 : -1;
-    let c = piece.chain, t = 0, d = 0, step = 0, taper0 = false;
+    let c = piece.chain, t = 0, d = 0, step = 0, taper0 = true;
     const pause = (duration: number) => { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + duration, d0: d, idle: true, taper0: false, taper1: false }); t += duration; };
     pause(WALKER.birthIdle * unit(hash32(id, 10)));
     for (let guard = 0; t < life && guard < 256; guard++) {
       const length = dir > 0 ? chains[c].length - s : s;
       const nodeIndex = dir > 0 ? chains[c].b : chains[c].a, node = nodes[nodeIndex];
-      const decision = !node.complete || node.exits.length !== 2;
-      legs.push({ chain: c, dir, s0: s, t0: t, t1: t + length / speed, d0: d, idle: false, taper0, taper1: decision });
+      legs.push({ chain: c, dir, s0: s, t0: t, t1: t + length / speed, d0: d, idle: false, taper0, taper1: true });
       t += length / speed; d += length;
       if (t >= life) break;
       if (!node.complete) return { legs, known: t, speed, life, offset, box: this.box(legs, speed) };
@@ -204,7 +209,7 @@ export class Population {
           pause(WALKER.pause[0] + (WALKER.pause[1] - WALKER.pause[0]) * unit(hash32(id, node.key, step, 12)));
         }
       }
-      c = exit.chain; dir = exit.atStart ? 1 : -1; s = exit.atStart ? 0 : chains[c].length; taper0 = decision;
+      c = exit.chain; dir = exit.atStart ? 1 : -1; s = exit.atStart ? 0 : chains[c].length; taper0 = true;
     }
     return { legs, known: life, speed, life, offset, box: this.box(legs, speed) };
   }

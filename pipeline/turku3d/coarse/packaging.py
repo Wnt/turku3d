@@ -78,6 +78,7 @@ def package_sources():
 
 def producer_paths():
     from turku3d.facade_programs import source_paths
+    from turku3d.landmarks.descriptions import source_paths as landmark_sources
 
     props = Path(__file__).parents[1] / "props"
     return sorted(
@@ -102,10 +103,7 @@ def producer_paths():
             props / "lights.py",
             props / "orientation.py",
             Path(C.__file__),
-            *[
-                Path(__file__).parents[1] / "landmarks" / name
-                for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py")
-            ],
+            *landmark_sources(),
             Path(__file__).parents[1] / "layers.py",
             Path(__file__).parents[1] / "facade_assets.py",
             Path(__file__).parents[1] / "package/gltf.py",

@@ -1,12 +1,13 @@
 import { wetSurface } from './weather/surfaces';
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
-import { color, float, floor, fract, mix, normalMap, positionWorld, round, step, texture, uv, vec2, vec3 } from 'three/tsl';
+import { color, float, floor, fract, mix, normalMap, step, texture, uv, vec2, vec3 } from 'three/tsl';
 import { programLayout, programPigment } from './facadeProgram';
 import { draftWindows, facadeKey, kitGlassMask, quantise, wallFrame, windowEmission } from './nightLights';
 import { facadeAttribute, facadePaintAttributes, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
-import { addFacadeModules } from './facadeModules';
+import { addFacadeModules, facadeModuleMaterial } from './facadeModules';
+import { facadeProgramSurface } from './facadeProgramSurface';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -65,22 +66,16 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
     program ? mix(.65, .1, program.glass) : float(.65), opening);
   material.metalnessNode = mix(paint ? mix(orm.b, float(0), paint.band) : orm.b, float(0), opening);
   material.aoNode = mix(orm.r, float(.85), opening);
-  // Night windows: kit glass, one cell per bay and storey. The wall's own constants (exact per triangle) name it;
-  // v1 has none, so its world-space wall plane does.
-  const frame = wallFrame();
-  // The unclipped world opening origin survives passage/roof splits and pigment
-  // edits. Round at quarter-metre precision to suppress interpolant roundoff.
-  const identity = (p.version ?? 1) >= 4 ? facadeKey([
-    round(frame.along.sub(metres.x).mul(4)), round(positionWorld.y.sub(metres.y).mul(4)),
-    quantise(layout.y, 4096), quantise(layout.z, 4096)]).bitXor(frame.plane)
-    : (p.version ?? 1) >= 2 ? facadeKey([quantise(origin.x, 64), quantise(origin.y, 64),
+  if ((p.version ?? 1) >= 4) {
+    material.emissiveNode = facadeProgramSurface(p.version).emission;
+  } else {
+    const frame = wallFrame();
+    const identity = (p.version ?? 1) >= 2 ? facadeKey([quantise(origin.x, 64), quantise(origin.y, 64),
       quantise(layout.y, 4096), quantise(layout.z, 4096)]) : frame.plane;
-  const glazing = program && paint ? program.glass.mul(float(1).sub(paint.band)).mul(float(1).sub(paint.balcony))
-    : kitGlassMask(orm.g).mul(float(module.lessThan(42)));
-  // Glass modules (atlas row 5) are floor-to-ceiling panes: curtain walls and shopfronts.
-  const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
-  material.emissiveNode = windowEmission(identity, program?.column ?? floor(bays.x), program?.row ?? floor(bays.y),
-    program?.rise ?? fract(bays.y), glazing, pane);
+    const glazing = kitGlassMask(orm.g).mul(float(module.lessThan(42)));
+    const pane = float(layout.x.lessThan(42).and(layout.x.div(6).floor().equal(5)));
+    material.emissiveNode = windowEmission(identity, floor(bays.x), floor(bays.y), fract(bays.y), glazing, pane);
+  }
   wetSurface(material, true);
   return material;
 }
@@ -113,7 +108,11 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer,
       if (cached) return cached;
       const pbr = source as THREE.MeshStandardMaterial;
       let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
-      if (pbr.type === 'MeshStandardMaterial' &&
+      if(source.userData.facadeModules){
+        const create=()=>facadeModuleMaterial(pbr);
+        node=((source as THREE.NodeMaterial).isNodeMaterial?source:
+          shared?shared.styled.acquire(source,'facade-profile-front',model,create):create()) as THREE.MeshStandardNodeMaterial;
+      } else if (pbr.type === 'MeshStandardMaterial' &&
           !Object.values(pbr).some(value => value?.isTexture)) {
         // Plain car/tree/prop colours need no per-tile node graph. LOD can still combine bark/crown.
         node = pbr;

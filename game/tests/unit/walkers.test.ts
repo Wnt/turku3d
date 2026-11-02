@@ -82,6 +82,21 @@ const key = (w: Walker) => [w.id, w.x, w.z, w.yaw, w.distance, w.idleTime, w.mov
 const sorted = (list: Walker[]) => list.map(key).sort();
 
 describe('deterministic population', () => {
+  test('60 Hz positions stay continuous through corners, births and junction pauses', () => {
+    const population = new Population(buildWalkNetwork(parts(...ALL)), () => 13);
+    let previous = new Map<number, Walker>();
+    let compared = 0;
+    for (let frame = 0; frame < 1200; frame++) {
+      const current = population.near(250, 250, 200, T0 + frame * 1000 / 60);
+      for (const w of current) {
+        const old = previous.get(w.id); if (!old) continue;
+        expect(Math.hypot(w.x - old.x, w.z - old.z), `walker ${w.id}, frame ${frame}`).toBeLessThan(.075);
+        compared++;
+      }
+      previous = new Map(current.map(w => [w.id, w]));
+    }
+    expect(compared).toBeGreaterThan(10_000);
+  });
   test('the scorecard reads the same walkers from tile data alone, and the live count starts at zero', () => {
     const network = buildWalkNetwork(parts(...ALL));
     expect(sorted(walkersNear(network, 250, 250, 50, T0))).toEqual(sorted(new Population(network).near(250, 250, 50, T0)));

@@ -10,7 +10,7 @@ import numpy as np
 from scipy.ndimage import maximum_filter
 from scipy.spatial import cKDTree
 
-from turku3d import config as C
+from turku3d import config as C, profiling
 
 SOURCES = ("GIS_Puut", "kanta_Lehtipuu", "kanta_Havupuu", "kanta_Lehtipuurivi")
 VARIANTS = ("tree_default_fall", "tree_detailed_fall", "tree_oak_fall", "tree_pineDefaultA")
@@ -115,7 +115,7 @@ def reduced_points(path):
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Tiles built in parallel share LAZ files: one process reduces a file, the others wait.
     with open(dest.with_suffix(".lock"), "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        profiling.flock(lock, fcntl.LOCK_EX, "vegetation")
         if not dest.exists():
             ground, canopy = [], []
             print(f"Reading {path.name}", flush=True)

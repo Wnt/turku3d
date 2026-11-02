@@ -13,6 +13,7 @@ import { Population, type BirthClock, type Walker } from './population';
 import { RING, Ring, type RingView } from './ring';
 import { WalkerMeshes, type WalkerInstance } from './visuals';
 import { humanAppearance } from './appearance';
+import { populationFocus } from '../populationFocus';
 
 export { walkersNear } from './population';
 export { buildWalkNetwork } from './network';
@@ -66,6 +67,7 @@ export class Walkers {
   /** Last frame's update and last wide scan (every SCAN_MS), main thread. */
   updateMs = 0;
   scanMs = 0;
+  private poses: { id: number; x: number; y: number; z: number; phase: number; fade: number }[] = [];
 
   constructor(parent: THREE.Object3D, private options: WalkerOptions) {
     this.group.name = 'walkers';
@@ -126,6 +128,15 @@ export class Walkers {
     this.lastScan = -Infinity;
   }
 
+  /** Start a reproducible replay on the current road generation. Invalidate outstanding worker results so
+   * network arrival order cannot change the population after the reset. Height samples remain reusable. */
+  reset() {
+    this.syncGraphs(); ++this.request;
+    this.install(buildWalkNetwork(this.graphs), 0);
+    this.ring.clear(); this.wide = []; this.poses = [];
+    this.lastScan = this.lastGraphPoll = -Infinity;
+  }
+
   /** Once per frame after the camera moved. */
   update(dt: number, camera: THREE.PerspectiveCamera, frameNow: number) {
     if (!this.meshes || !this.asset) return;
@@ -138,7 +149,8 @@ export class Walkers {
     camera.getWorldDirection(this.forward);
     const flat = Math.hypot(this.forward.x, this.forward.z) || 1;
     const halfH = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect);
-    const view: RingView = { x: this.camera.x, z: this.camera.z, fx: this.forward.x / flat, fz: this.forward.z / flat,
+    const focus = populationFocus(this.camera, this.forward, this.graphs);
+    const view: RingView = { ...focus, fx: this.forward.x / flat, fz: this.forward.z / flat,
       cosHalf: Math.cos(Math.min(Math.PI, halfH + THREE.MathUtils.degToRad(12))) };
     if (frameNow - this.lastScan >= SCAN_MS) {
       this.lastScan = frameNow;
@@ -160,6 +172,7 @@ export class Walkers {
     }
     const drawn = this.ring.select(candidates, view, this.options.cap, dt);
     const instances: WalkerInstance[] = [];
+    this.poses = [];
     const turn = 1 - Math.exp(-dt * YAW_RATE);
     for (const entry of drawn) {
       const w = entry.walker, look = humanAppearance(w.id);
@@ -183,6 +196,7 @@ export class Walkers {
         shoes: look.shoes, inner: look.inner, legwear: look.legwear,
         fade: Math.max(0.001, entry.fade * w.fade),
       });
+      this.poses.push({ id: w.id, x: w.x, y: w.y, z: w.z, phase, fade: entry.fade * w.fade });
     }
     this.meshes.update(instances);
     this.count = instances.length;
@@ -202,8 +216,7 @@ export class Walkers {
 
   /** Logical crossing users across the resident graph, independent of the camera, draw cap and fading ring.
    * Traffic samples this at4Hz; it never asks the GPU which pedestrians happen to be visible. */
-  trafficObstacles(): TrafficPedestrian[] {
-    const now = performance.now();
+  trafficObstacles(now = performance.now()): TrafficPedestrian[] {
     if (now - this.lastGraphPoll >= GRAPH_POLL_MS) { this.lastGraphPoll = now; this.syncGraphs(); }
     if (!this.population || !this.trafficCrossings.length) return [];
     const xs = this.trafficCrossings.map(p => p.x), zs = this.trafficCrossings.map(p => p.z);
@@ -239,6 +252,8 @@ export class Walkers {
       buildMs: Number(this.buildMs.toFixed(2)), updateMs: Number(this.updateMs.toFixed(3)), scanMs: Number(this.scanMs.toFixed(3)),
       variants: this.meshes?.meshes.map(m => m.count) ?? [] };
   }
+
+  debugPoses() { return this.poses; }
 
   dispose() {
     this.disposed = true; ++this.assetRequest;
