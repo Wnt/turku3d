@@ -231,3 +231,64 @@ def test_floor_beams_follow_bends_and_avoid_obstacle_cuts_and_lower_passages():
             assert np.ptp(mesh.positions[:, 0]) < .2
         if np.ptp(mesh.positions[:, 0]) > 1:
             assert np.ptp(mesh.positions[:, 2]) < .2
+
+
+def test_girder_profiles_replace_mylly_arch_and_fit_sparse_support_evidence():
+    from turku3d.coarse.bridge_details import style
+    from turku3d.coarse.bridge_kit import support_stations
+
+    way = dict(id='girder', line=shapely.LineString([(0, 0), (94, 0)]), width=21,
+               tags={'highway': 'secondary', 'wikidata': 'Q6947737', 'bridge:structure': 'humpback'},
+               survey={'pier_stations': [81.6], 'pier_bases': [.6]})
+    spec = style(way)
+    assert spec['structure'] == 'beam'
+    assert np.allclose(support_stations(way, spec), [94 / 3, 188 / 3])
+    way['survey']['pier_stations'] = [32, 62, 93]
+    assert support_stations(way, spec) == [32, 62]
+
+
+def test_box_girder_is_closed_outward_below_deck_and_respects_underpass():
+    from turku3d.coarse.bridge_details import style
+    from turku3d.coarse.bridge_kit import box_girder
+
+    way = crossing()
+    way['tags'] = {'highway': 'secondary', 'wikidata': 'Q6947737'}
+    spec = style(way)
+    height = lambda p: np.full(len(p), 5.)
+    meshes = box_girder(way, height, [], way['outline'], spec)
+    assert len(meshes) == 1
+    mesh = meshes[0]
+    assert mesh.metadata['collision']
+    assert mesh.positions[:, 1].max() <= 5 - spec['thickness'] + 1e-6
+    assert np.isclose(mesh.positions[:, 1].min(), 5 - spec['thickness'] - spec['box_depth'])
+    # Every closed station interval consists of 12 triangles; all face outward.
+    tri = mesh.positions[mesh.indices].reshape(-1, 12, 3, 3)
+    normals = np.cross(tri[:, :, 1] - tri[:, :, 0], tri[:, :, 2] - tri[:, :, 0])
+    centres = tri.mean(axis=(1, 2))
+    assert (np.sum(normals * (tri.mean(axis=2) - centres[:, None]), axis=2) > 0).all()
+    blocked = shapely.box(20, -20, 30, 20)
+    safe = box_girder(way, height, [blocked], way['outline'], spec)
+    for triangle in safe[0].positions[safe[0].indices]:
+        footprint = shapely.MultiPoint(triangle[:, [0, 2]]).convex_hull
+        assert not footprint.intersects(blocked)
+
+
+def test_beam_cutwaters_follow_curved_deck_and_avoid_lower_paths():
+    from turku3d.coarse.bridge_details import style
+    from turku3d.coarse.bridge_kit import beam_supports
+
+    axis = shapely.LineString([(0, 0), (30, 0), (55, 20), (90, 20)])
+    way = dict(id='bent', line=axis, width=16, outline=axis.buffer(8, cap_style='flat'),
+               tags={'highway': 'secondary', 'wikidata': 'Q5404019'})
+    spec = style(way)
+    height = lambda p: 5 + p[:, 0] * .01
+    ground = lambda p: np.zeros(len(p))
+    all_meshes = beam_supports(way, height, ground, [], way['outline'], spec)
+    assert len(all_meshes) == 4
+    for mesh in all_meshes:
+        assert mesh.metadata['collision']
+        assert way['outline'].covers(shapely.MultiPoint(mesh.positions[:, [0, 2]]).convex_hull)
+        assert np.all(mesh.positions[:, 1] <= height(mesh.positions[:, [0, 2]]) - spec['thickness'] + 1e-6)
+    blocked = [shapely.box(0, -30, 45, 30)]
+    safe = beam_supports(way, height, ground, blocked, way['outline'], spec)
+    assert len(safe) == 2

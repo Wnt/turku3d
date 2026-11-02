@@ -570,6 +570,17 @@ profile and two measured support stations remain authoritative. Rounded footings
 and tubular metalwork have continuous perimeter UVs and planar cap UVs; their generated geometry is also
 used for collision. Transverse framing uses the same local outline sections and omits beams over protected lower passages. No bridge-specific coordinates or image pixels are embedded.
 
+Beam bridges use local-outline rounded cutwaters and shallow caps. A declared span
+count is fitted to qualified lidar pier returns; a sparse near-bank return cannot
+replace the whole topology. Myllysilta's `humpback` tag describes its surveyed road
+crown, not an arch structure: its finished 2012 Commons reference and WSP's
+[structural case study](https://www.imoa.info/download_files/sustainability/IMOA_Myllysilta-Bridge-Case-Study.pdf)
+support a shallow steel box-girder profile with two piers. Its 0.4 m slab, 0.65 m
+box depth, and third-span supports are estimates, fitted to the actual outline and
+lidar crown. Martinsilta selects steel framing and stone cutwaters using the same
+kit. All support and box sections respect lower passage exclusions and share their
+visible closed meshes with collision. No fixed world-coordinate geometry is used.
+
 Bridge approaches join the same globally aligned ground triangles as the rendered and
 collision terrain. Nearest lidar keys can be metres above the bank TIN and must not
 set a ramp endpoint. Mapped continuation corridors fill the wedges at skew abutments.

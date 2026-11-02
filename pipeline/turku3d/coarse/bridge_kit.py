@@ -297,7 +297,7 @@ def deck_framing(way, height_at, blocked, polygon, spec):
     from .bridge_details import wall
 
     if (spec["body"] != "steel" or spec["structure"] not in ("beam", "cable-stayed")
-            or way.get("landing")):
+            or way.get("landing") or spec.get("box_depth")):
         return []
     key = f"draft-bridge:{way['id']}:framing"
     meshes = []
@@ -318,3 +318,95 @@ def deck_framing(way, height_at, blocked, polygon, spec):
             meshes.append(tapered_post(key, [edge[0], y, edge[1]], direction,
                                        [(0, .12, .12), (spec['thickness'], .12, .12)], 'steel'))
     return meshes
+
+
+def support_stations(way, spec):
+    """Fit qualified survey returns to a declared or span-length support topology."""
+    length = way['line'].length
+    spans = max(1, int(np.ceil(length / (35 if spec['foot'] else 40))))
+    stations = [length * f for f in spec.get('pier_fractions',
+                 np.linspace(0, 1, spans + 1)[1:-1])]
+    available = set(float(s) for s in way.get('survey', {}).get('pier_stations', [])
+                    if .15 * length < s < .85 * length)
+    for i, station in enumerate(stations):
+        if available:
+            nearest = min(available, key=lambda s: abs(s - station))
+            if abs(nearest - station) < .12 * length:
+                stations[i] = nearest
+                available.remove(nearest)
+    return sorted(stations)
+
+
+def beam_supports(way, height_at, sample_ground, blocked, polygon, spec):
+    """Rounded full-width cutwaters with caps below the actual local deck soffit."""
+    if way.get('landing') or spec['structure'] in ('arch', 'humpback', 'suspension', 'cable-stayed'):
+        return []
+    key = f"draft-bridge:{way['id']}:piers"
+    meshes = []
+    radius = spec.get('pier_radius', .6 if spec['foot'] else .9)
+    for station in support_stations(way, spec):
+        section = cross_section(way, station, radius + .35, polygon)
+        if section is None:
+            continue
+        centre, _, _, edges = section
+        # Preserve open river views under deck cantilevers; the shaft fills 70%
+        # of the usable local width, with rounded ends and a slightly wider cap.
+        ends = centre + (np.asarray(edges) - centre) * .7
+        footprint = shapely.LineString(ends).buffer(radius + .15)
+        if not polygon.covers(footprint) or any(footprint.intersects(g) for g in blocked):
+            continue
+        cap_points = np.asarray(footprint.exterior.coords)
+        top = float(np.min(height_at(cap_points))) - spec['thickness'] - spec.get('box_depth', 0)
+        bottom = float(np.min(sample_ground(ends))) - .4
+        survey = way.get('survey', {})
+        for measured, base in zip(survey.get('pier_stations', []), survey.get('pier_bases', []), strict=True):
+            if abs(station - measured) < 1:
+                bottom = min(bottom, float(base) - .3)
+        if top - bottom < 1:
+            continue
+        meshes.append(rounded_pier(key, *ends, bottom, top - .25, radius, spec['support']))
+        meshes.append(rounded_pier(key, *ends, top - .25, top, radius + .15, spec['support']))
+    return meshes
+
+
+def box_girder(way, height_at, blocked, polygon, spec):
+    """Closed shallow trapezoidal box sections follow the lidar crown and local width.
+
+    Lower passages retain their solved clearance envelope: an intersecting section
+    is omitted. The deck itself remains the sole walking/driving surface.
+    """
+    depth = spec.get('box_depth', 0)
+    if depth <= 0 or way.get('landing'):
+        return []
+    axis = way['line']
+    sections = []
+    for station in np.linspace(.15, axis.length - .15, max(2, int(np.ceil(axis.length / 2)) + 1)):
+        section = cross_section(way, station, .3, polygon)
+        if section is None:
+            sections.append(None)
+            continue
+        centre, _, _, edges = section
+        upper = np.asarray(edges)
+        lower = centre + (upper - centre) * .78
+        top = height_at(upper) - spec['thickness']
+        # Clockwise in cross-section when viewed along the positive axis.
+        sections.append(np.array([[upper[0, 0], top[0], upper[0, 1]],
+                                  [upper[1, 0], top[1], upper[1, 1]],
+                                  [lower[1, 0], top[1] - depth, lower[1, 1]],
+                                  [lower[0, 0], top[0] - depth, lower[0, 1]]]))
+    from .bridge_details import appearance
+    faces = Faces()
+    for a, b in zip(sections[:-1], sections[1:], strict=True):
+        if a is None or b is None:
+            continue
+        footprint = shapely.MultiPoint(np.r_[a[:, [0, 2]], b[:, [0, 2]]]).convex_hull
+        if not polygon.covers(footprint) or any(footprint.intersects(g) for g in blocked):
+            continue
+        # Each station interval is closed, so collision cannot develop open sides
+        # when a protected lower passage interrupts the cladding.
+        faces.face(a[::-1])
+        faces.face(b)
+        for i in range(4):
+            j = (i + 1) % 4
+            faces.face([a[i], a[j], b[j], b[i]])
+    return [appearance(faces.mesh(f"draft-bridge:{way['id']}:box", 'wall'), 'steel')] if faces.indices else []

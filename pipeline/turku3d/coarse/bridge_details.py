@@ -15,6 +15,10 @@ PROFILES = {
                       entrance_height=4.8, entrance_width=1.05, entrance_inset=1.2,
                       rail_pattern="heritage"),
     "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
+    "Q6947737": dict(structure="beam", body="steel", support="stone", thickness=.4,
+                     pier_fractions=(1 / 3, 2 / 3), pier_radius=1.0, box_depth=.65),
+    "Q5404019": dict(structure="beam", body="steel", support="stone", thickness=.6,
+                     pier_fractions=(1 / 3, 2 / 3), pier_radius=1.05),
     "Q5408563": dict(structure="cable-stayed", body="steel", support="stone",
                      thickness=.32, tower_height=5.6, tower_radius=.17,
                      tower_fractions=(.2, .8), pier_freeboard=1.0),
@@ -384,49 +388,10 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
             top = height_at(line) - spec["thickness"]
             bottom = np.minimum(sample_ground(line) - 0.6, top - 1.0)
             meshes.append(wall(key, line, bottom, top, 1.6, spec["support"]))
-    # Type-based supports are explicitly fallback dimensions, not claimed lidar measurements.
-    stations = []
-    if (
-        not way.get("landing")
-        and not road_footbridge
-        and spec["structure"]
-        not in (
-            "arch",
-            "humpback",
-            "suspension",
-            "cable-stayed",
-        )
-    ):
-        spans = max(1, int(np.ceil(axis.length / (35 if spec["foot"] else 40))))
-        stations = np.linspace(0, axis.length, spans + 1)[1:-1].tolist()
-        measured = way.get("survey", {}).get("pier_stations", [])
-        if len(measured) >= 2 or (len(measured) == 1 and len(stations) <= 1):
-            stations = measured
-        elif measured and stations:
-            for measured_station in measured:
-                nearest = int(np.argmin(np.abs(np.asarray(stations) - measured_station)))
-                if abs(stations[nearest] - measured_station) < axis.length * 0.15:
-                    stations[nearest] = measured_station
-    for station in stations:
-        p = np.asarray(axis.interpolate(float(station)).coords[0])
-        line = np.array([p - normal * width * 0.32, p + normal * width * 0.32])
-        support = shapely.LineString(line).buffer(0.8)
-        if any(support.intersects(g) for g in blocked) or not polygon.buffer(0.2).covers(support):
-            continue
-        top = height_at(line) - spec["thickness"]
-        bottom = sample_ground(line) - 0.4
-        evidence = way.get("survey", {})
-        for measured_station, measured_base in zip(
-            evidence.get("pier_stations", []), evidence.get("pier_bases", []), strict=True
-        ):
-            if abs(station - measured_station) < 3:
-                bottom = np.minimum(bottom, measured_base)
-        if np.min(top - bottom) < 1:
-            continue
-        meshes.append(wall(key, line, bottom, top, 1.2 if spec["foot"] else 1.8, spec["support"]))
-        meshes.append(
-            wall(key, line, top - 0.45, top, 1.8 if spec["foot"] else 2.4, spec["support"])
-        )
+    from .bridge_kit import beam_supports
+
+    if not road_footbridge:
+        meshes.extend(beam_supports(way, height_at, sample_ground, blocked, polygon, spec))
     if spec["structure"] in ("arch", "humpback") and not way.get("landing"):
         # A shallow arch soffit follows the surveyed crown without raising the driving surface.
         _, centres = samples(axis, 2)
@@ -456,8 +421,9 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 meshes.append(
                     wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"])
                 )
-    from .bridge_kit import deck_framing, entrances, stayed_span
+    from .bridge_kit import box_girder, deck_framing, entrances, stayed_span
 
+    meshes.extend(box_girder(way, height_at, blocked, polygon, spec))
     meshes.extend(deck_framing(way, height_at, blocked, polygon, spec))
     meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec,
                               obstacles=[] if obstacles is None else [obstacles]))
