@@ -99,7 +99,9 @@ class Scenery:
         row = json.loads((self.cache / f'{key}.source.json').read_text())
         if not TILE.fullmatch(row['tile']) or not VISUAL.fullmatch(row['source_url']):
             raise ValueError('Invalid derivative source')
-        source = self.root / row['tile'] / row['source_url']
+        # Local source unions use directory symlinks. Resolve before conversion so
+        # external ../shared buffers stay relative to the original tile root.
+        source = (self.root / row['tile'] / row['source_url']).resolve()
         if hashlib.sha256(source.read_bytes()).hexdigest() != row['source_sha256']:
             raise ValueError('Derivative source changed')
         output = self.cache / f'lod.{key}.glb'

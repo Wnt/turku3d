@@ -9,6 +9,24 @@ from scenery import Scenery
 
 
 class SceneryTest(unittest.TestCase):
+    def test_linked_tiles_resolve_external_buffers_against_the_original_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); original = root / 'original' / 't0_0_0'; original.mkdir(parents=True)
+            source = original / 'vis.glb'; source.write_bytes(b'source with ../shared buffer')
+            union = root / 'union'; union.mkdir(); (union / original.name).symlink_to(original)
+            cache = Scenery(union, root / 'derivatives'); cache.cache.mkdir()
+            key = 'b' * 64
+            (cache.cache / f'{key}.source.json').write_text(json.dumps(dict(tile=original.name,
+                source_url=source.name, source_sha256=hashlib.sha256(source.read_bytes()).hexdigest(), h=[0, 20])))
+            def convert(command, **kwargs):
+                self.assertEqual(Path(command[2]), source.resolve())
+                Path(command[3]).write_bytes(b'derivative')
+                from types import SimpleNamespace
+                return SimpleNamespace(stdout='{"bytes":10,"triangles":2}')
+            with patch('scenery.subprocess.run', side_effect=convert):
+                self.assertEqual(cache.descriptor(key)[0], 200)
+            cache.pool.shutdown()
+
     def test_catalogue_preserves_sources_and_uses_retained_full_without_regeneration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
