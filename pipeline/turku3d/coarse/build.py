@@ -607,7 +607,6 @@ def build(
         "building_visual",
         source_key(
             building_visual,
-            cached_terrain,
             roof_crop,
             roof_fallback,
             valid_roof_pixels,
