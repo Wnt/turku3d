@@ -1,0 +1,155 @@
+"""Explainable citywide landmark ranking from local OSM and measured enrichment.
+
+Missing evidence is reported, never silently treated as a negative finding.
+Optional register/lidar/visibility/Wikimedia evidence is keyed by OSM identity.
+"""
+
+import argparse
+import json
+import math
+from pathlib import Path
+
+
+def rank(tags, evidence=None):
+    e = evidence or {}
+    reasons = []
+
+    def add(kind, points, value):
+        if value not in (None, False, "", "no", "0", 0):
+            reasons.append(dict(signal=kind, points=round(points, 2), value=value))
+
+    add("historic", 18, tags.get("historic"))
+    add("heritage", 22, tags.get("heritage"))
+    add("protected_register", 25, e.get("protected"))
+    add("national_heritage_rky", 22, e.get("rky"))
+    add("place_of_worship", 18, tags.get("amenity") == "place_of_worship")
+    add("tourism", 12, tags.get("tourism"))
+    add("wikidata", 10, tags.get("wikidata"))
+    add("wikipedia", 12, tags.get("wikipedia"))
+    add(
+        "monumental_use",
+        14,
+        tags.get("building") in ("cathedral", "church", "castle", "museum", "civic"),
+    )
+    views = e.get("monthly_pageviews")
+    add("monthly_pageviews", min(18, 3 * math.log10(1 + max(0, views or 0))), views)
+    height = e.get("height_m")
+    if height is None:
+        try:
+            height = float(str(tags.get("height", "")).replace(" m", ""))
+        except ValueError:
+            height = None
+    add(
+        "height",
+        min(18, max(0, (height or 0) - 20) * 0.3),
+        height if height and height > 20 else None,
+    )
+    prominence = e.get("skyline_prominence_m")
+    add("skyline_prominence", min(18, max(0, prominence or 0) * 0.4), prominence)
+    compactness = e.get("compactness")
+    add(
+        "footprint_uniqueness",
+        min(8, max(0, 0.65 - (compactness or 1)) * 20),
+        compactness if compactness and compactness < 0.65 else None,
+    )
+    streets = e.get("visible_streets")
+    views = e.get("visible_viewpoints")
+    add("visible_streets", min(10, 2 * (streets or 0)), streets)
+    add("visible_viewpoints", min(10, views or 0), views)
+    score = round(sum(r["points"] for r in reasons), 2)
+    return dict(
+        score=score,
+        tier="landmark" if score >= 55 else "candidate" if score >= 28 else "ordinary",
+        reasons=reasons,
+        missing_evidence=[
+            k
+            for k in [
+                "protected",
+                "rky",
+                "monthly_pageviews",
+                "height_m",
+                "skyline_prominence_m",
+                "visible_streets",
+                "visible_viewpoints",
+            ]
+            if k not in e
+        ],
+    )
+
+
+def inventory(paths, enrichment=None):
+    import pyarrow.parquet as pq
+    import shapely
+
+    records = {}
+    enrichment = enrichment or {}
+    for path in sorted(paths):
+        table = pq.read_table(path, columns=["osm_type", "osm_id", "tags", "geometry_local"])
+        for row in table.to_pylist():
+            tags = json.loads(row["tags"] or "{}")
+            if not any(
+                tags.get(k)
+                for k in ("building", "historic", "heritage", "tourism", "wikidata", "wikipedia")
+            ):
+                continue
+            key = f"{row['osm_type']}/{row['osm_id']}"
+            if key in records:
+                continue
+            g = shapely.from_wkb(row["geometry_local"])
+            if g.geom_type == "LineString" and g.is_ring:
+                g = shapely.Polygon(g)
+            evidence = dict(enrichment.get(key, {}))
+            if g.area > 0:
+                evidence["compactness"] = 4 * math.pi * g.area / g.length**2
+            result = rank(tags, evidence)
+            if result["tier"] == "ordinary":
+                continue
+            p = g.representative_point()
+            records[key] = dict(
+                id=key,
+                name=tags.get("name", key),
+                tags=tags,
+                location_xz=[p.x, p.y],
+                tile=f"t0_{math.floor(p.x / 250)}_{math.floor(p.y / 250)}",
+                evidence=evidence,
+                **result,
+            )
+    return sorted(records.values(), key=lambda r: (-r["score"], r["id"]))
+
+
+def main():
+    from turku3d import config as C
+
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--osm-root", type=Path, default=C.raw_dir("osm"))
+    p.add_argument("--evidence", type=Path)
+    p.add_argument("--out", type=Path, required=True)
+    a = p.parse_args()
+    paths = list(a.osm_root.glob("**/*.parquet"))
+    rows = inventory(paths, json.loads(a.evidence.read_text()) if a.evidence else {})
+    a.out.parent.mkdir(parents=True, exist_ok=True)
+    a.out.write_text(
+        json.dumps(
+            dict(
+                version=1,
+                coverage=dict(osm_files=len(paths), scope="available local city OSM extracts"),
+                buildings=rows,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
+    print(
+        json.dumps(
+            dict(
+                ranked=len(rows),
+                landmarks=sum(r["tier"] == "landmark" for r in rows),
+                top=[(r["name"], r["score"]) for r in rows[:15]],
+            )
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

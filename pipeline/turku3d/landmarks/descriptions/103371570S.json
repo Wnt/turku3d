@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "building_id": "103371570S",
+  "name": "Turku Cathedral",
+  "style": "medieval-cathedral",
+  "provenance": [{"source": "local:pano-plaza-lookaround-2024-06-18", "method": "vision-parameter-estimation", "confidence": 0.78}],
+  "observations": ["Rubble stone lower west tower", "Sparse round-arched tower openings, distinct from Gothic nave windows", "Black and gold clocks below pale cornice", "Dark copper belfry, greener patina on spire"],
+  "brick": {"colour": [132, 91, 76], "size_m": [0.29, 0.09], "mortar_m": 0.014, "mortar_colour": [156, 147, 128], "bond": "monk", "variation": 0.18},
+  "stone": {"colour": [119, 115, 103], "size_m": [0.48, 0.32], "mortar_m": 0.035, "mortar_colour": [163, 158, 143]},
+  "trim_colour": [197, 190, 162],
+  "roof": {"material": "copper", "colour": [66, 91, 83], "patina": 0.65, "seam_m": 0.58},
+  "windows": {"type": "gothic-lancet", "width_m": 1.7, "height_m": 6.0, "spacing_m": 5.6, "sill_m": 4.5, "mullions": 2},
+  "tower": {"minimum_height_m": 35, "maximum_width_m": 22, "stone_top_m": 15, "copper_start_m": 52, "clock_height_m": 46, "clock_radius_m": 1.85, "cornices_m": [28, 40, 51], "opening_rows": [[19, 1.2, 2.5, 2], [24, 1.2, 2.5, 1], [31, 1.5, 3.0, 3], [36, 1.0, 2.0, 3]]},
+  "weathering": 0.18
+}
