@@ -40,7 +40,8 @@
     "Current reference confirms muted red-brown brick, beige-grey trim, paired arched entrance lights, and a white concrete / dark ribbon-glass neighbour; the teal source sample was a metal doorway.",
     "June 2026 north-end perspective: central three clear openings are about 46 px wide and 142 px tall against an approximately 840 px facade width; retain a tall 3.2/1.05 aspect ratio after applying the street datum.",
     "June2026 north facade: outer masonry piers occupy about18% of the width each. Door centres and paired sidelights sit near28%/72%, not at the facade edges; central window centres about42%/50%/58%. Corner pediments reach about69% of the total height. Projecting copings, alternating pier courses and shoulder arches are modeled from measured profiles; depth estimated0.12\u20130.30m, uncertain\u00b10.10m.",
-    "June2026 front remeasurement: shoulder arches are red brick with four intermittent pale stone voussoirs per side, about0.32m wide in elevation. Left arch pixel path (475,444),(511,403),(553,380),(588,367), rectified approximately against x300..1154 and ground670/apex135. Source paths and individual blocks replace the earlier continuous cream stripe. Position uncertainty\u00b10.2m; projection depth\u00b10.1m."
+    "June2026 front remeasurement: shoulder arches are red brick with four intermittent pale stone voussoirs per side, about0.32m wide in elevation. Left arch pixel path (475,444),(511,403),(553,380),(588,367), rectified approximately against x300..1154 and ground670/apex135. Source paths and individual blocks replace the earlier continuous cream stripe. Position uncertainty\u00b10.2m; projection depth\u00b10.1m.",
+    "June2026 front doors: two leaves at each entrance. Dark glazed upper46% with thin vertical metal grille and small ring details; recessed brown/grey lower panels, broad timber-coloured stiles and short paired handles. Brown material reads as weathered wood/metal, exact substrate uncertain. The former plain brown rectangle with evenly spaced crossbars missed this division."
   ],
   "uncertainty": "Photo-derived openings and trim dimensions approx \u00b120%; side repetition approximate; opposite end layout not separately measured. Survey shell remains authoritative.",
   "brick": {
@@ -245,7 +246,24 @@
           "kind": "door",
           "shape": "rect",
           "rows": 3,
-          "columns": 2
+          "columns": 2,
+          "style": "panelled_glazed",
+          "glazed_fraction": 0.46,
+          "colour": [
+            91,
+            80,
+            62
+          ],
+          "glass_colour": [
+            38,
+            45,
+            41
+          ],
+          "metal_colour": [
+            128,
+            122,
+            100
+          ]
         },
         {
           "x_m": 12.525,
@@ -255,7 +273,24 @@
           "kind": "door",
           "shape": "rect",
           "rows": 3,
-          "columns": 2
+          "columns": 2,
+          "style": "panelled_glazed",
+          "glazed_fraction": 0.46,
+          "colour": [
+            91,
+            80,
+            62
+          ],
+          "glass_colour": [
+            38,
+            45,
+            41
+          ],
+          "metal_colour": [
+            128,
+            122,
+            100
+          ]
         },
         {
           "x_m": 8.675,
