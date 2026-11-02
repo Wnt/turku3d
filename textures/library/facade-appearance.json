@@ -153,5 +153,72 @@
         "source": "Jonni 2026-10-29: stone/granite Jugend building; register says other material"
       }
     }
+  },
+  "103304658A": {
+    "walls": {
+      "103304658A_65473b4004": {
+        "wall": {
+          "colour": {
+            "value": "#cbb5b5",
+            "source": "same-wall panorama review: pale pink plaster; uncalibrated appearance prior",
+            "support": 0.7
+          }
+        },
+        "trim": {
+          "colour": {
+            "value": "#d5cdb8",
+            "source": "same-wall panorama review: warm cream raised trim; uncalibrated appearance prior",
+            "support": 0.7
+          }
+        },
+        "provenance": {
+          "observation": "facades-shopping.json followup_review, 2026-11-02",
+          "association": "surveyed street-facing wall normal and register building identity",
+          "method": "qualitative colour-family prior; no photo RGB or calibration claim"
+        }
+      },
+      "103304658A_0c1ab6db7b": {
+        "wall": {
+          "colour": {
+            "value": "#cbb5b5",
+            "source": "same-wall panorama review: pale pink plaster; uncalibrated appearance prior",
+            "support": 0.7
+          }
+        },
+        "trim": {
+          "colour": {
+            "value": "#d5cdb8",
+            "source": "same-wall panorama review: warm cream raised trim; uncalibrated appearance prior",
+            "support": 0.7
+          }
+        },
+        "provenance": {
+          "observation": "facades-shopping.json followup_review, 2026-11-02",
+          "association": "surveyed street-facing wall normal and register building identity",
+          "method": "qualitative colour-family prior; no photo RGB or calibration claim"
+        }
+      },
+      "103304658A_a43e3dca8a": {
+        "wall": {
+          "colour": {
+            "value": "#cbb5b5",
+            "source": "same-wall panorama review: pale pink plaster; uncalibrated appearance prior",
+            "support": 0.7
+          }
+        },
+        "trim": {
+          "colour": {
+            "value": "#d5cdb8",
+            "source": "same-wall panorama review: warm cream raised trim; uncalibrated appearance prior",
+            "support": 0.7
+          }
+        },
+        "provenance": {
+          "observation": "facades-shopping.json followup_review, 2026-11-02",
+          "association": "surveyed street-facing wall normal and register building identity",
+          "method": "qualitative colour-family prior; no photo RGB or calibration claim"
+        }
+      }
+    }
   }
 }
