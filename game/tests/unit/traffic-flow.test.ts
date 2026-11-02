@@ -174,6 +174,48 @@ describe('responsive traffic', () => {
     expect(vehicleLights(car, 20).indicator).toBe(0);
   });
 
+  test('short-link diamonds produce one receiving movement instead of self-conflicting route copies', () => {
+    const json: RoadGraphJson = { ...intersection(),
+      nodes: [0,125,100,125,102,124,102,126,104,125,250,125],
+      nodeFlags: [NODE.SEAM,NODE.JUNCTION,NODE.JUNCTION,NODE.JUNCTION,NODE.JUNCTION,NODE.SEAM],
+      edges: [[0,1,CAR|4|3<<3,100],[1,2,CAR|4|3<<3,Math.sqrt(5)],[1,3,CAR|4|3<<3,Math.sqrt(5)],
+        [2,4,CAR|4|3<<3,Math.sqrt(5)],[3,4,CAR|4|3<<3,Math.sqrt(5)],[4,5,CAR|4|3<<3,146]],
+      edgeIds: ['in','upper-a','lower-a','upper-b','lower-b','out'],
+      edgeAttrs: Array.from({length:6},()=>[1,0,3.5,40,11,0,0,0]),
+    };
+    const flow = new TrafficFlow(flowNetwork(json), 0); flow.update(45);
+    const access = flow as unknown as { movements: Map<Lane,Lane[]>; regroup(): void;
+      mayEnter(car: FlowCar, heads: Map<Lane,FlowCar>, reservations: FlowCar[], time: number): boolean };
+    const [lane,routes] = [...access.movements].find(([l]) => l.start.kind === 'seam' && l.end.kind === 'junction')!;
+    expect(lane).toBeDefined();
+    expect(routes).toHaveLength(1);
+    const templates = [...flow.cars.values()]; expect(templates.length).toBeGreaterThanOrEqual(2);
+    const route = routes[0];
+    const driver = (template: FlowCar, s: number, reservation: Lane | null): FlowCar => {
+      const speed = reservation ? 4 : 0;
+      const car = { ...template, lane, route, s, speed, reservation, hops: 0, waiting: 0, stopped: 0,
+        change: null, signal: null, changeCooldown: 0, pose: { ...template.pose },
+        previous: { route, s, speed, change: null } };
+      sampleFlowPose(car, 0, () => 0, car.pose); return car;
+    };
+    const leader = driver(templates[0], lane.length + 2, route);
+    const follower = driver(templates[1], lane.length - templates[1].length / 2 - 0.8, null);
+    flow.cars.clear(); flow.cars.set(leader.key, leader); flow.cars.set(follower.key, follower); access.regroup();
+    expect(access.mayEnter(follower, new Map([[lane,follower]]), [leader], 45)).toBe(true);
+    flow.network.density!.multiplier = 0;
+    const restored = new TrafficFlow(flowNetwork(json), 0); restored.network.density!.multiplier = 0;
+    restored.restore(flow.checkpoint());
+    for (let k = 1; k <= 50; k++) {
+      flow.update(45 + k / 10); restored.update(45 + k / 10);
+      expect(restored.checkpoint()).toEqual(flow.checkpoint());
+      const cars = [...flow.cars.values()];
+      for (const fraction of [0, 0.5, 1]) for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
+        const physical = (c: FlowCar) => ({ ...interpolateFlowPose(c, fraction, () => 0), length: c.length, width: c.width });
+        expect(overlap(physical(cars[i]), physical(cars[j]))).toBe(false);
+      }
+    }
+  });
+
   test('claims remove simulation participants and interpolation stays between checked positions', () => {
     const flow = new TrafficFlow(flowNetwork(intersection(true)));
     flow.reset(0); flow.update(30);

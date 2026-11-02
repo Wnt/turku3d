@@ -227,8 +227,11 @@ export class TrafficFlow {
       if (!routes.length && fallback.length) routes.push(fallback.sort((a, b) =>
         Math.abs(a.connector!.turn) - Math.abs(b.connector!.turn) || cmp(a.id, b.id))[0]);
       if (!routes.length && lane.end.kind === 'junction') routes.push({ ...lane, next: null, connector: null });
-      for (const route of routes) { movements.push(route); this.baseOf.set(route, lane); }
-      this.movements.set(lane, routes.length ? routes : [lane]);
+      // Short-link folds can reach the same movement twice. Following, reservations and checkpoints
+      // must all refer to one canonical object for that movement ID.
+      const unique = [...new Map(routes.map(route => [route.id, route])).values()];
+      for (const route of unique) { movements.push(route); this.baseOf.set(route, lane); }
+      this.movements.set(lane, unique.length ? unique : [lane]);
     }
     for (const a of movements) {
       if (!a.connector) continue;
