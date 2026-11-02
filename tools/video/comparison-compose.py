@@ -6,12 +6,12 @@ import math,wave
 from datetime import datetime
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
-P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');P.add_argument('--still',metavar='SHOT_ID|title|end',help='Compose one full-resolution cached midpoint or card without rendering video');a=P.parse_args()
+P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');P.add_argument('--still',metavar='SHOT_ID|title|end',help='Compose one full-resolution cached midpoint or card without rendering video');P.add_argument('--transition',metavar='FROM_SHOT_ID',help='Render one transition to the following shot from cached captures');a=P.parse_args()
 out=Path(a.out);c=json.loads(Path(a.shots).read_text());edit=out/'edit';edit.mkdir(exist_ok=True);fps=c['fps'];transition=c['transition'];W,H=1920,1080
 stamp=datetime.now();date_long=stamp.strftime('%d %B %Y')
 font='/System/Library/Fonts/Supplemental/Arial.ttf';bold='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
 def run(args):subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y',*map(str,args)],check=True)
-def encode():return ['-an','-c:v','libx264','-crf','14','-preset','fast','-threads','3','-pix_fmt','yuv420p','-r',fps,'-video_track_timescale',15360]
+def encode(crf=14):return ['-an','-c:v','libx264','-crf',crf,'-preset','fast','-threads','3','-pix_fmt','yuv420p','-r',fps,'-video_track_timescale',15360]
 def text(d,xy,s,size=30,fill='#f4f5f4',heavy=False):d.text(xy,s,font=ImageFont.truetype(bold if heavy else font,size),fill=fill)
 def overlay(shot):
  im=Image.new('RGBA',(W,H));d=ImageDraw.Draw(im)
@@ -58,8 +58,31 @@ def card(end=False,still=False):
  return dest,duration
 if a.still in ('title','end'):
  card(a.still=='end',still=True);raise SystemExit()
+def transition_clip(i,clip,duration,nxt):
+ dest=edit/f'transition-{i:02}.mp4';kind=['fade','smoothleft','fade','dissolve'][i%4]
+ if 0<i<len(c['shots']):
+  outgoing,incoming=c['shots'][i-1],c['shots'][i]
+  # Wipes stay inside each comparison half; lettering is composited after the effect.
+  inputs=['-ss',duration-transition,'-t',transition,'-i',edit/(outgoing['id']+'-scene.mp4'),'-t',transition,'-i',edit/(incoming['id']+'-scene.mp4')]
+  for shot in (outgoing,incoming):inputs+=['-loop','1','-framerate',fps,'-i',edit/(shot['id']+'-overlay.png')]
+  graph=[]
+  for n,tag in [(0,'a'),(1,'b')]:
+   graph.append(f'[{n}:v]split[{tag}0][{tag}1]')
+   for side,x in [('l',0),('r',W//2)]:
+    graph.append(f'[{tag}{0 if side=="l" else 1}]crop={W//2}:{H}:{x}:0,settb=1/{fps},setpts=PTS-STARTPTS[{tag}{side}]')
+  for side in ('l','r'):graph.append(f'[a{side}][b{side}]xfade=transition={kind}:duration={transition}:offset=0[{side}]')
+  midpoint=round(transition*fps)//2
+  graph.extend(['[l][r]hstack[scene]',f"[scene][2:v]overlay=format=auto:enable='lt(n,{midpoint})'[old]",f"[old][3:v]overlay=format=auto:enable='gte(n,{midpoint})',format=yuv420p[v]"])
+  run([*inputs,'-filter_complex',';'.join(graph),'-map','[v]','-frames:v',round(transition*fps),*encode(),dest])
+ else:
+  run(['-ss',duration-transition,'-t',transition,'-i',clip,'-t',transition,'-i',nxt,'-filter_complex',f'[0:v]settb=1/{fps},setpts=PTS-STARTPTS[a];[1:v]settb=1/{fps},setpts=PTS-STARTPTS[b];[a][b]xfade=transition={kind}:duration={transition}:offset=0,format=yuv420p[v]','-map','[v]','-frames:v',round(transition*fps),*encode(),dest])
+ return dest
+transition_index=next((i for i,s in enumerate(c['shots']) if s['id']==a.transition),None)
+if a.transition and (transition_index is None or transition_index==len(c['shots'])-1):raise SystemExit('--transition requires a shot with a following shot')
+if a.transition and (a.still or a.preview):raise SystemExit('--transition cannot be combined with --still or --preview')
 segments=[]
-for shot in c['shots']:
+for shot_index,shot in enumerate(c['shots']):
+ if a.transition and shot_index not in (transition_index,transition_index+1):continue
  if a.still and shot['id']!=a.still:continue
  p=overlay(shot);dest=edit/(shot['id']+'.mp4');segments.append((dest,c['duration']))
  if a.still:
@@ -67,8 +90,10 @@ for shot in c['shots']:
  if a.preview:
   left=out/'preview'/(shot['id']+'-left-1.jpg');right=out/'preview'/(shot['id']+'-right-1.jpg')
   run(['-i',left,'-i',right,'-i',p,'-filter_complex','[0:v]scale=960:1080[l];[1:v]scale=960:1080[r];[l][r]hstack[s];[s][2:v]overlay','-frames:v',1,edit/(shot['id']+'-preview.jpg')]);continue
- run(['-i',out/'clips'/(shot['id']+'-left.mp4'),'-i',out/'clips'/(shot['id']+'-right.mp4'),'-i',p,'-filter_complex','[0:v][1:v]hstack,eq=contrast=1.015:saturation=1.025[scene];[scene][2:v]overlay=format=auto,format=yuv420p[v]','-map','[v]','-t',c['duration'],*encode(),dest])
+ run(['-i',out/'clips'/(shot['id']+'-left.mp4'),'-i',out/'clips'/(shot['id']+'-right.mp4'),'-i',p,'-filter_complex','[0:v][1:v]hstack,eq=contrast=1.015:saturation=1.025,split[clean][scene];[scene][2:v]overlay=format=auto,format=yuv420p[v]','-map','[v]','-t',c['duration'],*encode(),dest,'-map','[clean]','-t',c['duration'],*encode(12),edit/(shot['id']+'-scene.mp4')])
  print('Composed',shot['id'],flush=True)
+if a.transition:
+ transition_clip(transition_index+1,segments[0][0],segments[0][1],segments[1][0]);raise SystemExit()
 if a.still:
  if not segments:raise SystemExit(f'Unknown shot: {a.still}')
  raise SystemExit()
@@ -85,8 +110,7 @@ for i,(clip,duration) in enumerate(segments):
  start=transition if i else 0;end=duration-transition if i<len(segments)-1 else duration
  body=edit/f'body-{i:02}.mp4';run(['-ss',start,'-i',clip,'-t',end-start,*encode(),body]);parts.append(body)
  if i<len(segments)-1:
-  nxt=segments[i+1][0];dest=edit/f'transition-{i:02}.mp4';kind=['fade','smoothleft','fade','dissolve'][i%4]
-  run(['-ss',duration-transition,'-t',transition,'-i',clip,'-t',transition,'-i',nxt,'-filter_complex',f'[0:v]settb=1/{fps},setpts=PTS-STARTPTS[a];[1:v]settb=1/{fps},setpts=PTS-STARTPTS[b];[a][b]xfade=transition={kind}:duration={transition}:offset=0,format=yuv420p[v]','-map','[v]','-t',transition,*encode(),dest]);parts.append(dest)
+  parts.append(transition_clip(i,clip,duration,segments[i+1][0]))
 listing=edit/'concat.txt';listing.write_text(''.join("file '"+str(p).replace("'","'\\''")+"'\n" for p in parts))
 # Original, locally synthesized ambient score: no recordings, downloads, or licensed samples.
 duration=sum(d for _,d in segments)-(len(segments)-1)*transition;sr=48000;audio=np.zeros((round(duration*sr),2),dtype=np.float32)

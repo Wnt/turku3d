@@ -57,6 +57,9 @@ The film uses 15 × 4-second segments, 2.8/3.6-second title/end cards, and sixte
 0.4-second crossfades (60 seconds total). Composition adds restrained grading,
 varied transitions and an original local synthesized ambient score. No external
 recordings, photographs or samples are used. H.264 capture intermediates use CRF 12; the edit uses CRF 14.
+Scene transitions apply the same effect independently inside each comparison half.
+The divider and labels are added afterward; captions switch once at the midpoint
+instead of dissolving into doubled text. Clean scene intermediates use CRF 12.
 
 Outputs: `turku3d-before-after.mp4`, `contact-sheet.jpg`, `review.json`, build and
 tile receipts, `preview/`, `clips/`, and `edit/`. Inspect the contact sheet before
@@ -77,6 +80,17 @@ This writes `edit/market-hall-still.png`. Compare two versions at the same shot;
 retain its capture receipts as evidence that the scene and camera are unchanged.
 Use `--still title` or `--still end` to review a card. The opening uses both matched
 dawn frames with equal background shading and introduces the comparison explicitly.
+
+Render one transition from existing captures without rebuilding the whole film:
+
+```sh
+bash pipeline/env/run.sh python tools/video/comparison-compose.py \
+  --out ~/turku3d/video/2026-11-02 --transition street-walk
+```
+
+This writes the walk-to-drive `edit/transition-09.mp4` (24 frames). Compare the same
+frame index on both candidates; frame 12 is the midpoint. The command also writes
+the two corresponding labelled and clean scene clips for the transition inputs.
 
 Focused checks:
 
