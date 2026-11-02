@@ -19,7 +19,7 @@ const ctx=browser?browser.contexts()[0]:await launch(width,height);
 await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[]}));
 const pages=[], sessions=[], records=[new Map(),new Map()], failures=[[],[]], inflight=[new Set(),new Set()];
 const dir=path.join(out,preview?'preview':'clips');fs.mkdirSync(dir,{recursive:true});
-const iso=shot=>`2026-09-08T${String(Math.floor(shot.hour)).padStart(2,'0')}:${String(Math.round(shot.hour%1*60)).padStart(2,'0')}:00+03:00`;
+const iso=shot=>`${shot.date??"2026-09-08"}T${String(Math.floor(shot.hour)).padStart(2,'0')}:${String(Math.round(shot.hour%1*60)).padStart(2,'0')}:00+03:00`;
 const log=m=>console.log(new Date().toISOString(),m);
 async function setup(side,shot){
  const p=await ctx.newPage();pages[side]=p;await p.setViewportSize({width,height});

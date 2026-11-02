@@ -42,10 +42,11 @@ incomplete tiles and mismatched resident hashes are rejected. The frozen
 production host itself marks some harbour tiles stale; those are retained as
 published, with the flags recorded, rather than rebuilding production.
 
-Both sides use the same astronomical calendar instant and camera. Production
+Both sides use the same astronomical calendar instant and camera. Most shots use
+8 September; the final shot uses a bright 21 June night so production stays legible. Production
 has no weather or wind selector and uses its existing clear sky/static water.
 The new side uses each named preset's existing wind value. Neither build exposes
-a season selector; existing vegetation is preserved. UI and cursors are hidden;
+a foliage-season selector; existing vegetation is preserved. UI and cursors are hidden;
 labels, divider, title/end cards and credits are added only during editing.
 
 The film uses 15 × 4-second segments, 2.8/3.6-second title/end cards, and sixteen
