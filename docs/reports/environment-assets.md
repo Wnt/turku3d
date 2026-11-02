@@ -67,24 +67,24 @@ Raw dumps and keyword rules stay on the research host. The longer local note is
 
 | | GTA V (median) | Turku3D library |
 |---|---|---|
-| Near broadleaf tree | ~5,000 tris, ~3 draws, ~270 cluster cards of ~1.6 m | 3,600 to 9,800 tris (rowan to oak), 2 draws, 700 to 1,350 bent cluster cards of 1.0 to 1.25 m filling the crown volume; two seeded variants per species |
-| Near conifer | ~7,750 tris | Scots pine 2,400, Norway spruce 9,100 to 9,600 |
-| Mid level | 0.3 × near, same cards | 0.21 to 0.42 × near (median about 0.24): broadleaves keep 55 % of the clusters, larger and flat; spruce 60 % |
-| Shadow caster | proxy at 0.4 to 0.5 × visible | LOD 1 on the shadow-only layer (0.21 to 0.42 ×) |
+| Near broadleaf tree | ~5,000 tris, ~3 draws, ~270 cluster cards of ~1.6 m | 3,600 to 9,800 tris (rowan to oak; willow 9,500), 2 draws, 700 to 1,350 bent cluster cards of 1.0 to 1.3 m filling the crown volume; two seeded variants per species |
+| Near conifer | ~7,750 tris | Scots pine 3,900 (about 680 needle tufts at branch ends), Norway spruce 11,400 to 12,000 (about 1,150 sprays) |
+| Mid level | 0.3 × near, same cards | 0.21 to 0.31 × near (median about 0.24): broadleaves keep 55 % of the clusters, larger and flat; conifers 60 % |
+| Shadow caster | proxy at 0.4 to 0.5 × visible | LOD 1 on the shadow-only layer (0.21 to 0.31 ×) |
 | Far | 2 to 4 crossed quads from 280 m, a shared billboard mesh | 3 crossed planes + 1 top plane (8 tris) from 180 m, angle-faded and dithered; 128×256 texel views |
 | LOD switches (medium) | 60 / 160 / 280 / 400 m | 50 / 180 / 650 m (`quality.ts`) |
 | Leaf texture | 512² to 1024² per species | one 2048² atlas, 512² per species card, shared by all |
 | Bark | 512×1024 + normal per species | one 4096×512 column atlas + 2048×256 normal, 8 barks |
 | Bush | ~400 tris | lilac 960 to 990, rose 660 to 690, juniper 1,450 to 1,620 (LOD 1: 330 to 810) |
-| Grass clump | ~86 tris, ~1.2 m apart, drawn to 100 m | a continuous lawn of 4-triangle lawn cards (two crossed 1 m bands of fine blades) at 2.5/m² on tile lawns; 6-triangle tufts and meadow flowers in noise patches, rosette 2 tris; dissolving at 34 m (medium) |
-| Fence | ~300 tris per 4 m module | 70 to 310 tris per 2 m module (picket, board, railing, park, chain-link, granite), LOD 1: 20 to 80; chain-link as an alpha-tested panel |
+| Grass clump | ~86 tris, ~1.2 m apart, drawn to 100 m | a continuous lawn of 6-triangle lawn cards (three crossed 1.25 m bands of fine blades, tapered ends) at 2.5/m² on tile lawns; 6-triangle tufts and meadow flowers in noise patches, rosette 2 tris; dissolving at 34 m (medium) |
+| Fence | ~300 tris per 4 m module | 70 to 310 tris per 2 m module (picket, board, railing, park, chain-link, granite), LOD 1: 20 to 80; chain-link as an alpha-tested panel; wood and wire textures drawn by our code |
 | Sky | analytic dome + noise clouds + textured cloud hats | not on this branch (prototype: two noise cloud layers from one 256² tileable texture, handed to the sky loop) |
 | Wind | vertex weights + global wind | `_WIND` vertex weights (sway, flutter, phase) + global strength/direction uniforms |
 
 All trees, shrubs, grass and the hedge share **three materials**: bark, leaves (alpha-tested, double-sided,
 crown normals, back-light term) and impostor. The fence kit adds wood, metal and granite. All instances in a tile
 pack into one draw per asset part per LOD, so pipeline count does not grow with instance or species count. The
-library is a 7.3 MB GLB (33 assets) with KTX2, quantized positions/normals and meshopt.
+library is a 7.6 MB GLB (33 assets) with KTX2, quantized positions/normals and meshopt.
 
 Departures from GTA, and why:
 - **Near level.** Our near broadleaves carry about twice GTA's card count, at a smaller card size. Review of
@@ -116,6 +116,24 @@ Pipelines rose by 1 to 3 per camera (63 to 71). The worst case, Kupittaa's 768-t
 +6 ms GPU and stays at about 70 fps, well inside the 30 fps target. Caveat: the host ran several other agents
 (load average 15 to 240 during the runs), so single-camera differences of about 1 ms are noise. The shopping
 camera came out faster after, which shows the size of that noise.
+
+Second run after the review feedback: dense canopies for every species, the continuous lawn and the fence kit
+(bundle of `25f3f0cc`, before the lawn taper and the grass alpha fix), same bench, medium, 13:00 unless noted.
+The host load average was 150 to 255. Frame ms p50 / p95 against the first run:
+
+| Camera | First run (`00b0b7b7`) | Dense build | Vegetation instances |
+|---|---|---|---|
+| shopping (few trees) | 8.6 / 12.9 | 14.2 / 16.6 (22:00: 9.6 / 10.6) | 854 |
+| residential | 7.8 / 9.3 | 16.9 / 27.2 | 14,129 |
+| riverside | 11.6 / 12.5 | 18.2 / 20.6 | 3,131 |
+| park-edge | 10.8 / 13.2 | 18.1 / 19.7 | 27,986 |
+| kupittaa (dense forest) | 14.4 / 15.7 | 24.5 / 26.5 | 40,231 |
+
+Every pose stays above 40 fps. The shopping pose, which has almost no vegetation, also slowed by about 5.6 ms, so
+roughly half of each increase is host load rather than the assets. Most added instances are lawn cards
+(capped at 12,000 per kind on medium). A rerun on a quiet host should split the remaining cost between the
+canopies (twice the LOD 0 cards) and the lawn. The knobs are `QUALITY.vegetation` near distance and
+`QUALITY.grass` density and range.
 
 Before/after shots at the `turku3d-compare` poses are kept locally under
 `~/turku3d/work/assets-nature/compare-after/`, `~/turku3d/work/assets-nature/compare-grass/` and the review
