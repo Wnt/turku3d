@@ -5,7 +5,6 @@ import type { PerformanceMonitor } from '../render/performance';
 
 interface HudData {
   lights?: LightState;
-  playerName?: string;
   backend: string; fps: number; frameMs: number; physMs: number;
   visTris: number; visModels: number;
   colTiles: number; colTris: number; colMB: number; colWasmMB: number;
@@ -19,12 +18,18 @@ export class Hud {
   visible: boolean;
   private lastUpdate = -Infinity;
   constructor(private el: HTMLElement, visible = !PUBLIC_RELEASE || new URLSearchParams(location.search).has('debug')) { this.visible = visible; this.style(); }
-  set(d: HudData) {
-    const now = performance.now();
-    if (!this.visible) { this.el.textContent = d.playerName ?? ''; this.el.hidden = !d.playerName; return; }
-    this.el.hidden = false;
+  /** Collect diagnostics only for a visible refresh; the nickname remains responsive between samples. */
+  update(now: number, playerName: string | undefined, read: () => HudData) {
+    if (!this.visible) {
+      const text = playerName ?? '';
+      if (this.el.textContent !== text) this.el.textContent = text;
+      if (this.el.hidden !== !playerName) this.el.hidden = !playerName;
+      return;
+    }
+    if (this.el.hidden) this.el.hidden = false;
     if (now - this.lastUpdate < 250) return;
     this.lastUpdate = now;
+    const d = read();
     const perf = d.perf.snapshot();
     this.el.textContent =
       `${d.backend}  ${d.fps.toFixed(0)} fps  ${d.frameMs.toFixed(2)} ms/frame  phys ${d.physMs.toFixed(2)} ms\n` +
