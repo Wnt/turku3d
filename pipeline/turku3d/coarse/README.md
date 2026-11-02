@@ -532,8 +532,8 @@ Private reference comparisons and their calibration caveats are described in the
 all reference renders and pairs stay outside the repository.
 ## Bridge appearance and profile audit
 
-Permanent crossing profiles supplement incomplete OSM material tags without changing
-the mapped outline or surveyed road heights. Auransilta retains its mapped beam
+Permanent crossing profiles supplement incomplete OSM material and structure tags
+without changing the mapped outline or surveyed road heights. Auransilta retains its mapped beam
 structure: steel deck/floor beams, stone supports and light painted railings, as
 shown in [Yle's bridge photographs](https://yle.fi/a/3-7357934). Tuomiokirkkosilta
 uses stone abutments and exposed concrete arch fascia along the outer deck edges;
@@ -542,7 +542,30 @@ describes the single opening and historical widening. Its internal historic stee
 structure is not replaced with invented river piers. Detail dimensions remain
 estimates; the city-lidar deck and OSM widths remain authoritative. Profiles use
 permanent Wikidata crossing identities and apply in every tile and draft pass.
-Other bridges retain their existing profiles. Photos and private references stay local.
+The reusable `bridge_kit` entrance module adds tapered stone shafts, stepped plinths,
+bronze collars and relief to crossings with an entrance profile. The full mapped
+longitudinal outline edges place them at any orientation,
+including skew abutments; each complete plinth must fit inside the deck footprint, and
+buildings suppress conflicting ornaments. Lower quay passages constrain the
+supports below the deck without removing pylons above it. Auransilta uses
+a 4.8 m estimated entrance height and a light multi-band railing grid, based on
+[MKFI's public-domain 2011 photograph](https://commons.wikimedia.org/wiki/File:Auransilta_Turku.JPG)
+and local street-level references. Granite and bronze textures are procedural; no
+reference image pixels ship. The exact same closed component meshes enter collision.
+`bridge_access` includes the kit in the bridge stage content hash; unrelated stages
+remain reusable. Photos and private references stay local.
+
+The generic cable-stayed type adds paired tubular towers, a header above head
+clearance, double stay rods and rounded masonry cutwaters. It uses measured pier
+stations where available to fit the declared tower topology, with fifth-span estimates for missing returns. Each local section
+is intersected with the mapped deck outline, so towers follow curved/skew decks
+and stay outside the walking corridor. Footings respect lower passage exclusions. Separate rounded tower bases use a water-relative cap height; terrain sets only their embedment. Every straight stay is checked along its swept length against walking space and same-level obstacles. A bounded deterministic search retracts anchors before widened viewing platforms; unsupported layouts abstain. Small steel shoes connect rods to the deck.
+Teatterisilta selects this type because its OSM beam tag omits the towers and rods
+visible in [the Commons riverbank reference](https://commons.wikimedia.org/wiki/File:Teatterisilta_Turku.JPG).
+Its 5.6 m towers and 32 cm deck thickness are photo estimates; the lidar deck
+profile and two measured support stations remain authoritative. Rounded footings
+and tubular metalwork have continuous perimeter UVs and planar cap UVs; their generated geometry is also
+used for collision. Transverse framing uses the same local outline sections and omits beams over protected lower passages. No bridge-specific coordinates or image pixels are embedded.
 
 Bridge approaches join the same globally aligned ground triangles as the rendered and
 collision terrain. Nearest lidar keys can be metres above the bank TIN and must not
@@ -552,10 +575,10 @@ Tuomiokirkkosilta's outer concrete arches have open spandrels and vertical posts
 Browser-free crossing regression (production car, Rapier 0.21, hash-verified OCI COLs):
 
 ```sh
-node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings"
+node tools/validator/bin/bridge-crossing.mjs "$TURKU3D_WORK/reports/bridge-crossings"
 # Repeat against the frozen downloaded payloads, without network/build waits:
-node tools/validator/src/bridge-crossing.ts "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
-node --test tools/validator/test/bridge-crossing.test.ts
+node tools/validator/bin/bridge-crossing.mjs "$TURKU3D_WORK/reports/bridge-crossings" Auransilta,Tuomiokirkkosilta --cached
+node --experimental-transform-types --import ./tools/validator/src/ts-runtime.mjs --test tools/validator/test/bridge-crossing.test.ts
 ```
 
 The live command holds anonymous tile demand and requires full/current manifests;

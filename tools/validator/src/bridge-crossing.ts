@@ -78,6 +78,7 @@ async function main() {
   const selected = bridges.filter(b => !names || names.split(',').includes(b.name));
   if (!selected.length) throw new Error(`unknown bridge selection: ${names}`);
   const cached = process.argv.includes('--cached');
+  const endpoint = (process.env.TURKU3D_COARSE_URL ?? 'https://turku.lab.madekivi.fi/coarse/').replace(/\/?$/, '/');
   await R.init(); await MeshoptDecoder.ready;
   const results = [];
   // Hold anonymous player-style demand while downloading; a queued tile must
@@ -86,7 +87,7 @@ async function main() {
   const client = `bridge-check-${Date.now()}`;
   const demand = async (tiles: string[]) => {
     const query = new URLSearchParams({ client, tiles: tiles.join(','), urgent: tiles.join(',') });
-    await fetch(`https://turku.lab.madekivi.fi/coarse/demand?${query}`, { signal: AbortSignal.timeout(5000) });
+    await fetch(`${endpoint}demand?${query}`, { signal: AbortSignal.timeout(5000) });
   };
   if (!cached) await demand(wanted);
   const heartbeat = cached ? undefined : setInterval(() => { void demand(wanted).catch(() => {}); }, 3000).unref();
@@ -97,7 +98,7 @@ async function main() {
       const manifests = [];
       for (const tile of tiles) {
         const dir = path.join(root, tile); await fs.mkdir(dir, { recursive: true });
-        const base = `https://turku.lab.madekivi.fi/coarse/${tile}/`;
+        const base = `${endpoint}${tile}/`;
         let manifest;
         if (cached) manifest = JSON.parse(await fs.readFile(path.join(dir, 'manifest.json'), 'utf8'));
         else {
@@ -118,7 +119,7 @@ async function main() {
           let bytes;
           try { bytes = await fs.readFile(file); } catch {
             if (cached) throw new Error(`missing cached payload: ${file}`);
-            const reply = await fetch(base + entry.url, { signal: AbortSignal.timeout(10000) });
+            const reply = await fetch(new URL(entry.url, base), { signal: AbortSignal.timeout(10000) });
             if (!reply.ok) throw new Error(`${reply.status}: ${entry.url}`);
             bytes = Buffer.from(await reply.arrayBuffer()); await fs.writeFile(file, bytes);
           }

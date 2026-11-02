@@ -11,6 +11,7 @@ import { curbResponse, isCurbMaterial } from './curbStrike.ts';
 import { handling } from './handling.ts';
 import { rotate } from './math.ts';
 import { longitudinalSlip } from './tyreSlip.ts';
+import { dot, tyreRollImpulse } from './weightTransfer.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
@@ -123,6 +124,32 @@ export class Vehicle {
       this.longitudinal[i] = vx * forward.x + vy * forward.y + vz * forward.z;
     }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
+    if (t.rollTransfer) {
+      const up = rotate({ x: 0, y: 1, z: 0 }, q), com = b.worldCom();
+      let contacts = 0;
+      for (let i = 0; i < t.wheels.length; i++) if (v.wheelIsInContact(i)) contacts++;
+      const torque = { x: 0, y: 0, z: 0 };
+      for (let i = 0; i < t.wheels.length; i++) {
+        if (!v.wheelIsInContact(i)) continue;
+        const normal = v.wheelContactNormal(i), point = v.wheelContactPoint(i);
+        if (!normal || !point) continue;
+        const steer = v.wheelSteering(i) ?? 0;
+        const axle = rotate({ x: Math.sin(steer), y: 0, z: Math.cos(steer) }, q);
+        const alongNormal = dot(axle, normal);
+        axle.x -= normal.x * alongNormal; axle.y -= normal.y * alongNormal; axle.z -= normal.z * alongNormal;
+        const length = Math.hypot(axle.x, axle.y, axle.z);
+        if (length < 0.001) continue;
+        axle.x /= length; axle.y /= length; axle.z /= length;
+        const height = dot({ x: com.x - point.x, y: com.y - point.y, z: com.z - point.z }, up);
+        // Only Rapier's side impulse loses the contact lever arm. Engine, brake
+        // and suspension impulses already act at their full contact point.
+        const roll = tyreRollImpulse(b.mass(), (v.wheelSideImpulse(i) ?? 0) / b.mass(), height, dt, t.rollTransfer, contacts, up.y);
+        torque.x += (up.y * axle.z - up.z * axle.y) * roll;
+        torque.y += (up.z * axle.x - up.x * axle.z) * roll;
+        torque.z += (up.x * axle.y - up.y * axle.x) * roll;
+      }
+      b.applyTorqueImpulse(torque, true);
+    }
     for (let i = 0; i < t.wheels.length; i++) {
       this.longitudinal[i] = longitudinalSlip(this.longitudinal[i],
         Math.abs(h.engine * this.drive[i]) * dt + (v.wheelBrake(i) ?? 0),

@@ -28,7 +28,7 @@ function create() {
   const netMap=texture((c,w,h)=>{c.clearRect(0,0,w,h);c.fillStyle='#242a28';for(let x=0;x<w;x+=32)c.fillRect(x,0,5,h);for(let y=0;y<h;y+=32)c.fillRect(0,y,w,5);},256,256);
   const net=new T.MeshStandardMaterial({name:'window-safety-webbing',color:0x777c74,map:netMap,alphaTest:.5,roughness:.95,side:T.DoubleSide});
   const make=(name:string,color:number,roughness:number,metalness=0)=>{const m=new T.MeshStandardMaterial({color,roughness,metalness});m.name=name;return m;};
-  const paint=make('ceramic-teal',0x07545a,.31,0);paint.side=T.DoubleSide;
+  const paint=new T.MeshPhysicalMaterial({name:'ceramic-teal',color:0x07545a,roughness:.32,metalness:0,clearcoat:.8,clearcoatRoughness:.24,side:T.DoubleSide});
   const frame=make('powdercoat-charcoal',0x17252a,.48,0);
   const alloy=make('machined-alloy',0xb3bcb9,.28,.86);
   const orange=make('safety-orange',0xe55717,.34,0);

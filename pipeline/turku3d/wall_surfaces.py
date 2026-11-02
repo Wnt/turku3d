@@ -13,21 +13,30 @@ def trapezoids(geometry):
     for polygon in shapely.get_parts(geometry):
         if polygon.geom_type != "Polygon" or polygon.area < 1e-9:
             continue
-        cuts = sorted(set(shapely.get_coordinates(polygon)[:, 0]))
+        # Between successive vertex x coordinates every boundary is linear.
+        # Intersect those edges analytically: a far-away clipping rectangle can
+        # leak its height through GEOS overlay on almost-collinear remnants.
+        rings = [np.asarray(r.coords) for r in [polygon.exterior, *polygon.interiors]]
+        starts = np.concatenate([r[:-1] for r in rings])
+        ends = np.concatenate([r[1:] for r in rings])
+        cuts = np.unique(starts[:, 0])
         for left, right in zip(cuts, cuts[1:], strict=False):
             if right - left < 1e-8:
                 continue
-            slab = polygon.intersection(shapely.box(left, -10000, right, 10000))
-            for part in shapely.get_parts(slab):
-                if part.geom_type != "Polygon" or part.area < 1e-9:
+            middle = left + (right - left) * .5
+            crossing = ((np.minimum(starts[:, 0], ends[:, 0]) < middle)
+                        & (np.maximum(starts[:, 0], ends[:, 0]) > middle))
+            a, b = starts[crossing], ends[crossing]
+            if not len(a):
+                continue
+            t = (np.array([left, middle, right])[None, :] - a[:, :1]) / (b[:, :1] - a[:, :1])
+            y = a[:, 1:] + np.clip(t, 0, 1) * (b[:, 1:] - a[:, 1:])
+            y = y[np.argsort(y[:, 1], kind="stable")]
+            for low, high in zip(y[::2], y[1::2], strict=True):
+                if (right - left) * (high[1] - low[1]) < 1e-9:
                     continue
-                xy = np.asarray(part.exterior.coords)
-                lo = xy[np.isclose(xy[:, 0], left, atol=1e-8, rtol=0), 1]
-                hi = xy[np.isclose(xy[:, 0], right, atol=1e-8, rtol=0), 1]
-                if len(lo) and len(hi):
-                    yield np.array(
-                        [[left, lo.min()], [right, hi.min()], [right, hi.max()], [left, lo.max()]]
-                    )
+                yield np.array([[left, low[0]], [right, low[2]],
+                                [right, high[2]], [left, high[0]]])
 
 
 def paint_partition(layers, origin, direction):

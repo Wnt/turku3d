@@ -55,7 +55,7 @@ export class Atmosphere {
       const field = texture(this.map, uv).toVar();
       const detail = texture(this.map, plane.mul(0.18 * 2.7).add(this.detailWind));
       const shape = field.r.mul(0.72).add(detail.r.mul(0.28)).toVar();
-      const threshold = float(0.79).sub(this.coverage.mul(0.55));
+      const threshold = float(0.834).sub(this.coverage.mul(0.55));
       const body = smoothstep(threshold, threshold.add(0.12), shape).toVar();
       const horizonFade = smoothstep(0.005, 0.13, view.y);
       const alpha = body.mul(this.density).mul(horizonFade).clamp(0, 0.96).toVar();
@@ -68,10 +68,11 @@ export class Atmosphere {
       const high = texture(this.map, plane.mul(0.12).add(this.highWind));
       const cirrus = smoothstep(0.46, 0.75, high.g).mul(high.r).mul(this.cirrusStrength).mul(smoothstep(0.015, 0.12, view.y));
       const fairSky = mix(mix(base, this.cloudLit, cirrus), aerial, alpha);
-      // A lower, continuous deck fills the gaps as weather closes in. Reuse the broad density sample;
-      // flatten its variation toward the horizon so distant fog can meet a stable grey band.
-      const sheet = mix(this.cloudShade, this.cloudLit, mix(field.r.mul(0.12).add(0.08), 0.14, horizonWeight))
-        .add(night.mul(0.6));
+      // Broad low cloud banks and slower upper density move independently, using the existing samples.
+      // The horizon below is joined to effective weather fog, keeping strong variation in the ceiling.
+      const ceilingBody = smoothstep(0.25, 0.72, shape.mul(0.8).add(high.r.mul(0.2)));
+      const banks = mix(this.cloudShade.mul(0.7), this.cloudLit.mul(0.55), ceilingBody);
+      const sheet = banks.add(night.mul(0.6));
       const grey = dot(sheet, vec3(0.2126, 0.7152, 0.0722));
       const sheetSky = mix(sheet, vec3(grey), this.daylight.mul(0.75))
         .mul(mix(1, 0.72, smoothstep(0.85, 1, this.overcast)));

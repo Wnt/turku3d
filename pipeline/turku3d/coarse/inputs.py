@@ -21,6 +21,7 @@ import json
 import os
 import pickle
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -52,7 +53,7 @@ DEPENDENCIES = {
     ),
     "wfs": (
         "roofs.py",
-        "ground_finishes.py",
+        "street_materials.py",
         "../buildings/source_surfaces.py",
         "../ground/materials.py",
         "../spatial.py",
@@ -347,7 +348,7 @@ def prepare_wfs(
 ) -> dict:
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
-    from .ground_finishes import street_finish
+    from .street_materials import street_finish
 
     shells = buildings(bldg, tile, context=True) if bldg else []
     if shells and roof_paths:
@@ -452,6 +453,17 @@ def _key(paths: list[Path], dataset: str = "") -> str:
 _ABSENT = object()
 
 
+@contextmanager
+def _input_lock(path):
+    """Different tile versions share preparation only when dataset content keys match."""
+    import fcntl
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def _load(path: Path, key: str):
     """The cached value, or _ABSENT when there is none for this key."""
     try:
@@ -524,10 +536,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
-        # The quick preview does not wait for dense survey fitting; full tiles
-        # refine both the visible terrain and collision from the same profile.
-        "street_profiles": ([wfs[1][1], *street_survey.source_paths(tile)]
-                            if not first_pass and wfs[1][1] else []),
+        # Profiles change physical terrain, so both passes share the same fit.
+        "street_profiles": [wfs[1][1], *street_survey.source_paths(tile)] if wfs[1][1] else [],
         "appearance": [
             osm,
             wfs[0][1],
@@ -687,8 +697,12 @@ def prepare(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> d
             out[dataset] = "cached"
             continue
         t = time.perf_counter()
-        _save(path, key, _prepare_one(tile, dataset, paths))
-        out[dataset] = round(time.perf_counter() - t, 3)
+        with _input_lock(path):
+            if _load(path, key) is _ABSENT:
+                _save(path, key, _prepare_one(tile, dataset, paths))
+                out[dataset] = round(time.perf_counter() - t, 3)
+            else:
+                out[dataset] = "cached"
     return out
 
 
@@ -724,7 +738,6 @@ def gather(
             "surfaces",
             "markings",
             "kerbs",
-            "street_profiles",
             "appearance",
             "register",
             "ortho",
@@ -753,25 +766,27 @@ def gather(
         t = time.perf_counter()
         cache_dataset = dataset + "-first" if first_pass and dataset == "wfs" else dataset
         path, key = _entry(root, tile, cache_dataset, paths)
-        value = _ABSENT
-        if first_pass and dataset == "wfs":
-            full_path, full_key = _entry(root, tile, dataset, full_paths)
-            value = _load(full_path, full_key)
-        if value is _ABSENT:
-            value = _load(path, key)
-        cached = value is not _ABSENT
-        if value is _ABSENT:
-            if dataset == "wfs" and not first_pass:
-                base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
-                value = _load(base_path, base_key)
-                if value is _ABSENT:
-                    value = _prepare_one(tile, dataset, paths[:3])
-                    _save(base_path, base_key, value)
-                if (value["buildings"] or value.get("wall_context")) and paths[3:]:
-                    roofs.refine(value["buildings"] + value.get("wall_context", []), paths[3:])
-            else:
-                value = _prepare_one(tile, dataset, paths)
-            _save(path, key, value)
+        with _input_lock(path):
+            value = _ABSENT
+            if first_pass and dataset == "wfs":
+                full_path, full_key = _entry(root, tile, dataset, full_paths)
+                value = _load(full_path, full_key)
+            if value is _ABSENT:
+                value = _load(path, key)
+            cached = value is not _ABSENT
+            if value is _ABSENT:
+                if dataset == "wfs" and not first_pass:
+                    base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
+                    with _input_lock(base_path):
+                        value = _load(base_path, base_key)
+                        if value is _ABSENT:
+                            value = _prepare_one(tile, dataset, paths[:3])
+                            _save(base_path, base_key, value)
+                    if (value["buildings"] or value.get("wall_context")) and paths[3:]:
+                        roofs.refine(value["buildings"] + value.get("wall_context", []), paths[3:])
+                else:
+                    value = _prepare_one(tile, dataset, paths)
+                _save(path, key, value)
         values[dataset] = value
         provenance[dataset] = [str(p) if p else None for p in paths]
         seconds[dataset] = time.perf_counter() - t

@@ -30,6 +30,15 @@ def audit(base, tile):
         if descriptor and descriptor.get('bytes', len(data)) != len(data):
             raise RuntimeError(f'length mismatch: {url}')
         fetched[url] = len(data)
+        if descriptor and descriptor.get('format') == 'sorted-col-v1':
+            offset = 0
+            for cell, entry in sorted(manifest['collision'].items()):
+                body = data[offset:offset + entry['bytes']]
+                if len(body) != entry['bytes'] or hashlib.sha256(body).hexdigest() != entry['sha256']:
+                    raise RuntimeError(f'collision bundle cell mismatch: {cell}')
+                offset += len(body)
+            if offset != len(data):
+                raise RuntimeError('collision bundle has trailing bytes')
         if data[:4] == b'glTF':
             size, kind = struct.unpack_from('<II', data, 12)
             if kind != 0x4e4f534a:
@@ -51,7 +60,9 @@ def audit(base, tile):
                 visit(child)
     visit(manifest)
     return dict(tile=tile, revision=manifest.get('revision'), generation=manifest.get('generation'),
-                files=len(fetched), bytes=sum(fetched.values()), pass_kind=manifest.get('pass_kind'))
+                files=len(fetched), bytes=sum(fetched.values()), pass_kind=manifest.get('pass_kind'),
+                stale=manifest.get('stale'), requested_revision=manifest.get('requested_revision'),
+                source_kind=manifest.get('source_kind'))
 
 
 if __name__ == '__main__':
