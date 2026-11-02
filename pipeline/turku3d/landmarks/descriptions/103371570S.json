@@ -29,7 +29,8 @@
     "Brick bond is provisionally monk; repairs and mixed masonry make a consistent bond uncertain.",
     "Colours estimate neutral material albedo rather than shaded pixel values. Material-colour confidence is approximately 0.7; masonry unit sizes and seam spacing have lower confidence.",
     "Tower minimum_height_m and maximum_width_m are approximate classification thresholds, not measurements of total tower height.",
-    "LOD2 Building_1156587 calibration: base 13.538m N2000, masonry tower top 64.51-64.56m, copper belfry top 78.26m, finial 102.528m. Heights in program are metres above base. Clock and bands scaled to masonry stage."
+    "LOD2 Building_1156587 calibration: base 13.538m N2000, masonry tower top 64.51-64.56m, copper belfry top 78.26m, finial 102.528m. Heights in program are metres above base. Clock and bands scaled to masonry stage.",
+    "West entrance portal estimated 2.1m wide by4.3m tall above terrace; retain separate from nave windows."
   ],
   "brick": {
     "colour": [
@@ -145,5 +146,11 @@
   "reference_hashes": [
     "5b37c3f843a2551deeeabee0b0516f5d3d7465b3c77ff190da36ece52da425ab",
     "99bf5e0cfe791f489e101e41398a40eb89d1f5fad89430d074c218cf122280c1"
-  ]
+  ],
+  "entrance": {
+    "width_m": 2.1,
+    "height_m": 4.3,
+    "sill_m": 0.35,
+    "facade": "west"
+  }
 }
