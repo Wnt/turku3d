@@ -154,12 +154,15 @@ def main():
 
     def score(shot):
         pose = pose_id(shot)
+        captured_hash = image_hash(iteration / shot['file'])
         try:
             result = judge.score(str(iteration / shot['file']), references(refs, pose), pose=pose + '@' + shot['time'])
+            if image_hash(iteration / shot['file']) != captured_hash:
+                raise RuntimeError('Capture changed during judging; retry against the new image')
             return {'pose': pose, 'time': shot['time'], 't': datetime.now(timezone.utc).isoformat(),
-                    'image_hash': image_hash(iteration / shot['file']), 'result': result}
+                    'image_hash': captured_hash, 'result': result}
         except Exception as exc:
-            return {'pose': pose, 'time': shot['time'], 'image_hash': image_hash(iteration / shot['file']),
+            return {'pose': pose, 'time': shot['time'], 'image_hash': captured_hash,
                     'error': str(exc)}
 
     last_report = None
