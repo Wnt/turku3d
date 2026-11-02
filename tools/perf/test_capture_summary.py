@@ -36,6 +36,11 @@ class CaptureSummaryTest(unittest.TestCase):
         self.assertEqual(own['leaf @ main.js:?:?'], 10)
         self.assertEqual(inclusive['root @ main.js:?:?'], 20)
 
+    def test_late_beacons_do_not_reverse_or_split_segments(self):
+        poses = [dict(t=t, paused=paused) for t, paused in [(40, False), (0, True), (50, False), (30, True), (20, False), (10, False)]]
+        self.assertEqual(summary.segments(poses, []), [(10, 20), (40, 50)])
+        self.assertEqual([p['t'] for p in poses], [40, 0, 50, 30, 20, 10])
+
     def test_precise_marks_split_between_pose_samples(self):
         poses = [dict(t=t, paused=False) for t in [10, 20, 30, 40]]
         marks = [dict(k='pause', t=25), dict(k='resume', t=26)]
