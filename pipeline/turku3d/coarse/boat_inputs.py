@@ -8,6 +8,7 @@ import shapely
 from turku3d import config as C
 
 from .garden_inputs import polygon
+from .water import LEVEL
 
 
 def prepare(tile, osm, buildings_path, water_path):
@@ -32,8 +33,6 @@ def prepare(tile, osm, buildings_path, water_path):
             tags.get("building") == "ship"
             or tags.get("man_made") in ("ship", "boat")
             or tags.get("ship") not in (None, "no")
-            or tags.get("boat") == "yes"
-            or tags.get("floating") == "yes"
             or tags.get("seamark:type") == "hulk"
         )
         if explicit and shape.intersects(window):
@@ -73,6 +72,12 @@ def prepare(tile, osm, buildings_path, water_path):
         ]
         if nearby:
             boat["tags"].update(min(nearby, key=lambda row: row[0])[1])
+        colour = boat["tags"].get("building:colour", "").strip().lower()
+        white_cabin = colour in ("white", "ivory", "cream", "#ffffff", "#fff")
+        boat["appearance"] = dict(
+            cabin_surface="white" if white_cabin else "wood",
+            source="osm:building:colour" if white_cabin else "fallback",
+        )
         parts = [
             (g.intersection(shape), plane)
             for b in boat["buildings"]
@@ -86,13 +91,14 @@ def prepare(tile, osm, buildings_path, water_path):
             and g.area >= 4
             and np.ptp(plane_height(p, np.asarray(g.exterior.coords)[:, :2])) <= 0.5
         ]
-        # City ship floors sit at the waterline, unlike the lowest large roof/deck.
-        boat["water"] = float(
+        # Survey floors bound plausible deck height, but are not an independent water datum.
+        surveyed_floor = float(
             np.clip(min((b.base for b in boat["buildings"]), default=0.2), -0.5, 0.5)
         )
+        boat["water"] = LEVEL
         boat["deck"] = float(
             np.clip(
-                min((h for _, h in major), default=1.5), boat["water"] + 0.9, boat["water"] + 1.9
+                min((h for _, h in major), default=1.5), surveyed_floor + 0.9, surveyed_floor + 1.9
             )
         )
         boat["cabins"] = [(g, h) for g, h in major if h >= boat["deck"] + 1.8]

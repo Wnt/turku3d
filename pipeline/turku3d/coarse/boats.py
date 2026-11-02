@@ -101,10 +101,10 @@ def rails(key, polygon, height, *, surface="white"):
     return parts
 
 
-def cabin(key, polygon, deck, top):
+def cabin(key, polygon, deck, top, surface="wood"):
     """Measured roof outline; compact boat windows and blue horizontal fascia."""
     polygon = shapely.orient_polygons(polygon)
-    parts = [extrusion(key, polygon, deck, top, "wood", "building")]
+    parts = [extrusion(key, polygon, deck, top, surface, "building")]
     levels = max(1, min(2, round((top - deck) / 2.4)))
     story = (top - deck) / levels
     coords = np.asarray(polygon.exterior.coords)
@@ -159,7 +159,7 @@ def cabin(key, polygon, deck, top):
                 )
     roof = Faces()
     horizontal(roof, polygon, top + 0.01)
-    parts.append(appearance(roof.mesh(key, "building"), "blue", collision=False))
+    parts.append(appearance(roof.mesh(key, "building"), "white" if surface == "white" else "blue", collision=False))
     parts.extend(rails(key, polygon, top))
     return parts
 
@@ -254,7 +254,7 @@ def produce(tile, records):
         for shape, top in boat["cabins"]:
             for polygon in shapely.get_parts(shape):
                 if polygon.geom_type == "Polygon":
-                    parts.extend(cabin(key, polygon, deck, top))
+                    parts.extend(cabin(key, polygon, deck, top, boat["appearance"]["cabin_surface"]))
         # Separate blue bulwark and slim white bars around the open working deck.
         edge = outline.buffer(-0.12)
         parts.extend(rails(key, edge, deck, surface="blue"))
@@ -302,6 +302,7 @@ def stats(tile, records, meshes):
                 masts=len(b["masts"]),
                 source_buildings=b["building_keys"],
                 source_facades=b["source_facades"],
+                appearance=b["appearance"],
             )
             for b in records
             if b["owner"] == tile.id

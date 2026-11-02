@@ -113,3 +113,48 @@ def test_water_covered_survey_building_gets_boat_while_land_house_stays_a_house(
     )
     assert len(records) == 1 and records[0]["id"] == "survey:survey_ship"
     assert boat_inputs.separate([ship, land], records) == [land]
+
+
+def test_floating_piers_and_boat_access_are_not_vessels(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    outline, _, _, _ = scene(tmp_path, monkeypatch)
+    path = tmp_path / "piers.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(osm_id="pier", tags=json.dumps({"man_made": "pier", "floating": "yes"}),
+             geometry_local=outline.wkb),
+        dict(osm_id="access", tags=json.dumps({"boat": "yes", "man_made": "pier"}),
+             geometry_local=outline.wkb),
+    ]), path)
+    assert boat_inputs.prepare(C.VisualTile(0, 0, 0), path, None, tmp_path / "water.parquet") == []
+
+
+def test_ship_waterline_shares_river_datum_without_moving_surveyed_deck(tmp_path, monkeypatch):
+    _, ship, _, _ = scene(tmp_path, monkeypatch)
+    ship.base = 0.37
+    records = boat_inputs.prepare(C.VisualTile(0, 0, 0), tmp_path / "osm.parquet",
+                                 tmp_path / "buildings.parquet", tmp_path / "water.parquet")
+    assert records[0]["water"] == 0
+    assert records[0]["deck"] == 1.5
+
+
+def test_mapped_white_ship_uses_painted_cabins_and_retains_colour_provenance(tmp_path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    scene(tmp_path, monkeypatch)
+    path = tmp_path / "osm.parquet"
+    rows = pq.read_table(path).to_pylist()
+    for row in rows:
+        tags = json.loads(row["tags"])
+        if tags.get("building") == "ship":
+            tags.update({"building:colour": "white", "building:material": "metal"})
+            row["tags"] = json.dumps(tags)
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    tile = C.VisualTile(0, 0, 0)
+    records = boat_inputs.prepare(tile, path, tmp_path / "buildings.parquet", tmp_path / "water.parquet")
+    assert records[0]["appearance"] == {"cabin_surface": "white", "source": "osm:building:colour"}
+    meshes = boats.produce(tile, records)
+    cabin_shells = [m for m in meshes if m.material == "building" and m.metadata.get("collision", True)]
+    assert cabin_shells and all(m.metadata["surface"] == "white" for m in cabin_shells)
