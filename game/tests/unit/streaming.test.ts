@@ -328,3 +328,37 @@ test('completed worker loads refill the bounded four slots on the next frame', a
     await new Promise(resolve => setTimeout(resolve, 0));
   } finally { clock.mockRestore(); }
 });
+
+test('collision replacements share four slots and drain without waiting for another update', async () => {
+  const { manifest, physics } = fakes(6, 1);
+  const s = new CollisionStreamer(manifest, physics as never, 1000);
+  const entries = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision;
+  const releases: (() => void)[] = [];
+  let active = 0, peak = 0;
+  physics.loadTile.mockImplementation(async id => {
+    peak = Math.max(peak, ++active);
+    await new Promise<void>(resolve => releases.push(resolve));
+    active--; physics.loaded.set(id, {});
+  });
+  for (const [id, entry] of Object.entries(entries)) {
+    physics.loaded.set(id, {});
+    s.retain(id, entry, new ArrayBuffer(4));
+  }
+  // An ordinary load is already using one slot when the other five cells upgrade.
+  physics.loaded.delete('c_0_0');
+  s.update(20, 20, true);
+  s.refresh(Object.keys(entries));
+  expect(physics.loadTile).toHaveBeenCalledTimes(4);
+  expect(s.pending).toBe(6);
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  releases.shift()!(); await tick();
+  expect(physics.loadTile).toHaveBeenCalledTimes(5);
+  expect(active).toBe(4);
+  releases.shift()!(); await tick();
+  expect(physics.loadTile).toHaveBeenCalledTimes(6);
+  while (releases.length) { releases.shift()!(); await tick(); }
+  expect(peak).toBe(4);
+  expect(s.pending).toBe(0);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(physics.unloadTile).not.toHaveBeenCalled();
+});
