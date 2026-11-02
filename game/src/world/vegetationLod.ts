@@ -224,7 +224,6 @@ export class VegetationLod {
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16);
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
       const objectIds: unknown[] = [];
-      matrices.setUsage(THREE.DynamicDrawUsage); colors.setUsage(THREE.DynamicDrawUsage);
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
       const batch = (part: NaturePart, shadowProxy = false) => {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
@@ -326,7 +325,10 @@ export class VegetationLod {
               previous.push(bucket.index, start, count);
             }
             for (const part of parts) part.count = offset;
-            first.instanceMatrix.needsUpdate = true; first.instanceColor!.needsUpdate = true;
+            for (const [attribute, width] of [[first.instanceMatrix, 16], [first.instanceColor!, 3]] as const) {
+              attribute.clearUpdateRanges(); attribute.addUpdateRange(0, offset * width);
+              attribute.needsUpdate = true;
+            }
           }
           for (const part of parts) part.visible = part.count > 0;
         }
