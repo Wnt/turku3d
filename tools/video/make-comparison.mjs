@@ -4,7 +4,9 @@ import fs from 'node:fs';import path from 'node:path';import os from 'node:os';
 import {spawn,spawnSync,execFileSync} from 'node:child_process';import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';import {allTiles} from './paths.mjs';
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..'),root=path.join(os.homedir(),'turku3d');
-const args=process.argv.slice(2),opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d;
+const args=process.argv.slice(2);
+if(args.includes('--help')){console.log('Usage: node tools/video/make-comparison.mjs [--left URL] [--right URL] [--shots FILE] [--out DIR] [--preview | --skip-preview]');process.exit(0);}
+const opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d;
 const out=path.resolve(opt('--out',path.join(root,'video',new Date().toISOString().slice(0,10))));fs.mkdirSync(out,{recursive:true});
 const shots=path.resolve(opt('--shots',path.join(repo,'tools/video/comparison-shots.json'))),config=JSON.parse(fs.readFileSync(shots));
 const integration=path.join(root,'wt/loop-integration/repo'),state=path.join(root,'loops/video'),owned=[];
@@ -12,7 +14,7 @@ const git=(cwd,...a)=>execFileSync('git',a,{cwd,encoding:'utf8'}).trim();
 const ref=git(integration,'rev-parse','HEAD'),alias=`video-${ref.slice(0,8)}`,production=git(repo,'rev-parse','main');
 const serviceConfig=path.join(root,'loops/integrator/tile-service.json'),service=JSON.parse(fs.readFileSync(serviceConfig));
 let left=opt('--left','http://127.0.0.1:5960/'),right=opt('--right','http://localhost:5220/');
-if(left==='https://wnt.github.io/turku-game/')left='http://127.0.0.1:5960/';
+if(new URL(left).hostname==='wnt.github.io'&&/^\/turku-game\/?$/.test(new URL(left).pathname))left='http://127.0.0.1:5960/';
 const log=s=>console.log(new Date().toISOString(),s);
 async function run(command,argv,cwd=repo){const p=spawn(command,argv,{cwd,stdio:'inherit'});const [code]=await once(p,'close');if(code!==0)throw Error(`${command} exited ${code}`);}
 async function up(url){try{return(await fetch(url,{signal:AbortSignal.timeout(1000)})).ok;}catch{return false;}}
@@ -52,7 +54,7 @@ try{
  const capture=[path.join(repo,'tools/video/comparison-capture.mjs'),'--left',left,'--right',right,'--shots',shots,'--out',out,'--revision',ref];
  if(!args.includes('--skip-preview'))await run('node',[...capture,'--preview','--right-tiles','http://127.0.0.1:5966']);
  // The real resident window can exceed the minimum safety ring. Rebuild every observed detailed tile too.
- const preview=path.join(out,'preview');if(fs.existsSync(preview))for(const name of fs.readdirSync(preview).filter(n=>n.endsWith('-right.json'))){const r=JSON.parse(fs.readFileSync(path.join(preview,name)));tiles.push(...r.resident.map(r=>r.id));}
+ const preview=path.join(out,'preview');if(fs.existsSync(preview))for(const name of fs.readdirSync(preview).filter(n=>n.endsWith('-right.json'))){const r=JSON.parse(fs.readFileSync(path.join(preview,name)));tiles.push(...r.resident.filter(r=>!r.preview).map(r=>r.id));}
  tiles=[...new Set(tiles)].sort();fs.writeFileSync(path.join(out,'tiles.json'),JSON.stringify(tiles,null,2));await requestTiles(tiles);
  if(args.includes('--preview')){await run('bash',['pipeline/env/run.sh','python',path.join(repo,'tools/video/comparison-compose.py'),'--out',out,'--shots',shots,'--preview']);}
  else{

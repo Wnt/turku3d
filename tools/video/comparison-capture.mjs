@@ -48,14 +48,14 @@ async function setup(side,shot){
  await p.evaluate(()=>{
   const c=window.__videoCoarse;
   window.__video={nativeNow:performance.now.bind(performance),baseNow:performance.now(),baseDate:Date.UTC(2026,8,8,12),time:0,locked:false,update:c.update.bind(c),actor:null};
-  c.update=(x,z)=>{if(!window.__video.locked)return window.__video.update(x,z,{x:0,z:0});};
+  c.update=(x,z)=>{if(!window.__video.locked)return window.__video.update(x,z,performance.now(),{x:0,z:0});};
   window.__render.beforeFrame=()=>false;
  });
 }
 async function settle(side,shot,u){
  const p=pages[side];
  await p.evaluate(({pose,time,weather,coverage})=>{
-  const v=window.__video;v.locked=false;performance.now=v.nativeNow;
+  const v=window.__video;v.locked=false;performance.now=v.nativeNow;window.__game.clock.simSeconds=0;
   const c=window.__videoCoarse;
   if(c.preload)c.preload(coverage.map(id=>{const [,i,j]=id.split('_').map(Number);return{x:i*250+125,z:j*250+125};}),0);
   window.__render.beforeFrame=undefined;window.__render.setTime(time);
@@ -66,7 +66,7 @@ async function settle(side,shot,u){
   state=await p.evaluate(()=>({ready:window.__qaReady,error:window.__qaError,
    tiles:[...window.__videoCoarse.entries].map(([id,e])=>({id,pass:e.pass,hash:e.visualHash,model:!!e.model,preview:!!e.preview,state:e.state,stale:e.stale})),
    vegetation:window.__game.vegetation?.pending?.size??0,scenery:window.__game.scenery?.progress}));
-  if(state.error?.startsWith('timeout: tiles did not settle')){await p.evaluate(pose=>window.__qaMove(pose),poseAt(shot,u));}
+  if(state.error?.startsWith('timeout: tiles did not settle')){await p.evaluate(pose=>{window.__game.clock.simSeconds=0;window.__qaMove(pose);},poseAt(shot,u));}
   else if(state.error)throw Error(`${shot.id} side ${side}: ${state.error}`);
   const wanted=tilesForShot({...shot,from:Object.values(poseAt(shot,u)),to:Object.values(poseAt(shot,u))});
   const full=wanted.every(id=>state.tiles.some(e=>e.id===id&&e.model&&e.pass==='full'&&!e.preview&&(preview||side===0||!e.stale)));
