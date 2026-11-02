@@ -85,3 +85,21 @@ test('stable residency never traverses sources again; invalidation discovers add
   expect(added.layers.mask).toBe(1);
   expect(merged.parent).toBeNull();
 });
+
+test('survey nodes merge across kilometre boundaries while fine nodes keep smaller culling cells', () => {
+  const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();
+  const make = (level: number, x: number): [string, THREE.Object3D] => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
+    mesh.userData.layer = 'buildings'; mesh.position.x = x; scene.add(mesh);
+    return [`t${level}_${x / (250 * 2 ** level)}_0`, mesh];
+  };
+  const coarse = [make(2,0), make(2,1000), make(2,2000), make(2,3000)];
+  const fine = [make(0,0),make(0,1000)];
+  const batches = new SceneryBatches(scene); batches.sync([...coarse,...fine]);
+  expect(batches.pending).toBe(0);
+  expect(scene.children.filter(c=>c.name==='distant-city-cell')).toHaveLength(1);
+  for (const [,mesh] of coarse) expect(mesh.layers.mask).toBe(0);
+  for (const [,mesh] of fine) expect(mesh.layers.mask).toBe(1);
+  batches.clear();
+  for (const [,mesh] of coarse) expect(mesh.layers.mask).toBe(1);
+});

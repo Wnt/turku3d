@@ -10,9 +10,16 @@ export function groundHalfAngle(vertical: number, horizontal: number, fov: numbe
     : Math.atan2(tangent * aspect, horizontal - tangent * vertical) + .15;
 }
 
+const boundsCache = new Map<string, Readonly<{x: number; z: number; size: number; level: number}>>();
 export function sceneryBounds(id: string) {
+  const cached = boundsCache.get(id);
+  if (cached) return cached;
   const [level, i, j] = id.slice(1).split('_').map(Number), size = VISUAL_L0 * 2 ** level;
-  return { x: i * size, z: j * size, size, level };
+  const bounds = Object.freeze({ x: i * size, z: j * size, size, level });
+  // Bound travel-session memory while retaining the complete current city cut.
+  if (boundsCache.size >= 4096) boundsCache.clear();
+  boundsCache.set(id, bounds);
+  return bounds;
 }
 export function sceneryDistance(id: string, x: number, z: number) {
   const b = sceneryBounds(id);
