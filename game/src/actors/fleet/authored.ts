@@ -24,7 +24,7 @@ export function flattenFleetAsset(root: THREE.Object3D): THREE.BufferGeometry {
     const n = g.getAttribute('position').count, colors = new Float32Array(n * 3), surfaces = new Float32Array(n * 4);
     const paint = role === 'fleet_paint' && !front && !tail;
     const color = front ? new THREE.Color(0xdde6e8) : tail ? new THREE.Color(0xb91108) : paint ? new THREE.Color(1, 1, 1) : material.color;
-    const lamp = front ? 1 : tail ? .55 : role === 'fleet_indicator_left' ? 2 : role === 'fleet_indicator_right' ? 3 : 0;
+    const lamp = front ? 1 : tail ? 4 : role === 'fleet_indicator_left' ? 2 : role === 'fleet_indicator_right' ? 3 : 0;
     for (let i = 0; i < n; i++) {
       colors.set([color.r, color.g, color.b], i * 3);
       surfaces.set([Number(paint), material.roughness, material.metalness, lamp], i * 4);
