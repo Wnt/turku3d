@@ -2,10 +2,10 @@
   "about": "Turku3D's own look across the day, chosen by eye. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength. skyZenith/skyHorizon are added to the analytic sky below the horizon: the blue hour, then the city-lit night. mesopic sets how far dim light loses colour at full night.",
   "elevation": [-90, -12, -6, -3, -1, 2, 6, 12, 25, 90],
   "rows": {
-    "sunIntensity":         [0,         0,         0,         0,         0,         0.9,       2.0,       3.2,       3.2,       3.2],
+    "sunIntensity":         [0,         0,         0,         0,         0,         0.9,       2.0,       4.0,       4.0,       4.0],
     "sunColor":             ["#ff8a5c", "#ff8a5c", "#ff8a5c", "#ff8a5c", "#ff9a66", "#ffe6cf", "#ffe6cf", "#fff2e8", "#fffaf5", "#fffaf5"],
-    "environmentIntensity": [0.3,       0.3,       0.3,       0.28,      0.26,      0.18,      0.18,      0.12,      0.12,      0.12],
-    "hemisphereIntensity":  [1.0,       1.0,       0.9,       0.7,       0.6,       1.2,       1.2,       2.4,       2.4,       2.4],
+    "environmentIntensity": [0.3,       0.3,       0.3,       0.28,      0.26,      0.18,      0.18,      0.08,      0.08,      0.08],
+    "hemisphereIntensity":  [1.0,       1.0,       0.9,       0.7,       0.6,       1.2,       1.2,       1.0,       1.0,       1.0],
     "hemisphereSky":        ["#34446a", "#34446a", "#46507a", "#6a6490", "#8a7a9a", "#bbc8dc", "#bbc8dc", "#e4e7eb", "#e4e7eb", "#e4e7eb"],
     "hemisphereGround":     ["#4a4036", "#4a4036", "#5a4636", "#6e5640", "#7a6048", "#95877b", "#95877b", "#aaa39a", "#aaa39a", "#aaa39a"],
     "fogColor":             ["#0e1320", "#0e1320", "#2c3247", "#5d5a72", "#9a8a96", "#c9b8a8", "#bcc6d2", "#b8cde0", "#b8cde0", "#b8cde0"],
