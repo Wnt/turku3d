@@ -16,7 +16,7 @@ import { VegetationLod } from '../world/vegetationLod';
 import { hashId } from '../world/nature/species';
 
 const query = new URLSearchParams(location.search);
-const view = query.get('view') ?? 'asset';
+let view = query.get('view') ?? 'asset';
 const quality = parseQuality(query.get('quality'));
 const hour = (() => { const [h, m] = (query.get('time') ?? '13:00').split(':').map(Number); return h + (m || 0) / 60; })();
 if (query.get('shot') === '1') document.body.classList.add('shot');
@@ -114,8 +114,8 @@ function forest(lib: NatureLibrary, count: number) {
 }
 
 const assets = [...library.assets.values()];
-const subject = library.assets.get(query.get('asset') ?? 'tree_birch') ?? assets[0];
-const lodParam = query.get('lod') ?? 'auto';
+let subject = library.assets.get(query.get('asset') ?? 'tree_birch') ?? assets[0];
+let lodParam = query.get('lod') ?? 'auto';
 let vegetation: VegetationLod | null = null;
 const target = new THREE.Vector3();
 
@@ -143,7 +143,7 @@ function build() {
     camera.position.set(subject.radius * 1.6 + 4, Math.max(1.7, subject.height * 0.35), subject.radius * 2.4 + 6);
     meadow(26, 1800);
   }
-  const cam = query.get('cam')?.split(',').map(Number);
+  const cam = camOverride ?? query.get('cam')?.split(',').map(Number);
   if (cam?.length === 6) { camera.position.set(cam[0], cam[1], cam[2]); target.set(cam[3], cam[4], cam[5]); }
   controls.target.copy(target); controls.update();
   renderPanel();
@@ -218,4 +218,15 @@ function loop() {
 }
 renderer.info.autoReset = false;
 requestAnimationFrame(loop);
-Object.assign(window, { __viewer: { stats, library, camera, controls, clock, scene, setWire } });
+/** Scripted views for the bitmap gallery (scripts/nature/gallery.mjs): rebuild without a reload. */
+let camOverride: number[] | undefined;
+function show(options: { view: string; asset?: string; lod?: string; cam?: number[]; fov?: number }) {
+  view = options.view; lodParam = options.lod ?? 'auto';
+  if (options.asset) subject = library.asset(options.asset);
+  camOverride = options.cam;
+  camera.fov = options.fov ?? 55; camera.updateProjectionMatrix();
+  vegetation = null;
+  build();
+  return stats.frames;
+}
+Object.assign(window, { __viewer: { stats, library, camera, controls, clock, scene, setWire, show } });
