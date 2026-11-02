@@ -84,7 +84,7 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
   b.flip=false;
 }
 /** +Z forward, tyre bottoms at Y=0. No imported geometry, logos or photo textures. */
-export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeometry {
+export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, wheels = true): THREE.BufferGeometry {
   const b = new Builder(), L=m.length, W=m.width/2, H=m.height, belt=m.belt, r=m.wheel;
   b.glassBottom=belt; b.glassTop=H;
   const front=m.wheelbase/2, rear=-m.wheelbase/2, low=.25+(r-.315), arch=r+.055;
@@ -202,7 +202,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
     b.box(0,belt-.08,-L*.32,W*1.75,.12,L*.28,[.035,.04,.045],RUBBER);
     for(const s of [-1,1]) b.box(s*W*.91,belt+.065,-L*.32,.12,.20,L*.31,WHITE,PAINT);
   }
-  for(const s of [-1,1]) for(const z of [front,rear]) wheel(b,s*(W-.075),r,z,r,s,m.face,lod);
+  if(wheels) for(const s of [-1,1]) for(const z of [front,rear]) wheel(b,s*(W-.075),r,z,r,s,m.face,lod);
   // Body-specific lamp signatures, grille, bumpers and fictional Finnish-style plates.
   for(const end of [-1,1]) {
     b.flip=end<0;
@@ -282,4 +282,11 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
     b.box(-.12,1.28,z,.19,.045,.10,DARK,TRIM);
   }
   const geometry=b.geometry(); geometry.name=`${m.id}/lod${lod}`; return geometry;
+}
+
+/** Hub-centred wheel, +X axle; shared by front/rear wheels of one design and LOD. */
+export function buildFleetWheel(m: FleetModel, lod: 0|1|2, side: number): THREE.BufferGeometry {
+  const b = new Builder();
+  wheel(b, 0, 0, 0, m.wheel, side, m.face, lod);
+  return b.geometry();
 }
