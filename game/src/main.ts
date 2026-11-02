@@ -528,7 +528,7 @@ async function runPlay() {
   let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
   while (!placed) {
     if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
-    coarse.update(requested.x, requested.z);
+    coarse.update(requested.x, requested.z, undefined, undefined, false);
     streamer.update(requested.x, requested.z);
     const progress = coarse.progressAt(requested.x, requested.z);
     worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total } });
