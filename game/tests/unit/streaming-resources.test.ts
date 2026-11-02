@@ -1,3 +1,4 @@
+import './fleet-assets.fixture';
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
@@ -34,21 +35,20 @@ test.each([false, true])('r186 generates identical instanced vertex programs for
   expect(fixed[0]).not.toMatch(/array<mat4x4<f32>,\s*(3|17)>/);
 });
 
-test('updating parked inventory preserves existing draws and their instance buffers', async () => {
-  const asset = new THREE.Group(); asset.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
-  const load = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockResolvedValue({ scene: asset } as GLTF);
-  try {
-    const scene = new THREE.Scene(), visuals = new ParkedCarVisuals(scene), manifest = draftManifest('http://localhost/');
-    manifest.vehicle_models = { 'sedan/blue': { url: 'sedan.glb', sha256: 'same', bytes: 1 } };
-    const car = { object_id: 'one', model: 'sedan', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
-      width: 2, length: 4, height: 1.5, clear_front_m: 10, clear_rear_m: 10 };
-    manifest.vehicles = [car]; await visuals.load(manifest);
-    const draw = scene.children[0] as THREE.InstancedMesh, buffer = draw.instanceMatrix;
-    manifest.vehicles.push({ ...car, object_id: 'two' }); await visuals.load(manifest);
-    expect(scene.children).toEqual([draw]); expect(draw.instanceMatrix).toBe(buffer); expect(draw.count).toBe(2);
-    manifest.vehicles = []; await visuals.load(manifest);
-    expect(scene.children).toHaveLength(0); expect(load).toHaveBeenCalledOnce();
-  } finally { load.mockRestore(); }
+test('updating parked inventory preserves resident LOD draws and their buffers', async () => {
+  const scene = new THREE.Scene(), visuals = new ParkedCarVisuals(scene), manifest = draftManifest('http://localhost/');
+  const car = { object_id: 'one', model: 'fleet-estate-3', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
+    width: 2, length: 4, height: 1.5, clear_front_m: 10, clear_rear_m: 10 };
+  const rest = { restingPose: () => ({ pos: { x: 1, y: 2.75, z: 3 }, rot: { x: 0, y: 0, z: 0, w: 1 } }) };
+  manifest.vehicles = [car]; await visuals.load(manifest); visuals.update([], rest);
+  const draws = [...scene.children] as THREE.InstancedMesh[], buffers = draws.map(d => d.instanceMatrix);
+  expect(draws).toHaveLength(3);
+  manifest.vehicles.push({ ...car, object_id: 'two' }); await visuals.load(manifest); visuals.update([], rest);
+  expect(scene.children).toEqual(draws); draws.forEach((draw, i) => expect(draw.instanceMatrix).toBe(buffers[i]));
+  expect(visuals.snapshot().instances).toBe(2);
+  manifest.vehicles = []; await visuals.load(manifest); visuals.update([], rest);
+  expect(visuals.snapshot().instances).toBe(0);
+  visuals.dispose(); expect(scene.children).toHaveLength(0);
 });
 
 test('separate tile instances share exact PBR materials and release only after the final owner', () => {

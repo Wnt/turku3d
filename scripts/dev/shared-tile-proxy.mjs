@@ -22,24 +22,38 @@ export function createSharedTileProxy(configFile) {
       const version = pinned ? pinned[1] : config.version;
       target = new URL(`/v/${encodeURIComponent(version)}/coarse${suffix}${url.search}`, config.service);
     }
-    const upstream = http.request(target, { method: req.method, headers: { ...req.headers, host: target.host } }, reply => {
-      // Freeze all payload references to the manifest's revision, even if its alias advances.
-      const manifest = !scenery && /\/(?:manifest|collision)\.json$/.test(url.pathname) && reply.statusCode === 200;
-      if (manifest) {
-        const chunks = [];
-        reply.on('data', chunk => chunks.push(chunk));
-        reply.on('end', () => {
-          const body = Buffer.from(Buffer.concat(chunks).toString().replaceAll(/\/v\/([a-f0-9]{40,64})\/coarse\//g, '/coarse/_v/$1/'));
-          res.writeHead(reply.statusCode, { ...reply.headers, 'content-length': body.length });
-          res.end(body);
-        });
-      } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
-    });
-    upstream.on('error', error => {
-      if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: error.message }));
-    });
-    req.pipe(upstream);
+    const forward = (attempt = 0) => {
+      const retry = () => req.method === 'GET' && attempt < 3 && !res.headersSent && !res.destroyed;
+      const upstream = http.request(target, { method: req.method, headers: { ...req.headers, host: target.host } }, reply => {
+        if ([502, 503, 504].includes(reply.statusCode) && retry()) {
+          reply.resume();
+          setTimeout(() => forward(attempt + 1), 100 * (attempt + 1));
+          return;
+        }
+        // Freeze all payload references to the manifest's revision, even if its alias advances.
+        const manifest = !scenery && /\/(?:manifest|collision)\.json$/.test(url.pathname) && reply.statusCode === 200;
+        if (manifest) {
+          const chunks = [];
+          reply.on('data', chunk => chunks.push(chunk));
+          reply.on('end', () => {
+            const body = Buffer.from(Buffer.concat(chunks).toString().replaceAll(/\/v\/([a-f0-9]{40,64})\/coarse\//g, '/coarse/_v/$1/'));
+            res.writeHead(reply.statusCode, { ...reply.headers, 'content-length': body.length });
+            res.end(body);
+          });
+        } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
+      });
+      upstream.on('error', error => {
+        if (retry()) {
+          setTimeout(() => forward(attempt + 1), 100 * (attempt + 1));
+          return;
+        }
+        if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      });
+      if (req.method === 'GET') upstream.end();
+      else req.pipe(upstream);
+    };
+    forward();
   });
 }
 
