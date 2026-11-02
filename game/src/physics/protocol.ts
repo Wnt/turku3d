@@ -47,7 +47,7 @@ export type TrafficClock = { kind: 'cycle'; periodMs: number } | { kind: 'hour';
 export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[];
   density: number; clock: TrafficClock }
 /** A car the player touched or entered became the dynamic vehicle `id` (a ParkedVehicle-like record). */
-export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; model: string; color: string;
+export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; seed?: string; model: string; color: string;
   size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
 /** Camera for the population ring: position, unit horizontal forward and horizontal half field of view. */
 export interface TrafficView { x: number; z: number; fx: number; fz: number; halfFov: number }
@@ -91,7 +91,7 @@ export type ToWorker =
   /** Advance by dt seconds of real time (worker runs fixed 60 Hz substeps, max 5 per message). */
   | { type: 'step'; seq: number; dt: number; character: CharacterInput; vehicle: VehicleInput | null }
   | { type: 'cameraCast'; id: number; origin: V3; dir: V3; distance: number }
-  | { type: 'raycast'; id: number; origin: V3; dir: V3; maxToi: number; filter: RayFilter }
+  | { type: 'raycast'; id: number; rays: { origin: V3; dir: V3; maxToi: number; filter: RayFilter }[] }
   | { type: 'stats'; id: number };
 
 export type FromWorker =
@@ -104,7 +104,7 @@ export type FromWorker =
       /** Drawn ambient cars, physics/traffic.ts TRAFFIC_STRIDE numbers each; claim events until acknowledged. */
       traffic?: number[]; trafficEvents?: TrafficClaimEvent[]; trafficStats?: TrafficStats; trafficTime?: number }
   | { type: 'cameraCastResult'; id: number; distance: number }
-  | { type: 'raycastResult'; id: number; hit: RayHit | null }
+  | { type: 'raycastResult'; id: number; hits: (RayHit | null)[] }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }
   | { type: 'stepError'; seq: number; error: string }
   | { type: 'error'; error: string };

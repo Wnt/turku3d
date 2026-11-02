@@ -41,7 +41,12 @@ def main():
     if args.action == 'build':
         for tile in args.tiles:
             response = urlopen(f'{args.url}/v/{args.version}/coarse/{tile}/manifest.json')
-            print(json.dumps(dict(tile=tile, status=response.status, body=json.load(response))))
+            value = json.load(response)
+            print(json.dumps(dict(tile=tile, status=response.status,
+                state='refreshing' if value.get('stale') else value.get('state', value.get('pass_kind')),
+                requested_revision=value.get('requested_revision', value.get('revision')),
+                served_revision=value.get('revision'), generation=value.get('generation'),
+                source_kind=value.get('source_kind'))))
         return
     if args.source_version and json.load(urlopen(args.url + '/health')).get('api_version', 1) < 2:
         raise RuntimeError('farm must be upgraded before registering source overlays')
