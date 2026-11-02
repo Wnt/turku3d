@@ -26,6 +26,8 @@ export function bindProgram(doc, prim, extras, fallback, linear) {
     _KIT_OPENING: ['VEC4', p => p.opening],
     _KIT_BANDS: ['VEC4', p => p.bands],
     _KIT_DETAIL: ['VEC4', p => p.detail],
+    _KIT_GLAZING: ['VEC4', p => p.glazing ?? [0,0,0,-1]],
+    _KIT_FRAME: ['VEC3', p => linear(p.frame ?? p.trim)],
   };
   for (const [semantic, [type, values]] of Object.entries(definitions)) {
     const size = Number(type.slice(-1));

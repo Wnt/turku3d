@@ -3894,6 +3894,16 @@
             "value": "flat",
             "source": "assistant direct crop review",
             "support": 0.8
+          },
+          "transom_fraction": {
+            "value": 0,
+            "source": "same-wall crop review: upper ribbon panes have no horizontal transom",
+            "support": 0.8
+          },
+          "pane_split_fraction": {
+            "value": 0.7,
+            "source": "same-wall crop review: broad/narrow vertical pane pairs; approximate relative proportion",
+            "support": 0.7
           }
         },
         "base": {
@@ -35207,19 +35217,27 @@
             "support": 0.0
           },
           "frame_colour": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
+            "value": "#b8c1c4",
+            "source": "same-wall crop review: pale grey frame appearance, uncalibrated estimate",
+            "support": 0.65
           },
           "divisions": {
-            "value": null,
-            "source": "unmeasured",
-            "support": 0.0
+            "value": [
+              2,
+              1
+            ],
+            "source": "same-wall crop review: paired upper panes with one central vertical bar",
+            "support": 0.8
           },
           "recess_m": {
             "value": null,
             "source": "unmeasured",
             "support": 0.0
+          },
+          "transom_fraction": {
+            "value": 0,
+            "source": "same-wall crop review: no horizontal transom in upper window panes",
+            "support": 0.8
           }
         },
         "base": {

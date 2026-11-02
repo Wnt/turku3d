@@ -63,6 +63,20 @@ def test_use_material_and_period_rules():
     assert p["storeys"]["value"] is None
 
 
+
+def test_reviewed_pane_rhythm_does_not_stretch_onto_broad_shop_glazing():
+    wall = program()["walls"][0]
+    wall.update(measured_geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N],
+        p1=[C.ORIGIN_E + 23.3, C.ORIGIN_N], base_h=2), measured_size=[23.3, 4])
+    wall["windows"]["rectangles_m"] = [[1, 1, 2, 2], [8, 1, 10, 2]]
+    vertices = np.array([[0, 2, 0], [23.3, 2, 0], [23.3, 13.5, 0], [0, 13.5, 0]])
+    style = compile_wall(wall, 4)
+    style.update(glazing=[2, 1, 0, 0], glazing_size=[2, 2])
+    patches = [r[2] for r in wall_parts(vertices, wall, style)
+               if r[2]["detail"][3] > 0 and r[2]["detail"][3] % 4 == 1]
+    assert [p["glazing"] for p in patches] == [[2, 1, 0, 0], [0, 0, 0, -1]]
+    assert style["glazing"] == [2, 1, 0, 0]
+
 def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     wall = program()["walls"][0]
     wall.update(

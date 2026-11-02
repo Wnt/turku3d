@@ -380,7 +380,8 @@ def compile_wall(wall, floors):
     ground = min(height, max(0.1, ground))
     upper = (height - ground) / (floors - 1) if floors and floors > 1 else ground
     upper = max(0.1, upper)
-    ww, wh = field(wall["windows"], "size_m", [bay * 0.45, upper * 0.5])
+    window_size = field(wall["windows"], "size_m", [bay * 0.45, upper * 0.5])
+    ww, wh = window_size
     ww = min(0.90, max(0.15, ww / bay))
     sill = min(0.6, max(0.03, field(wall["windows"], "sill_fraction", 0.21)))
     wh = min(1 - sill - 0.04, max(0.15, wh / upper))
@@ -397,6 +398,19 @@ def compile_wall(wall, floors):
         return float(x) if isinstance(x, (int, float)) else default
 
     trim_material = normalize_material(field(wall["trim"], "material", material))
+    from turku3d.facade_inference import supported
+
+    windows = wall["windows"]
+    divisions = field(windows, "divisions") if supported(windows.get("divisions")) else None
+    columns, rows = (divisions if isinstance(divisions, list) and len(divisions) == 2
+                     else [divisions, None])
+    def pane_count(value):
+        return min(32, max(0, round(value))) if isinstance(value, (int, float)) else 0
+
+    def pane_fraction(name, default):
+        item = windows.get(name)
+        return min(.95, max(0, item["value"])) if supported(item) and isinstance(item["value"], (int, float)) else default
+
     return dict(
         module=module,
         trim_module=42 + MATERIALS.index(trim_material if trim_material in MATERIALS else material),
@@ -407,6 +421,11 @@ def compile_wall(wall, floors):
         wall=field(wall["wall"], "colour", "#c5c8bd"),
         base=field(wall["base"], "colour", field(wall["wall"], "colour", "#c5c8bd")),
         trim=field(wall["trim"], "colour", "#deded3"),
+        frame=field(windows, "frame_colour") if supported(windows.get("frame_colour"))
+        else field(wall["trim"], "colour", "#deded3"),
+        glazing=[pane_count(columns), pane_count(rows),
+                 pane_fraction("pane_split_fraction", 0), pane_fraction("transom_fraction", -1)],
+        glazing_size=window_size,
         plinth=False,
         size=[width, wall["height_m"]],
         origin=[-wall.get("uv_offset", 0), wall.get("base_h", 0)],

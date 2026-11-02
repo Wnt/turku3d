@@ -15,7 +15,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   // GLTFLoader exposes custom semantics in lowercase on both renderer backends.
   // Retain v1 support for published tiles until their next rebuild.
   const layout = (p.version ?? 1) >= 2 ? facadeAttribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
-  const origin = p.version === 4 ? facadeAttribute('_kit_extent', 'vec4').xy
+  const origin = (p.version ?? 1) >= 4 ? facadeAttribute('_kit_extent', 'vec4').xy
     : (p.version ?? 1) >= 2 ? facadeAttribute('_kit_origin', 'vec2') : vec2(0);
   const metres = uv().sub(origin);
   const floors = (p.version ?? 1) >= 3 ? facadeAttribute('_kit_floors', 'vec3') : vec3(layout.z, layout.z, 0);
@@ -25,7 +25,8 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const entrance = layout.x.lessThan(42).and(layout.x.mod(3).equal(1));
   const otherBay = bays.x.floor().notEqual(floors.z);
   const selected = (p.version ?? 1) >= 3 ? entrance.and(otherBay).and(upper.lessThan(1)).select(layout.x.sub(1), layout.x) : layout.x;
-  const program = p.version === 4 ? programLayout(bays, metres, layout, upper, selected) : null;
+  const pattern = (p.version ?? 1) >= 5 ? facadeAttribute('_kit_glazing', 'vec4') : undefined;
+  const program = (p.version ?? 1) >= 4 ? programLayout(bays, metres, layout, upper, selected, pattern) : null;
   const module = program?.module ?? selected;
   const cell = vec2(module.mod(7), module.div(7).floor().mul(2)).add(vec2(0, float(1).sub(upper)));
   // Four-pixel wrapped gutters isolate modules from neighbouring atlas cells and mip levels.
@@ -49,7 +50,8 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const opening = program && paint ? program.inside.mul(float(1).sub(paint.band)) : float(0);
   // Physical frame bars stay centimetres wide even on a 20 m ribbon or a tall
   // lancet. The old 128 px window bitmap remains only on legacy kit versions.
-  const glazingColour = program ? mix(trim.mul(.9),
+  const frameColour = (p.version ?? 1) >= 5 ? facadeAttribute('_kit_frame', 'vec3') : trim;
+  const glazingColour = program ? mix(frameColour.mul(.9),
     vec3(.016, .028, .04).mul(mix(.8, 1.35, program.rise)), program.glass) : albedo.mul(tint);
   material.colorNode = mix(facadeColour, glazingColour, opening);
   const normal = texture(original.normalMap, coord).grad(dx, dy).xyz;
@@ -64,7 +66,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const frame = wallFrame();
   // The unclipped world opening origin survives passage/roof splits and pigment
   // edits. Round at quarter-metre precision to suppress interpolant roundoff.
-  const identity = p.version === 4 ? facadeKey([
+  const identity = (p.version ?? 1) >= 4 ? facadeKey([
     round(frame.along.sub(metres.x).mul(4)), round(positionWorld.y.sub(metres.y).mul(4)),
     quantise(layout.y, 4096), quantise(layout.z, 4096)]).bitXor(frame.plane)
     : (p.version ?? 1) >= 2 ? facadeKey([quantise(origin.x, 64), quantise(origin.y, 64),

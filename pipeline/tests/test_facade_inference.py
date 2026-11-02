@@ -135,6 +135,24 @@ def test_learned_rules_keep_shared_floor_and_window_dimensions(monkeypatch):
         assert p["walls"][0]["windows"]["rectangles_m"] == p["walls"][1]["windows"]["rectangles_m"]
 
 
+def test_reviewed_glazing_pattern_and_frame_colour_survive_compilation():
+    from turkutex.facade_archetypes import sample
+    from turkutex.facade_program import value
+
+    wall = sample("panes", dict(levels=3), [dict(width_m=12, height_m=10)])["walls"][0]
+    wall["windows"].update(
+        divisions=value([5, 1], "reviewed window groups", .8),
+        frame_colour=value("#b5c3bd", "uncalibrated frame appearance", .65),
+        pane_split_fraction=value(.7, "reviewed broad/narrow groups", .7),
+        transom_fraction=value(0, "no horizontal transom in observed panes", .8),
+    )
+    style = compile_wall(wall, 3)
+    assert style["glazing"] == [5, 1, .7, 0]
+    assert style["frame"] == "#b5c3bd"
+    wall["windows"]["divisions"]["support"] = .2
+    assert compile_wall(wall, 3)["glazing"][:2] == [0, 0]
+
+
 def test_subdividing_a_shorter_wall_does_not_change_building_floor_height(monkeypatch):
     from turku3d import facade_programs as fp, facade_learning
 

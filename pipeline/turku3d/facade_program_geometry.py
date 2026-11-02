@@ -176,6 +176,15 @@ def _paint_layers(vertices, wall, style):
             continue
         points, uv = part
         patch = copy.deepcopy(style)
+        # The reviewed pane pattern describes typical windows. A broad showroom
+        # opening on the same wall is not that window stretched across the base.
+        pattern = patch.get("glazing")
+        reference_width = style.get("glazing_size", [0, 0])[0]
+        if pattern and pattern[0] and reference_width > 0:
+            if w > reference_width * 2:
+                patch["glazing"] = [0, 0, 0, -1]
+            else:
+                pattern[0] = max(1, round(pattern[0] * w / reference_width))
         if kind == 3:
             patch.update(
                 module=48, wall="#55534e", base="#55534e", bands=[0, 0, 0, 0], detail=[0, 0, 0, 0]
