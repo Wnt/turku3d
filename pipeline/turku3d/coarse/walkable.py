@@ -179,12 +179,14 @@ def prepare(tile, osm, water_path, paths):
     if all(b.name in survey for b in C.laz_tiles_for_bbox(bounds)):
         from turku3d.lidar import TileStore
 
-        points = (
+        cloud = (
             TileStore(source_paths=survey)
             .query(bounds)
-            .query(classes=[1, 2, 10, 12, 17], last_return=True)
-            .points
+            .query(classes=[2, 12], last_return=True)
         )
+        from .retaining_survey import ground_points
+
+        points = ground_points(cloud)
     else:
         points, _ = read_returns(
             [p for p in paths if p.parent.name == "maanpinta"], bounds, [1, 2, 8, 12]
