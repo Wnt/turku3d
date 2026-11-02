@@ -12,7 +12,7 @@ ROOT = Path(__file__).with_name("descriptions")
 def source_paths():
     return [
         Path(__file__).with_name(name)
-        for name in ("appearance.py", "descriptions.py", "procedural.py")
+        for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py")
     ]
 
 
