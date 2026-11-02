@@ -265,10 +265,13 @@ Fullscreen has a reserved safe-area-aware top-right row; scoreboard/status/notic
 
 ### Screenshot view distance
 
-In developer mode (localhost or `?dev=1`), open **Layers · F4 / LB** and choose
-**View distance → 1, 2, 3, 5, 6 or 8 km · screenshot**. At 1 km the radius follows the player. Above 1 km the visibility cone follows the camera as you turn, move or change FOV, loading lightweight derivatives of existing authored tiles. A bounded five-second buffer reuses scenery during brief look-backs. It moves fog beyond the
-selected range and extends the camera, sky and far vegetation. Use 6 km or 8 km to see beyond Tuomiokirkko to the Energia chimney from Pääskyvuori. The panel reports loaded scenery,
-full-detail work and retries; uncached tiles take time to generate. FPS and memory
-use can be substantial. **Normal** releases extra scenery and restores rendering
-limits. This session-only setting starts at Normal after a reload. Nearby collision
-and gameplay continue using their ordinary streaming window.
+The distant city follows the camera in play and fixed-camera views: 4 km on medium/high,
+2.5 km on low/mobile. Existing authored tiles supply simplified ground, building silhouettes and
+tree crowns, without distant shadows or gameplay simulation. Building windows use the shared day/night clock.
+Coverage depends on cached source tiles; missing sources are reported rather than fabricated.
+
+In developer mode (localhost or `?dev=1`), open **Layers · F4 / LB → View distance** to choose
+1–8 km or **Short range** to release the extra scenery. Above 1 km the visibility cone follows camera
+position, direction and FOV; a bounded five-second buffer retains recent views during brief look-backs.
+Manual distance overrides also move fog and extend far vegetation. The panel reports loading, retries
+and unavailable source tiles. Nearby collision and gameplay retain their ordinary streaming window.
