@@ -64,14 +64,34 @@ def collect(paths):
                 sources=sources)
 
 
+def source_paths(inputs):
+    """Accept individual pages, layer directories, or shared WFS cache roots.
+
+    Explicit cache-depth patterns follow shared input symlinks without recursively
+    traversing unrelated survey layers or generated products.
+    """
+    paths = set()
+    for source in map(Path, inputs):
+        if source.is_file() and source.suffix == ".gml":
+            paths.add(source.resolve())
+        elif source.is_dir():
+            for pattern in ("*.gml", "gml/kanta_Rakennus/*.gml", "*/gml/kanta_Rakennus/*.gml"):
+                paths.update(p.resolve() for p in source.glob(pattern))
+    return sorted(paths)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("gml", type=Path, help="cached GML directory; input stays read-only")
+    parser.add_argument("gml", type=Path, nargs="+",
+                        help="GML pages, layer directories or WFS cache roots; input stays read-only")
     parser.add_argument("--out", required=True, type=Path, help="derived index outside raw/ and git")
     args = parser.parse_args()
     if "raw" in args.out.resolve().parts:
         parser.error("derived output must not be written under raw/")
-    index = collect(args.gml.glob("*.gml"))
+    paths = source_paths(args.gml)
+    if not paths:
+        parser.error("no cached building GML pages found")
+    index = collect(paths)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.out.with_suffix(args.out.suffix + ".tmp")
     temporary.write_text(json.dumps(index, separators=(",", ":")) + "\n")

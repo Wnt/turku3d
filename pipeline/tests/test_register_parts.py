@@ -1,4 +1,4 @@
-from turku3d.register_parts import collect, extract
+from turku3d.register_parts import collect, extract, source_paths
 
 
 def page(reverse=False):
@@ -35,3 +35,19 @@ def test_overlapping_pages_and_reversed_lines_keep_one_owned_fact(tmp_path):
     assert len(index["buildings"]["B1"]) == 2
     assert index == collect([a, b])
     assert a.read_bytes() == page() and b.read_bytes() == page(reverse=True)
+
+
+def test_shared_cache_root_follows_area_symlinks_and_excludes_other_layers(tmp_path):
+    area = tmp_path / "source-area"
+    buildings = area / "gml/kanta_Rakennus"
+    buildings.mkdir(parents=True)
+    source = buildings / "page.gml"
+    source.write_bytes(page())
+    other = area / "gml/kanta_Puu"
+    other.mkdir()
+    (other / "page.gml").write_bytes(b"not building data")
+    cache = tmp_path / "wfs"
+    cache.mkdir()
+    (cache / "area").symlink_to(area, target_is_directory=True)
+    assert source_paths([cache, area, buildings, source]) == [source.resolve()]
+    assert source_paths([tmp_path / "missing"]) == []
