@@ -118,3 +118,20 @@ def test_ground_sampler_uses_decks_but_preserves_walkable_void_under_balcony():
     height = sampler(lambda x, z: 0.4, records)
     assert height(2, 2) == 2
     assert height(4, 4) == height(8, 8) == 0.4
+
+
+def test_mapped_stairs_reach_the_reconstructed_terrace_level():
+    from turku3d.coarse.attachments import sampler
+    from turku3d.coarse.stairs import produce as stair_meshes
+
+    height = sampler(
+        lambda x, z: 0.4, [dict(region=shapely.box(10, 2, 13, 8), height=2, kind="terrace")]
+    )
+    meshes, cuts = stair_meshes(
+        VisualTile(0, 0, 0),
+        ([("mapped", shapely.LineString([(12, 5), (18, 5)]), {"width": "2"})], []),
+        height,
+    )
+    assert meshes and cuts
+    assert max(m.positions[:, 1].max() for m in meshes) == 2
+    assert min(m.positions[:, 1].min() for m in meshes) <= 0.4

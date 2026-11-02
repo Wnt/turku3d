@@ -251,6 +251,9 @@ def build(
     )
     surface_sample = gardens.sampler(tile, surface_sample, inputs.gardens)
     surface_sample = walkable.sampler(surface_sample, inputs.walkable)
+    from . import attachments
+
+    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
     own_keys = {b.key for b in blds}
     wall_context = [(b, shell) for b, shell in tunnels.shells if b.key not in own_keys]
     shells = [(b, shell) for b, shell in tunnels.shells if b.key in own_keys]
@@ -289,8 +292,6 @@ def build(
         tunnels.openings,
     )
     seconds.update(structure_seconds)
-    from . import attachments
-
     attachment_meshes, attachment_openings = cache.run(
         "attachments",
         source_key(Path(attachments.__file__), Path(gardens.__file__),
@@ -301,7 +302,6 @@ def build(
     dry = stairs.cut_ground(dry, attachment_openings)
     solid = stairs.cut_ground(solid, attachment_openings)
     stair_meshes = [*stair_meshes, *attachment_meshes]
-    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
     seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
     from . import street_profiles
 
@@ -320,7 +320,7 @@ def build(
                  street_profiles.constrain(solid, inputs.street_profiles)),
     )
     dry, solid = dry_surface.mesh, solid_surface.mesh
-    surface_sample = street_profiles.sampler(surface_sample, dry_surface)
+    surface_sample = attachments.sampler(street_profiles.sampler(surface_sample, dry_surface), inputs.attachments)
     seconds["street_profiles_geometry"] = cache.metrics["street_profiles"]["seconds"]
     # The measured connected terrain replaces legacy raised strips in its area.
     kerb_lines = inputs.kerbs
