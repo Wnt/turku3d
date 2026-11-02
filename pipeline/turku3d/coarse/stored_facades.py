@@ -186,9 +186,9 @@ def assemble_walls(shells, context=()):
 def wall_meshes(b, walls, origin):
     if not len(walls):
         return []
-    from turku3d.facade_component_geometry import geometry, plan, slots, surface_parts
+    from turku3d.facade_component_geometry import geometry, plan, slots
     from turku3d.facade_program_geometry import wall_parts
-    from turku3d.facade_relief import opening_parts
+    from turku3d.facade_relief import composed_parts
     from turku3d.facade_programs import compile_wall, resolve
 
     meshes = []
@@ -226,12 +226,7 @@ def wall_meshes(b, walls, origin):
         style["origin"][1] = b.base
         for points, uv, instruction in wall_parts(vertices, wall, style):
             instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
-            # Structural recesses keep their own surface displacement. Ordinary
-            # openings receive relief only after paint ownership is resolved.
-            parts = (
-                ((p, tex, instruction) for p, tex in surface_parts(points, uv, plans))
-                if plans else opening_parts(points, uv, instruction)
-            )
+            parts = composed_parts(points, uv, instruction, plans)
             for p, tex, instruction in parts:
                 # Coalesce only adjacent ranges with identical generated paint.
                 if instruction == previous_instruction:
