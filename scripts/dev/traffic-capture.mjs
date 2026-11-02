@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 const args = process.argv.slice(2), opt = (key, fallback) => args.includes(key) ? args[args.indexOf(key) + 1] : fallback;
 const out = path.resolve(opt('--out', `${process.env.HOME}/turku3d/loops/traffic/capture`));
 const mode = opt('--mode', 'flow'), start = Number(opt('--start', '60'));
+const [width, height] = opt('--size', '1280,720').split(',').map(Number);
+if (![width, height].every(v => Number.isInteger(v) && v > 0 && v <= 4096)) throw new Error('Invalid capture size');
 const offsets = opt('--samples', '0,3,6,9').split(',').map(Number);
 const cdp = opt('--cdp', 'http://127.0.0.1:5917');
 const pairFile = opt('--pair', null);
@@ -40,6 +42,7 @@ try {
   if (touch.status === 2) console.log(touch.stdout.trim());
   await send('Page.setWebLifecycleState', { state: 'active' });
   await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   const deadline = Date.now() + 120000;
   while (!await evaluate('!!window.__game?.lights?.source && !!window.__qaMove')) {
     if (Date.now() > deadline) throw new Error('QA world did not initialize');
@@ -102,14 +105,14 @@ try {
       const blob=new Blob(chunks,{type:recorder.mimeType});
       const data=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.readAsDataURL(blob)});
       stream.getTracks().forEach(t=>t.stop());
-      return {data,seconds:(performance.now()-started)/1000,frames:window.__game.clock.frames-frames,snapshot:preview.snapshot()};
+      return {data,seconds:(performance.now()-started)/1000,frames:window.__game.clock.frames-frames,snapshot:preview.snapshot(),canvas:[canvas.width,canvas.height],viewport:[innerWidth,innerHeight],quality:window.__game.params.quality};
     })()`);
     fs.writeFileSync(path.join(out, `${mode}.webm`), Buffer.from(clip.data, 'base64'));
     const { data: _data, ...metrics } = clip;
     fs.writeFileSync(path.join(out, 'clip.json'), JSON.stringify(metrics, null, 2));
     console.log(`${mode}.webm: ${(clip.frames / clip.seconds).toFixed(1)} FPS`);
   }
-  fs.writeFileSync(path.join(out, 'shots.json'), JSON.stringify({ mode, shots }, null, 2));
+  fs.writeFileSync(path.join(out, 'shots.json'), JSON.stringify({ mode, viewport: [width, height], shots }, null, 2));
 } finally {
   await send('Page.setWebLifecycleState', { state: 'frozen' }).catch(() => {});
   socket.close();
