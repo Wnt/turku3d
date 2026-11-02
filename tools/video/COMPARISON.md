@@ -75,6 +75,8 @@ bash pipeline/env/run.sh python tools/video/comparison-compose.py \
 
 This writes `edit/market-hall-still.png`. Compare two versions at the same shot;
 retain its capture receipts as evidence that the scene and camera are unchanged.
+Use `--still title` or `--still end` to review a card. The opening uses both matched
+dawn frames with equal background shading and introduces the comparison explicitly.
 
 Focused checks:
 

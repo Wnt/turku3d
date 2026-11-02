@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image,ImageDraw,ImageFont
 P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');P.add_argument('--still',metavar='SHOT_ID|title|end',help='Compose one full-resolution cached midpoint or card without rendering video');a=P.parse_args()
 out=Path(a.out);c=json.loads(Path(a.shots).read_text());edit=out/'edit';edit.mkdir(exist_ok=True);fps=c['fps'];transition=c['transition'];W,H=1920,1080
-stamp=datetime.now();date_label=stamp.strftime('%d %b %Y').upper();date_long=stamp.strftime('%d %B %Y')
+stamp=datetime.now();date_long=stamp.strftime('%d %B %Y')
 font='/System/Library/Fonts/Supplemental/Arial.ttf';bold='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
 def run(args):subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y',*map(str,args)],check=True)
 def encode():return ['-an','-c:v','libx264','-crf','14','-preset','fast','-threads','3','-pix_fmt','yuv420p','-r',fps,'-video_track_timescale',15360]
@@ -40,16 +40,14 @@ def card(end=False,still=False):
   text(d,(145,725),'Weather shown on the new build; production uses its available clear setting.',23,fill='#bdcfce')
  else:
   # Preserve both captured halves: introduce the city and comparison at the actual framing.
-  shade=Image.new('RGBA',(W,1));shade.putdata([(7,17,24,round(215-135*(x/W)**.75)) for x in range(W)])
-  im=shade.resize((W,H));d=ImageDraw.Draw(im)
+  im=Image.new('RGBA',(W,H),(7,17,24,135));d=ImageDraw.Draw(im)
   d.line((960,0,960,H),fill=(212,232,225,100),width=2)
   text(d,(96,64),'TURKU3D  /  GEN 2',30,fill='#a1dfcc',heavy=True)
-  text(d,(96,200),'PRODUCTION',24,fill='#d5e1df',heavy=True)
-  text(d,(1020,200),'NEW BUILD',24,fill='#d5e1df',heavy=True)
+  text(d,(96,200),'PRODUCTION',30,fill='#d5e1df',heavy=True)
+  text(d,(1020,200),'NEW BUILD',30,fill='#d5e1df',heavy=True)
   text(d,(90,402),'Turku.\nBefore & after.',100,heavy=True)
   d.rectangle((96,660,150,665),fill='#a1dfcc')
   text(d,(96,708),'15 places. One shared camera.',34)
-  text(d,(96,966),date_label,24,fill='#bdcfce')
  p=edit/('end.png' if end else 'title.png');im.save(p)
  dest=edit/(('end' if end else 'title')+('-still.png' if still else '.mp4'));duration=c['endSeconds'] if end else c['titleSeconds']
  frame_args=['-frames:v',1] if still else ['-frames:v',round(duration*fps),*encode()]
