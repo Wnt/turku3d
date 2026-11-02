@@ -6,6 +6,7 @@ import { programLayout, programPigment } from './facadeProgram';
 import { draftWindows, facadeKey, kitGlassMask, quantise, wallFrame, windowEmission } from './nightLights';
 import { facadeAttribute, facadePaintAttributes, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
+import { addFacadeModules } from './facadeModules';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -99,6 +100,7 @@ export function buildingWall(mesh: THREE.Object3D) {
 
 /** Bind draft facade materials and draw just in front of coplanar published terrain. */
 export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer, shared?: SharedMaterials) {
+  addFacadeModules(model);
   const cache = new Map<THREE.Material, Map<boolean, THREE.Material>>();
   model.traverse(o => {
     const mesh = o as THREE.Mesh;

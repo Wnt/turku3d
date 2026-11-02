@@ -43,6 +43,9 @@ def test_exported_automatic_choice_is_reselected_but_reviewed_override_survives(
 def test_fragments_share_measured_elevation_and_do_not_repeat_shopfronts():
     b = SimpleNamespace(key="hall", facade_key="103304670P", base=4.039, attributes={})
     d = resolve(b)
+    # Base-face UV sharing is independent of the separately tested relief mesh.
+    for elevation in d["elevations"]:
+        elevation.pop("relief", None)
     row = d["elevations"][0]
     origin, axis = np.array(row["origin_xz"]), np.array(row["axis_xz"])
     def quad(lo, hi):
@@ -61,8 +64,8 @@ def test_fragments_share_measured_elevation_and_do_not_repeat_shopfronts():
         px = round(x / row["width_m"] * image.shape[1])
         py = round((1 - y / row["height_m"]) * image.shape[0])
         return image[py-2:py+3, px-2:px+3].mean((0, 1))
-    brick = patch(5.6, 4.5)
+    brick = patch(2.5, 2.0)
     assert brick[0] - brick[1] > 30
-    for x in (6.55, 8.4, 10.2):
+    for x in (7.3, 8.675, 10.05):
         glass = patch(x, 4.5)
         assert abs(glass[0] - glass[1]) < 15
