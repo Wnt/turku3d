@@ -186,6 +186,8 @@ renderer.setAnimationLoop(() => {
   camera.getWorldDirection(listenerForward);
   audio.emit({ type: 'listener', position: camera.position, forward: listenerForward, up: camera.up, paused: false });
   audio.emit({ type: 'horns', vehicles: signals.horn ? [{ id: 'gallery', kind: active.vehicle.kind, position: state.pos }] : [] });
-  status.textContent = `${LIGHT_LABELS[signals.lights]}${signals.horn ? ' · horn' : ''}${night ? ' · night' : ''} · input: ${input.source}`;
+  const pads = [...(navigator.getGamepads?.() ?? [])].filter((g): g is Gamepad => !!g)
+    .map(g => `${g.id.slice(0, 40)} (${g.mapping || 'no standard mapping'})`).join(', ') || 'none seen yet: press a controller button';
+  status.textContent = `${LIGHT_LABELS[signals.lights]}${signals.horn ? ' · horn' : ''}${night ? ' · night' : ''} · input: ${input.source} · controllers: ${pads}`;
   renderer.render(scene, camera);
 });
