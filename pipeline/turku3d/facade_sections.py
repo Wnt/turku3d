@@ -12,11 +12,15 @@ def prepare(program):
     from turkutex.facade_structure import compile_structure
 
     from turku3d.facade_components import components
+    from turku3d.facade_inference import supported
 
     program = copy.deepcopy(program)
     for wall in program.get("walls", []):
         form = wall.get("structure", {})
         if form.get("floors"):
+            glazing = {k: copy.deepcopy(v) for k, v in wall.get("windows", {}).items()
+                       if k in ("divisions", "frame_colour", "pane_split_fraction", "transom_fraction")
+                       and supported(v)}
             # Recompile retained forms so old published arrays cannot bypass the
             # current per-row confidence policy. Never mutate the source files.
             wall.update(
@@ -24,6 +28,9 @@ def prepare(program):
                     {**wall, **wall["geometry"]}, form, program.get("storeys", {}).get("value")
                 )
             )
+            # Floor forms own opening placement, but contain no pane/frame
+            # observations. Their unknown defaults must not erase later reviews.
+            wall["windows"].update(glazing)
         if not form.get("render_deferred"):
             # An explicitly reviewed negative clears sampled balcony rails.
             if form.get("balconies") == [] and form.get("confidence", {}).get("balconies", 0) > 0:

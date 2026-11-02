@@ -14,6 +14,8 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
   try {
     for (const [name, module, detail, height, patch, samples] of [
       ['window', 0, 0, 4, 0, [[.35, .35, 1], [.1, .35, 0], [.5, .35, 0]]],
+      ['reviewed-pair', 0, 0, 4, 0, [[.35, .54, 1], [.5, .35, 0]]],
+      ['reviewed-asymmetric', 0, 0, 4, 0, [[.5, .35, 1], [.6, .35, 0]]],
       ['opaque-door', 1, 0, 4, 0, [[.35, .35, 0], [.5, .35, 0]]],
       ['portal-leaf', 1, 0, 4, 2, [[.35, .35, 0], [.5, .35, 0]]],
       ['shop', 2, 0, 4, 0, [[.2, .4, 1], [.8, .4, 1], [.04, .4, 0]]],
@@ -25,14 +27,16 @@ export async function probeFacadeMasks(renderer: THREE.WebGPURenderer) {
       geometry.translate(1.5, 2, 0);
       const tex = geometry.getAttribute('uv');
       for (let i = 0; i < tex.count; i++) tex.setXY(i, tex.getX(i) * 3, tex.getY(i) * 4);
-      const fields = { _kit_layout: [module, 3, 4], _kit_extent: [0, 0, 3, height],
+      const pattern = name === 'reviewed-pair' ? [2, 1, 0, 0]
+        : name === 'reviewed-asymmetric' ? [1, 1, .7, 0] : [0, 0, 0, -1];
+      const fields = { _kit_layout: [module, 3, 4], _kit_extent: [0, 0, 3, height], _kit_glazing: pattern,
         _kit_opening: [.5, .5, .2, 0], _kit_detail: [0, 0, detail, patch], _kit_floors: [4, 4, 0] };
       for (const [field, values] of Object.entries(fields)) geometry.setAttribute(field,
         new THREE.Float32BufferAttribute(Array.from({ length: tex.count }, () => values).flat(), values.length));
       interleaveProgram(geometry);
       const layout = facadeAttribute('_kit_layout', 'vec3');
       const program = programLayout(vec2(uv().x.div(3), uv().y.div(4)), uv(), layout,
-        step(4, uv().y), float(module));
+        step(4, uv().y), float(module), facadeAttribute('_kit_glazing', 'vec4'));
       const material = new THREE.MeshBasicNodeMaterial();
       resources.push(geometry, material);
       material.colorNode = vec3(program.glass);

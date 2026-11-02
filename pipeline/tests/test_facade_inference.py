@@ -153,6 +153,21 @@ def test_reviewed_glazing_pattern_and_frame_colour_survive_compilation():
     assert compile_wall(wall, 3)["glazing"][:2] == [0, 0]
 
 
+def test_recompiling_floor_structure_preserves_later_pane_and_frame_observations():
+    from turkutex.facade_program import value
+
+    row, form = fixture()
+    wall = compile_structure(row, form, 2)
+    wall["structure"] = form
+    observed = dict(divisions=value([2, 1], "later pane review", .8),
+                    frame_colour=value("#b8c1c4", "later frame review", .7),
+                    transom_fraction=value(0, "later pane review", .8))
+    wall["windows"].update(observed)
+    p = prepare(dict(building_id="later-review", storeys={"value": 2}, walls=[wall]))
+    assert all(p["walls"][0]["windows"][k] == v for k, v in observed.items())
+    assert compile_wall(p["walls"][0], 2)["glazing"] == [2, 1, 0, 0]
+
+
 def test_subdividing_a_shorter_wall_does_not_change_building_floor_height(monkeypatch):
     from turku3d import facade_programs as fp, facade_learning
 
