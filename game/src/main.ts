@@ -55,6 +55,7 @@ declare global {
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
       setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
+      landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
@@ -111,7 +112,7 @@ const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params
 const dayClock = new DayClock(env, clockMode, !params.qa);
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
-window.__dev = { get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
+window.__dev = { landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
 if (!idPass) env.updateIBL();
@@ -393,6 +394,7 @@ async function runQa() {
   window.__dev = {
     get rainEffects() { return rain; },
     setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
+    landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },

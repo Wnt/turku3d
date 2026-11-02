@@ -97,7 +97,7 @@ try {
   for (const [n, cam] of ordered) {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
-      const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.png`;
+      const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.jpg`;
       // On-demand generation can take minutes. Keep the previous scene frozen during input preparation.
       await send('Page.setWebLifecycleState', { state: 'frozen' });
       const [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
@@ -181,7 +181,7 @@ try {
       }
       await delay(2000);
       await evaluate(`document.querySelectorAll('body > *:not(canvas)').forEach(e => e.style.setProperty('display','none','important'));`);
-      const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      const screenshot = await send('Page.captureScreenshot', { format: 'jpeg', quality: 95, captureBeyondViewport: false });
       await evaluate('window.__render.beforeFrame = () => false');
       fs.writeFileSync(path.join(out, file), Buffer.from(screenshot.data, 'base64'));
       const capturedInputs = { ...inputs, scenery: state.sceneryIdentity };

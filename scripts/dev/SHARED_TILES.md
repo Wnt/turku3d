@@ -65,7 +65,8 @@ prepared-input hits/misses, active revision/PID/runtime, the ordered queue and f
 Build receipts separate queue wait from generator runtime, including adopted workers. Per-build stdout is in `farm/logs`.
 
 Admission reserves 2 GiB per active build above a 25 GiB floor. Eviction removes old unpinned
-products and their source snapshots, then idle shared intermediate entries in LRU order. Current aliases and active jobs
+products and their source snapshots, then old intermediate entries in LRU order. Requested areas and held content-key locks
+protect stage/input entries while other areas can be evicted during active builds. Current aliases and active jobs
 pin products; no other loop's output is removed. The worker monitor terminates only its own
 build group if free space falls below 25.5 GiB, or the 30-minute per-build timeout expires.
 
@@ -127,3 +128,18 @@ node scripts/dev/loop-wait-tiles.mjs --service http://192.168.1.114:7950 \
 The command launches no browser. It waits through pending builds and complete but stale
 fallbacks, records served revisions and visual hashes, and fails if any requested tile cannot
 become fresh. The capture tool must still verify the actual resident hashes after loading.
+
+## Shared decoding caches
+
+Workers mount content-keyed roof, vegetation and lidar decoding stores under
+`farm/cache/raw-derived/<kind>/<producer-hash>`. Producer namespaces include the decoding
+implementation and coordinate configuration, so geometry or texture changes reuse these
+expensive whole-source preparations. Existing private worker directories stay stable.
+POST `/seed` with `{}` adopts complete private results by hard link; source generations and
+destinations remain pinned during adoption. Lidar manifests must contain every declared
+shard with the expected typed-array shape and byte length before atomic publication.
+Raw decoding stores can be evicted between builds; source inputs are never removed.
+
+Adopted workers retain their original runtime deadline and disk-floor monitor. The daemon
+verifies PID identity and output ownership before stopping its own process group, and keeps
+product/cache pins until that process exits.
