@@ -45,7 +45,29 @@ def references(refs, pose):
 def scoreboard(root, categories):
     lines = ['# Integration visual scoreboard', '',
              'Absolute scores are noisy; use same-pose A/B judgments to accept improvements. '
-             'Evening/night scores use daylight references and are tracked separately.', '',
+             'Evening/night scores use daylight references and are tracked separately. '
+             'Their lighting scores are not a reason to turn night into daylight.', '']
+    lines += ['## Daylight means', '', '| Iteration | Valid scored poses | ' + ' | '.join(categories) + ' |',
+              '|---|---:|' + '|'.join(['---:'] * len(categories)) + '|']
+    for iteration in sorted(root.glob('iter-*')):
+        if not iteration.is_dir():
+            continue
+        shots = {s['file']: s for s in read_json(iteration / 'shots.json', {}).get('shots', [])}
+        rows = [row['result']['scores'] for file, row in read_json(iteration / 'scores.json', {}).items()
+                if 'result' in row and file in shots and valid(shots[file]) and shots[file]['time'] == '13:00']
+        if rows:
+            means = []
+            for category in categories:
+                values = [r[category] for r in rows if isinstance(r.get(category), (int, float))]
+                means.append(f'{sum(values) / len(values):.2f}' if values else '—')
+            lines.append('| ' + ' | '.join([iteration.name, str(len(rows)), *means]) + ' |')
+    lines += ['', '## Medium camera benchmarks', '',
+              '| Iteration | Valid | Measured frames | Aggregate FPS | ≥30 FPS |', '|---|---|---:|---:|---|']
+    for file in sorted(root.glob('iter-*/bench/summary.json')):
+        bench = read_json(file, {})
+        lines.append(f'| {file.parents[1].name} | {bench.get("valid")} | {bench.get("frames")} | '
+                     f'{bench.get("fps", 0):.2f} | {bench.get("meets30fps")} |')
+    lines += ['', '## Per pose and time', '',
              '| Iteration | Build | Pose | Time | ' + ' | '.join(categories) + ' |',
              '|---|---|---|---|' + '|'.join(['---:'] * len(categories)) + '|']
     for iteration in sorted(root.glob('iter-*'), key=lambda p: p.name):
