@@ -20,7 +20,8 @@ PROFILES = {
                       rail_pattern="heritage"),
     "Q11898665": dict(body="concrete", support="stone", arch_edge=True),
     "Q5408563": dict(structure="cable-stayed", body="steel", support="stone",
-                     thickness=.32, tower_height=5.6, tower_radius=.17),
+                     thickness=.32, tower_height=5.6, tower_radius=.17,
+                     tower_fractions=(.2, .8), pier_freeboard=1.0),
 }
 
 
@@ -133,11 +134,15 @@ def tube(key, a, b, radius, surface="paint", material="railing", sides=6):
     ring = radius * (np.cos(angle)[:, None] * normal + np.sin(angle)[:, None] * other)
     bottom, top = a + ring, b + ring
     faces = Faces()
+    perimeter = 2 * np.pi * radius
     for i in range(sides):
         j = (i + 1) % sides
-        faces.face([bottom[i], bottom[j], top[j], top[i]])
-    faces.face(bottom[::-1])
-    faces.face(top)
+        faces.face([bottom[i], bottom[j], top[j], top[i]],
+                   [[i * perimeter / sides, 0], [(i + 1) * perimeter / sides, 0],
+                    [(i + 1) * perimeter / sides, length], [i * perimeter / sides, length]])
+    cap_uv = np.c_[ring @ normal, ring @ other]
+    faces.face(bottom[::-1], cap_uv[::-1])
+    faces.face(top, cap_uv)
     return appearance(faces.mesh(key, material), surface)
 
 
@@ -453,7 +458,8 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 meshes.append(
                     wall(key, line, top - depth, top, min(1.2, width * 0.15), spec["body"])
                 )
-    if spec["body"] == "steel" and spec["structure"] == "beam" and not way.get("landing"):
+    if (spec["body"] == "steel" and spec["structure"] in ("beam", "cable-stayed")
+            and not way.get("landing")):
         # Exposed transverse floor beams and edge stiffeners under steel decks.
         # These remain below the surveyed road, with no extra road collision skin.
         for station in np.arange(1.0, axis.length - 0.5, 2.0):
@@ -476,7 +482,8 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
                 )
     from .bridge_kit import entrances, stayed_span
 
-    meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec))
+    meshes.extend(stayed_span(way, height_at, sample_ground, blocked, polygon, spec,
+                              obstacles=[] if obstacles is None else [obstacles]))
     # Lower quay passages constrain supports below the deck, not pylons above it.
     # Only same-level building obstacles can conflict with an entrance ornament.
     entrance_obstacles = obstacles if obstacles is not None else way.get("obstacles")
