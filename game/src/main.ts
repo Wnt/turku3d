@@ -96,8 +96,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
 const deterministic = !!params.qa && !params.motion;
-const env = new Environment(scene, renderer, params.quality, deterministic);
-if (!idPass) env.loadClouds().catch(e => console.warn(`clouds: ${String(e)}`));
+const env = new Environment(scene, renderer, params.quality);
 /** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
 const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params.hour }
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
@@ -114,7 +113,7 @@ window.__render = { camera, environment: env, renderer, perf, setTime: (iso: str
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-const vegetation = idPass ? null : new VegetationLod(params.quality, loadNatureLibrary(renderer, env, deterministic));
+const vegetation = idPass ? null : new VegetationLod(params.quality, loadNatureLibrary(renderer, env, deterministic), scene);
 const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, deterministic);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {

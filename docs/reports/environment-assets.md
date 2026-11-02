@@ -1,9 +1,12 @@
 # Environment assets: how GTA V builds them, and what Turku3D ships
 
-Turku3D's trees were one faceted Kenney prototype in an ochre autumn colour, there were no shrubs or grass, and
-the sky was a cloudless gradient. Branch `local/assets-nature` adds an asset library
-(`game/public/assets/nature/`, [README](../../game/public/assets/nature/README.md)) and draws the tile vegetation
-and the sky with it. This note records the generic findings from GTA V that set the budgets and techniques. It
+Turku3D's trees were one faceted Kenney prototype in an ochre autumn colour, and there were no shrubs or grass.
+Branch `local/assets-nature` adds an asset library (`game/public/assets/nature/`,
+[README](../../game/public/assets/nature/README.md)) and draws the tile vegetation, grass and barriers with it. A
+two-layer cloud deck was prototyped here (commits `ebf142df`, `d01847ce`) and then handed to the sky loop, which
+owns sky and clouds; the branch no longer changes the sky.
+
+This note records the generic findings from GTA V that set the budgets and techniques. It
 contains counts, sizes and techniques only. No GTA mesh, texture, name or per-asset table was copied.
 
 ## Method (GTA side)
@@ -75,7 +78,7 @@ Raw dumps and keyword rules stay on the research host. The longer local note is
 | Bush | ~400 tris | lilac 990, rose 660, juniper 1,620 (LOD 1: 120 to 510) |
 | Grass clump | ~86 tris | 6 tris (3 crossed cards), rosette 2 tris |
 | Fence | ~300 tris per 4 m module | 100 to 310 tris per 2 m module, LOD 1: 20 to 80 |
-| Sky | analytic dome + noise clouds + textured cloud hats | analytic SkyMesh + two noise cloud layers (cumulus, cirrus) from one 256² tileable texture |
+| Sky | analytic dome + noise clouds + textured cloud hats | not on this branch (prototype: two noise cloud layers from one 256² tileable texture, handed to the sky loop) |
 | Wind | vertex weights + global wind | `_WIND` vertex weights (sway, flutter, phase) + global strength/direction uniforms |
 
 All trees, shrubs, grass and the hedge share **three materials**: bark, leaves (alpha-tested, double-sided,
@@ -88,8 +91,6 @@ Departures from GTA, and why:
   twigs. The silhouette does not change at the switch.
 - **Far level.** The impostor goes further (650 m) instead of a batched parent billboard. Tiles are 250 m and a
   far tree costs 8 triangles.
-- **Sky.** The clouds are a cheap two-layer screen-space noise in the sky shader rather than meshes, because the
-  sky is the only consumer and there is no weather system yet.
 
 ## Evidence
 

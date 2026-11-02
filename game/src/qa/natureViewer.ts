@@ -1,4 +1,4 @@
-// Nature asset viewer (dev server: /nature.html), with the game's renderer, sky, clouds, shadows and post-processing.
+// Nature asset viewer (dev server: /nature.html), with the game's renderer, sky, shadows and post-processing.
 //   ?view=asset&asset=tree_birch&lod=auto|0|1|2   one asset; LOD by camera distance (tier thresholds) or forced
 //   ?view=lods&asset=tree_birch                    every LOD of one asset side by side
 //   ?view=gallery                                  every asset at LOD 0
@@ -24,12 +24,10 @@ if (query.get('shot') === '1') document.body.classList.add('shot');
 const { renderer, backend } = await createRenderer('webgpu', document.body, { quality });
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 6000);
-const env = new Environment(scene, renderer, quality, false);
-const clouds = env.loadClouds();
+const env = new Environment(scene, renderer, quality);
 const clock = new DayClock(env, { kind: 'hour', hour }, false);
 const post = new PostProcessing(renderer, scene, camera, quality, 'taa');
 const library = await loadNatureLibrary(renderer, env, false);
-await clouds.catch(() => {});
 library.materials.windStrength.value = Number(query.get('wind') ?? 1);
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2),

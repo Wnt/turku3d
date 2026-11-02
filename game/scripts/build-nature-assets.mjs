@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds Turku3D's environment asset library: public/assets/nature/nature.glb (trees, shrubs, hedge, grass, ground
-// cover and the fence/railing/wall kit with their LOD chains and impostors), nature.json (per-asset numbers) and
-// clouds.png (tileable sky noise). Sources and licences: public/assets/nature/README.md.
+// cover and the fence/railing/wall kit with their LOD chains and impostors) and nature.json (per-asset numbers).
+// Sources and licences: public/assets/nature/README.md.
 //
 //   node scripts/build-nature-assets.mjs [--src ~/turku3d/data/assets-src/nature] [--out public/assets/nature] [--previews DIR]
 //
@@ -19,7 +19,6 @@ import { Img, toRGBA8, savePng, blit, dilate, half } from './nature/image.mjs';
 import { foliageAtlas, barkAtlas, propTiles } from './nature/textures.mjs';
 import { SPECIES, TREES, SHRUBS, skeleton, meshTree, hedge, clump, MeshBuilder } from './nature/trees.mjs';
 import { bake } from './nature/raster.mjs';
-import { cloudNoise } from './nature/clouds.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
@@ -147,16 +146,13 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
   }
 }
 
-// ------------------------------------------------------------------ sky
-log('cloud noise');
-const clouds = cloudNoise(256, 9);
-await savePng(clouds, path.join(out, 'clouds.png'));
-
 // ------------------------------------------------------------------ previews (local only, not shipped)
 await savePng(foliage.atlas, path.join(previews, 'foliage.png'));
 await savePng(impostorAlbedo, path.join(previews, 'impostor-albedo.png'));
 await savePng(impostorNormal, path.join(previews, 'impostor-normal.png'), { alpha: false });
 await savePng(bark.albedo, path.join(previews, 'bark.png'), { alpha: false });
+await savePng(bark.normal, path.join(previews, 'bark-normal.png'), { alpha: false });
+for (const [name, img] of Object.entries(props)) await savePng(img, path.join(previews, `${name}.png`), { alpha: false });
 
 // ------------------------------------------------------------------ KTX2
 async function ktx2(img, { srgb, normal = false, quality = 200 }) {
