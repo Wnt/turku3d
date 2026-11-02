@@ -10,7 +10,7 @@ function fakes(ni: number, nj: number) {
   const manifest = { collision, baseUrl: 'http://x/' } as never;
   const loaded = new Map<string, unknown>();
   const known = new Set<string>();
-  const physics = { loaded, known, loadTile: vi.fn(async (id: string) => { loaded.set(id, {}); }), unloadTile: vi.fn((id: string) => loaded.delete(id)),
+  const physics = { loaded, known, loadTile: vi.fn(async (id: string, _buffer: ArrayBuffer) => { loaded.set(id, {}); }), unloadTile: vi.fn((id: string) => loaded.delete(id)),
     setTileLoading: vi.fn(), setKnown: vi.fn((add: string[], remove: string[]) => { for (const id of add) known.add(id); for (const id of remove) known.delete(id); }) };
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) })));
   return { manifest, physics };
@@ -151,7 +151,7 @@ test('startup coverage expands into the normal streaming ring without dropping s
   for (const id of startCells) expect(physics.loaded.has(id)).toBe(true);
 });
 
-test('validated bytes transfer to Rapier without refetch, but stale versions cannot be reused', async () => {
+test('validated bytes reach Rapier without refetch, but stale versions cannot be reused', async () => {
   const { manifest, physics } = fakes(1, 1);
   const s = new CollisionStreamer(manifest, physics as never, 10);
   const entry = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision.c_0_0;
@@ -161,10 +161,40 @@ test('validated bytes transfer to Rapier without refetch, but stale versions can
   await new Promise(r => setTimeout(r, 0));
   expect(fetch).not.toHaveBeenCalled();
   expect(physics.loadTile).toHaveBeenCalledWith('c_0_0', buffer);
+  expect(physics.loadTile.mock.calls[0][1]).not.toBe(buffer);
   s.retain('c_0_0', { ...entry, sha256: 'old' }, new ArrayBuffer(4));
   s.refresh(['c_0_0']);
   await new Promise(r => setTimeout(r, 0));
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test('resident collision bytes survive worker transfer and range revisits; unchanged refresh does not rebuild', async () => {
+  const { manifest, physics } = fakes(1, 1);
+  const entries = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision;
+  entries.c_0_0.sha256 = 'one';
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  const bytes = Uint8Array.of(1, 2, 3, 4).buffer;
+  s.retain('c_0_0', entries.c_0_0, bytes);
+  physics.loadTile.mockImplementation(async (id: string, buffer: ArrayBuffer) => {
+    expect([...new Uint8Array(buffer)]).toEqual([1, 2, 3, 4]);
+    structuredClone(buffer, { transfer: [buffer] });
+    physics.loaded.set(id, {});
+  });
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  s.update(20, 20, true); await tick();
+  s.refresh(['c_0_0']); await tick();
+  expect(physics.loadTile).toHaveBeenCalledTimes(1);
+  s.update(1000, 1000, true);
+  expect(physics.loaded.has('c_0_0')).toBe(false);
+  s.update(20, 20, true); await tick();
+  expect(physics.loadTile).toHaveBeenCalledTimes(2);
+  expect(bytes.byteLength).toBe(4);
+  expect(fetch).not.toHaveBeenCalled();
+  entries.c_0_0 = { ...entries.c_0_0, sha256: 'two', url: 'new.col' };
+  vi.mocked(fetch).mockResolvedValue({ ok: true, arrayBuffer: async () => Uint8Array.of(1, 2, 3, 4).buffer } as Response);
+  s.refresh(['c_0_0']); await tick();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(physics.loadTile).toHaveBeenCalledTimes(3);
 });
 
 

@@ -26,6 +26,7 @@ export class CollisionStreamer {
   private known = new Set<string>();
   private lastCheck = -Infinity;
   private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
+  private installed = new Map<string, string>();
   retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) {
     this.prepared.set(id, { entry, buffer });
     this.lastCheck = -Infinity; // Newly published ground must reach the worker before the next edge.
@@ -73,10 +74,12 @@ export class CollisionStreamer {
     const now = performance.now();
     if (!force && now - this.lastCheck < 250) return [];
     this.lastCheck = now;
-    // Residency bounds the cache; consumed buffers transfer directly to the worker.
+    // Parent-tile residency bounds the immutable byte cache, including cells currently outside physics range.
     for (const [id, cached] of this.prepared) {
-      if (this.manifest.collision[id]?.url !== cached.entry.url) this.prepared.delete(id);
+      const current = this.manifest.collision[id];
+      if (current?.url !== cached.entry.url || current?.sha256 !== cached.entry.sha256) this.prepared.delete(id);
     }
+    for (const id of this.installed.keys()) if (!this.physics.loaded.has(id) && !this.loading.has(id)) this.installed.delete(id);
     const ahead = this.ahead(x, z, vx, vz);
     const retained = this.retainedStarts.flatMap(p => this.near(p.x, p.z, this.radius));
     const keep = new Set([...ahead, ...retained].map(t => t.id));
@@ -130,7 +133,6 @@ export class CollisionStreamer {
     const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
     try {
       const cached = this.prepared.get(id);
-      this.prepared.delete(id);
       let buf: ArrayBuffer;
       if (cached?.entry.url === e.url && cached.entry.sha256 === e.sha256) buf = cached.buffer;
       else {
@@ -140,7 +142,10 @@ export class CollisionStreamer {
         buf = await res.arrayBuffer();
       }
       if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
-      await this.physics.loadTile(id, buf);
+      this.prepared.set(id, { entry: e, buffer: buf });
+      // Keep the validated original while its parent tile is resident. Rapier owns and detaches only the copy.
+      await this.physics.loadTile(id, buf.slice(0));
+      if (e.sha256) this.installed.set(id, e.sha256);
       this.retries.delete(id);
       done('Rapier collider ready');
     } catch (err) {
@@ -169,6 +174,8 @@ export class CollisionStreamer {
       this.failed.delete(id);
       this.retries.delete(id);
       if (!this.physics.loaded.has(id) || this.loading.has(id) || !this.manifest.collision[id]) continue;
+      const hash = this.manifest.collision[id].sha256;
+      if (hash && this.installed.get(id) === hash) continue;
       this.loading.add(id);
       void this.fetchAndLoad(id);
     }
