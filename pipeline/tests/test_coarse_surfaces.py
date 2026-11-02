@@ -517,3 +517,35 @@ def test_boundary_cut_repairs_invalid_overlay_without_losing_surface_area():
     expected = shapely.make_valid(region).intersection(shapely.Polygon(positions[:, [0, 2]]))
     assert road.symmetric_difference(expected).area < 1e-6
     assert np.isfinite(pos).all() and np.isfinite(normals).all()
+
+
+def test_untagged_park_footway_inherits_only_connected_unambiguous_gravel(tmp_path):
+    import json
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.surfaces import osm_surfaces
+
+    features = [(dict(leisure="park"), shapely.box(0, 0, 100, 100))]
+    # Joined fine-gravel trail. Untagged link inherits; an explicit slab link does not.
+    features += [
+        (dict(highway="path", surface="fine_gravel"), shapely.LineString([(10, 10), (30, 10)])),
+        (dict(highway="footway"), shapely.LineString([(20, 10), (20, 20)])),
+        (dict(highway="footway", surface="paving_stones"), shapely.LineString([(30, 10), (30, 20)])),
+        # Nearby but disconnected, and joined outside the park: no inferred gravel.
+        (dict(highway="footway"), shapely.LineString([(40, 10), (40, 20)])),
+        (dict(highway="path", surface="fine_gravel"), shapely.LineString([(110, 10), (130, 10)])),
+        (dict(highway="footway"), shapely.LineString([(120, 10), (120, 20)])),
+        # A join to both asphalt and gravel has no unambiguous inherited finish.
+        (dict(highway="footway"), shapely.LineString([(10, 10), (10, 20)])),
+        (dict(highway="path", surface="asphalt"), shapely.LineString([(0, 20), (10, 20)])),
+    ]
+    path = tmp_path / "park.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        dict(tags=json.dumps(tags), geometry_local=geom.wkb) for tags, geom in features
+    ]), path)
+    regions = osm_surfaces(C.VisualTile(0, 0, 0), path)
+    def finish(x, z):
+        return [material for geom, material in regions if geom.covers(shapely.Point(x, z))][-1]
+    assert finish(20, 15) == mat_id("gravel")
+    for x in (10, 30, 40, 120):
+        assert finish(x, 15) == mat_id("paving_slab")

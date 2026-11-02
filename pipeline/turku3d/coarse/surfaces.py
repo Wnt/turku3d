@@ -88,8 +88,29 @@ def osm_surfaces(tile, path):
 
     result = []
     window = shapely.box(*tile.bbox.as_tuple())
+    records = []
+    parks, tagged_paths, path_finishes = [], [], []
     for _, row in rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"]) if row["tags"] else {}
+        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
+        records.append((tags, geom))
+        if tags.get("leisure") in ("park", "garden", "nature_reserve"):
+            area = geom
+            if area.geom_type == "LineString" and area.is_ring:
+                area = shapely.make_valid(shapely.Polygon(area))
+            if area.geom_type in ("Polygon", "MultiPolygon"):
+                parks.append(area)
+        if (
+            tags.get("highway") in ("footway", "path") and tags.get("surface")
+            and tags.get("bridge", "no") == "no" and tags.get("tunnel", "no") == "no"
+            and tags.get("layer", "0") in ("0", "")
+            and geom.geom_type in ("LineString", "MultiLineString")
+        ):
+            tagged_paths.append(geom)
+            path_finishes.append(SURFACES.get(tags["surface"]))
+    park_index = shapely.STRtree(parks)
+    path_index = shapely.STRtree(tagged_paths)
+    for tags, geom in records:
         if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") not in (
             "no",
             "building_passage",
@@ -117,6 +138,17 @@ def osm_surfaces(tile, path):
             and tags.get("parking") not in ("multi-storey", "underground")
         ):
             key = "road"
+        if not key and highway == "footway" and not tags.get("surface"):
+            # A missing tag is not evidence of slab joints. In a mapped park, inherit
+            # gravel only from a physically joined, explicitly tagged path, with no
+            # conflicting joined finish. Full source ways keep this tile-independent.
+            connected = path_index.query(geom, predicate="dwithin", distance=0.05)
+            if (
+                len(connected)
+                and all(path_finishes[i] == "gravel" for i in connected)
+                and any(parks[i].covers(geom) for i in park_index.query(geom))
+            ):
+                key = "gravel"
         if not key and highway:
             key = (
                 "paving_slab"
@@ -127,7 +159,6 @@ def osm_surfaces(tile, path):
             )
         if not key:
             continue
-        geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if not geom.intersects(window):
             continue
         if (
