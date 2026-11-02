@@ -1,4 +1,5 @@
 import * as T from 'three/webgpu';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TruckVisual } from '../actors/truck';
 import { TRUCK } from '../physics/constants';
@@ -9,6 +10,7 @@ const camera=new T.PerspectiveCamera(38,innerWidth/innerHeight,.05,200);camera.p
 const renderer=new T.WebGPURenderer({antialias:true,forceWebGL:location.search.includes('webgl')});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
 renderer.toneMapping=T.AgXToneMapping;renderer.toneMappingExposure=.9;renderer.shadowMap.enabled=true;
 document.body.appendChild(renderer.domElement);await renderer.init();
+const pmrem=new T.PMREMGenerator(renderer);const studioEnvironment=pmrem.fromScene(new RoomEnvironment(),.04);scene.environment=studioEnvironment.texture;scene.environmentIntensity=.8;
 
 scene.add(new T.HemisphereLight(0xc6e2ff,0x554735,1));
 const sun=new T.DirectionalLight(0xffe0a7,3.3);sun.position.set(6,10,-7);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
@@ -23,10 +25,12 @@ await renderer.compileAsync(scene,camera);
 let drive:ReturnType<typeof import('./prerunnerCourse').prerunnerCourse>|undefined;
 let driveCamera:T.Vector3|undefined;
 let orbit=false,articulation=false,frames:number[]=[],last=performance.now();
+function advanceDrive(dt:number){if(!drive)return;state=drive!.step(dt);truck.update(state);const p=new T.Vector3(state.pos.x,state.pos.y+.1,state.pos.z);if(!driveCamera){driveCamera=p.clone();camera.position.copy(p).add(new T.Vector3(5,2.6,-8));}else camera.position.add(p.clone().sub(driveCamera));controls.target.copy(p);driveCamera.copy(p);return state;}
 const api={scene,camera,renderer,controls,restState:staticState,
  drive:async()=>{drive?.dispose();drive=(await import('./prerunnerCourse')).prerunnerCourse(scene);orbit=articulation=false;driveCamera=undefined;},
  stopDrive:()=>{drive?.dispose();drive=undefined;state=staticState();truck.update(state);controls.target.set(0,.9,0);api.pose(-.8,.29,8.8);},
  driveStats:()=>drive?.snapshot(),
+ stepDrive:(dt=1/30)=>advanceDrive(dt),
  capture:async(width=1600,height=1000)=>{
   const target=new T.RenderTarget(width,height);const aspect=camera.aspect;
   camera.aspect=width/height;camera.updateProjectionMatrix();renderer.setOutputRenderTarget(target);
@@ -45,7 +49,7 @@ renderer.setAnimationLoop(()=>{
  const now=performance.now(),dt=now-last;last=now;frames.push(dt);if(frames.length>180)frames.shift();
  if(orbit){const a=now*.00015;api.pose(a,.28,8.5);}
  if(articulation){const s=staticState();s.wheels.forEach((w,i)=>w.pos.y+=Math.sin(now*.0015+i*Math.PI*.5)*.18);truck.update(s);}
- if(drive){state=drive.step(dt/1000);truck.update(state);const p=new T.Vector3(state.pos.x,state.pos.y+.1,state.pos.z);if(!driveCamera){driveCamera=p.clone();camera.position.copy(p).add(new T.Vector3(5,2.6,-8));}else camera.position.add(p.clone().sub(driveCamera));controls.target.copy(p);driveCamera.copy(p);}
+ if(drive)advanceDrive(dt/1000);
  controls.update();renderer.render(scene,camera);
  document.getElementById('stats')!.textContent=`${api.snapshot().fps.toFixed(0)} FPS  /  ${renderer.info.render.drawCalls} DRAWS  /  ${Math.round(renderer.info.render.triangles/1000)}K TRIANGLES`;
 });

@@ -1,5 +1,6 @@
 """The farm's version, concurrency, publication and eviction contracts, without city data."""
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -24,9 +25,10 @@ def fake_build(_revision, tile, root):
     (directory / 'mesh.glb').write_bytes(b'mesh')
     (directory / 'ground.col').write_bytes(b'col')
     m = dict(coarse=True, tile=tile, pass_kind='full',
-             visual={tile: dict(url='mesh.glb', bytes=4)},
+             visual={tile: dict(url='mesh.glb', bytes=4, sha256=hashlib.sha256(b'mesh').hexdigest())},
              collision={f'c_{int(tile.split("_")[1])*4+x}_{int(tile.split("_")[2])*4+z}':
-                        dict(url='ground.col', bytes=3) for x in range(4) for z in range(4)})
+                        dict(url='ground.col', bytes=3, sha256=hashlib.sha256(b'col').hexdigest())
+                        for x in range(4) for z in range(4)})
     farm_module.atomic_json(directory / 'manifest.json', m)
     farm_module.atomic_json(directory / 'stage-times.json', dict(ground={'cached': True}, walls={'cached': False}))
     return {'returncode': 0}
@@ -281,6 +283,49 @@ class FarmTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'incomplete'):
             farm_module.Farm.validate_shards(directory)
 
+    def test_collision_delivery_bundles_preserve_bytes_and_do_not_write_accepted_sources(self):
+        import hashlib
+        farm = self.farm()
+        root = self.root / 'accepted'
+        tile = 't0_0_0'
+        directory = root / tile / 'col'
+        directory.mkdir(parents=True)
+        cells = {}
+        for x in range(4):
+            for z in range(4):
+                cell = f'c_{x}_{z}'
+                data = (cell + '-bytes').encode()
+                path = directory / (cell + '.col')
+                path.write_bytes(data)
+                cells[cell] = dict(url='col/' + path.name, bytes=len(data),
+                                   sha256=hashlib.sha256(data).hexdigest())
+        before = {p: p.stat().st_mtime_ns for p in directory.iterdir()}
+        manifest = dict(collision=cells)
+        descriptor = farm.collision_bundle(root, tile, manifest)
+        name = descriptor['url'].rsplit('/', 1)[-1]
+        body = (self.root / 'delivery/shared' / name).read_bytes()
+        self.assertEqual(body, b''.join((root / tile / cells[c]['url']).read_bytes() for c in sorted(cells)))
+        self.assertEqual(hashlib.sha256(body).hexdigest(), descriptor['sha256'])
+        self.assertEqual(before, {p: p.stat().st_mtime_ns for p in directory.iterdir()})
+        self.assertIs(farm.collision_bundle(root, tile, manifest), descriptor)
+        (directory / 'c_0_0.col').write_bytes(b'bad')
+        farm.bundles.clear()
+        with self.assertRaisesRegex(ValueError, 'source mismatch'):
+            farm.collision_bundle(root, tile, manifest)
+
+    def test_retained_bundle_uses_the_selected_generations_root(self):
+        farm = self.farm()
+        for generation, revision, built in ((GEN, REV, '2026-11-03'), (GEN2, REV2, '2026-11-02')):
+            root = farm.output(generation)
+            fake_build(revision, 't0_0_0', root)
+            manifest = farm_module.read_json(root / 't0_0_0/manifest.json')
+            manifest['built'] = built
+            farm_module.atomic_json(root / 't0_0_0/manifest.json', manifest)
+            farm_module.atomic_json(root / 't0_0_0/ready.json', dict(revision=revision, generation=generation))
+        manifest, prefix, provenance, root = farm.retained('t0_0_0')
+        self.assertEqual(provenance['revision'], REV)
+        self.assertEqual(root, farm.output(GEN))
+
     def test_raw_intermediates_share_by_producer_and_adopt_complete_private_files(self):
         farm = self.farm()
         repo = self.root / 'revisions' / REV / 'repo'
@@ -308,6 +353,22 @@ class FarmTests(unittest.TestCase):
         roots = farm.intermediate_roots(repo)
         self.assertEqual(roots['vegetation'], old_roots['vegetation'])
         self.assertNotEqual(roots['coarse-roofs'], old_roots['coarse-roofs'])
+
+    def test_game_polling_counts_only_its_requested_generation(self):
+        entered, release = threading.Event(), threading.Event()
+        def build(revision, tile, root):
+            entered.set()
+            release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV2, 't0_1_0')
+        first, second = farm.version_status(REV), farm.version_status(REV2)
+        self.assertEqual((first['queued'], first['building']), (0, ['t0_0_0']))
+        self.assertEqual((second['queued'], second['building']), (1, []))
+        release.set()
+        self.wait(farm)
 
     def test_live_camera_demand_precedes_old_explicit_requests(self):
         entered, release = threading.Event(), threading.Event()
@@ -433,6 +494,9 @@ class FarmTests(unittest.TestCase):
             self.assertIsNone(manifest['revision'])
             self.assertEqual(manifest['source_kind'], 'accepted-fallback')
             self.assertEqual(urlopen(base + manifest['visual']['t0_0_0']['url']).read(), b'mesh')
+            bundle = manifest['collision_bundle']
+            self.assertEqual(bundle['format'], 'sorted-col-v1')
+            self.assertEqual(urlopen(base + bundle['url']).read(), b'col' * 16)
             self.assertEqual((accepted / 't0_0_0/mesh.glb').stat().st_mtime_ns, before)
         finally:
             release.set()
