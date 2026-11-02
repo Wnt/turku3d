@@ -1,44 +1,152 @@
 {
-  "bytes": 2009680,
-  "vatBytes": 1987200,
+  "bytes": 31539668,
+  "vatBytes": 30900960,
   "vat": {
-    "width": 720,
-    "height": 345,
+    "width": 2799,
+    "height": 1380,
     "format": "rgba16float"
   },
-  "sha256": "d91036f7dd1ffa49ab4fd765f5aa1e5286024103ab871a4ec322109cedaa7f31",
+  "sha256": "477f4cf82d8b8a71c1586d7b76840e725d3ca72af59e77c26560a77f51216b1a",
   "variants": [
     {
-      "id": "hoodie",
-      "vertices": 720,
-      "triangles": 1174,
-      "sourceTriangles": 27057,
-      "height": 1.725,
-      "metresPerLoop": 1.472,
+      "id": "tee-denim-crop",
+      "vertices": 2799,
+      "triangles": 4396,
+      "sourceTriangles": 28995,
+      "height": 1.73,
+      "metresPerLoop": 1.456,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
       ]
     },
     {
-      "id": "jacket",
-      "vertices": 717,
-      "triangles": 979,
-      "sourceTriangles": 25679,
-      "height": 1.739,
-      "metresPerLoop": 1.457,
+      "id": "tee-shorts-crop",
+      "vertices": 2797,
+      "triangles": 3878,
+      "sourceTriangles": 26076,
+      "height": 1.732,
+      "metresPerLoop": 1.453,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
       ]
     },
     {
-      "id": "skirt",
-      "vertices": 715,
-      "triangles": 964,
-      "sourceTriangles": 30370,
+      "id": "shirt-chinos",
+      "vertices": 2799,
+      "triangles": 3789,
+      "sourceTriangles": 25967,
+      "height": 1.712,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "hoodie-denim",
+      "vertices": 2798,
+      "triangles": 4378,
+      "sourceTriangles": 28117,
+      "height": 1.72,
+      "metresPerLoop": 1.456,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "light-jacket",
+      "vertices": 2799,
+      "triangles": 3630,
+      "sourceTriangles": 26855,
+      "height": 1.735,
+      "metresPerLoop": 1.456,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "tee-denim-pony",
+      "vertices": 2799,
+      "triangles": 3909,
+      "sourceTriangles": 31003,
+      "height": 1.618,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "tee-shorts-pony",
+      "vertices": 2794,
+      "triangles": 3816,
+      "sourceTriangles": 30378,
+      "height": 1.628,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "shirt-skirt-long",
+      "vertices": 2798,
+      "triangles": 3559,
+      "sourceTriangles": 29276,
+      "height": 1.618,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "summer-dress",
+      "vertices": 2798,
+      "triangles": 3638,
+      "sourceTriangles": 30840,
+      "height": 1.614,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "hoodie-denim-pony",
+      "vertices": 2797,
+      "triangles": 3915,
+      "sourceTriangles": 30929,
       "height": 1.621,
-      "metresPerLoop": 1.424,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "jacket-skirt-crop",
+      "vertices": 2796,
+      "triangles": 3974,
+      "sourceTriangles": 29538,
+      "height": 1.602,
+      "metresPerLoop": 1.455,
+      "clips": [
+        "Walk_Loop 40f@30",
+        "Idle_Loop 75f@30"
+      ]
+    },
+    {
+      "id": "shirt-denim-bald",
+      "vertices": 2797,
+      "triangles": 4295,
+      "sourceTriangles": 24377,
+      "height": 1.703,
+      "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
@@ -56,8 +164,8 @@
       "sha256": "b5b450af89f6fbf8debf387eda8da40cd0a8c3253a2d59871c730ce7e7f46469"
     },
     {
-      "file": "clothing_boots.glb",
-      "sha256": "ca9bd57f279006c5114cc47fbbc8143d0e53ac5ddb9b40c78099a53a0c904895"
+      "file": "clothing_dress.glb",
+      "sha256": "038fc440ae3932ba0e26a74c3cdcc53d381978832f5ea0fb58ef45e8b5055e06"
     },
     {
       "file": "clothing_hoodie.glb",
@@ -80,8 +188,20 @@
       "sha256": "ea483876a6de5d51bf9fef16e1fd1e8957573398eab3321870d93af8c7dbc9a2"
     },
     {
+      "file": "clothing_shorts.glb",
+      "sha256": "505d9a6ae140c16a8694d628e65ed7a681dc7410b08631212d6121d4b88d2dfe"
+    },
+    {
       "file": "clothing_skirt.glb",
       "sha256": "b0c9e31793fc2f0dedd9b1bfb60489711d7bf0c8c72405e949911afd836de6a2"
+    },
+    {
+      "file": "clothing_tshirt.glb",
+      "sha256": "f77eaea89354ad57bcce48a877bec314e82d71de84700810e7c8290b20886063"
+    },
+    {
+      "file": "hair_long01.glb",
+      "sha256": "d340fff458f920dd16dcc80493a1a33207b00c6bbfb08c4c53aba54704a78818"
     },
     {
       "file": "hair_ponytail01.glb",
@@ -95,5 +215,75 @@
       "file": "hair_short04.glb",
       "sha256": "ee2b27b2a004297ed5150edb7f6dc321e22cb87a30b5b7dcea582e1cf4789598"
     }
-  ]
+  ],
+  "atlas": {
+    "file": "wardrobe.png",
+    "sha256": "d3565f39965dda6868000ebac195e87d0a18945e6465b9dc82403965db836df8",
+    "sources": [
+      {
+        "sha256": "b1e3d39adcbfac6f4ca0626a0ebef96637da7525ff8cd1c3f89db61041b7275d",
+        "material": "Skin"
+      },
+      {
+        "sha256": "ab04be2349d02eb92128e1d75cf3da084a14d0895696573ee531c052bd4bbe13",
+        "material": "Eye"
+      },
+      {
+        "sha256": "ff9c0985748741af8af1e1c429be563943ac2e6a8d05e7cb5877db9526ed66ec",
+        "material": "Cloth_tshirt"
+      },
+      {
+        "sha256": "8617ea9f3384fc0fdddb3091d838192529dbde8e80e3f8f2f306675acde61697",
+        "material": "Cloth_jeans"
+      },
+      {
+        "sha256": "044e41cda2c9b1638228cb0bb7883e1a94a50c0d1ebe5046ed10a0a188bebd0b",
+        "material": "Cloth_shoes"
+      },
+      {
+        "sha256": "6fabee095b0e3fe4eae3627909405db3fc37b1fd80750e6f26b78674bf77045e",
+        "material": "Hair_short02"
+      },
+      {
+        "sha256": "white",
+        "material": "Accessory"
+      },
+      {
+        "sha256": "3d2e347edd6c65bb06339142f7aa2e2f145ccccf63bf730c8a0cebfc4fa072f1",
+        "material": "Cloth_shorts"
+      },
+      {
+        "sha256": "5cc27f46ba70185b02352cefde15b6efd0853fdb786cb4a54c757bf8818c0b8e",
+        "material": "Hair_short04"
+      },
+      {
+        "sha256": "6e6e5f886a3bb14edf5a1f6d1b6ac74ef7f718937b3d2821896311788afb6e2c",
+        "material": "Cloth_shirt"
+      },
+      {
+        "sha256": "69d0706906c3d74ccf3019cd8dfbdef5057ce33b2f863a765a55048e3ee29feb",
+        "material": "Cloth_hoodie"
+      },
+      {
+        "sha256": "1ccee8560cd55be906022423f27a779604a3c41a94f71618c76f976786d80afd",
+        "material": "Cloth_jacket"
+      },
+      {
+        "sha256": "bdaaa34f1301b0d9210418d39d30b4d04b519a164f0d4a4e3d1a86c7faa75139",
+        "material": "Hair_ponytail01"
+      },
+      {
+        "sha256": "6a2a5611d5eaab600589c61c51a68e092f3b2e2bc4a774aaa126dcb13c68c746",
+        "material": "Cloth_skirt"
+      },
+      {
+        "sha256": "71257268dddc7e73924df82abce487f4a5f2e40caa2c42a7d446b08d2168ee59",
+        "material": "Hair_long01"
+      },
+      {
+        "sha256": "7a5734a346fca3ebec2a021a09bb4f68e3ab2c600e54aad963c2b55c17fb28f7",
+        "material": "Cloth_dress"
+      }
+    ]
+  }
 }

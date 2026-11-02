@@ -6,6 +6,7 @@ import numpy as np
 
 from turku3d.package.gltf import GlbMesh
 
+from .atlas import batch
 from .descriptions import resolve
 from .procedural import maps, material_maps, roof_surface, wall_maps
 
@@ -53,12 +54,44 @@ def visible_walls(building, walls):
     return np.asarray(result).reshape(-1, 4, 3)
 
 
+def material_wall_parts(building, walls, description):
+    """Narrow fragments share maps, but never stretch spire metal below its stage."""
+    import shapely
+
+    from turku3d.wall_surfaces import trapezoids
+
+    d = description
+    for q in visible_walls(building, walls):
+        start = q[0, [0, 2]]
+        direction = q[1, [0, 2]] - start
+        width = np.linalg.norm(direction)
+        if width >= 3:
+            yield q, None
+            continue
+        if width < 0.001:
+            continue
+        direction /= width
+        low, high = q[:, 1].min(), q[:, 1].max()
+        tower = high - building.base > d["tower"]["minimum_height_m"]
+        stone = building.base + (d["tower"]["stone_top_m"] if tower else 1.5)
+        copper = building.base + d["tower"]["copper_start_m"]
+        levels = sorted(set([low, high, *[v for v in (stone, copper) if low < v < high]]))
+        face = shapely.Polygon(np.c_[[0, width, width, 0], q[:, 1]])
+        for lo, hi in zip(levels[:-1], levels[1:], strict=True):
+            kind = "roof" if lo >= copper - 0.001 else "stone" if hi <= stone + 0.001 else "wall"
+            for xy in trapezoids(face.intersection(shapely.box(0, lo, width, hi))):
+                points = np.empty((4, 3))
+                points[:, [0, 2]] = start + xy[:, :1] * direction
+                points[:, 1] = xy[:, 1]
+                yield points, kind
+
+
 def wall_meshes(building, walls, origin, description=None):
     d = description or resolve(building)
     if d is None:
         return None
     result = []
-    for index, vertices in enumerate(visible_walls(building, walls)):
+    for index, (vertices, band_kind) in enumerate(material_wall_parts(building, walls, d)):
         width = float(np.linalg.norm(vertices[1, [0, 2]] - vertices[0, [0, 2]]))
         low, high = float(vertices[:, 1].min()), float(vertices[:, 1].max())
         if width < 0.08 or high - low < 0.08:
@@ -68,6 +101,11 @@ def wall_meshes(building, walls, origin, description=None):
             and width < d["tower"]["maximum_width_m"]
         )
         repeat = width < 3 or high - low < 1.5
+        direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
+        outward = np.array([direction[1], -direction[0]]) / width
+        wall_description = dict(
+            d, show_entrance=bool(d.get("entrance") and tower and outward[0] < -0.9)
+        )
         albedo, normal, orm = (
             (None, None, None)
             if repeat
@@ -75,7 +113,7 @@ def wall_meshes(building, walls, origin, description=None):
                 round(width, 3),
                 round(high - low, 3),
                 round(low - building.base, 3),
-                json.dumps(d, sort_keys=True),
+                json.dumps(wall_description, sort_keys=True),
                 tower,
             )
         )
@@ -89,7 +127,7 @@ def wall_meshes(building, walls, origin, description=None):
         )
         repeat = width < 3 or high - low < 1.5
         if repeat:
-            kind = (
+            kind = band_kind or (
                 "roof"
                 if high - building.base > d["tower"]["copper_start_m"]
                 else "stone"
@@ -121,7 +159,7 @@ def wall_meshes(building, walls, origin, description=None):
                 ),
             )
         )
-    return result
+    return batch(result)
 
 
 def roof_mesh(building, roof, indices, origin, description=None):

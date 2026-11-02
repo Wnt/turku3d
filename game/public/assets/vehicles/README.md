@@ -40,47 +40,11 @@ Roberts, Julien Savoie, jeremy); MiniPoly's chunky flat-palette scooter is the c
 OpenGameArt (CC0): only car packs. KayKit: no vehicle pack with a two-wheeler. styloo's *Simple Scooter*
 (itch.io, CC0) was rejected: paid download and 2048 px PBR textures in a different style.
 
-## Trophy truck
+## KORPI 440 racer
 
-| | |
-|---|---|
-| File | `truck.glb` (79,188 bytes, SHA-256 `162f45d3d2d28eec5a690ce734d7181382b3b70abde5b90699c4c033cddcbb07`) |
-| Model | `truck.glb` (a pickup) from Kenney's **Car Kit 3.1** |
-| Source | https://kenney.nl/assets/car-kit, archive `kenney_car-kit.zip` (SHA-256 `fac7dacac5c7874348cf19729af3ef205f3d366493edaf0a827d93f4fdf3d0c4`, the same archive as `../car/sedan.glb`), `Models/GLB format/truck.glb` (176,360 bytes, SHA-256 `5e1bc66c343501dd7d5734b57e672dd949bf95d7abdce680c6508cef99d374f8`, 754-triangle body, four 332-triangle wheels) with `Textures/colormap.png` (12,371 bytes, 512 px palette), downloaded 2026-10-27 |
-| Licence | [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) ([Kenney's licence file](../car/KENNEY-LICENSE.txt)); no attribution required |
-
-### Changes
-
-`game/scripts/prepare-truck.mjs` (offline, from the archive):
-
-- embeds the palette texture; keeps the body and one wheel (`wheel`, from `wheel-front-left`);
-- removes the 10 window-glass triangles (palette cell column 1, rows 13–14) so the cab is open like a trophy
-  truck's netted window frames and the seated driver shows;
-- repaints the body's 158 green triangles in the palette's orange column (UV shift by four 32 px cells).
-
-`src/actors/truck.ts` (at runtime, all flat-shaded): stretches the cab and bed to the physics wheelbase (2.9 m)
-while the cross-section and overhangs scale by 1.35, lifts the body 25 cm, builds four 0.92 m tyres (0.42 m wide)
-from the wheel, and adds in code a roll cage over the bed, a roof light bar with four lenses, a spare tyre in the
-bed, a front bar and yellow coilovers whose length follows the suspension. No BeamNG or other non-redistributable
-content is used.
-
-Rebuild (run in `game/`; the archive is not kept in the repository):
-
-```bash
-mkdir -p "$TURKU3D_WORK/cache/truck" && curl -sSLo "$TURKU3D_WORK/cache/truck/car-kit.zip" \
-  https://kenney.nl/media/pages/assets/car-kit/1a312ec241-1775131960/kenney_car-kit.zip
-unzip -q -o "$TURKU3D_WORK/cache/truck/car-kit.zip" -d "$TURKU3D_WORK/cache/truck/car-kit"
-npm run prepare-truck -- "$TURKU3D_WORK/cache/truck/car-kit/Models/GLB format/truck.glb" public/assets/vehicles/truck.glb
-```
-
-### Selection (2026-10-27)
-
-Searched for a CC0 or CC BY low-poly trophy truck, baja prerunner or desert buggy in glTF, in the brief's order.
-BeamNG mods were excluded up front (not redistributable). Kenney Car Kit 3.1: no buggy or trophy truck, but a
-pickup (`truck.glb`) in exactly the style of the game's sedan. Quaternius (poly.pizza, CC0): *Pickup Truck* (a
-realistic 1970s pickup, 6.4 k triangles, a different style), *Rover* (six-wheeled), *Pickup Thunder* (an icon);
-no trophy truck. poly.pizza: Nick Slough's two *Buggy* models are CC BY 3.0 dune buggies (614/367 KB, another
-style, one on a diorama base); no trophy or monster truck under CC0/CC BY. OpenGameArt: rgsdev's CC0 vehicle pack has
-a monster truck, not a prerunner, without glTF; RayB2's CC0 vehicles ship only as `.blend`. KayKit: no off-road
-truck. Every trophy truck found elsewhere is paid (CGTrader, Sketchfab store). So the brief's fallback applies:
-the Kenney pickup, lifted, on big tyres and with a cage, built in code.
+The previous Kenney pickup has been replaced by original parametric geometry in
+[`src/actors/prerunner`](../../../src/actors/prerunner/README.md). The vehicle has a
+spaceframe, exposed V8, independent animated beadlock wheels, helical coilovers,
+separate bypass shocks, a safety net and original fictional Finnish livery.
+No external truck mesh or preparation step is needed. It uses the existing `truck`
+physics/network kind and the shared-clock rare parking windows.
