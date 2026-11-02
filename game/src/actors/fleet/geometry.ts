@@ -57,6 +57,7 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
   const n = lod === 0 ? 20 : lod === 1 ? 10 : 6, w=.205, rim=r*.64;
   const point = (xx: number, rr: number, angle: number): V => [xx,y+Math.sin(angle)*rr,z+Math.cos(angle)*rr];
   for (let i=0;i<n;i++) {
+    b.flip=false;
     const a=i/n*Math.PI*2-Math.PI/2, c=(i+1)/n*Math.PI*2-Math.PI/2;
     const profile=[[-w/2,r*.93],[-w*.34,r],[w*.34,r],[w/2,r*.93]];
     for(let j=0;j<profile.length-1;j++){
@@ -64,14 +65,14 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
       b.quad(point(x+xa,ra,a),point(x+xb,rb,a),point(x+xb,rb,c),point(x+xa,ra,c),DARK,RUBBER);
     }
     for (const s of [-1,1]) {
-      b.flip=s>0;
+      b.flip=s<0;
       const outside=x+s*w/2, lip=x+s*(w/2+.018);
-      if(lod===2){b.tri([outside,y,z],point(outside,r,a),point(outside,r,c),[.04,.045,.05],RUBBER);continue;}
+      if(lod===2){b.tri([outside,y,z],point(outside,r,c),point(outside,r,a),[.04,.045,.05],RUBBER);continue;}
       b.quad(point(outside,r*.93,a),point(lip,r*.85,a),point(lip,r*.85,c),point(outside,r*.93,c),DARK,RUBBER);
       b.quad(point(lip,r*.85,a),point(lip,rim,a),point(lip,rim,c),point(lip,r*.85,c),[.028,.031,.035],RUBBER);
       const recess=lip-s*.035;
       b.quad(point(lip,rim,a),point(recess,rim*.88,a),point(recess,rim*.88,c),point(lip,rim,c),[.38,.41,.44],METAL);
-      b.tri([recess,y,z],point(recess,rim*.88,a),point(recess,rim*.88,c),[.055,.06,.065],METAL);
+      b.tri([recess,y,z],point(recess,rim*.88,c),point(recess,rim*.88,a),[.055,.06,.065],METAL);
     }
   }
   b.flip=false;
@@ -227,7 +228,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
     b.box(0,belt-.08,-L*.32,W*1.75,.12,L*.28,[.035,.04,.045],RUBBER);
     for(const s of [-1,1]) b.box(s*W*.91,belt+.065,-L*.32,.12,.20,L*.31,WHITE,PAINT);
   }
-  if(includeWheels)for(const s of [-1,1]) for(const z of [front,rear]) wheel(b,s*(W-.075),r,z,r,s,m.face,lod);
+  if(includeWheels)for(const s of [-1,1]) for(const z of [front,rear]) wheel(b,s*(widthAt(z)-.132),r,z,r,s,m.face,lod);
   // Body-specific lamp signatures, grille, bumpers and fictional Finnish-style plates.
   for(const end of [-1,1]) {
     b.flip=end<0;

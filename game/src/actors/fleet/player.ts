@@ -12,7 +12,7 @@ const wheelGeometries=new Map<number,THREE.BufferGeometry>();
 /** Starter sedan uses the same original fleet surfaces, with the existing physical wheel
  * locations and radii. No suspension, handling or contact values are altered. */
 export function createPlayerFleet(){
-  const source=fleetAppearance('fleet-sedan-2','player',{width:1.97,height:1.48,length:4.55});
+  const source=fleetAppearance('fleet-sedan-2','player',{width:2.08,height:1.48,length:4.55});
   const model={...source,wheelbase:CAR.wheels[0].x-CAR.wheels[2].x,wheel:CAR.wheelRadius};
   if(!bodyGeometry){bodyGeometry=buildFleetGeometry(model,0,false);bodyGeometry.translate(0,-.75,0);bodyGeometry.rotateY(Math.PI/2);}
   const root=new THREE.Group(),body=new THREE.Mesh(bodyGeometry,fleetMaterial());

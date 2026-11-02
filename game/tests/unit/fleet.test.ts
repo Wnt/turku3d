@@ -124,3 +124,19 @@ test('sloped chassis transforms preserve the authored ground origin through take
   expect(scene.getObjectByName('driven/slope')!.position.distanceTo(new THREE.Vector3(car.x,car.y,car.z))).toBeLessThan(1e-6);
   visuals.resetRound();visuals.update([],rest);expect(scene.getObjectByName('driven/slope')).toBeUndefined();expect(visuals.snapshot().instances).toBe(1);visuals.dispose();
 });
+
+test('both tyre shoulders and treads face outward through every angular segment and LOD',async()=>{
+  const {buildFleetWheel}=await import('../../src/actors/fleet/geometry');
+  for(const lod of [0,1,2] as const)for(const side of [-1,1] as const){
+    const g=buildFleetWheel(FLEET[0],side,lod),p=g.getAttribute('position'),surface=g.getAttribute('fleetSurface'),indices=g.index!;
+    let count=0;
+    for(let i=0;i<indices.count;i+=3){
+      const ia=indices.getX(i),ib=indices.getX(i+1),ic=indices.getX(i+2);if(surface.getY(ia)<.9)continue;
+      const a=new THREE.Vector3().fromBufferAttribute(p,ia),b=new THREE.Vector3().fromBufferAttribute(p,ib),c=new THREE.Vector3().fromBufferAttribute(p,ic);
+      const center=a.clone().add(b).add(c).multiplyScalar(1/3);
+      if(Math.max(a.x,b.x,c.x)-Math.min(a.x,b.x,c.x)<1e-6||Math.max(...[a,b,c].map(v=>Math.hypot(v.y,v.z)))<FLEET[0].wheel*.92)continue;
+      const normal=b.sub(a).cross(c.sub(a));expect(normal.dot(new THREE.Vector3(0,center.y,center.z))).toBeGreaterThan(0);count++;
+    }
+    expect(count).toBe([200,100,36][lod]);g.dispose();
+  }
+});

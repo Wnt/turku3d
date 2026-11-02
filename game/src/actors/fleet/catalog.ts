@@ -67,7 +67,7 @@ export function fitFleetModel(model:FleetModel,size:FleetSize):FleetModel {
   let fit=fitted.get(key);if(fit)return fit;
   const width=w/100-.22,height=h/100,length=l/100-.12,ys=height/base.height;
   fit={...base,id:key,width,height,length,wheelbase:base.wheelbase*length/base.length,
-    wheel:base.wheel*Math.min(ys,width/base.width),belt:base.belt*ys};
+    wheel:base.wheel*Math.min(ys,1),belt:base.belt*ys};
   if(fitted.size>512)fitted.clear();
   fitted.set(key,fit);return fit;
 }
