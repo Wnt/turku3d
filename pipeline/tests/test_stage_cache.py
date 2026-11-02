@@ -411,7 +411,7 @@ def test_ground_producer_identity_ignores_cache_telemetry_but_tracks_interpolati
 
 def test_prepared_wfs_ignores_texture_pixels_but_tracks_visual_material_assignment(tmp_path, monkeypatch):
     from pathlib import Path
-    from turku3d.coarse import inputs, ground_finishes
+    from turku3d.coarse import inputs, ground_finishes, street_materials
     monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
     before = inputs._key([], 'wfs')
     original = Path.read_bytes
@@ -421,7 +421,11 @@ def test_prepared_wfs_ignores_texture_pixels_but_tracks_visual_material_assignme
         return data.replace(b'def maps(key, size=None):', b'def maps(key, size=256):') if path == source else data
     monkeypatch.setattr(Path, 'read_bytes', pixels)
     assert inputs._key([], 'wfs') == before
-    monkeypatch.setattr(ground_finishes, 'FIELDSTONE', 130)
+    classification = Path(street_materials.__file__)
+    def assignment(path):
+        data = original(path)
+        return data.replace(b'FIELDSTONE = 128', b'FIELDSTONE = 130') if path == classification else data
+    monkeypatch.setattr(Path, 'read_bytes', assignment)
     assert inputs._key([], 'wfs') != before
 
 
