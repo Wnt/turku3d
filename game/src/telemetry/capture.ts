@@ -6,7 +6,7 @@ type Rows = Record<'frames' | 'poses' | 'loaf' | 'stats' | 'marks' | 'js' | 'net
 interface SelfProfiler { stop(): Promise<unknown>; addEventListener(type: string, fn: () => void): void }
 const empty = (): Rows => ({ frames: [], poses: [], loaf: [], stats: [], marks: [], js: [], network: [] });
 const R = (x: number | null | undefined, d = 3) => x == null ? null : Math.round(x * 10 ** d) / 10 ** d;
-export const captureAllowed = () => !import.meta.env.VITE_PUBLIC_RELEASE && localFeature(location, 'capture');
+export const captureAllowed = () => import.meta.env.VITE_PUBLIC_RELEASE !== '1' && localFeature(location, 'capture');
 const KEY = 'turku3d.performanceCapture';
 export class DriveCapture {
   readonly id = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '').replace(/^(\d{8})(\d+)/, '$1-$2') + '-' + Math.random().toString(36).slice(2, 8);

@@ -78,13 +78,14 @@ try {
 }
 let initialDrive: LoadedDrive | null = null;
 if (params.drive) {
+  window.__bench = { phase: 'loading', done: false, replayOf: params.drive.capture, segment: params.drive.segment };
   try {
     initialDrive = await loadDrive(params.drive.capture, params.drive.segment);
     params.qa = driveQaPose(initialDrive.poses[0]); params.motion = true;
     if (initialDrive.meta.params) {
       for (const key of ['traffic', 'walkers', 'trafficDensity', 'quality', 'aa'] as const) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
     }
-  } catch (e) { window.__qaError = String(e); throw e; }
+  } catch (e) { window.__qaError = String(e); Object.assign(window.__bench!, { phase: 'error', error: String(e) }); throw e; }
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
 /** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */

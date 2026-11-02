@@ -16,11 +16,13 @@ def prepare(tile, path, survey_paths=()):
     from turku3d.spatial import rows as source_rows
 
     rows, areas, seen = [], [], set()
-    bridges, footways = [], []
+    bridges, footways, rail_paths = [], [], []
     window = shapely.box(*tile.bbox.buffered(50).as_tuple())
     for _, row in source_rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"] or "{}")
         geom = shapely.force_2d(row["geometry_local"])
+        if tags.get("highway") in ("footway", "path", "pedestrian", "cycleway"):
+            rail_paths.append((geom, tags))
         if (
             tags.get("highway") in ("footway", "path", "pedestrian", "cycleway")
             and geom.geom_type == "LineString"
@@ -44,6 +46,9 @@ def prepare(tile, path, survey_paths=()):
     from .stair_survey import attach
 
     attach(rows, survey_paths, bridges, footways)
+    from . import stair_rails
+
+    stair_rails.attach(rows, rail_paths)
     return rows, areas
 
 
@@ -258,7 +263,8 @@ def produce(tile, prepared, sample, decks=()):
                 apron_collision.face(patch_xyz[::-1], patch[::-1])
         corridor = shapely.union_all([corridor, *aprons])
         if faces.indices:
-            from .bridge_details import appearance, combine, handrail
+            from .bridge_details import appearance, combine
+            from . import stair_rails
 
             parts = [appearance(faces.mesh(f"stairs:{key}", "stair_tread_helper"), "concrete")]
             # Capsules walk the continuous slope; feet query the exact visible treads.
@@ -295,13 +301,11 @@ def produce(tile, prepared, sample, decks=()):
                 for side, name in ((left, "left"), (right, "right")):
                     if tags.get("handrail:" + name) == "no":
                         continue
-                    edge = shapely.LineString(side)
-                    station = np.r_[0, np.cumsum(np.linalg.norm(np.diff(side, axis=0), axis=1))]
                     parts.extend(
-                        handrail(
+                        stair_rails.produce(
                             f"stairs:{key}:rail",
-                            edge,
-                            (station, np.interp(distances, knots, levels)),
+                            side, distances, knots, levels,
+                            tags.get("_rail_clearance"), suspended=bridge_access,
                         )
                     )
             for part in combine(parts, f"stairs:{key}"):
@@ -442,6 +446,7 @@ def stage(
         Path(__file__).with_name("geometry.py"),
         Path(__file__).with_name("bridge_details.py"),
         Path(__file__).with_name("stair_survey.py"),
+        Path(__file__).with_name("stair_rails.py"),
         Path(__file__).with_name("walkable.py"),
         Path(__file__).with_name("tunnels.py"),
         Path(retaining.__file__),
