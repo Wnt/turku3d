@@ -406,7 +406,7 @@ describe('rendering', () => {
       visuals.reserveTraffic(40);
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
-      expect(meshes.map(m => m.name).sort()).toEqual(FLEET.flatMap(m => [0, 1, 2].map(lod => `parked/${fleetAppearance(m.id,m.id).id}/${lod}`)).sort());
+      expect(meshes.map(m => m.name).sort()).toEqual([...FLEET.flatMap(m => [0,1,2,'0/moving'].map(lod => `parked/${fleetAppearance(m.id,m.id).id}/${lod}`)),...Array.from({length:7},(_,face)=>[-1,1].map(side=>`fleet-moving-wheels/${face}/${side}`)).flat()].sort());
       expect(load).not.toHaveBeenCalled();
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {
@@ -415,13 +415,14 @@ describe('rendering', () => {
         visuals.setTraffic(moving);
         visuals.update([], { restingPose: c => ({ pos: { x: c.x, y: c.y + 0.75, z: c.z }, rot: { x: 0, y: 0, z: 0, w: 1 } }) });
         expect(scene.children).toEqual(meshes);
-        expect(meshes.reduce((n, m) => n + m.count, 0)).toBe(1 + count);
-        const sedan = meshes.find(m => m.name === `parked/${fleetAppearance('sedan', 'p1').id}/0`)!;
+        expect(meshes.filter(m=>m.name.startsWith('parked/')).reduce((n, m) => n + m.count, 0)).toBe(1 + count);
+        expect(visuals.snapshot().movingWheels).toBe(Math.min(count,6)*4);
+        const sedan = meshes.find(m => m.name === `parked/${fleetAppearance('sedan', 'p1').id}/0/moving`)!;
         if (count) {
-          // The first moving sedan follows the parked one, with its own paint.
-          const paint = Array.from(instancePaintOf(sedan)!.array.slice(3, 6));
+          // Near traffic uses a wheel-free body batch; all four wheels share rim-style batches.
+          const paint = Array.from(instancePaintOf(sedan)!.array.slice(0, 3));
           expect(paint).toEqual(paintOf('blue').map(Math.fround));
-          const m = new THREE.Matrix4(); sedan.getMatrixAt(1, m);
+          const m = new THREE.Matrix4(); sedan.getMatrixAt(0, m);
           expect(new THREE.Vector3().setFromMatrixPosition(m).toArray()).toEqual([0, 0, 3]);
         }
         for (const mesh of meshes) { const s = program(mesh); states.push(s.vertexShader + s.fragmentShader); }

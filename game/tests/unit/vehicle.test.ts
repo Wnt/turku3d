@@ -173,3 +173,29 @@ for (const [kind, speed] of [['car', 8], ['scooter', 2.5]] as const) {
     world.free();
   });
 }
+
+
+test('fleet wheel geometry is per-instance and retains front steering, spin and wheel order', async () => {
+  const { Vehicle } = await import('../../src/vehicle/vehicle');
+  const { CurbQueries } = await import('../../src/vehicle/curbQueries');
+  const { CAR } = await import('../../src/physics/constants');
+  const { fleetWheelGeometry } = await import('../../src/actors/fleet/profile');
+  const { FLEET } = await import('../../src/actors/fleet/catalog');
+  const original=JSON.stringify(CAR),world=new R.World({x:0,y:-9.81,z:0});
+  const geometry=fleetWheelGeometry(FLEET.find(m=>m.body==='van')!);
+  const car=new Vehicle(R,world,{x:0,y:1,z:0},0,new CurbQueries(R,world),{wheelGeometry:geometry});
+  expect(car.tuning).not.toBe(CAR);expect(JSON.stringify(CAR)).toBe(original);
+  expect(car.tuning.wheelRadius).toBe(geometry.radius);
+  const wheels=car.tuning.wheels;
+  expect(wheels.map(w=>Math.sign(w.x))).toEqual([1,1,-1,-1]);
+  expect(wheels.map(w=>Math.sign(w.z))).toEqual([-1,1,-1,1]);
+  expect(wheels[0].x-wheels[2].x).toBeCloseTo(geometry.wheelbase);
+  expect(wheels[1].z-wheels[0].z).toBeCloseTo(geometry.track);
+  expect(wheels[0].y-CAR.rest).toBeCloseTo(geometry.radius-.75);
+  car.step(1/60,{...coast,throttle:1,steer:.5});world.step();
+  const state=car.state();expect(state.wheels).toHaveLength(4);
+  expect(state.wheels[0].steer).not.toBe(0);expect(state.wheels[1].steer).toBe(state.wheels[0].steer);
+  expect(state.wheels[2].steer).toBe(0);expect(state.wheels[3].steer).toBe(0);
+  expect(state.wheels.every(w=>Number.isFinite(w.rotation))).toBe(true);
+  expect(JSON.stringify(CAR)).toBe(original);world.free();
+});

@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fleetHash, type FleetModel } from './catalog';
+import { fleetHalfWidth } from './profile';
 
 type V = [number, number, number];
 type Surface = [number, number, number, number]; // paint mask, roughness, metalness, lamp emission
@@ -9,9 +10,10 @@ const METAL: Surface = [0, .29, .8, 0], TRIM: Surface = [0, .62, .08, 0];
 const WHITE: V = [1, 1, 1], DARK: V = [.018, .023, .029], WINDOW: V = [.016, .030, .041];
 /** A compact merged mesh with per-vertex surface properties: every part uses one shared node material. */
 class Builder {
-  flip=false; smooth=false; smoothing:number[]=[];
+  flip=false; smooth=false; smoothing:number[]=[]; map:((point:V)=>V)|undefined;
   positions: number[] = []; colors: number[] = []; surfaces: number[] = [];
   tri(a: V, b: V, c: V, color: V = WHITE, surface = PAINT) {
+    if(this.map){a=this.map(a);b=this.map(b);c=this.map(c);}
     this.positions.push(...a, ...(this.flip?c:b), ...(this.flip?b:c));
     for (let i = 0; i < 3; i++) { this.colors.push(...color); this.surfaces.push(...surface); this.smoothing.push(this.smooth&&surface===PAINT?1:0); }
   }
@@ -90,12 +92,18 @@ function wheel(b: Builder, x: number, y: number, z: number, r: number, side: num
 /** +Z forward, tyre bottoms at Y=0. No imported geometry, logos or photo textures. */
 export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true): THREE.BufferGeometry {
   const b = new Builder(), L=m.length, W=m.width/2, H=m.height, belt=m.belt, r=m.wheel;
+  // Rounded front/rear corners apply to the shared shell, lenses and trim together.
+  // Axles remain outside this short bumper transition, keeping tyres exactly circular.
+  b.map=([x,y,z])=>{
+    const nearEnd=THREE.MathUtils.smoothstep(Math.abs(z)/(L/2),.88,1);
+    const curve=z>0?[.14,.18,.12,.11,.20,.16,.08][m.face]:[.10,.12,.08,.09,.13,.10,.065][m.face];
+    return [x,y,z-Math.sign(z)*curve*Math.pow(Math.min(1,Math.abs(x)/W),4)*nearEnd];
+  };
   const front=m.wheelbase/2, rear=-m.wheelbase/2, low=.25+(r-.315), arch=r+.055;
   const n=lod===0?28:lod===1?10:2;
   const zf=L*m.hood, zr=L*m.rear;
   const classic=m.body==='classic', commercial=m.body==='van';
-  const corner=classic?.045:commercial?.055:[.09,.075,.115,.065,.10,.085,.055][m.face];
-  const widthAt=(z:number)=>W*(1-corner*Math.pow(Math.abs(2*z/L),classic?8:commercial?10:4+m.face%3));
+  const widthAt=(z:number)=>fleetHalfWidth(m,z);
   const topAt=(z:number)=>belt-(z>zf?(classic?.10:commercial?.14:.23)*Math.pow((z-zf)/(L/2-zf),1.15)
     :z<zr?(m.body==='sedan'||classic?.16:.07)*Math.pow((zr-z)/(L/2+zr),1.2):0);
   const bottomAt=(z:number)=>Math.max(low,...[front,rear].map(wz=>Math.abs(z-wz)<arch ? r+Math.sqrt(arch*arch-(z-wz)**2) : low));
@@ -130,10 +138,13 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
   for(const s of [-1,1]) {
     b.flip=s<0;
     const z=s*L/2,w=widthAt(z),y=topAt(z);
-    b.quad([-w*.91,low,z],[w*.91,low,z],[w,y-.25,z],[-w,y-.25,z],[.86-m.age*.08,.87-m.age*.09,.88-m.age*.11],PAINT);
-    b.quad([-w,y-.25,z],[w,y-.25,z],[w*.98,y-.06,z],[-w*.98,y-.06,z],[.95,.96,.97],PAINT);
-    b.quad([-w*.98,y-.06,z],[w*.98,y-.06,z],[w*.90,y,z],[-w*.90,y,z],WHITE,PAINT);
-    b.tri([-w*.90,y,z],[w*.90,y,z],[0,y+.025,z],WHITE,PAINT);
+    const cross=lod===0?[-1,-.85,-.65,-.3,0,.3,.65,.85,1]:[-1,-.65,0,.65,1];
+    for(let i=0;i<cross.length-1;i++){
+      const a=cross[i],c=cross[i+1];
+      b.quad([a*w*.91,low,z],[c*w*.91,low,z],[c*w,y-.25,z],[a*w,y-.25,z],[.86-m.age*.08,.87-m.age*.09,.88-m.age*.11],PAINT);
+      b.quad([a*w,y-.25,z],[c*w,y-.25,z],[c*w*.98,y-.06,z],[a*w*.98,y-.06,z],[.95,.96,.97],PAINT);
+      b.quad([a*w*.98,y-.06,z],[c*w*.98,y-.06,z],[c*w*.90,y+.025*(1-c*c),z],[a*w*.90,y+.025*(1-a*a),z],WHITE,PAINT);
+    }
   }
   b.flip=false;
   b.smooth=false;
@@ -251,16 +262,31 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
   for(const end of [-1,1]) {
     b.flip=end<0;
     const z=end*(L/2+.006), lampY=topAt(end*L/2)-.09;
-    b.box(0,low+.14,z,W*1.70,.13,.04,DARK,TRIM);
+    b.box(0,low+.045,z,W*1.67,.035,.025,DARK,TRIM);
+    const intakeW=W*(end>0?1.05:.84),intakeH=end>0?.15:.09,iz=z+end*.009;
+    b.quad([-intakeW/2,low+.10,iz],[intakeW/2,low+.10,iz],[intakeW*.43,low+.10+intakeH,iz],[-intakeW*.43,low+.10+intakeH,iz],DARK,TRIM);
     b.box(0,lampY-.12,z+end*.013,W*(m.face%2?.79:.65),.15,.025,[.022,.026,.03],TRIM);
     for(const s of [-1,1]) {
       const lh=m.face%3===0?.13:.085, lw=W*(m.face%3===1?.46:.39);
       const cx=s*W*.64,zz=z+end*.022;
-      b.quad([cx-lw/2,lampY-lh/2,zz],[cx+lw/2,lampY-lh/2,zz],[cx+lw/2-s*.045,lampY+lh/2+.018,zz],
-        [cx-lw/2+s*.045,lampY+lh/2,zz],end>0?[.65,.76,.86]:[.35,.008,.006],[0,.17,.25,end>0?1:.55]);
+      const lamp=(width:number,height:number,depth:number,color:V,surface:Surface)=>{
+        const bevel=Math.min(.035,height*.23),xl=cx-width/2,xr=cx+width/2,yb=lampY-height/2,yt=lampY+height/2,zl=zz+end*depth;
+        const contour:V[]=[[xl+bevel,yb,zl],[xr-bevel,yb,zl],[xr,yb+bevel,zl],[xr,yt-bevel,zl],[xr-bevel,yt,zl],[xl+bevel,yt,zl],[xl,yt-bevel,zl],[xl,yb+bevel,zl]];
+        for(let k=0;k<contour.length;k++)b.tri([cx,lampY,zl],contour[k],contour[(k+1)%contour.length],color,surface);
+      };
+      lamp(lw+.045,lh+.035,0,[.012,.016,.02],TRIM);
+      lamp(lw,lh,.006,end>0?[.10,.15,.18]:[.16,.004,.003],[0,.12,.08,0]);
+      if(lod<2&&end>0){
+        const projectorX=cx-s*lw*.20,pr=lh*.29,pz=zz+end*.010;
+        for(let k=0;k<8;k++){
+          const a=k/8*Math.PI*2,c=(k+1)/8*Math.PI*2;
+          b.tri([projectorX,lampY,pz],[projectorX+Math.cos(a)*pr,lampY+Math.sin(a)*pr,pz],[projectorX+Math.cos(c)*pr,lampY+Math.sin(c)*pr,pz],[.60,.68,.74],[0,.15,.45,1]);
+        }
+      }
+      b.box(cx,lampY-lh*.29,zz+end*.012,lw*.78,.016,.004,end>0?[.72,.82,.94]:[.48,.008,.004],[0,.17,.12,end>0?1:.55]);
       // +X is the vehicle's left in the model-to-physics frame.
       b.box(s*W*.80,lampY-.07,z+end*.024,.085,.032,.025,[.75,.22,.006],[0,.22,.08,s>0?2:3]);
-      if(lod===0&&end>0)b.box(cx,lampY-lh*.3,z+end*.026,lw*.83,.018,.004,[.8,.87,.94],[0,.18,.2,1]);
+
     }
     if(lod===0) {
       b.box(0,low+.18,z+end*.04,.51,.11,.018,[.9,.92,.87],[0,.55,0,0]);
@@ -292,6 +318,7 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2, includeWheels=true
 
     }
   }
+  b.map=undefined;
   if(m.accessory==='box' && lod<2) {
     for(const z of [rr+.2,rf-.1]) b.box(0,H+.07,z,W*1.8,.04,.055,DARK,TRIM);
     b.box(0,H+.22,(rf+rr)*.5,W*1.35,.28,Math.min(1.75,rf-rr+.3),[.045,.05,.055],TRIM);

@@ -85,7 +85,7 @@ export async function restoreVehicleSpot(saved: SavedVehicle, player: V3, graph:
 
 /** A borrowed vehicle can outlive the draft tile that originally supplied its model and identity. */
 export function keepSavedVehicle(manifest: Manifest, last: SavedVehicle | null | undefined) {
-  if (!last?.appearance || (!last.modelAsset && last.kind !== 'truck')) return;
+  if (!last?.appearance) return;
   manifest.vehicles ??= [];
   if (!manifest.vehicles.some(v => v.object_id === last.id)) manifest.vehicles.push(last.appearance);
   if (!last.modelAsset) return;

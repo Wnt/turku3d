@@ -3,7 +3,7 @@ import type * as Rapier from '@dimforge/rapier3d';
 export type RapierModule = typeof Rapier;
 type RapierApi = Pick<RapierModule, 'RigidBodyDesc' | 'ColliderDesc' | 'QueryFilterFlags' | 'Ray'>;
 import type { V3 } from '../core/origin.ts';
-import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
+import type { VehicleInput, VehicleState, WheelGeometry } from '../physics/protocol.ts';
 import { VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
 import { GROUP } from '../shared/col/materials.ts';
 import { BumpDetector } from './bumps.ts';
@@ -42,11 +42,19 @@ export class Vehicle {
   private surfaces: WheelQueries;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
-    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean } = {},
+    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; wheelGeometry?: WheelGeometry } = {},
     private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
-    const t = this.tuning = VEHICLES[this.kind];
+    const base = VEHICLES[this.kind], geometry = spec.wheelGeometry;
+    if (geometry && (this.kind !== 'car' || !Number.isFinite(geometry.wheelbase + geometry.track + geometry.radius)
+      || geometry.wheelbase < 1.5 || geometry.wheelbase > 4.5 || geometry.track < 1 || geometry.track > 2.6
+      || geometry.radius < .2 || geometry.radius > .6)) throw new Error('Invalid vehicle wheel geometry');
+    // Geometry belongs to this model. Force, suspension and handling tuning remain shared and immutable.
+    const t = this.tuning = geometry ? { ...base, wheelRadius: geometry.radius,
+      wheels: [[1, -1], [1, 1], [-1, -1], [-1, 1]].map(([front, side]) => ({
+        x: front * geometry.wheelbase / 2, y: geometry.radius - .75 + base.rest, z: side * geometry.track / 2,
+      })) } : base;
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));

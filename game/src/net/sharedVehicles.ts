@@ -1,3 +1,5 @@
+import { fleetAppearance } from '../actors/fleet/catalog';
+import { fleetWheelGeometry } from '../actors/fleet/profile';
 import type { V3 } from '../core/origin';
 import type { PhysicsClient } from '../physics/client';
 import { VEHICLES } from '../physics/constants';
@@ -245,6 +247,8 @@ export class SharedVehicles {
         this.physics.spawnVehicle(
         { x: v.pose.E, y: v.pose.H + VEHICLE_POSE_HEIGHT, z: -v.pose.N }, v.pose.yaw + Math.PI / 2,
         { id: local, kind: v.pose.mode as 'car' | 'scooter' | 'truck', halfExt: v.half, rot: v.pose.rot,
+          ...(v.pose.mode === 'car' && v.pose.vehicle && v.pose.vehicle !== 'player' ? { wheelGeometry: fleetWheelGeometry(
+            fleetAppearance(v.pose.vehicle.split('/')[0], v.id, {width:v.half.z*2,height:v.half.y/.28,length:v.half.x*2})) } : {}),
           linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN } });
       }
       this.fresh.delete(v.id);

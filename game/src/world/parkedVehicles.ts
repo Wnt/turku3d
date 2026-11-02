@@ -1,3 +1,5 @@
+import { fleetAppearance } from '../actors/fleet/catalog';
+import { fleetWheelGeometry } from '../actors/fleet/profile';
 import type { ParkedCarVisuals } from '../actors/car';
 import type { SeatedVehicles } from '../actors/seatedVehicles';
 import { collisionTileAt, type V3 } from '../core/origin';
@@ -189,7 +191,7 @@ export class ParkedVehicles {
   private spawn(id: string, car: ParkedVehicle) {
     const truck = car.model === 'truck', pose = this.rest.get(id) ?? this.slot(car);
     const spec = { id, parked: true, kind: truck ? 'truck' as const : 'car' as const,
-      ...(truck ? {} : { halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), rot: pose.rot };
+      ...(truck ? {} : { wheelGeometry: fleetWheelGeometry(fleetAppearance(car.model, car.object_id, car)), halfExt: { x: car.length / 2, y: car.height * .28, z: car.width / 2 } }), rot: pose.rot };
     this.physics.spawnVehicle(pose.pos, car.yaw - Math.PI / 2, spec);
     this.spawned.set(id, car);
   }

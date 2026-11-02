@@ -1,3 +1,5 @@
+import { fleetAppearance } from '../actors/fleet/catalog';
+import { fleetWheelGeometry } from '../actors/fleet/profile';
 // Ambient traffic inside the physics worker (street-richness plan §3.6). The network gives every car's position
 // as a function of shared time; this class picks the cars this client shows (traffic/ring.ts), keeps permanent
 // kinematic Rapier bodies on the ones near the player, and turns a car the player touches into an ordinary
@@ -20,7 +22,7 @@ import { trafficRoads } from '../traffic/roads';
 import { ClaimSet } from '../traffic/claims';
 import { buildTileTraffic, type Bounds, type Lane } from '../traffic/tileNetwork';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
-import type { Quat, TrafficClaimEvent, TrafficConfig, TrafficTile } from './protocol';
+import type { Quat, WheelGeometry, TrafficClaimEvent, TrafficConfig, TrafficTile } from './protocol';
 
 type R = typeof RAPIER_NS;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
@@ -42,7 +44,7 @@ export interface TrafficHost {
   ground(x: number, top: number, z: number, depth: number): number | null;
   /** Collision is resident under (x, z). */
   resident(x: number, z: number): boolean;
-  spawnVehicle(pos: V3, yaw: number, spec: { id: string; kind: 'car'; halfExt: V3; rot: Quat; linvel: V3 }): void;
+  spawnVehicle(pos: V3, yaw: number, spec: { id: string; kind: 'car'; halfExt: V3; rot: Quat; linvel: V3; wheelGeometry?: WheelGeometry }): void;
   /** What a rigid body is to traffic: the vehicle the local player is driving, a car this client claimed, any
    *  other vehicle (parked cars, which traffic passes rather than shoves), or something else. */
   bodyKind(handle: number): 'driven' | 'claimed' | 'vehicle' | null;
@@ -238,7 +240,7 @@ export class TrafficSim {
     const linvel = { x: car.pose.hx * car.pose.speed, y: 0, z: car.pose.hz * car.pose.speed };
     this.claims.addLocal(car.key);
     this.deactivate(car);
-    this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel });
+    this.host.spawnVehicle(pos, yaw, { id, kind: 'car', wheelGeometry: fleetWheelGeometry(fleetAppearance(model, String(car.appearanceSeed), {width:w,height:h,length:l})), halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel });
     this.events.push({ revision: 0, handle, id, key: car.key, seed: String(car.appearanceSeed), model, color: TRAFFIC_PAINTS[car.paint],
       size: [w, h, l], pos, rot, linvel });
     this.stats.claims++;

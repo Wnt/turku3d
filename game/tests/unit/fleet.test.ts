@@ -87,15 +87,15 @@ test('traffic lamps distinguish powered, turn and brake state without re-gating 
 test('stationary transforms remain untouched and a moving tail uploads only its changed range',async()=>{
   const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
   const model=fleetAppearance('fleet-estate-0','shared');
-  manifest.vehicles=[{object_id:'parked',model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,...FLEET_SIZE.sedan,clear_front_m:5,clear_rear_m:5}];
+  manifest.vehicles=[{object_id:'parked',model:model.id,color:'silver',x:70,y:0,z:0,yaw:0,...FLEET_SIZE.sedan,clear_front_m:5,clear_rear_m:5}];
   visuals.reserveTraffic(1);await visuals.load(manifest);
-  const rest={restingPose:()=>({pos:{x:0,y:.75,z:0},rot:{x:0,y:0,z:0,w:1}})};
-  const moving={seed:'traffic-source',model:model.id,color:'black',x:2,y:.75,z:0,q:{x:0,y:0,z:0,w:1}};
+  const rest={restingPose:()=>({pos:{x:70,y:.75,z:0},rot:{x:0,y:0,z:0,w:1}})};
+  const moving={seed:'traffic-source',model:model.id,color:'black',x:72,y:.75,z:0,q:{x:0,y:0,z:0,w:1}};
   visuals.setTraffic([moving]);visuals.update([],rest);
-  const batch=scene.getObjectByName(`parked/${model.id}/0`) as THREE.InstancedMesh;
+  const batch=scene.getObjectByName(`parked/${model.id}/1`) as THREE.InstancedMesh;
   const version=batch.instanceMatrix.version;batch.instanceMatrix.clearUpdateRanges();
   visuals.update([],rest);expect(batch.instanceMatrix.version).toBe(version);expect(batch.instanceMatrix.updateRanges).toEqual([]);
-  moving.x=3;visuals.update([],rest);expect(batch.instanceMatrix.version).toBe(version+1);
+  moving.x=73;visuals.update([],rest);expect(batch.instanceMatrix.version).toBe(version+1);
   expect(batch.instanceMatrix.updateRanges).toEqual([{start:16,count:16}]);visuals.dispose();
 });
 
@@ -139,4 +139,19 @@ test('both tyre shoulders and treads face outward through every angular segment 
     }
     expect(count).toBe([200,100,36][lod]);g.dispose();
   }
+});
+
+test('near traffic wheels roll by travelled distance and keep four circular contacts per car',async()=>{
+  const {FleetWheels}=await import('../../src/actors/fleet/wheels');const {fleetWheelCenter}=await import('../../src/actors/fleet/profile');
+  const wheels=new FleetWheels(2),model=fleetAppearance('fleet-estate-0','moving'),rot={x:0,y:0,z:0,w:1};
+  const at={x:0,y:.75,z:0};wheels.begin();wheels.add('source',model,at,rot);wheels.end();
+  expect(wheels.meshes.reduce((sum,m)=>sum+m.count,0)).toBe(4);
+  const mesh=wheels.meshes.find(m=>m.name===`fleet-moving-wheels/${model.face}/1`)!,before=new THREE.Matrix4(),after=new THREE.Matrix4();mesh.getMatrixAt(0,before);
+  const position=new THREE.Vector3(),q0=new THREE.Quaternion(),q1=new THREE.Quaternion(),scale=new THREE.Vector3();before.decompose(position,q0,scale);
+  const expected=new THREE.Vector3(...fleetWheelCenter(model,true,1)).applyAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2);
+  expect(position.distanceTo(expected)).toBeLessThan(1e-6);expect(scale.y).toBeCloseTo(model.wheel,6);expect(scale.z).toBeCloseTo(model.wheel,6);
+  wheels.begin();wheels.add('source',model,{...at,x:.2},rot);wheels.end();mesh.getMatrixAt(0,after);after.decompose(position,q1,scale);
+  const delta=q0.invert().multiply(q1),spin=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),.2/model.wheel);
+  expect(Math.abs(delta.dot(spin))).toBeCloseTo(1,6);
+  wheels.begin();wheels.end();expect(wheels.meshes.every(m=>!m.visible&&m.count===0)).toBe(true);wheels.dispose();
 });
