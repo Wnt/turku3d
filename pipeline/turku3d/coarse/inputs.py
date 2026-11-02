@@ -91,7 +91,7 @@ DEPENDENCIES = {
     "stairs": ("stairs.py", "stair_survey.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
-    "boats": ("boat_inputs.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "../spatial.py"),
+    "boats": ("boat_inputs.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../spatial.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
     "street_profiles": ("street_survey.py", "../spatial.py",
