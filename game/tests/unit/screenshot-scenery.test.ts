@@ -346,3 +346,55 @@ test('a collision preview yields to scenery and returns if that scenery leaves',
   scenery.update(125, 125, 2000);
   expect(model.visible).toBe(true);
 });
+
+test('stable scenery skips ownership work but retains the full look-back TTL after a long stop', async () => {
+  const { scenery, scene } = setup();
+  scenery.setRadius(4000, {x:125,y:5,z:125,dx:1,dz:0,halfAngle:.8});
+  await settle();
+  const state = scenery as unknown as {
+    footprint: string[]; unavailable: Set<string>; commitCut(now:number):void;
+    entries: Map<string, {model:THREE.Group; next:number; seen:number; complete:boolean}>;
+  };
+  state.footprint = ['t0_0_0']; state.unavailable.clear();
+  const model = new THREE.Group(); scene.add(model);
+  state.entries.set('t0_0_0', {model,next:Infinity,seen:0,complete:true});
+  const commit = vi.spyOn(state,'commitCut');
+  scenery.update(125,125,1000,true);
+  for (let now=2000;now<=20000;now+=1000) scenery.update(125,125,now,true);
+  expect(commit).toHaveBeenCalledTimes(1);
+  state.footprint = [];
+  scenery.update(125,125,21000,true);
+  expect(model.visible).toBe(false); expect(model.parent).toBe(scene);
+  scenery.update(125,125,24999,true);
+  expect(model.parent).toBe(scene);
+  expect(commit).toHaveBeenCalledTimes(2);
+  scenery.update(125,125,25000,true);
+  expect(model.parent).toBeNull();
+  expect(commit).toHaveBeenCalledTimes(3);
+});
+
+test('near-model replacement and caching invalidate a stable cut without changing the camera', async () => {
+  const { scenery, nearby, scene } = setup();
+  scenery.setRadius(4000, {x:125,y:5,z:125,dx:1,dz:0,halfAngle:.8});
+  await settle();
+  const state = scenery as unknown as {
+    footprint:string[]; unavailable:Set<string>; commitCut(now:number):void;
+    entries:Map<string,{model:THREE.Group;next:number;seen:number;complete:boolean}>;
+  };
+  state.footprint=['t0_0_0']; state.unavailable.clear();
+  const far=new THREE.Group(), near=new THREE.Group(); scene.add(far,near);
+  state.entries.set('t0_0_0',{model:far,next:Infinity,seen:0,complete:true});
+  const entry:Entry={model:near,preview:{} as never,state:'draft',nextPoll:0,collision:new Map()};
+  nearby.set('t0_0_0',entry);
+  scenery.update(125,125,1000,true);
+  expect(far.visible).toBe(true); expect(near.visible).toBe(false);
+  const commit=vi.spyOn(state,'commitCut');
+  scenery.update(125,125,1016,true); expect(commit).not.toHaveBeenCalled();
+  entry.preview=undefined; near.visible=true;
+  scenery.update(125,125,1032,true);
+  expect(far.parent).toBeNull(); expect(near.visible).toBe(true);
+  entry.cachedAt=1048; near.visible=false;
+  scenery.update(125,125,1048,true);
+  expect(commit).toHaveBeenCalledTimes(2);
+  expect(scenery.progress.total).toBe(1);
+});
