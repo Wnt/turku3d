@@ -1,3 +1,4 @@
+import { headingYaw } from '../../vehicle/math';
 /** Local visual QA workshop; imported only by fleet-gallery.html. */
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -8,6 +9,7 @@ import { paintActor } from '../parkedPaint';
 import { ParkedCarVisuals } from './visuals';
 import { draftManifest } from '../../world/manifest';
 import type { VehicleState } from '../../physics/protocol';
+import {sampleWheelGround,wheelGroundPose} from '../../vehicle/wheelGround';
 
 const renderer=new THREE.WebGPURenderer({antialias:true});
 renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(1);renderer.shadowMap.enabled=true;
@@ -22,7 +24,22 @@ const camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,.1,200);camer
 let meshes:THREE.Mesh[]=[];
 let motionVisuals: ParkedCarVisuals | undefined;
 let motionStates: VehicleState[] = [];
+let motionCurb:THREE.Mesh|undefined;
 const workshop={
+  groundFrame(index:number,articulated=true) {
+    const state=motionStates[index],model=FLEET[0];if(!state||!motionVisuals)throw Error('Run motionSetup first');
+    const yaw=headingYaw(state.rot);
+    const at={x:state.pos.x,y:0,z:state.pos.z},footprint={wheelbase:model.wheelbase,track:model.width-.15,radius:model.wheel};
+    const ground=(x:number,_top:number,z:number)=>x>=0&&x<=6&&z>=-3&&z<=1?.15:0;
+    const sampled=sampleWheelGround(at,yaw,footprint,ground)!;
+    const centre=sampleWheelGround(at,yaw,{...footprint,track:0},ground)!;
+    const pose=articulated?sampled:wheelGroundPose(at,yaw,footprint,centre.heights)!;
+    motionVisuals.setTraffic([{seed:'ground-motion',model:model.id,color:'blue',...pose.pos,q:pose.rot,wheelY:articulated?pose.wheelY:undefined}]);
+    motionVisuals.update([]);
+    const instances=scene.children.filter(o=>o.name.startsWith('parked/')).reduce((n,o)=>n+(o as THREE.InstancedMesh).count,0);
+    if(instances!==1)throw Error(`Ground fixture has ${instances} cars`);
+    return {instances,t:(index+1)/60,position:pose.pos,wheelY:pose.wheelY,heights:sampled.heights};
+  },
   async batchBench() {
     motionVisuals?.dispose();
     for(const mesh of meshes){mesh.removeFromParent();mesh.geometry.dispose();}meshes=[];
@@ -53,6 +70,8 @@ const workshop={
     baseline.forEach(g=>g.dispose());return {results,batches:motionVisuals.snapshot()};
   },
   async motionSetup(instanced=false) {
+    motionVisuals?.dispose();
+    if(motionCurb){motionCurb.removeFromParent();motionCurb.geometry.dispose();}
     const R = await import('@dimforge/rapier3d');
     const { Vehicle } = await import('../../vehicle/vehicle');
     const { CurbQueries } = await import('../../vehicle/curbQueries');
@@ -70,14 +89,14 @@ const workshop={
     }
     world.free();
     const curb=new THREE.Mesh(new THREE.BoxGeometry(6,.15,4),new THREE.MeshStandardMaterial({color:0x93938b,roughness:.9}));
-    curb.position.set(3,.075,-1);curb.receiveShadow=true;scene.add(curb);
+    curb.position.set(3,.075,-1);curb.receiveShadow=true;scene.add(curb);motionCurb=curb;
     const model=FLEET[0], manifest=draftManifest(location.origin+'/');
     manifest.vehicles=[{object_id:'motion',model:model.id,color:'blue',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}];
     motionVisuals=new ParkedCarVisuals(scene);await motionVisuals.load(manifest);if(!instanced)motionVisuals.takeOver('motion');
     for(const mesh of meshes){mesh.removeFromParent();mesh.geometry.dispose();}meshes=[];
     camera.position.set(7,2.6,6);camera.lookAt(.7,.55,-.6);camera.fov=43;camera.updateProjectionMatrix();
     document.getElementById('label')!.style.display='none';
-    return {frames:motionStates.length,model:model.id};
+    return {revision:4,frames:motionStates.length,model:model.id};
   },
   motionFrame(index:number, articulated=true) {
     const state=motionStates[index];if(!state||!motionVisuals)throw Error('Run motionSetup first');

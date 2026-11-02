@@ -26,12 +26,14 @@ await new Promise((resolve, reject) => {
 });
 console.log(`Connected to integration page ${target.id}`);
 let seq = 0;
+const loadedPages=new Set();
 const pending = new Map(), assets = new Map(), failures = [];
 const consoleErrors=[];
 let lastAsset = 0;
 const asset = url => /\.(glb|bin|col|ktx2|png|jpg)(\?|$)/.test(url);
 socket.onmessage = ({ data }) => {
   const msg = JSON.parse(data);
+  if(msg.method==='Page.lifecycleEvent'&&msg.params.name==='load')loadedPages.add(msg.params.loaderId);
   if(msg.method==='Runtime.exceptionThrown')consoleErrors.push(msg.params.exceptionDetails);
   if(msg.method==='Runtime.consoleAPICalled'&&msg.params.type==='error')consoleErrors.push(msg.params.args.map(a=>a.value??a.description));
   if (msg.id) {
@@ -62,28 +64,42 @@ const evaluate = async expression => {
 };
 const delay = ms => new Promise(r => setTimeout(r, ms));
 fs.mkdirSync(out, { recursive: true });
+if(args.includes('--fleet-inspect')){
+  console.log(JSON.stringify(await evaluate(`window.fleetWorkshop.scene.children.map(o=>({name:o.name,type:o.type,count:o.count,visible:o.visible,pos:o.position.toArray()}))`)));
+  socket.close();process.exit(0);
+}
 // Vehicle motion fixtures use the production physics and visual classes, with identical
 // cached physical poses for the flattened baseline and articulated candidate.
 if (args.includes('--fleet-motion')) {
   await send('Runtime.enable');
   await send('Emulation.setDeviceMetricsOverride', {width:1280,height:720,deviceScaleFactor:1,mobile:false});
+  await send('Page.enable');
+  await send('Page.setLifecycleEventsEnabled',{enabled:true});
   await evaluate('window.fleetWorkshop=undefined');
-  await send('Page.navigate', {url:new URL('fleet-gallery.html',base).href});
+  for(const url of ['about:blank',new URL('fleet-gallery.html',base).href]){
+    const navigation=await send('Page.navigate',{url});
+    for(let i=0;i<600&&!loadedPages.has(navigation.loaderId);i++)await delay(50);
+    if(!loadedPages.has(navigation.loaderId))throw Error(`Workshop did not load: ${url}`);
+  }
   for(let i=0;i<120&&!await evaluate('!!window.fleetWorkshop');i++)await delay(250);
   consoleErrors.length=0;
-  const setup=await evaluate(`window.fleetWorkshop.motionSetup(${args.includes('--fleet-batch')})`);
+  const setup=await evaluate(`window.fleetWorkshop.motionSetup(${args.includes('--fleet-batch')||args.includes('--ground-motion')})`);
+  if(setup.revision!==4)throw Error('Stale fleet workshop: wait for Vite HMR before capture');
   if(args.includes('--fleet-bench')){
     const bench=await evaluate('window.fleetWorkshop.batchBench()');
     fs.writeFileSync(path.join(out,'batch-bench.json'),JSON.stringify(bench,null,1));
     console.log(JSON.stringify(bench));socket.close();process.exit(0);
   }
   const frames=[];
-  for(const articulated of [false,true])for(const index of [8,26,44,62,80,98]){
-    const state=await evaluate(`window.fleetWorkshop.motionFrame(${index},${articulated})`);
+  for(const articulated of [false,true]){
+    if(args.includes('--ground-motion'))await evaluate('window.fleetWorkshop.motionSetup(true)');
+    for(const index of [8,26,44,62,80,98]){
+    const state=await evaluate(`window.fleetWorkshop.${args.includes('--ground-motion')?'groundFrame':'motionFrame'}(${index},${articulated})`);
     await delay(100);
     const shot=await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
     const file=`${articulated?'after':'before'}-${index}.jpg`;
     fs.writeFileSync(path.join(out,file),Buffer.from(shot.data,'base64'));frames.push({file,...state});
+  }
   }
   fs.writeFileSync(path.join(out,'motion.json'),JSON.stringify({setup,frames,consoleErrors},null,1));
   console.log(JSON.stringify({setup,frames:frames.length,out}));
@@ -101,7 +117,7 @@ const save = () => {
     device_scale_factor: 1, shots: [...shots.values()] }, null, 1) + '\n');
   fs.renameSync(`${index}.tmp`, index);
 };
-// Repeated still and micro-step poses share the normal capture's settle/asset gates.
+// --stream-flicker deliberately measures residency before full detail is published.
 // One render at a time makes each PNG correspond to its recorded product/mesh state.
 async function captureFlicker(file, pose) {
   const count = Number(opt('--flicker', '0'));
@@ -139,7 +155,7 @@ async function captureFlicker(file, pose) {
         frames.push({file:name, group, dx_m:dx, ...state});
       }
     }
-    if (failures.length || assets.size) throw new Error('Assets changed/failed during flicker capture; retake after settling');
+    if (failures.length || (assets.size && !args.includes('--stream-flicker'))) throw new Error('Assets changed/failed during flicker capture; retake after settling');
     fs.writeFileSync(path.join(dir, 'frames.json'), JSON.stringify({pose, viewport:[1280,720], micro_step_m:step,
       warmup_frames:8, frames, failed_assets:[...failures], classification:'heuristic; see flicker analyzer'}, null, 1));
     console.log(`Flicker sequence: ${frames.length} PNGs at ${dir}`);
@@ -147,6 +163,53 @@ async function captureFlicker(file, pose) {
     await evaluate(`window.__render.camera.position.fromArray(${JSON.stringify(original.position)});
       window.__render.camera.updateMatrixWorld();window.__render.beforeFrame=()=>false;`);
   }
+}
+if (args.includes('--stream-flicker')) {
+  // Hold source GLBs, while collision previews and the cached scenery derivatives arrive normally.
+  // This makes the cold-cache arrival window repeatable without changing any tile bytes.
+  const held = [];
+  const prior = socket.onmessage;
+  socket.onmessage = event => {
+    prior(event);
+    const msg = JSON.parse(event.data);
+    if (msg.method === 'Fetch.requestPaused') held.push(msg.params.requestId);
+  };
+  try {
+    await send('Page.setWebLifecycleState', { state: 'active' });
+    await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    await send('Network.enable');
+    await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Network.clearBrowserCache');
+    await send('Emulation.setDeviceMetricsOverride', { width:1280,height:720,deviceScaleFactor:1,mobile:false });
+    await send('Fetch.enable', { patterns:[{urlPattern:'*/coarse/*/vis.*.glb',requestStage:'Request'}] });
+    const cam = cameras.find(c => only.includes(c.id));
+    const at = times[0];
+    await send('Page.navigate', { url:`${base}?cam=${cam.cam}&time=${at}&quality=${opt('--quality','medium')}&aa=${opt('--aa','taa')}&hud=0&traffic=0&walkers=0` });
+    const started = Date.now();
+    let state;
+    do {
+      state = await evaluate(`(() => {const g=window.__game, c=g?.lights?.source; return {
+        ready:!!window.__qaMove && !!g?.vegetation?.library && !g.vegetation.pending.size,
+        previews:[...(c?.entries??[])].filter(([,e])=>e.model&&e.preview).map(([id])=>id),
+        scenery:g?.scenery?.progress};})()`);
+      if (state.ready && state.previews.length && state.scenery?.loaded >= Number(opt('--stream-loaded','40'))) break;
+      await delay(500);
+    } while (Date.now()-started < timeout);
+    if (!state.ready || !state.previews.length) throw new Error(`No streaming window: ${JSON.stringify(state)}`);
+    if (opt('--setup-file','')) await evaluate(fs.readFileSync(opt('--setup-file'),'utf8'));
+    await evaluate(`window.__render.beforeFrame=()=>false; document.querySelectorAll('body > *:not(canvas)').forEach(e=>e.style.setProperty('display','none','important'));`);
+    const [E,N,H,yaw,pitch,fov] = cam.cam.split(',').map(Number);
+    fs.writeFileSync(path.join(out,'stream.json'),JSON.stringify({state,held:held.length,build,at,source:'cold HTTP/cache, full source GLBs held by CDP; collision and scenery unchanged'},null,1));
+    await captureFlicker(`${cam.id}.jpg`,{E,N,H,yaw,pitch,fov});
+    const jpeg = await send('Page.captureScreenshot',{format:'jpeg',quality:92,captureBeyondViewport:false});
+    fs.writeFileSync(path.join(out,`${cam.id}.jpg`),Buffer.from(jpeg.data,'base64'));
+  } finally {
+    await send('Fetch.disable');
+    await send('Network.setCacheDisabled',{cacheDisabled:false});
+    await evaluate('window.__render.beforeFrame=undefined');
+    socket.close();
+  }
+  process.exit(0);
 }
 if (opt('--eval-file', '')) {
   try {

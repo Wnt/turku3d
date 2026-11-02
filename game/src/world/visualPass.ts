@@ -1,6 +1,11 @@
 import type * as THREE from 'three/webgpu';
 import type { CoarseHost } from './coarseTiles';
 
+/** A retained full visual stays authoritative while a producer rebuilds its first pass. */
+export function acceptsVisualPass(current: 'first' | 'full' | undefined, incoming: 'first' | 'full' | undefined) {
+  return current !== 'full' || incoming !== 'first';
+}
+
 export interface ComparisonEntry {
   model?: THREE.Object3D; pass?: 'first' | 'full'; comparison?: THREE.Object3D;
   comparing?: boolean; comparisonMode?: string; comparisonNext?: number;

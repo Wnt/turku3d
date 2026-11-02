@@ -1,3 +1,5 @@
+import { sampleWheelGround, wheelGroundPose, type WheelGroundPose } from '../vehicle/wheelGround';
+import { fleetModel, type FleetModel } from '../actors/fleet/catalog';
 // Ambient traffic inside the physics worker (street-richness plan §3.6). The network gives every car's position
 // as a function of shared time; this class picks the cars this client shows (traffic/ring.ts), keeps permanent
 // kinematic Rapier bodies on the ones near the player, and turns a car the player touches into an ordinary
@@ -64,6 +66,9 @@ interface ActiveCar {
   pose: CarPose;
   body: RAPIER_NS.RigidBody | null;
   visible: boolean;
+  terrain?: WheelGroundPose;
+  visualModel?: FleetModel;
+  groundAt?: {x:number;z:number;yaw:number};
 }
 
 export class TrafficSim {
@@ -134,6 +139,7 @@ export class TrafficSim {
 
   /** Collision changed in [x0, z0, x1, z1]: lanes there are sampled again (their old samples stay in use until then). */
   collisionChanged(area: readonly [number, number, number, number]) {
+    for(const car of this.active.values())if(car.pose.x>=area[0]&&car.pose.x<=area[2]&&car.pose.z>=area[1]&&car.pose.z<=area[3])car.groundAt=undefined;
     for (const [lane, entry] of this.heights) {
       const b = lane.bbox;
       if (b[0] <= area[2] && b[2] >= area[0] && b[1] <= area[3] && b[3] >= area[1]) entry.retry = 0;
@@ -174,6 +180,21 @@ export class TrafficSim {
       interpolateFlowPose(motion, (t - this.flow.tick * FLOW_STEP) / FLOW_STEP, this.height, car.pose);
       if (this.view && mustRemove(Math.hypot(car.pose.x - this.view.x, car.pose.z - this.view.z),
         inView(this.view, car.pose.x, car.pose.z))) { this.deactivate(car); continue; }
+      const view=player??this.view;
+      if(view&&Number.isFinite(car.pose.y)&&this.host.resident(car.pose.x,car.pose.z)&&Math.hypot(car.pose.x-view.x,car.pose.z-view.z)<100){
+        const p=car.pose,yaw=Math.atan2(-p.hz,p.hx),last=car.groundAt;
+        if(!last||Math.hypot(p.x-last.x,p.z-last.z)>.08||Math.abs(yaw-last.yaw)>.025){
+          const model=car.visualModel??=fleetModel(TRAFFIC_MODELS[car.model],String(hash32('appearance',car.key)));
+          const pose=sampleWheelGround({x:p.x,y:p.y,z:p.z},yaw,{wheelbase:model.wheelbase,track:model.width-.15,radius:model.wheel},this.host.ground.bind(this.host));
+          car.terrain=pose??undefined;car.groundAt={x:p.x,z:p.z,yaw};
+        }
+      }else car.terrain=undefined;
+      if(car.terrain){
+        const model=car.visualModel!;
+        car.terrain=wheelGroundPose({x:car.pose.x,y:car.pose.y,z:car.pose.z},Math.atan2(-car.pose.hz,car.pose.hx),
+          {wheelbase:model.wheelbase,track:model.width-.15,radius:model.wheel},car.terrain.heights)!;
+        car.pose.y=car.terrain.pos.y-CHASSIS_LIFT;
+      }
       const near = player && Number.isFinite(car.pose.y)
         ? Math.hypot(car.pose.x - player.x, car.pose.z - player.z) < (car.body ? RING.bodyOff : RING.bodyOn) : false;
       if (near && !car.body) this.addBody(car);
@@ -181,7 +202,7 @@ export class TrafficSim {
       if (car.body) {
         bodies++;
         car.body.setNextKinematicTranslation({ x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z });
-        car.body.setNextKinematicRotation(chassisRotation(car.pose));
+        car.body.setNextKinematicRotation((car.terrain?.rot??chassisRotation(car.pose)));
       }
     }
     this.stats.active = this.active.size; this.stats.bodies = bodies;
@@ -232,7 +253,7 @@ export class TrafficSim {
     if (!car || !Number.isFinite(car.pose.y)) return null;
     const id = `tr:${car.key}`;
     const model = TRAFFIC_MODELS[car.model], [w, h, l] = MODEL_SIZE[model];
-    const pos = { x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z }, rot = chassisRotation(car.pose);
+    const pos = { x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z }, rot = (car.terrain?.rot??chassisRotation(car.pose));
     const yaw = Math.atan2(-car.pose.hz, car.pose.hx);
     const linvel = { x: car.pose.hx * car.pose.speed, y: 0, z: car.pose.hz * car.pose.speed };
     this.claims.addLocal(car.key);
@@ -264,11 +285,11 @@ export class TrafficSim {
     for (const car of this.active.values()) {
       const p = car.pose;
       if (!Number.isFinite(p.y)) continue;
-      const q = chassisRotation(p);
+      const q = car.terrain?.rot??chassisRotation(p);
       const { indicator, braking } = vehicleLights(car.motion, this.time);
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
         round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed),
-        hash32('appearance', car.key), indicator, braking ? 1 : 0, round(p.speed));
+        hash32('appearance', car.key), indicator, braking ? 1 : 0, round(p.speed),...(car.terrain?.wheelY??Array(4).fill((car.visualModel?.wheel??.33)-CHASSIS_LIFT)).map(round4));
     }
     return out;
   }
@@ -350,7 +371,7 @@ export class TrafficSim {
   private addBody(car: ActiveCar) {
     const [w, h, l] = MODEL_SIZE[TRAFFIC_MODELS[car.model]];
     const body = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(car.pose.x, car.pose.y + CHASSIS_LIFT, car.pose.z).setRotation(chassisRotation(car.pose)));
+      .setTranslation(car.pose.x, car.pose.y + CHASSIS_LIFT, car.pose.z).setRotation((car.terrain?.rot??chassisRotation(car.pose))));
     const collider = this.world.createCollider(this.R.ColliderDesc.cuboid(l / 2, h * 0.28, w / 2)
       .setCollisionGroups(groups(GROUP.VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC))
       .setActiveEvents(this.R.ActiveEvents.COLLISION_EVENTS).setActiveHooks(this.R.ActiveHooks.FILTER_CONTACT_PAIRS), body);

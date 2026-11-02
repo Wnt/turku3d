@@ -26,7 +26,8 @@ def select(vertices, elevations):
 def coordinates(vertices, base, row):
     axis = np.asarray(row["axis_xz"])
     x = (vertices[:, [0, 2]] - row["origin_xz"]) @ axis
-    return np.c_[x / row["width_m"], 1 - (vertices[:, 1] - base) / row["height_m"]]
+    return np.c_[x / row["width_m"],
+                 1 - (vertices[:, 1] - base - row.get("base_offset_m", 0)) / row["height_m"]]
 
 
 @lru_cache(maxsize=32)
