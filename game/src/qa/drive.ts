@@ -96,7 +96,7 @@ export function interpolateDrive(a: DrivePose, b: DrivePose, t: number): DrivePo
 interface DriveHost {
   scene: THREE.Scene; camera: THREE.PerspectiveCamera;
   signature(): string; busy(): boolean; configure(drive: LoadedDrive): void;
-  reset(drive: LoadedDrive): Promise<void>; seek(seconds: number): void;
+  reset(drive: LoadedDrive): Promise<void>; seek(seconds: number): void; begin(): void;
   game: Record<string, any>;
 }
 export class DriveBench {
@@ -114,21 +114,29 @@ export class DriveBench {
   private result: Record<string, any> = {};
   constructor(private host: DriveHost) { this.car = new CarVisual(host.scene); }
   async load(drive: LoadedDrive) {
-    if (this.recorder) { await this.recorder.stop(); this.recorder = null; }
     const token = ++this.runToken;
-    this.host.configure(drive);
-    this.drive = drive; this.index = 0; this.phase = 'loading'; this.pose = drive.poses[0];
+    this.phase = 'loading';
     this.result = { phase: this.phase, done: false, replayOf: drive.id, segment: drive.segment, durationMs: drive.end - drive.start,
-      run: async (id: string, segment = 1) => this.load(await loadDrive(id, segment)) };
+      run: async (id: string, segment = 1) => {
+        if (this.phase !== 'done' && this.phase !== 'error') throw Error('Wait for the current drive bench to finish');
+        try { await this.load(await loadDrive(id, segment)); }
+        catch (error) { if (this.phase !== 'error') this.fail(error); throw error; }
+      } };
     window.__bench = this.result;
-    this.apply(this.pose);
-    if (this.pose.car) await this.car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`);
-    this.apply(this.pose);
-    await this.host.reset(drive);
-    if (token !== this.runToken) return;
-    Object.assign(this.host.game, { state: () => this.state(), orbit: { yaw: 0, pitch: 0 }, input: { actions: {}, lookX: 0, lookY: 0 } });
-    this.phase = 'settle'; this.stableSince = this.settleStart = performance.now(); this.signature = '';
-    this.host.seek(0);
+    window.__qaError = undefined; window.__qaReady = false;
+    try {
+      if (this.recorder) { await this.recorder.stop(); this.recorder = null; }
+      this.host.configure(drive);
+      this.drive = drive; this.index = 0; this.pose = drive.poses[0];
+      this.apply(this.pose);
+      if (this.pose.car) await this.car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`);
+      this.apply(this.pose);
+      await this.host.reset(drive);
+      if (token !== this.runToken) return;
+      Object.assign(this.host.game, { state: () => this.state(), orbit: { yaw: 0, pitch: 0 }, input: { actions: {}, lookX: 0, lookY: 0 } });
+      this.setPhase('settle'); this.stableSince = this.settleStart = performance.now(); this.signature = '';
+      this.host.seek(0);
+    } catch (error) { if (token === this.runToken) this.fail(error); throw error; }
   }
   get settled() { return this.phase === 'play' || this.phase === 'drain' || this.phase === 'done'; }
   before() {
@@ -146,26 +154,38 @@ export class DriveBench {
       if (signature !== this.signature || this.host.busy()) { this.signature = signature; this.stableSince = now; }
       if (now - this.settleStart > 180000) return this.fail(Error('Drive start tiles did not settle in 180 s'));
       if (now - this.stableSince < BENCH_SETTLE_MS) return;
-      this.phase = 'prepare';
+      this.setPhase('prepare');
+      const token = this.runToken;
       // Ground sampling resolves after all starting tiles and models have settled.
       void this.host.reset(this.drive).then(() => {
-        this.phase = 'play'; this.startWall = performance.now();
-        this.result.phase = this.phase; this.result.settleMs = this.startWall - this.settleStart;
+        if (token !== this.runToken || this.phase !== 'prepare') return;
+        this.host.begin();
+        this.setPhase('play'); this.startWall = performance.now();
+        this.result.settleMs = this.startWall - this.settleStart;
         this.recorder = new DriveCapture(this.host.game, { replayOf: this.drive.id, segment: this.drive.segment,
           sourceStart: this.drive.start, sourceEnd: this.drive.end, viewport: this.drive.settings.viewport ?? [innerWidth, innerHeight],
           browserViewport: [innerWidth, innerHeight], populationFallback: !this.drive.meta.replay });
         this.result.capture = this.recorder.id;
-      }).catch(e => this.fail(e));
+      }).catch(e => { if (token === this.runToken) this.fail(e); });
     }
     if (this.phase === 'play' && performance.now() - this.startWall >= this.drive.end - this.drive.start) {
-      this.phase = 'drain'; this.result.phase = this.phase;
+      this.setPhase('drain'); this.result.measureMs = performance.now() - this.startWall;
+      const token = this.runToken;
       void this.recorder!.stop().then(() => {
-        this.recorder = null; this.phase = 'done'; Object.assign(this.result, { phase: 'done', done: true, measureMs: performance.now() - this.startWall });
+        if (token !== this.runToken) return;
+        this.recorder = null; this.setPhase('done'); this.result.done = true;
         console.info('DRIVE BENCH', JSON.stringify(this.result));
-      }).catch(e => this.fail(e));
+      }).catch(e => { if (token === this.runToken) this.fail(e); });
     }
   }
-  private fail(e: unknown) { this.phase = 'error'; Object.assign(this.result, { phase: 'error', error: String(e), done: false }); }
+  private setPhase(phase: string) { this.phase = phase; this.result.phase = phase; }
+  private fail(error: unknown) {
+    ++this.runToken; this.setPhase('error');
+    Object.assign(this.result, { error: String(error), done: false });
+    const recorder = this.recorder, result = this.result;
+    if (recorder) void recorder.stop().then(() => { if (this.recorder === recorder) this.recorder = null; })
+      .catch(saveError => { result.captureError = String(saveError); });
+  }
   private apply(pose: DrivePose) {
     const camera = this.host.camera;
     camera.position.fromArray(pose.cam); camera.quaternion.fromArray(pose.cam, 3); camera.fov = pose.cam[7];
