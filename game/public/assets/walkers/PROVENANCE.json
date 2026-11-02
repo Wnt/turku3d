@@ -6,14 +6,14 @@
     "height": 1380,
     "format": "rgba16float"
   },
-  "sha256": "5f38fe5c75b13afdab898602d976a0de6e21460e8bd3c639af4de988afe1bcf8",
+  "sha256": "be5073ef2ba5b5551f46b9d40e1fd2e86de2a3578f5121bb2302aa1497ac9b56",
   "variants": [
     {
       "id": "tee-denim-crop",
       "vertices": 2796,
       "triangles": 4376,
       "sourceTriangles": 28995,
-      "height": 1.73,
+      "height": 1.736,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
@@ -37,7 +37,7 @@
       "vertices": 2800,
       "triangles": 3776,
       "sourceTriangles": 25967,
-      "height": 1.712,
+      "height": 1.713,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
@@ -49,7 +49,7 @@
       "vertices": 2800,
       "triangles": 4366,
       "sourceTriangles": 28117,
-      "height": 1.72,
+      "height": 1.725,
       "metresPerLoop": 1.456,
       "clips": [
         "Walk_Loop 40f@30",
@@ -61,7 +61,7 @@
       "vertices": 2800,
       "triangles": 3624,
       "sourceTriangles": 26855,
-      "height": 1.735,
+      "height": 1.736,
       "metresPerLoop": 1.456,
       "clips": [
         "Walk_Loop 40f@30",
@@ -73,7 +73,7 @@
       "vertices": 2800,
       "triangles": 3901,
       "sourceTriangles": 31003,
-      "height": 1.618,
+      "height": 1.617,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
@@ -97,7 +97,7 @@
       "vertices": 2800,
       "triangles": 3552,
       "sourceTriangles": 29276,
-      "height": 1.618,
+      "height": 1.617,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
@@ -109,7 +109,7 @@
       "vertices": 2795,
       "triangles": 3623,
       "sourceTriangles": 30840,
-      "height": 1.614,
+      "height": 1.613,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
@@ -133,7 +133,7 @@
       "vertices": 2800,
       "triangles": 3967,
       "sourceTriangles": 29538,
-      "height": 1.602,
+      "height": 1.604,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
@@ -145,7 +145,7 @@
       "vertices": 2797,
       "triangles": 4277,
       "sourceTriangles": 24377,
-      "height": 1.703,
+      "height": 1.706,
       "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",

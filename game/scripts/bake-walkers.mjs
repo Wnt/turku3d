@@ -3,6 +3,7 @@
 // Usage (from game/): node scripts/bake-walkers.mjs <source-directory> <UAL.glb> <output-directory>
 // Rebuild instructions: public/assets/walkers/README.md. Runtime decoder: src/world/walkers/asset.ts.
 import fs from 'node:fs';
+import { civilianPose } from './lib/civilian-pose.mjs';
 import { addWalkerAccessories } from './lib/walker-accessories.mjs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -147,6 +148,7 @@ function bakeClip(doc, body, keep, clip) {
   // but use a relaxed 30% finger curl for civilian walking and standing.
   const fingers = jointNodes.filter(n => /^DEF-(f_|thumb)/.test(n.getName()))
     .map(node => ({ node, rest: new Quaternion().fromArray(node.getRotation()) }));
+  const civilian = civilianPose(jointNodes);
   const ibm = skin.getInverseBindMatrices();
   const inverseBind = jointNodes.map((_, j) => new Matrix4().fromArray(ibm.getElement(j, [])));
   const duration = Math.max(...clip.listSamplers().map(s => { const t = s.getInput().getArray(); return t[t.length - 1]; }));
@@ -154,8 +156,10 @@ function bakeClip(doc, body, keep, clip) {
   if (Math.abs(frames / FPS - duration) > 1e-3) throw new Error(`walker bake: ${clip.getName()} is not a whole number of ${FPS} fps frames`);
   const result = [], matrices = jointNodes.map(() => new Matrix4()), p = new Vector3(), n = new Vector3(), acc = new Vector3(), accN = new Vector3();
   for (let f = 0; f < frames; f++) {
+    civilian.restore();
     poseAt(clip, f / FPS);
     for (const { node, rest } of fingers) node.setRotation(rest.clone().slerp(new Quaternion().fromArray(node.getRotation()), 0.30).toArray());
+    civilian.apply();
     jointNodes.forEach((joint, j) => matrices[j].fromArray(joint.getWorldMatrix()).multiply(inverseBind[j]));
     const frame = new Float32Array(keep.length * 6);
     keep.forEach((v, i) => {
