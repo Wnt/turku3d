@@ -6,7 +6,6 @@ Usage: scripts/dev/shared-tiles register --alias ground [--ref HEAD]
        scripts/dev/shared-tiles build --version ground t0_0_0 t0_-1_0
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +13,7 @@ import shlex
 import subprocess
 import tempfile
 from urllib.request import Request, urlopen
+from shared_tile_identity import generation as generator_identity
 
 
 def command(*args, **kwargs):
@@ -46,12 +46,9 @@ def main():
     if args.source_version and json.load(urlopen(args.url + '/health')).get('api_version', 1) < 2:
         raise RuntimeError('farm must be upgraded before registering source overlays')
     revision = command('git', 'rev-parse', args.ref + '^{commit}')
-    # Renderer-only commits share completed tiles. Every generator/data/library source remains
-    # in this conservative identity; fine-grained invalidation is performed by stage keys.
-    paths = ['pipeline/turku3d', 'pipeline/env/package-lock.json', 'textures', 'data-manifests',
-             'docs/specs', 'game/public/basis', 'server/spawns.json']
-    tree = command('git', 'ls-tree', '-r', revision, '--', *paths)
-    generation = hashlib.sha256(tree.encode()).hexdigest()
+    # Runtime generator/library content selects a product generation. Stage keys then
+    # narrow actual rebuilding to the affected data and producers within each tile.
+    generation = generator_identity(revision)
     metadata = dict(revision=revision, generation=generation,
                     branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'))
     target = args.root + '/revisions/' + revision
