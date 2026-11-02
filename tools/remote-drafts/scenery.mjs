@@ -116,10 +116,10 @@ for (const node of input.getRoot().listNodes()) {
     }
   }
 }
-let triangles = 0;
+let triangles = 0, draws = 0;
 for (const [layer, data] of groups) {
   if (!data.indices.length) continue;
-  triangles += data.indices.length / 3;
+  triangles += data.indices.length / 3; draws++;
   const attr = (name, type, array) => doc.createAccessor(name).setBuffer(buffer).setType(type).setArray(array);
   const primitive = doc.createPrimitive().setAttribute('POSITION', attr('position', 'VEC3', new Float32Array(data.positions)))
     .setAttribute('COLOR_0', attr('colour', 'VEC3', new Float32Array(data.colours)))
@@ -131,5 +131,5 @@ await doc.transform(reorder({encoder:MeshoptEncoder,target:'size'}),
   quantize({quantizePosition:16,quantizeColor:8,pattern:/^(POSITION|COLOR_0)$/}));
 doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({method:EXTMeshoptCompression.EncoderMethod.QUANTIZE});
 await io.write(output, doc);
-console.log(JSON.stringify({ sourceTriangles, triangles, draws: groups.size, sourceBytes: raw.length,
+console.log(JSON.stringify({ sourceTriangles, triangles, draws, sourceBytes: raw.length,
   atlasBytes:atlas.bytes??0, mappedMaterials:atlas.entries??0, bytes: fs.statSync(output).size, seconds: (performance.now() - started) / 1000 }));

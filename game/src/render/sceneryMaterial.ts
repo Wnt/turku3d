@@ -52,7 +52,7 @@ export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, co
     const key = `${layer}:${map?.uuid ?? ''}`;
     let material = materials.get(key);
     if (!material) {
-      material = (shared ? shared.styled.acquire(map ? mesh.material as THREE.Material : source, `distant-city-${layer}`, model, () => sceneryMaterial(layer, coverage, map))
+      material = (shared ? shared.styled.acquire(source, `distant-city-${key}`, model, () => sceneryMaterial(layer, coverage, map))
         : sceneryMaterial(layer, coverage, map)) as THREE.MeshStandardNodeMaterial;
       materials.set(key, material);
     }

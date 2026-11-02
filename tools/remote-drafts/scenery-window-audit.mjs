@@ -82,10 +82,11 @@ async function surfaces(document, far=false) {
             const p=u.map((v,k)=>rect[k]+(repeat[k]?fract(v):clamp(v))*rect[k+2]);return sample(albedo,p,[0,0],4)[3];}
           const cinfo=material.getBaseColorTextureInfo(),rinfo=material.getMetallicRoughnessTextureInfo();
           const rgb=sample(albedo,transformedUv(cinfo,u),[cinfo.getWrapS()===10497,cinfo.getWrapT()===10497])
-            .map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);
-          return glazingMask(orm?sample(orm,transformedUv(rinfo,u),[rinfo.getWrapS()===10497,rinfo.getWrapT()===10497])[1]:null,rgb);
+            .map((v,k)=>(v<=.04045?v/12.92:((v+.055)/1.055)**2.4)*material.getBaseColorFactor()[k]);
+          return glazingMask(orm?sample(orm,transformedUv(rinfo,u),[rinfo.getWrapS()===10497,rinfo.getWrapT()===10497])[1]*material.getRoughnessFactor():null,rgb);
         };
         result.push({points,normal:n.map(v=>v/length),area:length/2,mask,coords,kind,
+          fields,
           signature:JSON.stringify(Object.fromEntries(programFields.slice(0,-2).filter(key=>fields[key]).map(key=>[key,fields[key].map(v=>Math.round(v*10000))]))),
           id:String(owner.building_id??owner.object_id??node.getName()),address:owner.address,landmark:!!owner.landmark_description});
       }
@@ -107,20 +108,32 @@ export async function auditDocuments(source,derivative){
   const near=await surfaces(source),far=derivative?await surfaces(derivative,true):[],cells=new Map(),rows=new Map();
   const key=p=>p.map(v=>Math.floor(v/8)).join(',');
   for(const face of far){
-    const lo=[0,1,2].map(k=>Math.floor(Math.min(...face.points.map(p=>p[k]))/8)),hi=[0,1,2].map(k=>Math.floor(Math.max(...face.points.map(p=>p[k]))/8));
+    const lo=[0,1,2].map(k=>Math.floor((Math.min(...face.points.map(p=>p[k]))-.05)/8)),hi=[0,1,2].map(k=>Math.floor((Math.max(...face.points.map(p=>p[k]))+.05)/8));
     for(let x=lo[0];x<=hi[0];x++)for(let y=lo[1];y<=hi[1];y++)for(let z=lo[2];z<=hi[2];z++){
       const k=[x,y,z].join(',');if(!cells.has(k))cells.set(k,[]);cells.get(k).push(face);
     }
   }
-  for(const face of near){
-    if(!rows.has(face.id))rows.set(face.id,{building:face.id,address:face.address,landmark:face.landmark,area:0,near:0,far:0,invented:0,missing:0,offset:0,offsetArea:0});
-    const row=rows.get(face.id),count=Math.max(1,Math.min(64,Math.ceil(face.area*4))),area=face.area/count;
+  const grouped=new Map();
+  for(const face of near){if(!grouped.has(face.id))grouped.set(face.id,[]);grouped.get(face.id).push(face);}
+  const samples=[];
+  for(const faces of grouped.values()){
+    const total=faces.reduce((n,f)=>n+f.area,0),count=1024;let cursor=0,accumulated=faces[0].area;
     for(let i=0;i<count;i++){
-      const a=Math.sqrt((i+.5)/count),b=fract(i*.61803398875+.37),w=[1-a,a*(1-b),a*b],p=mix(face.points,w);
+      const target=(i+.5)*total/count;while(accumulated<target&&cursor<faces.length-1)accumulated+=faces[++cursor].area;
+      const a=Math.sqrt(fract(i*.754877666+.31)),b=fract(i*.569840296+.37);
+      samples.push({face:faces[cursor],area:total/count,w:[1-a,a*(1-b),a*b]});
+    }
+  }
+  for(const {face,area,w} of samples){
+    if(!rows.has(face.id))rows.set(face.id,{building:face.id,address:face.address,landmark:face.landmark,area:0,near:0,far:0,invented:0,missing:0,offset:0,offsetArea:0});
+    const row=rows.get(face.id);
+    {
+      const p=mix(face.points,w);
       const reference=face.mask(w)>.5?1:0;
       let value=derivative?0:legacyGrid(p,face.normal),match;
       let best=Infinity;
       if(derivative)for(const f of cells.get(key(p))??[]){
+        if(face.kind==='program'&&f.signature!==face.signature)continue;
         if(dot(f.normal,face.normal)<.95)continue;const v=weights(f,p);if(!v)continue;
         const score=Math.abs(dot(sub(p,f.points[0]),f.normal))+(face.kind==='program'&&f.signature!==face.signature?10:0);
         if(score>=best)continue;best=score;
@@ -128,6 +141,15 @@ export async function auditDocuments(source,derivative){
       }
       row.area+=area;row.near+=reference*area;row.far+=value*area;
       row.invented+=Math.max(0,value-reference)*area;row.missing+=Math.max(0,reference-value)*area;
+      if(!derivative&&face.kind==='program'){
+        const u=mix(face.coords,w),e=face.fields._KIT_EXTENT,l=face.fields._KIT_LAYOUT,f=face.fields._KIT_FLOORS;
+        const along=p[0]*-face.normal[2]+p[2]*face.normal[0],mx=u[0]-e[0],my=u[1]-e[1];
+        const centreX=along-mx+(Math.floor(mx/l[1])+.5)*l[1];
+        const centreY=p[1]-my+(my<f[0]?f[0]*.5:f[0]+(Math.floor((my-f[0])/f[1])+.5)*f[1]);
+        const dx=centreX-(Math.round(centreX/2.8-.45)+.45)*2.8;
+        const dy=centreY-(Math.round(centreY/3.2-.51)+.51)*3.2;
+        row.offset+=Math.hypot(dx,dy)*area;row.offsetArea+=area;
+      }
       if(face.kind==='program'&&match?.face.kind==='program'){
         const u=mix(face.coords,w),v=mix(match.face.coords,match.weights);
         row.offset+=Math.hypot(u[0]-v[0],u[1]-v[1])*area;row.offsetArea+=area;
@@ -138,7 +160,7 @@ export async function auditDocuments(source,derivative){
     near_opening_m2:r.near,far_opening_m2:r.far,invented_m2:r.invented,missing_m2:r.missing,
     mismatch_score:(r.invented+r.missing)/Math.max(r.area,1e-9),bay_floor_offset_m:r.offsetArea?r.offset/r.offsetArea:null}));
   buildings.sort((a,b)=>b.mismatch_score-a.mismatch_score);
-  return {method:'deterministic area samples; opening envelopes exclude frame bars; UV offset only for authored programs',
+  return {method:'1024 deterministic area-stratified samples/building; envelopes exclude frame bars; UV offset only for authored programs',
     buildings,wall_m2:buildings.reduce((n,b)=>n+b.wall_m2,0),invented_m2:buildings.reduce((n,b)=>n+b.invented_m2,0),missing_m2:buildings.reduce((n,b)=>n+b.missing_m2,0)};
 }
 

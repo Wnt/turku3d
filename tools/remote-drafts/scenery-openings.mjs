@@ -22,6 +22,13 @@ export function transformedUv(info, uv) {
     y + Math.sin(angle)*uv[0]*sx + Math.cos(angle)*uv[1]*sy];
 }
 
+function sourceUv(info, uv) {
+  const transform=info?.getExtension('KHR_texture_transform');if(!transform)return uv;
+  const [sx,sy]=transform.getScale(),[x,y]=transform.getOffset(),a=transform.getRotation();
+  const u=uv[0]-x,v=uv[1]-y;
+  return [(Math.cos(a)*u+Math.sin(a)*v)/sx,(-Math.sin(a)*u+Math.cos(a)*v)/sy];
+}
+
 const smooth = (a,b,v) => { const t=Math.max(0,Math.min(1,(v-a)/(b-a))); return t*t*(3-2*t); };
 export function glazingMask(roughness, rgb) {
   return roughness == null ? 1-smooth(.14,.22,.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2])
@@ -70,7 +77,7 @@ export function reduceFacade(primitive, matrix, simplifier) {
 export async function decodeImage(texture, sharp) {
   const bytes=texture.getImage();
   if (texture.getMimeType()==='image/ktx2') return decodeFacadeRgb(bytes);
-  const {data,info}=await sharp(bytes).removeAlpha().raw().toBuffer({resolveWithObject:true});
+  const {data,info}=await sharp(bytes).toColourspace('srgb').removeAlpha().raw().toBuffer({resolveWithObject:true});
   return {data,width:info.width,height:info.height};
 }
 
@@ -92,16 +99,30 @@ export async function openingAtlas(doc, candidates, sharp) {
     const albedo=await decodeImage(entry.material.getBaseColorTexture(),sharp);
     const roughness=entry.material.getMetallicRoughnessTexture();
     const orm=roughness?await decodeImage(roughness,sharp):null;
+    const cinfo=entry.material.getBaseColorTextureInfo(),rinfo=entry.material.getMetallicRoughnessTextureInfo();
+    const factor=entry.material.getBaseColorFactor(),roughFactor=entry.material.getRoughnessFactor();
     const colour=await sharp(albedo.data,{raw:{width:albedo.width,height:albedo.height,channels:3}})
       .resize(size,size,{fit:'fill'}).raw().toBuffer();
     // Classify before reduction: averaged masonry roughness must not become glass.
     const mask=Buffer.alloc(albedo.width*albedo.height);
+    const zero=transformedUv(rinfo,sourceUv(cinfo,[0,0])),along=transformedUv(rinfo,sourceUv(cinfo,[1,0])),up=transformedUv(rinfo,sourceUv(cinfo,[0,1]));
+    const repeat=[rinfo?.getWrapS()===10497,rinfo?.getWrapT()===10497];
+    const roughMask=Uint8Array.from({length:256},(_,v)=>Math.round(255*glazingMask(v/255*roughFactor,[0,0,0])));
+    const linear=Float32Array.from({length:256},(_,v)=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});
     for(let y=0;y<albedo.height;y++)for(let x=0;x<albedo.width;x++){
-      const i=(y*albedo.width+x)*3;
-      const rough=orm?orm.data[(Math.min(orm.height-1,Math.floor(y/albedo.height*orm.height))*orm.width+
-        Math.min(orm.width-1,Math.floor(x/albedo.width*orm.width)))*3+1]/255:null;
-      const rgb=[albedo.data[i],albedo.data[i+1],albedo.data[i+2]].map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});
-      mask[y*albedo.width+x]=Math.round(255*glazingMask(rough,rgb));
+      const index=y*albedo.width+x;
+      if(orm){
+        const u=(x+.5)/albedo.width,v=(y+.5)/albedo.height;
+        let ru=zero[0]+(along[0]-zero[0])*u+(up[0]-zero[0])*v;
+        let rv=zero[1]+(along[1]-zero[1])*u+(up[1]-zero[1])*v;
+        ru=repeat[0]?ru-Math.floor(ru):Math.max(0,Math.min(1,ru));
+        rv=repeat[1]?rv-Math.floor(rv):Math.max(0,Math.min(1,rv));
+        mask[index]=roughMask[orm.data[(Math.min(orm.height-1,Math.floor(rv*orm.height))*orm.width+
+          Math.min(orm.width-1,Math.floor(ru*orm.width)))*3+1]];
+      }else{
+        const i=index*3;
+        mask[index]=Math.round(255*glazingMask(null,[linear[albedo.data[i]]*factor[0],linear[albedo.data[i+1]]*factor[1],linear[albedo.data[i+2]]*factor[2]]));
+      }
     }
     const alpha=await sharp(mask,{raw:{width:albedo.width,height:albedo.height,channels:1}})
       .resize(size,size,{fit:'fill'}).greyscale().raw().toBuffer();
