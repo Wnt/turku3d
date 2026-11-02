@@ -116,6 +116,24 @@ export class CameraBench {
   /** The scene has settled: from here on the frame behaves as in play (night cascades stay frozen, as in play). */
   get settled() { return this.phase !== 'settle'; }
 
+  /** Reuse the same draw instrumentation for another settled camera in a persistent QA session. */
+  restart(pose: BenchPose) {
+    if (this.phase !== 'done') throw new Error('Wait for the current camera bench to finish before restarting');
+    this.pose = pose;
+    this.phase = 'settle';
+    this.settleStart = null;
+    this.stableSince = 0;
+    this.signature = '';
+    this.settle = { ms: 0, timedOut: false, changes: 0, first: '', last: '', timeline: [] };
+    this.frames = 0;
+    this.counting = false;
+    this.draws = { prepass: 0, beauty: 0, csm: 0, reflection: 0, post: 0 };
+    this.instances = 0;
+    this.others.clear();
+    this.pipelinesAtStart = null;
+    this.result = null;
+  }
+
   /** Call after every rendered frame once the view has settled. Resolves when the result is published. */
   async frame(): Promise<Record<string, unknown> | null> {
     if (this.phase === 'settle') {

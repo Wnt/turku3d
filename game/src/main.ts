@@ -25,7 +25,8 @@ import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
-import { CoarseTiles } from './world/coarseTiles';
+import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
+import { readCol } from './physics/colTile';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -33,7 +34,7 @@ import { BuildBadge, type BuildStatus } from './ui/buildBadge';
 import { startPlay, type PlayWorld } from './play';
 import { worldLoad } from './world/loadProgress';
 import { retireAfterFrame, frameSubmitted } from './render/retirement';
-import { CameraBench } from './qa/bench';
+import { CameraBench, benchPose } from './qa/bench';
 
 declare global {
   interface Window {
@@ -47,6 +48,8 @@ declare global {
     __game?: Record<string, unknown>;
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
+    __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
+      pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void };
@@ -195,26 +198,41 @@ async function draftWorld() {
   const rapier = await physics.ready;
   const manifest = draftManifest(location.href);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
-  const coarse = await CoarseTiles.start({ scene, renderer, manifest,
-    detailRadius: params.mobile ? 80 : undefined,
-    previewCollision: collisionPreview,
+  const coarse = await draftVisuals(manifest, {
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
+  });
+  return { physics, rapier, manifest, streamer, coarse };
+}
+
+async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
+  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>) {
+  const coarse = await CoarseTiles.start({ scene, renderer, manifest,
+    detailRadius: params.mobile ? 80 : undefined,
+    previewCollision: collisionPreview,
+    ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => retireAfterFrame(renderer, release),
     style: m => materials?.applyAsync(m), unstyle: m => { vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   lights?.attach(coarse);
-  return { physics, rapier, manifest, streamer, coarse };
+  return coarse;
 }
 
 async function runQa() {
   const q = params.qa!;
   document.body.classList.add('qa');
   applyQaCamera();
-  const { coarse } = await draftWorld();
+  // Fixed cameras need the same validated world geometry, but no simulation worker or Rapier startup.
+  const coarse = await draftVisuals(draftManifest(location.href), {
+    unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async buffer => {
+      const col = await readCol(buffer);
+      if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
+    },
+  });
   window.__qaPose = { E: q.E, N: q.N, H: q.H, yaw: q.yawDeg, pitch: q.pitchDeg, roll: q.rollDeg, fov: q.fovDeg };
   window.__qaProject = (E: number, N: number, H: number) => {
     const p = enToEngine(E, N, H);
@@ -266,6 +284,7 @@ async function runQa() {
   };
   let stable = 0;
   let t0 = performance.now();
+  let settleStart = clock.simSeconds;
   window.__qaMove = pose => {
     Object.assign(q, { E: pose.E, N: pose.N, H: pose.H, yawDeg: pose.yaw,
       pitchDeg: pose.pitch, fovDeg: pose.fov });
@@ -276,7 +295,23 @@ async function runQa() {
     window.__qaError = undefined;
     stable = 0;
     t0 = performance.now();
+    settleStart = clock.simSeconds;
     perf.reset();
+  };
+  window.__dev = {
+    setPose: window.__qaMove,
+    setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
+    pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
+    ...(bench ? { bench: (id: string, at: string) => {
+      const pose = benchPose(id, at);
+      bench.restart(pose);
+      window.__bench = undefined;
+      document.getElementById('bench-result')?.remove();
+      window.__render!.beforeFrame = undefined;
+      dayClock.set(pose.time);
+      window.__qaMove!({ E: pose.qa.E, N: pose.qa.N, H: pose.qa.H,
+        yaw: pose.qa.yawDeg, pitch: pose.qa.pitchDeg, fov: pose.qa.fovDeg });
+    } } : {}),
   };
   let last = t0;
   renderer.setAnimationLoop(() => {
@@ -302,7 +337,7 @@ async function runQa() {
       window.__qaReady = true;
       window.__game!.qa = { loadMs: Math.round(performance.now() - t0), visTris: tiles.residentTris, models: tiles.residentModels, sunElevation: env.sunElevation, sunAzimuth: env.sunAzimuth };
     }
-    if (clock.simSeconds > 120) window.__qaError = 'timeout: tiles did not settle in 120 s of frame time';
+    if (clock.simSeconds - settleStart > 120) window.__qaError = 'timeout: tiles did not settle in 120 s of frame time';
   });
 }
 

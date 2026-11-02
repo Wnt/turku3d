@@ -66,6 +66,7 @@ describe('bench draw attribution', () => {
       },
     };
     const bench = new CameraBench(host, benchPose('riverside', null), 'medium', 2, 3, 1000);
+    expect(() => bench.restart(benchPose('shopping', '22:00'))).toThrow(/finish/);
     const frame = async (draws: number) => {
       for (let i = 0; i < draws; i++) backend.draw({ context: { renderTarget: i % 2 ? beauty : prepass }, object: { isInstancedMesh: true, count: 5 } } as never);
       return bench.frame();
@@ -103,5 +104,22 @@ describe('bench draw attribution', () => {
     expect(flushed).toBe(1);
     expect(paused).toEqual([true, false]);
     expect(await frame(1)).toBeNull(); // done: further frames are ignored
+    const instrumentedDraw = backend.draw;
+    bench.restart(benchPose('shopping', '22:00'));
+    expect(backend.draw).toBe(instrumentedDraw); // repeated probes do not stack draw wrappers
+    expect(bench.settled).toBe(false);
+    expect(bench.result).toBeNull();
+    await frame(9);
+    clock += 1000;
+    await frame(9); // settle again at the new camera
+    await frame(9);
+    await frame(9); // warm-up completes
+    await frame(2);
+    await frame(2);
+    const second = await frame(2);
+    expect(second).toMatchObject({ id: 'shopping', at: '22:00',
+      submittedDraws: { total: 2, prepass: 1, beauty: 1 }, instances: 10, settleMs: 1000 });
+    expect(flushed).toBe(2);
+    expect(resets).toBe(2);
   });
 });
