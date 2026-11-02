@@ -6,7 +6,7 @@ import { programLayout, programPigment } from './facadeProgram';
 import { draftWindows, facadeKey, kitGlassMask, quantise, wallFrame, windowEmission } from './nightLights';
 import { facadeAttribute, facadePaintAttributes, interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
-import { addFacadeModules } from './facadeModules';
+import { addFacadeModules, facadeModuleMaterial } from './facadeModules';
 
 export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPURenderer): THREE.MeshStandardNodeMaterial | null {
   const p = source.userData.facade_kit as { version?: number; module?: number; wall?: string; trim?: string } | undefined;
@@ -113,7 +113,11 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer,
       if (cached) return cached;
       const pbr = source as THREE.MeshStandardMaterial;
       let node: THREE.MeshStandardMaterial | THREE.MeshStandardNodeMaterial;
-      if (pbr.type === 'MeshStandardMaterial' &&
+      if(source.userData.facadeModules){
+        const create=()=>facadeModuleMaterial(pbr);
+        node=((source as THREE.NodeMaterial).isNodeMaterial?source:
+          shared?shared.styled.acquire(source,'facade-profile-front',model,create):create()) as THREE.MeshStandardNodeMaterial;
+      } else if (pbr.type === 'MeshStandardMaterial' &&
           !Object.values(pbr).some(value => value?.isTexture)) {
         // Plain car/tree/prop colours need no per-tile node graph. LOD can still combine bark/crown.
         node = pbr;
