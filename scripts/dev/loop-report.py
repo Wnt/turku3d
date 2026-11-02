@@ -30,7 +30,10 @@ def pose_id(shot):
 
 def valid(shot):
     c = shot['capture']
-    return c['qa_ready'] and not c['qa_error'] and not c['incomplete_tiles'] and not c['failed_assets_final']
+    s = c.get('scenery')
+    scenery_ready = not s or (not s['cataloguePending'] and not s['pending'] and not s['errors']
+                             and s['loaded'] == s['total'])
+    return c['qa_ready'] and not c['qa_error'] and not c['incomplete_tiles'] and not c['failed_assets_final'] and scenery_ready
 
 
 def image_hash(path):
