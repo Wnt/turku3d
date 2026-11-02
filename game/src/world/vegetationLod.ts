@@ -2,15 +2,15 @@ import * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../render/quality';
 import { PreparationBudget } from '../render/preparationBudget';
 import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
-import { natureAsset, natureScale, natureTint } from './nature/species';
+import { fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './nature/species';
+import { GrassField } from './nature/grass';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
-import { GroundCover } from './nature/groundCover';
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
-    if (node.userData.layer === 'vegetation' || node.userData.material_key === 'draft_hedge') return node;
+    if (node.userData.layer === 'vegetation') return node;
   }
   return null;
 }
@@ -27,6 +27,7 @@ interface Bucket {
 }
 interface Selection { bucket: Bucket; offset: number; count: number }
 interface Draw {
+  barrier: boolean;
   root: THREE.Group;
   /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer. */
   levels: THREE.InstancedMesh[][];
@@ -39,6 +40,16 @@ interface Model {
   buckets: Bucket[];
 }
 interface Placement { matrix: THREE.Matrix4; tint: [number, number, number]; id: unknown }
+/** Placements by library asset, then by 50 m cell. */
+type Placements = Map<string, Map<string, Placement[]>>;
+function place(placements: Placements, name: string, matrix: THREE.Matrix4, tint: [number, number, number], id: unknown) {
+  const cell = `${Math.floor(matrix.elements[12] / 50)},${Math.floor(matrix.elements[14] / 50)}`;
+  let cells = placements.get(name);
+  if (!cells) placements.set(name, cells = new Map());
+  let list = cells.get(cell);
+  if (!list) cells.set(cell, list = []);
+  list.push({ matrix, tint, id });
+}
 
 /**
  * Tile vegetation (EXT_mesh_gpu_instancing prototypes with measured size per instance) drawn with the nature library:
@@ -57,60 +68,93 @@ export class VegetationLod {
   private visible: Bucket[] = [];
   private remaining = [0, 0, 0];
   private library: NatureLibrary | null = null;
+  private grass: GrassField | null = null;
   private readonly ready: Promise<void>;
-  private readonly groundCover: GroundCover;
-  constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>) {
-    this.groundCover = new GroundCover(tier);
-    if (library instanceof Promise) this.ready = library.then(loaded => { this.library = loaded; });
-    else { this.library = library; this.ready = Promise.resolve(); }
+  private disposed = false;
+  private pending = new Map<THREE.Object3D, { cancelled: boolean; promise: Promise<void> }>();
+  /** With a scene, tile grass surfaces also grow instanced grass near the camera (world-space draws under it). */
+  constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, scene?: THREE.Object3D) {
+    const loaded = (lib: NatureLibrary) => {
+      if (this.disposed) return;
+      this.library = lib;
+      if (scene && QUALITY[tier].grass.density > 0) { this.grass = new GrassField(lib, tier); scene.add(this.grass.root); }
+    };
+    if (library instanceof Promise) this.ready = library.then(loaded);
+    else { loaded(library); this.ready = Promise.resolve(); }
   }
 
-  loadedModels() { return [...this.models.keys()]; }
+  loadedModels() { return [...new Set([...this.models.keys(), ...this.pending.keys()])]; }
+
+  dispose() {
+    this.disposed = true;
+    for (const model of this.loadedModels()) this.remove(model);
+    this.grass?.dispose();
+  }
 
   add(model: THREE.Object3D) {
+    if (this.disposed) return;
     if (!this.library) throw new Error('VegetationLod.add before the nature library loaded');
     const steps = this.addSteps(model, this.library);
     while (!steps.next().done) { /* Synchronous fixture/startup caller. */ }
   }
 
   async addAsync(model: THREE.Object3D) {
-    await this.ready;
-    const steps = this.addSteps(model, this.library!);
-    while (!steps.next().done) {
-      const pending = this.budget.checkpoint();
-      if (pending) await pending;
-    }
+    if (this.disposed) return;
+    const existing = this.pending.get(model);
+    if (existing) return existing.promise;
+    const job = { cancelled: false, promise: Promise.resolve() };
+    this.pending.set(model, job);
+    job.promise = (async () => {
+      await this.ready;
+      if (job.cancelled || this.disposed) return;
+      const steps = this.addSteps(model, this.library!);
+      try {
+        while (!job.cancelled && !this.disposed && !steps.next().done) {
+          const pending = this.budget.checkpoint();
+          if (pending) await pending;
+        }
+      } finally { steps.return(undefined); }
+    })().finally(() => { if (this.pending.get(model) === job) this.pending.delete(model); });
+    return job.promise;
   }
 
   private *addSteps(model: THREE.Object3D, library: NatureLibrary): Generator<void> {
     if (this.models.has(model)) return;
     const data: Model = { sources: [], draws: [], buckets: [] };
     // Collect before adding children: traversal must never revisit generated meshes.
+    const fences: { mesh: THREE.InstancedMesh; key: string }[] = [];
     model.traverse(object => {
       const mesh = object as THREE.InstancedMesh;
-      if (mesh.isInstancedMesh && vegetationOwner(mesh)) data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow });
+      if (!mesh.isInstancedMesh || Array.isArray(mesh.material)) return;
+      if (vegetationOwner(mesh)) { data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow }); return; }
+      const key = materialKey(mesh, mesh.material);
+      const kit = key === null ? null : fenceAsset(key, 1);
+      if (kit === null) return;
+      data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow });
+      if (kit) fences.push({ mesh, key: key! });
     });
     this.models.set(model, data);
-    yield* this.groundCover.add(model, library);
+    if (this.grass) yield* this.grass.addSteps(model);
     if (!data.sources.length) return;
     for (const { mesh } of data.sources) { mesh.visible = false; mesh.castShadow = false; }
     // Bark and crown prototypes of one variant share their placements: one representative per variant and parent.
     const representatives = new Map<string, THREE.InstancedMesh>();
     for (const { mesh } of data.sources) {
-      const owner = vegetationOwner(mesh)!;
+      const owner = vegetationOwner(mesh);
+      if (!owner) continue;
       const variant = String(owner.userData.variant ?? owner.name.replace(/:\d+$/, ''));
       const key = `${mesh.parent?.id}:${variant}`;
       if (!representatives.has(key)) representatives.set(key, mesh);
     }
     const matrix = new THREE.Matrix4(), t = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
-    const water = yield* waterCells(model), toModel = new THREE.Matrix4(), inModel = new THREE.Vector3();
+    const water = representatives.size ? yield* waterCells(model) : new Set<string>();
+    const toModel = new THREE.Matrix4(), inModel = new THREE.Vector3();
     for (const mesh of representatives.values()) {
       const owner = vegetationOwner(mesh)!;
       const variant = String(owner.userData.variant ?? owner.name.replace(/:\d+$/, ''));
       const ids = owner.userData.instance_object_ids as unknown[] | undefined;
       toModel.copy(model.matrixWorld).invert().multiply(mesh.matrixWorld);
-      // Group placements by library asset, then by 50 m cell.
-      const byAsset = new Map<string, Map<string, Placement[]>>();
+      const byAsset: Placements = new Map();
       for (let i = 0; i < mesh.count; i++) {
         if (i % 256 === 0) yield;
         mesh.getMatrixAt(i, matrix);
@@ -118,45 +162,61 @@ export class VegetationLod {
         const id = ids?.[i] ?? `${variant}:${i}`;
         inModel.copy(t).applyMatrix4(toModel);
         const nearWater = water.has(waterCell(inModel.x, inModel.z));
-        const hedge = owner.userData.material_key === 'draft_hedge';
-        const name = hedge ? 'hedge' : natureAsset(variant, String(id), s.y, nearWater, owner.userData.instance_species?.[i] ?? "");
-        const asset = library.asset(name);
+        const asset = library.variant(natureAsset(variant, String(id), s.y, nearWater, owner.userData.instance_species?.[i] ?? ""), String(id)), name = asset.name;
         const scale = natureScale(s.y, Math.max(s.x, s.z), asset.height, asset.radius);
-        // Barrier instances carry segment length, height and thickness instead of crown radii.
-        if (hedge) s.set(s.x / (asset.module ?? 2), s.y / asset.height, s.z / .8);
-        else s.set(scale.xz, scale.y, scale.xz);
-        const placed = new THREE.Matrix4().compose(t, q, s);
-        const cell = `${Math.floor(t.x / 50)},${Math.floor(t.z / 50)}`;
-        let cells = byAsset.get(name);
-        if (!cells) byAsset.set(name, cells = new Map());
-        if (!cells.has(cell)) cells.set(cell, []);
-        cells.get(cell)!.push({ matrix: placed, tint: natureTint(String(id)), id: ids?.[i] });
+        place(byAsset, name, new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz)), natureTint(String(id)), ids?.[i]);
       }
-      for (const [name, cells] of byAsset) {
-        yield;
-        const asset = library.asset(name);
-        const count = [...cells.values()].reduce((n, list) => n + list.length, 0);
-        const draw = this.createDraw(mesh, owner, asset, count);
-        data.draws.push(draw);
-        const local = assetSphere(asset), all = new THREE.Sphere().makeEmpty(), sphere = new THREE.Sphere();
-        for (const list of cells.values()) {
-          const bounds = new THREE.Sphere().makeEmpty();
-          const matrices = new Float32Array(list.length * 16), colors = new Float32Array(list.length * 3);
-          for (let i = 0; i < list.length; i++) {
-            list[i].matrix.toArray(matrices, i * 16);
-            colors.set(list[i].tint, i * 3);
-            bounds.union(sphere.copy(local).applyMatrix4(list[i].matrix));
-          }
-          all.union(bounds);
-          data.buckets.push({ draw, matrices, colors, objectIds: list.map(p => p.id), bounds, distance: 0, count: list.length, index: data.buckets.length });
+      yield* this.commit(data, mesh, owner, byAsset, library, true);
+    }
+    // Barrier segments (unit prototypes scaled to length x height x thickness) become 2 m kit modules along their
+    // length; granite walls also stack 0.6 m courses. Their shadows stay in the tile's shadow batch.
+    const offset = new THREE.Vector3(), module = new THREE.Vector3();
+    for (const { mesh, key } of fences) {
+      const byAsset: Placements = new Map();
+      for (let i = 0; i < mesh.count; i++) {
+        if (i % 256 === 0) yield;
+        mesh.getMatrixAt(i, matrix);
+        matrix.decompose(t, q, s);
+        const name = fenceAsset(key, s.y)!, asset = library.asset(name);
+        const tint = fenceTint(name, `${key}:${t.x.toFixed(1)},${t.z.toFixed(1)}`);
+        const modules = Math.max(1, Math.round(s.x / (asset.module ?? 2))), length = s.x / modules;
+        const courses = name === 'granite_wall' ? Math.max(1, Math.round(s.y / asset.height)) : 1;
+        for (let j = 0; j < modules; j++) for (let k = 0; k < courses; k++) {
+          offset.set(-s.x / 2 + length * (j + 0.5), s.y * k / courses, 0).applyQuaternion(q).add(t);
+          module.set(length / (asset.module ?? 2), s.y / courses / asset.height, name === 'hedge' ? s.z / 0.8 : 1);
+          place(byAsset, name, new THREE.Matrix4().compose(offset, q, module), tint, undefined);
         }
-        // Static conservative bounds cover every possible packed selection and all cheaper LODs.
-        for (const level of draw.levels) for (const part of level) part.boundingSphere = all.clone();
       }
+      yield* this.commit(data, mesh, mesh, byAsset, library, false);
     }
   }
 
-  private createDraw(source: THREE.InstancedMesh, owner: THREE.Object3D, asset: NatureAsset, count: number): Draw {
+  /** One draw per asset part and LOD for this source's placements, bucketed into 50 m cells. */
+  private *commit(data: Model, source: THREE.InstancedMesh, owner: THREE.Object3D, byAsset: Placements, library: NatureLibrary, shadows: boolean): Generator<void> {
+    for (const [name, cells] of byAsset) {
+      yield;
+      const asset = library.asset(name);
+      const count = [...cells.values()].reduce((n, list) => n + list.length, 0);
+      const draw = this.createDraw(source, owner, asset, count, shadows);
+      data.draws.push(draw);
+      const local = assetSphere(asset), all = new THREE.Sphere().makeEmpty(), sphere = new THREE.Sphere();
+      for (const list of cells.values()) {
+        const bounds = new THREE.Sphere().makeEmpty();
+        const matrices = new Float32Array(list.length * 16), colors = new Float32Array(list.length * 3);
+        for (let i = 0; i < list.length; i++) {
+          list[i].matrix.toArray(matrices, i * 16);
+          colors.set(list[i].tint, i * 3);
+          bounds.union(sphere.copy(local).applyMatrix4(list[i].matrix));
+        }
+        all.union(bounds);
+        data.buckets.push({ draw, matrices, colors, objectIds: list.map(p => p.id), bounds, distance: 0, count: list.length, index: data.buckets.length });
+      }
+      // Static conservative bounds cover every possible packed selection and all cheaper LODs.
+      for (const level of draw.levels) for (const part of level) part.boundingSphere = all.clone();
+    }
+  }
+
+  private createDraw(source: THREE.InstancedMesh, owner: THREE.Object3D, asset: NatureAsset, count: number, shadows: boolean): Draw {
     const root = new THREE.Group();
     root.name = `vegetation-lod:${asset.name}`; root.userData.vegetationLod = true;
     root.position.copy(source.position); root.quaternion.copy(source.quaternion); root.scale.copy(source.scale);
@@ -169,7 +229,8 @@ export class VegetationLod {
       const batch = (part: NaturePart, shadowProxy = false) => {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
-        mesh.userData = { ...owner.userData, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds };
+        // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
+        mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds };
         mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
         if (shadowProxy) mesh.layers.set(TILE_SHADOW_LAYER);
         mesh.visible = false; mesh.count = 0;
@@ -179,18 +240,18 @@ export class VegetationLod {
       const parts = lod.parts.map(part => batch(part));
       // Near trees cast their shadow with the reduced LOD on the shadow-only layer: the same canopy cards at about a
       // third of the triangles, as GTA's per-tree shadow proxies (docs/reports/environment-assets.md).
-      if (level === 0 && asset.lods.length > 1) parts.push(...asset.lods[1].parts.map(part => batch(part, true)));
+      if (shadows && level === 0 && asset.lods.length > 1) parts.push(...asset.lods[1].parts.map(part => batch(part, true)));
       return parts;
     });
     source.parent!.add(root);
-    return { root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
+    return { barrier: !shadows, root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
   }
 
   update(camera: THREE.PerspectiveCamera) {
     camera.updateMatrixWorld();
     this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
-    this.groundCover.update(camera);
+    this.grass?.update(camera);
     camera.getWorldPosition(this.position);
     const q = QUALITY[this.tier].vegetation;
     this.visible.length = 0;
@@ -214,8 +275,17 @@ export class VegetationLod {
     this.visible.sort((a, b) => a.distance - b.distance);
     const remaining = this.remaining;
     remaining[0] = q.nearInstances; remaining[1] = q.midInstances; remaining[2] = this.screenshotDistance ? Infinity : q.farInstances;
+    let barriers = q.barrierInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
+      if (bucket.draw.barrier) {
+        // Barriers have no impostor, but their last mesh remains visible to the far limit.
+        // Keep their modules out of the tree budgets, including distant fences with colliders.
+        const count = Math.min(bucket.count, barriers);
+        barriers -= count;
+        if (count) bucket.draw.selections[Math.min(level, bucket.draw.levels.length - 1)].push({ bucket, offset: 0, count });
+        continue;
+      }
       // A partially filled near/mid budget must demote the rest of a cell, not
       // erase its trees. Ranges are disjoint so no tree draws at two LODs.
       let offset = 0;
@@ -265,7 +335,9 @@ export class VegetationLod {
   }
 
   remove(model: THREE.Object3D) {
-    this.groundCover.remove(model);
+    const pending = this.pending.get(model);
+    if (pending) { pending.cancelled = true; this.pending.delete(model); }
+    this.grass?.remove(model);
     const data = this.models.get(model);
     if (!data) return;
     for (const draw of data.draws) {
@@ -318,8 +390,7 @@ function assetSphere(asset: NatureAsset) {
   return new THREE.Sphere(new THREE.Vector3(0, asset.height / 2, 0), Math.hypot(asset.radius, asset.height / 2));
 }
 
-// This boundary also prevents shadowBatch's vegetationOwner import from reloading
-// main.ts. The existing world installs the new renderer around its resident tiles.
+// Update resident models without restarting the streamed world.
 if (import.meta.hot) import.meta.hot.accept(module => {
   const replace = window.__game?.replaceVegetation as ((Renderer: typeof VegetationLod) => Promise<void>) | undefined;
   if (module && replace) void replace(module.VegetationLod);

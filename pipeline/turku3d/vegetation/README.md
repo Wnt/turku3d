@@ -75,7 +75,10 @@ prototype/material node has `layer=vegetation`, `variant`, `material_key`,
 cell_size:50}` extras. `EXT_mesh_gpu_instancing` carries tile-local TRANSLATION,
 SCALE=(crown radius, height, crown radius) and deterministic yaw ROTATION. The
 root carries the tile origin. Geometry is normalized to height 1 and radius 1;
-foliage and bark share instance transforms. The game buckets these into 50 m cells
-and generates cheaper representations; no image assets or sidecars are needed.
+foliage and bark share instance transforms. The game uses the prototypes only for
+their placements: each instance is drawn as a Turku species from the client's nature
+library (`game/public/assets/nature/`, picked from the variant, inventory ID, height
+and nearby tile water; `game/src/world/nature/species.ts`), bucketed into 50 m cells
+with full mesh, reduced mesh and impostor LODs. No tile image assets or sidecars are needed.
 Legacy vegetation instances without the version marker remain supported. Collision
 continues to use independent trunk cylinders and never depends on visual LOD.

@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><link rel="icon" href="data:,"><title>Turku3D nature assets</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { margin: 0; background: #9fb4c8; overflow: hidden; font: 13px/1.35 system-ui, sans-serif; }
+  canvas { display: block; }
+  #panel { position: absolute; left: 12px; top: 12px; width: 300px; max-height: calc(100vh - 24px); overflow: auto;
+    background: #141c24e6; color: #e8eef3; border-radius: 6px; padding: 10px 12px; }
+  #panel h1 { font-size: 14px; margin: 0 0 6px; }
+  #panel select, #panel input { width: 100%; box-sizing: border-box; margin: 2px 0 6px; }
+  #panel table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  #panel td, #panel th { padding: 1px 3px; text-align: right; } #panel td:first-child, #panel th:first-child { text-align: left; }
+  #panel .muted { color: #9fb0bf; } #panel label { display: block; margin-top: 4px; }
+  #frame { position: absolute; right: 12px; top: 12px; background: #141c24e6; color: #e8eef3; padding: 8px 10px; border-radius: 6px;
+    font-variant-numeric: tabular-nums; white-space: pre; }
+  body.shot #panel, body.shot #frame { display: none; }
+</style>
+</head><body><div id="panel"></div><div id="frame"></div><script type="module" src="/src/qa/natureViewer.ts"></script></body></html>
