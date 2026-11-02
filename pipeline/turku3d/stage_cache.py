@@ -8,6 +8,7 @@ import fcntl
 import hashlib
 import inspect
 import json
+import os
 import pickle
 import struct
 import tempfile
@@ -128,6 +129,10 @@ class StageCache:
     """
 
     def __init__(self, root: Path, *, retain=False, report_path=None):
+        shared = os.environ.get("TURKU3D_SHARED_CACHE")
+        if shared and ".stages" in root.parts:
+            root = Path(shared) / "stages" / Path(*root.parts[root.parts.index(".stages") + 1:])
+            retain = False  # The shared service owns eviction, across all revisions.
         self.root = root
         self.retain = retain
         self.metrics = {}
@@ -173,6 +178,8 @@ class StageCache:
                         value, hit = pickle.loads(decompress_payload(data[32:])), True
                     except (EOFError, pickle.UnpicklingError, AttributeError, ImportError, zlib.error):
                         pass
+            if hit:
+                target.touch()  # Record use for shared LRU eviction.
             if not hit:
                 value = operation()
                 data = compress_payload(pickle.dumps(value, protocol=5))

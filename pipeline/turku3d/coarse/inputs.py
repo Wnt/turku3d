@@ -456,7 +456,11 @@ def _load(path: Path, key: str):
             entry = pickle.load(f)
     except (OSError, EOFError, pickle.UnpicklingError, AttributeError, ImportError):
         return _ABSENT
-    return entry["value"] if entry.get("key") == key else _ABSENT
+    if entry.get("key") != key:
+        return _ABSENT
+    if os.environ.get("TURKU3D_SHARED_CACHE"):
+        path.touch()
+    return entry["value"]
 
 
 def _save(path: Path, key: str, value) -> None:
@@ -466,6 +470,8 @@ def _save(path: Path, key: str, value) -> None:
     with open(tmp, "wb") as f:
         pickle.dump({"key": key, "value": value}, f, protocol=pickle.HIGHEST_PROTOCOL)
     tmp.replace(path)
+    if os.environ.get("TURKU3D_SHARED_CACHE"):
+        return  # The shared service owns retention across all revisions.
     for old in path.parent.glob(path.name.split(".", 1)[0] + ".*.pkl"):
         if old != path:
             old.unlink(missing_ok=True)
@@ -651,7 +657,9 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
 def _entry(root: Path, tile: C.VisualTile, dataset: str, paths: list) -> tuple[Path, str]:
     """The cache file names its key, so checking for a current entry is one stat."""
     key = _key([p for p in paths if p], dataset)
-    return root / ".inputs" / tile.id / f"{dataset}.{key}.pkl", key
+    shared = os.environ.get("TURKU3D_SHARED_CACHE")
+    directory = Path(shared) / "inputs" if shared else root / ".inputs"
+    return directory / tile.id / f"{dataset}.{key}.pkl", key
 
 
 def prepare(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> dict:
@@ -692,7 +700,7 @@ def gather(
         if not first_pass:
             prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
-    seconds, values, provenance = {}, {}, {}
+    seconds, values, provenance, cache_metrics = {}, {}, {}, {}
     for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
         if first_pass and dataset in {
             "parking",
@@ -739,6 +747,7 @@ def gather(
             value = _load(full_path, full_key)
         if value is _ABSENT:
             value = _load(path, key)
+        cached = value is not _ABSENT
         if value is _ABSENT:
             if dataset == "wfs" and not first_pass:
                 base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
@@ -754,6 +763,13 @@ def gather(
         values[dataset] = value
         provenance[dataset] = [str(p) if p else None for p in paths]
         seconds[dataset] = time.perf_counter() - t
+        cache_metrics[dataset] = dict(key=key, cached=cached, seconds=round(seconds[dataset], 6))
+    if os.environ.get("TURKU3D_SHARED_CACHE"):
+        report = root / tile.id / "input-cache.json"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        temp = report.with_suffix(".tmp")
+        temp.write_text(json.dumps(cache_metrics) + "\n")
+        temp.replace(report)
     ground, wfs = values["ground"], values["wfs"]
     pool_mask = shapely.union_all([g for g, _, _ in (values["gardens"] or {}).get("pools", ())])
     water = (

@@ -127,6 +127,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
     from turku3d import config as C
     from turku3d.coarse import build as generator
     from turku3d.coarse.bridges import Deck
+    from turku3d.coarse.stages import deck_stage
 
     def sampler(points):
         return np.full(len(points), 7.25)
@@ -148,7 +149,7 @@ def test_bridge_cache_consumes_build_local_sampler_before_serialization(tmp_path
         np.array([False]),
         SimpleNamespace(roads={}),
     )
-    result = cache.run("bridges", "v1", [], lambda: generator.deck_stage(*args))
+    result = cache.run("bridges", "v1", [], lambda: deck_stage(*args))
     assert result[3] == {"json": b"7.25"}
     assert result[1][0].height_at is None
     assert cache.run("bridges", "v1", [], lambda: None)[3] == result[3]
@@ -340,3 +341,50 @@ def test_live_stage_report_survives_failure_and_external_termination(tmp_path):
     assert report["pack"]["status"] == "cancelled"
     assert report["pack"]["seconds"] > 0
     assert report["_build"]["error"] == "SIGKILL"
+
+
+def test_shared_stage_store_reuses_across_worktrees_and_retains_multiple_versions(tmp_path, monkeypatch):
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    first = StageCache(tmp_path / 'one' / '.stages' / 't0_0_0', retain=True)
+    second = StageCache(tmp_path / 'two' / '.stages' / 't0_0_0', retain=True)
+    calls = []
+    for code in ('v1', 'v2', 'v3'):
+        assert first.run('walls', code, [], lambda: calls.append(code) or code) == code
+    assert second.run('walls', 'v1', [], lambda: 'incorrect') == 'v1'
+    assert second.metrics['walls']['cached']
+    assert len(list((tmp_path / 'shared/stages/t0_0_0/walls').glob('*.pkl'))) == 3
+    assert calls == ['v1', 'v2', 'v3']
+
+
+def test_shared_prepared_inputs_do_not_delete_other_versions(tmp_path, monkeypatch):
+    from turku3d.coarse.inputs import _save, _load
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path))
+    first, second = tmp_path / 'ground.one.pkl', tmp_path / 'ground.two.pkl'
+    _save(first, 'one', [1])
+    _save(second, 'two', [2])
+    assert _load(first, 'one') == [1]
+    assert _load(second, 'two') == [2]
+
+
+def test_shared_source_hashes_reuse_across_revisions_and_detect_same_size_edits(tmp_path, monkeypatch):
+    import hashlib
+    from turku3d.tile_layer import identities
+    source = tmp_path / 'source'
+    source.write_bytes(b'one')
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'first'))
+    calls = []
+    digest = hashlib.file_digest
+    def count(*args, **kwargs):
+        calls.append(1)
+        return digest(*args, **kwargs)
+    monkeypatch.setattr(hashlib, 'file_digest', count)
+    first = identities({'source': source})
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'second'))
+    assert identities({'source': source}) == first
+    assert len(calls) == 1
+    stat = source.stat()
+    source.write_bytes(b'two')
+    os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert identities({'source': source}) != first
+    assert len(calls) == 2
