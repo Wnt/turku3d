@@ -1,7 +1,7 @@
 import { describe, expect, test, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ACTIONS, DEFAULT_BINDINGS, MOVE_CURVE, glyph, mapActions, radial, Input } from '../../src/input';
+import { ACTIONS, DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, glyph, mapActions, radial, Input } from '../../src/input';
 const bindings = () => structuredClone(DEFAULT_BINDINGS);
 function pad(axes = [0, 0, 0, 0], buttons: Record<number, number> = {}): Gamepad {
   return { id: 'Xbox Wireless Controller', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes,
@@ -10,6 +10,15 @@ function pad(axes = [0, 0, 0, 0], buttons: Record<number, number> = {}): Gamepad
 }
 afterEach(() => vi.unstubAllGlobals());
 describe('action mapping', () => {
+  test('zero snapshots include every action and remain independent mutable inputs', () => {
+    const first = emptyActions(), second = emptyActions();
+    expect(Object.keys(first)).toEqual([...ACTIONS]);
+    expect(Object.values(first).every(value => value === 0)).toBe(true);
+    first.throttle = 1; first.jump = 1;
+    expect(second.throttle).toBe(0); expect(second.jump).toBe(0);
+    expect(emptyActions()).toEqual(second);
+  });
+
   test('radial dead zone is continuous, symmetric and preserves diagonal direction', () => {
     expect(radial(0.1, 0.1)).toEqual([0, 0]);
     expect(radial(MOVE_CURVE.deadZone, 0)).toEqual([0, 0]);

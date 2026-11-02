@@ -49,7 +49,9 @@ export const DEFAULT_BINDINGS: Bindings = {
   timeHourBack: [key('BracketLeft')], timeHourForward: [key('BracketRight')],
   timeMinutesBack: [key('Comma')], timeMinutesForward: [key('Period')], timeLive: [key('KeyB')],
 };
-export const emptyActions = (): Actions => Object.fromEntries(ACTIONS.map(a => [a, 0])) as Actions;
+const ZERO_ACTIONS = Object.freeze(Object.fromEntries(ACTIONS.map(a => [a, 0]))) as Readonly<Actions>;
+/** Fresh mutable snapshot, without rebuilding per-action entry arrays in every input sample. */
+export const emptyActions = (): Actions => ({ ...ZERO_ACTIONS });
 interface Curve { deadZone: number; exponent: number }
 export const MOVE_CURVE: Curve = { deadZone: 0.16, exponent: 1.35 };
 const LOOK_CURVE: Curve = { deadZone: 0.12, exponent: 1.6 };
