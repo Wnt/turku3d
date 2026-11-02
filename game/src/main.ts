@@ -219,7 +219,7 @@ const renderFrame = () => {
   weatherUniforms.seconds.value = (dayClock.sharedNow() / 1000) % 4096;
   rain?.update(camera, weatherSample, dayClock.sharedNow() / 1000, env.nightFactor);
   refreshWeatherIBL(weatherSample);
-  distantCity?.follow(camera);
+  if (params.qa || worldLoad.snapshot().phase === 'ready') distantCity?.follow(camera);
   // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
   const sharedSeconds = dayClock.sharedNow() / 1000;
   env.atmosphere.setTime(params.qa ? 0 : sharedSeconds);
@@ -321,7 +321,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   if (!idPass) {
     distantCity = coarse.screenshotScenery;
     distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
-    distantCity.follow(camera);
+    if (params.qa) distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
     window.__game!.scenery = distantCity;

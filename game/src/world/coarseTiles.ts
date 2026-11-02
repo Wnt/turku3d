@@ -192,12 +192,12 @@ export class CoarseTiles {
   }
 
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
-  update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }) {
+  update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true) {
     this.clock = now;
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
     this.restoreCached(x,z);
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
-    this.screenshotScenery.update(x, z, now);
+    if (scenery) this.screenshotScenery.update(x, z, now);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };

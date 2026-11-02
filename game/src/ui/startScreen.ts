@@ -18,7 +18,8 @@ export class StartScreen implements MenuHost {
   readonly element = document.createElement('section');
   readonly menu: MenuPanel;
   active = true;
-  private multiplayerReady = true;
+  private multiplayerReady: boolean | null = true;
+  private page: MenuPage | null = null;
   private status: HTMLElement;
   private touchLine: HTMLElement;
   private readonly onClose: () => void;
@@ -86,8 +87,9 @@ export class StartScreen implements MenuHost {
     document.body.append(this.element);
   }
   show(page: MenuPage) {
+    this.page = page;
     this.menu.show(this.multiplayerReady ? page : { ...page, items: page.items.map(item => item.id === 'multiplayer'
-      ? { ...item, enabled: false, detail: 'Connection unavailable · reload to retry' } : item) });
+      ? { ...item, enabled: false, detail: this.multiplayerReady === null ? 'Connecting… · solo play is ready' : 'Connection unavailable · reload to retry' } : item) });
   }
   /** Delay automatic saved-game resumes until Firefox's warning is acknowledged. */
   afterBrowserWarning(action: () => void) {
@@ -107,9 +109,8 @@ export class StartScreen implements MenuHost {
   }
 
   /** The world is loaded: the menu accepts picks unless Firefox's warning is pending. */
-  ready(multiplayerReady = true) {
-    this.multiplayerReady = multiplayerReady;
-    if (this.menu.page) this.show(this.menu.page);
+  ready(multiplayerReady: boolean | null = true) {
+    this.setMultiplayerReady(multiplayerReady);
     this.menuReady = true;
     this.menu.setEnabled(!this.warning);
     if (this.warning) {
@@ -117,7 +118,12 @@ export class StartScreen implements MenuHost {
       this.element.classList.add('browser-warning-open');
       this.warning.querySelector('button')?.focus();
     }
-    this.element.querySelector('.start-hint')!.textContent = multiplayerReady
+  }
+  setMultiplayerReady(multiplayerReady: boolean | null) {
+    this.multiplayerReady = multiplayerReady;
+    if (this.page) this.show(this.page);
+    this.element.querySelector('.start-hint')!.textContent = multiplayerReady === null
+      ? 'Solo play is ready. Multiplayer is connecting…' : multiplayerReady
       ? 'Press Ⓐ or select an option.' : 'Multiplayer unavailable. Choose solo play or reload to reconnect.';
   }
   update(input: Input) {

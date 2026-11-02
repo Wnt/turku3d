@@ -38,7 +38,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   let lastCounts = '';
   while (stable < 3) {
     await frame();
-    coarse?.update(focus.x, focus.z);
+    coarse?.update(focus.x, focus.z, undefined, undefined, false);
     streamer.update(focus.x, focus.z);
     world.loadingScreen.update(false, coarse?.status);
     const collision = streamer.progressAt(focus.x, focus.z);
