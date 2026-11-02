@@ -228,20 +228,51 @@ def resolve(building, vertices, eaves):
     )
     from turku3d.facade_learning import apply as apply_learned
 
+    # Missing register data must not turn a known building shell into a blank wall.
+    # This is a visual layout estimate, never a change to the source building/register.
+    levels = attrs.get("levels")
+    visual_levels = None
+    if not levels or attrs.get("levels_source") == "osm":
+        heights = sorted((g["height_m"], g["width_m"]) for g in geometry)
+        half = sum(w for _, w in heights) / 2
+        accumulated = 0
+        height = heights[-1][0]
+        for h, w in heights:
+            accumulated += w
+            if accumulated >= half:
+                height = h
+                break
+        if d and d.get("storeys") and 2.2 <= height / d["storeys"] <= 5.5:
+            levels, visual_levels = d["storeys"], "existing facade description"
+        elif levels and 2.2 <= height / levels <= 5.5:
+            visual_levels = "OSM storeys checked against shell height"
+        else:
+            storey = 3.0 if attrs.get("material_class") == "wood" else (
+                3.6 if attrs.get("era") in ("pre-1850", "1850-1919") else 3.2
+            )
+            levels = max(1, round(height / storey))
+            visual_levels = "visual estimate from shell eave height"
+        attrs = {**attrs, "levels": levels, "levels_source": visual_levels}
     program = sample(building.facade_key, attrs, geometry)
+    if visual_levels:
+        program["storeys"].update(source=visual_levels, support=0.4)
     if not d:
         program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
-    fallback = renderer().register_description(
-        str(building.facade_key),
-        str(building.facade_key),
-        attrs,
-        attrs["frontage_m"],
-        building.top - building.base,
-    )
+    palettes = {}
     for wall in program["walls"]:
-        wall["wall"]["colour"].update(value=fallback["wall_colour"], source="register palette")
+        # A learned timber/brick family needs that material's pigment distribution,
+        # rather than the generic blue-grey unknown-register palette.
+        material = field(wall["wall"], "material", "plaster")
+        material = "render" if material == "plaster" else material
+        if material not in palettes:
+            palettes[material] = renderer().register_description(
+                str(building.facade_key), str(building.facade_key),
+                {**attrs, "material_class": material}, attrs["frontage_m"],
+                building.top - building.base,
+            )["wall_colour"]
+        wall["wall"]["colour"].update(value=palettes[material], source="material palette")
         wall["base"]["colour"] = dict(wall["wall"]["colour"])
     from turku3d.facade_assets import description_row
 
