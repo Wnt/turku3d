@@ -50,6 +50,7 @@ declare global {
     __perf?: PerfSnapshot;
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
+      landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; setTime: (iso: string) => void; setHour: (hour: number) => void;
@@ -339,6 +340,7 @@ async function runQa() {
     perf.reset();
   };
   window.__dev = {
+    landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },

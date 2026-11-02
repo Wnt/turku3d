@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from turku3d import config as C
@@ -18,6 +19,7 @@ def main():
     p.add_argument("--cache-root", type=Path, action="append", default=[])
     p.add_argument("--limit", type=int, default=10000)
     p.add_argument("--descriptions", type=Path, default=C.data_root() / "landmark-descriptions")
+    p.add_argument("--reference-retries", type=int, default=3)
     p.add_argument(
         "--references-only",
         action="store_true",
@@ -37,21 +39,41 @@ def main():
             measure,
             ["--ranked", ranked, *[v for root in a.cache_root for v in ["--cache-root", root]]],
         )
-    run(
-        references,
-        [
-            "--ranked",
-            ranked,
-            "--root",
-            a.root,
-            "--limit",
-            a.limit,
-            "--descriptions",
-            a.descriptions,
-            *([] if a.references_only else ["--describe"]),
-        ],
-    )
-    outcomes = json.loads((a.root / "pipeline-results.json").read_text())
+    reference_args = [
+        "--ranked",
+        ranked,
+        "--root",
+        a.root,
+        "--limit",
+        a.limit,
+        "--descriptions",
+        a.descriptions,
+        *([] if a.references_only else ["--describe"]),
+    ]
+    for attempt in range(a.reference_retries + 1):
+        run(references, reference_args)
+        outcomes = json.loads((a.root / "pipeline-results.json").read_text())
+        deferred = [r for r in outcomes if r.get("retry_after")]
+        if not deferred or attempt == a.reference_retries:
+            break
+        from email.utils import parsedate_to_datetime
+
+        value = deferred[0]["retry_after"]
+        try:
+            seconds = max(1, float(value))
+        except ValueError:
+            seconds = max(1, parsedate_to_datetime(value).timestamp() - time.time())
+        print(
+            json.dumps(
+                dict(
+                    state="reference-rate-limit", retry_in_seconds=seconds, remaining=len(deferred)
+                )
+            ),
+            flush=True,
+        )
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            time.sleep(min(30, max(0, deadline - time.monotonic())))
     print(
         json.dumps(
             dict(

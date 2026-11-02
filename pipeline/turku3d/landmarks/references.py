@@ -151,6 +151,30 @@ def gather(record, root, limit=4):
             data.setdefault("query", {}).setdefault("pages", {}).update(
                 photos.get("query", {}).get("pages", {})
             )
+    if not any(page.get("imageinfo") for page in data.get("query", {}).get("pages", {}).values()):
+        from pyproj import Transformer
+
+        from turku3d import config as C
+
+        x, z = record["location_xz"]
+        lon, lat = Transformer.from_crs(3877, 4326, always_xy=True).transform(
+            C.ORIGIN_E + x, C.ORIGIN_N - z
+        )
+        data = get_json(
+            "https://commons.wikimedia.org/w/api.php",
+            dict(
+                action="query",
+                format="json",
+                generator="geosearch",
+                ggscoord=f"{lat}|{lon}",
+                ggsradius=100,
+                ggsnamespace=6,
+                ggslimit=limit,
+                prop="imageinfo",
+                iiprop="url|extmetadata",
+                iiurlwidth=1600,
+            ),
+        )
     images = local_reference_views(record, root, directory)
     errors = []
     for page in sorted(
