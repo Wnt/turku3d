@@ -1,3 +1,4 @@
+import { vehicleIdentity } from '../../src/net/identity';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SaveGameController } from '../../src/gameplay/saveGame';
 import { captureVehicle, keepSavedVehicle, restoreVehicleSpot, roadSpots, vehicleGround } from '../../src/gameplay/vehicleSave';
@@ -145,4 +146,19 @@ it('retains a rare borrowed truck appearance without an external passenger-car m
   const reloaded = manifest();
   keepSavedVehicle(reloaded, captured);
   expect(reloaded.vehicles).toEqual([appearance]);
+});
+
+it('retains a code-authored fleet appearance without a GLB asset', () => {
+  const m = manifest();
+  const appearance = { object_id: 'tr:t0_0_0:lane:7', model: 'fleet-estate-2', color: 'blue', x: 10, y: 2, z: 20, yaw: 0,
+    width: 1.85, height: 1.48, length: 4.55, clear_front_m: 10, clear_rear_m: 10 };
+  m.vehicles = [appearance];
+  const captured = captureVehicle(state(appearance.object_id, 'car'), true, 0, m)!;
+  expect(captured.appearance).toEqual(appearance);
+  expect(captured.modelAsset).toBeUndefined();
+  const reloaded = manifest();
+  keepSavedVehicle(reloaded, JSON.parse(JSON.stringify(captured)));
+  keepSavedVehicle(reloaded, captured);
+  expect(reloaded.vehicles).toEqual([appearance]);
+  expect(vehicleIdentity('car', appearance.object_id, reloaded.vehicles!)).toBe('fleet-estate-2/blue');
 });

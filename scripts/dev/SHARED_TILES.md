@@ -153,6 +153,12 @@ destinations remain pinned during adoption. Lidar manifests must contain every d
 shard with the expected typed-array shape and byte length before atomic publication.
 Raw decoding stores can be evicted between builds; source inputs are never removed.
 
+Ground material maps are cached per channel under `cache/surface-maps/<content-hash>`.
+Keys include producer code and source-array bytes, excluding branch paths and timestamps.
+One producer lock shares extraction/procedural work across loops. Private library overlays
+hard-link completed maps, so eviction of old shared entries cannot break a tile being packaged.
+The base library keeps its existing material precedence; emitted PNG/material bytes are unchanged.
+
 Adopted workers retain their original runtime deadline and disk-floor monitor. The daemon
 verifies PID identity and output ownership before stopping its own process group, and keeps
 product/cache pins until that process exits.

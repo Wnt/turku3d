@@ -39,6 +39,7 @@ PRODUCERS = (
     "input_keys",
     "sources",
     "surfaces",
+    "surface_library",
     "ground_finishes",
     "street_materials",
     "street_profiles",
