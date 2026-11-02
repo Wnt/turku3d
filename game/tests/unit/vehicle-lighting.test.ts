@@ -27,7 +27,7 @@ test('two shadowless beams stay in one packed shader across off, dipped and long
     builder.build(); programs.push(builder.fragmentShader);
   }
   expect(new Set(programs).size).toBe(1);
-  expect(programs[0]).toContain('array< vec4<f32>, 12 >');
+  expect(programs[0]).toContain('array< vec4<f32>, 14 >');
   beam.dispose(); nightUniforms.night.value = 0;
 });
 

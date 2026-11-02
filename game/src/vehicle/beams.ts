@@ -11,7 +11,7 @@ export class VehicleBeams {
   private querying = false;
   private generation = 0;
   private id = '';
-  private depths = [[145,145,145,145,145], [145,145,145,145,145]];
+  private depths = [Array(9).fill(145), Array(9).fill(145)];
   private q = new T.Quaternion();
   constructor(scene: T.Object3D, private physics: Pick<PhysicsClient, 'raycast'>) {
     this.root.name = 'vehicle-beams'; scene.add(this.root);
@@ -24,7 +24,7 @@ export class VehicleBeams {
   }
   update(state: VehicleState | null, now: number) {
     const mode = state?.lights ?? 0, key = `${state?.id}/${mode}`;
-    if (key !== this.id) { this.id = key; this.depths = [[145,145,145,145,145], [145,145,145,145,145]]; this.nextQuery = 0; this.generation++; }
+    if (key !== this.id) { this.id = key; this.depths = [Array(9).fill(145), Array(9).fill(145)]; this.nextQuery = 0; this.generation++; }
     const night = nightUniforms.night.value;
     this.lights.forEach(l => l.intensity = 0);
     if (!state) return;
@@ -34,10 +34,11 @@ export class VehicleBeams {
     this.lights.forEach((light, i) => {
       light.position.set(scooter ? .81 : truck ? 2.40 : 2.13, scooter ? .48 : truck ? .15 : -.05, (i ? 1 : -1) * (scooter ? .06 : .68));
       light.target.position.set(light.position.x + 30, light.position.y + (mode === 2 ? .3 : -1.2), light.position.z + (i ? 1.4 : -.35));
-      light.angle = mode === 2 ? .38 : .42;
+      light.angle = mode === 2 ? .48 : .42;
+      light.decay = mode === 2 ? 1.1 : 1.8;
       light.distance = range;
       light.userData.mode = mode; light.userData.depths = this.depths[i];
-      light.intensity = mode && night > .001 ? (mode === 2 ? 42000 : 8500) * night * (scooter ? .5 : 1) : 0;
+      light.intensity = mode && night > .001 ? 200 * night * (scooter ? .5 : 1) : 0;
     });
     if (!mode || night < .001 || this.querying || now < this.nextQuery) return;
     this.nextQuery = now + 100; this.querying = true;
@@ -46,7 +47,7 @@ export class VehicleBeams {
     // Conservative horizontal fan catches walls and parked vehicles, without treating the road as an occluder.
     const jobs = this.lights.map(light => {
       const origin = light.getWorldPosition(new T.Vector3());
-      return Promise.all([-.42, -.21, 0, .21, .42].map(angle => {
+      return Promise.all([-.42, -.315, -.21, -.105, 0, .105, .21, .315, .42].map(angle => {
         const dir = new T.Vector3(Math.cos(angle), 0, Math.sin(angle)).applyQuaternion(this.q);
         return this.physics.raycast(origin, dir, range, 'all').then(hit => hit ? hit.toi : range);
       }));

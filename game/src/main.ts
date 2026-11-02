@@ -459,6 +459,8 @@ async function runPlay() {
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
   const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
+  // Keep startup's live worker/streaming diagnostics available before the play session is ready.
+  Object.assign(window.__game!, { physics, coarse, streamer });
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
