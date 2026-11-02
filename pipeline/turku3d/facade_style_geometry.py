@@ -24,6 +24,7 @@ def details(wall, style, blank, boxes, quad, x0, x1, y0, y1, offset, sign):
         "base": style["trim"],
         "bands": [0, 0, 0, 0],
         "detail": [0, 0, 0, 0],
+        "relief_m": 0.065,
     }
 
     def strip(x, y, w, h, paint=trim):

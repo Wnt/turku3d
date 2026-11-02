@@ -84,8 +84,12 @@ def test_reviewed_strip_has_exact_windows_without_new_rows_or_bays():
     # The blank background is cut around the two openings, never drawn behind them.
     import shapely
 
-    assert max(row[0][:, 1].max() for row in blank) == 6
-    assert sum(shapely.Polygon(row[1]).area for row in blank) == pytest.approx(23.3 * 4 - 10)
+    # Generated cornice relief may remain above the reviewed shop strip; it
+    # cannot turn the unobserved upper facade into an opaque wall background.
+    assert all(row[2].get("relief_m") for row in blank if row[0][:, 1].min() >= 6)
+    reviewed_blank = [row for row in blank if row[0][:, 1].max() <= 6]
+    assert max(row[0][:, 1].max() for row in reviewed_blank) == 6
+    assert sum(shapely.Polygon(row[1]).area for row in reviewed_blank) == pytest.approx(23.3 * 4 - 10)
     assert any(row[0][:, 1].min() == 6 and row[2]["module"] < 42 for row in parts)
     wall["observation"]["scope"] = "full-wall"
     full = list(wall_parts(vertices, wall, style))

@@ -36,6 +36,9 @@ def _paint_layers(vertices, wall, style):
         uv = np.c_[[x0, x1, x1, x0], points[:, 1]]
         return points, uv
 
+    from turku3d.facade_relief import bands
+
+    yield from bands(vertices, style, quad)
     geometry = wall.get("measured_geometry")
     if not geometry:
         yield (
@@ -117,6 +120,7 @@ def _paint_layers(vertices, wall, style):
                     "base": style["trim"],
                     "bands": [0, 0, 0, 0],
                     "detail": [0, 0, 0, 0],
+                    "relief_m": 0.07,
                 }
                 yield *part, band, 3
     windows = wall["windows"]
@@ -252,6 +256,7 @@ def _paint_layers(vertices, wall, style):
                 "base": style["trim"],
                 "bands": [0, 0, 0, 0],
                 "detail": [0, 0, 0, 0],
+                "relief_m": 0.055,
             }
             for left, bottom, rw, rh in strips:
                 left, right = sorted([offset + left * sign, offset + (left + rw) * sign])
@@ -275,6 +280,7 @@ def _paint_layers(vertices, wall, style):
             "base": style["trim"],
             "bands": [0, 0, 0, 0],
             "detail": [0, 0, 0, 0],
+            "relief_m": 0.06,
         }
         for (x, y, w, h), _, _, _ in boxes:
             ornaments = [(x, y + h + 0.18, w, thickness)]
