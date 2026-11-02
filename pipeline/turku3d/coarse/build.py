@@ -376,6 +376,7 @@ def build(
                 inputs.vegetation_canopy,
                 inputs.forests,
                 inputs.vegetation_paths,
+                inputs.vegetation_roads,
                 inputs.trees,
                 shells,
                 carried_mask,

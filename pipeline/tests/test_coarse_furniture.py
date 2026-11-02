@@ -268,6 +268,7 @@ def test_register_trees_keep_their_verges_where_mapped_trees_give_way():
         streets=[(verge, 0)],
         roads=None,
         vegetation_paths=[],
+        vegetation_roads=[],
         forests=[],
         canopy=(),
     )
