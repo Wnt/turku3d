@@ -15,14 +15,16 @@ export function flattenFleetAsset(root: THREE.Object3D): THREE.BufferGeometry {
     const mesh = object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
     if (Array.isArray(mesh.material)) throw Error('Expected one GLTF material per primitive');
     const material = mesh.material, role = material.name;
-    if (!role.startsWith('fleet_')) throw Error(`Unexpected fleet material: ${role}`);
+    const names = `${mesh.name} ${role}`.toLowerCase();
+    const front = /lamp[-_ ]front|fleet_headlamp/.test(names), tail = /lamp[-_ ]tail|fleet_taillamp/.test(names);
+    if (!role.startsWith('fleet_') && !front && !tail) throw Error(`Unexpected fleet material: ${role}`);
     const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
     g.applyMatrix4(mesh.matrixWorld);
     for (const key of Object.keys(g.attributes)) if (!['position', 'normal'].includes(key)) g.deleteAttribute(key);
     const n = g.getAttribute('position').count, colors = new Float32Array(n * 3), surfaces = new Float32Array(n * 4);
-    const paint = role === 'fleet_paint';
-    const color = paint ? new THREE.Color(1, 1, 1) : material.color;
-    const lamp = role === 'fleet_headlamp' ? 1 : role === 'fleet_taillamp' ? 4 : role === 'fleet_indicator_left' ? 2 : role === 'fleet_indicator_right' ? 3 : 0;
+    const paint = role === 'fleet_paint' && !front && !tail;
+    const color = front ? new THREE.Color(0xdde6e8) : tail ? new THREE.Color(0xb91108) : paint ? new THREE.Color(1, 1, 1) : material.color;
+    const lamp = front ? 1 : tail ? 4 : role === 'fleet_indicator_left' ? 2 : role === 'fleet_indicator_right' ? 3 : 0;
     for (let i = 0; i < n; i++) {
       colors.set([color.r, color.g, color.b], i * 3);
       surfaces.set([Number(paint), material.roughness, material.metalness, lamp], i * 4);

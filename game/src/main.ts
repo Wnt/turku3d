@@ -21,7 +21,8 @@ import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { renderPixelRatio } from './render/quality';
+import { QUALITY, renderPixelRatio } from './render/quality';
+import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
@@ -56,6 +57,8 @@ declare global {
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
       setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
       landmark: (buildingId: string, url: string | null) => Promise<unknown>;
+      geometryState: () => Promise<unknown>;
+      coplanarDebug: (report: { findings: { kind: string; mesh: string; other_mesh?: string }[] } | null) => Promise<unknown>;
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
@@ -112,7 +115,7 @@ const clockMode: ClockMode = params.hour !== null ? { kind: 'hour', hour: params
 const dayClock = new DayClock(env, clockMode, !params.qa);
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
-window.__dev = { landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
+window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
 if (!idPass) env.updateIBL();
@@ -287,6 +290,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>) {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
+    vegetationDistance: QUALITY[params.quality].vegetation.mid,
+    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
     previewCollision: collisionPreview,
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
@@ -393,6 +398,8 @@ async function runQa() {
     perf.reset();
   };
   window.__dev = {
+    geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)),
+    coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)),
     get rainEffects() { return rain; },
     setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
     landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
@@ -455,6 +462,8 @@ async function runPlay() {
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
   const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
+  // Keep startup's live worker/streaming diagnostics available before the play session is ready.
+  Object.assign(window.__game!, { physics, coarse, streamer });
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.

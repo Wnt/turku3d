@@ -1,5 +1,7 @@
 # Turku3D pipeline video
 
+For the November 2026 production / Gen 2 split-screen film, see [COMPARISON.md](COMPARISON.md).
+
 The second cut is a 1920×1080, 30 fps explainer with moving game footage throughout,
 29 distinct shots, physics-driven car shots, compact source overlays, and local
 Kokoro `bf_emma` narration. The first cut remains available in Git history at `bff2d9e3`.

@@ -1,5 +1,6 @@
 // The session's fixed light set. Adding, removing or hiding a light changes r186's lights cache key and
 // recompiles every lit material, so lights are created once at startup and only their uniforms change.
+import { VehicleLightData } from './vehicleLightData';
 import type * as THREE from 'three/webgpu';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import DynamicLightsNode from 'three/addons/tsl/lighting/DynamicLightsNode.js';
@@ -66,16 +67,17 @@ class GameLightsNode extends DynamicLightsNode {
  * ambient") light keep per-light paths. Idle point slots still cost about 1 ms of GPU on an M1 Max at medium (the
  * loop's code is compiled in), so mobile and low have none.
  * Budget: every batched light type adds uniform buffers to each lit fragment stage (point 3, spot 4) and WebGPU
- * guarantees only 12 per stage, so spot slots need a packed data node before they can join.
+ * guarantees only 12 per stage. Vehicle spotlights use one packed buffer (vehicleLightData.ts).
  */
 export class GameLighting extends DynamicLighting {
   constructor(readonly slots: LightSlots) {
-    super({ maxDirectionalLights: 1, maxHemisphereLights: 1, maxPointLights: Math.max(1, slots.point), maxSpotLights: 1 });
+    super({ maxDirectionalLights: 1, maxHemisphereLights: 1, maxPointLights: Math.max(1, slots.point), maxSpotLights: 2 });
   }
 
   override createNode(lights: THREE.Light[] = []) {
     const node = new GameLightsNode(this.options);
     const data = (node as unknown as { _dataNodes: Map<string, THREE.Node> })._dataNodes;
+    data.set('SpotLight', new VehicleLightData());
     if (this.slots.point > 0) data.set('PointLight', new ActivePointLights(this.slots.point));
     return node.setLights(lights);
   }

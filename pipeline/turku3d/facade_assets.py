@@ -119,10 +119,24 @@ def building(key):
 
 
 def best_description(candidates):
+    # A single wide view can be dominated by an occluding neighbour. Prefer the
+    # material corroborated by independent reference facades before using width
+    # as a tie-breaker. Building-level guesses do not vote against observations.
+    measured = [m for m in candidates if m["fast_description"].get("source") in ("reference", "astra")]
+    votes = {}
+    seen = set()
+    for m in measured:
+        identity = m.get("facade_id", id(m))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        material = m["fast_description"]["description"].get("material")
+        votes[material] = votes.get(material, 0) + 1
     return max(
         candidates,
         key=lambda m: (
             m["fast_description"].get("source") in ("reference", "astra"),
+            votes.get(m["fast_description"]["description"].get("material"), 0),
             m["width_m"],
         ),
     )
@@ -130,6 +144,7 @@ def best_description(candidates):
 
 def description_row(key):
     """Sandbox descriptions override shared results; all lookups use stable building ids."""
+    generated = None
     for directory in (
         C.work_root() / "facade-params",
         C.data_root() / "facade-params",
@@ -138,13 +153,21 @@ def description_row(key):
         for identity in aliases(key):
             path = directory / opaque(identity)
             if path.is_file():
-                return {**json.loads(path.read_text()), "building_key": str(key)}
+                row = {**json.loads(path.read_text()), "building_key": str(key)}
+                if row.get("source") == "existing-generated-facade":
+                    # Exported automatic choices are a cache, not a reviewed
+                    # override. Re-evaluate them against retained observations.
+                    generated = generated or row
+                else:
+                    return row
     candidates = [
         f["metadata"]
         for f in building(key).get("facades", [])
         if f["metadata"].get("fast_description", {}).get("description")
     ]
     if not candidates:
+        if generated is not None:
+            return generated
         # Retained descriptions can ship as ordinary parameter records without
         # embedding a building-specific branch in the generator or asset export.
         directory = C.REPO_ROOT / "textures/library/facade-params"

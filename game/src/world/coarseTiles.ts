@@ -2,7 +2,7 @@
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
 import { recordFreshness } from './coarseFreshness';
-import { VisualPassComparison } from './visualPass';
+import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
@@ -28,6 +28,8 @@ export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 
 const POLL_MS = 1000;
+const RETURN_CACHE_TILES = 16;
+const RETURN_CACHE_MS = 30_000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -78,7 +80,10 @@ export class CoarseTiles {
   get visualPass() { return this.comparison.pass; }
   get comparisonStatus() { return this.comparison.status; }
   setVisualPass(pass: 'auto' | 'first' | 'full') { this.comparison.setPass(pass); }
-  private compare(id: string, e: Entry) { this.comparison.clock = this.clock; return this.comparison.compare(id, e); }
+  private compare(id: string, e: Entry) {
+    if (e.cachedAt !== undefined) return;
+    this.comparison.clock = this.clock; return this.comparison.compare(id, e);
+  }
 
   /** Optional remaining mission route, engine metres, ordered forward. Clear with null. Stays client-side. */
   setRouteHint(points: readonly { x: number; z: number }[] | null) {
@@ -146,13 +151,14 @@ export class CoarseTiles {
     if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }
-  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D) {
+  private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, vegetation?: CoarseFragment['vegetation']) {
     const state = entry.state;
     let ready = false;
     try {
       await this.host.style?.(model);
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
       tintDraft(model, this.host.renderer, this.materials);
+      if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
       await this.host.styled?.(model);
       ready = this.entries.get(id) === entry && entry.state === state;
       return ready;
@@ -161,9 +167,31 @@ export class CoarseTiles {
     }
   }
 
+  private cacheFull(e: Entry) {
+    if (this.host.detailRadius !== undefined || !e.model || e.preview || e.pass !== 'full' || !e.visualHash) return false;
+    e.cachedAt ??= this.clock;
+    this.comparison.clear(e);
+    e.model.visible = false;
+    e.model.removeFromParent();
+    return true;
+  }
+
+  private restoreCached(x: number, z: number) {
+    for (const id of this.wantedStarts(x,z)) {
+      const e = this.entries.get(id);
+      if (!e?.model || e.cachedAt === undefined) continue;
+      e.cachedAt = undefined;
+      e.model.visible = this.visualPass === 'auto' || e.pass === this.visualPass;
+      this.screenshotScenery.nearbyChanged(id);
+      this.host.scene.add(e.model);
+    }
+  }
+
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }) {
     this.clock = now;
+    // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
+    this.restoreCached(x,z);
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
     this.screenshotScenery.update(x, z, now);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
@@ -190,6 +218,14 @@ export class CoarseTiles {
         this.drop(e); this.entries.delete(id); continue;
       }
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
+      if (this.cacheFull(e)) continue;
+      this.drop(e); this.entries.delete(id);
+    }
+    const cached = [...this.entries].filter(([,e]) => e.cachedAt !== undefined)
+      .sort((a,b) => b[1].cachedAt! - a[1].cachedAt!);
+    for (let i=0;i<cached.length;i++) {
+      const [id,e] = cached[i];
+      if (i < RETURN_CACHE_TILES && now-e.cachedAt! <= RETURN_CACHE_MS) continue;
       this.drop(e); this.entries.delete(id);
     }
     if (this.outage) {
@@ -415,6 +451,7 @@ export class CoarseTiles {
   private async applyFragment(id: string, e: Entry, fragment: CoarseFragment) {
     const state = e.state;
     if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: invalid draft fragment`);
+    if (e.model && !e.preview && !acceptsVisualPass(e.pass, fragment.pass_kind)) return;
     const visualChanged = !e.model || fragment.visual[id].sha256 !== e.visualHash;
     const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
     if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
@@ -445,9 +482,12 @@ export class CoarseTiles {
       await validate();
       if (this.entries.get(id) !== e || e.state !== state) return;
       const model = await this.host.previewCollision(buffers);
+      try { if (fragment.vegetation) await this.host.prepareVegetation?.(model, fragment.vegetation); }
+      catch (error) { this.dispose(model); throw error; }
       if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
+      this.screenshotScenery.nearbyChanged(id);
       recordFreshness(e, fragment); this.host.scene.add(model);
       return;
     }
@@ -471,16 +511,17 @@ export class CoarseTiles {
       return;
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
-    if (!await this.prepareModel(id, e, model)) return;
+    if (!await this.prepareModel(id, e, model, fragment.vegetation)) return;
     recordFreshness(e, fragment);
     // Detach before attaching: scene hooks must never observe both passes.
     const old = e.model;
     old?.removeFromParent();
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
-    this.host.scene.add(model);
+    if (e.cachedAt === undefined) this.host.scene.add(model);
     this.comparison.clear(e); e.pass = fragment.pass_kind;
-    e.model = model; model.visible = this.visualPass === 'auto' || e.pass === this.visualPass; e.visualHash = fragment.visual[id].sha256;
+    e.model = model; model.visible = e.cachedAt === undefined && (this.visualPass === 'auto' || e.pass === this.visualPass); e.visualHash = fragment.visual[id].sha256;
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
+    this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
     if (old) this.dispose(old, id);
     if (roads || e.roads) { e.roads = roads ?? undefined; this.onMapChange?.(); }

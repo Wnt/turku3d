@@ -73,7 +73,9 @@ export function trafficMix(speed: number) {
 /** The street traffic bed follows how many cars are within 150 m, instead of a fixed loop. */
 export const trafficBed = (count: number) => clamp(count / 10);
 
+export type HornEmitter = { id: string; kind: VehicleKind; position: V3 };
 export type AudioEvent =
+  | { type: 'horns'; vehicles: HornEmitter[] }
   | { type: 'footstep'; material: number; position: V3; speed: number }
   | { type: 'curb' | 'impact'; position: V3; impulse: number }
   | { type: 'door'; position: V3; open: boolean }

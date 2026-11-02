@@ -365,8 +365,10 @@ export class PhysicsWorld {
   driveVehicle(id: string | null) {
     if (id && !this.vehicles.has(id)) throw new Error(`unknown vehicle ${id}`);
     this.coverageHold.clear();
+    const previous = this.vehicles.get(this.drivenId ?? "");
+    if (previous) previous.horn = false;
     this.drivenId = id;
-    if (id) this.vehicles.get(id)!.body.wakeUp();
+    if (id) { this.vehicles.get(id)!.lights = 1; this.vehicles.get(id)!.body.wakeUp(); }
   }
   resetVehicle(pos: V3, yaw: number, id = 'player') {
     const car = this.vehicles.get(id);
@@ -381,7 +383,7 @@ export class PhysicsWorld {
   vehicleStates(): VehicleState[] {
     return [...this.vehicles].map(([id, vehicle]) => {
       const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
-      if (old && sleeping && old.sleeping) return old.state;
+      if (old && sleeping && old.sleeping && old.state.lights === vehicle.lights && old.state.horn === vehicle.horn) return old.state;
       const state = { id, ...vehicle.state() };
       this.vehicleSnapshots.set(id, { state, sleeping });
       return state;

@@ -3,8 +3,9 @@ import { styleScenery } from '../render/sceneryMaterial';
 import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
+import type { TreePlacements } from './treePlacements';
 
-interface Scenery { model?: THREE.Object3D; hash?: string; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
+interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 
 /** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
@@ -22,7 +23,40 @@ export class ScreenshotScenery {
   }
   private detailed(id: string) {
     const entry = this.nearby.get(id);
-    return !!entry?.model && !entry.preview;
+    return !!entry?.model && !entry.preview && entry.cachedAt === undefined;
+  }
+
+  /** The prepared scenery owns visuals until the full model is ready; collision previews are a fallback. */
+  nearbyChanged(id: string) {
+    const model = this.entries.get(id)?.model;
+    if (!model) return;
+    const nearby = this.nearby.get(id);
+    const active = !!nearby?.model && nearby.cachedAt === undefined;
+    model.visible = !active || !!nearby?.preview;
+    if (active && nearby?.preview && nearby.model) nearby.model.visible = false;
+  }
+
+  private release(id: string, e: Scenery) {
+    const nearby = this.nearby.get(id);
+    if (nearby?.preview && nearby.model) nearby.model.visible = true;
+    if (e.model) this.dispose(e.model,id);
+  }
+
+  private needsTrees(e: Scenery, distance: number) {
+    return !!this.host.prepareVegetation && !e.treesReady && distance < (this.host.vegetationDistance ?? 0);
+  }
+
+  private async prepareTrees(id: string, e: Scenery, model: THREE.Object3D, distance: number, source: ScenerySource) {
+    if (!this.needsTrees(e,distance)) return;
+    if (!source.trees_url) return;
+    // A camera approaching a cached far tile must never expose its skyline cones up close.
+    for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
+    const response = await this.request(new URL(source.trees_url,new URL(this.root,this.page)).href);
+    if (!response.ok) throw new Error(`Tree placements: HTTP ${response.status}`);
+    const data = await response.json() as TreePlacements;
+    if (data.version !== 1 || !Array.isArray(data.nodes)) throw new Error('Tree placements pending');
+    await this.host.prepareVegetation!(model,data);
+    if (this.entries.get(id) === e) e.treesReady = true;
   }
 
   private entries = new Map<string, Scenery>();
@@ -50,7 +84,7 @@ export class ScreenshotScenery {
   setRadius(radius: number, view?: SceneryView) {
     this.radius = Number.isFinite(radius) ? Math.max(0, Math.min(8000, radius)) : 0;
     ++this.selection;
-    for (const [id, e] of this.entries) if (e.model) this.dispose(e.model, id);
+    for (const [id, e] of this.entries) this.release(id,e);
     this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = [];
     this.catalogueError = false; this.cataloguePending = false; this.unavailable.clear();
     this.footprintView = null; this.nextView = 0; this.catalogueRetry = 0;
@@ -154,17 +188,20 @@ export class ScreenshotScenery {
     const keep = new Set(this.wanted);
     const outside: [string, Scenery][] = [];
     for (const [id, e] of this.entries) {
+      this.nearbyChanged(id);
       if (keep.has(id)) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
-      else { if (e.model) this.dispose(e.model, id); this.entries.delete(id); }
+      else { this.release(id,e); this.entries.delete(id); }
     }
     // A bounded five-second tail makes brief look-backs instant without retaining a whole 360° world.
     outside.sort((a, b) => b[1].seen - a[1].seen);
     for (const [id, e] of outside.slice(128)) {
-      if (e.model) this.dispose(e.model, id);
+      this.release(id,e);
       this.entries.delete(id);
     }
     if (paused) return;
+    for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
+      && this.needsTrees(e,distToL0(id,x,z)) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
@@ -195,16 +232,22 @@ export class ScreenshotScenery {
       if (!fragment.coarse || fragment.tile !== id || !visual) throw new Error('Missing scenery');
       e.complete = fragment.pass_kind === 'full' && !fragment.stale;
       e.error = undefined;
-      if (e.model && e.hash === visual.sha256) return;
+      if (e.model && e.hash === visual.sha256) {
+        if (source) await this.prepareTrees(id,e,e.model,distance,source);
+        return;
+      }
       model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href);
       if (source) {
         model.userData.scenery = true;
         styleScenery(model);
+        e.treesReady = false;
+        await this.prepareTrees(id,e,model,distance,source);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
       if (this.entries.get(id) !== e || this.detailed(id) || (source && this.sources.get(id)?.key !== source.key)) return;
       if (e.model) this.dispose(e.model, id);
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
+      this.nearbyChanged(id);
     } catch (error) { e.error = String(error); e.complete = false; }
     finally {
       if (model) this.dispose(model, id);

@@ -6,6 +6,37 @@ import numpy as np
 import shapely
 
 
+def foundation(key, floor, tile):
+    """Seal a quay passage's exposed floor/apron perimeter below river level.
+
+    The tunnel cut removes the original terrain before shoreline banks are
+    generated. A floor alone therefore leaves a view into the void below it.
+    Extrude only its true perimeter, never internal triangulation edges or the
+    artificial tile boundary. The same mesh supplies visible and solid stone.
+    """
+    from turku3d.structures.geometry import Faces
+    from .water import LEVEL
+
+    triangles = floor.positions[floor.indices]
+    footprint = shapely.union_all(shapely.polygons(triangles[:, :, [0, 2]]))
+    edges = np.concatenate([triangles[:, pair] for pair in ([0, 1], [1, 2], [2, 0])])
+    midpoint = edges.mean(axis=1)
+    boundary = shapely.distance(shapely.points(midpoint[:, [0, 2]]), footprint.boundary) < 1e-7
+    for axis, limits in ((0, (tile.bbox.xmin, tile.bbox.xmax)),
+                         (2, (tile.bbox.zmin, tile.bbox.zmax))):
+        for value in limits:
+            boundary &= ~np.all(np.abs(edges[:, :, axis] - value) < 1e-7, axis=1)
+    faces = Faces()
+    for a, b in edges[boundary]:
+        if min(a[1], b[1]) <= LEVEL - .5:
+            continue
+        bottom_a, bottom_b = a.copy(), b.copy()
+        bottom_a[1] = bottom_b[1] = LEVEL - 3
+        # Floor faces point up. Reverse its perimeter edge for outward walls.
+        faces.face([b, a, bottom_a, bottom_b])
+    return faces.mesh(f"tunnel:{key}:foundation", "wall") if faces.indices else None
+
+
 def quay_passages(rows):
     """Discover lower walks through stone abutments from full OSM source geometry.
 

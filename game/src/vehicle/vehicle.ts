@@ -1,3 +1,4 @@
+import { ackermann } from './wheelKinematics.ts';
 // Headless car implementation: no renderer, browser globals or input devices.
 import type * as Rapier from '@dimforge/rapier3d';
 export type RapierModule = typeof Rapier;
@@ -19,6 +20,8 @@ const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
 export const IMPACT_MIN_DELTA_V = 0.5;
 
 export class Vehicle {
+  lights: 0 | 1 | 2 = 0;
+  horn = false;
   readonly body: Rapier.RigidBody;
   readonly controller: Rapier.DynamicRayCastVehicleController;
   readonly kind: VehicleKind;
@@ -96,6 +99,8 @@ export class Vehicle {
   }
 
   step(dt: number, input: VehicleInput | null) {
+    this.horn = input?.horn === true;
+    if (input?.lights !== undefined) this.lights = input.lights;
     this.beforeSolve = null;
     if (!input && this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
@@ -105,7 +110,8 @@ export class Vehicle {
     this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
     for (let i = 0; i < t.wheels.length; i++) {
       const steered = t.steered.includes(i), driven = t.driven.includes(i);
-      v.setWheelSteering(i, steered ? this.steering : 0);
+      v.setWheelSteering(i, steered ? ackermann(this.steering,
+        Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), t.wheels[i].z) : 0);
       v.setWheelEngineForce(i, h.engine * this.drive[i]);
       // The handbrake locks the driven rear wheels only.
       v.setWheelBrake(i, h.brake + (driven && !steered && h.handbrake ? t.brakeForce : 0));
@@ -236,7 +242,7 @@ export class Vehicle {
   state(): VehicleState {
     const b = this.body, v = this.controller, lv = b.linvel();
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
-    return { kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
+    return { lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.tuning.wheels.map((cp, i) => {

@@ -4,7 +4,7 @@ export type Binding =
   | { kind: 'button'; index: number }
   | { kind: 'key'; code: string; scale?: number };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
-  'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
+  'throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
   'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown',
   'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3', 'timeSpeed4', 'timeHourBack', 'timeHourForward',
   'timeMinutesBack', 'timeMinutesForward', 'timeLive'] as const;
@@ -24,6 +24,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   mission: [button(0), key('KeyE')],
   throttle: [button(7), key('KeyW'), key('ArrowUp')], brake: [button(6), key('KeyS'), key('ArrowDown')],
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
+  horn: [button(10), key('KeyG')], lights: [button(12), key('KeyL')],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
   pause: [button(9), key('Escape')], mute: [button(13), key('KeyK')], nextTrack: [key('KeyN')],
   vehicleReset: [button(1), key('KeyR')], hud: [key('F3'), key('KeyH')],
@@ -31,7 +32,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   respawn: [button(3), key('KeyR')],
   positionHud: [button(14), key('KeyP')], photoCharacter: [button(15), key('KeyV')],
   layerPanel: [button(4), key('F4')],
-  copyPosition: [key('KeyL')],
+  copyPosition: [key('KeyJ')],
   map: [button(8), key('KeyM')],
   // Shop menus (ui/shopMenu.ts): D-pad or left stick, A selects, B leaves. Read only while a menu is open.
   menuUp: [button(12), axis(1, -1), key('ArrowUp'), key('KeyW')],

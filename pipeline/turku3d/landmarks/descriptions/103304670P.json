@@ -1,0 +1,578 @@
+{
+  "version": 1,
+  "building_id": "103304670P",
+  "name": "Turun Kauppahalli",
+  "style": "1896-brick-market-hall",
+  "surfaces": [
+    "wall",
+    "roof"
+  ],
+  "reference_match": "verified",
+  "reference_confidence": 0.9,
+  "provenance": [
+    {
+      "source": "https://commons.wikimedia.org/wiki/File:Turku_Markthalle_(1896).JPG",
+      "method": "vision parameter measurement; no reference pixels packaged"
+    },
+    {
+      "source": "local retained panorama facade 103304670P_37_v0_f_l_179223953576",
+      "method": "vision parameter measurement"
+    },
+    {
+      "source": "city LOD2 / class6 lidar",
+      "method": "17.35 m end width; 118.6 m length; 10.879 m maximum height"
+    },
+    {
+      "source": "Look Around 569620272610193160, 2026-06-11; local research/areafix/market-block-lookaround.jpg",
+      "method": "vision measurement; reference only"
+    }
+  ],
+  "observations": [
+    "Red-brown brick body, cream/beige ornamental trim, grey granite plinth, painted red standing-seam roof.",
+    "North end is symmetric: central three tall arched windows above low arched central window; two wooden doors flank centre, two shorter arched windows over each door; seven upper openings across main facade.",
+    "Central raised gable has a single slender round-headed window, circular medallions, cream horizontal bands and stepped brick pilasters.",
+    "Central tall openings roughly 0.8-1.0m wide and 3.0-3.4m tall; lower sills about 3m above ground. Photo perspective makes measurements uncertain by 20-30 percent.",
+    "Two paired side upper openings roughly 0.8-1.0m wide and 1.5-1.9m tall.",
+    "Left long wall shows small rectangular white-framed upper windows and continuous glazed clerestory below red roof; no full-height curtain glazing.",
+    "Pavement is pale warm grey rectangular concrete slabs; street dark neutral asphalt with patch edges and a light granite kerb.",
+    "Retained local close-up 103304670P_37_v0_f_l_179223953576.jpg confirms three tall central arched windows, each with two glazing columns and four horizontal pane divisions; lower central triplet and narrow upper gable window. Pale trim is warm grey-beige.",
+    "June 2026 Look Around panorama 569620272610193160, 1.4 m from shot camera: north entrance datum N2000 5.10 m from shipped lidar terrain, 1.06 m above building minimum base. Elevation offsets preserve surveyed roof height and expose the door threshold.",
+    "Current reference confirms muted red-brown brick, beige-grey trim, paired arched entrance lights, and a white concrete / dark ribbon-glass neighbour; the teal source sample was a metal doorway.",
+    "June 2026 north-end perspective: central three clear openings are about 46 px wide and 142 px tall against an approximately 840 px facade width; retain a tall 3.2/1.05 aspect ratio after applying the street datum."
+  ],
+  "uncertainty": "Photo-derived openings and trim dimensions approx \u00b120%; side repetition approximate; opposite end layout not separately measured. Survey shell remains authoritative.",
+  "brick": {
+    "colour": [
+      133,
+      76,
+      63
+    ],
+    "size_m": [
+      0.27,
+      0.075
+    ],
+    "mortar_m": 0.01,
+    "mortar_colour": [
+      154,
+      137,
+      112
+    ],
+    "bond": "running",
+    "variation": 0.2
+  },
+  "stone": {
+    "colour": [
+      113,
+      111,
+      103
+    ],
+    "size_m": [
+      0.6,
+      0.3
+    ],
+    "mortar_m": 0.015,
+    "mortar_colour": [
+      138,
+      133,
+      120
+    ]
+  },
+  "trim_colour": [
+    187,
+    181,
+    155
+  ],
+  "roof": {
+    "material": "metal",
+    "colour": [
+      117,
+      55,
+      44
+    ],
+    "seam_m": 0.6,
+    "patina": 0.12
+  },
+  "weathering": 0.12,
+  "elevations": [
+    {
+      "normal_xz": [
+        -0.566,
+        -0.824
+      ],
+      "axis_xz": [
+        0.824,
+        -0.566
+      ],
+      "origin_xz": [
+        64.467,
+        50.65
+      ],
+      "width_m": 17.35,
+      "height_m": 9.9,
+      "plinth_m": 0.55,
+      "bands": [
+        [
+          0.49500000000000005,
+          0.117
+        ],
+        [
+          2.475,
+          0.108
+        ],
+        [
+          5.445,
+          0.14400000000000002
+        ],
+        [
+          7.29,
+          0.108
+        ],
+        [
+          8.955,
+          0.162
+        ]
+      ],
+      "pilasters": [
+        [
+          0.45,
+          0.38,
+          0.54,
+          5.67
+        ],
+        [
+          4.3,
+          0.48,
+          0.54,
+          6.3
+        ],
+        [
+          7,
+          0.35,
+          5.49,
+          9.0
+        ],
+        [
+          10.35,
+          0.35,
+          5.49,
+          9.0
+        ],
+        [
+          13.05,
+          0.48,
+          0.54,
+          6.3
+        ],
+        [
+          16.9,
+          0.38,
+          0.54,
+          5.67
+        ]
+      ],
+      "openings": [
+        {
+          "x_m": 6.85,
+          "sill_m": 2.682,
+          "width_m": 1.05,
+          "height_m": 3.2,
+          "rows": 4
+        },
+        {
+          "x_m": 8.675,
+          "sill_m": 2.682,
+          "width_m": 1.05,
+          "height_m": 3.2,
+          "rows": 4
+        },
+        {
+          "x_m": 10.5,
+          "sill_m": 2.682,
+          "width_m": 1.05,
+          "height_m": 3.2,
+          "rows": 4
+        },
+        {
+          "x_m": 1.85,
+          "sill_m": 2.682,
+          "width_m": 0.98,
+          "height_m": 1.29195
+        },
+        {
+          "x_m": 3.15,
+          "sill_m": 2.682,
+          "width_m": 0.98,
+          "height_m": 1.4849999999999999
+        },
+        {
+          "x_m": 14.2,
+          "sill_m": 2.682,
+          "width_m": 0.98,
+          "height_m": 1.4849999999999999
+        },
+        {
+          "x_m": 15.5,
+          "sill_m": 2.682,
+          "width_m": 0.98,
+          "height_m": 1.29195
+        },
+        {
+          "x_m": 2.5,
+          "sill_m": 0.108,
+          "width_m": 1.9,
+          "height_m": 2.295,
+          "kind": "door",
+          "shape": "rect",
+          "rows": 3,
+          "columns": 2
+        },
+        {
+          "x_m": 14.85,
+          "sill_m": 0.108,
+          "width_m": 1.9,
+          "height_m": 2.295,
+          "kind": "door",
+          "shape": "rect",
+          "rows": 3,
+          "columns": 2
+        },
+        {
+          "x_m": 8.675,
+          "sill_m": 0.81,
+          "width_m": 2.25,
+          "height_m": 1.4400000000000002,
+          "columns": 3,
+          "rows": 1
+        },
+        {
+          "x_m": 8.675,
+          "sill_m": 6.4350000000000005,
+          "width_m": 0.85,
+          "height_m": 1.8,
+          "rows": 3
+        },
+        {
+          "x_m": 0.7,
+          "sill_m": 4.15,
+          "width_m": 0.32,
+          "height_m": 1.15,
+          "shape": "rect",
+          "rows": 1,
+          "columns": 1
+        },
+        {
+          "x_m": 16.65,
+          "sill_m": 4.15,
+          "width_m": 0.32,
+          "height_m": 1.15,
+          "shape": "rect",
+          "rows": 1,
+          "columns": 1
+        }
+      ],
+      "medallions": [
+        [
+          6.15,
+          7.875,
+          0.3
+        ],
+        [
+          11.2,
+          7.875,
+          0.3
+        ],
+        [
+          2.6,
+          4.95,
+          0.27
+        ],
+        [
+          14.75,
+          4.95,
+          0.27
+        ]
+      ],
+      "base_offset_m": 1.06
+    },
+    {
+      "normal_xz": [
+        0.566,
+        0.824
+      ],
+      "axis_xz": [
+        0.824,
+        -0.566
+      ],
+      "origin_xz": [
+        131.59459999999999,
+        148.3764
+      ],
+      "width_m": 17.35,
+      "height_m": 11,
+      "plinth_m": 0.55,
+      "bands": [
+        [
+          0.55,
+          0.13
+        ],
+        [
+          2.75,
+          0.12
+        ],
+        [
+          6.05,
+          0.16
+        ],
+        [
+          8.1,
+          0.12
+        ],
+        [
+          9.95,
+          0.18
+        ]
+      ],
+      "pilasters": [
+        [
+          0.45,
+          0.38,
+          0.6,
+          6.3
+        ],
+        [
+          4.3,
+          0.48,
+          0.6,
+          7
+        ],
+        [
+          7,
+          0.35,
+          6.1,
+          10
+        ],
+        [
+          10.35,
+          0.35,
+          6.1,
+          10
+        ],
+        [
+          13.05,
+          0.48,
+          0.6,
+          7
+        ],
+        [
+          16.9,
+          0.38,
+          0.6,
+          6.3
+        ]
+      ],
+      "openings": [
+        {
+          "x_m": 6.85,
+          "sill_m": 2.98,
+          "width_m": 1.28,
+          "height_m": 3.2,
+          "rows": 4
+        },
+        {
+          "x_m": 8.675,
+          "sill_m": 2.98,
+          "width_m": 1.28,
+          "height_m": 3.2,
+          "rows": 4
+        },
+        {
+          "x_m": 10.5,
+          "sill_m": 2.98,
+          "width_m": 1.28,
+          "height_m": 3.2,
+          "rows": 4
+        },
+        {
+          "x_m": 1.85,
+          "sill_m": 2.98,
+          "width_m": 0.98,
+          "height_m": 1.65
+        },
+        {
+          "x_m": 3.15,
+          "sill_m": 2.98,
+          "width_m": 0.98,
+          "height_m": 1.65
+        },
+        {
+          "x_m": 14.2,
+          "sill_m": 2.98,
+          "width_m": 0.98,
+          "height_m": 1.65
+        },
+        {
+          "x_m": 15.5,
+          "sill_m": 2.98,
+          "width_m": 0.98,
+          "height_m": 1.65
+        },
+        {
+          "x_m": 2.5,
+          "sill_m": 0.12,
+          "width_m": 1.9,
+          "height_m": 2.55,
+          "kind": "door",
+          "shape": "rect",
+          "rows": 3,
+          "columns": 2
+        },
+        {
+          "x_m": 14.85,
+          "sill_m": 0.12,
+          "width_m": 1.9,
+          "height_m": 2.55,
+          "kind": "door",
+          "shape": "rect",
+          "rows": 3,
+          "columns": 2
+        },
+        {
+          "x_m": 8.675,
+          "sill_m": 0.9,
+          "width_m": 2.25,
+          "height_m": 1.6,
+          "columns": 3,
+          "rows": 1
+        },
+        {
+          "x_m": 8.675,
+          "sill_m": 7.15,
+          "width_m": 0.85,
+          "height_m": 2.0,
+          "rows": 3
+        }
+      ],
+      "medallions": []
+    },
+    {
+      "normal_xz": [
+        -0.824,
+        0.566
+      ],
+      "axis_xz": [
+        0.566,
+        0.824
+      ],
+      "origin_xz": [
+        64.467,
+        50.65
+      ],
+      "width_m": 118.6,
+      "height_m": 11,
+      "plinth_m": 0.55,
+      "bands": [
+        [
+          0.55,
+          0.12
+        ],
+        [
+          4.15,
+          0.16
+        ],
+        [
+          6.1,
+          0.16
+        ],
+        [
+          7.6,
+          0.14
+        ]
+      ],
+      "repeated_openings": [
+        {
+          "start_m": 2.3,
+          "spacing_m": 4.6,
+          "end_margin_m": 1.5,
+          "sill_m": 2.6,
+          "width_m": 1.05,
+          "height_m": 1.45,
+          "shape": "rect",
+          "rows": 2,
+          "columns": 2
+        },
+        {
+          "start_m": 1.1,
+          "spacing_m": 1.5,
+          "end_margin_m": 0.8,
+          "sill_m": 6.35,
+          "width_m": 1.3,
+          "height_m": 1.15,
+          "shape": "rect",
+          "rows": 2,
+          "columns": 2,
+          "trim_m": 0.065
+        }
+      ]
+    },
+    {
+      "normal_xz": [
+        0.824,
+        -0.566
+      ],
+      "axis_xz": [
+        0.566,
+        0.824
+      ],
+      "origin_xz": [
+        78.7634,
+        40.829899999999995
+      ],
+      "width_m": 118.6,
+      "height_m": 11,
+      "plinth_m": 0.55,
+      "bands": [
+        [
+          0.55,
+          0.12
+        ],
+        [
+          4.15,
+          0.16
+        ],
+        [
+          6.1,
+          0.16
+        ],
+        [
+          7.6,
+          0.14
+        ]
+      ],
+      "repeated_openings": [
+        {
+          "start_m": 2.3,
+          "spacing_m": 4.6,
+          "end_margin_m": 1.5,
+          "sill_m": 2.6,
+          "width_m": 1.05,
+          "height_m": 1.45,
+          "shape": "rect",
+          "rows": 2,
+          "columns": 2
+        },
+        {
+          "start_m": 1.1,
+          "spacing_m": 1.5,
+          "end_margin_m": 0.8,
+          "sill_m": 6.35,
+          "width_m": 1.3,
+          "height_m": 1.15,
+          "shape": "rect",
+          "rows": 2,
+          "columns": 2,
+          "trim_m": 0.065
+        }
+      ]
+    }
+  ]
+}

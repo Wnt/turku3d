@@ -92,3 +92,12 @@ vehicle engine bus. The engine and its track clock survive a Vite play-session s
 Developer page select the next track; free play also moves on every 64 bars and after each delivery. `music/params.json` holds the tuned defaults and accepts the lab's
 Copy as JSON object. `window.__game.audio.snapshot().music` exposes the requested scene, progress, muffle
 and the engine's playing snapshot for diagnostics. See [`music/README.md`](music/README.md).
+
+## Held vehicle horns
+
+`horn.ts` synthesises original diaphragm waveforms (car 350/440 Hz; truck 220/275 Hz, louder;
+scooter 880 Hz). `GameAudio` owns the voices: oscillators → 25 ms attack / 60 ms release gain →
+HRTF panner → vehicle bus → master limiter. A stable emitter id keeps a held horn continuous;
+release, stale remote snapshots, pause and teardown stop it. No sample asset or licence is needed.
+The shared capture harness can render the same synthesiser in `OfflineAudioContext` for peak, RMS,
+release-tail and frequency checks.

@@ -18,7 +18,7 @@ export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
   material.metalnessNode=surface.z;
   const lamps=fleetLampNode();
   // Surface tags: running lamps <2, left amber=2, right amber=3, rear brake lens=4.
-  const emission=select(surface.w.greaterThan(3.5),lamps.y.mul(2.5),
+  const emission=select(surface.w.greaterThan(3.5),lamps.y.mul(2.5).add(fleetNight.mul(.9).add(.1).mul(.3)),
     select(surface.w.greaterThan(2.5),lamps.w,
       select(surface.w.greaterThan(1.5),lamps.z,surface.w.mul(fleetNight.mul(.9).add(.1)))));
   material.emissiveNode=color.mul(emission).mul(lamps.x).mul(3);
