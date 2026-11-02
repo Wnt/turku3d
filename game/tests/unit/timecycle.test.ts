@@ -21,7 +21,7 @@ test('timecycle rows interpolate linearly between elevation keys and clamp outsi
   expect(linearRgb('#000000')).toEqual([0, 0, 0]);
 });
 
-test('night: no sun light below the horizon, artificial ambient on; day uses neutral diffuse fill alongside sky reflections', () => {
+test('night: no sun light below the horizon, artificial ambient on; day uses judged neutral fill with earlier distance haze', () => {
   for (let e = -90; e <= -1; e += 0.5) {
     expect(timecycle(e).sunIntensity).toBe(0);
     expect(timecycle(e).hemisphereIntensity).toBeGreaterThan(0);

@@ -241,6 +241,8 @@ def test_register_trees_win_over_nearby_osm_trees(tmp_path):
     assert [t[0] for t in trees] == ["puut:a", "puut:b", "osm:2"]
     assert trees[0][3] == pytest.approx(4 + 0.35 * 10) and not trees[0][4]
     assert trees[1][3] == 10 and trees[1][4]
+    assert trees[0][5] == "tilia cordata (metsälehmus)"
+    assert trees[1][5] == "pinus sylvestris"
     streets = gpd.GeoDataFrame(
         {"Katuosalaji": ["Ajorata", "Välikaista"]},
         geometry=[box(25, 25, 35, 35), box(5, 5, 15, 15)],

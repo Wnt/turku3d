@@ -1,13 +1,18 @@
 // Distant facades use the surveyed shell and its pigment, with a texture-free window rhythm.
 import * as THREE from 'three/webgpu';
-import { float, floor, fract, fwidth, max, mix, positionWorld, smoothstep, vec3, vertexColor } from 'three/tsl';
+import { float, floor, fract, fwidth, luminance, max, mix, positionWorld, smoothstep, vec3, vertexColor } from 'three/tsl';
 import { wallFrame, windowEmission } from './nightLights';
 
-export function sceneryMaterial(buildings: boolean) {
-  const material = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0, vertexColors: true });
-  material.name = buildings ? 'distant-city-windows' : 'distant-city-surface';
+export function sceneryMaterial(layer: string) {
+  // colorNode owns the authored pigment; vertexColors=true would multiply it a second time.
+  const material = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
+  material.colorNode = vertexColor().rgb;
+  material.name = `distant-city-${layer}`;
   material.flatShading = true;
-  if (!buildings) return material;
+  // The old cached tree prototypes carry autumn pigments. Match the city's summer canopy,
+  // retaining their tonal variation without turning the far skyline into bright orange spikes.
+  if (layer === 'vegetation') material.colorNode = vec3(.45, .78, .30).mul(luminance(vertexColor().rgb));
+  if (layer !== 'buildings') return material;
   const frame = wallFrame();
   const bay = frame.along.div(2.8), storey = positionWorld.y.div(3.2);
   const x = fract(bay), y = fract(storey);
@@ -25,14 +30,14 @@ export function sceneryMaterial(buildings: boolean) {
 
 export function styleScenery(model: THREE.Object3D) {
   const originals = new Set<THREE.Material>();
-  const materials = new Map<boolean, THREE.MeshStandardNodeMaterial>();
+  const materials = new Map<string, THREE.MeshStandardNodeMaterial>();
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) originals.add(material);
-    const buildings = mesh.userData.layer === 'buildings' || mesh.name === 'buildings';
-    let material = materials.get(buildings);
-    if (!material) { material = sceneryMaterial(buildings); materials.set(buildings, material); }
+    const layer = String(mesh.userData.layer ?? mesh.name);
+    let material = materials.get(layer);
+    if (!material) { material = sceneryMaterial(layer); materials.set(layer, material); }
     mesh.material = material;
     mesh.castShadow = false; mesh.receiveShadow = false;
   });
