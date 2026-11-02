@@ -303,6 +303,28 @@ def build(
     solid = stairs.cut_ground(solid, attachment_openings)
     stair_meshes = [*stair_meshes, *attachment_meshes]
     seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
+    from . import yard_cover
+    from turku3d.tile_layer import identities
+
+    yard_source = (inputs.sources.get("roads") or [None])[0]
+    yard_source = Path(yard_source) if yard_source else None
+    yard_parcels, play_areas = cache.run(
+        "yard_features", source_key(Path(yard_cover.__file__),
+                                    Path(__file__).with_name("garden_inputs.py"), base / "spatial.py"),
+        [tile, identities({"osm": yard_source})],
+        lambda: yard_cover.features(tile, yard_source),
+    ) if yard_source else (shapely.Polygon(), [])
+    yard_blocked = [*water, *[b.footprint for b in [*blds, *inputs.wall_context]]]
+    play_blocked = [*yard_blocked, *[g for g, m in [*inputs.streets, *inputs.surfaces]
+                     if m in (mat_id("road"), mat_id("sidewalk"), mat_id("paving_slab"),
+                              mat_id("bridge_deck"))]]
+    play_meshes = cache.run(
+        "playgrounds", source_key(Path(yard_cover.__file__), base / "structures/geometry.py",
+                                  Path(__file__).with_name("bridge_details.py")),
+        [tile, play_areas, grid_pos, dry.positions, play_blocked],
+        lambda: yard_cover.playgrounds(tile, play_areas, surface_sample, play_blocked),
+    )
+    stair_meshes.extend(play_meshes)
     from . import street_profiles
 
     if inputs.retaining:
@@ -534,7 +556,12 @@ def build(
     )
     t_surface = time.perf_counter()
     forest_paths = path_surfaces(inputs)
-    visual_regions = [*inputs.surfaces, *forest_paths]
+    lawn_regions = cache.run(
+        "yard_lawns", source_key(Path(yard_cover.__file__)),
+        [tile, inputs.ortho, yard_parcels, yard_blocked],
+        lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
+    )
+    visual_regions = [*lawn_regions, *inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
