@@ -116,6 +116,19 @@ The owner can add a known-broken Git revision and reason to `farm/retired.json`.
 then receive `revision-retired` (or a clearly marked retained full pair) instead of repeatedly
 queuing a deterministic failure. Already running work requires explicit owner handling.
 
+## Capture preparation without a browser
+
+Reserve a browser only after the required immutable tile revision is complete:
+
+```sh
+node scripts/dev/loop-wait-tiles.mjs --service http://192.168.1.114:7950 \
+  --version COMMIT_OR_SOURCE_REVISION --timeout 600 --out /tmp/ready-tiles.json t0_0_0 t0_-1_0
+```
+
+The command launches no browser. It waits through pending builds and complete but stale
+fallbacks, records served revisions and visual hashes, and fails if any requested tile cannot
+become fresh. The capture tool must still verify the actual resident hashes after loading.
+
 ## Shared decoding caches
 
 Workers mount content-keyed roof, vegetation and lidar decoding stores under

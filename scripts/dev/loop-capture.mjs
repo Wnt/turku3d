@@ -83,7 +83,7 @@ const scenerySettled = s => !s || (!s.cataloguePending && !s.pending && !s.error
 const valid = s => s?.capture.qa_ready && !s.capture.qa_error && !s.capture.incomplete_tiles.length
   && !s.capture.failed_assets_final.length && scenerySettled(s.capture.scenery);
 const save = () => {
-  fs.writeFileSync(`${index}.tmp`, JSON.stringify({ generated: new Date().toISOString(), viewport: '1920x1200',
+  fs.writeFileSync(`${index}.tmp`, JSON.stringify({ generated: new Date().toISOString(), viewport: '1280x720',
     device_scale_factor: 1, shots: [...shots.values()] }, null, 1) + '\n');
   fs.renameSync(`${index}.tmp`, index);
 };
@@ -91,13 +91,13 @@ try {
   await send('Page.setWebLifecycleState', { state: 'active' });
   await send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await send('Network.enable');
-  await send('Emulation.setDeviceMetricsOverride', { width: 1920, height: 1200, deviceScaleFactor: 1, mobile: false });
+  await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
   const ordered = [...cameras.entries()].sort((a, b) =>
     Number(b[1].id.startsWith('pano-')) - Number(a[1].id.startsWith('pano-')));
   for (const [n, cam] of ordered) {
     if (!only.includes(cam.id)) continue;
     for (const at of times) {
-      const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.png`;
+      const file = `${String(n + 1).padStart(2, '0')}-${cam.id}-${at.replace(':', '')}.jpg`;
       // On-demand generation can take minutes. Keep the previous scene frozen during input preparation.
       await send('Page.setWebLifecycleState', { state: 'frozen' });
       const [E, N, H, yaw, pitch, fov] = cam.cam.split(',').map(Number);
@@ -107,7 +107,7 @@ try {
         const manifest = await waitForTileManifest(new URL(`coarse/${id}/manifest.json`, base), id, timeout);
         return [id, manifest.visual[id].sha256];
       })));
-      const inputs = { build, nature, tiles: expectedTiles, pose: cam.cam, time: at, quality: 'high', viewport: [1920, 1200, 1] };
+      const inputs = { build, nature, tiles: expectedTiles, pose: cam.cam, time: at, quality: 'high', viewport: [1280, 720, 1] };
       const old = shots.get(file);
       if (valid(old) && old.inputs?.scenery?.footprint && old.identity === captureIdentity({ ...inputs,
         scenery: await sceneryIdentity(old.inputs.scenery.footprint) })) continue;
@@ -181,7 +181,7 @@ try {
       }
       await delay(2000);
       await evaluate(`document.querySelectorAll('body > *:not(canvas)').forEach(e => e.style.setProperty('display','none','important'));`);
-      const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      const screenshot = await send('Page.captureScreenshot', { format: 'jpeg', quality: 95, captureBeyondViewport: false });
       await evaluate('window.__render.beforeFrame = () => false');
       fs.writeFileSync(path.join(out, file), Buffer.from(screenshot.data, 'base64'));
       const capturedInputs = { ...inputs, scenery: state.sceneryIdentity };
