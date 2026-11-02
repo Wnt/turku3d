@@ -50,7 +50,7 @@ export class NatureMaterials {
         .mul(w.y).mul(gust).mul(this.windStrength).mul(flutterScale);
       return positionLocal.add(vec3(dir.x.mul(bend).add(flutter), bend.mul(-0.12).add(flutter.mul(0.6)), dir.y.mul(bend).sub(flutter.mul(0.8))));
     })();
-    // Alpha-tested mips lose coverage; scale alpha with the mip level so far crowns keep their density.
+    // Chain-link mips still need runtime coverage compensation; foliage is calibrated offline per atlas cell.
     const mipAlpha = (alpha: THREE.Node<'float'>, size: number) => alpha.mul(log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(size), 1)).mul(0.3).add(1));
 
     const bark = sources.nature_bark;
@@ -61,7 +61,7 @@ export class NatureMaterials {
     const leafMap = sources.nature_leaves.map!;
     const leaf = texture(leafMap, uv());
     this.leaves = new THREE.MeshStandardNodeMaterial({ name: 'nature-leaves', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.92, metalness: 0, vertexColors: true });
-    this.leaves.colorNode = vec4(leaf.rgb, mipAlpha(leaf.a, imageWidth(leafMap)));
+    this.leaves.colorNode = vec4(leaf.rgb, leaf.a);
     // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
     this.leaves.normalNode = normalViewGeometry;
     this.leaves.positionNode = wind(0.045);
