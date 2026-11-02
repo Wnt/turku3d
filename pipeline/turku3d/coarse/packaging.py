@@ -63,6 +63,7 @@ PRODUCERS = (
     "forests",
     "canopy_trees",
     "fences",
+    "fence_survey",
     "furniture",
     "tree_inputs",
     "geometry",

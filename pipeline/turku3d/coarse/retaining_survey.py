@@ -46,7 +46,7 @@ def measure(line, points):
             fit = measure_profile(surface, centre + shift * normal, normal, snap=False,
                                   along_limit=2.0, side_min=0.2, side_max=1.0)
             if (fit is not None and fit.confidence >= 0.2
-                    and 0.3 <= abs(fit.step) <= 3.0):
+                    and 0.3 <= abs(fit.step) <= 6.0):
                 fit.shift = shift
                 candidates.append(fit)
         fits.append(max(candidates, key=lambda f: f.confidence * abs(f.step))
