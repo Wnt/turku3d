@@ -242,7 +242,7 @@ if (opt('--vehicle-video', '')) {
       const ended=new Promise(resolve=>recorder.onstop=resolve);
       recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
       const at=performance.now(),start={...g.physics.latest.vehicle.pos};
-      const cycle=mode=>{g.vehicleSignals.lights=mode;events.push({seconds:(performance.now()-at)/1000,lights:mode});};
+      const cycle=mode=>{if(mode===0)g.vehicleSignals.lights=0;else{key('keydown','KeyL');setTimeout(()=>key('keyup','KeyL'),120);}events.push({seconds:(performance.now()-at)/1000,lights:mode});};
       cycle(0);recorder.start(250);key('keydown','KeyW');
       const timers=[setTimeout(()=>cycle(1),3000),setTimeout(()=>cycle(2),6500),
         setTimeout(()=>key('keydown','KeyG'),8000),setTimeout(()=>key('keyup','KeyG'),9000)];
