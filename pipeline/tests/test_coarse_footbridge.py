@@ -78,6 +78,8 @@ def test_measured_stair_preserves_landing_and_meets_deck_with_smooth_collision()
     )
     ramp = next(m for m in meshes if not m.visual)
     assert ramp.metadata["collision"]
+    assert ramp.material == "stair_slope"
+    assert any(m.visual and m.material == "stair_tread_helper" and m.metadata["collision"] for m in meshes)
     assert ramp.positions[:, 1].max() == 6.02
     # The central two-metre landing has a flat walking surface.
     triangles = ramp.positions[ramp.indices]
@@ -93,7 +95,7 @@ def test_measured_stair_preserves_landing_and_meets_deck_with_smooth_collision()
     assert not any(
         np.ptp(t[:, 1]) > 0.31
         for m in meshes
-        if m.visual and m.material == "curb"
+        if m.visual and m.material == "stair_tread_helper"
         for t in m.positions[m.indices]
     )
 

@@ -355,8 +355,10 @@ def test_stair_treads_replace_ground_and_share_collision_faces():
     p, idx, mat = stairs.collision(
         ct, meshes, np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8)
     )
-    np.testing.assert_array_equal(p[idx], triangles)
-    assert np.all(mat == mat_id("curb"))
+    # Visible treads remain exact query geometry; the capsule sees a separate smooth ramp.
+    np.testing.assert_array_equal(p[idx[mat == mat_id("stair_tread_helper")]], triangles)
+    assert np.count_nonzero(mat == mat_id("stair_slope")) > 0
+    assert not np.any(mat == mat_id("curb"))
 
 
 def test_monumental_fallback_preserves_explicit_material_and_stored_description(monkeypatch):
