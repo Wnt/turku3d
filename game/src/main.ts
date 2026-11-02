@@ -13,6 +13,7 @@ import { enToEngine, headingToYaw } from './core/origin';
 import { createRenderer, defaultBackend } from './render/renderer';
 import { DayClock, type ClockMode } from './render/dayClock';
 import { Environment } from './render/environment';
+import { riverClock } from './render/riverWaves';
 import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
@@ -151,7 +152,9 @@ const renderFrame = () => {
   dayClock.update();
   distantCity?.follow(camera);
   // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
-  env.atmosphere.setTime(params.qa ? 0 : dayClock.sharedNow() / 1000);
+  const sharedSeconds = dayClock.sharedNow() / 1000;
+  env.atmosphere.setTime(params.qa ? 0 : sharedSeconds);
+  riverClock.seconds = params.qa ? (params.motion ? clock.simSeconds : 0) : sharedSeconds;
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
@@ -198,6 +201,8 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
   return vegetationReplacement;
 };
 
+// QA has no play session to replace; actor edits are applied through its runtime inspection hooks.
+if (import.meta.hot && params.qa) import.meta.hot.accept('./play', () => {});
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
 
@@ -247,8 +252,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
     distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
-    env.sky.scale.setScalar(12000);
-    camera.far = 12000; camera.updateProjectionMatrix();
+    env.setCityDistance(camera, distantCity.radius);
     window.__game!.scenery = distantCity;
   }
   return coarse;

@@ -9,7 +9,7 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
 | `population.ts` | Deterministic walkers: conveyor slots, routes, positions at a UTC time |
 | `ring.ts` | Which walkers this client draws: camera ring, caps, hysteresis and fades |
 | `heights.ts` | Ground Y along chains from cached physics rays (`foot` filter, stair treads) |
-| `asset.ts`, `visuals.ts` | `walkers.bin` decoder; one InstancedMesh per body variant, VAT material |
+| `asset.ts`, `visuals.ts` | `walkers.bin` decoder; 96 model recipes, shared wardrobe batches, textured VAT material |
 | `network.worker.ts` | Builds the network off the main thread |
 | `index.ts` | `Walkers` system for `play.ts`, tier caps, `liveWalkerCount()`, `walkersNear()` |
 
@@ -42,19 +42,16 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
 The ring scores walkers by distance in view (camera cone plus 12°) and 2.5× distance out of view: drawn to 100 m
 ahead and 40 m behind, 10 ring metres of hysteresis, incumbents win ties by 6 m. The cap picks the lowest scores.
 A walker entering or leaving the drawn set closer than 55 m in view fades over 0.6 s (vertex scale, no discard);
-elsewhere it switches instantly. Caps: mobile 0, low 10, medium 30, high 50; `?walkers=N` (0–200) overrides.
+elsewhere it switches instantly. Caps: mobile 0, low 10, medium 60, high 100; `?walkers=N` (0–200) overrides.
 Yaw is smoothed per drawn walker. None of this changes where a walker is.
 
 ## Rendering budget
 
-One `WalkerMaterial` (MeshStandardNodeMaterial) for all three body meshes. `setupPosition` reads the pose from the
-RGBA16F vertex animation texture (two frames, linear blend, spherical-Fibonacci normal index) **before** r186's
-instancing, and the previous phase for the velocity pass, so TRAA sees the limbs move. Per-instance attributes
-carry clip rows, phases, fade and packed sRGB tints for seven body regions. The program does not depend on the
-instance count (`tests/unit/walkers.test.ts` builds it with r186's CPU builder for 0–50 walkers, all variants,
-with and without velocity). `userData.vertexProgram` keeps it in the depth/normal prepass
-(`render/normalPrepass.ts`). Walkers cast no shadows on any tier (a VAT shadow program is a follow-up) and stay out
-of the river reflection pass. Submitted draws: prepass + beauty per visible variant, at most 6 on medium.
+One `WalkerMaterial` serves twelve wardrobe families and their near/far meshes. Ninety-six anatomical/wardrobe
+recipes share these batches; all use one RGBA16F animation texture and one padded albedo atlas. Interleaved
+vertex and instance attributes fit WebGPU's guaranteed eight vertex-buffer slots including velocity history.
+LOD uses a 22–26 m hysteresis band. There is one instanced contact pass and no per-person shadow map or CPU rig.
+The detailed budget, sources and deterministic rebuild are in `public/assets/walkers/README.md`.
 
 ## Multiplayer
 

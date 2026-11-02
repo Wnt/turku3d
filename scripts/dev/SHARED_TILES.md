@@ -1,7 +1,7 @@
 # Shared local tile farm
 
 The LAN service at `http://192.168.1.114:7950` builds committed local revisions on demand.
-It never publishes to production. The server uses two workers (maximum four), a bounded
+It never publishes to production. The server uses four workers (maximum four), a bounded
 128-tile queue, and a shared content-addressed stage/input cache. Explicit CLI requests and
 urgent camera tiles lead, then visible tiles, then background demand; revisions share turns.
 Queued speculative requests expire after three minutes without requests or live demand. Identical requests join
@@ -38,22 +38,25 @@ Forward GET `/coarse/demand` and `/coarse/want`; they require no POST. The deman
 carries the existing client ID, tiles, urgent tiles and visible tiles. Manifest GETs queue
 builds independently; GETs without the browser distance `d` are explicit requests.
 The proxy pins every payload to its manifest's commit; changing an alias cannot mix versions.
-A service cache miss returns 202, which the game's existing streaming loop polls. No stale
-482-tile fallback is substituted for the requested revision.
+A cache miss returns the newest complete retained farm product, or an accepted fallback
+listed in `farm/fallbacks.json`, while the requested version builds. Its manifest explicitly
+sets `stale: true`, `requested_revision`, actual `revision`, and `source_kind`; payload URLs
+remain pinned to the actual retained source. Judging must reject stale manifests. If no
+complete retained pair exists the response is 202 and the streaming loop polls.
 
 Service owner (tiles) starts the daemon with:
 
 ```sh
 python3 scripts/dev/shared_tiles.py --host 192.168.1.114 --port 7950 \
   --root /home/wnt/turku3d-local/loops/tiles/farm \
-  --runner /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh --workers 2
+  --runner /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh --workers 4
 ```
 
 Source inputs remain read-only at `~/turku3d-local/combined/data`; missing source data is
 reported as a failed build, never fetched into raw. Farm-owned outputs are under `farm/products`,
 source snapshots under `farm/revisions`, and intermediates under `farm/cache`. Raw-file hash
-memos use per-source locks; texture encodes also share a content-keyed cache across revisions. Per-tile locks
-serialize preparation across versions; distinct tiles run concurrently. Stage-key locks prevent
+memos use per-source locks; texture encodes also share a content-keyed cache across revisions. Final-product locks
+are per generation/tile, so different versions can build concurrently. Prepared inputs publish atomically. Stage-key locks prevent
 duplicate stage work. The farm owns shared-cache eviction rather than a per-branch two-version cap.
 
 `farm/events.jsonl` logs queued/completed/failed jobs, wall time and every stage's cache status/time.
@@ -97,3 +100,11 @@ The pending queue and running worker PIDs survive daemon restarts. The owner can
 replacement daemon adopts them instead of duplicating work. Use only the farm's own PID/root.
 Completed payloads have a 15-minute idle grace lease after an alias moves, in addition to
 active-version pins, so in-flight old manifest URLs remain available during a switch.
+
+Farm-owned source overlays also accept `supplements/<work-directory>/...`. Their content
+hashes participate in the source version; workers mount these directories into their private
+work root without modifying shared raw or another loop's work. For example the accepted
+Port Arthur survey uses `supplements/lidar-supplement/23458000_6704500.laz`.
+
+POST `/cancel` with `{"revision":"alias-or-id","tiles":["t0_0_0"]}` drops only queued jobs.
+It reports already-running tiles and lets those generators complete normally.

@@ -1,3 +1,4 @@
+import { fleetModel } from '../actors/fleet/catalog';
 // Main-thread side of ambient traffic: feeds the physics worker the resident tiles' road graphs, the shared
 // clock, the multiplayer gate and remote claims; copies the worker's car poses into the shared per-body
 // InstancedMeshes (actors/car.ts, +0 draws); turns the worker's claim events into ordinary vehicle records
@@ -198,13 +199,13 @@ export class TrafficClient {
       car.vx = flat[o + 10]; car.vz = flat[o + 11];
       car.x = flat[o + 3] + car.vx * dt; car.y = flat[o + 4]; car.z = flat[o + 5] + car.vz * dt;
       car.q.x = flat[o + 6]; car.q.y = flat[o + 7]; car.q.z = flat[o + 8]; car.q.w = flat[o + 9];
-      this.instances.push({ model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q });
+      this.instances.push({ seed: String(car.handle), model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q });
     }
     // A just-claimed car is drawn here from its physics body until the parked batches include its record.
     for (const [id, claim] of this.claims) {
       if (this.visuals.renders(id)) { this.claims.delete(id); continue; }
       const body = state.vehicles.find(v => v.id === id);
-      if (body) this.instances.push({ model: claim.model, color: claim.color, x: body.pos.x, y: body.pos.y, z: body.pos.z, q: body.rot });
+      if (body) this.instances.push({ seed: id, model: claim.model, color: claim.color, x: body.pos.x, y: body.pos.y, z: body.pos.z, q: body.rot });
     }
   }
 
@@ -214,12 +215,13 @@ export class TrafficClient {
     this.handled.add(event.id);
     const [width, height, length] = event.size;
     const yaw = 2 * Math.atan2(event.rot.y, event.rot.w) + Math.PI / 2;
-    const record: ParkedVehicle = { object_id: event.id, model: event.model, color: event.color,
+    const visualModel = fleetModel(event.model, String(event.handle ?? event.id)).id;
+    const record: ParkedVehicle = { object_id: event.id, model: visualModel, color: event.color,
       x: event.pos.x, y: event.pos.y - CHASSIS_LIFT, z: event.pos.z, yaw, width, length, height,
       clear_front_m: 10, clear_rear_m: 10 };
     this.manifest.vehicles = [...(this.manifest.vehicles ?? []).filter(v => v.object_id !== event.id), record];
     this.parked.adopt(event.id, record);
-    this.claims.set(event.id, event);
+    this.claims.set(event.id, { ...event, model: visualModel });
     if (event.handle !== undefined) { this.waiters.get(event.handle)?.(event.id); this.waiters.delete(event.handle); }
   }
 }
