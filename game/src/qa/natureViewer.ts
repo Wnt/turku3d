@@ -67,7 +67,9 @@ function meadow(radius: number, perSquareMetre = 3) {
   for (const [k, asset] of kinds.entries()) {
     const n = Math.round(count * [0.84, 0.08, 0.03, 0.05][k]);
     for (const part of asset.lods[0].parts) {
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, n);
+      // The game's grass material (sharp, unboosted alpha), never fading inside the viewer's meadow.
+      library.materials.grassRange.value.set(1e4, 2e4);
+      const mesh = new THREE.InstancedMesh(part.geometry, library.materials.grass, n);
       const r2 = mulberry(11 + k);
       for (let i = 0; i < n; i++) {
         const a = r2() * Math.PI * 2, d = Math.sqrt(r2()) * radius, s = k ? 0.6 + r2() * 0.5 : 0.8 + r2() * 0.45;
