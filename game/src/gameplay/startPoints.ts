@@ -1,4 +1,4 @@
-import { enToEngine, VISUAL_L0, type V3 } from '../core/origin';
+import { enToEngine, type V3 } from '../core/origin';
 import type { SaveGame } from '../core/save';
 
 /** Multiplayer uses local E/N; saves use EPSG:3877. Keep that conversion at this boundary. */
@@ -19,9 +19,4 @@ export function startPoints(spawn: V3, car: V3, games: readonly (SaveGame | null
     if (game?.vehicle) points.push(enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H));
   }
   return [...new Map(points.map(p => [`${p.x},${p.z}`, p])).values()];
-}
-
-/** One panorama per selectable visual cell; adjacent player/car parkings share the same GPU warmup. */
-export function warmupStarts(points: readonly V3[]): V3[] {
-  return [...new Map(points.map(p => [`${Math.floor(p.x / VISUAL_L0)},${Math.floor(p.z / VISUAL_L0)}`, p])).values()];
 }
