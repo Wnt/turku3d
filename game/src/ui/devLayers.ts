@@ -59,10 +59,27 @@ export class DevLayers {
   private enabled = devToolsEnabled(location);
   private select = document.createElement('select');
   private viewDirection = new THREE.Vector3();
+  private sceneDirty = true;
+  private observed = new Set<THREE.Object3D>();
+  private entries: { object: THREE.Object3D; path: string | null; paths?: (string | null)[] }[] = [];
+  private lastPanelUpdate = -Infinity;
+  private added = (event: { child: THREE.Object3D }) => { this.observe(event.child); this.sceneDirty = true; };
+  private removed = (event: { child: THREE.Object3D }) => {
+    event.child.traverse(object => {
+      object.removeEventListener('childadded', this.added);
+      object.removeEventListener('childremoved', this.removed);
+      this.observed.delete(object);
+      this.filtered.get(object as THREE.Mesh)?.release();
+    });
+    // Do not retain detached models until the panel is opened again.
+    this.entries = [];
+    this.sceneDirty = true;
+  };
 
   constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer,
     private setViewDistance?: (radius: number) => void, private camera?: THREE.PerspectiveCamera) {
     if (!this.enabled) return;
+    this.observe(scene);
     let pass: 'auto' | 'first' | 'full' = 'auto';
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}');
@@ -114,6 +131,32 @@ export class DevLayers {
       halfAngle: Math.atan(Math.tan(this.camera.fov * Math.PI / 360) * this.camera.aspect) + .15 };
   }
 
+  private observe(root: THREE.Object3D) {
+    root.traverse(object => {
+      if (this.observed.has(object)) return;
+      this.observed.add(object);
+      object.addEventListener('childadded', this.added);
+      object.addEventListener('childremoved', this.removed);
+    });
+  }
+
+  private refresh() {
+    this.sceneDirty = false;
+    this.entries = [];
+    this.discover('People/Name Tags');
+    this.scene.traverse(object => {
+      let path: string | null = null;
+      for (let parent: THREE.Object3D | null = object; parent && !path; parent = parent.parent)
+        path = layerPath(parent.userData, parent.name);
+      this.discover(path);
+      const mesh = object as THREE.Mesh;
+      if (mesh.isMesh && path?.startsWith('Ground/')) this.discover('Ground/Surface Textures');
+      const rows = mesh.isMesh && mesh.userData.objects as Data[] | undefined;
+      const paths = Array.isArray(rows) ? rows.map(row => this.discover(layerPath(row, mesh.name)) ?? path) : undefined;
+      this.entries.push({ object, path, paths });
+    });
+  }
+
   private save() {
     try { localStorage.setItem(KEY, JSON.stringify({ choices: this.choices, pass: this.select.value })); } catch { /* Session choices remain. */ }
   }
@@ -129,7 +172,7 @@ export class DevLayers {
   toggle() {
     this.open = !this.open; this.panel.hidden = !this.open;
     this.button.setAttribute('aria-expanded', String(this.open));
-    if (this.open) void document.exitPointerLock?.();
+    if (this.open) { this.sceneDirty = true; this.lastPanelUpdate = -Infinity; void document.exitPointerLock?.(); }
   }
   handle(input: Input, playing: boolean) {
     if (!this.enabled) return;
@@ -151,19 +194,14 @@ export class DevLayers {
   }
   update() {
     if (!this.enabled) return;
-    this.discover('People/Name Tags');
-    const seen = new Set<THREE.Mesh>();
-    const filtering = [...this.paths].some(p => !this.allowed(p));
+    const filtering = Object.values(this.choices).some(value => !value);
+    if ((this.open || filtering) && this.sceneDirty) this.refresh();
     const shadows = this.allowed('Effects/Shadows');
-    this.scene.traverse(object => {
+    if (!filtering) {
+      for (const owned of this.filtered.values()) owned.release();
+    } else for (const { object, path, paths } of this.entries) {
       const mesh = object as THREE.Mesh;
-      // Inherit semantic roots for client objects and authored glTF nodes.
-      let path: string | null = null;
-      for (let parent: THREE.Object3D | null = object; parent && !path; parent = parent.parent)
-        path = layerPath(parent.userData, parent.name);
-      this.discover(path);
       if (mesh.isMesh && path?.startsWith('Ground/')) {
-        this.discover('Ground/Surface Textures');
         if (!this.allowed('Ground/Surface Textures')) {
           const plain = (source: THREE.Material) => {
             let material = this.plain.get(source);
@@ -184,13 +222,16 @@ export class DevLayers {
         this.shadows.set(mesh, mesh.castShadow);
         mesh.castShadow = shadows && !path?.startsWith('Ground/');
       }
-      if (mesh.isMesh && Array.isArray(mesh.userData.objects)) {
-        seen.add(mesh);
+      if (mesh.isMesh && paths) {
         const rows = mesh.userData.objects as (Data & { start: number; count: number })[];
-        const paths = rows.map(row => this.discover(layerPath(row, mesh.name)) ?? path);
-        if (!this.filtered.has(mesh) && paths.every(p => p === paths[0])) {
-          if (paths[0] && !this.allowed(paths[0])) this.hide(mesh);
-          return;
+        if (paths.every(p => !p || this.allowed(p))) {
+          this.filtered.get(mesh)?.release();
+          continue;
+        }
+        if (paths.every(p => p === paths[0])) {
+          this.filtered.get(mesh)?.release();
+          if (paths[0]) this.hide(mesh);
+          continue;
         }
         let owned = this.filtered.get(mesh);
         if (owned && !owned.ranges.current) {
@@ -214,15 +255,16 @@ export class DevLayers {
       } else if (path && !this.allowed(path)) this.hide(object);
       // Aggregate sun shadows cannot retain removed geometry. Use original casters while filtering.
       if (object.userData.shadowBatch && filtering) this.hide(object);
-    });
-    for (const [mesh, owned] of this.filtered) if (!seen.has(mesh)) {
-      owned.release();
     }
     const scenery = this.coarse?.screenshotScenery;
     if (scenery && scenery.radius > 1000) {
       const view = this.sceneryView();
       if (view) scenery.setView(view, performance.now());
     }
+    if (!this.open && this.element.style.top) return;
+    const now = performance.now();
+    if (now - this.lastPanelUpdate < 250 && !this.dirty) return;
+    this.lastPanelUpdate = now;
     const progress = scenery?.progress;
     this.status.textContent = [this.coarse?.comparisonStatus,
       scenery?.heading !== null && scenery?.heading !== undefined ? `View direction: ${Math.round(scenery.heading)}°` : '',
@@ -230,7 +272,7 @@ export class DevLayers {
       progress?.missing ? `${progress.missing} source tiles unavailable` : '', 
       scenery?.radius && progress ? `Scenery ${progress.loaded}/${progress.total} · ${progress.pending} awaiting full detail${progress.errors ? ` · ${progress.errors} retrying` : ''}` : '',
     ].filter(Boolean).join(' · ');
-    if (this.dirty) this.renderTree();
+    if (this.open && this.dirty) this.renderTree();
     const readout = document.getElementById('position-hud');
     const bottom = readout && !readout.hidden ? readout.getBoundingClientRect().bottom + 4 : 86;
     this.element.style.top = `${bottom}px`;
@@ -262,6 +304,11 @@ export class DevLayers {
   dispose() {
     this.coarse?.screenshotScenery.setRadius(0); this.setViewDistance?.(0);
     this.restore();
+    for (const object of this.observed) {
+      object.removeEventListener('childadded', this.added);
+      object.removeEventListener('childremoved', this.removed);
+    }
+    this.observed.clear(); this.entries = [];
     for (const owned of this.filtered.values()) owned.release();
     this.filtered.clear();
     for (const material of this.plainOwned) material.dispose();
