@@ -104,6 +104,8 @@ export class GroundBindings {
     geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = 'ground-batch';
+    // Keep the river-reflection membership of the source quays and banks after batching.
+    mesh.layers.mask = sources.reduce((mask, source) => mask | source.layers.mask, 0);
     mesh.userData.layer = 'ground';
     mesh.receiveShadow = true;
     mesh.castShadow = false;
