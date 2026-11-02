@@ -312,3 +312,18 @@ def test_retaining_cut_masks_stay_polygonal():
     assert _areas(shapely.GeometryCollection([shapely.LineString([(0, 0), (1, 0)])])).is_empty
     square = shapely.box(0, 0, 2, 2)
     assert _areas(square) is square
+
+
+def test_mapped_quay_crest_uses_dry_lidar_when_grid_blends_with_water():
+    from turku3d.coarse.banks import surveyed_crest
+
+    water = shapely.box(10, -10, 50, 50)
+    masonry = water.boundary.buffer(1)
+    z,x = np.meshgrid(np.arange(0,10,.5),np.arange(8,10,.5))
+    ground = np.c_[x.ravel(), np.full(x.size,2.4),z.ravel()]
+    ground = np.concatenate([ground, np.array([[11,0,5],[9.8,15,5]])])
+    points = np.array([[10.,.6,5.],[8.,2.4,5.],[10.,.6,30.]])
+    fixed = surveyed_crest(points,ground,water,masonry)
+    assert fixed[0,1] == 2.4
+    assert fixed[1,1] == 2.4 and fixed[2,1] == .6
+    np.testing.assert_array_equal(surveyed_crest(points,ground,water,shapely.Polygon()),points)

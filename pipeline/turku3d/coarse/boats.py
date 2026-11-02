@@ -229,7 +229,7 @@ def produce(tile, records):
             # Mapped floating docks are low pontoons, not ship cabins and restaurant decks.
             key = "pier:" + boat["id"]
             water, deck = boat["water"], boat["deck"]
-            parts = [extrusion(key, outline, water - 0.3, deck - 0.16, "hull"),
+            parts = [extrusion(key, outline, water - 0.3 if boat.get("floating", True) else deck - 0.35, deck - 0.16, "hull"),
                      extrusion(key, outline, deck - 0.16, deck, "wood", "bridge_deck")]
             for part in combine(parts, key):
                 clipped = clip_mesh(part, tile.bbox)
@@ -321,7 +321,8 @@ def stats(tile, records, meshes):
             for b in records
             if b["owner"] == tile.id and b["kind"] == "ship"
         ],
-        piers=[dict(id=b["id"], deck_m=b["deck"], water_m=b["water"])
+        piers=[dict(id=b["id"], deck_m=b["deck"], water_m=b["water"],
+                    deck_source=b.get("deck_source"), floating=b.get("floating"))
                for b in records if b["owner"] == tile.id and b["kind"] == "pier"],
         triangles=sum(len(m.indices) for m in meshes),
     )

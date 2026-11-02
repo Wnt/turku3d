@@ -96,7 +96,7 @@ DEPENDENCIES = {
     "stairs": ("stairs.py", "stair_survey.py", "stair_rails.py", "../lidar/cache.py", "../spatial.py"),
     "surfaces": ("surfaces.py", "../spatial.py"),
     "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
-    "boats": ("boat_inputs.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../spatial.py"),
+    "boats": ("piers.py", "bridge_survey.py", "../ground/inputs.py", "boat_inputs.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../spatial.py"),
     "markings": ("surfaces.py", "../spatial.py"),
     "kerbs": ("kerbs.py", "../spatial.py"),
     "street_profiles": ("street_survey.py", "../spatial.py",
@@ -501,7 +501,7 @@ def _save(path: Path, key: str, value) -> None:
 
 def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
-    from . import bridge_survey, street_survey
+    from . import bridge_survey, street_survey, piers
 
     laz, missing = sources.lidar_paths(tile)
     ortho = None if first_pass else sources.ortho_source(tile)
@@ -516,7 +516,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         else [],
         "retaining": [sources.wfs_source("kanta:Rakenne", tile)[1], *bridge_survey.source_paths(tile)],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
-        "boats": [osm, wfs[0][1], wfs[2][1]] if osm and all(f for f, _ in wfs[:3]) else [],
+        "boats": [osm, wfs[0][1], wfs[2][1], *piers.source_paths(tile)] if osm and all(f for f, _ in wfs[:3]) else [],
         "ortho": [ortho] if ortho else None,
         "wfs": [p for _, p in wfs[:3]] + roofs.lidar_paths(tile)
         if all(found for found, _ in wfs[:3])

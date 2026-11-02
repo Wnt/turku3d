@@ -20,7 +20,7 @@ def appearance_evidence():
     return {row["vessel_id"]: row for row in data["observations"] if row.get("appearance")}
 
 
-def prepare(tile, osm, buildings_path, water_path):
+def prepare(tile, osm, buildings_path, water_path, *lidar_paths):
     from turku3d.spatial import rows
 
     from .inputs import _frame, buildings
@@ -44,18 +44,26 @@ def prepare(tile, osm, buildings_path, water_path):
             or tags.get("ship") not in (None, "no")
             or tags.get("seamark:type") == "hulk"
         )
-        floating_pier = tags.get("man_made") == "pier" and tags.get("floating") == "yes"
-        if (explicit or floating_pier) and shape.intersects(window):
+        if explicit and tags.get("man_made") != "pier" and shape.intersects(window):
             for part in shapely.get_parts(shape):
                 mapped.append(
-                    dict(id="osm:" + identity, kind="pier" if floating_pier and not explicit else "ship",
+                    dict(id="osm:" + identity, kind="ship",
                          outline=part, tags=tags.copy(), buildings=[])
                 )
             seen.add(identity)
+    from .piers import prepare as prepare_piers
+
+    docks = prepare_piers(tile, osm, lidar_paths)
     shells = buildings(buildings_path, tile, context=True) if buildings_path else []
     for building in shells:
         shape = building.footprint
         if not shape.intersects(window):
+            continue
+        pier = next((dock for dock in docks
+                     if shape.intersection(dock["outline"]).area / shape.area >= 0.5), None)
+        if pier is not None:
+            pier["building_keys"].append(building.key)
+            pier["source_facades"].append(building.facade_key)
             continue
         overlaps = [shape.intersection(b["outline"]).area / shape.area for b in mapped]
         if overlaps and max(overlaps) >= 0.5:
@@ -127,7 +135,7 @@ def prepare(tile, osm, buildings_path, water_path):
         boat["source_facades"] = [b.facade_key for b in boat["buildings"]]
         boat["owner"] = C.VisualTile.at(shape.centroid.x, shape.centroid.y).id
         del boat["buildings"]
-    return sorted(mapped, key=lambda boat: boat["id"])
+    return sorted([*mapped, *docks], key=lambda boat: boat["id"])
 
 
 def separate(buildings, boats):
