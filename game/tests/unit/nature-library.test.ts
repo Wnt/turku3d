@@ -1,6 +1,38 @@
 import { expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { natureLibraryFromScene } from '../../src/world/nature/library';
+import { natureFixture } from './natureFixture';
+
+it('keeps wind phase shared across late-loaded libraries and precise at UTC timestamps', () => {
+  const first = natureFixture(false), late = natureFixture(false);
+  const utc = 1793592000.125;
+  first.materials.setTime(utc - 90);
+  first.materials.setTime(utc);
+  late.materials.setTime(utc);
+  expect(first.materials.windTime.value).toBe(late.materials.windTime.value);
+  expect(first.materials.windTime.value).toBeLessThan(Math.PI * 200);
+  for (const frequency of [0.42, 1.15, 7.3]) {
+    expect(Math.sin(Math.fround(first.materials.windTime.value) * frequency))
+      .toBeCloseTo(Math.sin(utc * frequency), 3);
+  }
+  late.materials.setTime(utc + 1 / 60);
+  expect(late.materials.windTime.value).not.toBe(first.materials.windTime.value);
+  first.materials.dispose(); late.materials.dispose();
+});
+
+it('keeps all wind oscillators continuous across wrapping and freezes deterministic QA', () => {
+  const live = natureFixture(false), still = natureFixture();
+  const period = Math.PI * 200;
+  live.materials.setTime(period - 0.001);
+  const before = live.materials.windTime.value;
+  live.materials.setTime(period + 0.001);
+  for (const frequency of [0.42, 1.15, 7.3]) {
+    expect(Math.abs(Math.sin(before * frequency) - Math.sin(live.materials.windTime.value * frequency))).toBeLessThan(0.015);
+  }
+  still.materials.setTime(1793592000);
+  expect(still.materials.windTime.value).toBe(0);
+  live.materials.dispose(); still.materials.dispose();
+});
 
 it('bakes quantized nature.glb positions and their node transform into float asset geometry', () => {
   const root = new THREE.Group();

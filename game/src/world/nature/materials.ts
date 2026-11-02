@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import {
   abs, attribute, cameraPosition, diffuseColor, dot, float, Fn, fwidth, interleavedGradientNoise, log2, max, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionView, positionWorld, pow, screenCoordinate, select, sin, smoothstep,
-  texture, time, uniform, uv, vec2, vec3, vec4,
+  texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 
 const imageWidth = (map: THREE.Texture) => (map.image as { width?: number } | null)?.width ?? 2048;
@@ -16,9 +16,11 @@ export type NatureSources = Record<'nature_bark' | 'nature_leaves' | 'nature_imp
 /**
  * One node material per surface type, shared by every species, tile and LOD: the pipeline count does not grow with
  * species or instance counts. Wind is vertex animation from the per-vertex `_wind` weights (x sway, y flutter, z phase)
- * driven by the renderer clock; deterministic (QA) renders freeze it.
+ * driven by the shared scene clock; deterministic (QA) renders freeze it.
  */
 export class NatureMaterials {
+  /** All wind frequencies are multiples of 0.01 rad/s, so this wrap preserves their phases. */
+  readonly windTime = uniform(0);
   /** 0 = calm, 1 = a breezy Turku afternoon. */
   readonly windStrength = uniform(1);
   /** Unit vector in the XZ plane, the direction the wind blows towards. */
@@ -34,8 +36,8 @@ export class NatureMaterials {
   readonly granite: THREE.MeshStandardNodeMaterial;
   readonly chain: THREE.MeshStandardNodeMaterial;
 
-  constructor(sources: NatureSources, lighting: NatureLighting | null, deterministic: boolean) {
-    const clock = deterministic ? float(0) : time;
+  constructor(sources: NatureSources, lighting: NatureLighting | null, private deterministic: boolean) {
+    const clock = this.windTime;
     const wind = (flutterScale: number) => Fn(() => {
       const w = attribute('_wind', 'vec4');
       const world = modelWorldMatrix.mul(vec4(positionLocal, 1)).xyz;
@@ -104,6 +106,12 @@ export class NatureMaterials {
     const chainMap = sources.nature_chain.map!, wire = texture(chainMap, uv());
     this.chain = new THREE.MeshStandardNodeMaterial({ name: 'nature-chain', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.5, metalness: 0.7 });
     this.chain.colorNode = vec4(wire.rgb, mipAlpha(wire.a, imageWidth(chainMap)));
+  }
+
+  /** Bound UTC seconds before uploading a float: epoch-sized floats lose seconds of wind motion. */
+  setTime(seconds: number) {
+    const period = Math.PI * 200;
+    this.windTime.value = this.deterministic ? 0 : ((seconds % period) + period) % period;
   }
 
   /** The shared material for a glTF material name of nature.glb. */
