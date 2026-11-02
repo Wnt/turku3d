@@ -2,8 +2,8 @@
 
 OSM rarely maps lines (Turku has no ``road_marking`` ways), so lines follow the lanes and class
 of each car edge, crosswalks come from OSM crossing points, stop lines from signal stop
-positions. Finnish practice: yellow lines separate opposing traffic, white lines separate lanes
-of one direction and mark carriageway edges, crossings and stop lines. Dash phases run along the
+positions. White lines separate opposing traffic and same-direction lanes, and mark carriageway
+edges, crossings and stop lines, matching the current Turku street references. Dash phases run along the
 logical edge (``s0`` + local arc), so a whole edge's pattern continues across tile seams.
 
 Output items are ``(polygon, rgb, deck, kind)``: rgb multiplies the existing ``road_paint`` base colour
@@ -21,7 +21,7 @@ from .attributes import EDGE_FLAGS as F
 from .attributes import HIGHWAYS, MAJOR
 
 WHITE = (1.0, 1.0, 1.0)
-YELLOW = (1.0, 0.66, 0.09)  # x road_paint (0.72, 0.71, 0.66): Finnish centre-line yellow
+YELLOW = (1.0, 0.66, 0.09)  # Explicit yellow paint remains supported by the colour-preserving mesh path.
 LINE_WIDTH = 0.12  # m: centre and lane lines (urban)
 RURAL_WIDTH = 0.15  # m: lines on 60+ km/h roads, edge lines
 DASH = 3.0  # m
@@ -261,7 +261,7 @@ def markings(graph: dict | None, explicit=()) -> list:
         )
         if marked and bwd and not eflags & F["SINGLE_TRACK"] and attrs["width"] >= 5.5:
             dashes = _subtract(_dashes(s0, length, DASH, gap), cuts)
-            items.extend((p, YELLOW, deck, "centre") for p in _line(line, dashes, o_div, width))
+            items.extend((p, WHITE, deck, "centre") for p in _line(line, dashes, o_div, width))
         if marked:
             lanes = [o_div + i * w for i in range(1, fwd)] + [o_div - j * w for j in range(1, bwd)]
             for offset in lanes:
