@@ -48,19 +48,21 @@ async function setup(side,shot){
  await p.evaluate(()=>{
   const c=window.__videoCoarse;
   window.__video={nativeNow:performance.now.bind(performance),baseNow:performance.now(),baseDate:Date.UTC(2026,8,8,12),time:0,locked:false,update:c.update.bind(c),actor:null};
-  c.update=(...a)=>{if(!window.__video.locked)return window.__video.update(...a);};
+  c.update=(x,z)=>{if(!window.__video.locked)return window.__video.update(x,z,{x:0,z:0});};
   window.__render.beforeFrame=()=>false;
  });
 }
 async function settle(side,shot,u){
  const p=pages[side];
- await p.evaluate(({pose,time,weather})=>{
+ await p.evaluate(({pose,time,weather,coverage})=>{
   const v=window.__video;v.locked=false;performance.now=v.nativeNow;
+  const c=window.__videoCoarse;
+  if(c.preload)c.preload(coverage.map(id=>{const [,i,j]=id.split('_').map(Number);return{x:i*250+125,z:j*250+125};}),0);
   window.__render.beforeFrame=undefined;window.__render.setTime(time);
   window.__dev?.setWeather?.(weather,0);window.__qaMove(pose);
- },{pose:poseAt(shot,u),time:iso(shot),weather:shot.weather});
- const start=Date.now();let state;
- while(Date.now()-start<600000){
+ },{pose:poseAt(shot,u),time:iso(shot),weather:shot.weather,coverage:tilesForShot(shot)});
+ const start=Date.now(),timeout=preview?1800000:600000;let state,settled=false;
+ while(Date.now()-start<timeout){
   state=await p.evaluate(()=>({ready:window.__qaReady,error:window.__qaError,
    tiles:[...window.__videoCoarse.entries].map(([id,e])=>({id,pass:e.pass,hash:e.visualHash,model:!!e.model,preview:!!e.preview,state:e.state,stale:e.stale})),
    vegetation:window.__game.vegetation?.pending?.size??0,scenery:window.__game.scenery?.progress}));
@@ -69,10 +71,10 @@ async function settle(side,shot,u){
   const wanted=tilesForShot({...shot,from:Object.values(poseAt(shot,u)),to:Object.values(poseAt(shot,u))});
   const full=wanted.every(id=>state.tiles.some(e=>e.id===id&&e.model&&e.pass==='full'&&!e.preview&&(preview||side===0||!e.stale)));
   const s=state.scenery,scenery=!s||(!s.cataloguePending&&!s.pending&&!s.errors&&s.loaded===s.total);
-  if(state.ready&&full&&!state.vegetation&&scenery&&!inflight[side].size)break;
-  if(Date.now()-start>600000-1100)throw Error(`Tile settle timeout ${shot.id} side ${side}: ${JSON.stringify(state)}`);
+  if(state.ready&&full&&!state.vegetation&&scenery&&!inflight[side].size){settled=true;break;}
   await p.waitForTimeout(1000);
  }
+ if(!settled)throw Error(`Tile settle timeout ${shot.id} side ${side}: ${JSON.stringify(state)}`);
  await p.evaluate(()=>window.__render.beforeFrame=()=>false);
  return state;
 }
