@@ -6,7 +6,7 @@ import type { QualityTier } from '../render/quality';
 export const TRAFFIC = {
   /** Algorithm version, part of every agreed road hash. Bump it with any change to positions, identities or which
    *  slots carry cars (traffic/density.ts). */
-  version: 4,
+  version: 5,
   /** Shared clock origin: traffic time is seconds since this UTC instant (plus the server offset in multiplayer). */
   epochMs: Date.UTC(2026, 0, 1),
   /** Time headway between consecutive slots on every lane (s). One global value keeps lanes phase-locked. */

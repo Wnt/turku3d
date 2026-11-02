@@ -263,8 +263,9 @@ export class TrafficSim {
       const q = chassisRotation(p);
       const motion = car.motion, turn = motion.route.connector?.turn ?? 0;
       const preparing = motion.route.length - motion.s < Math.max(22, p.speed * 3);
-      const signalling = preparing && Math.abs(turn) > 0.5 && Math.floor(this.time * 3) % 2 === 0;
-      const indicator = signalling ? turn < 0 ? -1 : 1 : 0;
+      const intent = motion.change?.direction ?? (motion.signal ? Math.sign(motion.signal.target.k - motion.lane.k)
+        : preparing && Math.abs(turn) > 0.5 ? Math.sign(turn) : 0);
+      const indicator = Math.floor(this.time * 3) % 2 === 0 ? intent : 0;
       const braking = motion.previous.speed - motion.speed > 0.04 || motion.speed < 0.2;
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
         round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed),

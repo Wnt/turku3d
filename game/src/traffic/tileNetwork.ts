@@ -249,7 +249,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
         const n = points.length / 2;
         const start = endOf(startNode, points[2] - points[0], points[3] - points[1]);
         const end = endOf(endNode, points[2 * n - 2] - points[2 * n - 4], points[2 * n - 1] - points[2 * n - 3]);
-        const lane: Lane = { tile, id, index: lanes.length, k, carriageway: keys.join('|'), laneCount: m,
+        const lane: Lane = { tile, id, index: lanes.length, k, carriageway: `${dir > 0 ? 'f' : 'b'}|${keys.join('|')}`, laneCount: m,
           signal: roads.signals.has(endNode) ? roads.signals.get(endNode) || `${tile}:${endNode}` : null,
           priority: 'normal', crossings: [],
           points, cum, length, ys: trimmedYs, speed: s.speed, flow: s.flow,

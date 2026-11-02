@@ -5,19 +5,21 @@ import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants'
 import { hash01, mod, pick } from './hash';
 import { blankPose, entryTime, pointAt, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
 import { connector, cumulative, type Lane } from './tileNetwork';
+import { LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 
 export const FLOW_STEP = 0.1;
 const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
-  key: string; lane: Lane; route: Lane; n: number; s: number; speed: number;
+  key: string; lane: Lane; route: Lane; n: number; s: number; speed: number; hops: number;
   length: number; width: number; model: number; born: number;
   /** The connector remains reserved until the rear clears the destination lane. */
   reservation: Lane | null;
   stopped: number; waiting: number;
   blockedBy: string | null;
-  previous: { route: Lane; s: number; speed: number };
+  change: LaneChange | null; signal: LaneSignal | null; changeCooldown: number;
+  previous: { route: Lane; s: number; speed: number; change: LaneChange | null };
   pose: CarPose;
 }
 
@@ -26,8 +28,13 @@ export interface TrafficCheckpoint {
   suppressed: string[];
   demand: [string, number][];
   cars: { key: string; lane: string; route: string; reservation: string | null; n: number; s: number; speed: number;
-    born: number; stopped: number; waiting: number; previous: { route: string; s: number; speed: number } }[];
+    born: number; stopped: number; waiting: number; changeCooldown: number; hops: number;
+    change: (Omit<LaneChange, 'from'> & { from: string }) | null;
+    signal: (Omit<LaneSignal, 'target'> & { target: string }) | null;
+    previous: { route: string; s: number; speed: number; change: (Omit<LaneChange, 'from'> & { from: string }) | null } }[];
 }
+
+const saveChange = (change: LaneChange | null) => change ? { ...change, from: `${change.from.tile}:${change.from.id}` } : null;
 
 /** Finnish signal sequence: green → amber → all red → red+amber → green. Two opposing approach groups.
  * Controller existence comes from roads.json; timings are a deterministic fallback, not measured Turku plans. */
@@ -64,7 +71,9 @@ export class TrafficFlow {
   private demand = new Map<Lane, number>();
   private occupancy = new Map<string, Set<FlowCar>>();
   private suppressed = new Set<string>();
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0 };
+  private changer: LaneChangePlanner | null = null;
+  private departing = new Map<Lane, FlowCar[]>();
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0 };
 
   constructor(readonly network: TrafficNetwork, epoch?: number) { this.epoch = epoch ?? null; }
 
@@ -79,7 +88,9 @@ export class TrafficFlow {
       demand: [...this.demand].map(([lane, n]) => [`${lane.tile}:${lane.id}`, n]),
       cars: [...this.cars.values()].map(c => ({ key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
         reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
-        stopped: c.stopped, waiting: c.waiting, previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}` } })) };
+        stopped: c.stopped, waiting: c.waiting, hops: c.hops, change: saveChange(c.change), changeCooldown: c.changeCooldown,
+        signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null,
+        previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}`, change: saveChange(c.previous.change) } })) };
   }
 
   restore(state: TrafficCheckpoint) {
@@ -87,6 +98,8 @@ export class TrafficFlow {
     this.epoch = state.epoch; this.reset(state.tick * FLOW_STEP);
     const lanes = new Map(this.lanes.map(l => [`${l.tile}:${l.id}`, l]));
     const routes = new Map([...this.movements.values()].flat().map(r => [`${r.tile}:${r.id}`, r]));
+    const loadChange = (change: TrafficCheckpoint['cars'][number]['change']): LaneChange | null =>
+      change ? { ...change, from: lanes.get(change.from)! } : null;
     this.suppressed = new Set(state.suppressed);
     this.demand = new Map(state.demand.map(([id, n]) => [lanes.get(id)!, n]));
     for (const saved of state.cars) {
@@ -94,7 +107,9 @@ export class TrafficFlow {
       if (!lane || !route || !previous) throw new Error('Traffic checkpoint contains an unknown movement');
       const model = pick(hash01('model', saved.key), MODEL_WEIGHTS), [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[model]];
       const car: FlowCar = { ...saved, lane, route, model, width, length, blockedBy: null, pose: blankPose(),
-        reservation: saved.reservation ? routes.get(saved.reservation)! : null, previous: { ...saved.previous, route: previous } };
+        change: loadChange(saved.change), signal: saved.signal ? { ...saved.signal, target: lanes.get(saved.signal.target)! } : null,
+        reservation: saved.reservation ? routes.get(saved.reservation)! : null,
+        previous: { ...saved.previous, route: previous, change: loadChange(saved.previous.change) } };
       sampleFlowPose(car, 0, () => 0, car.pose); this.cars.set(car.key, car);
     }
   }
@@ -130,10 +145,12 @@ export class TrafficFlow {
       if (!lane || this.suppressed.has(car.key)) continue;
       const route = routes.get(`${car.route.tile}:${car.route.id}`);
       if (!route && car.s > lane.length) continue;
-      car.lane = lane; car.route = route ?? this.chooseRoute(lane, car.key);
+      car.lane = lane; car.route = route ?? this.chooseRoute(lane, car.key, car.hops);
       car.reservation = car.reservation ? routes.get(`${car.reservation.tile}:${car.reservation.id}`) ?? null : null;
       const previous = routes.get(`${car.previous.route.tile}:${car.previous.route.id}`);
       car.previous = { ...car.previous, route: previous ?? car.route };
+      if (car.change) car.change.from = lanes.get(`${car.change.from.tile}:${car.change.from.id}`) ?? car.change.from;
+      if (car.signal) car.signal.target = lanes.get(`${car.signal.target.tile}:${car.signal.target.id}`) ?? car.signal.target;
       sampleFlowPose(car, 0, () => 0, car.pose); this.cars.set(car.key, car);
     }
     for (const lane of this.sources) {
@@ -147,7 +164,7 @@ export class TrafficFlow {
     const rebuild = this.revision !== this.network.revision;
     this.tick = Math.floor(t / FLOW_STEP); this.ready = true; this.revision = this.network.revision;
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0 };
     if (!rebuild) {
       for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
       return;
@@ -224,14 +241,19 @@ export class TrafficFlow {
       }
       this.conflicts.set(a, set);
     }
+    this.changer = new LaneChangePlanner(this.lanes, this.movements);
     for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
   }
 
   private regroup() {
-    this.byLane.clear();
+    this.byLane.clear(); this.departing.clear();
     for (const car of this.cars.values()) {
       const list = this.byLane.get(car.lane);
       if (list) list.push(car); else this.byLane.set(car.lane, [car]);
+      if (car.change) {
+        const from = this.departing.get(car.change.from);
+        if (from) from.push(car); else this.departing.set(car.change.from, [car]);
+      }
     }
     for (const list of this.byLane.values()) list.sort((a, b) => b.s - a.s || cmp(a.key, b.key));
   }
@@ -242,7 +264,7 @@ export class TrafficFlow {
     this.regroup();
     this.occupancy.clear();
     for (const car of this.cars.values()) {
-      car.previous = { route: car.route, s: car.s, speed: car.speed };
+      car.previous = { route: car.route, s: car.s, speed: car.speed, change: car.change ? { ...car.change } : null };
       sampleFlowPose(car, 0, () => 0, car.pose); this.occupy(car);
     }
     // Demand is tested on its original shared slot hour. A blocked source queues outside the resident area;
@@ -265,6 +287,8 @@ export class TrafficFlow {
     const reservations = ordered.filter(c => c.reservation !== null);
     for (const car of ordered) {
       car.blockedBy = null;
+      const target = this.changer?.target(car, this.tick, this.byLane);
+      if (target) this.beginChange(car, target);
       const lane = car.route, next = lane === car.lane && lane.end.kind === 'seam' ? this.network.successor(car.lane) : lane.next;
       let desired = lane.speed, stop = Infinity;
       const crossing = lane.connector && lane.next === next;
@@ -272,7 +296,7 @@ export class TrafficFlow {
       if (crossing) {
         const turnSpeed = lane.connector!.speed;
         desired = Math.min(desired, Math.sqrt(turnSpeed * turnSpeed + 2 * BRAKE * Math.max(0, remaining - car.length / 2)));
-        if (!car.reservation && remaining < Math.max(30, car.speed * car.speed / (2 * BRAKE) + 8)) {
+        if (!car.change && !car.reservation && remaining < Math.max(30, car.speed * car.speed / (2 * BRAKE) + 8)) {
           if (this.mayEnter(car, heads, reservations, t)) {
             // Evaluate the gap while braking, but only lock the box when the nose is about to enter it.
             // Reserving thirty metres upstream blocked nearby junctions for the whole approach.
@@ -282,11 +306,14 @@ export class TrafficFlow {
           } else stop = lane.length - car.length / 2 - 0.8;
         }
       }
+      if (car.change) stop = lane.length - 8;
       // Stay behind the actual predecessor, including its rear on the outgoing lane.
-      const leader = this.byLane.get(car.lane)?.filter(c => c !== car && c.lane === car.lane && c.s > car.s
-        && (c.route === car.route || c.s < lane.length + c.length / 2 + GAP)).at(-1);
+      const position = (c: FlowCar) => c.lane === car.lane ? c.s : c.s / c.lane.length * car.lane.length;
+      const leader = [...this.byLane.get(car.lane) ?? [], ...this.departing.get(car.lane) ?? []]
+        .filter(c => c !== car && position(c) > car.s && (c.route === car.route || position(c) < lane.length + c.length / 2 + GAP))
+        .sort((a, b) => position(a) - position(b))[0];
       if (leader) {
-        stop = Math.min(stop, leader.s - (car.length + leader.length) / 2 - GAP);
+        stop = Math.min(stop, position(leader) - (car.length + leader.length) / 2 - GAP);
         if (stop - car.s < 0.5) car.blockedBy = `leader:${leader.key}`;
       }
       if (next && car.s > lane.length - 40) {
@@ -300,11 +327,17 @@ export class TrafficFlow {
       const gap = Math.max(0, stop - car.s);
       desired = Math.min(desired, Math.sqrt(2 * BRAKE * gap));
       // A speed-dependent following headway avoids robotic bumper-to-bumper pursuit.
-      if (leader) desired = Math.min(desired, Math.max(0, (leader.s - car.s - (car.length + leader.length) / 2 - GAP) / 1.25));
+      if (leader) desired = Math.min(desired, Math.max(0, (position(leader) - car.s - (car.length + leader.length) / 2 - GAP) / 1.25));
       const dv = desired - car.speed;
       car.speed = Math.max(0, car.speed + Math.max(-BRAKE * FLOW_STEP, Math.min(ACCEL * FLOW_STEP, dv)));
       let step = Math.min(car.speed * FLOW_STEP, gap);
       const originalS = car.s;
+      if (car.change) {
+        const progress = car.change.progress;
+        car.change.rate = Math.min(1, car.speed / 3) / car.change.duration;
+        car.change.progress = Math.min(1, progress + FLOW_STEP * car.change.rate);
+        if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { car.change.progress = progress; car.change.rate = 0; }
+      }
       // A final swept-footprint guard also covers malformed/fragmented junctions and cross-tile geometry.
       // It stops before contact; it never resolves an overlap by teleporting or hiding a car.
       for (let ds = Math.min(0.3, step); ds <= step + 1e-7 && step > 0; ds = Math.min(step, ds + 0.3)) {
@@ -324,6 +357,9 @@ export class TrafficFlow {
       if (step < car.speed * FLOW_STEP - 1e-6) car.speed = step / FLOW_STEP;
       car.stopped = car.speed < 0.15 ? car.stopped + FLOW_STEP : 0;
       car.waiting = remaining < 14 && car.speed < 0.5 ? car.waiting + FLOW_STEP : 0;
+      if (car.change?.progress === 1) {
+        car.change = null; car.signal = null; car.changeCooldown = this.tick + 100; this.stats.laneChanges++;
+      }
       if (car.reservation && car.reservation !== car.route && car.s > car.length / 2 + GAP) car.reservation = null;
       const end = lane.length + (crossing ? lane.connector!.length : 0);
       if (car.s >= end - 1e-7) {
@@ -331,7 +367,7 @@ export class TrafficFlow {
         else {
           const previous = this.byLane.get(car.lane);
           if (previous) { const i = previous.indexOf(car); if (i >= 0) previous.splice(i, 1); }
-          car.s -= end; car.lane = next; car.route = this.chooseRoute(next, car.key);
+          car.s -= end; car.lane = next; car.hops++; car.route = this.chooseRoute(next, car.key, car.hops);
           const list = this.byLane.get(next);
           if (list) { list.push(car); list.sort((a, b) => b.s - a.s); } else this.byLane.set(next, [car]);
         }
@@ -350,8 +386,8 @@ export class TrafficFlow {
     const tail = this.byLane.get(lane)?.at(-1);
     if (tail && tail.s < (length + tail.length) / 2 + GAP) { this.stats.blocked++; return; }
     const route = this.chooseRoute(lane, key);
-    const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0,
-      previous: { route, s: 0, speed: 0 },
+    const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0,
+      previous: { route, s: 0, speed: 0, change: null }, change: null, signal: null, changeCooldown: 0,
       reservation: null, stopped: 0, waiting: 0, blockedBy: null, pose: blankPose() };
     sampleFlowPose(car, 0, () => 0, car.pose);
     if (this.obstructed(car, car.pose)) { this.stats.blocked++; return; }
@@ -362,12 +398,25 @@ export class TrafficFlow {
     this.occupy(car);
   }
 
-  private chooseRoute(lane: Lane, key: string): Lane {
-    const routes = this.movements.get(lane) ?? [lane];
-    const weights = routes.map(r => !r.connector || Math.abs(r.connector.turn) < 0.5 ? 0.65 : r.connector.turn > 0 ? 0.22 : 0.13);
-    let value = hash01('route', key, lane.tile, lane.id) * weights.reduce((a, b) => a + b, 0);
+  private chooseRoute(lane: Lane, key: string, hops = 0): Lane {
+    const seed = `${key}/${hops}`;
+    const routes = this.changer?.routes(lane, seed) ?? this.movements.get(lane) ?? [lane];
+    const weights = routes.map(r => (!r.connector || Math.abs(r.connector.turn) < 0.5 ? 0.65 : r.connector.turn > 0 ? 0.22 : 0.13)
+      * Math.min(1, (r.next?.flow ?? lane.flow) / lane.flow));
+    let value = hash01('route', seed, lane.tile, lane.id) * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < routes.length; i++) { value -= weights[i]; if (value <= 0) return routes[i]; }
     return routes[routes.length - 1];
+  }
+
+  private beginChange(car: FlowCar, target: Lane) {
+    const from = car.lane, list = this.byLane.get(from), direction = target.k > from.k ? 1 : -1;
+    if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
+    car.change = { from, direction, progress: 0, duration: 3.2, rate: 0 };
+    car.s = car.s / from.length * target.length; car.lane = target; car.route = this.chooseRoute(target, car.key, car.hops);
+    const to = this.byLane.get(target);
+    if (to) { to.push(car); to.sort((a, b) => b.s - a.s); } else this.byLane.set(target, [car]);
+    const departing = this.departing.get(from);
+    if (departing) departing.push(car); else this.departing.set(from, [car]);
   }
 
   private cell(p: CarPose) { return `${Math.floor(p.x / 8)},${Math.floor(p.z / 8)}`; }
@@ -471,6 +520,20 @@ export function sampleFlowPose(car: FlowCar, _dt: number, height: LaneHeight, ou
   } else out.y = y ?? NaN;
   const yf = height(lane, Math.min(lane.length, s + 1.3)), yb = height(lane, Math.max(0, s - 1.3));
   out.pitch = yf !== null && yb !== null && d > 0.5 ? Math.atan2(yf - yb, d) : 0;
+  if (car.change) {
+    const change = car.change, u = change.progress, f = u * u * u * (10 + u * (-15 + 6 * u));
+    const ratio = change.from.length / lane.length, sourceS = s * ratio;
+    const from = pointAt(change.from.points, change.from.cum, sourceS);
+    const df = 30 * u * u * (1 - u) * (1 - u) * change.rate;
+    const vx = car.speed * (from.hx * ratio * (1 - f) + mid.hx * f) + (mid.x - from.x) * df;
+    const vz = car.speed * (from.hz * ratio * (1 - f) + mid.hz * f) + (mid.z - from.z) * df;
+    const v = Math.hypot(vx, vz);
+    out.x = from.x + (mid.x - from.x) * f; out.z = from.z + (mid.z - from.z) * f;
+    if (v > 0.05) { out.hx = vx / v; out.hz = vz / v; }
+    const sourceY = height(change.from, sourceS);
+    if (sourceY !== null && Number.isFinite(out.y)) out.y = sourceY + (out.y - sourceY) * f;
+    out.speed = v;
+  }
   return out;
 }
 
