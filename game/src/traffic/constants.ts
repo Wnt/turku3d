@@ -54,7 +54,8 @@ export const RING = {
 export const TRAFFIC_MODELS = ['sedan', 'suv', 'hatchback-sports', 'van'] as const;
 export const MODEL_WEIGHTS = [0.4, 0.25, 0.22, 0.13] as const;
 export const TRAFFIC_PAINTS = ['silver', 'white', 'charcoal', 'blue', 'red', 'beige'] as const;
-export const PAINT_WEIGHTS = [0.22, 0.2, 0.22, 0.14, 0.11, 0.11] as const;
+/** Finnish fleet art direction: 86% silver/white/charcoal; retain occasional coloured and older beige cars. */
+export const PAINT_WEIGHTS = [0.33, 0.29, 0.24, 0.07, 0.045, 0.025] as const;
 /** Width, height and length (m) of each body, as the generator scales them (pipeline/turku3d/parked/models.py). */
 export const MODEL_SIZE: Readonly<Record<typeof TRAFFIC_MODELS[number], readonly [number, number, number]>> = {
   sedan: [1.85, 1.48, 4.55], 'hatchback-sports': [1.8, 1.46, 4.15], suv: [1.96, 1.78, 4.7], van: [1.98, 2.05, 5.0],
