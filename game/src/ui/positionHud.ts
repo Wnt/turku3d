@@ -52,8 +52,16 @@ export class PositionHud {
   private point = new THREE.Vector3();
   private hits: THREE.Intersection[] = [];
   private candidates: { mesh: THREE.Mesh; distance: number }[] = [];
+  private queryOrigin = new THREE.Vector3();
+  private queryDirection = new THREE.Vector3();
+  private queryAt = -Infinity;
+  private queryLoads = -1;
+  private queryModels = -1;
+  private queryVisibility = -1;
+  private target = '';
 
-  constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles, readonly enabled = devToolsEnabled(location)) {
+  constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles, readonly enabled = devToolsEnabled(location),
+    private visibilityVersion: () => number = () => 0) {
     try { this.visible = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { /* Session default. */ }
     this.visible &&= this.enabled;
     document.body.append(this.element);
@@ -71,13 +79,21 @@ export class PositionHud {
     this.visible = !this.visible;
     this.element.hidden = !this.visible;
     this.lastUpdate = -Infinity;
+    this.queryAt = -Infinity;
     try { localStorage.setItem(STORAGE_KEY, this.visible ? 'on' : 'off'); } catch { /* Keep session state. */ }
   }
 
-  private lines() {
+  private lines(now: number, force = false) {
     this.camera.updateWorldMatrix(true, false);
     this.camera.getWorldDirection(this.direction);
     this.ray.setFromCamera(this.centre, this.camera);
+    const visibility = this.visibilityVersion();
+    // The camera readout still refreshes at 2 Hz. An unchanged view can reuse its
+    // centre target; bound freshness for in-place geometry edits such as broken props.
+    if (!force && now - this.queryAt < 2000 && this.queryLoads === this.tiles.loadedModels
+      && this.queryModels === this.tiles.models.size && this.queryVisibility === visibility
+      && this.queryOrigin.equals(this.ray.ray.origin) && this.queryDirection.equals(this.ray.ray.direction))
+      return positionReadout(this.camera.position, this.direction, this.target);
     this.ray.far = 300;
     // Test bounding boxes first, then stop at the nearest surface. Raycasting all resident
     // triangles just to discard every hit except the first scales with the whole city.
@@ -109,23 +125,29 @@ export class PositionHud {
         this.ray.far = hit.distance;
       }
     }
-    const target = buildingTarget(hit);
+    this.target = buildingTarget(hit);
+    this.queryAt = now;
+    this.queryLoads = this.tiles.loadedModels;
+    this.queryModels = this.tiles.models.size;
+    this.queryVisibility = visibility;
+    this.queryOrigin.copy(this.ray.ray.origin);
+    this.queryDirection.copy(this.ray.ray.direction);
     // Intersections and candidates hold meshes: a hidden readout must not retain evicted tiles.
     this.hits.length = this.candidates.length = 0;
-    return positionReadout(this.camera.position, this.direction, target);
+    return positionReadout(this.camera.position, this.direction, this.target);
   }
 
   update(now: number, playing: boolean) {
     this.element.hidden = !this.enabled || !playing || !this.visible;
     if (this.element.hidden || now - this.lastUpdate < 500) return;
     this.lastUpdate = now;
-    this.element.textContent = [...this.lines(), ...(now < this.noticeUntil ? [this.notice] : [])].join('\n');
+    this.element.textContent = [...this.lines(now), ...(now < this.noticeUntil ? [this.notice] : [])].join('\n');
   }
 
   /** Called directly from the keyboard gesture so Clipboard API activation is retained. */
   async copy() {
     if (!this.enabled) return;
-    const text = this.lines().join(' · ');
+    const text = this.lines(performance.now(), true).join(' · ');
     try {
       await navigator.clipboard.writeText(text);
       this.notice = 'Position copied';
