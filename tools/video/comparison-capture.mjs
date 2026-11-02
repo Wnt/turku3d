@@ -67,7 +67,7 @@ async function settle(side,shot,u){
   if(state.error?.startsWith('timeout: tiles did not settle')){await p.evaluate(pose=>window.__qaMove(pose),poseAt(shot,u));}
   else if(state.error)throw Error(`${shot.id} side ${side}: ${state.error}`);
   const wanted=tilesForShot({...shot,from:Object.values(poseAt(shot,u)),to:Object.values(poseAt(shot,u))});
-  const full=wanted.every(id=>state.tiles.some(e=>e.id===id&&e.model&&e.pass==='full'&&!e.preview));
+  const full=wanted.every(id=>state.tiles.some(e=>e.id===id&&e.model&&e.pass==='full'&&!e.preview&&(preview||side===0||!e.stale)));
   const s=state.scenery,scenery=!s||(!s.cataloguePending&&!s.pending&&!s.errors&&s.loaded===s.total);
   if(state.ready&&full&&!state.vegetation&&scenery&&!inflight[side].size)break;
   if(Date.now()-start>600000-1100)throw Error(`Tile settle timeout ${shot.id} side ${side}: ${JSON.stringify(state)}`);
@@ -103,7 +103,10 @@ async function installActor(side,shot){
  },shot);
 }
 async function frame(side,shot,u,frame){
- return pages[side].evaluate(({pose,frame,fps,mode,seconds})=>new Promise((resolve,reject)=>{
+ const lo=Math.max(0,u-.0001),hi=Math.min(1,u+.0001),a=poseAt(shot,lo),b=poseAt(shot,hi);
+ const speed=Math.hypot(b.E-a.E,b.N-a.N)/((hi-lo)*config.duration);
+ const pose=poseAt(shot,u),distance=Math.hypot(pose.E-shot.from[0],pose.N-shot.from[1]);
+ return pages[side].evaluate(({pose,frame,fps,mode,distance,speed})=>new Promise((resolve,reject)=>{
   const v=window.__video,r=window.__render,g=window.__game;
   v.locked=true;v.time=v.baseNow+10000+(frame+60)*1000/fps;performance.now=()=>v.time;
   if(g.dayClock.sharedNow)g.dayClock.sharedNow=()=>v.baseDate+(frame+60)*1000/fps;
@@ -112,16 +115,16 @@ async function frame(side,shot,u,frame){
   if(v.actor){
    const THREE=v.THREE,a=pose.yaw*Math.PI/180,d=mode==='walk'?5:9;
    const x=pose.E-23459500+Math.sin(a)*d,z=6704500-pose.N-Math.cos(a)*d,y=v.ground(x,z);
-   if(mode==='walk')v.actor.update(1/fps,new THREE.Vector3(x,y,z),new THREE.Vector3(Math.sin(a)*1.5,0,-Math.cos(a)*1.5),true,0);
+   if(mode==='walk')v.actor.update(1/fps,new THREE.Vector3(x,y,z),new THREE.Vector3(Math.sin(a)*speed,0,-Math.cos(a)*speed),true,0);
    else{
     const q=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),Math.PI/2-a);
-    v.actor.update({pos:{x,y:y+.8,z},rot:q,wheels:[{pos:{x:1.35,y:-.45,z:.78}},{pos:{x:1.35,y:-.45,z:-.78}},{pos:{x:-1.35,y:-.45,z:.78}},{pos:{x:-1.35,y:-.45,z:-.78}}].map(w=>({...w,steer:0,rotation:seconds*12.5/.32}))});
+    v.actor.update({pos:{x,y:y+.8,z},rot:q,wheels:[{pos:{x:1.35,y:-.45,z:.78}},{pos:{x:1.35,y:-.45,z:-.78}},{pos:{x:-1.35,y:-.45,z:.78}},{pos:{x:-1.35,y:-.45,z:-.78}}].map(w=>({...w,steer:0,rotation:distance/.32}))});
    }
   }
   const timer=setTimeout(()=>reject(Error('Frame submission timeout')),30000);
   r.beforeFrame=()=>{g.clock.simSeconds=(frame+60)/fps-1/fps;return true;};
   r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);resolve({pose,simSeconds:g.clock.simSeconds,frames:g.clock.frames});};
- }),{pose:poseAt(shot,u),frame,fps:config.fps,mode:shot.mode,seconds:u*config.duration});
+ }),{pose,frame,fps:config.fps,mode:shot.mode,distance,speed});
 }
 try{
  // One browser, two long-lived, paused pages. Capture a segment's sides back to back.
@@ -151,7 +154,7 @@ try{
    }
    const count=preview?3:Math.round(config.duration*config.fps),motion=[];
    let encoder,closed;
-   if(!preview){encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(config.fps),'-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','16','-pix_fmt','yuv420p','-threads','3',file],{stdio:['pipe','inherit','inherit']});closed=once(encoder,'close');encoder.stdin.on('error',()=>{});}
+   if(!preview){encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(config.fps),'-i','pipe:0','-an','-c:v','libx264','-preset','fast','-crf','12','-pix_fmt','yuv420p','-threads','3',file],{stdio:['pipe','inherit','inherit']});closed=once(encoder,'close');encoder.stdin.on('error',()=>{});}
    for(let f=0;f<count;f++){
     const u=f/(count-1),state=await frame(side,shot,u,preview?Math.round(u*config.duration*config.fps):f);
     const png=await sessions[side].send('Page.captureScreenshot',{format:'jpeg',quality:97,captureBeyondViewport:false});
