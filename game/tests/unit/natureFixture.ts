@@ -31,7 +31,7 @@ export function natureFixture(): NatureLibrary {
     node(name, 0, 'fence', [part], height); node(name, 1, 'fence', [part], height);
   }
   node('hedge', 0, 'hedge', ['nature_leaves'], 1.2); node('hedge', 1, 'hedge', ['nature_leaves'], 1.2);
-  for (const name of ['grass_clump', 'grass_wide', 'grass_meadow', 'groundcover_rosette']) node(name, 0, 'grass', ['nature_leaves'], 0.5);
+  for (const name of ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette']) node(name, 0, 'grass', ['nature_leaves'], 0.5);
   const library = natureLibraryFromScene(root, null, true);
   for (const name of ['picket_fence', 'board_fence', 'metal_railing', 'park_fence', 'chain_fence', 'granite_wall', 'hedge']) library.asset(name).module = 2;
   return library;

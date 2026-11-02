@@ -377,7 +377,11 @@ async function runQa() {
       window.__qaReady = true;
       window.__game!.qa = { loadMs: Math.round(performance.now() - t0), visTris: tiles.residentTris, models: tiles.residentModels, sunElevation: env.sunElevation, sunAzimuth: env.sunAzimuth };
     }
-    if (clock.simSeconds - settleStart > 120) window.__qaError = 'timeout: tiles did not settle in 120 s of frame time';
+    if (clock.simSeconds - settleStart > 120) {
+      window.__qaError = 'timeout: tiles did not settle in 120 s of frame time; '
+        + JSON.stringify({ near: progress, detailed: coarse.detailedAt(camera.position.x, camera.position.z),
+          groundTexturesPending: materials?.ground?.pending ?? 0, scenery: distantCity?.progress, status: coarse.status });
+    }
   });
 }
 
