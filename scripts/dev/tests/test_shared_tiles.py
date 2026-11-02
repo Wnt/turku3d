@@ -61,6 +61,25 @@ class FarmTests(unittest.TestCase):
             time.sleep(.01)
         self.assertFalse(farm.jobs)
 
+    def test_http_listener_admits_a_browser_asset_burst_before_accepting(self):
+        import socket
+        from concurrent.futures import ThreadPoolExecutor
+
+        server = farm_module.TileHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        clients = []
+        try:
+            # Hold the accept loop: all handshakes must fit in the real socket
+            # backlog, rather than winning a race with fast request handlers.
+            def connect(_):
+                return socket.create_connection(server.server_address, timeout=.3)
+            with ThreadPoolExecutor(max_workers=32) as pool:
+                clients = list(pool.map(connect, range(32)))
+            self.assertEqual(len(clients), 32)
+        finally:
+            for client in clients:
+                client.close()
+            server.server_close()
+
     def test_same_tile_version_single_flight_and_renderer_revision_reuse(self):
         entered, release = threading.Event(), threading.Event()
         calls = []

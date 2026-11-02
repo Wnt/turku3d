@@ -63,7 +63,7 @@ def produce(stage, channel, source):
     (stage / "material.json").write_text(
         json.dumps(
             dict(
-                uv_scale=[0.5, 0.5],
+                uv_scale=[0.25, 0.25] if KEYS[channel] == "fieldstone" else [0.5, 0.5],
                 source="procedural" if finish_maps or not source else "own ground library",
             )
         )
