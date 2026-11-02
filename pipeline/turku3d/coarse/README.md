@@ -559,13 +559,13 @@ The generic cable-stayed type adds paired tubular towers, a header above head
 clearance, double stay rods and rounded masonry cutwaters. It uses measured pier
 stations where available to fit the declared tower topology, with fifth-span estimates for missing returns. Each local section
 is intersected with the mapped deck outline, so towers follow curved/skew decks
-and stay outside the walking corridor. Footings respect lower passage exclusions. Separate rounded tower bases use a water-relative cap height; terrain sets only their embedment. Every straight stay is checked along its swept length against walking space and same-level obstacles; unsupported layouts abstain.
+and stay outside the walking corridor. Footings respect lower passage exclusions. Separate rounded tower bases use a water-relative cap height; terrain sets only their embedment. Every straight stay is checked along its swept length against walking space and same-level obstacles. A bounded deterministic search retracts anchors before widened viewing platforms; unsupported layouts abstain. Small steel shoes connect rods to the deck.
 Teatterisilta selects this type because its OSM beam tag omits the towers and rods
 visible in [the Commons riverbank reference](https://commons.wikimedia.org/wiki/File:Teatterisilta_Turku.JPG).
 Its 5.6 m towers and 32 cm deck thickness are photo estimates; the lidar deck
 profile and two measured support stations remain authoritative. Rounded footings
 and tubular metalwork have continuous perimeter UVs and planar cap UVs; their generated geometry is also
-used for collision. No bridge-specific coordinates or image pixels are embedded.
+used for collision. Transverse framing uses the same local outline sections and omits beams over protected lower passages. No bridge-specific coordinates or image pixels are embedded.
 
 Bridge approaches join the same globally aligned ground triangles as the rendered and
 collision terrain. Nearest lidar keys can be metres above the bank TIN and must not
