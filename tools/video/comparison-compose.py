@@ -6,7 +6,7 @@ import math,wave
 from datetime import datetime
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
-P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');a=P.parse_args()
+P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');P.add_argument('--still',metavar='SHOT_ID',help='Compose one full-resolution cached midpoint without rendering video');a=P.parse_args()
 out=Path(a.out);c=json.loads(Path(a.shots).read_text());edit=out/'edit';edit.mkdir(exist_ok=True);fps=c['fps'];transition=c['transition'];W,H=1920,1080
 stamp=datetime.now();date_label=stamp.strftime('%d %b %Y').upper();date_long=stamp.strftime('%d %B %Y')
 font='/System/Library/Fonts/Supplemental/Arial.ttf';bold='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
@@ -16,21 +16,32 @@ def text(d,xy,s,size=30,fill='#f4f5f4',heavy=False):d.text(xy,s,font=ImageFont.t
 def overlay(shot):
  im=Image.new('RGBA',(W,H));d=ImageDraw.Draw(im)
  d.rectangle((958,0,961,H),fill=(235,241,239,225))
- d.rounded_rectangle((36,32,258,87),12,fill=(9,20,27,175));text(d,(55,43),'PRODUCTION',25,heavy=True)
- d.rounded_rectangle((996,32,1208,87),12,fill=(9,20,27,175));text(d,(1015,43),'NEW BUILD',25,heavy=True)
- # Quiet bottom typography, leaving the majority of the image unobscured.
- d.rectangle((0,973,W,H),fill=(7,17,24,205));d.rectangle((40,1000,46,1041),fill='#87cebd')
- text(d,(65,993),shot['title'],34,heavy=True)
- text(d,(W-545,1004),'MATCHED CAMERA  /  '+date_label,21,fill='#bdcfce')
+ hour=f"{int(shot['hour']):02d}:{round(shot['hour']%1*60):02d}"
+ for x,label,weather in [(36,'PRODUCTION','Clear'),(996,'NEW BUILD',shot['weather'].capitalize())]:
+  d.rounded_rectangle((x,32,x+310,137),12,fill=(9,20,27,205))
+  text(d,(x+19,44),label,30,heavy=True)
+  text(d,(x+19,88),f'{weather}  ·  {hour}',24,fill='#d5e1df')
+ # A gradual scrim preserves road/actor detail instead of covering the whole foreground.
+ for y in range(940,H):d.line((0,y,W,y),fill=(7,17,24,round(205*((y-940)/(H-940))**1.4)))
+ d.rectangle((40,1001,46,1045),fill='#87cebd')
+ text(d,(65,993),shot['title'],40,heavy=True)
+ number=next(i+1 for i,s in enumerate(c['shots']) if s['id']==shot['id'])
+ text(d,(W-380,1007),f'{number:02d} / {len(c["shots"]):02d}   ·   MATCHED CAMERA',21,fill='#d5e1df')
  p=edit/(shot['id']+'-overlay.png');im.save(p);return p
 segments=[]
 for shot in c['shots']:
+ if a.still and shot['id']!=a.still:continue
  p=overlay(shot);dest=edit/(shot['id']+'.mp4');segments.append((dest,c['duration']))
+ if a.still:
+  run(['-i',out/'clips'/(shot['id']+'-left-sample.jpg'),'-i',out/'clips'/(shot['id']+'-right-sample.jpg'),'-i',p,'-filter_complex','[0:v][1:v]hstack,eq=contrast=1.015:saturation=1.025[scene];[scene][2:v]overlay=format=auto,format=yuv420p[v]','-map','[v]','-frames:v',1,edit/(shot['id']+'-still.png')]);continue
  if a.preview:
   left=out/'preview'/(shot['id']+'-left-1.jpg');right=out/'preview'/(shot['id']+'-right-1.jpg')
   run(['-i',left,'-i',right,'-i',p,'-filter_complex','[0:v]scale=960:1080[l];[1:v]scale=960:1080[r];[l][r]hstack[s];[s][2:v]overlay','-frames:v',1,edit/(shot['id']+'-preview.jpg')]);continue
  run(['-i',out/'clips'/(shot['id']+'-left.mp4'),'-i',out/'clips'/(shot['id']+'-right.mp4'),'-i',p,'-filter_complex','[0:v][1:v]hstack,eq=contrast=1.015:saturation=1.025[scene];[scene][2:v]overlay=format=auto,format=yuv420p[v]','-map','[v]','-t',c['duration'],*encode(),dest])
  print('Composed',shot['id'],flush=True)
+if a.still:
+ if not segments:raise SystemExit(f'Unknown shot: {a.still}')
+ raise SystemExit()
 if a.preview:
  thumbs=[]
  for shot in c['shots']:
