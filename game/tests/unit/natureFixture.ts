@@ -5,7 +5,7 @@ const TREES = ['tree_birch', 'tree_linden', 'tree_maple', 'tree_oak', 'tree_rowa
 const SHRUBS = ['shrub_lilac', 'shrub_rose', 'shrub_juniper'];
 
 /** A small stand-in for nature.glb with the same node/extras/material contract (box geometry, plain textures). */
-export function natureFixture(): NatureLibrary {
+export function natureFixture(deterministic = true): NatureLibrary {
   const root = new THREE.Group();
   const material = (name: string, textured = true) => {
     const m = new THREE.MeshStandardMaterial(textured ? { map: new THREE.Texture(), normalMap: new THREE.Texture() } : {});
@@ -32,7 +32,7 @@ export function natureFixture(): NatureLibrary {
   }
   node('hedge', 0, 'hedge', ['nature_leaves'], 1.2); node('hedge', 1, 'hedge', ['nature_leaves'], 1.2);
   for (const name of ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette']) node(name, 0, 'grass', ['nature_leaves'], 0.5);
-  const library = natureLibraryFromScene(root, null, true);
+  const library = natureLibraryFromScene(root, null, deterministic);
   for (const name of ['picket_fence', 'board_fence', 'metal_railing', 'park_fence', 'chain_fence', 'granite_wall', 'hedge']) library.asset(name).module = 2;
   return library;
 }
