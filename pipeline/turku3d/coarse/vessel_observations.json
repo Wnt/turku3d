@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "observations": [
+    {
+      "id": "pano-river-promenade-nearest-vessel",
+      "reference": "pano-river-promenade/lookaround/2025-07-04",
+      "camera_enh_yaw": [
+        23459626.47,
+        6704121.65,
+        5.72,
+        59.5
+      ],
+      "source_buildings": [
+        "Building_200511449"
+      ],
+      "source_facades": [
+        "103577006R"
+      ],
+      "identity_status": "Reviewed geometric match; the vessel name is not legible in the reference.",
+      "observed": {
+        "hull": "very dark painted hull with a pointed visible end",
+        "cabin": "white painted superstructure rather than brown timber",
+        "rails": "thin white horizontal rails",
+        "upper_openings": "small round portholes visible on the short upper cabin wall",
+        "water": "opaque muted grey sediment water with fine wind ripples",
+        "mooring": "visible diagonal lines from the near hull toward the quay"
+      },
+      "confidence": {
+        "visible_materials": 0.95,
+        "identity": 0.9
+      },
+      "use": "Apply paint/rail appearance only; preserve measured geometry and do not copy portholes onto unseen faces.",
+      "vessel_id": "osm:642149875",
+      "name": "Papa Joe",
+      "identity_review": {
+        "method": "same-pose projection of complete OSM hull and surveyed roof parts",
+        "centre_distance_m": 54.8,
+        "horizontal_extent_px_1920": [
+          77,
+          454
+        ],
+        "survey_hull_overlap": 0.977,
+        "visible_upper_roof_height_n2000_m": 6.368,
+        "upper_roof_area_m2": 17.164302
+      },
+      "appearance": {
+        "cabin_surface": "white",
+        "fascia_surface": "white",
+        "rail_surface": "white"
+      },
+      "bounds_xz": [
+        139.4646,
+        322.3103,
+        178.2481,
+        346.9482
+      ]
+    }
+  ]
+}
