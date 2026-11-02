@@ -15,6 +15,8 @@ export const STARTUP_COLLISION_RADIUS = 80;
 /** Below this speed (m/s) nothing is loaded ahead. */
 const AHEAD_MIN_SPEED = 3;
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+const sameContent = (a: ManifestEntry | undefined, b: ManifestEntry) => !!a && a.bytes === b.bytes
+  && a.sha256 === b.sha256 && (!!a.sha256 || a.url === b.url);
 
 type Physics = Pick<PhysicsClient, 'loaded' | 'loadTile' | 'unloadTile' | 'setKnown' | 'setTileLoading' | 'onError'>;
 
@@ -98,7 +100,8 @@ export class CollisionStreamer {
         return d - 0.5 * Math.max(0, along);
       };
       const byId = new Map([...this.near(x, z, this.radius), ...ahead, ...retained].map(t => [t.id, t]));
-      const want = [...byId.values()].filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id)
+      const want = [...byId.values()].filter(({ id }) => (!this.physics.loaded.has(id) || this.retries.has(id))
+        && !this.loading.has(id) && !this.failed.has(id)
         && (this.retries.get(id)?.at ?? 0) <= now).map(t => ({ id: t.id, r: rank(t) }));
       want.sort((a, b) => a.r - b.r);
       for (const { id } of want) {
@@ -128,38 +131,54 @@ export class CollisionStreamer {
   }
 
   private async fetchAndLoad(id: string) {
-    const e = this.manifest.collision[id];
     this.physics.setTileLoading(id, true);
-    const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
     try {
-      const cached = this.prepared.get(id);
-      let buf: ArrayBuffer;
-      if (cached?.entry.url === e.url && cached.entry.sha256 === e.sha256) buf = cached.buffer;
-      else {
-        const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
-        // A failed/in-progress draft can temporarily answer 404 during repair; retry its payload.
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        buf = await res.arrayBuffer();
-      }
-      if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
-      this.prepared.set(id, { entry: e, buffer: buf });
-      // Keep the validated original while its parent tile is resident. Rapier owns and detaches only the copy.
-      await this.physics.loadTile(id, buf.slice(0));
-      if (e.sha256) this.installed.set(id, e.sha256);
-      this.retries.delete(id);
-      done('Rapier collider ready');
-    } catch (err) {
-      done(`FAILED: ${String(err)}`);
-      const error = err as Error & { permanent?: boolean };
-      if (error.permanent) {
-        this.failed.add(id);
-        this.retries.delete(id);
-        this.physics.onError?.(`collision ${id}: ${error.message}`);
-      } else {
-        const attempts = (this.retries.get(id)?.attempts ?? 0) + 1;
-        const delay = Math.min(30_000, 500 * 2 ** Math.min(attempts - 1, 6));
-        this.retries.set(id, { attempts, at: performance.now() + delay });
-        console.warn(`[collision] ${id}: ${error.message}; retry in ${delay} ms`);
+      // A replacement can arrive during HTTP or the worker acknowledgement. Follow the latest
+      // content in the same slot; refresh() must not lose an upgrade just because the cell is busy.
+      for (;;) {
+        const e = this.manifest.collision[id];
+        if (!e) {
+          this.prepared.delete(id); this.installed.delete(id);
+          if (this.physics.loaded.has(id)) this.physics.unloadTile(id);
+          return;
+        }
+        const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
+        try {
+          const cached = this.prepared.get(id);
+          let buf: ArrayBuffer;
+          if (cached && sameContent(cached.entry, e)) buf = cached.buffer;
+          else {
+            const res = await fetch(new URL(e.url, this.manifest.baseUrl), { signal: AbortSignal.timeout(15_000) });
+            // A failed/in-progress draft can temporarily answer 404 during repair; retry its payload.
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            buf = await res.arrayBuffer();
+          }
+          if (!sameContent(this.manifest.collision[id], e)) { done('Superseded before collider build'); continue; }
+          if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
+          this.prepared.set(id, { entry: e, buffer: buf });
+          // Keep the validated original while its parent tile is resident. Rapier owns and detaches only the copy.
+          await this.physics.loadTile(id, buf.slice(0));
+          if (!sameContent(this.manifest.collision[id], e)) { done('Superseded while collider built'); continue; }
+          if (e.sha256) this.installed.set(id, e.sha256);
+          this.retries.delete(id);
+          done('Rapier collider ready');
+          return;
+        } catch (err) {
+          if (!sameContent(this.manifest.collision[id], e)) { done('Superseded request'); continue; }
+          done(`FAILED: ${String(err)}`);
+          const error = err as Error & { permanent?: boolean };
+          if (error.permanent) {
+            this.failed.add(id);
+            this.retries.delete(id);
+            this.physics.onError?.(`collision ${id}: ${error.message}`);
+          } else {
+            const attempts = (this.retries.get(id)?.attempts ?? 0) + 1;
+            const delay = Math.min(30_000, 500 * 2 ** Math.min(attempts - 1, 6));
+            this.retries.set(id, { attempts, at: performance.now() + delay });
+            console.warn(`[collision] ${id}: ${error.message}; retry in ${delay} ms`);
+          }
+          return;
+        }
       }
     } finally {
       this.loading.delete(id);
