@@ -198,6 +198,8 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
   return vegetationReplacement;
 };
 
+// QA has no play session to replace; actor edits are applied through its runtime inspection hooks.
+if (import.meta.hot && params.qa) import.meta.hot.accept('./play', () => {});
 if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
 
