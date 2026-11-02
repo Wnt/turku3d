@@ -48,6 +48,8 @@ has no weather or wind selector and uses its existing clear sky/static water.
 The new side uses each named preset's existing wind value. Neither build exposes
 a foliage-season selector; existing vegetation is preserved. UI and cursors are hidden;
 labels, divider, title/end cards and credits are added only during editing.
+The Föri segment shows the crossing area; the captured view has no distinct ferry
+model. Landmark geometry is whatever each pinned game build actually renders.
 
 The film uses 15 × 4-second segments, 2.8/3.6-second title/end cards, and sixteen
 0.4-second crossfades (60 seconds total). Composition adds restrained grading,
