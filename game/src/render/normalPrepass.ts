@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 
 /** AO and puddle rays need geometric normals; normal alpha separately marks wet mineral receivers.
  * AO needs geometric normals, not every facade's albedo/normal/ORM graph. Keep cutouts,
- * displacement and custom vertex programs on their authored path to retain silhouettes.
+ * coverage masks, displacement and custom vertex programs on their authored path to retain silhouettes.
  * `userData.vertexProgram` marks materials that move vertices before instancing (walkers' VAT). */
 export class NormalPrepass {
   readonly marker = new THREE.MeshBasicNodeMaterial();
@@ -13,7 +13,7 @@ export class NormalPrepass {
     const receiver = source.userData.weatherWetness ? 1 : 0;
     material.userData.weatherReceiver = receiver;
     if (!material.depthWrite || material.vertexNode || material.alphaTest > 0 || material.alphaMap || material.displacementMap || material.positionNode
-      || material.depthNode || material.fragmentNode || material.alphaToCoverage || material.userData.vertexProgram) return null;
+      || material.depthNode || material.fragmentNode || material.maskNode || material.alphaToCoverage || material.userData.vertexProgram) return null;
     const key = `${source.side}:${receiver}`;
     let normal = this.sides.get(key);
     if (!normal) {

@@ -49,3 +49,13 @@ test('projected detail refines for zoom and leaves two-kilometre cells coarse', 
   for (const ids of [ordinary, zoomed]) for (const a of ids) for (const b of ids)
     if (a !== b) expect(sceneryContains(a,b)).toBe(false);
 });
+
+
+test('the projected-detail cut has hysteresis across small resolution changes', () => {
+  const pose = {...view, x:125, z:125, dx:1, dz:0, halfAngle:.8};
+  const fine = sceneryTiles(4000, {...pose, focalPixels:1200});
+  expect(fine).toContain('t0_4_0');
+  expect(sceneryTiles(4000, {...pose, focalPixels:1100})).toContain('t2_1_0');
+  expect(sceneryTiles(4000, {...pose, focalPixels:1100}, fine)).toContain('t0_4_0');
+  expect(sceneryTiles(4000, {...pose, focalPixels:800}, fine)).toContain('t2_1_0');
+});

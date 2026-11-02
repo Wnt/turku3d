@@ -129,7 +129,7 @@ export class ScreenshotScenery {
       && view.dx * previous.dx + view.dz * previous.dz > Math.cos(Math.PI / 180)))) return;
     this.nextView = now + 150;
     this.footprintView = { ...view };
-    this.footprint = [...new Set([...regionalTiles(view), ...sceneryTiles(this.radius, view)])];
+    this.footprint = [...new Set([...regionalTiles(view), ...sceneryTiles(this.radius, view, this.footprint)])];
     this.refreshWanted();
     this.readMissingSources();
   }
