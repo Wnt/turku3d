@@ -6,7 +6,7 @@ import math,wave
 from datetime import datetime
 import numpy as np
 from PIL import Image,ImageDraw,ImageFont
-P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');P.add_argument('--still',metavar='SHOT_ID',help='Compose one full-resolution cached midpoint without rendering video');a=P.parse_args()
+P=argparse.ArgumentParser();P.add_argument('--out',required=True);P.add_argument('--shots',default=str(Path(__file__).with_name('comparison-shots.json')));P.add_argument('--preview',action='store_true');P.add_argument('--still',metavar='SHOT_ID|title|end',help='Compose one full-resolution cached midpoint or card without rendering video');a=P.parse_args()
 out=Path(a.out);c=json.loads(Path(a.shots).read_text());edit=out/'edit';edit.mkdir(exist_ok=True);fps=c['fps'];transition=c['transition'];W,H=1920,1080
 stamp=datetime.now();date_label=stamp.strftime('%d %b %Y').upper();date_long=stamp.strftime('%d %B %Y')
 font='/System/Library/Fonts/Supplemental/Arial.ttf';bold='/System/Library/Fonts/Supplemental/Arial Bold.ttf'
@@ -28,6 +28,38 @@ def overlay(shot):
  number=next(i+1 for i,s in enumerate(c['shots']) if s['id']==shot['id'])
  text(d,(W-380,1007),f'{number:02d} / {len(c["shots"]):02d}   ·   MATCHED CAMERA',21,fill='#d5e1df')
  p=edit/(shot['id']+'-overlay.png');im.save(p);return p
+def card(end=False,still=False):
+ im=Image.new('RGBA',(W,H));d=ImageDraw.Draw(im)
+ if end:
+  d.rectangle((100,302,106,742),fill='#87cebd')
+  text(d,(144,300),'THE CITY KEEPS EVOLVING',34,fill='#87cebd',heavy=True)
+  text(d,(137,370),'Same city. A new level of detail.',78,heavy=True)
+  text(d,(145,510),'15 matched journeys · frame-exact capture · 60 fps',34)
+  text(d,(145,575),'Local comparison · '+date_long,28,fill='#bdcfce')
+  text(d,(145,680),'City of Turku · CC BY 4.0    /    © OpenStreetMap contributors · ODbL',24,fill='#bdcfce')
+  text(d,(145,725),'Weather shown on the new build; production uses its available clear setting.',23,fill='#bdcfce')
+ else:
+  # Preserve both captured halves: introduce the city and comparison at the actual framing.
+  shade=Image.new('RGBA',(W,1));shade.putdata([(7,17,24,round(215-135*(x/W)**.75)) for x in range(W)])
+  im=shade.resize((W,H));d=ImageDraw.Draw(im)
+  d.line((960,0,960,H),fill=(212,232,225,100),width=2)
+  text(d,(96,64),'TURKU3D  /  GEN 2',30,fill='#a1dfcc',heavy=True)
+  text(d,(96,200),'PRODUCTION',24,fill='#d5e1df',heavy=True)
+  text(d,(1020,200),'NEW BUILD',24,fill='#d5e1df',heavy=True)
+  text(d,(90,402),'Turku.\nBefore & after.',100,heavy=True)
+  d.rectangle((96,660,150,665),fill='#a1dfcc')
+  text(d,(96,708),'15 places. One shared camera.',34)
+  text(d,(96,966),date_label,24,fill='#bdcfce')
+ p=edit/('end.png' if end else 'title.png');im.save(p)
+ dest=edit/(('end' if end else 'title')+('-still.png' if still else '.mp4'));duration=c['endSeconds'] if end else c['titleSeconds']
+ frame_args=['-frames:v',1] if still else ['-frames:v',round(duration*fps),*encode()]
+ if end:
+  run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v]scale=1920:2160,crop=1920:1080,gblur=sigma=24,eq=brightness=-0.24:saturation=0.55[bg];[bg][1:v]overlay,format=yuv420p[v]','-map','[v]',*frame_args,dest])
+ else:
+  run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-left-sample.jpg','-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v][1:v]hstack,gblur=sigma=2,eq=saturation=0.9[bg];[bg][2:v]overlay,format=yuv420p[v]','-map','[v]',*frame_args,dest])
+ return dest,duration
+if a.still in ('title','end'):
+ card(a.still=='end',still=True);raise SystemExit()
 segments=[]
 for shot in c['shots']:
  if a.still and shot['id']!=a.still:continue
@@ -49,18 +81,6 @@ if a.preview:
  sheet=Image.new('RGB',(1920,360*math.ceil(len(thumbs)/3)))
  for i,im in enumerate(thumbs):sheet.paste(im,((i%3)*640,(i//3)*360))
  sheet.save(out/'preview-contact.jpg',quality=93);raise SystemExit()
-def card(end=False):
- im=Image.new('RGBA',(W,H));d=ImageDraw.Draw(im)
- d.rectangle((100,302,106,742),fill='#87cebd')
- text(d,(144,300),'TURKU  /  GEN 2' if not end else 'THE CITY KEEPS EVOLVING',34,fill='#87cebd',heavy=True)
- text(d,(137,370),'A city in motion.' if not end else 'Same city. A new level of detail.',78,heavy=True)
- text(d,(145,510),'Production and the new integrated build' if not end else '15 matched journeys · frame-exact capture · 60 fps',34)
- text(d,(145,575),'15 places. One shared camera.' if not end else 'Local comparison · '+date_long,28,fill='#bdcfce')
- text(d,(145,680),'PRODUCTION  /  NEW BUILD' if not end else 'City of Turku · CC BY 4.0    /    © OpenStreetMap contributors · ODbL',24,fill='#bdcfce')
- if end:text(d,(145,725),'Weather shown on the new build; production uses its available clear setting.',23,fill='#bdcfce')
- p=edit/('end.png' if end else 'title.png');im.save(p);dest=p.with_suffix('.mp4');duration=c['endSeconds'] if end else c['titleSeconds']
- # The captured scene is deliberately softened behind the typography.
- run(['-loop','1','-framerate',fps,'-i',out/'clips'/'aura-dawn-right-sample.jpg','-loop','1','-framerate',fps,'-i',p,'-filter_complex','[0:v]scale=1920:2160,crop=1920:1080,gblur=sigma=24,eq=brightness=-0.24:saturation=0.55[bg];[bg][1:v]overlay,format=yuv420p[v]','-map','[v]','-frames:v',round(duration*fps),*encode(),dest]);return dest,duration
 segments=[card(),*segments,card(True)]
 parts=[]
 for i,(clip,duration) in enumerate(segments):
