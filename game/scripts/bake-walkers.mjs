@@ -17,10 +17,10 @@ const [sourceDir, rigFile, outputDir] = process.argv.slice(2);
 if (!sourceDir || !rigFile || !outputDir) throw new Error('usage: bake-walkers.mjs <source-dir> <UAL.glb> <output-dir>');
 
 /** Body regions; the runtime tints each one per instance (src/world/walkers/asset.ts REGION). */
-const REGION = { skin: 0, top: 1, bottom: 2, shoes: 3, hair: 4, inner: 5, legwear: 6, eyes: 7 };
+const REGION = { skin: 0, top: 1, bottom: 2, shoes: 3, hair: 4, inner: 5, legwear: 6, eyes: 7, iris: 8 };
 const MATERIAL_REGION = {
   Skin: REGION.skin, Cloth_hoodie: REGION.top, Cloth_jacket: REGION.top, Cloth_shirt: REGION.inner,
-  Accessory: REGION.shoes, AccessoryTrim: REGION.inner, Cloth_tshirt: REGION.top, Cloth_shorts: REGION.bottom, Cloth_dress: REGION.top, Eye: REGION.eyes, Iris: REGION.eyes,
+  Accessory: REGION.shoes, AccessoryTrim: REGION.inner, Cloth_tshirt: REGION.top, Cloth_shorts: REGION.bottom, Cloth_dress: REGION.top, Eye: REGION.eyes, Iris: REGION.iris,
   Cloth_jeans: REGION.bottom, Cloth_skirt: REGION.bottom, Cloth_shoes: REGION.shoes, Cloth_boots: REGION.shoes,
 };
 const region = name => name.startsWith('Hair_') ? REGION.hair : MATERIAL_REGION[name];
@@ -177,9 +177,32 @@ function bakeClip(doc, body, keep, clip) {
 
 const ATLAS_COLUMNS = 5, ATLAS_ROWS = 4;
 const atlasEntries = [];
+const sourceSurfaces = new Map();
 fs.mkdirSync(outputDir, { recursive: true });
 const atlasDir = path.join(sourceDir, 'atlas');
 fs.mkdirSync(atlasDir, { recursive: true });
+/** Extra tint masks are source metadata rather than glTF material references; copyToDocument cannot retain them. */
+function sourceSurface(name) {
+  const part = name.startsWith('Cloth_') ? `clothing_${name.slice(6)}` : name.startsWith('Hair_') ? `hair_${name.slice(5)}` : 'base_body';
+  if (!sourceSurfaces.has(part)) {
+    const file = path.join(sourceDir, `${part}.glb`);
+    if (!fs.existsSync(file)) return {};
+    const raw = fs.readFileSync(file), size = raw.readUInt32LE(12), json = JSON.parse(raw.toString('utf8', 20, 20 + size));
+    const bin = 20 + size + 8, surfaces = {};
+    for (const mat of json.materials ?? []) {
+      const index = mat.extras?.ccMask?.index;
+      let mask = null;
+      if (index !== undefined) {
+        const image = json.images[json.textures[index].source], view = json.bufferViews[image.bufferView];
+        mask = path.join(atlasDir, `${part}-trim.${image.mimeType === 'image/jpeg' ? 'jpg' : 'png'}`);
+        fs.writeFileSync(mask, raw.subarray(bin + (view.byteOffset ?? 0), bin + (view.byteOffset ?? 0) + view.byteLength));
+      }
+      surfaces[mat.name] = { mask };
+    }
+    sourceSurfaces.set(part, surfaces);
+  }
+  return sourceSurfaces.get(part)[name] ?? {};
+}
 function atlasTile(material) {
   const tex = material.getBaseColorTexture();
   const key = tex ? createHash('sha256').update(tex.getImage()).digest('hex') : 'white';
@@ -189,7 +212,7 @@ function atlasTile(material) {
   if (tile >= ATLAS_COLUMNS * ATLAS_ROWS) throw new Error('walker atlas capacity exceeded');
   const file = path.join(atlasDir, `${tile}.${tex?.getMimeType() === 'image/jpeg' ? 'jpg' : 'png'}`);
   if (tex) fs.writeFileSync(file, tex.getImage());
-  atlasEntries.push({ key, file: tex ? file : null, name: material.getName(), tile });
+  atlasEntries.push({ key, file: tex ? file : null, name: material.getName(), tile, ...sourceSurface(material.getName()) });
   return tile;
 }
 const variants = [], rows = [], provenance = new Map();
@@ -266,7 +289,7 @@ const sections = [];
 let offset = 0;
 const add = (array) => { const at = offset; sections.push(array); offset += array.byteLength; offset += (4 - offset % 4) % 4; return { offset: at, length: array.length }; };
 const meta = {
-  format: 'turku3d-walkers', version: 2, fps: FPS, atlas: 'wardrobe.png',
+  format: 'turku3d-walkers', version: 3, fps: FPS, atlas: 'wardrobe.png', atlasFormat: 'albedo-trim',
   vat: { width, height: rows.length, format: 'rgba16float', normal: { encoding: 'spherical-fibonacci', directions: NORMAL_DIRECTIONS }, ...add(vat) },
   regions: Object.keys(REGION),
   variants: variants.map(v => ({ id: v.id, vertices: v.vertices, triangles: v.triangles, sourceTriangles: v.sourceTriangles,
@@ -275,7 +298,7 @@ const meta = {
 };
 let json = Buffer.from(JSON.stringify(meta));
 json = Buffer.concat([json, Buffer.alloc((4 - json.length % 4) % 4, 0x20)]);
-const header = new Uint32Array([0x4b4c5754, 2, json.length]);
+const header = new Uint32Array([0x4b4c5754, 3, json.length]);
 const body = Buffer.alloc(offset);
 let at = 0;
 for (const s of sections) { Buffer.from(s.buffer, s.byteOffset, s.byteLength).copy(body, at); at += s.byteLength; at += (4 - at % 4) % 4; }

@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { Walkers } from '../world/walkers';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { WalkerMeshes, type WalkerInstance } from '../world/walkers/visuals';
-import { HUMAN_MODELS, humanAppearance } from '../world/walkers/appearance';
+import { HUMAN_MODELS, appearanceForModel } from '../world/walkers/appearance';
 import { loadWalkerAsset } from '../world/walkers/asset';
 
 interface StudyWorld {
@@ -44,6 +44,14 @@ export async function createHumanStudy(world: StudyWorld, url: string) {
 /** A reproducible lineup at a surveyed street location, useful for comparing the same bodies at 2–15 m. */
 export async function createHumanLineup(world: StudyWorld, url: string, origin: [number, number, number], count = 8) {
   const asset = await loadWalkerAsset(url), meshes = new WalkerMeshes(asset, count);
+  const ground: THREE.Object3D[] = [];
+  world.scene.traverse(o => { if (o instanceof THREE.Mesh && (o.name === 'ground-batch' || ['ground', 'roads'].includes(o.userData.layer))) ground.push(o); });
+  const ray = new THREE.Raycaster();
+  const positions = Array.from({ length: count }, (_, i) => {
+    const x = origin[0] + (i - (count - 1) / 2) * .9;
+    ray.set(new THREE.Vector3(x, origin[1] + 1, origin[2]), new THREE.Vector3(0, -1, 0)); ray.far = 2;
+    return { x, y: ray.intersectObjects(ground, false)[0]?.point.y ?? origin[1] };
+  });
   world.scene.add(meshes.group);
   let time = 0;
   const render = (seconds = time) => {
@@ -51,13 +59,12 @@ export async function createHumanLineup(world: StudyWorld, url: string, origin: 
     const instances: WalkerInstance[] = Array.from({ length: count }, (_, i) => {
       const model = HUMAN_MODELS[(i * 9) % HUMAN_MODELS.length];
       const variant = asset.variants.length === 12 ? model.family : i % asset.variants.length, v = asset.variants[variant];
-      const look = humanAppearance(i * 1337);
-      const palette = [0x414c5e, 0x6c3738, 0x384a3c, 0xbbad8b, 0x7693a2, 0xa6a3a0, 0x273345, 0x956947];
-      return { variant, x: origin[0] + (i - (count - 1) / 2) * 0.9, y: origin[1], z: origin[2], yaw: 0,
+      const look = appearanceForModel(model, i * 1337);
+      return { variant, ...positions[i], z: origin[2], yaw: 0,
         scale: asset.variants.length === 12 ? model.height : 0.96 + (i % 3) * 0.04, shape: asset.variants.length === 12 ? model.shape : undefined, rowStart: v.rowBase + v.walk.row, frames: v.walk.frames,
         phase: (seconds / 1.333 + i * 0.17) % 1, previousPhase: (seconds / 1.333 + i * 0.17) % 1,
-        skin: asset.variants.length === 12 ? look.skin : 0xeed2be, top: palette[i % palette.length], bottom: 0x354459, hair: asset.variants.length === 12 ? look.hair : [0x816643, 0x30281e, 0xaaa493][i % 3],
-        shoes: 0x333536, inner: 0xdedbd4, legwear: 0xeed2be, fade: 1 };
+        skin: asset.variants.length === 12 ? look.skin : 0xeed2be, top: look.top, bottom: look.bottom, hair: asset.variants.length === 12 ? look.hair : [0x816643, 0x30281e, 0xaaa493][i % 3],
+        shoes: look.shoes, inner: look.inner, legwear: look.legwear, fade: 1 };
     });
     meshes.update(instances);
   };

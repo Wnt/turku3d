@@ -1,20 +1,20 @@
 {
-  "bytes": 31539668,
-  "vatBytes": 30900960,
+  "bytes": 31550092,
+  "vatBytes": 30912000,
   "vat": {
-    "width": 2799,
+    "width": 2800,
     "height": 1380,
     "format": "rgba16float"
   },
-  "sha256": "477f4cf82d8b8a71c1586d7b76840e725d3ca72af59e77c26560a77f51216b1a",
+  "sha256": "5f38fe5c75b13afdab898602d976a0de6e21460e8bd3c639af4de988afe1bcf8",
   "variants": [
     {
       "id": "tee-denim-crop",
-      "vertices": 2799,
-      "triangles": 4396,
+      "vertices": 2796,
+      "triangles": 4376,
       "sourceTriangles": 28995,
       "height": 1.73,
-      "metresPerLoop": 1.456,
+      "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
@@ -22,11 +22,11 @@
     },
     {
       "id": "tee-shorts-crop",
-      "vertices": 2797,
-      "triangles": 3878,
+      "vertices": 2798,
+      "triangles": 3866,
       "sourceTriangles": 26076,
       "height": 1.732,
-      "metresPerLoop": 1.453,
+      "metresPerLoop": 1.455,
       "clips": [
         "Walk_Loop 40f@30",
         "Idle_Loop 75f@30"
@@ -34,8 +34,8 @@
     },
     {
       "id": "shirt-chinos",
-      "vertices": 2799,
-      "triangles": 3789,
+      "vertices": 2800,
+      "triangles": 3776,
       "sourceTriangles": 25967,
       "height": 1.712,
       "metresPerLoop": 1.455,
@@ -46,8 +46,8 @@
     },
     {
       "id": "hoodie-denim",
-      "vertices": 2798,
-      "triangles": 4378,
+      "vertices": 2800,
+      "triangles": 4366,
       "sourceTriangles": 28117,
       "height": 1.72,
       "metresPerLoop": 1.456,
@@ -58,8 +58,8 @@
     },
     {
       "id": "light-jacket",
-      "vertices": 2799,
-      "triangles": 3630,
+      "vertices": 2800,
+      "triangles": 3624,
       "sourceTriangles": 26855,
       "height": 1.735,
       "metresPerLoop": 1.456,
@@ -70,8 +70,8 @@
     },
     {
       "id": "tee-denim-pony",
-      "vertices": 2799,
-      "triangles": 3909,
+      "vertices": 2800,
+      "triangles": 3901,
       "sourceTriangles": 31003,
       "height": 1.618,
       "metresPerLoop": 1.455,
@@ -82,8 +82,8 @@
     },
     {
       "id": "tee-shorts-pony",
-      "vertices": 2794,
-      "triangles": 3816,
+      "vertices": 2795,
+      "triangles": 3800,
       "sourceTriangles": 30378,
       "height": 1.628,
       "metresPerLoop": 1.455,
@@ -94,8 +94,8 @@
     },
     {
       "id": "shirt-skirt-long",
-      "vertices": 2798,
-      "triangles": 3559,
+      "vertices": 2800,
+      "triangles": 3552,
       "sourceTriangles": 29276,
       "height": 1.618,
       "metresPerLoop": 1.455,
@@ -106,8 +106,8 @@
     },
     {
       "id": "summer-dress",
-      "vertices": 2798,
-      "triangles": 3638,
+      "vertices": 2795,
+      "triangles": 3623,
       "sourceTriangles": 30840,
       "height": 1.614,
       "metresPerLoop": 1.455,
@@ -118,8 +118,8 @@
     },
     {
       "id": "hoodie-denim-pony",
-      "vertices": 2797,
-      "triangles": 3915,
+      "vertices": 2798,
+      "triangles": 3900,
       "sourceTriangles": 30929,
       "height": 1.621,
       "metresPerLoop": 1.455,
@@ -130,8 +130,8 @@
     },
     {
       "id": "jacket-skirt-crop",
-      "vertices": 2796,
-      "triangles": 3974,
+      "vertices": 2800,
+      "triangles": 3967,
       "sourceTriangles": 29538,
       "height": 1.602,
       "metresPerLoop": 1.455,
@@ -143,7 +143,7 @@
     {
       "id": "shirt-denim-bald",
       "vertices": 2797,
-      "triangles": 4295,
+      "triangles": 4277,
       "sourceTriangles": 24377,
       "height": 1.703,
       "metresPerLoop": 1.455,
@@ -218,7 +218,7 @@
   ],
   "atlas": {
     "file": "wardrobe.png",
-    "sha256": "d3565f39965dda6868000ebac195e87d0a18945e6465b9dc82403965db836df8",
+    "sha256": "5fdb3a7bb913835d728e4ee13d06e1060df311c64073e97fd83812d0e6dc3152",
     "sources": [
       {
         "sha256": "b1e3d39adcbfac6f4ca0626a0ebef96637da7525ff8cd1c3f89db61041b7275d",
