@@ -9,6 +9,17 @@ const triangle = () => {
   return geometry;
 };
 
+test('distance-LOD facade instances retain live shadows instead of a permanent flattened copy', () => {
+  const model=new THREE.Group(),lod=new THREE.LOD();
+  const modules=new THREE.InstancedMesh(triangle(),new THREE.MeshBasicMaterial(),2);
+  modules.userData.facadeModules=true; modules.castShadow=true;
+  lod.addLevel(modules,0); lod.addLevel(new THREE.Object3D(),110); model.add(lod);
+  expect(batchTileShadows(model)).toBeNull();
+  expect(modules.castShadow).toBe(true);
+  lod.update(new THREE.PerspectiveCamera(60,1,.1,1000));
+  expect(modules.visible).toBe(true);
+});
+
 test('shadow chunks preserve buildings and instanced props without ground or vegetation', () => {
   const model = new THREE.Group();
   model.position.set(10, 0, 20);
