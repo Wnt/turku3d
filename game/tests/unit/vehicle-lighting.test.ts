@@ -71,7 +71,7 @@ test('authored fleet GLBs retain named front and running-tail roles in their sin
   root.add(front, tail);
   const geometry = flattenFleetAsset(root), tags = geometry.getAttribute('fleetSurface');
   const lamps = Array.from({ length: tags.count }, (_, i) => tags.getW(i));
-  expect(lamps.some(v => Math.abs(v - .55) < .001)).toBe(true);
+  expect(lamps).toContain(4);
   expect(lamps).toContain(1);
   expect(Array.from({ length: tags.count }, (_, i) => tags.getX(i)).every(v => v === 0)).toBe(true);
   geometry.dispose();

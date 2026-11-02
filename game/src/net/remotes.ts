@@ -165,7 +165,7 @@ export class RemotePlayers {
       if (pose.mode !== 'foot') {
         const model = pose.mode === 'car' ? remote.car : pose.mode === 'truck' ? remote.truck : remote.scooter;
         vehicleLamps(model, pose.mode, pose.lights ?? 0);
-        if (pose.horn && now - remote.receivedAt < 1500) this.horns.push({ id: p.id, kind: pose.mode, position: pos });
+        if (pose.horn && !p.locallySimulated && now - remote.receivedAt < 1500) this.horns.push({ id: p.id, kind: pose.mode, position: pos });
       }
       remote.pizza.position.set(pos.x - Math.sin(pose.yaw) * .45, pos.y + 1, pos.z - Math.cos(pose.yaw) * .45);
       remote.pizza.rotation.y = pose.yaw;
