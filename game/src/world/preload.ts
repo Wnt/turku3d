@@ -27,7 +27,7 @@ async function drainGpu(renderer: THREE.WebGPURenderer) {
 }
 
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
-export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<void>) {
+export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<void>, actors: readonly THREE.Object3D[] = []) {
   const { streamer, coarse, materials, renderer, scene, camera, env, renderFrame } = world;
   env.follow(new THREE.Vector3(focus.x, camera.position.y, focus.z));
   worldLoad.update({ phase: 'loading' });
@@ -53,30 +53,30 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
       ? stable + 1 : 0;
   }
   downloaded(`${lastCounts} · ${loadBytes(worldLoad.snapshot().bytesLoaded)}`);
-  // Upload even offscreen textures and compile all currently visible model materials. The temporary culling
-  // override includes meshes behind the camera; it never changes the distance-region request set.
+  // Ground and collision for all menu choices stay ready; shader warmup covers the initial view and actors.
   let stage = performance.now();
   await prepare?.();
   worldLoad.update({ timings: { ...worldLoad.snapshot().timings, groundPreparationMs: performance.now() - stage } });
   const total = 1;
   worldLoad.update({ phase: 'compiling', compile: { done: 0, total } });
   const compiled = loading.begin('GPU texture upload and pipeline warmup');
-  stage = performance.now();
-  const textures = modelTextures(scene);
-  worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureDiscoveryMs: performance.now() - stage } });
-  stage = performance.now();
-  let uploaded = 0;
-  await Promise.all([...textures].map(async texture => {
-    await textureUploads(renderer).enqueue(texture);
-    worldLoad.update({ textures: { loaded: ++uploaded, pending: textures.size - uploaded } });
-  }));
-  worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureUploadMs: performance.now() - stage } });
   const culled = new Map<THREE.Object3D, boolean>();
-  // One real pass warms the near ring, actors, MRT, shadows and reflections. View direction does
-  // not change those pipelines; distant city geometry is admitted by streaming after Ready.
-  // Mobile retains its smaller visible-only residency budget.
-  if (!world.params.mobile) scene.traverse(object => { culled.set(object, object.frustumCulled); object.frustumCulled = false; });
+  // The character and own car must be warm even if a menu/save camera faces away from them.
+  // Other offscreen city materials are prepared when streaming or rendering first needs them.
+  for (const actor of actors) actor.traverse(object => {
+    culled.set(object, object.frustumCulled); object.frustumCulled = false;
+  });
   try {
+    stage = performance.now();
+    const textures = modelTextures(scene, camera);
+    worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureDiscoveryMs: performance.now() - stage } });
+    stage = performance.now();
+    let uploaded = 0;
+    await Promise.all([...textures].map(async texture => {
+      await textureUploads(renderer).enqueue(texture);
+      worldLoad.update({ textures: { loaded: ++uploaded, pending: textures.size - uploaded } });
+    }));
+    worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureUploadMs: performance.now() - stage } });
     const firstDraw = loading.begin('Initial shader and GPU warmup draw');
     stage = performance.now();
     renderFrame();

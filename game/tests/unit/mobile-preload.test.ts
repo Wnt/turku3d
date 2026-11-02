@@ -14,7 +14,10 @@ test.each([true, false])('startup uploads textures and uses one warmup view (mob
   const position = camera.position.clone(), rotation = camera.quaternion.clone();
   const texture = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial({ map: texture }));
-  scene.add(mesh);
+  mesh.position.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(5));
+  const actor = new THREE.Mesh(new THREE.BoxGeometry(), mesh.material);
+  actor.position.set(1000, 0, 0);
+  scene.add(mesh, actor);
   let uploaded = false, draws = 0;
   const world = {
     params: { mobile }, scene, camera, spawn: { x: 0, y: 0, z: 0 },
@@ -25,15 +28,17 @@ test.each([true, false])('startup uploads textures and uses one warmup view (mob
       info: { memory: { textures: 1 } }, initTexture: () => { uploaded = true; } },
     renderFrame: () => {
       expect(uploaded).toBe(true);
-      expect(mesh.frustumCulled).toBe(mobile || draws > 0);
+      expect(mesh.frustumCulled).toBe(true);
+      expect(actor.frustumCulled).toBe(draws > 0);
       expect(camera.position.equals(position)).toBe(true);
       expect(camera.quaternion.equals(rotation)).toBe(true);
       draws++;
     },
   } as unknown as PlayWorld;
   const prepare = vi.fn(async () => {});
-  await preloadWorld(world, { x: 0, z: 0 }, prepare);
+  await preloadWorld(world, { x: 0, z: 0 }, prepare, [actor]);
   expect(prepare).toHaveBeenCalledOnce();
   expect(draws).toBe(9);
   expect(mesh.frustumCulled).toBe(true);
+  expect(actor.frustumCulled).toBe(true);
 });
