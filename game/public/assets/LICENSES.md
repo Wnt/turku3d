@@ -31,3 +31,10 @@ UAL source archive: https://opengameart.org/sites/default/files/universal_animat
 Archive SHA-256: `18ff1a7215f4852b320203e8aaf02a1578b5c8eef9027fbaedfcedc7b85a3ac2`.
 The pinned trimmed input is recoverable from commit `2d75e2c56c2db4a011f4197fe16f4367c494e0be`;
 the old mannequin is no longer shipped.
+
+## KORPI 440 fictional off-road racer
+
+Original parametric geometry and painted artwork in `src/actors/prerunner/` (2026).
+Copyright 2026 Jonni Madekivi; MIT, as the repository. No downloaded vehicle mesh,
+commercial-game asset, photograph, badge or sponsor artwork is included. Local KOH
+photographic references stay outside the repository under `data/research/prerunner/`.
