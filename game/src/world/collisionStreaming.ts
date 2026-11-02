@@ -100,7 +100,8 @@ export class CollisionStreamer {
         return d - 0.5 * Math.max(0, along);
       };
       const byId = new Map([...this.near(x, z, this.radius), ...ahead, ...retained].map(t => [t.id, t]));
-      const want = [...byId.values()].filter(({ id }) => !this.physics.loaded.has(id) && !this.loading.has(id) && !this.failed.has(id)
+      const want = [...byId.values()].filter(({ id }) => (!this.physics.loaded.has(id) || this.retries.has(id))
+        && !this.loading.has(id) && !this.failed.has(id)
         && (this.retries.get(id)?.at ?? 0) <= now).map(t => ({ id: t.id, r: rank(t) }));
       want.sort((a, b) => a.r - b.r);
       for (const { id } of want) {

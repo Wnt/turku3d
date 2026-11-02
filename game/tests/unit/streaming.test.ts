@@ -73,6 +73,34 @@ test.each([404, 503])('network/HTTP %s failures retry with exponential backoff a
   } finally { clock.mockRestore(); warn.mockRestore(); }
 });
 
+test('a failed collision upgrade retries while the previous collider remains loaded', async () => {
+  const { manifest, physics } = fakes(1, 1);
+  const entries = (manifest as { collision: Record<string, import('../../src/world/manifest').ManifestEntry> }).collision;
+  entries.c_0_0.sha256 = 'old';
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const s = new CollisionStreamer(manifest, physics as never, 10);
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  try {
+    s.retain('c_0_0', entries.c_0_0, new ArrayBuffer(4));
+    s.update(20, 20, true); await tick();
+    entries.c_0_0 = { ...entries.c_0_0, sha256: 'latest', url: 'latest.col' };
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('temporary upgrade failure'));
+    s.refresh(['c_0_0']); await tick();
+    expect(physics.loaded.has('c_0_0')).toBe(true);
+    expect(physics.unloadTile).not.toHaveBeenCalled();
+    clock.mockReturnValue(499); expect(s.update(20, 20, true)).toEqual([]);
+    clock.mockReturnValue(500); expect(s.update(20, 20, true)).toEqual(['c_0_0']);
+    await tick();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(physics.loadTile).toHaveBeenCalledTimes(2);
+    expect(s.pending).toBe(0);
+    s.refresh(['c_0_0']);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(physics.unloadTile).not.toHaveBeenCalled();
+  } finally { clock.mockRestore(); warn.mockRestore(); }
+});
+
 for (const failure of ['size', 'CRC'] as const) test(`${failure} failures are permanent and surfaced`, async () => {
   const { manifest, physics } = fakes(1,1);
   const onError = vi.fn(); Object.assign(physics, { onError });
