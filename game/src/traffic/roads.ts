@@ -12,7 +12,7 @@
 // 1+1 lanes, width and limit by class) and the plan §3.6 client fallback here: heights sampled from collision by
 // the physics worker (bridge decks keep edgeHeights), seams found on the tile bbox, no signals. Every kept edge
 // has a peak flow (traffic/density.ts) that sets how many of its slots carry cars.
-import { CAR, EDGE, EVENT, NODE, edgeClass, parseRoadGraph, type RoadEdge, type RoadGraphJson } from '../gameplay/roadGraph';
+import { CAR, EDGE, EVENT, NODE, edgeClass, parseRoadGraph, type RoadEdge, type RoadGraphJson, type RoadEvent } from '../gameplay/roadGraph';
 import { PEAK_FLOW, streetFlow } from './density';
 import { hash32, hex32 } from './hash';
 
@@ -32,6 +32,7 @@ export interface TrafficEdge {
   flow: number;
   /** Distance from node a / node b where the junction box begins (m); 0 when unknown. */
   setbackA: number; setbackB: number;
+  events: RoadEvent[];
 }
 
 export interface TrafficRoads {
@@ -44,6 +45,7 @@ export interface TrafficRoads {
   seams: ReadonlySet<number> | null;
   /** Signalised junction nodes with their controller id ('' when the data names none). */
   signals: ReadonlyMap<number, string>;
+  nodeFlags: Uint16Array;
 }
 
 /** Revision 2 streets whose `highway` the flow table does not know, by car density (spec §3.5 rules). */
@@ -75,7 +77,8 @@ export function trafficRoads(json: RoadGraphJson): TrafficRoads {
     edges.push({ key: hex32(hash32('road', base, k)), a: edge.a, b: edge.b, points: edge.points, ys: edge.heights ?? null,
       forward, backward, width: Math.max(3, edge.lanes.width), speed: Math.max(3, edge.kmh / 3.6 * LIMIT_SHARE), flow,
       // Setbacks are measured from the logical edge's ends; they apply where this row ends there.
-      setbackA: s0 < 0.01 ? edge.setbacks[0] : 0, setbackB: Math.abs(s1 - logical) < 0.01 ? edge.setbacks[1] : 0 });
+      setbackA: s0 < 0.01 ? edge.setbacks[0] : 0, setbackB: Math.abs(s1 - logical) < 0.01 ? edge.setbacks[1] : 0,
+      events: edge.events });
     // A signal's stop position near an end puts the junction there under its controller.
     for (const event of edge.events) {
       if ((event.code & 15) !== EVENT.SIGNAL) continue;
@@ -85,7 +88,7 @@ export function trafficRoads(json: RoadGraphJson): TrafficRoads {
     }
   }
   const seams = revision === 2 ? new Set([...graph.nodeFlags.keys()].filter(n => graph.nodeFlags[n] & NODE.SEAM)) : null;
-  return { revision, nodes: graph.nodes, edges, seams, signals };
+  return { revision, nodes: graph.nodes, edges, seams, signals, nodeFlags: graph.nodeFlags };
 }
 
 /** Peak flow of one edge: by OSM `highway` in revision 2 (service roads, aisles and driveways none), by class in v1

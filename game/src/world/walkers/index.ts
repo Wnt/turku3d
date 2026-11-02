@@ -1,7 +1,8 @@
 // Ambient walkers (street-richness Phase 4): shared deterministic population (population.ts) on the resident tiles'
 // FOOT network (network.ts), drawn locally around the camera (ring.ts) with baked vertex animation (visuals.ts).
 import * as THREE from 'three/webgpu';
-import type { RoadGraphJson } from '../../gameplay/roadGraph';
+import { EVENT, parseRoadGraph, type RoadGraphJson } from '../../gameplay/roadGraph';
+import type { TrafficPedestrian } from '../../traffic/pedestrians';
 import type { QualityTier } from '../../render/quality';
 import type { RayFilter, RayHit } from '../../physics/protocol';
 import type { V3 } from '../../core/origin';
@@ -48,6 +49,7 @@ export class Walkers {
   private network: WalkNetwork | null = null;
   private population: Population | null = null;
   private graphs: readonly RoadGraphJson[] = [];
+  private trafficCrossings: { x: number; z: number }[] = [];
   private heights: GroundHeights;
   private ring = new Ring<Walker>();
   private wide: Walker[] = [];
@@ -90,6 +92,17 @@ export class Walkers {
     const graphs = this.options.graphs();
     if (graphs.length === this.graphs.length && graphs.every(g => this.graphs.includes(g))) return;
     this.graphs = [...graphs];
+    const crossings = new Map<string, { x: number; z: number }>();
+    for (const json of graphs) for (const edge of parseRoadGraph(json).edges) for (const event of edge.events) {
+      if ((event.code & 15) !== EVENT.CROSSING) continue;
+      let i = 1;
+      while (i < edge.cumulative.length - 1 && edge.cumulative[i] < event.s) i++;
+      const f = Math.max(0, Math.min(1, (event.s - edge.cumulative[i - 1]) / Math.max(0.01, edge.cumulative[i] - edge.cumulative[i - 1])));
+      const x = edge.points[2 * i - 2] + (edge.points[2 * i] - edge.points[2 * i - 2]) * f;
+      const z = edge.points[2 * i - 1] + (edge.points[2 * i + 1] - edge.points[2 * i - 1]) * f;
+      crossings.set(`${Math.round(x)},${Math.round(z)}`, { x, z });
+    }
+    this.trafficCrossings = [...crossings.values()];
     const id = ++this.request;
     if (typeof Worker === 'undefined') { this.install(buildWalkNetwork(this.graphs), 0); return; }
     this.worker ??= this.startWorker();
@@ -185,6 +198,26 @@ export class Walkers {
     const atlas = this.asset.albedo;
     this.asset.albedo = undefined; this.meshes?.dispose(); this.asset.albedo = atlas;
     this.meshes = next; this.group.add(next.group);
+  }
+
+  /** Logical crossing users across the resident graph, independent of the camera, draw cap and fading ring.
+   * Traffic samples this at4Hz; it never asks the GPU which pedestrians happen to be visible. */
+  trafficObstacles(): TrafficPedestrian[] {
+    const now = performance.now();
+    if (now - this.lastGraphPoll >= GRAPH_POLL_MS) { this.lastGraphPoll = now; this.syncGraphs(); }
+    if (!this.population || !this.trafficCrossings.length) return [];
+    const xs = this.trafficCrossings.map(p => p.x), zs = this.trafficCrossings.map(p => p.z);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+    const utc = this.options.now(), result: TrafficPedestrian[] = [];
+    const lives = this.population.near((x0 + x1) / 2, (z0 + z1) / 2, Math.hypot(x1 - x0, z1 - z0) / 2 + 15, utc);
+    for (const w of lives) {
+      if (w.fade < 0.2 || !this.trafficCrossings.some(p => (p.x - w.x) ** 2 + (p.z - w.z) ** 2 < 225)) continue;
+      const future = this.population.at(w, utc + 200);
+      const y = Number.isFinite(w.y) ? w.y : this.heights.height(this.population.network.chains[w.chain], w.s) ?? NaN;
+      result.push({ id: w.id, x: w.x, y, z: w.z, waiting: !w.moving,
+        vx: future ? (future.x - w.x) * 5 : 0, vz: future ? (future.z - w.z) * 5 : 0 });
+    }
+    return result;
   }
 
   /** Walkers drawn within `radius` metres of the camera (crowd audio). */

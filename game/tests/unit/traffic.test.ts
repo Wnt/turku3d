@@ -564,32 +564,55 @@ describe('traffic density', () => {
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null,
       character: () => null, player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {} };
     const sim = new TrafficSim(R, world, host);
-    sim.setTiles([...city()].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
+    // Real traffic enters/exits the resident graph; closed conveyor matching cycles are not birth portals.
+    const through = new Map<string, RoadGraphJson>();
+    for (const [tile, x0] of [['t0_0_0', 0], ['t0_1_0', 250]] as const) {
+      const streets = [['secondary', 11, 40, 7, 80], ['residential', 3, 30, 6, 140], ['living_street', 1, 20, 5, 200]] as const;
+      through.set(tile, { format: 'turku3d-roadgraph', version: 1, revision: 2, frame: 'engine-xz', bbox: [x0, 0, x0 + 250, 250],
+        nodes: streets.flatMap(([, , , , z]) => [x0, z, x0 + 250, z]), nodeFlags: [32, 32, 32, 32, 32, 32],
+        edges: streets.map((_, i) => [i * 2, i * 2 + 1, STREET, 250]), edgeIds: streets.map(([name]) => `through-${name}`),
+        edgeHeights: streets.map(() => [0, 0]), bits: { highways: streets.map(([name]) => name) },
+        edgeAttrColumns: ['s0', 's1', 'length', 'lanes_fwd', 'lanes_bwd', 'width', 'kmh', 'car_density', 'highway'],
+        edgeAttrs: streets.map(([, density, kmh, width], i) => [x0, x0 + 250, 500, 1, 1, width, kmh, density, i]) });
+    }
+    sim.setTiles([...through].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
     sim.configure({ cap: 40, clock: { kind: 'hour', hour: 16 } });
     const view = { x: 200, z: 100, fx: 1, fz: 0, halfFov: 0.7 };
     sim.setView(view);
     let t = T0, deferred = 0, nearPops = 0;
-    const last = new Map<number, { x: number; z: number; visible: boolean }>();
+    const last = new Map<number, { x: number; z: number }>();
     const drawn: Record<number, number[]> = { 16: [], 22: [], 3: [] };
-    for (let i = 0; i < 120 * 60; i++) {
+    // Night demand is sparse: use minutes of arrivals, not a ten-second sample of random empty slots.
+    for (let i = 0; i < 1200 * 60; i++) {
       // The clock falls from the afternoon peak to late evening, then to night; the camera turns every 15 s.
-      if (i === 30 * 60) sim.configure({ clock: { kind: 'hour', hour: 22 } });
-      if (i === 75 * 60) sim.configure({ clock: { kind: 'hour', hour: 3 } });
       if (i % 900 === 0) Object.assign(view, { fx: Math.cos(i / 900 * 1.3), fz: Math.sin(i / 900 * 1.3) });
+      if (i === 300 * 60) {
+        sim.configure({ clock: { kind: 'hour', hour: 22 } });
+        // Look at an actual nearby driver affected by the drop, rather than turning away at that instant.
+        const fading = sim.activeCars().find(car => {
+          const driver = sim.flow.cars.get(car.key);
+          return driver && !sim.flow.desired(driver, t) && Math.hypot(car.x - view.x, car.z - view.z) < 80;
+        });
+        expect(fading).toBeDefined();
+        const dx = fading!.x - view.x, dz = fading!.z - view.z, d = Math.hypot(dx, dz);
+        Object.assign(view, { fx: dx / d, fz: dz / d });
+      }
+      if (i === 750 * 60) sim.configure({ clock: { kind: 'hour', hour: 3 } });
       sim.beforeStep(t += 1 / 60);
       const now = new Map(sim.activeCars().map(c => [c.handle, c]));
       for (const [handle, before] of last) {
-        if (!now.has(handle) && before.visible && Math.hypot(before.x - view.x, before.z - view.z) < RING.createInViewMin) nearPops++;
+        if (!now.has(handle) && inView({ ...view, halfFov: view.halfFov - RING.viewMargin }, before.x, before.z) && Math.hypot(before.x - view.x, before.z - view.z) < RING.createInViewMin) nearPops++;
       }
       last.clear();
-      for (const c of now.values()) last.set(c.handle, { x: c.x, z: c.z, visible: inView(view, c.x, c.z) });
+      for (const c of now.values()) last.set(c.handle, { x: c.x, z: c.z });
       deferred = Math.max(deferred, sim.stats.deferred);
-      drawn[i < 30 * 60 ? 16 : i < 75 * 60 ? 22 : 3].push(now.size);
+      drawn[i < 300 * 60 ? 16 : i < 750 * 60 ? 22 : 3].push(now.size);
     }
+    // Check the current camera cone: deliberate camera turns and the retention margin are off-screen.
     // No car vanished in the near view, although cars were left on emptied slots (they went once out of view).
     expect(nearPops).toBe(0);
     expect(deferred).toBeGreaterThan(0);
-    const settled = (hour: number) => mean(drawn[hour].slice(-10 * 60));
+    const settled = (hour: number) => mean(drawn[hour].slice(-180 * 60));
     expect(settled(16)).toBeGreaterThan(2 * settled(22));
     expect(settled(22)).toBeGreaterThan(settled(3));
     expect(sim.stats.hour).toBe(3);

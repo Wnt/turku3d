@@ -86,6 +86,7 @@ export type ToWorker =
   | { type: 'breakPole'; id: string }
   | { type: 'traffic'; config: Partial<TrafficConfig> }
   | { type: 'trafficTiles'; add: TrafficTile[]; remove: string[] }
+  | { type: 'trafficPedestrians'; time: number; people: import('../traffic/pedestrians').TrafficPedestrian[] }
   /** Claim an ambient car for entering it; answered by its claim event (with `handle`) in the state. */
   | { type: 'trafficClaim'; handle: number }
   /** Advance by dt seconds of real time (worker runs fixed 60 Hz substeps, max 5 per message). */

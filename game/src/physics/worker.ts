@@ -117,6 +117,7 @@ async function handle(msg: ToWorker) {
     case 'breakPole': pw.breakPole(msg.id); break;
     case 'traffic': pw.trafficSim().configure(msg.config); break;
     case 'trafficTiles': pw.trafficSim().setTiles(msg.add, msg.remove); break;
+    case 'trafficPedestrians': pw.trafficSim().flow.setPedestrians(msg.people, msg.time); break;
     case 'trafficClaim': pw.traffic?.claim(msg.handle); break;
     case 'step': {
       if (pw.traffic) pw.trafficTime = pw.traffic.clock(performance.timeOrigin + performance.now(), true);
