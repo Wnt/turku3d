@@ -27,11 +27,11 @@ export function paintInstances(mesh: THREE.InstancedMesh, colors: readonly strin
     paints = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count * 3), 3);
     instancePaints.set(mesh, paints);
   }
-  let dirty=false;
+  let first=Infinity,last=-1;
   colors.forEach((color,i)=>{const [r,g,b]=paintOf(color),at=offset+i;
-    if(paints.getX(at)!==Math.fround(r)||paints.getY(at)!==Math.fround(g)||paints.getZ(at)!==Math.fround(b)){paints.setXYZ(at,r,g,b);dirty=true;}
+    if(paints.getX(at)!==Math.fround(r)||paints.getY(at)!==Math.fround(g)||paints.getZ(at)!==Math.fround(b)){paints.setXYZ(at,r,g,b);first=Math.min(first,at);last=at;}
   });
-  if(dirty)paints.needsUpdate = true;
+  if(last>=0){paints.addUpdateRange(first*3,(last-first+1)*3);paints.needsUpdate = true;}
 }
 
 export function paintActor(mesh: THREE.Mesh, color: string) {

@@ -1,7 +1,8 @@
+import { lampState } from '../../src/actors/fleet/lamps';
 import { expect,test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { createHash } from 'node:crypto';
-import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
+import { FLEET, fleetModel, fleetAppearance, FLEET_SIZE } from '../../src/actors/fleet/catalog';
 import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import { draftManifest } from '../../src/world/manifest';
@@ -52,4 +53,33 @@ test('ordinary traffic reaches all 56 models without overpopulating pickups or o
   }
   expect(models.size).toBe(56);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
   expect(old/2000).toBeGreaterThan(.07);expect(old/2000).toBeLessThan(.13);
+});
+
+
+test('ambient, claimed and remote appearances have identical dimensions and circular tyres',async()=>{
+  for(const family of ['sedan','suv','van','hatchback-sports']) {
+    const size=FLEET_SIZE[family],model=fleetAppearance(family,'shared-slot',size);
+    expect(fleetAppearance(model.id,'different-client')).toBe(model);
+    const geometry=buildFleetGeometry(model,0),p=geometry.getAttribute('position'),surface=geometry.getAttribute('fleetSurface');
+    const width=geometry.boundingBox!.max.x-geometry.boundingBox!.min.x;expect(width).toBeLessThanOrEqual(size.width+.015);
+    const axle=model.wheelbase/2,r=model.wheel;let outer=0;
+    for(let i=0;i<p.count;i++)if(surface.getY(i)>.9&&Math.abs(p.getZ(i)-axle)<r+.001&&p.getY(i)<2*r+.001){
+      const radius=Math.hypot(p.getY(i)-r,p.getZ(i)-axle);expect(radius).toBeLessThan(r+.001);outer=Math.max(outer,radius);
+    }
+    expect(outer).toBeCloseTo(r,5);geometry.dispose();
+    const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+    manifest.vehicles=[{object_id:'shared-slot',model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,...size,clear_front_m:5,clear_rear_m:5}];
+    await visuals.load(manifest);visuals.takeOver('shared-slot');
+    const actor=scene.getObjectByName('driven/shared-slot') as THREE.Mesh,remote=visuals.remoteModel(`${model.id}/silver`)!;
+    expect(actor.geometry).toBe(remote.geometry);expect(actor.scale.toArray()).toEqual([1,1,1]);expect(remote.scale.toArray()).toEqual([1,1,1]);
+    expect(visuals.remoteModel('fleet-sedan-0-d0-0-0/silver')).toBeNull();
+    visuals.dispose();
+  }
+  expect(()=>fleetAppearance('sedan','slot',{width:NaN,height:1.5,length:4.5})).toThrow('Invalid fleet dimensions');
+});
+
+
+test('traffic lamps distinguish powered, turn and brake state without re-gating worker blink state',()=>{
+  expect(lampState(false)).toEqual([0,0,0,0]);expect(lampState(true,-1,true)).toEqual([1,1,0,1]);
+  expect(lampState(true,1,false)).toEqual([1,0,1,0]);
 });

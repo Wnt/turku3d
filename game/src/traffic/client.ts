@@ -1,4 +1,4 @@
-import { fleetModel } from '../actors/fleet/catalog';
+import { fleetAppearance } from '../actors/fleet/catalog';
 // Main-thread side of ambient traffic: feeds the physics worker the resident tiles' road graphs, the shared
 // clock, the multiplayer gate and remote claims; copies the worker's car poses into the shared per-body
 // InstancedMeshes (actors/car.ts, +0 draws); turns the worker's claim events into ordinary vehicle records
@@ -215,7 +215,7 @@ export class TrafficClient {
     this.handled.add(event.id);
     const [width, height, length] = event.size;
     const yaw = 2 * Math.atan2(event.rot.y, event.rot.w) + Math.PI / 2;
-    const visualModel = fleetModel(event.model, String(event.handle ?? event.id)).id;
+    const visualModel = fleetAppearance(event.model, String(event.handle ?? event.id), { width, height, length }).id;
     const record: ParkedVehicle = { object_id: event.id, model: visualModel, color: event.color,
       x: event.pos.x, y: event.pos.y - CHASSIS_LIFT, z: event.pos.z, yaw, width, length, height,
       clear_front_m: 10, clear_rear_m: 10 };

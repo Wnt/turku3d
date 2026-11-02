@@ -49,3 +49,31 @@ export function fleetModel(model: string, seed: string): FleetModel {
   for(const m of choices){pick-=weight(m);if(pick<0)return m;}
   return choices[choices.length-1];
 }
+
+export interface FleetSize { width:number; height:number; length:number }
+export const FLEET_SIZE: Readonly<Record<string,FleetSize>> = {
+  sedan:{width:1.85,height:1.48,length:4.55}, 'hatchback-sports':{width:1.80,height:1.46,length:4.15},
+  suv:{width:1.96,height:1.78,length:4.70},van:{width:1.98,height:2.05,length:5.00},
+  'sedan-sports':{width:1.84,height:1.36,length:4.60},'suv-luxury':{width:1.98,height:1.72,length:4.95},
+};
+const fitted=new Map<string,FleetModel>();
+export function baseFleetId(id:string){return id.replace(/-d\d+-\d+-\d+$/,'');}
+/** A dimensional model key travels through the existing network/save identity. Bodywork is
+ * regenerated to fit; tyres stay circular instead of inheriting a nonuniform object scale. */
+export function fitFleetModel(model:FleetModel,size:FleetSize):FleetModel {
+  const w=Math.round(size.width*100),h=Math.round(size.height*100),l=Math.round(size.length*100);
+  if(![w,h,l].every(Number.isFinite)||w<120||w>280||h<80||h>350||l<250||l>750)throw new Error('Invalid fleet dimensions');
+  const base=FLEET_BY_ID.get(baseFleetId(model.id))??model,key=`${base.id}-d${w}-${h}-${l}`;
+  let fit=fitted.get(key);if(fit)return fit;
+  const width=w/100-.22,height=h/100,length=l/100-.12,ys=height/base.height;
+  fit={...base,id:key,width,height,length,wheelbase:base.wheelbase*length/base.length,
+    wheel:base.wheel*Math.min(ys,width/base.width),belt:base.belt*ys};
+  if(fitted.size>512)fitted.clear();
+  fitted.set(key,fit);return fit;
+}
+export function fleetAppearance(model:string,seed:string,size?:FleetSize):FleetModel {
+  const encoded=/^(fleet-[a-z]+-\d+)-d(\d+)-(\d+)-(\d+)$/.exec(model);
+  if(encoded){const base=FLEET_BY_ID.get(encoded[1]);if(base)return fitFleetModel(base,{width:+encoded[2]/100,height:+encoded[3]/100,length:+encoded[4]/100});}
+  const base=fleetModel(model,seed);
+  return fitFleetModel(base,size??FLEET_SIZE[model]??FLEET_SIZE[base.family]);
+}

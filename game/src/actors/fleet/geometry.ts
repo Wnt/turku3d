@@ -139,16 +139,16 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
     } else b.quad([s*baseW,rearY,zr],[s*baseW,baseY,zf],[s*roofW,roofEdge,rf],[s*roofW,roofEdge,rr],WINDOW,GLASS);
     if(lod<2) {
       // A, B and C pillars, lower window seals, chrome waist trim, door seams and handles.
-      b.rod([s*baseW,baseY,zf],[s*roofW,roofEdge,rf],.035,WHITE,PAINT);
-      b.rod([s*baseW,rearY,zr],[s*roofW,roofEdge,rr],m.body==='estate'?.065:.05,WHITE,PAINT);
+      b.rod([s*baseW,baseY,zf],[s*roofW,roofEdge,rf],.025,WHITE,PAINT);
+      b.rod([s*baseW,rearY,zr],[s*roofW,roofEdge,rr],m.body==='estate'?.045:.035,WHITE,PAINT);
       const mid=(rf+rr)*.5;
       b.quad([s*(baseW+.003),baseY,mid-.045],[s*(baseW+.003),baseY,mid+.045],[s*(roofW+.003),roofAt(mid)-.06,mid+.045],[s*(roofW+.003),roofAt(mid)-.06,mid-.045],DARK,TRIM);
-      if(m.body==='estate'||m.body==='mpv'||m.body==='suv') b.rod([s*baseW,baseY,rr+.26],[s*roofW,roofAt(rr+.26)-.06,rr+.26],.025,DARK,TRIM);
+      if(m.body==='estate'||m.body==='mpv'||m.body==='suv') b.rod([s*baseW,baseY,rr+.26],[s*roofW,roofAt(rr+.26)-.06,rr+.26],.035,WHITE,PAINT);
       b.rod([s*baseW,rearY,zr],[s*baseW,baseY,zf],.014,[.38,.4,.42],METAL);
       if(lod===0)for(const z of [mid,zf-.1,zr+.2]) b.rod([s*(widthAt(z)+.004),belt-.12,z],[s*(widthAt(z)+.004),Math.max(low+.05,bottomAt(z)),z],.006,[.08,.09,.10],TRIM,4);
       if(lod===0)for(const z of [mid+.13,Math.max(zr+.3,mid-.6)]) b.box(s*(widthAt(z)+.012),belt-.12,z,.025,.035,.15,[.45,.47,.48],METAL);
-      b.box(s*(W+.11),belt+.12,zf-.10,.20,.12,.27,WHITE,PAINT);
-      b.box(s*(W+.12),belt+.12,zf-.241,.15,.085,.009,[.28,.36,.42],GLASS);
+      b.box(s*(W+.035),belt+.10,zf-.10,.15,.10,.21,WHITE,PAINT);
+      b.box(s*(W+.04),belt+.10,zf-.211,.12,.075,.009,[.28,.36,.42],GLASS);
       // Lower panels carry restrained road grime; no random bright rust on the modern fleet.
       const dirt=.68-m.age*.15;
       b.box(s*(W*.94),low+.045,0,.014,.065,L*.40,[dirt,dirt*.97,dirt*.91],[1,.82,.03,0]);
@@ -178,7 +178,9 @@ export function buildFleetGeometry(m: FleetModel, lod: 0|1|2): THREE.BufferGeome
       const cx=s*W*.64,zz=z+end*.022;
       b.quad([cx-lw/2,lampY-lh/2,zz],[cx+lw/2,lampY-lh/2,zz],[cx+lw/2-s*.045,lampY+lh/2+.018,zz],
         [cx-lw/2+s*.045,lampY+lh/2,zz],end>0?[.65,.76,.86]:[.35,.008,.006],[0,.17,.25,end>0?1:.55]);
-      if(lod===0) b.box(s*W*.83,lampY-.09,z+end*.022,.075,.035,.026,[.64,.21,.015],[0,.30,.1,0]);
+      // +X is the vehicle's left in the model-to-physics frame.
+      b.box(s*W*.80,lampY-.07,z+end*.024,.085,.032,.025,[.75,.22,.006],[0,.22,.08,s>0?2:3]);
+      if(lod===0&&end>0)b.box(cx,lampY-lh*.3,z+end*.026,lw*.83,.018,.004,[.8,.87,.94],[0,.18,.2,1]);
     }
     if(lod===0) {
       b.box(0,low+.18,z+end*.04,.51,.11,.018,[.9,.92,.87],[0,.55,0,0]);

@@ -1,4 +1,4 @@
-import { fleetModel } from '../actors/fleet/catalog';
+import { fleetAppearance } from '../actors/fleet/catalog';
 import type { ParkedVehicle } from '../world/manifest';
 import type { NetPose } from './client';
 
@@ -10,5 +10,5 @@ export function vehicleIdentity(mode: NetPose['mode'], drivenId: string | null,
   if (!drivenId || drivenId === 'player') return 'player';
   const vehicle = parked.find(v => v.object_id === drivenId);
   if (!vehicle) throw new Error(`missing driven vehicle identity: ${drivenId}`);
-  return `${fleetModel(vehicle.model, vehicle.object_id).id}/${vehicle.color}`;
+  return `${fleetAppearance(vehicle.model, vehicle.object_id, vehicle).id}/${vehicle.color}`;
 }

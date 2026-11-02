@@ -1,3 +1,4 @@
+import { fleetAppearance } from '../../src/actors/fleet/catalog';
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
@@ -18,7 +19,7 @@ test('resting, claimed, driven and remote fleet cars preserve pose and paint',as
   manifest.vehicles=[car('a','fleet-sedan-0','red',10),car('b','fleet-sedan-0','blue',20),car('c','fleet-sedan-0','white',30)];await visuals.load(manifest);
   const rest={restingPose:(c:ParkedVehicle)=>c.object_id==='c'?null:{pos:{x:c.x,y:c.y+.75,z:c.z},rot:{x:0,y:0,z:0,w:1}}};
   visuals.update([{id:'a',pos:{x:11,y:3,z:5},rot:{x:0,y:0,z:0,w:1}} as VehicleState],rest);
-  const draw=scene.getObjectByName('parked/fleet-sedan-0/0') as THREE.InstancedMesh;
+  const draw=scene.getObjectByName(`parked/${fleetAppearance('fleet-sedan-0','a',manifest.vehicles[0]).id}/0`) as THREE.InstancedMesh;
   expect(draw.count).toBe(2);const matrix=new THREE.Matrix4();draw.getMatrixAt(0,matrix);
   expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([11,2.25,5]);
   draw.getMatrixAt(1,matrix);expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([20,2,5]);

@@ -1,4 +1,4 @@
-import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
+import { FLEET, fleetAppearance } from '../../src/actors/fleet/catalog';
 import { describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as R from '@dimforge/rapier3d';
@@ -406,7 +406,7 @@ describe('rendering', () => {
       visuals.reserveTraffic(40);
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
-      expect(meshes.map(m => m.name).sort()).toEqual(FLEET.flatMap(m => [0, 1, 2].map(lod => `parked/${m.id}/${lod}`)).sort());
+      expect(meshes.map(m => m.name).sort()).toEqual(FLEET.flatMap(m => [0, 1, 2].map(lod => `parked/${fleetAppearance(m.id,m.id).id}/${lod}`)).sort());
       expect(load).not.toHaveBeenCalled();
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {
@@ -416,7 +416,7 @@ describe('rendering', () => {
         visuals.update([], { restingPose: c => ({ pos: { x: c.x, y: c.y + 0.75, z: c.z }, rot: { x: 0, y: 0, z: 0, w: 1 } }) });
         expect(scene.children).toEqual(meshes);
         expect(meshes.reduce((n, m) => n + m.count, 0)).toBe(1 + count);
-        const sedan = meshes.find(m => m.name === `parked/${fleetModel('sedan', 'p1').id}/0`)!;
+        const sedan = meshes.find(m => m.name === `parked/${fleetAppearance('sedan', 'p1').id}/0`)!;
         if (count) {
           // The first moving sedan follows the parked one, with its own paint.
           const paint = Array.from(instancePaintOf(sedan)!.array.slice(3, 6));
