@@ -2,17 +2,23 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import {splitEmbeddedFleetWheels,splitNamedFleetWheels,type AuthoredFleetParts} from './authoredWheelParts';
+import {fleetWheelLayout} from './wheelLayouts';
 import { AUTHORED_BY_ID } from './registry';
 
 export const AUTHORED_ESTATE = 'fleet-estate-3';
-const pending = new Map<string, Promise<{ body: THREE.BufferGeometry; glass: THREE.BufferGeometry | null }>>();
+export const ESTATE_WHEELS=Object.entries(fleetWheelLayout(AUTHORED_ESTATE)!.pivots).map(([name,p])=>({name,
+  pivot:{x:p[0],y:p[1],z:p[2]},radius:.32,width:.205}));
+interface FleetAsset {body:THREE.BufferGeometry;glass:THREE.BufferGeometry|null;parts:AuthoredFleetParts}
+const pending = new Map<string, Promise<FleetAsset>>();
 
 /** Bake authored transforms and material roles into shared body or glazing geometry. */
-export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all'): THREE.BufferGeometry {
+export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all', exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   root.updateMatrixWorld(true);
   root.traverse(object => {
     if (!(object as THREE.Mesh).isMesh) return;
+    for(let at:THREE.Object3D|null=object;at;at=at.parent)if(exclude?.has(at))return;
     const mesh = object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
     if (Array.isArray(mesh.material)) throw Error('Expected one GLTF material per primitive');
     const material = mesh.material, role = material.name;
@@ -51,7 +57,7 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
   return geometry;
 }
 
-export async function loadAuthoredFleet(model: string, lod: number, part: 'body'|'glass' = 'body'): Promise<THREE.BufferGeometry | null> {
+async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
   const entry = AUTHORED_BY_ID.get(model);
   if (model !== AUTHORED_ESTATE && !entry) return null;
   const key = `${model}/${lod}`;
@@ -61,6 +67,12 @@ export async function loadAuthoredFleet(model: string, lod: number, part: 'body'
     const url = entry ? `${entry.assetBase}/lod${lod}.glb` : `/assets/cars/aava-estate/estate_lod${lod}.glb`;
     request = loader.loadAsync(url).then(gltf => {
       const body = flattenFleetAsset(gltf.scene, 'body');
+      const parts=splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAsset(root,'body',exclude))
+        ??(model===AUTHORED_ESTATE?splitEmbeddedFleetWheels(body,ESTATE_WHEELS):null);
+      if(!parts)throw Error(`Authored fleet lacks named wheel hubs: ${model}`);
+      const layout=fleetWheelLayout(model)!;
+      for(const wheel of parts.wheels){wheel.radius=layout.radius;wheel.width=layout.width;}
+      parts.wheels.sort((a,b)=>b.pivot.z-a.pivot.z||b.pivot.x-a.pivot.x);
       let hasGlass = false;
       gltf.scene.traverse(object => {
         const m = object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
@@ -71,9 +83,17 @@ export async function loadAuthoredFleet(model: string, lod: number, part: 'body'
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) { mesh.geometry.dispose(); for (const material of [mesh.material].flat()) material.dispose(); }
       });
-      return { body, glass };
+      return { body, glass, parts };
     }).catch(error => { pending.delete(key); throw error; });
     pending.set(key, request);
   }
-  return (await request)[part]?.clone() ?? null;
+  return request;
+}
+
+export async function loadAuthoredFleet(model:string,lod:number,part:'body'|'glass'='body') {
+  return (await fleetAsset(model,lod))?.[part]?.clone()??null;
+}
+export async function loadAuthoredFleetParts(model:string,lod:number):Promise<AuthoredFleetParts|null> {
+  const asset=await fleetAsset(model,lod);if(!asset)return null;
+  return {body:asset.parts.body.clone(),wheels:asset.parts.wheels.map(w=>({...w,geometry:w.geometry.clone()}))};
 }

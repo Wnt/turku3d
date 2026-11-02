@@ -1,3 +1,4 @@
+import {fleetWheelFootprint} from '../actors/fleet/wheelLayouts';
 import { sampleWheelGround, wheelGroundPose, type WheelGroundPose } from '../vehicle/wheelGround';
 import { fleetModel, type FleetModel } from '../actors/fleet/catalog';
 // Ambient traffic inside the physics worker (street-richness plan §3.6). The network gives every car's position
@@ -185,14 +186,14 @@ export class TrafficSim {
         const p=car.pose,yaw=Math.atan2(-p.hz,p.hx),last=car.groundAt;
         if(!last||Math.hypot(p.x-last.x,p.z-last.z)>.08||Math.abs(yaw-last.yaw)>.025){
           const model=car.visualModel??=fleetModel(TRAFFIC_MODELS[car.model],String(hash32('appearance',car.key)));
-          const pose=sampleWheelGround({x:p.x,y:p.y,z:p.z},yaw,{wheelbase:model.wheelbase,track:model.width-.15,radius:model.wheel},this.host.ground.bind(this.host));
+          const pose=sampleWheelGround({x:p.x,y:p.y,z:p.z},yaw,fleetWheelFootprint(model),this.host.ground.bind(this.host));
           car.terrain=pose??undefined;car.groundAt={x:p.x,z:p.z,yaw};
         }
       }else car.terrain=undefined;
       if(car.terrain){
         const model=car.visualModel!;
         car.terrain=wheelGroundPose({x:car.pose.x,y:car.pose.y,z:car.pose.z},Math.atan2(-car.pose.hz,car.pose.hx),
-          {wheelbase:model.wheelbase,track:model.width-.15,radius:model.wheel},car.terrain.heights)!;
+          fleetWheelFootprint(model),car.terrain.heights)!;
         car.pose.y=car.terrain.pos.y-CHASSIS_LIFT;
       }
       const near = player && Number.isFinite(car.pose.y)

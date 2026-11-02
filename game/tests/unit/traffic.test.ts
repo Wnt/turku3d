@@ -1,5 +1,6 @@
 import './fleet-assets.fixture';
 import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
+import { AUTHORED_BY_ID } from '../../src/actors/fleet/registry';
 import { describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as R from '@dimforge/rapier3d';
@@ -398,7 +399,14 @@ describe('rendering', () => {
       visuals.reserveTraffic(40);
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
-      expect(meshes.map(m => m.name).sort()).toEqual([...FLEET.flatMap(m=>[0,1,2].map(lod=>`parked/${m.id}/${lod}`)),...new Set(FLEET.filter(m=>m.id!=='fleet-estate-3').flatMap(m=>[0,1].map(lod=>`wheels/${lod}/${m.wheel.toFixed(3)}/${lod===0?m.face%3:0}`)))].sort());
+      expect(meshes.filter(m=>m.name.startsWith('parked/')).map(m=>m.name).sort())
+        .toEqual(FLEET.flatMap(m=>[0,1,2].map(lod=>`parked/${m.id}/${lod}`)).sort());
+      expect(meshes.filter(m=>m.name.startsWith('wheels/')&&!m.name.startsWith('wheels/authored/')).map(m=>m.name).sort())
+        .toEqual([...new Set(FLEET.filter(m=>m.id!=='fleet-estate-3'&&!AUTHORED_BY_ID.has(m.id)).flatMap(m=>[0,1].map(lod=>`wheels/${lod}/${m.wheel.toFixed(3)}/${lod===0?m.face%3:0}`)))].sort());
+      for(const model of FLEET.filter(m=>m.id==='fleet-estate-3'||AUTHORED_BY_ID.has(m.id)))for(const lod of [0,1]){
+        const designs=meshes.filter(m=>m.name.startsWith(`wheels/authored/${model.id}/${lod}/`));
+        expect(designs.length).toBeGreaterThan(0);expect(designs.length).toBeLessThanOrEqual(4);
+      }
       // All LOD assets are resident before traffic starts changing.
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {

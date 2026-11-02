@@ -31,7 +31,7 @@ export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, 
     belt: (body === 'van' ? 1.12 : body === 'suv' || body === 'pickup' ? 1.12 : body === 'mpv' ? 1.10 : .97) + (i % 3) * .025,
     face: i, accessory: t === 1 && i === 1 || t === 3 && i === 2 ? 'box' : t === 1 && i === 4 || t === 3 && i === 5 ? 'rack' : t === 2 && i === 5 || t === 4 && i === 1 ? 'taxi' : 'none',
     age: body === 'classic' ? .75 + i * .03 : i === 6 ? .5 : .06 + i * .04,
-  }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68 } : model).concat(AUTHORED_MODELS.map(model => model.fleet));
+  }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68, wheel:.32 } : model).concat(AUTHORED_MODELS.map(model => model.fleet));
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 export function fleetHash(value: string): number {
   let h = 2166136261;

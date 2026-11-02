@@ -1,3 +1,4 @@
+import {fleetWheelFootprint} from '../actors/fleet/wheelLayouts';
 import { wheelGroundProbes, wheelGroundPose } from '../vehicle/wheelGround';
 import { fleetModel } from '../actors/fleet/catalog';
 import type { ParkedCarVisuals } from '../actors/car';
@@ -106,7 +107,7 @@ export class ParkedVehicles {
     if(!sampled&&this.physics.raycast&&car.model!=='truck'&&!this.terrainPending.has(car)&&(this.terrainRetry.get(car)??0)<=Date.now()
       &&this.terrainPending.size<4&&Math.hypot(car.x-this.view.x,car.z-this.view.z)<100&&this.supported(id,car)){
       this.terrainPending.add(car);this.terrainRetry.set(car,Date.now()+2000);
-      const m=fleetModel(car.model,id),footprint={wheelbase:m.wheelbase,track:m.width-.15,radius:m.wheel};
+      const m=fleetModel(car.model,id),footprint=fleetWheelFootprint(m);
       const yaw=car.yaw-Math.PI/2,at={x:car.x,y:car.y,z:car.z};
       void Promise.all(wheelGroundProbes(at,yaw,footprint).map(origin=>this.physics.raycast!(origin,{x:0,y:-1,z:0},4,'solid'))).then(hits=>{
         const pose=wheelGroundPose(at,yaw,footprint,hits.map(hit=>hit?.point.y??null));

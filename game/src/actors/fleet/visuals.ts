@@ -7,9 +7,10 @@ import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
 import { FLEET, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry, buildFleetWheel } from './geometry';
-import { AUTHORED_ESTATE, loadAuthoredFleet } from './authored';
+import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
+import type {AuthoredFleetParts} from './authoredWheelParts';
 import { AUTHORED_BY_ID } from './registry';
-import { addFleetWheels, applyFleetWheels } from './wheels';
+import { addFleetWheels, addAuthoredFleetWheels, applyFleetWheels } from './wheels';
 import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
@@ -17,6 +18,7 @@ import { fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
+interface WheelDesign {key:string;pivot:{x:number;y:number;z:number};sharedSide:boolean}
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
 interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
 interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
@@ -32,6 +34,8 @@ export class ParkedCarVisuals {
   private cars: ParkedVehicle[]=[];
   private groups=new Map<string,Batch>();
   private wheelGroups=new Map<string,WheelBatch>();
+  private designs=new Map<string,WheelDesign[]>();
+  private authoredParts=new Map<string,AuthoredFleetParts>();
   private geometries=new Map<string,THREE.BufferGeometry>();
   private dynamic=new Map<string,THREE.Mesh>();
   private definitions=new Map<string,{model:FleetModel;color:string;size?:ParkedVehicle}>();
@@ -60,6 +64,38 @@ export class ParkedCarVisuals {
     this.frustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse),camera.coordinateSystem);this.hasView=true;
     fleetNight.value=Math.max(0,Math.min(1,night)); }
   renders(id:string) { return this.dynamic.has(id)||this.cars.some(c=>c.object_id===id); }
+  private wheelDesigns(model:FleetModel,lod:number):WheelDesign[] {
+    const key=`${model.id}/${lod}`,cached=this.designs.get(key);if(cached)return cached;
+    const parts=this.authoredParts.get(key);
+    const designs=parts?parts.wheels.map(w=>({key:w.name,pivot:w.pivot,sharedSide:false}))
+      :lod===2?[]:Array.from({length:4},(_,i)=>({key:fleetWheelDesign(model,lod),sharedSide:true,
+        pivot:{x:(i%2?-1:1)*(model.width/2-.075),y:model.wheel,z:(i<2?1:-1)*model.wheelbase/2}}));
+    this.designs.set(key,designs);return designs;
+  }
+  private async authored(model:FleetModel,lod:number) {
+    if(!embeddedWheels(model.id)||this.geometries.has(`${model.id}/${lod}`))return;
+    const key=`${model.id}/${lod}`;
+    const parts=lod<2?await loadAuthoredFleetParts(model.id,lod):null;
+    const body=parts?.body??await loadAuthoredFleet(model.id,lod);
+    if(body)this.geometries.set(key,body);
+    if(parts){
+      for(const wheel of parts.wheels){
+        // Hash all baked vertex attributes, including material roles. Wheels of one exact
+        // design share a draw; independently decimated LODs retain their own geometry.
+        let hash=2166136261;
+        for(const attribute of Object.values(wheel.geometry.attributes)){
+          for(const value of attribute.array){hash=Math.imul(hash^Math.round(value*1e5),16777619);}
+        }
+        if(wheel.geometry.index)for(const value of wheel.geometry.index.array)hash=Math.imul(hash^value,16777619);
+        wheel.name=`authored/${model.id}/${lod}/${hash>>>0}`;
+        const geometryKey=`wheel-design/${wheel.name}`,existing=this.geometries.get(geometryKey);
+        if(existing){wheel.geometry.dispose();wheel.geometry=existing;}else this.geometries.set(geometryKey,wheel.geometry);
+      }
+      this.authoredParts.set(key,parts);this.designs.delete(key);
+    }
+    const glass=await loadAuthoredFleet(model.id,lod,'glass');
+    if(glass)this.geometries.set(`${key}/glass`,glass);
+  }
   private geometry(model:FleetModel,lod:number) {
     const key=`${model.id}/${lod}`; let g=this.geometries.get(key);
     if(!g) { g=buildFleetGeometry(model,lod as 0|1|2,lod===2); this.geometries.set(key,g); } return g;
@@ -78,19 +114,24 @@ export class ParkedCarVisuals {
     const models=this.reserve?FLEET:FLEET.filter(m=>counts.has(m.id));
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
-    const plans=new Map<string,{model:FleetModel;lod:0|1;count:number}>();
-    for(const model of models)if(!embeddedWheels(model.id))for(const lod of [0,1] as const){
-      const key=fleetWheelDesign(model,lod),plan=plans.get(key);
-      if(plan)plan.count+=counts.get(model.id)??0;
-      else plans.set(key,{model,lod,count:counts.get(model.id)??0});
+    const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();
+    for(const model of models)for(const lod of [0,1] as const)await this.authored(model,lod);
+    for(const model of models)for(const lod of [0,1] as const){
+      const uses=new Map<string,number>();
+      for(const wheel of this.wheelDesigns(model,lod))uses.set(wheel.key,(uses.get(wheel.key)??0)+1);
+      for(const [key,multiplicity] of uses){
+        const plan=plans.get(key),count=(counts.get(model.id)??0)*multiplicity;
+        if(plan){plan.count+=count;plan.reserve=Math.max(plan.reserve,multiplicity);}
+        else plans.set(key,{model,lod,count,reserve:multiplicity});
+      }
     }
     try {
       for(const [key,plan] of plans){
-        const required=(plan.count+this.reserve)*4;
+        const required=plan.count+this.reserve*plan.reserve;
         if((this.wheelGroups.get(key)?.mesh.instanceMatrix.count??0)>=required)continue;
         const capacity=Math.max(64,2**Math.ceil(Math.log2(Math.max(1,required))));
         const geometryKey=`wheel-design/${key}`;
-        if(!this.geometries.has(geometryKey))this.geometries.set(geometryKey,buildFleetWheel(plan.model,plan.lod,1));
+        if(!this.geometries.has(geometryKey))this.geometries.set(geometryKey,buildFleetWheel(plan.model,plan.lod as 0|1,1));
         const mesh=new THREE.InstancedMesh(this.geometries.get(geometryKey)!,fleetMaterial(),capacity);
         mesh.name=`wheels/${key}`;mesh.castShadow=plan.lod===0;mesh.receiveShadow=true;
         mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);
@@ -101,10 +142,7 @@ export class ParkedCarVisuals {
         if((this.groups.get(key)?.mesh.instanceMatrix.count??0)>=required) continue;
         const capacity=Math.max(16,2**Math.ceil(Math.log2(Math.max(1,required))));
         if(!this.geometries.has(key)) {
-          const authored=await loadAuthoredFleet(model.id,lod);
-          if(authored)this.geometries.set(key,authored);
-          const glass=await loadAuthoredFleet(model.id,lod,'glass');
-          if(glass)this.geometries.set(`${key}/glass`,glass);
+          await this.authored(model,lod);
         }
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
@@ -131,11 +169,12 @@ export class ParkedCarVisuals {
     this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
   }
   private actor(model:FleetModel,color:string,name:string) {
-    const articulated=!embeddedWheels(model.id);
+    const parts=this.authoredParts.get(`${model.id}/0`);
     const actor=new THREE.Mesh(this.geometry(model,0),fleetMaterial()); paintActor(actor,color);
     const glass=this.geometries.get(`${model.id}/0/glass`);
     if(glass){const window=new THREE.Mesh(glass,fleetGlassMaterial());window.receiveShadow=true;actor.add(window);}
-    if(articulated)addFleetWheels(actor,model,side=>{
+    if(parts)addAuthoredFleetWheels(actor,model,parts.wheels,fleetMaterial());
+    else addFleetWheels(actor,model,side=>{
       const wheelKey=`${model.id}/wheel/${side}`;
       if(!this.geometries.has(wheelKey))this.geometries.set(wheelKey,buildFleetWheel(model,0,side));
       return this.geometries.get(wheelKey)!;
@@ -151,10 +190,8 @@ export class ParkedCarVisuals {
   requestRemoteModel(key:string) {
     const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
     if((model.id!==AUTHORED_ESTATE&&!AUTHORED_BY_ID.has(model.id))||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
-    this.remoteRequests.set(geometryKey,Promise.all([loadAuthoredFleet(model.id,0),loadAuthoredFleet(model.id,0,'glass')]).then(([geometry,glass])=>{
-      if(geometry)this.geometries.set(geometryKey,geometry);
-      if(glass)this.geometries.set(`${geometryKey}/glass`,glass);
-    }).catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
+    this.remoteRequests.set(geometryKey,this.authored(model,0)
+      .catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
   }
   remoteModel(key:string):THREE.Mesh|null {
     const [id,color]=key.split('/'), model=fleetModel(id,key);
@@ -180,16 +217,17 @@ export class ParkedCarVisuals {
     let changed=false;
     for(let i=0;i<16;i++)if(array[offset+i]!==Math.fround(matrix.elements[i])){changed=true;break;}
     if(changed){group.mesh.setMatrixAt(group.count,matrix);group.dirty=true;}
-    const wheelBatch=embeddedWheels(draw.model.id)?undefined:this.wheelGroups.get(fleetWheelDesign(draw.model,lod));
-    for(let i=0;i<4&&wheelBatch;i++){
+    const designs=this.wheelDesigns(draw.model,lod);
+    for(let i=0;i<designs.length;i++){
+      const design=designs[i],wheelBatch=this.wheelGroups.get(design.key);if(!wheelBatch)continue;
       const side=i%2?-1:1,wheel=wheelBatch.mesh,index=wheelBatch.count++;
       if(index>=wheel.instanceMatrix.count)throw Error('Wheel design batch capacity exceeded');
       const state=draw.wheels?.[i],steer=state?.steer??(i<2?ackermann(draw.steer??0,draw.model.wheelbase,-side*(draw.model.width/2-.075)):0);
-      this.hubPosition.set(side*(draw.model.width/2-.075),(state||draw.wheelY)?((state?.pos.y??draw.wheelY![i])+CHASSIS_LIFT)/this.scale.y:draw.model.wheel,(i<2?1:-1)*draw.model.wheelbase/2);
+      this.hubPosition.set(design.pivot.x,(state||draw.wheelY)?((state?.pos.y??draw.wheelY![i])+CHASSIS_LIFT)/this.scale.y:design.pivot.y,design.pivot.z);
       const spin=state?.rotation??draw.spin??0;
       // Rotate the shared outward rim to the opposite side. Reverse its local spin
       // so all four tyres still roll forward, with the parked spoke phase preserved.
-      this.hubEuler.set(side<0?Math.PI-spin:spin,steer+(side<0?Math.PI:0),0,'YXZ');this.hubRotation.setFromEuler(this.hubEuler);
+      this.hubEuler.set(design.sharedSide&&side<0?Math.PI-spin:spin,steer+(design.sharedSide&&side<0?Math.PI:0),0,'YXZ');this.hubRotation.setFromEuler(this.hubEuler);
       this.hubMatrix.compose(this.hubPosition,this.hubRotation,this.unitScale);
       this.wheelMatrix.multiplyMatrices(matrix,this.hubMatrix);
       const offset=index*16,array=wheel.instanceMatrix.array;
@@ -256,7 +294,7 @@ export class ParkedCarVisuals {
     for(const b of this.groups.values()){b.mesh.removeFromParent();b.glass?.dispose();b.mesh.dispose();}
     for(const b of this.wheelGroups.values()){b.mesh.removeFromParent();b.mesh.dispose();}
     for(const actor of this.dynamic.values())actor.removeFromParent();
-    this.groups.clear();this.wheelGroups.clear();this.dynamic.clear();this.definitions.clear();this.wheelMotion.clear();
+    this.designs.clear();this.authoredParts.clear();this.groups.clear();this.wheelGroups.clear();this.dynamic.clear();this.definitions.clear();this.wheelMotion.clear();
     for(const geometry of this.geometries.values())geometry.dispose();this.geometries.clear();
   }
   snapshot() {
