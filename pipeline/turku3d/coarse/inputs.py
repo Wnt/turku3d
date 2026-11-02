@@ -846,6 +846,9 @@ def gather(
                 if a.get("construction_year")
             ],
         )
+    from .boat_inputs import separate, separate_attachments
+
+    values["attachments"] = separate_attachments(values.get("attachments") or (), values["boats"])
     # Keep inferred exterior structure evidence on its source building as well
     # as in the geometry dataset, so facade work can reuse the measured levels.
     for building in [*wfs["buildings"], *wfs.get("wall_context", [])]:
@@ -855,8 +858,6 @@ def gather(
         ]
         if evidence:
             building.attributes["lidar_attachments"] = evidence
-    from .boat_inputs import separate
-
     return Inputs(
         ground["points"],
         ground["heights"],

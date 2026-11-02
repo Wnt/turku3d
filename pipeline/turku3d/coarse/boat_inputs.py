@@ -159,3 +159,9 @@ def prepare(tile, osm, buildings_path, water_path, *lidar_paths):
 def separate(buildings, boats):
     keys = {key for boat in boats for key in boat["building_keys"]}
     return [building for building in buildings if building.key not in keys]
+
+
+def separate_attachments(records, boats):
+    """Ship and pier shells cannot also seed land-building terraces in the water."""
+    keys = {key for boat in boats for key in boat["building_keys"]}
+    return [record for record in records if record["building"] not in keys]
