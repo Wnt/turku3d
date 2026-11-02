@@ -150,9 +150,38 @@ export class MenuPanel implements MenuHost {
   }
 }
 
+/** Local capture actions and delivery status shown on the pause page. */
+export interface CaptureMenuControl {
+  readonly on: boolean;
+  readonly enabled: boolean;
+  readonly detail: string;
+  readonly retry: (() => void) | undefined;
+  toggle(): void;
+  mark(k: 'pause' | 'resume'): void;
+  subscribe(listener: () => void): () => void;
+}
+
+/** Keep capture status updates independent of the game frame loop. */
+export function captureMenuItems(capture: CaptureMenuControl, refresh: () => void): MenuItem[] {
+  const retry = capture.retry;
+  return [{ id: 'performance-capture', label: `Performance capture: ${capture.on ? 'On' : 'Off'}`,
+    detail: capture.detail, enabled: capture.enabled, run: () => { capture.toggle(); refresh(); } },
+    ...(retry ? [{ id: 'capture-retry', label: 'Retry saving capture', detail: 'Keep this drive before starting another', enabled: true,
+      run: () => { retry(); refresh(); } }] : [])];
+}
+
 /** The pause overlay (Menu / Esc / touch Pause): the world waits behind it. */
 export class PauseMenu {
-  capture?: { readonly on: boolean; toggle(): void; mark(k: 'pause' | 'resume'): void };
+  private captureControl?: CaptureMenuControl;
+  private captureUnsubscribe?: () => void;
+  get capture() { return this.captureControl; }
+  set capture(control: CaptureMenuControl | undefined) {
+    this.captureUnsubscribe?.(); this.captureControl = control;
+    this.captureUnsubscribe = control?.subscribe(() => {
+      if (!this.open || this.panel.page?.id !== 'pause') return;
+      this.show({ ...this.panel.page, select: this.panel.page.items[this.panel.selected]?.id });
+    });
+  }
   readonly element = document.createElement('section');
   readonly panel: MenuPanel;
 
@@ -172,10 +201,8 @@ export class PauseMenu {
     if (!this.open) this.capture?.mark('pause');
     if (page.id === 'pause' && this.capture) {
       const capture = this.capture;
-      page = { ...page, items: [...page.items, { id: 'performance-capture', label: `Performance capture: ${capture.on ? 'On' : 'Off'}`,
-        detail: 'Save drive and profiling data on this computer', enabled: true, run: () => {
-          capture.toggle(); this.show({ ...page, items: page.items.filter(item => item.id !== 'performance-capture'), select: 'performance-capture' });
-        } }] };
+      const base = { ...page, items: page.items.filter(item => item.id !== 'performance-capture' && item.id !== 'capture-retry') };
+      page = { ...base, items: [...base.items, ...captureMenuItems(capture, () => this.show({ ...base, select: 'performance-capture' }))] };
     }
     this.element.hidden = false; this.panel.show(page);
   }
