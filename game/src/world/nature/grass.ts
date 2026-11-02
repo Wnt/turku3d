@@ -9,8 +9,8 @@ import type { NatureLibrary } from './library';
 import { hashId } from './species';
 
 const CELL = 16;
-/** Clump kinds and their shares of the candidates. */
-const KINDS = [['grass_clump', 0.6], ['grass_wide', 0.22], ['grass_meadow', 0.06], ['groundcover_rosette', 0.12]] as const;
+/** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes. */
+const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette'] as const;
 
 interface TileGrass { key: string; cells: Map<string, { points: number[]; kinds: number[] }> }
 
@@ -41,7 +41,7 @@ export class GrassField {
     this.settings = QUALITY[tier].grass;
     this.root.name = 'nature-grass';
     library.materials.grassRange.value.set(this.settings.range * 0.6, this.settings.range);
-    for (const [name] of KINDS) {
+    for (const name of KINDS) {
       const asset = library.asset(name), cap = this.settings.instances;
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16).setUsage(THREE.DynamicDrawUsage);
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -86,23 +86,20 @@ export class GrassField {
         const area = ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() / 2;
         // Steep banks keep no grass clumps (their normal is far from up).
         if (area <= 0 || Math.abs(ab.y) / (2 * area) < 0.7) continue;
-        // Oversample, then keep points by a world-space patch noise: tall overlapping tufts in patches along edges and
-        // sparse low tufts between them, instead of an even polka-dot spread.
-        const n = Math.floor(area * this.settings.density * 2 + random());
+        // Every candidate is kept (a continuous lawn); a world-space patch noise turns some into taller tufts and
+        // meadow flowers, so lawns are not an even polka-dot spread.
+        const n = Math.floor(area * this.settings.density + random());
         for (let k = 0; k < n; k++) {
           if (k % 256 === 0) yield;
           let u = random(), v = random();
           if (u + v > 1) { u = 1 - u; v = 1 - v; }
           const x = a.x + (b.x - a.x) * u + (c.x - a.x) * v, y = a.y + (b.y - a.y) * u + (c.y - a.y) * v, z = a.z + (b.z - a.z) * u + (c.z - a.z) * v;
-          const patch = patchNoise(x / 7, z / 7);
-          if (random() > 0.08 + 0.85 * patch) continue;
+          const patch = patchNoise(x / 7, z / 7), pick = random();
+          const kind = patch > 0.55 && pick < 0.5 ? (pick < 0.12 ? 2 : 1) : pick > 0.95 ? 3 : 0;
           const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
           let cell = tile.cells.get(key);
           if (!cell) tile.cells.set(key, cell = { points: [], kinds: [] });
-          cell.points.push(x, y, z, random() * Math.PI * 2, 0.45 + patch * 0.6 + random() * 0.2);
-          const pick = random();
-          let kind = 0;
-          for (let acc = KINDS[0][1]; kind < KINDS.length - 1 && pick > acc; acc += KINDS[++kind][1]);
+          cell.points.push(x, y, z, random() * Math.PI * 2, kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45);
           cell.kinds.push(kind);
         }
       }

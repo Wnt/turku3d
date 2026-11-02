@@ -66,15 +66,18 @@ export class NatureMaterials {
     // Ground grass: the leaf atlas and wind, dissolving through the alpha test between grassRange.x and .y metres.
     this.grass = new THREE.MeshStandardNodeMaterial({ name: 'nature-grass', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0, vertexColors: true });
     const fade = smoothstep(this.grassRange.y, this.grassRange.x, positionWorld.sub(cameraPosition).length());
-    this.grass.colorNode = vec4(leaf.rgb, mipAlpha(leaf.a, imageWidth(leafMap)).mul(fade));
+    // Grass cards are seen edge-on: averaged (and boosted) alpha of dense blade bands would turn whole cards opaque.
+    // Sample sharper mips and keep the alpha unboosted, so blades stay separate; TRAA resolves the shimmer.
+    const blade = texture(leafMap, uv()).bias(float(-1.5));
+    this.grass.colorNode = vec4(blade.rgb, blade.a.mul(fade));
     this.grass.normalNode = normalViewGeometry;
     this.grass.positionNode = wind(0.06);
     if (lighting) {
       // Sunlight through thin leaves when looking towards the sun.
       const sunDir = uniform(lighting.sunDir), sunColor = uniform(lighting.sun.color);
       const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity);
-      const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 3);
-      this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.22);
+      const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 2);
+      this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
       this.grass.emissiveNode = this.leaves.emissiveNode;
     }
 
