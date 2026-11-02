@@ -146,6 +146,8 @@ const renderFrame = () => {
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
+  // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
+  env.atmosphere.setTime(params.qa ? 0 : dayClock.sharedNow() / 1000);
   // Warmup renders every shadow pipeline whatever the hour; the cascades freeze at night only once play starts
   // (and in the bench probe once its scene has settled, so its night frame costs what play's does).
   env.updateShadows((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());

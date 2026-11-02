@@ -2,7 +2,7 @@
 import * as THREE from 'three/webgpu';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
-import { cameraPosition, float, max, mix, normalize, positionWorld, pow, uniform, vec4 } from 'three/tsl';
+import { Atmosphere } from './atmosphere';
 import { sunPosition, sunVector } from '../core/sun';
 import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
@@ -13,6 +13,7 @@ import { nightUniforms } from './nightLights';
 
 /** Below this the sky is dark enough that IBL only needs a slow refresh. */
 const DEEP_NIGHT = -12;
+const liveEnvironments = new Set<Environment>();
 
 export class Environment {
   readonly sky = new SkyMesh();
@@ -38,9 +39,8 @@ export class Environment {
   private iblDirty = true;
   private iblElevation = Number.NaN;
   private state = '';
-  /** Twilight and night sky colours (timecycle rows), added to the analytic sky. */
-  private skyZenith = uniform(new THREE.Color(0, 0, 0));
-  private skyHorizon = uniform(new THREE.Color(0, 0, 0));
+  atmosphere: Atmosphere;
+  private readonly clearSky: THREE.Node<'vec4'>;
 
   /** Reused sky PMREM; mobile water samples it without rendering the city a second time. */
   get environmentMap() { return this.environmentTarget?.texture ?? null; }
@@ -53,15 +53,9 @@ export class Environment {
     this.sky.scale.setScalar(4500);
     this.sky.turbidity.value = 2.5;
     this.sky.rayleigh.value = 1.5;
-    this.sky.cloudCoverage.value = 0;
-    this.sky.cloudSpeed.value = 0;
-    // The analytic sky is black below about -10 degrees. A twilight/night term (the blue hour, then zenith blue to a
-    // city-lit horizon) joins its single graph through uniforms; the IBL clone shares the material and the term.
-    const scattered = this.sky.material.colorNode as THREE.Node<'vec4'>;
-    const view = normalize(positionWorld.sub(cameraPosition));
-    const horizon = pow(float(1).sub(max(view.y, 0)), 4);
-    const night = mix(this.skyZenith, this.skyHorizon, horizon);
-    this.sky.material.colorNode = vec4(scattered.rgb.add(night), 1);
+    this.clearSky = this.sky.material.colorNode as THREE.Node<'vec4'>;
+    this.atmosphere = new Atmosphere(this.sky);
+    liveEnvironments.add(this);
     // Mesh.clone shares the sky material/uniforms; keep one IBL source mesh across time edits.
     this.skyScene.add(this.sky.clone());
     // The sky is a back-faced unit box scaled to a 2250 m half-extent (corners 3.9 km, inside the 6 km far plane).
@@ -102,7 +96,7 @@ export class Environment {
     scene.environmentIntensity = 0.35;
   }
 
-  /** Keep the sky behind distant geometry and move haze beyond the requested photo scenery. */
+  /** Keep the sky behind distant geometry; weather is independent of streaming distance. */
   setScreenshotDistance(camera: THREE.PerspectiveCamera, distance: number) {
     this.screenshotDistance = Number.isFinite(distance) ? Math.max(0, Math.min(8000, distance)) : 0;
     camera.far = Math.max(6000, this.screenshotDistance * 4);
@@ -137,8 +131,7 @@ export class Environment {
     this.scene.environmentIntensity = s.environmentIntensity;
     this.renderer.toneMappingExposure = s.exposure;
     if (this.scene.fog instanceof THREE.Fog) this.scene.fog.color.setRGB(...s.fogColor);
-    this.skyZenith.value.setRGB(...s.skyZenith);
-    this.skyHorizon.value.setRGB(...s.skyHorizon);
+    this.atmosphere.setSun(elevation, azimuth, s);
     this.applyFog();
     nightUniforms.night.value = s.night;
     nightUniforms.hour.value = hour;
@@ -148,9 +141,8 @@ export class Environment {
 
   private applyFog() {
     if (!(this.scene.fog instanceof THREE.Fog)) return;
-    const radius = this.screenshotDistance;
-    this.scene.fog.near = radius || this.sample.fogNear;
-    this.scene.fog.far = radius ? radius * 1.5 : this.sample.fogFar;
+    this.scene.fog.near = this.sample.fogNear;
+    this.scene.fog.far = this.sample.fogFar;
   }
 
   /** Degrees the visible sky moved since the last IBL. Below -12 degrees the sky no longer changes. */
@@ -184,9 +176,23 @@ export class Environment {
     this.sun.updateMatrixWorld();
   }
 
+  /** Replace only the sky graph during local iteration; the city and its GPU resources stay resident. */
+  reloadAtmosphere(AtmosphereClass: typeof Atmosphere) {
+    const seconds = this.atmosphere.seconds;
+    this.atmosphere.dispose();
+    this.sky.material.colorNode = this.clearSky;
+    this.atmosphere = new AtmosphereClass(this.sky);
+    this.atmosphere.setTime(seconds);
+    this.atmosphere.setSun(this.sunElevation, this.sunAzimuth, this.sample);
+    this.iblDirty = true;
+    this.updateIBL();
+  }
+
   resize() { if (this.csm.camera) this.csm.updateFrustums(); }
 
   dispose() {
+    liveEnvironments.delete(this);
+    this.atmosphere.dispose();
     this.csm.dispose();
     this.environmentTarget?.dispose();
     this.pmrem.dispose();
@@ -196,3 +202,7 @@ export class Environment {
     this.scene.environment = null;
   }
 }
+
+if (import.meta.hot) import.meta.hot.accept('./atmosphere', next => {
+  if (next) for (const env of liveEnvironments) env.reloadAtmosphere(next.Atmosphere);
+});
