@@ -1,5 +1,5 @@
 import { BufferGeometry, InterleavedBuffer, InterleavedBufferAttribute } from 'three/webgpu';
-import { attribute, varying } from 'three/tsl';
+import { attribute, varying, vec3, vec4 } from 'three/tsl';
 import { PreparationBudget } from './preparationBudget';
 import { packProgram, type ProgramField } from './packProgram';
 
@@ -7,6 +7,17 @@ import { packProgram, type ProgramField } from './packProgram';
  * Smooth interpolation can move integer module IDs/flags across floor/mod/equality boundaries. */
 export function facadeAttribute<const T extends 'vec2' | 'vec3' | 'vec4'>(name: string, type: T) {
   return varying(attribute(name, type), `v${name}`).setInterpolation('flat');
+}
+
+/** Four vec3 fields occupy three exact vec4 varyings. The production material
+ * also needs shadow/environment varyings and must fit WebGPU's 16-location limit. */
+export function facadePaintAttributes() {
+  const wall = attribute('_kit_wall', 'vec3'), base = attribute('_kit_base', 'vec3');
+  const trim = attribute('_kit_trim', 'vec3'), floors = attribute('_kit_floors', 'vec3');
+  const a = varying(vec4(wall, base.x), 'v_kit_paint0').setInterpolation('flat');
+  const b = varying(vec4(base.yz, trim.xy), 'v_kit_paint1').setInterpolation('flat');
+  const c = varying(vec4(trim.z, floors), 'v_kit_paint2').setInterpolation('flat');
+  return { wall: a.xyz, base: vec3(a.w, b.xy), trim: vec3(b.zw, c.x), floors: c.yzw };
 }
 
 function programFields(geometry: BufferGeometry) {
