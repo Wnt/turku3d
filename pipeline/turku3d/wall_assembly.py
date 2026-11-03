@@ -5,6 +5,7 @@ import copy
 import numpy as np
 import shapely
 
+from .package.gltf import night_irradiance_values
 from .wall_surfaces import trapezoids
 
 
@@ -347,7 +348,8 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         mesh.uvs = np.concatenate(uvs) if uvs else None
         mesh.normals = np.concatenate(normals_out) if normals_out else None
         mesh.colors = np.concatenate(colours) if colours else None
-        mesh.night_irradiance = np.concatenate(night_values) if night_values else None
+        # Barycentric weights carry float residue; night light is never negative.
+        mesh.night_irradiance = night_irradiance_values(np.concatenate(night_values)) if night_values else None
         mesh.baked_visibility = np.clip(np.concatenate(visibility_values), 0, 1) if visibility_values else None
         mesh.extras = {k: v for k, v in original.extras.items() if k != "component_box"}
         if rows is not None:
