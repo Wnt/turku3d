@@ -113,14 +113,22 @@ def seams(dry, surfaces, walls, excluded, bounds, portals=None):
     across = rays.cast(mid, own, above=REACH)
     found = np.isfinite(across) & (abs(across - own) > STEP) & (own - across < REACH)
     holes = ~np.isfinite(across)
-    # The higher side owns the face; a lower dry edge facing a higher dry edge
-    # leaves the face to that edge, but faces any higher structure itself.
+    # The higher side owns the face. A lower dry edge facing a higher dry edge
+    # leaves the face to that edge, but faces any higher structure itself, and a
+    # higher dry sheet without a facing edge of its own (a fold overhanging the
+    # lower edge) as well.
     higher = found & (across > own)
     if higher.any():
-        dry_side = Rays(triangles(dry)).cast(mid[higher], across[higher], above=.05)
-        lift = np.zeros(len(a), bool)
-        lift[np.flatnonzero(higher)] = ~(np.isfinite(dry_side) & (abs(dry_side - across[higher]) < .05))
-        found &= ~higher | lift
+        ids = np.flatnonzero(higher)
+        dry_side = Rays(triangles(dry)).cast(mid[ids], across[ids], above=.05)
+        on_dry = np.isfinite(dry_side) & (abs(dry_side - across[ids]) < .05)
+        centre = (a + b)[:, [0, 2]] / 2
+        tree = shapely.STRtree(shapely.points(centre))
+        qi, qj = tree.query(shapely.points(centre[ids]), predicate='dwithin', distance=.25)
+        owner = (abs(own[qj] - across[ids][qi]) < .15) & (np.sum(n[qj] * n[ids][qi], axis=1) < 0)
+        owned = np.zeros(len(ids), bool)
+        np.logical_or.at(owned, qi[owner], True)
+        found[ids] &= ~(on_dry & owned)
     ids = np.flatnonzero(found)
     edge_mid = (a[ids] + b[ids])[:, [0, 2]] / 2
     closed = crossed(walls, edge_mid - n[ids] * .05, edge_mid + n[ids] * (ACROSS + .1),

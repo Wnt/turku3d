@@ -100,3 +100,14 @@ def test_audit_ignores_a_deck_edge_over_continuous_ground():
     q = np.array([[x, z] for x in g for z in g])
     expected = np.where(q[:, 0] < 2, 0., 3.)
     assert audit(visual, visual, q, expected)['counts']['open_seams'] == 0
+
+
+def test_fold_over_a_lower_edge_is_closed_from_below():
+    # The higher sheet overhangs the lower sheet's edge in plan, with no edge of
+    # its own facing it: the lower edge must close the gap upwards.
+    low = sheet(0, 2.2, 0)
+    high = Mesh(np.array([[2, 1, 0], [2, 1, 4], [4, 1, 4], [4, 1, 0], [1.9, 1, 0], [1.9, 1, 4]], float),
+                np.array([[4, 5, 1], [4, 1, 0], [0, 1, 2], [0, 2, 3]], np.uint32), np.ones(4, np.uint8))
+    meshes, report = run(join(low, high))
+    assert report['sealed_seams'] >= 1
+    assert any(abs(m.positions[m.indices][..., 0] - 2.2).min() < 1e-9 for m in meshes)
