@@ -38,6 +38,47 @@ def rows(directory: Path, name: str):
     return [json.loads(line) for line in file.read_text().splitlines() if line.strip()]
 
 
+# JS sample classes, innermost-first stack frames by (function, file). Shader building is r186's node-program build.
+SHADER_FUNCTIONS = {'build', 'setHashNode', 'addNode', 'getDataFromNode', 'ShaderNodeObjects', 'nodeObjects', 'generate',
+                    'setupOutput', 'getOutputNode', 'analyze', 'buildCode', 'getForRender', '_createNodeBuilder', 'buildStage',
+                    'setup', 'flowNode', 'getNodeType', 'getCacheKey'}
+STREAMING_FILES = {'coarseTiles.ts', 'screenshotScenery.ts', 'sceneryBatches.ts', 'mergeSceneryGeometry.ts', 'buildingPlacements.ts',
+                   'vegetationLod.ts', 'collisionStreaming.ts', 'loadGlb.ts', 'glbRecords.ts', 'graphicsPreparation.ts', 'compileModel.ts',
+                   'textureUploads.ts', 'sceneryMaterial.ts', 'staticBatch.ts', 'shadowBatch.ts', 'lodFade.ts', 'streamTrace.ts',
+                   'sceneryView.ts', 'propLod.ts', 'tiles.ts', 'materials.ts', 'facadeModules.ts', 'facadeKit.ts'}
+POPULATION_FILES = {'scenePopulation.ts', 'flow.ts', 'signals.ts', 'pedestrians.ts', 'population.ts', 'network.ts', 'index.ts',
+                    'traffic.ts', 'parkedVehicles.ts', 'walkers.ts'}
+
+
+def sample_classes(js_rows):
+    """(timestamp, class) per JS sample: shader-build, streaming, population, render or other (innermost match wins)."""
+    out = []
+    for row in js_rows:
+        trace = row.get('trace') or {}
+        frames, stacks, resources = trace.get('frames', []), trace.get('stacks', []), trace.get('resources', [])
+        cache = {}
+        def classify(stack_id):
+            if stack_id in cache:
+                return cache[stack_id]
+            result, sid = 'other', stack_id
+            while sid is not None:
+                frame = frames[stacks[sid]['frameId']]
+                name = frame.get('name') or ''
+                file = resources[frame['resourceId']].split('/')[-1].split('?')[0] if frame.get('resourceId') is not None else ''
+                if file.startswith('three_webgpu') and name in SHADER_FUNCTIONS: result = 'shader-build'; break
+                if file in STREAMING_FILES: result = 'streaming'; break
+                if file in POPULATION_FILES: result = 'population'; break
+                if file.startswith('three'): result = 'render'
+                sid = stacks[sid].get('parentId')
+            cache[stack_id] = result
+            return result
+        for sample in trace.get('samples', []):
+            if sample.get('stackId') is not None:
+                out.append((sample['timestamp'], classify(sample['stackId'])))
+    out.sort()
+    return out
+
+
 def load(directory: str | Path):
     directory = Path(directory)
     frames = sorted((f for batch in rows(directory, 'frames') for f in batch), key=lambda f: f[0])
@@ -46,7 +87,10 @@ def load(directory: str | Path):
     poses = sorted(rows(directory, 'poses'), key=lambda p: p['t'])
     stats = sorted(rows(directory, 'stats'), key=lambda s: s['t'])
     meta = json.loads((directory / 'meta.json').read_text()) if (directory / 'meta.json').exists() else {}
-    return dict(frames=frames, events=events, slices=slices, poses=poses, stats=stats, meta=meta, name=directory.name)
+    samples = sample_classes(rows(directory, 'js'))
+    interval = (meta.get('jsProfiler') or {}).get('sampleInterval') or 10
+    return dict(frames=frames, events=events, slices=slices, poses=poses, stats=stats, meta=meta, name=directory.name,
+                samples=samples, sample_ms=interval if samples else None)
 
 
 def stage_start(event):
@@ -85,21 +129,33 @@ def frame_intervals(frames):
     return out
 
 
-def attribute(hitch_t, ms, events, slices_by_frame, frame_id, window=60):
-    """The cause of one long frame: its dominant main-thread slice, else the nearest streaming event."""
+def attribute(hitch_t, ms, events, slices_by_frame, frame_id, window=60, samples=None, sample_ms=None):
+    """The cause of one long frame, from what actually ran in it: its measured streaming slices and its JS samples by
+    class (shader-build, streaming, population, render, other). Time with no JS sample is native work (GPU process
+    waits, synchronous pipeline or buffer calls). Events near the frame are context only, never the cause."""
+    shares = {}
     row = slices_by_frame.get(frame_id)
     if row:
-        values = row[2:]
-        top = max(range(len(values)), key=lambda i: values[i])
-        if values[top] >= max(4.0, 0.3 * ms):
-            return f'slice:{SLICES[top]}', f'{SLICES[top]} {values[top]:.1f} ms of {ms:.0f} ms'
-    lo, hi = hitch_t - ms - window, hitch_t + 10
-    near = [e for e in events if lo <= e['t'] <= hi and e['k'] not in ('coverage', 'tile.new')]
-    if near:
-        best = max(near, key=lambda e: (e.get('ms', 0), -abs(e['t'] - hitch_t)))
-        label = best['k'] + (f" {best['id']}" if best.get('id') else '') + (f" {best['ms']:.0f} ms" if best.get('ms') else '')
-        return f"event:{best['k']}", label
-    return 'unattributed', 'no streaming work within the frame'
+        for i, kind in enumerate(SLICES):
+            if row[2 + i] > 0:
+                shares[f'slice:{kind}'] = row[2 + i]
+    if samples is not None and sample_ms:
+        import bisect
+        lo = bisect.bisect_left(samples, (hitch_t - ms, ''))
+        hi = bisect.bisect_right(samples, (hitch_t, '~'))
+        counts = Counter(c for _, c in samples[lo:hi])
+        for c, n in counts.items():
+            shares[f'js:{c}'] = shares.get(f'js:{c}', 0) + n * sample_ms
+        sampled = sum(counts.values()) * sample_ms
+        shares['native'] = max(0.0, ms - sampled - sum(v for k, v in shares.items() if k.startswith('slice:')))
+    near = [e for e in events if hitch_t - ms - window <= e['t'] <= hitch_t + 10 and e['k'] not in ('coverage', 'tile.new')]
+    context = ', '.join(sorted({e['k'] + (f" {e['id']}" if e.get('id') else '') for e in near}))[:160]
+    if not shares:
+        best = max(near, key=lambda e: e.get('ms', 0)) if near else None
+        return ('unattributed', f'no samples; near: {context}' if best else 'no streaming work within the frame')
+    cause = max(shares, key=shares.get)
+    parts = ', '.join(f'{k} {v:.0f}' for k, v in sorted(shares.items(), key=lambda kv: -kv[1]) if v >= 1)
+    return cause, f'{cause} ({parts} ms of {ms:.0f})' + (f'; near: {context}' if context else '')
 
 
 def coverage_incidents(events):
@@ -174,11 +230,30 @@ def summary(capture, hitch=50.0, top=10):
     causes = Counter()
     lines.append(f"\nhitches (> {hitch:.0f} ms): {len(long)} of {len(intervals)} frames")
     for t, ms, f in long:
-        causes[attribute(t, ms, events, by_frame, f[1])[0]] += 1
+        causes[attribute(t, ms, events, by_frame, f[1], samples=capture.get('samples'), sample_ms=capture.get('sample_ms'))[0]] += 1
     for cause, n in causes.most_common():
         lines.append(f"    {cause:<24} {n}")
+    # Does any streaming event predict hitches? Its rate in the second before each hitch against before every frame.
+    if long:
+        import bisect
+        frame_ends = [t for t, _, _ in intervals]
+        kinds = sorted({e['k'] for e in events if e['k'] not in ('coverage', 'tile.new')})
+        lifts = []
+        for kind in kinds:
+            ts = sorted(e['t'] for e in events if e['k'] == kind)
+            def before(t, ms):
+                i = bisect.bisect_left(ts, t - ms - 1000)
+                return i < len(ts) and ts[i] <= t
+            hit = sum(before(t, ms) for t, ms, _ in long) / len(long)
+            base = sum(before(t, ms) for t, ms, _ in intervals) / len(intervals)
+            if len(ts) >= 5 and base > 0:
+                lifts.append((hit / base, kind, hit, base, len(ts)))
+        lifts.sort(reverse=True)
+        lines.append('    streaming events in the second before a hitch vs before any frame (lift > 1.5 suggests a cause):')
+        for lift, kind, hit, base, n in lifts[:6]:
+            lines.append(f'      {kind:<16} {hit * 100:5.1f}% vs {base * 100:5.1f}%  lift {lift:.1f}x  (n={n})')
     for t, ms, f in sorted(long, key=lambda x: -x[1])[:top]:
-        lines.append(f"    {s(t):7.2f} s {ms:5.0f} ms  {attribute(t, ms, events, by_frame, f[1])[1]}")
+        lines.append(f"    {s(t):7.2f} s {ms:5.0f} ms  {attribute(t, ms, events, by_frame, f[1], samples=capture.get('samples'), sample_ms=capture.get('sample_ms'))[1]}")
     return '\n'.join(lines)
 
 
@@ -216,7 +291,7 @@ def svg_page(capture, hitch=50.0, width=1500):
     out.append(f'<polyline points="{pts}" fill="none" stroke="#4477aa" stroke-width="0.8"/>')
     for t, ms, f in frame_intervals(frames):
         if ms > hitch:
-            label = attribute(t, ms, events, by_frame, f[1])[1]
+            label = attribute(t, ms, events, by_frame, f[1], samples=capture.get('samples'), sample_ms=capture.get('sample_ms'))[1]
             out.append(f'<circle cx="{x(t):.1f}" cy="{20 + h - min(ms, 100) / 100 * h:.1f}" r="3" fill="#e41a1c">'
                        f'<title>{sec(t):.2f}s {ms:.0f} ms: {esc(label)}</title></circle>')
     parts.append(('Frame time (hitches red, hover for the attributed cause)', h + 40, ''.join(out)))

@@ -87,9 +87,15 @@ The **summary** lists:
 - holes and double coverage from the snapshots, and pops (full installs that replaced a preview or nothing,
   with no dissolve);
 - band event counts;
-- hitches (frame interval above `--hitch`, default 50 ms) by cause. A hitch belongs to the frame's dominant
-  main-thread slice when that slice is at least 30 % of the frame, otherwise to the longest streaming event within
-  the frame.
+- hitches (frame interval above `--hitch`, default 50 ms) by cause, from what actually ran in the frame:
+  - its measured streaming slices (`slice:*`);
+  - its JS samples by class (`js:shader-build` for r186 node-program building, `js:streaming`, `js:population`,
+    `js:render`, `js:other`);
+  - `native` for the time with no JS sample: GPU process waits, synchronous pipeline or buffer calls.
+
+  The largest share wins. Events near the frame are listed as context only, never as the cause. A table shows how
+  often each event kind occurs in the second before a hitch against before any frame; a lift above about 1.5
+  suggests a cause, and about 1 means coincidence.
 
 The **page** shows, on one time axis:
 - the frame-time strip with hitches (hover for the cause) and the stacked slices;

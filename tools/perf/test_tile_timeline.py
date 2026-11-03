@@ -12,13 +12,19 @@ spec.loader.exec_module(timeline)
 def capture(root: Path):
     def write(name, values):
         (root / f'{name}.jsonl').write_text(''.join(json.dumps(v) + '\n' for v in values))
-    (root / 'meta.json').write_text(json.dumps({'trace': {'version': 1, 'slices': timeline.SLICES}}))
+    (root / 'meta.json').write_text(json.dumps({'trace': {'version': 1, 'slices': timeline.SLICES}, 'jsProfiler': {'sampleInterval': 10}}))
     # 60 fps with two hitches: a 90 ms frame dominated by an install slice and a 70 ms frame next to a cell GLB.
     times = [i * 16.7 for i in range(60)]
     times[30:] = [t + 75 for t in times[30:]]
     times[45:] = [t + 55 for t in times[45:]]
     write('frames', [[[t, i, 5, 8, i, 100, 1e6] for i, t in enumerate(times)]])
     write('slices', [[times[30], 30, 0, 60, 0, 0, 0, 0]])
+    # Five 10 ms samples of r186 node-program building inside the second hitch (70 ms): shader build, not the cell.
+    trace = {'resources': ['http://x/node_modules/.vite/deps/three_webgpu.js?v=1', 'http://x/src/world/population.ts'],
+             'frames': [{'name': 'build', 'resourceId': 0}, {'name': 'update', 'resourceId': 0}, {'name': 'walker', 'resourceId': 1}],
+             'stacks': [{'frameId': 1}, {'frameId': 0, 'parentId': 0}, {'frameId': 2, 'parentId': 0}],
+             'samples': [{'timestamp': times[45] - 60 + 10 * k, 'stackId': 1} for k in range(5)] + [{'timestamp': 10, 'stackId': 2}]}
+    write('js', [{'t': 0, 'end': 2000, 'trace': trace}])
     write('poses', [{'t': t, 'cam': [i * 10, 300, 0, 0, 0, 0, 1, 60], 'H': 300} for i, t in enumerate(times[::5])])
     write('stats', [{'t': 500, 'recorder': {'msPerFrame': 0.05, 'frames': 60, 'dropped': 0}}])
     write('tiles', [
@@ -55,7 +61,10 @@ class TileTimelineTest(unittest.TestCase):
             # t0_0_0 replaced its preview without a dissolve: a pop. t0_1_0 dissolved.
             self.assertIn('pop t0_0_0', text); self.assertNotIn('pop t0_1_0', text)
             self.assertIn('hitches (> 50 ms): 2', text)
-            self.assertIn('slice:install', text); self.assertIn('event:cell', text)
+            # Hitches belong to what ran in the frame: the measured install slice, then the sampled shader build; the
+            # cell GLB that finished nearby is context only.
+            self.assertIn('slice:install', text); self.assertIn('js:shader-build', text)
+            self.assertIn('near: cell.glb t0_5_0', text); self.assertNotIn('event:', text)
             self.assertIn('band.block>lod 1', text)
 
     def test_html_page_is_self_contained(self):

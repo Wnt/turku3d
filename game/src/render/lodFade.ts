@@ -105,6 +105,8 @@ export async function precompileDissolve(roots: readonly THREE.Object3D[], tiers
       if (list.every(twin => !isDissolveTwin(twin) || ready.has(twin))) continue;
       const proxy = new THREE.Mesh(mesh.geometry, Array.isArray(mesh.material) ? list : list[0]);
       proxy.name = mesh.name; proxy.layers.mask = mesh.layers.mask; proxy.userData = mesh.userData;
+      // receiveShadow is part of r186's render-object cache key: match the live mesh, which casts nothing while it fades.
+      proxy.receiveShadow = mesh.receiveShadow; proxy.castShadow = false;
       proxy.matrix.copy(mesh.matrixWorld); proxy.matrixAutoUpdate = false; proxy.frustumCulled = false;
       proxies.add(proxy);
       compiled.push(...list.filter(isDissolveTwin));

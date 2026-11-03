@@ -371,7 +371,10 @@ export class ScreenshotScenery {
   }
 
   private commitCut(now: number, previousUpdate: number) {
-    streamTrace.time('scenery', () => this.commitCutNow(now, previousUpdate));
+    if (!streamTrace.on) { this.commitCutNow(now, previousUpdate); return; }
+    const started = performance.now(), stats = this.commitCutNow(now, previousUpdate), ms = performance.now() - started;
+    streamTrace.slice('scenery', ms);
+    streamTrace.event('cut.commit', undefined, { ...stats, ms });
   }
 
   private commitCutNow(now: number, previousUpdate: number) {
@@ -423,13 +426,14 @@ export class ScreenshotScenery {
       if (visible !== e.model.visible) { if (visible) shown++; else hidden++; }
       e.model.visible = visible;
     }
-    if (streamTrace.on) streamTrace.event('cut.commit', undefined, { wanted: this.wanted.length, entries: this.entries.size, shown, hidden,
-      outgoing: this.outgoing.size, held: this.held.size, standby: this.standby.size, pending: this.wanted.filter(id => !this.entries.get(id)?.model).length });
+    const stats = streamTrace.on ? { wanted: this.wanted.length, entries: this.entries.size, shown, hidden, outgoing: this.outgoing.size,
+      held: this.held.size, standby: this.standby.size, pending: this.wanted.filter(id => !this.entries.get(id)?.model).length } : undefined;
     this.committed = new Set([...keep, ...fallback]);
     this.updateCoverage();
     this.batchModels = [];
     for (const [id, entry] of this.entries) if (entry.model) this.batchModels.push([id, entry.model]);
     this.cutState.capture(this.wanted, this.entries, this.nearby, this.sources);
+    return stats;
   }
 
   private async poll(id: string, e: Scenery, distance: number, source?: ScenerySource) {
