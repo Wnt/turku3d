@@ -258,6 +258,7 @@ export class CoarseTiles {
 
   /** Run after the scenery update, which decides whether the cell is wanted and drawn. */
   private settleLeaving(now: number) {
+    if (!this.leaving.size) return; // every frame: no copy while nothing is leaving
     for (const [model, leaving] of [...this.leaving]) {
       if (now - leaving.since < HOLD_MAX_MS && !this.screenshotScenery.mayRelease(leaving.id)) continue;
       this.endLeaving(model, true);
@@ -326,7 +327,8 @@ export class CoarseTiles {
    *  prepared scenery cell, which dissolves in over it; collision and residency are unchanged. */
   private updateDistant(x: number, z: number) {
     const y = this.viewY;
-    for (const [id, e] of this.entries) {
+    for (const id of this.entries.keys()) {
+      const e = this.entries.get(id)!;
       if (!e.model || e.preview || e.cachedAt !== undefined) continue;
       const dy = Number.isFinite(y) && e.h ? Math.max(0, y - e.h[1], e.h[0] - y) : 0;
       const d = Math.hypot(distToL0(id, x, z), dy);

@@ -7,8 +7,17 @@ import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { TRAFFIC } from './constants';
 import { hex32 } from './hash';
 
-/** Content hash of one tile's road graph, prefixed with the traffic algorithm version. */
+const hashes = new WeakMap<RoadGraphJson, string>();
+/** Content hash of one tile's road graph, prefixed with the traffic algorithm version. A tile's graph is replaced,
+ * never edited (world/coarseTiles.ts), so the hash is kept per object: scene population checks every near tile's
+ * hash each frame (about 3.5 ms per frame in replay cpu-1716 when recomputed). */
 export function roadHash(roads: RoadGraphJson): string {
+  let hash = hashes.get(roads);
+  if (hash === undefined) { hash = contentHash(roads); hashes.set(roads, hash); }
+  return hash;
+}
+
+function contentHash(roads: RoadGraphJson): string {
   let h = 0x811c9dc5, g = 0x01000193;
   const mix = (v: number) => {
     const q = Math.round(v * 10) | 0;

@@ -162,6 +162,15 @@ describe('deterministic conveyor traffic', () => {
     }
   });
 
+  test('a tile road graph is hashed once per object (scene population asks every frame)', () => {
+    const json = city().get('t0_0_0')!, nodes = json.nodes;
+    let reads = 0;
+    const counted = Object.defineProperty({ ...json }, 'nodes', { get: () => { reads++; return nodes; } }) as RoadGraphJson;
+    const first = roadHash(counted), once = reads;
+    expect(roadHash(counted)).toBe(first); expect(reads).toBe(once);
+    expect(roadHash(JSON.parse(JSON.stringify(json)))).toBe(first); // still a content hash across copies
+  });
+
   test('two clients with different roads.json for one tile spawn nothing there, and agree elsewhere', () => {
     const v1 = city(), v2 = city({ tile: 't0_0_0', ways: [{ from: [200, 230], to: [240, 230], flags: STREET }] });
     const hashes = (tiles: Map<string, RoadGraphJson>) => new Map([...tiles].map(([id, json]) => [id, roadHash(json)]));

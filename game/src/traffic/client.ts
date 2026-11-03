@@ -6,7 +6,6 @@ import { fleetModel } from '../actors/fleet/catalog';
 import * as THREE from 'three/webgpu';
 import type { ParkedCarVisuals, TrafficInstance } from '../actors/car';
 import type { V3 } from '../core/origin';
-import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { PhysicsClient } from '../physics/client';
 import type { PhysicsState, TrafficClaimEvent, TrafficClock, TrafficStats } from '../physics/protocol';
 import { tileBounds } from '../render/lights/tileLights';
@@ -38,7 +37,6 @@ interface Drawn { handle: number; model: number; paint: number; x: number; y: nu
 
 export class TrafficClient {
   private source: { entries: ReadonlyMap<string, Entry> } | null = null;
-  private hashes = new WeakMap<RoadGraphJson, string>();
   /** Tiles sent to the worker, with their hash. */
   readonly local = new Map<string, string>();
   private nextSync = 0;
@@ -173,8 +171,7 @@ export class TrafficClient {
       const bounds = tileBounds(tile);
       if (!bounds) continue;
       seen.add(tile);
-      let hash = this.hashes.get(e.roads);
-      if (!hash) { hash = roadHash(e.roads); this.hashes.set(e.roads, hash); }
+      const hash = roadHash(e.roads);
       if (this.local.get(tile) === hash) continue;
       this.local.set(tile, hash);
       add.push({ tile, hash, bounds: [...bounds] as [number, number, number, number], roads: e.roads });
