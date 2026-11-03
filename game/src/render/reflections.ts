@@ -9,6 +9,9 @@ export function reflectionSurface(mesh: THREE.Mesh): boolean {
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   if (materials.some(material => material.transparent || (material as THREE.MeshPhysicalMaterial).transmission > 0)) return false;
   if (mesh.userData.prop_type || mesh.userData.objects?.some((row: Record<string, unknown>) => row.prop_type)) return false;
+  // Thin opaque quay LED bars are intentional reflected light sources, whatever their bounds.
+  if (mesh.userData.material_key === 'night_quay_bar'
+      || materials.some(material => material.userData.material_key === 'night_quay_bar')) return true;
   if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
   // A four-metre diameter keeps facades, banks and road surfaces, not individual trim/rail pieces.
   if ((mesh.geometry.boundingSphere?.radius ?? 0) * mesh.matrixWorld.getMaxScaleOnAxis() < 2) return false;

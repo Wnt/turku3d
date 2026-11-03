@@ -23,8 +23,7 @@ from turku3d.facade_kit import MATERIALS, read_description, renderer
 def source_paths():
     return [
         Path(__file__),
-        Path(__file__).with_name("night_lighting.py"),
-        Path(__file__).with_name("night_lighting.json"),
+        Path(__file__).with_name("night_lighting.py"),  # use_class() packs window occupancy
         Path(__file__).with_name("facade_inference.py"),
         Path(__file__).with_name("facade_style_geometry.py"),
         Path(__file__).with_name("facade_program_geometry.py"),

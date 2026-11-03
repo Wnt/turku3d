@@ -31,7 +31,9 @@ for (const node of input.getRoot().listNodes()) {
   const mesh = node.getMesh(); if (!mesh) continue;
   const extras = node.getExtras(), layer = extras.layer;
   const vegetation = layer === 'vegetation', ground = layer === 'ground' || layer === 'basic';
-  if (!['ground', 'basic', 'buildings', 'buildings_outer', 'landmarks', 'bridges', 'boats', 'vegetation'].includes(layer)) continue;
+  if (!['ground', 'basic', 'buildings', 'buildings_outer', 'landmarks', 'bridges', 'boats', 'vegetation', 'structures'].includes(layer)) continue;
+  // Generic structures stay near-only; their night emitters (quay LED bars) persist at distance.
+  if (layer === 'structures' && !mesh.listPrimitives().some(p => nightKey(p, extras))) continue;
   if (vegetation && !String(extras.material_key).includes('foliage')) continue;
   const target = bucket(vegetation ? 'vegetation' : ground ? 'ground' : 'buildings');
   const matrix = node.getWorldMatrix(), instances = node.getExtension('EXT_mesh_gpu_instancing');
@@ -65,6 +67,7 @@ for (const node of input.getRoot().listNodes()) {
       continue;
     }
     const night=nightKey(primitive,extras);
+    if(layer==='structures' && !night) continue;
     if(night && night!=='night_landmark_wall') {
       // Thin emitters and coarse slabs are already compact. Preserve their authored vertices
       // so simplification cannot erase a light band or smear a top/soffit boundary.

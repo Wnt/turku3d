@@ -1,0 +1,8 @@
+{
+  "waterway": "Aurajoki",
+  "between_bridges": ["Tuomiokirkkosilta", "Martinsilta"],
+  "extent_evidence": "Jonni 2026-11-03 estimate; exact continuous coverage is not surveyed",
+  "appearance_evidence": "Jonni dusk/night references and Vastavalo previews 554993/399195: warm line beneath crest, downward stone wash, interrupted by stairs and openings. No measured fixture spacing.",
+  "linear_rgb": [1.0, 0.74, 0.44],
+  "wash_depth_m": 0.9
+}
