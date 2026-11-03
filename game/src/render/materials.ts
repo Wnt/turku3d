@@ -14,6 +14,7 @@ import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
 import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
+import { shareInstanceProgram } from './instancePrograms';
 import type { Environment } from './environment';
 
 type SurfaceStyle = 'asphalt' | 'granite' | 'cobblestone' | 'grass' | 'water' | 'standard';
@@ -82,6 +83,8 @@ export class MaterialStyler {
       const mesh = object as THREE.Mesh;
       if (!mesh.isMesh) return;
       interleaveProgram(mesh.geometry);
+      // Tile glTF instancing (EXT_mesh_gpu_instancing) uses source/styled tile materials without object graphs.
+      if ((mesh as THREE.InstancedMesh).isInstancedMesh) shareInstanceProgram(mesh as THREE.InstancedMesh);
       const style = (source: THREE.Material): THREE.Material => {
         const key = materialKey(mesh, source);
         if (!key) return source;

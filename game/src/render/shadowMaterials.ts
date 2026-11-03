@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { NormalPrepass } from './normalPrepass';
 import { ownNodeAttributes } from './nodeAttributes';
-import { instancePrograms } from './instancePrograms';
+import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -41,15 +41,20 @@ export class GameRenderer extends THREE.WebGPURenderer {
   private readonly shadowContext = this.contextNode;
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
     super(parameters);
-    this.debug.onNodeBuilderCreated = (builder, draw) => instancePrograms(builder, (draw as { object: THREE.Object3D }).object);
+    this.debug.onNodeBuilderCreated = (builder, draw) => {
+      instancePrograms(builder, (draw as InstanceDraw).object);
+      this.instanceSharing?.builder(builder, draw as InstanceDraw);
+    };
   }
   private releaseAttributes?: () => void;
+  private instanceSharing?: ReturnType<typeof shareInstancePrograms>;
   override async init(): Promise<this> {
     await super.init();
     this.releaseAttributes ??= ownNodeAttributes(this);
+    this.instanceSharing ??= shareInstancePrograms(this);
     return this;
   }
-  override dispose() { this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  override dispose() { this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
