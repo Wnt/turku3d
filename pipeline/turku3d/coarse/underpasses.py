@@ -185,7 +185,7 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
     The inner arch remains the passage ceiling. Its extrados is enclosed by
     stone, rather than exposed as a freestanding pipe through a grass bank.
     """
-    from turku3d.structures.geometry import Faces
+    from turku3d.structures.geometry import Faces, planar_uv
 
     radius = width / 2 + 0.3
     spring = floors + clearance - width / 2
@@ -208,14 +208,15 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
             faces.face(wall if side_index else wall[::-1])
     for i in range(len(centres) - 1):
         j = i + 1
-        faces.face(
-            [
-                [sides[1][i, 0], top[i], sides[1][i, 1]],
-                [sides[1][j, 0], top[j], sides[1][j, 1]],
-                [sides[0][j, 0], top[j], sides[0][j, 1]],
-                [sides[0][i, 0], top[i], sides[0][i, 1]],
-            ]
-        )
+        roof = [
+            [sides[1][i, 0], top[i], sides[1][i, 1]],
+            [sides[1][j, 0], top[j], sides[1][j, 1]],
+            [sides[0][j, 0], top[j], sides[0][j, 1]],
+            [sides[0][i, 0], top[i], sides[0][i, 1]],
+        ]
+        # Height-based facade V collapses on horizontal caps. World-metre UVs
+        # retain the stone pattern and agree across clipped tile boundaries.
+        faces.face(roof, planar_uv(roof))
     for k in (0, len(centres) - 1):
         angles = np.linspace(0, np.pi, 17)
         across = np.cos(angles) * radius
