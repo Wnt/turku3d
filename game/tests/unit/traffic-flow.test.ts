@@ -3,7 +3,8 @@ import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGrap
 import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, type FlowCar } from '../../src/traffic/flow';
 import { TrafficNetwork } from '../../src/traffic/network';
 import { trafficRoads } from '../../src/traffic/roads';
-import { vehicleLights } from '../../src/traffic/lights';
+import { honking, vehicleLights } from '../../src/traffic/lights';
+import { pointAt } from '../../src/traffic/network';
 import { LaneChangePlanner } from '../../src/traffic/laneChanges';
 import { buildTileTraffic, type Lane } from '../../src/traffic/tileNetwork';
 
@@ -231,5 +232,37 @@ describe('responsive traffic', () => {
     expect(flow.cars.has(car.key)).toBe(false);
     flow.reset(0); flow.update(30);
     expect(flow.cars.has(car.key)).toBe(false);
+  });
+});
+
+describe('drivers and players', () => {
+  test('a player car stopped in the lane holds the queue without contact, and the first driver honks', () => {
+    const flow = new TrafficFlow(flowNetwork(), 0);
+    flow.reset(0);
+    const lane = [...flowNetwork().tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
+    const at = pointAt(lane.points, lane.cum, 70);
+    const player = { id: 'local', x: at.x, y: 0, z: at.z, hx: at.hx, hz: at.hz, vx: 0, vz: 0, length: 4.2, width: 1.8 };
+    let honked = 0, held = 0;
+    for (let step = 1; step <= 1200; step++) {
+      flow.setPlayers([], [player], step / 10);
+      flow.update(step / 10);
+      for (const car of flow.cars.values()) {
+        const pose = sampleFlowPose(car, 0, () => 0);
+        if (overlap({ ...pose, length: car.length, width: car.width }, player)) throw new Error(`${car.key} drove into the player at ${step / 10}`);
+        if (car.lane.id === lane.id && car.blockedBy === 'player') held++;
+        if (honking(car)) honked++;
+      }
+    }
+    expect(held).toBeGreaterThan(100);
+    expect(honked).toBeGreaterThan(0);
+    const queued = [...flow.cars.values()].filter(c => c.lane.id === lane.id && c.s < 70).map(c => ({ key: c.key, s: c.s }));
+    expect(queued.length).toBeGreaterThan(1);
+    // The player drives off: the queue moves up and nobody keeps honking.
+    for (let step = 1201; step <= 1500; step++) { flow.setPlayers([], [], step / 10); flow.update(step / 10); }
+    expect([...flow.cars.values()].some(honking)).toBe(false);
+    for (const { key, s } of queued) {
+      const now = flow.cars.get(key);
+      expect(!now || now.lane.id !== lane.id || now.s > s + 10).toBe(true);
+    }
   });
 });

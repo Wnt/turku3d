@@ -14,7 +14,8 @@ import { remoteColliderHeight } from '../net/height';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 import { TrafficSim } from './traffic';
 export { CHARACTER, DT };
-import type { CharacterInput, CharacterState, PoleSpec, PoleState, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
+import type { CharacterInput, CharacterState, PoleSpec, PoleState, Quat, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
+import type { TrafficPedestrian, TrafficVehicle } from '../traffic/pedestrians';
 
 type R = typeof RAPIER_NS;
 
@@ -58,7 +59,7 @@ export class PhysicsWorld {
   private poleSnapshots = new Map<string, { state: PoleState; resting: boolean }>();
   private drivenId: string | null = 'player';
   private nearbyVehicles = new Set<string>();
-  private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode'] }>();
+  private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode']; pos: V3; rot: Quat; vx: number; vz: number; at: number }>();
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
   private brokenPoles = new Set<string>();
   private poleEvents: RAPIER_NS.EventQueue;
@@ -107,6 +108,26 @@ export class PhysicsWorld {
         if (this.charCollider && this.charEnabled) return this.charCollider.translation();
         const driven = this.vehicles.get(this.drivenId ?? '');
         return driven ? driven.body.translation() : null;
+      },
+      players: () => {
+        const people: TrafficPedestrian[] = [], vehicles: TrafficVehicle[] = [];
+        if (this.charCollider && this.charEnabled) {
+          const t = this.charCollider.translation();
+          people.push({ id: -1, x: t.x, y: t.y - CHARACTER.halfHeight - CHARACTER.radius - CHARACTER.skin, z: t.z, vx: this.charVel.x, vz: this.charVel.z });
+        } else {
+          const driven = this.vehicles.get(this.drivenId ?? '');
+          if (driven) {
+            const v = driven.body.linvel();
+            vehicles.push(trafficVehicle('local', driven.body.translation(), driven.body.rotation(), v.x, v.z, driven.halfExt));
+          }
+        }
+        let n = 0;
+        for (const [id, r] of this.remotes) {
+          n++;
+          if (r.mode === 'foot') people.push({ id: -1 - n, x: r.pos.x, y: r.pos.y, z: r.pos.z, vx: r.vx, vz: r.vz });
+          else vehicles.push(trafficVehicle(id, r.pos, r.rot, r.vx, r.vz, VEHICLES[r.mode].halfExt));
+        }
+        return { people, vehicles };
       },
     });
     return this.traffic;
@@ -424,13 +445,22 @@ export class PhysicsWorld {
           : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
         desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
-        remote = { body, mode: p.mode };
+        remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now() };
         this.remotes.set(p.id, remote);
+      }
+      // Velocity from consecutive updates: ambient drivers predict where a remote player is going.
+      const now = performance.now(), dt = (now - remote.at) / 1000;
+      if (dt > 0.02) {
+        const k = Math.min(1, dt / 0.25);
+        remote.vx += ((p.pos.x - remote.pos.x) / dt - remote.vx) * k; remote.vz += ((p.pos.z - remote.pos.z) / dt - remote.vz) * k;
+        if (Math.hypot(p.pos.x - remote.pos.x, p.pos.z - remote.pos.z) > 30) remote.vx = remote.vz = 0;
+        remote.pos = { ...p.pos }; remote.at = now;
       }
       const y = p.pos.y + remoteColliderHeight(p.mode);
       remote!.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
       const yaw = p.mode === 'foot' ? p.yaw : p.yaw + Math.PI / 2;
-      remote!.body.setNextKinematicRotation(p.mode !== 'foot' && p.rot ? p.rot : { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+      remote.rot = p.mode !== 'foot' && p.rot ? p.rot : { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
+      remote.body.setNextKinematicRotation(remote.rot);
     }
   }
 
@@ -651,4 +681,10 @@ function heightRange(col: ColTile): [number, number] {
   for (let k = 1; k < col.positions.length; k += 3) { lo = Math.min(lo, col.positions[k]); hi = Math.max(hi, col.positions[k]); }
   for (const p of col.prims) { lo = Math.min(lo, p.center[1]); hi = Math.max(hi, p.center[1]); }
   return Number.isFinite(lo) ? [lo + col.origin[1], hi + col.origin[1]] : [col.origin[1], col.origin[1]];
+}
+
+/** A player's vehicle as ambient drivers see it: chassis centre, forward (+X of the chassis) and footprint. */
+function trafficVehicle(id: string, pos: V3, rot: Quat, vx: number, vz: number, half: V3): TrafficVehicle {
+  const hx = 1 - 2 * (rot.y * rot.y + rot.z * rot.z), hz = 2 * (rot.x * rot.z - rot.w * rot.y), d = Math.hypot(hx, hz) || 1;
+  return { id, x: pos.x, y: pos.y, z: pos.z, hx: hx / d, hz: hz / d, vx, vz, length: 2 * half.x, width: 2 * half.z };
 }

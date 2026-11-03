@@ -19,12 +19,13 @@ import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS,
 import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
 import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
-import { vehicleLights } from '../traffic/lights';
+import { honking, vehicleLights } from '../traffic/lights';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
 import { ClaimSet } from '../traffic/claims';
 import { buildTileTraffic, type Bounds, type Lane } from '../traffic/tileNetwork';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
+import type { TrafficPedestrian, TrafficVehicle } from '../traffic/pedestrians';
 import type { Quat, TrafficClaimEvent, TrafficConfig, TrafficTile } from './protocol';
 
 type R = typeof RAPIER_NS;
@@ -55,6 +56,8 @@ export interface TrafficHost {
   pushCharacter(dx: number, dz: number): void;
   /** The walking character's feet, or null in a vehicle. */
   character(): V3 | null;
+  /** Every player this client knows of, on foot and in vehicles (local and remote): drivers stop for them. */
+  players(): { people: TrafficPedestrian[]; vehicles: TrafficVehicle[] };
   /** Where the player is (feet or driven vehicle). */
   player(): V3 | null;
 }
@@ -163,7 +166,8 @@ export class TrafficSim {
   beforeStep(t: number) {
     const t0 = performance.now();
     this.time = t;
-    this.flow.setPlayer(this.host.character(), t);
+    const players = this.host.players();
+    this.flow.setPlayers(players.people, players.vehicles, t);
     this.flow.update(t);
     if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; this.stats.active = this.stats.bodies = 0; return; }
     if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) {
@@ -290,7 +294,7 @@ export class TrafficSim {
       const { indicator, braking } = vehicleLights(car.motion, this.time);
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
         round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed),
-        hash32('appearance', car.key), indicator, braking ? 1 : 0, round(p.speed),...(car.terrain?.wheelY??Array(4).fill((car.visualModel?.wheel??.33)-CHASSIS_LIFT)).map(round4));
+        hash32('appearance', car.key), indicator, (braking ? 1 : 0) | (honking(car.motion) ? 2 : 0), round(p.speed),...(car.terrain?.wheelY??Array(4).fill((car.visualModel?.wheel??.33)-CHASSIS_LIFT)).map(round4));
     }
     return out;
   }
