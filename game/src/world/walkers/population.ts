@@ -25,6 +25,9 @@ export const WALKER = {
    *  drivers on that road are red from 21 s and their left arrows end at 24 s), the kerb distance from the
    *  carriageway, how far back a waiting walker may stand, and the share who cross against the light. */
   walkFrom: 25, walkUntil: 56, kerb: 0.5, queue: 1.2, jaywalk: 0.06,
+  /** Share of lives that stand on the pavement for their whole life (waiting, chatting: GTA's dense stand and phone
+   *  scenarios), the share of those who stand in a face-to-face pair, the pair's spacing and the standers' offset. */
+  stand: 0.16, pair: 0.55, spacing: 0.85, standSide: [0.5, 1.0] as const,
 };
 /** The farthest a walker can be from its birth point. */
 export const MAX_TRAVEL = WALKER.life[1] * WALKER.speed[1];
@@ -59,12 +62,16 @@ interface Leg {
   /** Lateral offset tapers to zero at a decision node at the leg's start/end. */
   taper0: boolean; taper1: boolean;
 }
-interface Route { legs: Leg[]; known: number; speed: number; life: number; offset: number; box: [number, number, number, number] }
+interface Route { legs: Leg[]; known: number; speed: number; life: number; offset: number; box: [number, number, number, number];
+  /** People in this life: 1, or 2 for a standing pair (the second faces the first, `WALKER.spacing` along the way). */
+  group: number }
 
 
 export interface Walker {
-  /** Identity of this life (slot and cycle); the next life of the slot is another walker. */
+  /** Identity of this person (its life's id for the first member of a group); the next life of the slot is another walker. */
   id: number;
+  /** The life (slot and cycle) and this person's place in its group. */
+  lifeId: number; member: number;
   slot: number;
   /** Stable catalogue identity; the renderer maps it to a shared wardrobe mesh and anatomical profile. */
   variant: number;
@@ -150,17 +157,23 @@ export class Population {
       const id = hash32(slot, cycle);
       if (k + unit(hash32(id, 3)) >= expected * this.birthActivity(born)) continue;
       const walker = this.walker(cell, slot, id, life, born, t, near);
-      if (walker) visit(walker);
+      if (!walker) continue;
+      visit(walker);
+      const group = this.routes.get(id)?.route.group ?? 1;
+      for (let member = 1; member < group; member++) {
+        const other = this.walker(cell, slot, id, life, born, t, near, member);
+        if (other) visit(other);
+      }
     }
   }
 
   /** The same life at another time; null once it ended or its route is unknown here. */
   at(walker: Walker, utcMs: number): Walker | null {
-    return this.walker(walker.cell, walker.slot, walker.id, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000);
+    return this.walker(walker.cell, walker.slot, walker.lifeId, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000, undefined, walker.member);
   }
 
   private walker(cell: Cell, slot: number, id: number, life: number, born: number, t: number,
-    near?: { x: number; z: number; radius: number }): Walker | null {
+    near?: { x: number; z: number; radius: number }, member = 0): Walker | null {
     const age = t - born;
     if (age < 0 || age >= life) return null;
     let entry = this.routes.get(id);
@@ -178,7 +191,8 @@ export class Population {
     const leg = route.legs[lo], chain = this.network.chains[leg.chain];
     const elapsed = Math.max(0, age - leg.t0);
     const walked = leg.idle ? 0 : Math.min(elapsed * route.speed, (leg.t1 - leg.t0) * route.speed);
-    const s = leg.s0 + leg.dir * walked;
+    // The second of a standing pair stands further along the way, facing back.
+    const s = leg.s0 + leg.dir * (walked + member * WALKER.spacing);
     pointAt(chain, s, tmp);
     // A segment normal jumps at each polyline corner. Average the tangent over an arc-length window
     // instead: the keep-right displacement remains continuous, shrinking naturally at a tight U-turn.
@@ -192,9 +206,10 @@ export class Population {
       if (leg.taper0) side *= Math.min(1, walked / WALKER.taper);
       if (leg.taper1) side *= Math.min(1, (length - walked) / WALKER.taper);
     } else side = leg.side ?? 0;
+    const person = member ? hash32(id, 17, member) : id;
     return {
-      id, slot, variant: hash32(id, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(id, 8) % WALKER.variants].height,
-      x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz), chain: leg.chain, s,
+      id: person, lifeId: id, member, slot, variant: hash32(person, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(person, 8) % WALKER.variants].height,
+      x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz) + (member ? Math.PI : 0), chain: leg.chain, s,
       moving: !leg.idle, speed: route.speed, distance: leg.d0 + walked, idleTime: leg.idle ? elapsed : 0,
       fade: Math.max(0, Math.min(1, age / WALKER.fade, (life - age) / WALKER.fade)), age, cell, life, born,
     };
@@ -215,6 +230,16 @@ export class Population {
     const towardsLarger = (hash32(id, 5) & 1) === 1;
     let dir: 1 | -1 = towardsLarger === forward ? 1 : -1;
     let c = piece.chain, t = 0, d = 0, step = 0, taper0 = true;
+    // A stander keeps its birth point for the whole life, a little further from the way's centre; never on a zebra.
+    if (!chains[c].gates.length && unit(hash32(id, 16)) < WALKER.stand) {
+      const group = unit(hash32(id, 19)) < WALKER.pair ? 2 : 1, reach = (group - 1) * WALKER.spacing;
+      if ((dir > 0 ? chains[c].length - s : s) < reach) dir = dir > 0 ? -1 : 1;
+      if ((dir > 0 ? chains[c].length - s : s) >= reach) {
+        const side = WALKER.standSide[0] + (WALKER.standSide[1] - WALKER.standSide[0]) * unit(hash32(id, 18));
+        legs.push({ chain: c, dir, s0: s, t0: 0, t1: life, d0: 0, idle: true, side, taper0: false, taper1: false });
+        return { legs, known: life, speed, life, offset: side, box: this.box(legs, speed, reach), group };
+      }
+    }
     const pause = (duration: number) => { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + duration, d0: d, idle: true, taper0: false, taper1: false }); t += duration; };
     pause(WALKER.birthIdle * unit(hash32(id, 10)));
     for (let guard = 0; t < life && guard < 256; guard++) {
@@ -236,7 +261,7 @@ export class Population {
       legs.push({ chain: c, dir, s0: s, t0: t, t1: t + length / speed, d0: d, idle: false, taper0, taper1: true });
       t += length / speed; d += length;
       if (t >= life) break;
-      if (!node.complete) return { legs, known: t, speed, life, offset, box: this.box(legs, speed) };
+      if (!node.complete) return { legs, known: t, speed, life, offset, box: this.box(legs, speed), group: 1 };
       const arriving = node.exits.findIndex(e => e.chain === c && e.atStart === (dir < 0));
       let exit = node.exits[arriving];
       if (node.exits.length === 2) exit = node.exits[1 - arriving];
@@ -251,21 +276,21 @@ export class Population {
       }
       c = exit.chain; dir = exit.atStart ? 1 : -1; s = exit.atStart ? 0 : chains[c].length; taper0 = true;
     }
-    return { legs, known: life, speed, life, offset, box: this.box(legs, speed) };
+    return { legs, known: life, speed, life, offset, box: this.box(legs, speed), group: 1 };
   }
 
   /** Bounds of the walked arcs, padded by the keep-right offset. */
-  private box(legs: Leg[], speed: number): [number, number, number, number] {
+  private box(legs: Leg[], speed: number, reach = 0): [number, number, number, number] {
     const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
     for (const leg of legs) {
       const chain = this.network.chains[leg.chain], c = chain.cumulative, p = chain.points;
-      const s1 = leg.s0 + leg.dir * (leg.idle ? 0 : (leg.t1 - leg.t0) * speed);
+      const s1 = leg.s0 + leg.dir * (leg.idle ? reach : (leg.t1 - leg.t0) * speed);
       const lo = Math.min(leg.s0, s1), hi = Math.max(leg.s0, s1);
       const add = (x: number, z: number) => { box[0] = Math.min(box[0], x); box[1] = Math.min(box[1], z); box[2] = Math.max(box[2], x); box[3] = Math.max(box[3], z); };
       for (const s of [lo, hi]) { pointAt(chain, s, tmp); add(tmp.x, tmp.z); }
       for (let i = 0; i < c.length; i++) if (c[i] > lo && c[i] < hi) add(p[2 * i], p[2 * i + 1]);
     }
-    const pad = WALKER.keepRight[1];
+    const pad = Math.max(WALKER.keepRight[1], WALKER.standSide[1]);
     return [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad];
   }
 }

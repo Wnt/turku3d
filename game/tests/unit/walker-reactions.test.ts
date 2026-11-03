@@ -87,4 +87,17 @@ describe('walker reactions to players', () => {
     expect([r.x, r.z, r.yaw, r.tilt]).toEqual([5, 7, null, 0]);
     expect(reactions.active).toBe(0);
   });
+
+  test('a walker steps round someone standing on its line with the smaller crowd clearance', () => {
+    const reactions = new Reactions();
+    let closest = Infinity;
+    for (let i = 0; i < 6 / DT; i++) {
+      const t = i * DT, base: Base = { id: 10, x: 0.1, y: 0, z: -4 + 1.4 * t, yaw: 0, speed: 1.4 };
+      const r = reactions.apply(base, [{ x: 0, y: 0, z: 0, vx: 0, vz: 0, car: null, personal: 0.6 }], DT, t);
+      closest = Math.min(closest, Math.hypot(r.x, r.z));
+    }
+    expect(closest).toBeGreaterThan(0.5);
+    expect(closest).toBeLessThan(REACT.personal);
+  });
 });
+

@@ -9,6 +9,8 @@ export interface Threat {
   x: number; y: number; z: number; vx: number; vz: number;
   /** Unit heading and footprint of the player's vehicle; null on foot. */
   car: { hx: number; hz: number; length: number; width: number } | null;
+  /** Centre-to-centre clearance kept from this one on foot (m); REACT.personal for a player. */
+  personal?: number;
 }
 
 /** The walker this frame, from the population: position, facing, and walking speed (0 while idle). */
@@ -111,12 +113,13 @@ export class Reactions {
       const vx = t.vx - wx, vz = t.vz - wz, v2 = vx * vx + vz * vz;
       const tc = v2 > 1e-4 ? Math.max(0, Math.min(REACT.notice, (rx * vx + rz * vz) / v2)) : 0;
       const cx = rx - vx * tc, cz = rz - vz * tc, closest = Math.hypot(cx, cz);
-      if (closest >= REACT.personal && d >= REACT.personal) continue;
+      const personal = t.personal ?? REACT.personal;
+      if (closest >= personal && d >= personal) continue;
       threatened = true;
       // Step sideways relative to the walker's own heading, to the side the player passes away from.
       const nx = -fz, nz = fx;
       const side = Math.abs(cx * nx + cz * nz) > 0.05 ? Math.sign(cx * nx + cz * nz) : (base.id & 1 ? 1 : -1);
-      const need = REACT.personal + 0.1 - Math.min(closest, d);
+      const need = personal + 0.1 - Math.min(closest, d);
       targetX += nx * side * need; targetZ += nz * side * need;
       if (urgency === Infinity) { targetX += s.dx; targetZ += s.dz; urgency = tc; }
       speed = Math.max(speed, REACT.step);

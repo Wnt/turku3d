@@ -50,6 +50,8 @@ const systems: Set<Walkers> = import.meta.hot?.data.systems ?? new Set<Walkers>(
 export function liveWalkerCount(): number { let n = 0; for (const s of systems) n += s.count; return n; }
 
 const SCAN_MS = 400, GRAPH_POLL_MS = 1000, RAYS_PER_FRAME = 24, YAW_RATE = 8, IDLE_SECONDS = 2.5;
+/** Moving walkers keep this clearance from other drawn walkers (m, centre to centre) and look this far for them. */
+const CROWD_PERSONAL = 0.6, CROWD_REACH = 2.5;
 
 export class Walkers {
   readonly group = new THREE.Group();
@@ -186,11 +188,27 @@ export class Walkers {
     this.poses = [];
     const turn = 1 - Math.exp(-dt * YAW_RATE);
     const threats = this.options.threats?.() ?? [], seconds = frameNow / 1000;
+    // Other drawn walkers, by 2.5 m cell: a moving walker steps round people standing or coming the other way.
+    const crowd = new Map<string, Walker[]>();
+    for (const { walker } of drawn) {
+      const key = `${Math.floor(walker.x / CROWD_REACH)},${Math.floor(walker.z / CROWD_REACH)}`;
+      const list = crowd.get(key); if (list) list.push(walker); else crowd.set(key, [walker]);
+    }
+    const local: Threat[] = [];
     for (const entry of drawn) {
       const w = entry.walker, look = humanAppearance(w.id);
       const variant = this.asset.variants[look.variant];
       const scale = w.scale;
-      const react = this.reactions.apply({ id: w.id, x: w.x, y: w.y, z: w.z, yaw: w.yaw, speed: w.moving ? w.speed : 0 }, threats, dt, seconds);
+      local.length = 0; local.push(...threats);
+      if (w.moving) {
+        const cx = Math.floor(w.x / CROWD_REACH), cz = Math.floor(w.z / CROWD_REACH);
+        for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const o of crowd.get(`${cx + i},${cz + j}`) ?? []) {
+          if (o.lifeId === w.lifeId || Math.abs(o.x - w.x) > CROWD_REACH || Math.abs(o.z - w.z) > CROWD_REACH) continue;
+          const v = o.moving ? o.speed : 0;
+          local.push({ x: o.x, y: o.y, z: o.z, vx: Math.sin(o.yaw) * v, vz: Math.cos(o.yaw) * v, car: null, personal: CROWD_PERSONAL });
+        }
+      }
+      const react = this.reactions.apply({ id: w.id, x: w.x, y: w.y, z: w.z, yaw: w.yaw, speed: w.moving ? w.speed : 0 }, local, dt, seconds);
       const yaw = react.yaw ?? w.yaw;
       if (entry.first || react.down) entry.yaw = yaw;
       else entry.yaw += Math.atan2(Math.sin(yaw - entry.yaw), Math.cos(yaw - entry.yaw)) * turn;
