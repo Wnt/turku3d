@@ -177,19 +177,25 @@ class Products(unittest.TestCase):
             generator=root/'fake.py'
             generator.write_text('''import sys,json,hashlib,struct
 from pathlib import Path
-out=Path(sys.argv[sys.argv.index('--out')+1]);out.mkdir(parents=True,exist_ok=True)
-shared=out.parent/'shared';shared.mkdir(exist_ok=True)
-texture=b'test texture';sha=hashlib.sha256(texture).hexdigest();name='texture.'+sha+'.ktx2';(shared/name).write_bytes(texture)
-doc=json.dumps({'asset':{'version':'2.0'},'images':[{'uri':'../shared/'+name}]}).encode();doc+=b' '*(-len(doc)%4)
-glb=b'glTF'+struct.pack('<II',2,20+len(doc))+struct.pack('<II',len(doc),0x4e4f534a)+doc
-(out/'vis.glb').write_bytes(glb)
-visual={'url':'vis.glb','bytes':len(glb),'sha256':hashlib.sha256(glb).hexdigest()}
-_,i,j=out.name.split('_');collision={}
-for x in range(4):
- for z in range(4):
-  c=f'c_{int(i)*4+x}_{int(j)*4+z}';(out/(c+'.col')).write_bytes(b'col')
-  collision[c]={'url':c+'.col','bytes':3,'sha256':hashlib.sha256(b'col').hexdigest()}
-(out/'manifest.json').write_text(json.dumps({'coarse':True,'tile':out.name,'pass_kind':'full','visual':{out.name:visual},'collision':collision}))
+def build(out):
+ out.mkdir(parents=True,exist_ok=True)
+ shared=out.parent/'shared';shared.mkdir(exist_ok=True)
+ texture=b'test texture';sha=hashlib.sha256(texture).hexdigest();name='texture.'+sha+'.ktx2';(shared/name).write_bytes(texture)
+ doc=json.dumps({'asset':{'version':'2.0'},'images':[{'uri':'../shared/'+name}]}).encode();doc+=b' '*(-len(doc)%4)
+ glb=b'glTF'+struct.pack('<II',2,20+len(doc))+struct.pack('<II',len(doc),0x4e4f534a)+doc
+ (out/'vis.glb').write_bytes(glb)
+ visual={'url':'vis.glb','bytes':len(glb),'sha256':hashlib.sha256(glb).hexdigest()}
+ _,i,j=out.name.split('_');collision={}
+ for x in range(4):
+  for z in range(4):
+   c=f'c_{int(i)*4+x}_{int(j)*4+z}';(out/(c+'.col')).write_bytes(b'col')
+   collision[c]={'url':c+'.col','bytes':3,'sha256':hashlib.sha256(b'col').hexdigest()}
+ (out/'manifest.json').write_text(json.dumps({'coarse':True,'tile':out.name,'pass_kind':'full','visual':{out.name:visual},'collision':collision}))
+if 'worker' in sys.argv:  # the bulk farm's persistent warm worker protocol
+ for line in sys.stdin:
+  build(Path(json.loads(line)['out']));print(json.dumps({'code':0,'stdout':'{}'}),flush=True)
+else:
+ build(Path(sys.argv[sys.argv.index('--out')+1]))
 ''')
             runner=root/'run.sh';runner.write_text('#!/bin/sh\nexec '+sys.executable+' '+str(generator)+' "$@"\n');runner.chmod(0o755)
             command=[sys.executable,str(HERE/'bulk.py'),str(root),'--tiles','t0_0_0','t0_1_0','--workers','1','--reserve-gib','0.01','--worker-memory-gib','0.01']

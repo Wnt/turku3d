@@ -20,6 +20,7 @@ import threading
 import time
 from recipe import acquisition_recipe
 from runtime import Monitor, admission_cap, admits, memory, memory_stalled, ordered, preserve_products, split_exclusions, target_workers, worker_limit
+from workers import WarmWorkers
 
 
 def read(path,default=None):
@@ -110,6 +111,8 @@ def main():
             raise RuntimeError('another source revision has pending jobs; finish that explicit run first')
         farm=BulkFarm(root/'farm',root/'run.sh',workers=0,queue_limit=maximum,
                       floor_gib=a.floor_gib,reserve_gib=a.reserve_gib,grace_seconds=60)
+        # Warm workers: imports, key closures, area indexes and the packager once per worker, not per tile.
+        pool=WarmWorkers(farm,root/'run.sh');farm.execute=pool
         registered=farm.register(commit,alias='bulkgen2',source_version=sources['version'])
         revision,generation=registered['revision'],registered['generation']
         descriptor={**registered,'selected':selected,'workers':a.workers}
@@ -184,6 +187,7 @@ def main():
             farm.close()  # Finish owned active workers; queued work is persisted on signals.
         finally:
             farm.close()
+            pool.close()  # Reaped before the CPU totals below.
         after=resource.getrusage(resource.RUSAGE_CHILDREN);ticks1=cpu_ticks()
         failed.extend(farm.failures.values())
         excluded,failed=split_exclusions(failed,root/'farm/logs')

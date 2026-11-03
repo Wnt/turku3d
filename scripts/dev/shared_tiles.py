@@ -694,26 +694,7 @@ class Farm:
             if report.get('_build', {}).get('status') != 'complete':
                 raise RuntimeError('adopted generator did not complete; retry will resume cached stages')
             return dict(returncode=0, adopted=True)
-        repo = self.root / 'revisions' / revision / 'repo'
-        self.mount_intermediates(repo, root / 'work')
-        # Bulk admission can drop to zero while already dispatched builds launch.
-        # Draining workers still share the host; do not inflate their thread budget.
-        with self.lock:
-            concurrent = max(1, self.workers, len(self.dispatched))
-        env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
-                   TURKU3D_WORK=str(root / 'work'),
-                   TURKU3D_THREADS_PER_WORKER=str(max(1, (os.cpu_count() or 1) // concurrent)))
-        # Encoders already lock their content keys; share their results across revisions too.
-        textures = self.root / 'cache' / 'textures'
-        textures.mkdir(parents=True, exist_ok=True)
-        try:
-            (root / '.compiled-textures').symlink_to(textures, target_is_directory=True)
-        except FileExistsError:
-            pass
-        meta = self.revision(revision)
-        if meta.get('data_root'):
-            env['TURKU3D_DATA'] = meta['data_root']
-            self.mount_supplements(Path(meta['data_root']), Path(env['TURKU3D_WORK']))
+        repo, env = self.build_environment(revision, root)
         logs = self.root / 'logs'
         logs.mkdir(exist_ok=True)
         with (logs / f'{revision}-{tile}.log').open('a') as log:
@@ -743,6 +724,30 @@ class Farm:
         if proc.returncode:
             raise RuntimeError(f'generator exit {proc.returncode}; see logs/{revision}-{tile}.log')
         return dict(returncode=0)
+
+    def build_environment(self, revision, root):
+        """Source snapshot and environment of a generator building ``revision`` into ``root``."""
+        repo = self.root / 'revisions' / revision / 'repo'
+        self.mount_intermediates(repo, root / 'work')
+        # Bulk admission can drop to zero while already dispatched builds launch.
+        # Draining workers still share the host; do not inflate their thread budget.
+        with self.lock:
+            concurrent = max(1, self.workers, len(self.dispatched))
+        env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
+                   TURKU3D_WORK=str(root / 'work'),
+                   TURKU3D_THREADS_PER_WORKER=str(max(1, (os.cpu_count() or 1) // concurrent)))
+        # Encoders already lock their content keys; share their results across revisions too.
+        textures = self.root / 'cache' / 'textures'
+        textures.mkdir(parents=True, exist_ok=True)
+        try:
+            (root / '.compiled-textures').symlink_to(textures, target_is_directory=True)
+        except FileExistsError:
+            pass
+        meta = self.revision(revision)
+        if meta.get('data_root'):
+            env['TURKU3D_DATA'] = meta['data_root']
+            self.mount_supplements(Path(meta['data_root']), Path(env['TURKU3D_WORK']))
+        return repo, env
 
     def stop_worker(self, info, output):
         """Only stop a recorded farm session whose PID identity and output still match."""
