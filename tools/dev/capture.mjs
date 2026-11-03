@@ -2,7 +2,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-const files = ['poses', 'frames', 'loaf', 'stats', 'marks', 'js', 'network'];
+// tiles: streaming/LOD trace events (game/src/telemetry/streamTrace.ts); slices: per-frame streaming main-thread ms.
+const files = ['poses', 'frames', 'loaf', 'stats', 'marks', 'js', 'network', 'tiles', 'slices'];
 // Keep the unfinished batch and its original file lengths until every append commits.
 // A failed write can be retried after a Vite restart without duplicating a partial row.
 async function applyBatch(dir, pending, transaction) {

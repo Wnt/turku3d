@@ -3,6 +3,7 @@ import { mergeSceneryGeometry } from './mergeSceneryGeometry';
 import { shareSceneryProgram } from './shareSceneryProgram';
 import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
+import { streamTrace } from '../telemetry/streamTrace';
 
 interface Source { mesh: THREE.Mesh; mask: number; revision?: number; owner?: THREE.Object3D }
 interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; releaseProgram?: () => void; queuedAt: number; readyAt: number; preparing?: boolean; cancelled?: boolean; finished?: Promise<void> }
@@ -139,7 +140,13 @@ export class SceneryBatches {
     const index = this.waiting.findIndex(bucket => bucket.readyAt <= now);
     const bucket = index < 0 ? undefined : this.waiting.splice(index,1)[0];
     if (bucket) {
+      const merging = streamTrace.on ? performance.now() : 0;
       const geometry = mergeSceneryGeometry(bucket.sources.map(source => source.mesh));
+      if (merging) {
+        const ms = performance.now() - merging;
+        streamTrace.slice('scenery', ms);
+        streamTrace.event('batch.merge', undefined, { sources: bucket.sources.length, vertices: geometry.attributes.position.count, ms, waiting: this.waiting.length });
+      }
       const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
       mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
       mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;

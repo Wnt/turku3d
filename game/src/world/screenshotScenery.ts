@@ -9,6 +9,7 @@ import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
 import { LOD_FADE_SECONDS, fadeTier, lodFades } from '../render/lodFade';
+import { streamTrace } from '../telemetry/streamTrace';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
@@ -63,6 +64,20 @@ export class ScreenshotScenery {
     return !!model?.visible && !model.userData.lodFading;
   }
   releaseDetail(id: string) { this.held.delete(id); }
+  private coarser: { id: string; at: number }[] = [];
+  private coarserAt = -1;
+  /** Trace coverage of one L0 square: C its own cell drawn, c dissolving, U a coarser node drawn over it. */
+  cellState(id: string): 'C' | 'c' | 'U' | undefined {
+    const model = this.entries.get(id)?.model;
+    if (model?.visible) return model.userData.lodFading ? 'c' : 'C';
+    if (this.coarserAt !== this.clock) {
+      this.coarserAt = this.clock;
+      this.coarser = [...this.entries].filter(([other, e]) => e.model?.visible && sceneryBounds(other).level > 0
+        && !this.sources.get(other)?.regional).map(([other]) => ({ id: other, at: 0 }));
+    }
+    return this.coarser.some(node => sceneryContains(node.id, id)) ? 'U' : undefined;
+  }
+
   /** A resident full tile may yield to its cell only once that cell is loaded (standby or drawn). */
   canTakeOver(id: string) { return this.radius > 0 && !!this.entries.get(id)?.model && this.sources.has(id); }
 
@@ -83,12 +98,15 @@ export class ScreenshotScenery {
     model.userData.lodFading = direction;
     model.visible = true;
     this.batches.invalidate(model);
+    const tier = fadeTier(distance);
+    streamTrace.event('band.fade', id, { dir: direction, from, tier, held: !!id && this.held.has(id) });
     lodFades.start(model, from, direction === 'in' ? 1 : 0, () => {
+      streamTrace.event('band.fadeEnd', id, { dir: direction });
       model.userData.lodFading = undefined;
       model.visible = direction === 'in';
       this.batches.invalidate(model);
       this.cutState.clear(); // the landed model's cut visibility is decided again on the next update
-    }, this.clock, LOD_FADE_SECONDS, fadeTier(distance));
+    }, this.clock, LOD_FADE_SECONDS, tier);
   }
 
   private updateCoverage() {
@@ -221,6 +239,7 @@ export class ScreenshotScenery {
 
   private async catalogue(selection: number, tiles: string[], refresh = false) {
     this.cataloguePending = true;
+    const traced = streamTrace.begin('cell.catalogue', undefined, { tiles: tiles.length, refresh });
     try {
       const batches: string[][] = [];
       for (let i = 0; i < tiles.length; i += 256) batches.push(tiles.slice(i, i + 256));
@@ -246,11 +265,13 @@ export class ScreenshotScenery {
         this.sources.set(source.tile, source); this.unavailable.delete(source.tile);
       }
       for (const id of tiles) if (!returned.has(id)) { this.sources.delete(id); this.unavailable.add(id); }
+      traced({ returned: returned.size, missing: tiles.length - returned.size, changed });
       if (refresh || changed) this.catalogueExpires = this.clock + 30_000;
       this.catalogueError = false;
       // A turn during the request changes the wanted sector, not the validity of cached source metadata.
       this.refreshWanted();
-    } catch {
+    } catch (error) {
+      traced({ error: String(error) });
       if (selection === this.selection) { this.catalogueError = true; this.catalogueRetry = this.clock + 2000; }
     } finally { if (selection === this.selection) this.cataloguePending = false; }
   }
@@ -323,6 +344,10 @@ export class ScreenshotScenery {
   }
 
   private commitCut(now: number, previousUpdate: number) {
+    streamTrace.time('scenery', () => this.commitCutNow(now, previousUpdate));
+  }
+
+  private commitCutNow(now: number, previousUpdate: number) {
     const keep = new Set(this.wanted);
     this.nextCutExpiry = Infinity;
     const outside: [string, Scenery][] = [];
@@ -365,8 +390,14 @@ export class ScreenshotScenery {
     }
     for (const [, e] of outside.slice(0,128)) this.nextCutExpiry = Math.min(this.nextCutExpiry, e.seen + 5000);
     for (const end of this.outgoing.values()) this.nextCutExpiry = Math.min(this.nextCutExpiry, end);
-    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading)
-      e.model.visible = (target.get(id) ?? false) || this.outgoing.has(id);
+    let shown = 0, hidden = 0;
+    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading) {
+      const visible = (target.get(id) ?? false) || this.outgoing.has(id);
+      if (visible !== e.model.visible) { if (visible) shown++; else hidden++; }
+      e.model.visible = visible;
+    }
+    if (streamTrace.on) streamTrace.event('cut.commit', undefined, { wanted: this.wanted.length, entries: this.entries.size, shown, hidden,
+      outgoing: this.outgoing.size, held: this.held.size, standby: this.standby.size, pending: this.wanted.filter(id => !this.entries.get(id)?.model).length });
     this.committed = new Set([...keep, ...fallback]);
     this.updateCoverage();
     this.batchModels = [];
@@ -376,12 +407,15 @@ export class ScreenshotScenery {
 
   private async poll(id: string, e: Scenery, distance: number, source?: ScenerySource) {
     let model: THREE.Object3D | undefined;
+    const rank = streamTrace.on ? this.wanted.indexOf(id) : -1;
+    const manifest = streamTrace.begin('cell.manifest', id, { level: sceneryBounds(id).level, rank, standby: this.standby.has(id), active: this.active });
     try {
       const res = await this.request(source ? `${this.root}scenery/${source.key}.json`
         : `${this.root}${id}/manifest.json?d=${Math.round(distance)}`);
-      if (res.status === 202 || res.status === 429) { e.complete = false; return; }
+      if (res.status === 202 || res.status === 429) { manifest({ status: res.status }); e.complete = false; return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const fragment = await res.json() as CoarseFragment;
+      manifest({ status: 200 });
       if (source && this.sources.get(id)?.key !== source.key) return;
       const visual = fragment.visual?.[id];
       if (!fragment.coarse || fragment.tile !== id || !visual) throw new Error('Missing scenery');
@@ -391,13 +425,20 @@ export class ScreenshotScenery {
         if (source) await this.prepareTrees(id,e,e.model,distance,source);
         return;
       }
+      const glb = streamTrace.begin('cell.glb', id, { bytes: visual.bytes, tris: visual.tris });
       model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href);
+      glb();
       if (source) {
         model.userData.scenery = true;
-        styleScenery(model, this.shared, this.coverage.texture);
+        const loaded = model;
+        streamTrace.time('scenery', () => styleScenery(loaded, this.shared, this.coverage.texture));
         e.treesReady = false;
+        const trees = streamTrace.begin('cell.trees', id);
         await this.prepareTrees(id,e,model,distance,source);
+        trees({ ready: e.treesReady });
+        const prepared = streamTrace.begin('cell.prepare', id);
         await this.host.prepareGraphics?.(model);
+        prepared();
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
       if (this.entries.get(id) !== e || (this.detailed(id) && !this.standby.has(id))
         || (source && this.sources.get(id)?.key !== source.key)) return;
@@ -405,8 +446,12 @@ export class ScreenshotScenery {
       if (this.view) model.visible = false; // Visibility is committed with the cut on the next update.
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
+      streamTrace.event('cell.install', id, { level: sceneryBounds(id).level, tris: visual.tris, standby: this.standby.has(id), detailed: this.detailed(id) });
       this.nearbyChanged(id);
-    } catch (error) { e.error = error instanceof TreePlacementsPending ? undefined : String(error); e.complete = false; }
+    } catch (error) {
+      e.error = error instanceof TreePlacementsPending ? undefined : String(error); e.complete = false;
+      if (e.error) streamTrace.event('cell.error', id, { error: e.error });
+    }
     finally {
       if (model) this.dispose(model, id);
       if (source && this.sources.get(id)?.key !== source.key) { e.complete = false; e.next = this.clock; }

@@ -4,6 +4,7 @@
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { styleBlockLod } from '../render/sceneryMaterial';
 import { lodFades } from '../render/lodFade';
+import { streamTrace } from '../telemetry/streamTrace';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
@@ -189,13 +190,19 @@ export class CoarseTiles {
     const state = entry.state;
     let ready = false;
     try {
-      await this.host.style?.(model);
+      let stage = streamTrace.begin('tile.style', id);
+      await this.host.style?.(model); stage();
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
-      await prepareFacadeModules(model);
+      stage = streamTrace.begin('tile.facades', id);
+      await prepareFacadeModules(model); stage();
       if (this.entries.get(id) !== entry || entry.state !== state) return false;
-      tintDraft(model, this.host.renderer, this.materials);
+      streamTrace.time('install', () => tintDraft(model, this.host.renderer, this.materials));
+      stage = streamTrace.begin('tile.vegetation', id);
       if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
-      await this.host.styled?.(model);
+      stage();
+      // Static batches, shadow batches, vegetation draws and shader/pipeline preparation of the whole model.
+      stage = streamTrace.begin('tile.prepare', id);
+      await this.host.styled?.(model); stage();
       ready = this.entries.get(id) === entry && entry.state === state;
       return ready;
     } finally {
@@ -207,6 +214,7 @@ export class CoarseTiles {
     if (this.host.detailRadius !== undefined || !e.model || e.preview || e.pass !== 'full' || !e.visualHash) return false;
     if (e.cachedAt !== undefined) return true;
     e.cachedAt = this.clock;
+    streamTrace.event('tile.cache', id);
     const model = e.model, shown = model.visible && !!model.parent;
     this.comparison.clear(e);
     model.visible = shown;
@@ -223,6 +231,7 @@ export class CoarseTiles {
     if (!this.screenshotScenery.radius || !model.parent || !model.visible) { finish(); return; }
     this.leaving.set(model, { id, since: this.clock, finish });
     this.screenshotScenery.holdDetail(id);
+    streamTrace.event('tile.hold', id);
   }
 
   /** Run after the scenery update, which decides whether the cell is wanted and drawn. */
@@ -238,12 +247,38 @@ export class CoarseTiles {
     if (!leaving) return;
     this.leaving.delete(model);
     if (![...this.leaving.values()].some(other => other.id === leaving.id)) this.screenshotScenery.releaseDetail(leaving.id);
+    streamTrace.event('tile.release', leaving.id, { ms: this.clock - leaving.since, finished: finish,
+      covered: finish && this.screenshotScenery.mayRelease(leaving.id) });
     if (finish) leaving.finish();
   }
 
   /** A new visual for the square ends any older one still drawing there. */
   private finishLeaving(id: string) {
     for (const [model, leaving] of [...this.leaving]) if (leaving.id === id) this.endLeaving(model, true);
+  }
+
+  /** Streaming queue state for trace events (only computed while a capture records). */
+  private depth() {
+    let pending = 0, loading = 0;
+    for (const e of this.entries.values()) { if (e.state === 'pending') pending++; else if (e.state === 'loading') loading++; }
+    return { pending, loading, preparing: this.preparing.size, details: this.details, leaving: this.leaving.size };
+  }
+
+  /** Which band draws each 250 m cell of a (2r+1)^2 grid around (x, z), one character per cell, rows by z:
+   *  F full HD, h held HD (leaving or going distant), P collision preview, C scenery cell, c cell dissolving,
+   *  U a coarser scenery node, D double (HD and a settled cell both drawn), . nothing (a hole). */
+  coverageSnapshot(x: number, z: number, r = 4) {
+    const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0);
+    let cells = '';
+    for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
+      const id = `t0_${i}_${j}`, e = this.entries.get(id), model = e?.model;
+      const hd = !!model && !e!.preview && model.visible && !!model.parent;
+      const held = [...this.leaving.values()].some(l => l.id === id);
+      const cell = this.screenshotScenery.cellState(id);
+      cells += hd && cell === 'C' ? 'D' : hd ? (held ? 'h' : 'F') : held ? 'h'
+        : e?.preview && model?.visible ? 'P' : cell ?? '.';
+    }
+    return { i0: ci - r, j0: cj - r, n: 2 * r + 1, cells };
   }
 
   private shown(e: Entry) {
@@ -256,6 +291,7 @@ export class CoarseTiles {
       if (!e?.model || e.cachedAt === undefined) continue;
       this.endLeaving(e.model, false);
       e.cachedAt = undefined;
+      streamTrace.event('tile.restore', id);
       e.model.visible = this.shown(e);
       this.screenshotScenery.nearbyChanged(id);
       this.host.scene.add(e.model);
@@ -274,11 +310,13 @@ export class CoarseTiles {
       if (near === !e.distant) continue;
       const model = e.model;
       if (near) {
+        streamTrace.event('band.tile', id, { to: 'full', d3: Math.round(d) });
         e.distant = false;
         this.endLeaving(model, false);
         model.visible = this.shown(e);
         this.screenshotScenery.nearbyChanged(id);
       } else if (this.screenshotScenery.canTakeOver(id)) {
+        streamTrace.event('band.tile', id, { to: 'cell', d3: Math.round(d) });
         e.distant = true;
         this.screenshotScenery.nearbyChanged(id);
         this.holdVisual(id, model, () => { if (e.model === model && e.distant) model.visible = false; });
@@ -362,7 +400,7 @@ export class CoarseTiles {
     for (const id of lookahead) {
       if (this.preparing.size >= 4 || this.preparing.has(id)) continue;
       const e = this.entry(id), distance = this.demandDistance(id, x, z);
-      const task = due(e) ? this.poll(id, e, distance, true) : null;
+      const task = due(e) ? this.poll(id, e, distance, true, 'lookahead') : null;
       if (task) {
         this.preparing.add(id);
         void task.finally(() => this.preparing.delete(id));
@@ -381,7 +419,7 @@ export class CoarseTiles {
     for (const id of ahead) {
       if (lookahead.includes(id)) continue;
       const e = this.entry(id);
-      if (due(e) && e.state !== 'built') void this.poll(id, e, this.demandDistance(id, x, z), false);
+      if (due(e) && e.state !== 'built') void this.poll(id, e, this.demandDistance(id, x, z), false, 'ahead');
     }
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
     const building = this.remote ? [...this.entries.values()].filter(e => e.state === 'pending' || e.state === 'loading').length : this.building;
@@ -489,7 +527,7 @@ export class CoarseTiles {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0 });
+    if (!e) { this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0 }); streamTrace.event('tile.new', id); }
     return e;
   }
 
@@ -558,6 +596,7 @@ export class CoarseTiles {
       if (!res.ok || res.status === 202) return;
       const { fragment, hash } = await this.readFragment(res, e);
       if (fragment) {
+        streamTrace.event('tile.refresh', id, { pass: fragment.pass_kind });
         await this.applyFragment(id, e, fragment);
         e.manifestHash = hash;
         e.unchangedPolls = 0;
@@ -586,11 +625,17 @@ export class CoarseTiles {
 
   private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>) {
     const base = new URL(`${this.root}${id}/`, this.page);
+    const glb = streamTrace.begin('tile.glb', id, { bytes: fragment.visual[id].bytes, tris: fragment.visual[id].tris });
     const root = await this.load(new URL(fragment.visual[id].url, base).href);
+    glb();
+    root.userData.traceId = id;
     try {
       if (fragment.buildingPlacements) {
         // Tile GLBs carry a translated root node. Placements are siblings in world-local coordinates.
+        const buildings = streamTrace.begin('tile.buildings', id, { models: fragment.buildingPlacements.models.length,
+          placements: fragment.buildingPlacements.placements.length, blocks: fragment.buildingPlacements.blocks?.length ?? 0 });
         const release = await this.buildingModels.attach(root, fragment.buildingPlacements, base);
+        buildings();
         this.buildingLeases.set(root, release);
       }
       return root;
@@ -613,6 +658,10 @@ export class CoarseTiles {
     const changed = Object.entries(fragment.collision).filter(([cid, entry]) => !e.collision.has(cid) || entry.sha256 !== e.collision.get(cid)?.sha256);
     const buffers = new Map<string, ArrayBuffer>();
     const validate = async () => {
+      const done = streamTrace.begin('tile.collision', id, { cells: changed.length, bundle: !!fragment.collision_bundle });
+      try { await validateCells(); } finally { done(); }
+    };
+    const validateCells = async () => {
       let bundled: Map<string, ArrayBuffer> | undefined;
       if (changed.length && fragment.collision_bundle) {
         const response = await this.request(new URL(fragment.collision_bundle.url, base).href);
@@ -642,8 +691,10 @@ export class CoarseTiles {
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       this.finishLeaving(id);
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
+      model.userData.traceId = id;
       this.screenshotScenery.nearbyChanged(id);
       recordFreshness(e, fragment); this.host.scene.add(model);
+      streamTrace.event('tile.preview', id, this.depth());
       return;
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
@@ -673,6 +724,7 @@ export class CoarseTiles {
     const old = e.model;
     old?.removeFromParent();
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
+    const installing = streamTrace.on ? performance.now() : 0, wasPreview = !!e.preview;
     if (old) this.endLeaving(old, false);
     this.finishLeaving(id);
     if (e.cachedAt === undefined) this.host.scene.add(model);
@@ -685,18 +737,25 @@ export class CoarseTiles {
     if (old) this.dispose(old, id);
     if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
+    if (installing) {
+      streamTrace.slice('install', performance.now() - installing);
+      streamTrace.event('tile.full', id, { pass: e.pass, replaced: old ? (wasPreview ? 'preview' : 'model') : null,
+        tris: fragment.visual[id].tris, distant: !!e.distant, ...this.depth() });
+    }
   }
 
-  private async poll(id: string, e: Entry, d: number, load: boolean) {
+  private async poll(id: string, e: Entry, d: number, load: boolean, role = 'wanted') {
     e.resident = load;
     e.state = 'loading';
     e.version = this.version;
+    const traced = streamTrace.on ? streamTrace.begin('tile.manifest', id, { role, load, demand: Math.round(d), ...this.depth() }) : null;
     try {
       const query = `?d=${Math.round(d)}${this.remote || this.named ? `&client=${this.client}` : ''}`;
       let res = await this.request(`${this.root}${id}/collision.json${query}`);
       // Older producers remain usable while a source deployment is switching.
       if (res.status === 404) res = await this.request(`${this.root}${id}/manifest.json${query}`);
       if (res.status === 429) {
+        traced?.({ status: 429 });
         e.state = 'pending'; e.error = 'queue full'; e.readyAt = undefined;
         e.nextPoll = this.clock + Math.max(retryAfter(res), backoff(e.retries = (e.retries ?? 0) + 1));
         return;
@@ -706,11 +765,13 @@ export class CoarseTiles {
         e.readyAt = typeof body.eta === 'number' ? this.clock + 1000 * body.eta : undefined;
         e.error = body.state === 'pending-data' ? `waiting for ${[...new Set(body.missing?.map(u => u.split('/')[0]))].join(', ')} data`
           : undefined;
+        traced?.({ status: 202, state: body.state, eta: body.eta });
         e.state = 'pending'; e.nextPoll = this.clock + 2000; return;
       }
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;
+        traced?.({ status: res.status, error: e.error });
         return;
       }
       let { fragment, hash } = await this.readFragment(res, e);
@@ -724,6 +785,7 @@ export class CoarseTiles {
         fragment = full.fragment; hash = full.hash;
       }
       if (!fragment?.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: no visible draft`);
+      traced?.({ status: 200, pass: fragment.pass_kind, tris: fragment.visual[id].tris, bytes: fragment.visual[id].bytes });
       if (!load) {
         if (this.entries.get(id) !== e) return;
         e.state = 'built'; e.nextPoll = 0;
@@ -739,6 +801,7 @@ export class CoarseTiles {
     } catch (err) {
       if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1); this.down(err); return; }
       const rejected = err instanceof DraftRejected;
+      streamTrace.event('tile.fail', id, { error: String((err as Error).message ?? err) });
       // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.
       e.state = rejected ? 'failed' : 'pending'; e.nextPoll = this.clock + Math.max(rejected ? RETRY_MS : 0, backoff(e.retries = (e.retries ?? 0) + 1));
       if (rejected) e.error = (err as Error).message;
@@ -789,6 +852,7 @@ export class CoarseTiles {
     if (e.model) {
       const id = [...this.entries].find(([, entry]) => entry === e)?.[0];
       const model = e.model, pending = this.leaving.get(model);
+      if (id) streamTrace.event('tile.drop', id, { preview: !!e.preview, cached: e.cachedAt !== undefined });
       // A full visual draws on until the scenery cell covers its square; collision leaves now.
       if (pending && id) pending.finish = () => this.dispose(model, id);
       else if (id && !e.preview && e.cachedAt === undefined && !e.distant) this.holdVisual(id, model, () => this.dispose(model, id));

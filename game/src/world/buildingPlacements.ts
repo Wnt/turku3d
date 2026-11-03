@@ -7,6 +7,7 @@ import { PreparationBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
 import { lodFades, type LodFades } from '../render/lodFade';
 import { StaticGroup } from './frozenTransforms';
+import { streamTrace } from '../telemetry/streamTrace';
 
 type Vec3 = [number, number, number];
 export interface BuildingModel {
@@ -166,7 +167,7 @@ export class BuildingModelCache {
     }
     if (states.size) {
       owner.userData.blockLods = states;
-      owner.userData.blockLodTile = mergeBlockLods(owner, [...states.values()].map(s => s.lod));
+      owner.userData.blockLodTile = streamTrace.time('lod', () => mergeBlockLods(owner, [...states.values()].map(s => s.lod)));
     }
     for (const geometry of geometries) retainGeometry(geometry);
     // Each unstyled material owner enters the existing styling cache independently.
@@ -220,6 +221,8 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
       if (!state.settled) { state.settled = true; state.near = state.hd = near; }
       else if (near !== state.near) {
         state.near = near;
+        streamTrace.event('band.block', root.userData.traceId as string | undefined, { block: state.lod.userData.blockLod, to: near ? 'hd' : 'lod',
+          d3: Math.round(d), fade: shown });
         if (!shown) { fades.cancel(state.lod); state.hd = near; }
         else if (near) { state.hd = true; fades.start(state.lod, 1, 0); }
         else fades.start(state.lod, 0, 1, () => { state.hd = state.near; });

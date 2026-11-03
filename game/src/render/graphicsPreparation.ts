@@ -1,5 +1,7 @@
 import type * as THREE from 'three/webgpu';
 import { afterRender } from './afterRender';
+import { compileStats } from './compileModel';
+import { streamTrace } from '../telemetry/streamTrace';
 
 type Job = { model: THREE.Object3D; prepare: () => void | Promise<unknown>; signal?: AbortSignal };
 
@@ -24,6 +26,7 @@ export class GraphicsPreparation {
 
   enqueue(model: THREE.Object3D, prepare: Job['prepare'], signal?: AbortSignal, residentOnly = false): Promise<void> {
     const current = () => !signal?.aborted && (!residentOnly || this.resident(model));
+    const queuedAt = performance.now();
     const prepared = this.queued.then(async () => {
       // Preparations can visit cross-model resources (notably registered river targets).
       // Recheck because another retirement may join while its preceding fence resolves.
@@ -35,8 +38,11 @@ export class GraphicsPreparation {
         // Preserve the streaming queue's task-after-animation entry and per-draw budgets.
         await this.nextTask();
         if (!current()) return;
+        const started = performance.now(), compiles = compileStats.count, compileMs = compileStats.ms;
         await prepare();
         if (current()) await this.prepareView(model);
+        streamTrace.event('gfx.prepare', model.userData.traceId as string | undefined, { wait: started - queuedAt, ms: performance.now() - started,
+          compiles: compileStats.count - compiles, compileMs: compileStats.ms - compileMs, scenery: !!model.userData.scenery });
       } finally { this.active = null; }
     });
     this.queued = prepared.catch(() => {});

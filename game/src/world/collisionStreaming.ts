@@ -4,6 +4,7 @@
 // for good): edge walls stand only where none does (physics/edgeWalls.ts).
 import { collisionCovers } from '../physics/collisionCoverage';
 import { loading, loadBytes } from '../core/loading';
+import { streamTrace } from '../telemetry/streamTrace';
 import { COLLISION_TILE, collisionTileId, distToCollisionTile, parseCollisionId } from '../core/origin';
 import type { Manifest, ManifestEntry } from './manifest';
 import type { PhysicsClient } from '../physics/client';
@@ -88,7 +89,10 @@ export class CollisionStreamer {
     const keep = new Set([...ahead, ...retained].map(t => t.id));
     for (const id of [...this.physics.loaded.keys()]) {
       const ij = parseCollisionId(id);
-      if (ij && !keep.has(id) && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) this.physics.unloadTile(id);
+      if (ij && !keep.has(id) && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) {
+        streamTrace.event('col.unload', undefined, { cell: id });
+        this.physics.unloadTile(id);
+      }
     }
     this.pumpRefreshes();
     const started: string[] = [];
@@ -145,6 +149,7 @@ export class CollisionStreamer {
           return;
         }
         const done = loading.begin(`Collision ${id} .col · ${loadBytes(e.bytes)}`);
+        const traced = streamTrace.begin('col.load', undefined, { cell: id, bytes: e.bytes, loading: this.loading.size });
         try {
           const cached = this.prepared.get(id);
           let buf: ArrayBuffer;
@@ -163,11 +168,13 @@ export class CollisionStreamer {
           if (!sameContent(this.manifest.collision[id], e)) { done('Superseded while collider built'); continue; }
           if (e.sha256) this.installed.set(id, e.sha256);
           this.retries.delete(id);
+          traced({ cached: !!cached && sameContent(cached.entry, e) });
           done('Rapier collider ready');
           return;
         } catch (err) {
           if (!sameContent(this.manifest.collision[id], e)) { done('Superseded request'); continue; }
           done(`FAILED: ${String(err)}`);
+          traced({ error: String(err) });
           const error = err as Error & { permanent?: boolean };
           if (error.permanent) {
             this.failed.add(id);

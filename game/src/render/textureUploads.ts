@@ -4,6 +4,7 @@ import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
 import { shareModelTextures } from '../world/sharedAssets';
 import { afterRender } from './afterRender';
+import { streamTrace } from '../telemetry/streamTrace';
 
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
 export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set<THREE.Texture> {
@@ -75,7 +76,14 @@ class TextureUploads {
     this.scheduled = true;
     afterRender(() => {
       this.scheduled = false;
+      const before = this.budget.pending;
+      const started = streamTrace.on ? performance.now() : 0;
       this.budget.drain();
+      if (started) {
+        const ms = performance.now() - started;
+        streamTrace.slice('upload', ms);
+        if (before !== this.budget.pending) streamTrace.event('gfx.upload', undefined, { textures: before - this.budget.pending, left: this.budget.pending, ms });
+      }
       if (this.budget.pending) this.schedule();
     });
   }

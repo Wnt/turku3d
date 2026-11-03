@@ -12,11 +12,16 @@ test('capture batches preserve reference files, retry idempotently, reject trave
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    const batch = { batch: 0, meta: { name: 'test' }, frames: [[1, 2, 3, 4, 5, 6, 7]], poses: [{ t: 1 }], marks: [{ k: 'pause', t: 2 }] };
+    const batch = { batch: 0, meta: { name: 'test' }, frames: [[1, 2, 3, 4, 5, 6, 7]], poses: [{ t: 1 }], marks: [{ k: 'pause', t: 2 }],
+      tiles: [{ t: 3, k: 'tile.full', id: 't0_0_0' }], slices: [[4, 9, 0, 1.5, 0, 0, 0, 0]] };
     const post = headers => fetch(`${base}/__capture/test`, { method: 'POST', headers, body: JSON.stringify(batch) });
     assert.equal((await post()).status, 200); assert.equal((await post()).status, 200);
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'test/frames.jsonl'), 'utf8')), batch.frames);
     assert.equal((await fs.readFile(path.join(dir, 'test/poses.jsonl'), 'utf8')).trim(), '{"t":1}');
+    // Streaming trace rows (game/src/telemetry/streamTrace.ts): one event or frame slice per line.
+    assert.equal((await fs.readFile(path.join(dir, 'test/tiles.jsonl'), 'utf8')).trim(), '{"t":3,"k":"tile.full","id":"t0_0_0"}');
+    assert.equal((await fs.readFile(path.join(dir, 'test/slices.jsonl'), 'utf8')).trim(), '[4,9,0,1.5,0,0,0,0]');
+    assert.equal((await fetch(`${base}/__capture/test/tiles.jsonl`)).status, 200);
     assert.equal((await post({ Origin: 'http://elsewhere' })).status, 403);
     assert.equal((await fetch(`${base}/__capture/bad%2fpath/meta.json`)).status, 400);
     assert.equal((await fetch(`${base}/__capture/test/meta.json`)).status, 200);
