@@ -89,6 +89,9 @@ export class BuildingModelCache {
     try {
       // Every lease was released while the read queued (a cancelled install): skip the fetch and decode.
       if (waits && !wanted()) throw new Error('building model read cancelled');
+      // Reads start inside the frame's streaming window, so parallel model parses do not pile into one frame gap.
+      let pause = this.budget.checkpoint();
+      while (pause) { await pause; pause = this.budget.checkpoint(); }
       const loading = trace ? performance.now() : 0;
       if (trace) trace.queueMs = loading - queued;
       const root = await this.load(url);

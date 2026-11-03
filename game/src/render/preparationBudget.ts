@@ -4,30 +4,37 @@ import { afterRender } from './afterRender';
 const STALE_MS = 16;
 const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
-/** Streaming window per budget and frame from the frame's measured headroom (render/performance.ts reports each
- *  frame). The frame callback's CPU is compared with a 40 fps target: with slack, each streaming budget's window grows
- *  from the old 2 ms (up to 6 ms while the current 3x3 window waits for installs, `urgent`, 3 ms otherwise); with
- *  little slack or after an overlong frame, prefetch-only work shrinks to 1 ms. The window's installs never drop
- *  below the old 2 ms: every budget keeps its own window, so no stage starves another. */
+/** Streaming windows from the measured frame interval (render/performance.ts reports each frame). The interval
+ *  between frame callbacks includes everything the main thread did in between: post-frame streaming tasks, worker
+ *  replies, fetch handling and GC, not only the callback. An integral controller steers the total streaming time
+ *  per frame so the interval averages the 24 ms target (40 fps): it grows while frames come faster and streaming has
+ *  work, shrinks while they come slower, and halves after an overlong frame. The budgets that worked in the last
+ *  frame share it; each keeps a floor (2 ms while the current 3x3 window waits for installs, `urgent`, else 1 ms). */
 export class StreamingAllowance {
-  /** Target main-thread frame time (ms) for a 40 fps average. */
-  readonly target = 23;
+  /** Target frame interval (ms) for a 40 fps average. */
+  readonly target = 24;
   static readonly MIN_MS = 1;
   static readonly BASE_MS = 2;
-  private cpu = 16;
-  private slow = false;
+  /** Streaming ms per frame across all budgets (controller state). */
+  private total = 4;
+  private interval = 20;
   private frameAt = -Infinity;
-  /** Budget windows opened since the last frame, and in the frame before: they share the slack. */
+  /** Budget windows opened since the last frame, and in the frame before: they share the total. */
   private windows = 0;
   private lastWindows = 1;
   /** The current 3x3 window still waits for full installs (coarseTiles). */
   urgent = false;
   constructor(private now = () => performance.now()) {}
-  frame(cpuMs: number, intervalMs: number | null) {
-    this.cpu += (cpuMs - this.cpu) * 0.2;
-    this.slow = intervalMs !== null && intervalMs > this.target * 1.6;
+  frame(_cpuMs: number, intervalMs: number | null) {
     this.frameAt = this.now();
+    const worked = this.windows > 0;
     this.lastWindows = Math.max(1, this.windows); this.windows = 0;
+    if (intervalMs === null) return;
+    this.interval += (intervalMs - this.interval) * 0.15;
+    if (intervalMs > this.target * 1.6) this.total *= 0.5;
+    // Grow only while streaming has work: no wind-up during quiet periods.
+    else if (worked || this.interval > this.target) this.total += 0.1 * (this.target - this.interval);
+    this.total = Math.min(this.urgent ? 12 : 6, Math.max(StreamingAllowance.MIN_MS, this.total));
   }
   /** A budget starts a window this frame. */
   opened() { this.windows++; }
@@ -36,10 +43,7 @@ export class StreamingAllowance {
     // No frame reports (a page without the monitor, or a stalled loop): the old fixed window.
     if (this.now() - this.frameAt > 100) return StreamingAllowance.BASE_MS;
     const floor = this.urgent ? StreamingAllowance.BASE_MS : StreamingAllowance.MIN_MS;
-    if (this.slow) return floor;
-    // 80 % of the slack, shared by the budgets that worked in the last frame.
-    const scaled = 0.8 * (this.target - this.cpu) / this.lastWindows;
-    return Math.min(this.urgent ? 6 : 3, Math.max(floor, scaled));
+    return Math.min(this.urgent ? 6 : 3, Math.max(floor, this.total / this.lastWindows));
   }
 }
 export const streamingAllowance = new StreamingAllowance();

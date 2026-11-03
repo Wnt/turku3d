@@ -48,32 +48,32 @@ test('a streaming budget resumes a stale window after one task hop, not a drawn 
   expect([frames, tasks]).toEqual([2, 1]); // frame-aligned budgets (shader compiles) keep waiting for a frame
 });
 
-test('streaming windows follow the frame headroom against a 40 fps target; the current window never drops below 2 ms', () => {
+test('streaming windows steer the measured frame interval to 24 ms; the current window never drops below 2 ms', () => {
   let now = 0;
   const account = new StreamingAllowance(() => now);
-  for (let i = 0; i < 30; i++) account.frame(10, 16.7); // a light 10 ms frame callback: 13 ms of slack
-  expect(account.limit).toBe(3); // prefetch-only installs: capped
-  account.urgent = true;
-  expect(account.limit).toBe(6); // the 3x3 window waits: one budget may take most of the slack (capped)
-  for (let i = 0; i < 4; i++) account.opened();
-  account.frame(10, 16.7);
-  expect(account.limit).toBeCloseTo(0.8 * 13 / 4, 0); // four budgets worked last frame: they share it
-  for (let i = 0; i < 30; i++) account.frame(21, 22);
-  expect(account.limit).toBe(2); // little slack: the window keeps the old 2 ms
-  account.urgent = false;
-  expect(account.limit).toBeCloseTo(1.6, 1); // prefetch takes 80 % of the 2 ms slack
-  for (let i = 0; i < 3; i++) account.opened();
-  account.frame(21, 22);
-  expect(account.limit).toBe(StreamingAllowance.MIN_MS); // shared by three budgets: the 1 ms floor
-  account.frame(21, 45); account.urgent = true;
-  expect(account.limit).toBe(2); // an overlong frame: the window still gets its floor
+  const frames = (n: number, interval: number, windows = 1) => {
+    for (let i = 0; i < n; i++) { for (let w = 0; w < windows; w++) account.opened(); account.frame(8, interval); }
+  };
+  frames(60, 16.7); // frames come faster than 40 fps while streaming has work
+  expect(account.limit).toBe(3); // prefetch-only: capped
+  account.urgent = true; frames(60, 16.7);
+  expect(account.limit).toBe(6); // the 3x3 window waits: larger windows
+  frames(1, 16.7, 4);
+  expect(account.limit).toBe(3); // four budgets worked last frame: they share the 12 ms total
+  frames(80, 30); // the interval (callback + every post-frame task) runs over the target
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // shrinks to the window's floor
+  account.urgent = false; frames(5, 30);
+  expect(account.limit).toBe(StreamingAllowance.MIN_MS);
+  account.urgent = true; frames(60, 16.7, 4); const before = account.limit;
+  frames(1, 60, 4); // one overlong frame halves the total at once
+  expect(account.limit).toBeLessThan(before);
   now = 500; expect(account.limit).toBe(2); // no frame reports: the old fixed window
 });
 
 test('every streaming budget keeps its own window, so one stage cannot starve another', async () => {
   let now = 0, frames = 0;
   const account = new StreamingAllowance(() => now);
-  account.urgent = true; for (let i = 0; i < 30; i++) account.frame(15, 20);
+  account.urgent = true; for (let i = 0; i < 60; i++) { account.opened(); account.frame(8, 16.7); }
   const frame = () => { frames++; return Promise.resolve(); };
   const a = new PreparationBudget(() => now, frame, null, account), b = new PreparationBudget(() => now, frame, null, account);
   const limit = account.limit;
