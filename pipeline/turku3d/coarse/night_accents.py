@@ -31,6 +31,42 @@ def bridge_strips(way, rail_lines, height_at, rail_height):
     return combine(parts, key)
 
 
+def dress_lights(key, boat, frame):
+    """Dressed ships: stays from the stem over the mast heads to the stern carry bulbs.
+
+    Only a reviewed livery observation (``dress_lights``) enables them; the stays are the
+    wires the survey sees between mast tops and the hull ends.
+    """
+    if not boat.get('appearance', {}).get('dress_lights') or not boat['masts']:
+        return []
+    from .bridge_details import tube
+    settings = rules()["boats"]
+    direction = frame.direction
+    masts = sorted(boat['masts'], key=lambda m: np.asarray(m[0].coords[0]) @ direction)
+    ends = []
+    for u in (frame.bow * (frame.tip - 1.0), -frame.bow * (frame.length - frame.tip - 1.5)):
+        xy = frame.world(np.array([u, 0.]))
+        ends.append(np.array([xy[0], float(frame.top(xy)) + 1.2, xy[1]]))
+    ends.sort(key=lambda e: e[[0, 2]] @ direction)
+    chain = [ends[0], *[np.array([m.x, h - .3, m.y]) for m, h in masts], ends[1]]
+    total = sum(np.linalg.norm(b - a) for a, b in zip(chain[:-1], chain[1:], strict=True))
+    spacing = max(settings['bulbSpacing'], total / settings['maxBulbs'])
+    parts = []
+    for a, b in zip(chain[:-1], chain[1:], strict=True):
+        length = np.linalg.norm(b - a)
+        sag = min(length * .04, 1.2)
+        points = [a * (1 - t) + b * t - np.array([0, sag * 4 * t * (1 - t), 0])
+                  for t in np.linspace(0, 1, max(2, int(length / spacing) + 1))]
+        for p, q in zip(points[:-1], points[1:], strict=True):
+            wire = tube(key, p, q, .012, 'hull', sides=4)
+            wire.metadata['collision'] = False
+            parts.append(wire)
+        for p in points[1:-1]:
+            parts.append(appearance(_box(key, p - np.array([0, .05, 0]), (.045, .06, .045), 'wall'),
+                                    'night_bulb', collision=False))
+    return parts
+
+
 def restaurant_bulbs(key, boat):
     """Sparse dotted strings between existing masts, with bounded sag and count."""
     if boat['tags'].get('amenity') not in ('restaurant', 'bar', 'cafe', 'pub', 'nightclub'):
