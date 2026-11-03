@@ -23,7 +23,8 @@ export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, tra
       // bindProgram has compiled these source rows into the _KIT_* attributes.
       // Keeping them here repeats megabytes of build-only instructions in GLB JSON.
       if (prim.getAttribute('_KIT_EXTENT')) delete e.facade_kit_walls;
-      const key = JSON.stringify([materials.indexOf(prim.getMaterial()), prim.listSemantics().sort(), e.layer, e.reflection_surface, e.water_body, e.water_color]);
+      // Water level bands and sloped reaches each keep their own mirror plane.
+      const key = JSON.stringify([materials.indexOf(prim.getMaterial()), prim.listSemantics().sort(), e.layer, e.reflection_surface, e.water_body, e.water_color, e.water_band, e.water_slope]);
       if (!groups.has(key)) groups.set(key, []);
       for (const part of primitiveChunks(prim, compactPrimitive)) {
         groups.get(key).push({ prim:part, extras:e });
@@ -54,6 +55,8 @@ export async function batchVisual(doc, scene, tile, { dedup, joinPrimitives, tra
     const extras = entries.length === 1 ? first : {
       layer: first.layer, kind: first.kind, tile, material_key: first.material_key,
       reflection_surface: first.reflection_surface, water_body: first.water_body, water_color: first.water_color,
+      ...(first.water_band === undefined ? {} : { water_band: first.water_band }),
+      ...(first.water_slope === undefined ? {} : { water_slope: first.water_slope }),
       object_id: `${tile}/batch/${groups.size}/${scene.listChildren().length}`, objects,
     };
     scene.addChild(doc.createNode().setTranslation(origin).setExtras(extras)

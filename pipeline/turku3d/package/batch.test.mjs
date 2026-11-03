@@ -50,3 +50,19 @@ test('coplanar water body colours survive batching and a GLB round trip', async 
   assert.equal(nodes.length, 2);
   assert.deepEqual(nodes.map(node => node.getExtras().water_color), [[.6,.8,.9],[.3,.2,.1]]);
 });
+
+test('water level bands and sloped reaches of one body keep separate mirror meshes', async () => {
+  const doc = new Document(), buffer = doc.createBuffer(), scene = doc.createScene();
+  const material = doc.createMaterial();
+  for (const extra of [{}, {water_band: 15}, {water_band: 15}, {water_band: -1, water_slope: true}]) {
+    const positions = doc.createAccessor().setBuffer(buffer).setType('VEC3')
+      .setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]));
+    const prim = doc.createPrimitive().setAttribute('POSITION', positions).setMaterial(material);
+    scene.addChild(doc.createNode().setExtras({layer: 'ground', material_key: 'water', water_body: 'aura', ...extra})
+      .setMesh(doc.createMesh().addPrimitive(prim)));
+  }
+  await batchVisual(doc, scene, 't0_0_0', functions);
+  const io = new NodeIO(), decoded = await io.readBinary(await io.writeBinary(doc));
+  const extras = decoded.getRoot().listNodes().filter(node => node.getMesh()).map(node => node.getExtras());
+  assert.deepEqual(extras.map(e => [e.water_band, e.water_slope]), [[undefined, undefined], [15, undefined], [-1, true]]);
+});
