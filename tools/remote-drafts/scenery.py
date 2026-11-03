@@ -24,6 +24,8 @@ class Scenery:
         self.tree_script = Path(__file__).with_name('scenery-trees.mjs')
         # Helper/decoder changes invalidate only render derivatives, never authored tiles.
         dependencies = [self.script, self.script.with_name('scenery-openings.mjs'),
+                        self.script.with_name('scenery-night.mjs'),
+                        self.script.parents[2] / 'pipeline/turku3d/night_lighting.json',
                         self.script.with_name('scenery-source.mjs'),
                         Path(__file__).parents[2] / 'pipeline/turku3d/package/facade_decode.mjs']
         self.recipe = hashlib.sha256(b''.join(path.read_bytes() for path in dependencies)).hexdigest()

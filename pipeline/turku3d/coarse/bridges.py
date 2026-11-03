@@ -497,9 +497,11 @@ def produce(tile, grid_pos, inputs):
     from .tunnels import ground_sampler
 
     full_ground = ground_sampler(lambda x, z: float(ground([[x, z]])[0]))
-    from .bridge_join import terrain_sampler
+    from .bridge_join import terrain_sampler, walk_levels
 
     join_ground = terrain_sampler(points)
+    # Separately mapped walks and flights keep their measured lower level.
+    levels = walk_levels(getattr(inputs, "walkable", ()), (getattr(inputs, "stairs", None) or ((),))[0])
 
     def sample_ground(xz):
         return np.asarray([full_ground(x, z) for x, z in xz])
@@ -656,6 +658,10 @@ def produce(tile, grid_pos, inputs):
         if meshes:
             details.appearance(meshes[0], spec["surface"])
             details.appearance(meshes[1], spec["body"])
+        from .night_accents import bridge_profile, bridge_strips
+        profile = bridge_profile(way)
+        if profile.get("soffit") and len(meshes) > 1:
+            meshes[1].metadata["night_soffit"] = True
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
         meshes.extend(
@@ -669,6 +675,7 @@ def produce(tile, grid_pos, inputs):
                 obstacles=obstacles.buffer(0.6),
             )
         )
+        meshes.extend(bridge_strips(way, rail_lines, height_at, spec["rail_height"]))
         # Every member's mapped land continuation shares the same end taper,
         # including side paths whose skew endpoint lies inside the main axis.
         from .bridge_join import approach_patches, grade
@@ -679,7 +686,7 @@ def produce(tile, grid_pos, inputs):
         aprons = approach_patches(
             way, line, (start_ramp, end_ramp), height_at,
             walk_sampler(full_ground, getattr(inputs, "walkable", ())),
-            protected, 2 * tile.size / CELLS,
+            protected, 2 * tile.size / CELLS, levels,
         )
         grid_pos[:] = grade(grid_pos, aprons)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
@@ -691,7 +698,8 @@ def produce(tile, grid_pos, inputs):
 def visual(decks, tile, stage, layer_files):
     from .bridge_materials import METRES, maps
 
-    meshes = [(m, details.style(d.way).get("material_set")) for d in decks for m in d.meshes]
+    from .night_accents import bridge_profile
+    meshes = [(m, details.style(d.way).get("material_set"), bridge_profile(d.way)) for d in decks for m in d.meshes]
     if not meshes:
         return
     path = stage / "bridges.vis.glb"
@@ -703,20 +711,24 @@ def visual(decks, tile, stage, layer_files):
                 m.positions - tile.origin,
                 m.indices,
                 uvs=m.uvs / METRES if material_set == "weathered" and m.metadata.get("surface") != "asphalt" else m.uvs,
-                **(maps(m.metadata.get("surface", "concrete")) if material_set == "weathered"
-                   else dict(image=details.texture(m.metadata.get("surface", "concrete")))),
+                **(maps(("paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete"))) if material_set == "weathered"
+                   else dict(image=details.texture(("paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete"))))),
                 color=(1, 1, 1, 1),
                 repeat=True,
+                emissive=tuple(profile.get("rail", [0, 0, 0])) if m.metadata.get("surface") == "night_rail"
+                else tuple(profile.get("soffit", [0, 0, 0])) if m.metadata.get("night_soffit") else (0, 0, 0),
                 roughness=0.48 if m.metadata.get("surface") == "steel" else 0.92,
                 extras=dict(
                     layer="bridges",
                     object_id=m.object_id,
-                    material_key="ground_asphalt"
+                    material_key="night_bridge_rail" if m.metadata.get("surface") == "night_rail"
+                    else "night_bridge_soffit" if m.metadata.get("night_soffit")
+                    else "ground_asphalt"
                     if m.metadata.get("surface") == "asphalt"
-                    else "draft_bridge_" + m.metadata.get("surface", "concrete"),
+                    else "draft_bridge_" + ("paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete")),
                 ),
             )
-            for m, material_set in meshes
+            for m, material_set, profile in meshes
         ],
         root_translation=tile.origin,
     )

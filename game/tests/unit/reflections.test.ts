@@ -100,3 +100,11 @@ test('reflection cadence refreshes on every camera change and throttles only a s
   expect(cadence.shouldUpdate(camera, 110, true, true)).toBe(true);
   expect(cadence.shouldUpdate(camera, 111, false)).toBe(true);
 });
+
+test('small opaque quay light strips participate in the actual river pass', () => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, .045, .02), new THREE.MeshStandardMaterial());
+  mesh.userData = { layer: 'structures', material_key: 'night_quay_bar' };
+  expect(reflectionSurface(mesh)).toBe(true);
+  mesh.userData.reflection_surface = false;
+  expect(reflectionSurface(mesh)).toBe(false);
+});

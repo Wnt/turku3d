@@ -57,3 +57,31 @@ test('shipped far walls preserve authored programs, blank walls and landmark tex
     for(const key of programFields)assert.ok(farProgram.getAttribute(key));
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('far conversion retains cathedral wash, emissive structures and both facade schemas',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'far-night-'));
+  try{
+    const doc=new Document(),buffer=doc.createBuffer();doc.createScene();
+    const attr=(type,data)=>doc.createAccessor().setBuffer(buffer).setType(type).setArray(new Float32Array(data));
+    const old=doc.createMaterial('old').setExtras({facade_kit:{version:5}});
+    const current=doc.createMaterial('current').setExtras({facade_kit:{version:6}});
+    wall(doc,old,'old',0,fields);
+    wall(doc,current,'current',10,{...fields,_KIT_LAYOUT:[0,3,3,1]});
+    const image=doc.createTexture().setMimeType('image/png').setImage(await sharp({create:{width:4,height:4,channels:3,background:'#996644'}}).png().toBuffer());
+    const landmark=doc.createMaterial().setBaseColorTexture(image).setExtras({material_key:'night_landmark_wall'});
+    const p=wall(doc,landmark,'cathedral',20);
+    p.setAttribute('_NIGHT_IRRADIANCE',attr('VEC3',[.2,.1,0,.2,.1,0,.6,.4,.2,.6,.4,.2]));
+    const emitter=doc.createMaterial().setEmissiveFactor([.3,.57,1]).setExtras({material_key:'night_bridge_rail'});
+    wall(doc,emitter,'strip',30);
+    const input=path.join(dir,'source.glb'),output=path.join(dir,'far.glb');await io.write(input,doc);
+    execFileSync('node',[fileURLToPath(new URL('./scenery.mjs',import.meta.url)),input,output],{timeout:15000});
+    const far=await readSource(output);
+    const prim=layer=>far.getRoot().listNodes().find(n=>n.getExtras().layer===layer).getMesh().listPrimitives()[0];
+    assert.equal(prim('buildings-program').getAttribute('_KIT_LAYOUT').getType(),'VEC3');
+    assert.equal(prim('buildings-program-v6').getAttribute('_KIT_LAYOUT').getType(),'VEC4');
+    assert.equal(prim('buildings-program-v6').getAttribute('_KIT_LAYOUT').getElement(0,[])[3],1);
+    assert.ok(prim('buildings-night-mapped').getAttribute('_NIGHT_IRRADIANCE').getArray().some(v=>v>.5));
+    assert.ok(prim('buildings-night-mapped').getMaterial().getBaseColorTexture());
+    assert.ok(prim('night-architecture').getAttribute('_NIGHT_IRRADIANCE').getArray().some(v=>v>2));
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+});

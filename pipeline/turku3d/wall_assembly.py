@@ -277,6 +277,8 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         # Program ranges address vertices, not wall/triangle numbers. Retessellation
         # duplicates even untouched triangles, so every output vertex needs its
         # original instruction (including triangles preceding the first cut).
+        night_values = []
+        visibility_values = []
         rows = original.extras.get("facade_kit_walls")
         instructions = []
         vertex_rows = np.full(len(original.positions), -1, dtype=int)
@@ -318,6 +320,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                     normals_out.append(original.normals[indices])
                 if original.colors is not None:
                     colours.append(original.colors[indices])
+                if original.night_irradiance is not None:
+                    night_values.append(original.night_irradiance[indices])
+                if original.baked_visibility is not None:
+                    visibility_values.append(original.baked_visibility[indices])
                 continue
             pieces, xy, origin, basis = replacement
             for coords in pieces:
@@ -330,6 +336,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                     normals_out.append(weights @ original.normals[indices])
                 if original.colors is not None:
                     colours.append(weights @ original.colors[indices])
+                if original.night_irradiance is not None:
+                    night_values.append(weights @ original.night_irradiance[indices])
+                if original.baked_visibility is not None:
+                    visibility_values.append(weights @ original.baked_visibility[indices])
         if not positions:
             continue
         mesh.positions = np.concatenate(positions)
@@ -337,6 +347,8 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
         mesh.uvs = np.concatenate(uvs) if uvs else None
         mesh.normals = np.concatenate(normals_out) if normals_out else None
         mesh.colors = np.concatenate(colours) if colours else None
+        mesh.night_irradiance = np.concatenate(night_values) if night_values else None
+        mesh.baked_visibility = np.clip(np.concatenate(visibility_values), 0, 1) if visibility_values else None
         mesh.extras = {k: v for k, v in original.extras.items() if k != "component_box"}
         if rows is not None:
             mesh.extras["facade_kit_walls"] = instructions
@@ -344,8 +356,9 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
     return result
 
 
-def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None):
-    """Single architectural assembly before any packaged visual can be published."""
+def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None, bake=None):
+    """Single architectural assembly before any packaged visual can be published.
+    ``bake`` maps the final assembled static meshes to their lit copies (baked visibility)."""
     import json
     from pathlib import Path
 
@@ -413,6 +426,8 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
     validate_neighbours(
         wall_layers, shells, tile, out.parent, geometry_key=geometry_key, report_cache=cache
     )
+    if bake is not None:
+        wall_layers = bake(wall_layers)
 
     def architecture(directory):
         write_visual(directory / "architecture.vis.glb", wall_layers, root_translation=tile.origin)

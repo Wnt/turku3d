@@ -60,7 +60,7 @@ def number(value, default):
         return default
 
 
-def produce(tile, prepared, sample, decks=()):
+def produce(tile, prepared, sample, decks=(), *, landing_domain=None):
     meshes, openings = [], []
     rows, areas = prepared or ((), ())
     window = shapely.box(*tile.bbox.as_tuple())
@@ -251,9 +251,13 @@ def produce(tile, prepared, sample, decks=()):
             inner = np.array([centres[end] + offsets[end], centres[end] - offsets[end]])
             outer = inner + outward
             apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
+            if landing_domain is not None and not bridge_access:
+                apron = apron.intersection(landing_domain)
+            if apron.is_empty:
+                continue
             aprons.append(apron)
             for patch in terrain_patches(
-                np.asarray(apron.exterior.coords)[:-1], tile.size / CELLS, tile.bbox.as_tuple()
+                apron, tile.size / CELLS, tile.bbox.as_tuple()
             ):
                 blend = np.clip((patch - centres[end]) @ outward, 0, 1)
                 ground = np.array([sample(x, z) for x, z in patch])
@@ -440,7 +444,9 @@ def stage(
     from turku3d import config as C
     from turku3d.stage_cache import source_key
 
-    from . import kerbs, retaining
+    from turku3d.ground.mesh import HeightQuery
+
+    from . import kerbs, retaining, surface_join
     from .attachments import sampler as attachment_sampler
 
     base = Path(__file__).parents[1]
@@ -454,6 +460,10 @@ def stage(
         Path(__file__).with_name("walkable.py"),
         Path(__file__).with_name("tunnels.py"),
         Path(retaining.__file__),
+        Path(surface_join.__file__),
+        Path(__file__).with_name("street_profiles.py"),
+        Path(__file__).with_name("surfaces.py"),
+        base / "ground/mesh.py",
         Path(__file__).with_name("gardens.py"),
         attachment_sampler,
         base / "bridges/build.py",
@@ -463,14 +473,27 @@ def stage(
     ]
 
     def geometry():
-        flights, flight_cuts = produce(tile, prepared, sample, decks)
+        polygons, planar = surface_join.footprint(dry)
+        land = shapely.union_all(polygons[planar], grid_size=1e-8)
+        flights, flight_cuts = produce(tile, prepared, sample, decks, landing_domain=land)
         paving = [
             p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in walks
         ]
-        walls, wall_cuts = retaining.produce(tile, barriers, sample, flight_cuts, water, paving)
-        return [*walls, *flights], [*wall_cuts, *flight_cuts]
+        query = HeightQuery(dry)
+        walls, _ = retaining.produce(
+            tile, barriers, sample, flight_cuts, water, paving,
+            surface=lambda x, z: float(query([[x, z]])[0]),
+        )
+        apron = retaining.terrain(walls, dry)
+        if apron is not None:
+            apron = surface_join.on_terrain(apron, dry)
+            # Landings must use the reconstructed ledge surface too, not the
+            # older coarse-grid sampler on the other side of the joint.
+            landing_sample = surface_join.Field(dry, apron).sample(sample)
+            flights, flight_cuts = produce(tile, prepared, landing_sample, decks, landing_domain=land)
+        return [*walls, *flights], flight_cuts
 
-    meshes, openings = cache.run(
+    meshes, flight_cuts = cache.run(
         "stairs",
         source_key(*dependencies),
         [
@@ -483,23 +506,25 @@ def stage(
             water,
             walks,
             attachments,
+            dry,
         ],
         geometry,
     )
 
     def ground():
-        from .banks import join
-
         apron = retaining.terrain(meshes, dry)
-        cut_dry, cut_solid = cut_ground(dry, openings), cut_ground(solid, openings)
         if apron is not None:
-            cut_dry, cut_solid = join(cut_dry, apron), join(cut_solid, apron)
-        return cut_dry, cut_solid
+            apron = surface_join.on_terrain(apron, dry)
+            joined_dry = surface_join.stitch(dry, apron, dry)
+            joined_solid = surface_join.stitch(solid, apron, dry)
+        else:
+            joined_dry, joined_solid = dry, solid
+        return cut_ground(joined_dry, flight_cuts), cut_ground(joined_solid, flight_cuts)
 
     dry, solid = cache.run(
         "stair_ground",
         source_key(cut_ground, split_boundaries, *dependencies),
-        [dry, solid, openings, meshes],
+        [dry, solid, flight_cuts, meshes],
         ground,
     )
     return [m for m in meshes if not m.metadata.get("terrain")], dry, solid

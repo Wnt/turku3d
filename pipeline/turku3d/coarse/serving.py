@@ -1,12 +1,13 @@
 """Serve complete visual/collision generations while their replacements rebuild."""
 
 import json
+import re
 
 from turku3d import config as C
 
 PUBLIC_FIELDS = (
     "coarse", "tile", "visual", "collision", "roads", "pass_kind", "vehicles", "lights",
-    "vehicle_models", "stale", "generation", "failure",
+    "vehicle_models", "buildingPlacements", "stale", "generation", "failure",
 )
 
 
@@ -28,6 +29,12 @@ def complete(root, tile, value):
         entries = [value["visual"][tile], *value["collision"].values()]
         if value.get("roads"):
             entries.append(value["roads"])
+        for model in value.get("buildingPlacements", {}).get("models", []):
+            name = model["id"] + ".glb"
+            if model["uri"] != "../shared/" + name or not re.fullmatch(r"[a-f0-9]{64}\.glb", name):
+                return False
+            if (root / "shared" / name).stat().st_size != model["bytes"]:
+                return False
         return all(FILE.fullmatch(e["url"]) and (root / tile / e["url"]).stat().st_size == e["bytes"]
                    for e in entries)
     except (OSError, ValueError, KeyError, TypeError):

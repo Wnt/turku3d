@@ -60,6 +60,8 @@ export class GameRenderer extends THREE.WebGPURenderer {
     if (!hasDrawVertices(geometry, group)) return;
     const original = scene.overrideMaterial;
     const context = this.contextNode;
+    // Puddles read this per-draw receiver flag from the prepass, or from beauty's MRT when there is no prepass.
+    if (!original) material.userData.weatherReceiver = material.userData.weatherWetness ? 1 : 0;
     // Depth draws do not sample beauty-pass GTAO. Keep their context stable across beauty and reflection passes.
     if ((original as ShadowMaterial | null)?.isShadowPassMaterial) this.contextNode = this.shadowContext;
     scene.overrideMaterial = original?.userData.normalPrepass

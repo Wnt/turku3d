@@ -237,6 +237,8 @@ def wall_meshes(b, walls, origin, layout=None):
             ring_start = end + 4
     owner, height = layout if layout is not None else (b, None)
     program = resolve(owner, walls, eaves, layout_height=height)
+    from turku3d.night_lighting import use_class
+    night_use = use_class(getattr(owner, "attributes", {}))
     apertures = volumes(measured(b.facade_key))
     instructions, program_parts = [], []
     previous_instruction = None
@@ -260,6 +262,7 @@ def wall_meshes(b, walls, origin, layout=None):
         )
         style = compile_wall(wall, program["storeys"]["value"])
         style["origin"][1] = owner.base
+        style["night_use"] = night_use
         for points, uv, instruction in wall_parts(vertices, wall, style):
             instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
             parts = composed_parts(points, uv, instruction, plans)

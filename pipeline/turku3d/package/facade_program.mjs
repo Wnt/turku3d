@@ -17,7 +17,7 @@ export function bindProgram(doc, prim, extras, fallback, linear) {
     if (owners[indices[i]] !== owners[indices[i+1]] || owners[indices[i]] !== owners[indices[i+2]])
       throw new Error(`Mixed facade program triangle: ${extras.object_id}`);
   const definitions = {
-    _KIT_LAYOUT: ['VEC3', p => [p.module, p.module >= 42 ? 3 : p.bay, p.storey]],
+    _KIT_LAYOUT: ['VEC4', p => [p.module, p.module >= 42 ? 3 : p.bay, p.storey, p.night_use ?? fallback.night_use ?? 0]],
     _KIT_WALL: ['VEC3', p => linear(p.wall)],
     _KIT_TRIM: ['VEC3', p => linear(p.trim)],
     _KIT_BASE: ['VEC3', p => linear(p.base ?? p.wall)],

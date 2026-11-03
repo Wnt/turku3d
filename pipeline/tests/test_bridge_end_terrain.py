@@ -148,3 +148,64 @@ def test_neighbouring_terrain_tiles_agree_at_side_and_axis_approach_seams():
             sample = sampler(lambda x, z: 2, result, patches)
             heights.append([sample(edge, z) for z in np.linspace(21, 49, 57)])
         np.testing.assert_allclose(*heights, atol=1e-8)
+
+
+
+def lower_walk_fixture(height):
+    """A side path taper with a measured walk and a flight foot 3 m beside it."""
+    from turku3d.coarse.bridge_join import walk_levels
+
+    road, _, land, _ = fixture()
+    walk = dict(
+        key="walk",
+        line=shapely.LineString([(24.0, 37.9), (19.5, 40.15)]),
+        width=3.0,
+        knots=np.array([0.0, 5.03]),
+        cross=np.array([-7.5, -4.5, -1.5, 0, 1.5, 4.5, 7.5]),
+        heights=np.full((2, 7), height),
+    )
+    flight = ("flight", shapely.LineString([(21.0, 31.0), (16.0, 29.0)]),
+              {"_profile": {"stations": [0.0, 5.39], "heights": [height, 6.0]}})
+    patches = approach_patches(
+        road,
+        extended(road["line"], 3),
+        (3, 3),
+        lambda q: np.full(len(q), 6.02),
+        lambda x, z: 6.02,
+        shapely.Polygon(),
+        4.0,
+        walk_levels([walk], [flight]),
+    )
+    return walk, patches
+
+
+def test_measured_lower_walk_beside_an_approach_keeps_its_level_and_a_vertical_abutment():
+    from turku3d.col.materials import mat_id
+
+    walk, patches = lower_walk_fixture(2.0)
+    faces = Faces()
+    horizontal(faces, shapely.box(10, 20, 70, 50), 2)
+    result = constrain(mesh(faces, "grass"), patches, mesh(faces, "grass"))
+    query = HeightQuery(result)
+    # The walk and the landing in front of the flight's lower step keep their level.
+    np.testing.assert_allclose(query([[22.0, 38.9], [20.5, 39.65], [21.9, 31.4]]), 2.0, atol=1e-7)
+    # The approach's own surface is still raised to the deck end.
+    assert abs(query([[22, 36]])[0] - 6.02) < 1e-7
+    # No slanted wedge leans into the walk corridor: vertical quay faces close the drop.
+    triangles = result.positions[result.indices]
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    centres = triangles.mean(axis=1)[:, [0, 2]].T
+    inside = shapely.contains_xy(walk["line"].buffer(1.75), *centres)
+    slope = abs(normals[:, 1]) / np.linalg.norm(normals, axis=1)
+    assert not (inside & (slope > 1e-6) & (np.ptp(triangles[:, :, 1], axis=1) > 1e-6)).any()
+    edge = shapely.contains_xy(walk["line"].buffer(1.85).difference(walk["line"].buffer(1.75)),
+                               *centres)
+    walls = edge & (slope < 1e-6)
+    assert mat_id("quay") in result.material[walls]
+    assert np.ptp(triangles[walls][:, :, 1]) > 2
+
+
+def test_walk_at_the_approach_level_is_still_graded_into_the_taper():
+    _, patches = lower_walk_fixture(5.5)
+    points = np.array([[22.0, 5.5, 38.9]])
+    assert grade(points, patches)[0, 1] > 5.5

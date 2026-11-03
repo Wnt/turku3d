@@ -8,7 +8,7 @@ import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
 import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
-import { litFraction, timecycle, type TimecycleSample } from './timecycle';
+import { litFraction, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
 import { WEATHER_PRESETS, type WeatherSample } from './weather/schedule';
 import { weatherLighting } from './weather/lighting';
@@ -139,6 +139,7 @@ export class Environment {
     nightUniforms.night.value = this.sample.night;
     nightUniforms.hour.value = hour;
     nightUniforms.litFraction.value = litFraction(hour);
+    nightUniforms.useLevels.value.fromArray(windowUseLevels(hour));
     this.iblDirty = true;
   }
 

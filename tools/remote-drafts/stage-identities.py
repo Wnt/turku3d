@@ -65,8 +65,8 @@ def identities(narrow_samplers=False):
                     continue
                 stage = call.args[0].value if isinstance(call.args[0], ast.Constant) else 'collision_*'
                 result[stage] = eval(compile(ast.Expression(key), str(path), 'eval'), env)
-    from turku3d.coarse.inputs import _key, DEPENDENCIES
-    for dataset in ['ground', 'ortho', *DEPENDENCIES]:
+    from turku3d.coarse.inputs import _key, DATASETS
+    for dataset in ['ortho', *DATASETS]:
         result['input/' + dataset] = _key([], dataset)
     return result
 

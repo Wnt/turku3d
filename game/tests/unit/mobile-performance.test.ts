@@ -84,3 +84,31 @@ test('mobile pipeline compiles only beauty and allocates no normal/velocity prep
     expect(renderer.getRenderTarget()).toBeNull();
   } finally { river.dispose(); post.dispose(); env.dispose(); vi.unstubAllGlobals(); }
 });
+
+test('medium and low render one geometry pass: TRAA motion, depth and puddle normals come from beauty MRT', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  Object.assign(renderer, { _renderContexts: { get: () => ({}) } });
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  const model = new THREE.Group(); model.add(new THREE.Mesh(new THREE.BoxGeometry())); scene.add(model);
+  const compile = vi.spyOn(renderer, 'compileAsync').mockResolvedValue(undefined);
+  try {
+    for (const [tier, attachments] of [['medium', ['output', 'normal', 'velocity']], ['low', ['output', 'velocity']]] as const) {
+      compile.mockClear();
+      const post = new PostProcessing(renderer, scene, camera, tier, 'taa');
+      const internals = post as unknown as { pre: THREE.PassNode | null; beauty: THREE.PassNode };
+      expect(internals.pre).toBeNull();
+      const mrt = internals.beauty.getMRT()!;
+      expect(Object.keys(mrt.outputNodes)).toEqual(attachments);
+      // Blended surfaces keep the opaque motion/normal below them, as the opaque-only prepass did.
+      for (const name of attachments.slice(1)) expect(mrt.getBlendMode(name).blending).toBe(THREE.MaterialBlending);
+      expect(!!post.puddles).toBe(tier === 'medium');
+      await post.prepare(model);
+      expect(compile).toHaveBeenCalledOnce();
+      post.dispose();
+    }
+    const high = new PostProcessing(renderer, scene, camera, 'high', 'taa');
+    expect((high as unknown as { pre: THREE.PassNode | null }).pre).not.toBeNull();
+    high.dispose();
+  } finally { vi.unstubAllGlobals(); }
+});

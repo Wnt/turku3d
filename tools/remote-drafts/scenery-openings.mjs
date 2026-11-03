@@ -38,7 +38,7 @@ export function glazingMask(roughness, rgb) {
 /** Remove coplanar tessellation inside one instruction/UV chart, without changing its mapping. */
 export function reduceFacade(primitive, matrix, simplifier) {
   const position=primitive.getAttribute('POSITION'),uv=primitive.getAttribute('TEXCOORD_0');
-  const fields=programFields.map(key=>primitive.getAttribute(key)).filter(Boolean);
+  const fields=[...programFields,'_NIGHT_IRRADIANCE'].map(key=>primitive.getAttribute(key)).filter(Boolean);
   const positions=[],coords=[],source=[],remap=[],welded=new Map(), instructions=new Map(), ids=[];
   for(let i=0;i<position.getCount();i++){
     const p=[0,1,2].map(k=>matrix[k]*position.getElement(i,[])[0]+matrix[k+4]*position.getElement(i,[])[1]+

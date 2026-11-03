@@ -334,7 +334,7 @@ def build(
     if inputs.retaining:
         # Props and vegetation must sample the same reconstructed apron as collision.
         surface_sample = street_profiles.sampler(surface_sample, street_profiles.ProfiledSurface(
-            dry, shapely.union_all([g.buffer(2.5) for g, _, _ in inputs.retaining])
+            dry, shapely.union_all([g.buffer(4.5) for g, _, _ in inputs.retaining])
         ))
     dry_surface, solid_surface = cache.run(
         "street_profiles",
@@ -688,11 +688,14 @@ def build(
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
     ground_meshes.extend(boats.visuals(tile, boat_meshes))
-    ground_meshes.extend(
-        surfaces.visuals(
-            tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)
-        )
-    )
+    from . import quay_lighting
+
+    ground_meshes.extend(cache.run(
+        "quay_lighting",
+        source_key(Path(quay_lighting.__file__), quay_lighting.OBSERVATIONS, surfaces.visuals, *common),
+        [tile, bank, inputs.walkable, inputs.quay_lighting, level],
+        lambda: quay_lighting.visuals(tile, bank, inputs.walkable, inputs.quay_lighting, level),
+    ))
     if len(river.indices):
         from . import water_appearance
 
@@ -750,8 +753,15 @@ def build(
     )
     from turku3d.wall_assembly import assemble_layers
 
+    from . import visibility
+
+    context = [*blds, *inputs.wall_context]
     with cache.measure("wall_assembly"):
-        layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache)
+        layer_files = assemble_layers(
+            tile, layer_files, building_meshes, shells, out, stage, cache,
+            bake=lambda meshes: visibility.stage(cache, tile, meshes, context, inputs.heights),
+        )
+    seconds["visibility"] = cache.metrics["visibility"]["seconds"]
 
     surface_channels = surfaces.channels(ground_meshes)
     seconds["visual_geometry"] = time.perf_counter() - t
@@ -760,6 +770,15 @@ def build(
         surface_library = library or default_library()
         surface_library = surfaces.library(out.parent, surface_library, surface_channels)
     seconds["surface_library"] = time.perf_counter() - t_library
+    from .archetypes import publish as publish_archetypes
+
+    with cache.measure("archetypes"):
+        layer_files, building_placements, archetype_metrics = publish_archetypes(
+            tile, layer_files, shells, stage, out.parent, surface_library
+        )
+    _write(out / "archetype-times.json", json.dumps(archetype_metrics, sort_keys=True).encode())
+    for building, metrics in archetype_metrics.items():
+        cache.metrics["archetype_package:" + building] = metrics["package"]["package"]
     t_package = time.perf_counter()
     with cache.measure("package"):
         vis, stats = package_visual(
@@ -809,6 +828,7 @@ def build(
                 coarse=True,
             )
         },
+        buildingPlacements=building_placements,
         collision=collision,
         vehicles=cars,
         vehicle_models=vehicle_models,
@@ -873,9 +893,11 @@ def build(
     )
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
     _write(out / "collision.json", json.dumps(manifest).encode())
-    from .audit import submit
+    from .audit import submit_all
 
-    submit(out, manifest["visual"][tile.id], require_snapshot=True)
+    submit_all(out, [manifest["visual"][tile.id], *[
+        {"url": model["uri"], "sha256": model["id"]} for model in building_placements["models"]
+    ]], require_snapshot=True)
     cache.metrics.update(json.loads((stage / "package-times.json").read_text()))
     cache.report(out / "stage-times.json")
     shutil.rmtree(stage, ignore_errors=True)

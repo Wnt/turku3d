@@ -457,28 +457,70 @@ def test_registering_unrelated_dataset_helper_preserves_existing_inputs(monkeypa
     assert input_keys.producer_code('ground') == before
 
 
-def test_input_dependencies_follow_local_helpers_and_constants_not_mesh_emitters(tmp_path):
-    from turku3d.coarse.input_keys import dependency_code
+def test_input_closure_follows_reachable_definitions_across_modules(tmp_path):
+    import ast
+    from turku3d.source_code import Closure
 
-    source = tmp_path / 'attachments.py'
-    code = '''import numpy as np
+    package = tmp_path / 'pkg'
+    package.mkdir()
+    (package / '__init__.py').write_text('from .shared import Survey\n')
+    attachments = """import numpy as np
+from . import whole
+from .shared import measure
 CELL = 0.25
-def measure(points, cell=CELL):
-    return np.floor(points / cell)
-def prepare(tile, points):
-    return measure(points)
+def prepare(tile, points, cell=CELL):
+    return measure(np.asarray(points) / cell) + whole.any()
 def produce(tile, records):
     return records
-'''
-    source.write_text(code)
-    before = dependency_code(source, 'attachments')
-    source.write_text(code.replace('return records', 'return records[:1]'))
-    assert dependency_code(source, 'attachments') == before
-    for changed in (code.replace('0.25', '0.5'),
-                    code.replace('np.floor', 'np.ceil'),
-                    code.replace('import numpy as np', 'import other as np')):
-        source.write_text(changed)
-        assert dependency_code(source, 'attachments') != before
+"""
+    shared = """import numpy as np
+try:
+    FLOOR = np.floor
+except AttributeError:
+    FLOOR = None
+class Survey:
+    pass
+def measure(points):
+    return FLOOR(points)
+def mesh(points):
+    return points
+"""
+    files = {'attachments.py': attachments, 'shared.py': shared, 'whole.py': 'def any():\n    return 1\n'}
+    (tmp_path / 'caller.py').write_text('from pkg.attachments import prepare\n')
+    seed = ast.parse('from pkg.attachments import prepare').body[0]
+
+    def digest(**edits):
+        for name, text in files.items():
+            for old, replacement in edits.get(name.removesuffix('.py'), ()):
+                text = text.replace(old, replacement)
+            (package / name).write_text(text)
+        closure = Closure(tmp_path)
+        closure.seed(tmp_path / 'caller.py', seed)
+        return closure.digest()
+
+    before = digest()
+    assert digest(attachments=[('return records', 'return records[:1]'), ('import numpy', '# note\nimport numpy')],
+                  shared=[('return points\n', 'return points[:1]\n')]) == before
+    for edit in (dict(attachments=[('0.25', '0.5')]),
+                 dict(attachments=[('import numpy as np', 'import other as np')]),
+                 dict(shared=[('np.floor', 'np.ceil')]),
+                 dict(whole=[('return 1', 'return 2')])):
+        assert digest(**edit) != before, edit
+
+
+def test_input_closure_resolves_package_names_with_exact_case(tmp_path):
+    import ast
+    from turku3d.source_code import Closure
+
+    package = tmp_path / 'pkg'
+    package.mkdir()
+    (package / '__init__.py').write_text('from .surface import Surface\n')
+    (package / 'surface.py').write_text('class Surface:\n    pass\ndef other():\n    pass\n')
+    (tmp_path / 'caller.py').write_text('from pkg import Surface\n')
+    closure = Closure(tmp_path)
+    closure.seed(tmp_path / 'caller.py', ast.parse('from pkg import Surface').body[0])
+    whole = {path.name: found['whole'] for path, found in closure.modules.items()}
+    assert whole == {'caller.py': False, '__init__.py': False, 'surface.py': False}
 
 
 def test_prepared_surveys_survive_mesh_only_edits(tmp_path, monkeypatch):

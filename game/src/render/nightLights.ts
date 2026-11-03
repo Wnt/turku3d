@@ -1,6 +1,6 @@
 // Night-only lit windows inside the existing facade graphs. Every term is scaled by uniforms, so day and night
 // share one pipeline per material: nothing compiles at dusk and no draw, asset or per-building attribute is added.
-import type * as THREE from 'three/webgpu';
+import * as THREE from 'three/webgpu';
 import { dot, float, floor, fract, length, luminance, materialColor, materialRoughness, max, mix, normalWorldGeometry,
   positionWorld, renderGroup, smoothstep, step, uint, uniform, vec2, vec3 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
@@ -15,6 +15,7 @@ export const nightUniforms = {
   hour: uniform(13).setGroup(renderGroup),
   /** Share of windows lit at this hour. */
   litFraction: uniform(0.25).setGroup(renderGroup),
+  useLevels: uniform(new THREE.Vector2(1, 1)).setGroup(renderGroup),
 };
 
 /** Hash salts and the window schedule, shared with the CPU mirror in tests/unit/window-lights.test.ts. */
@@ -48,13 +49,15 @@ export const quantise = (v: Node<'float'>, scale: 64 | 1024 | 4096) => floor(v.m
  * over a dimmer interior instead of one evenly glowing cell.
  */
 export function windowEmission(facade: U32, column: Node<'float'>, storey: Node<'float'>, rise: Node<'float'>, glass: Node<'float'>,
-  pane: Node<'float'> = float(0)) {
+  pane: Node<'float'> = float(0), use: Node<'float'> = float(0)) {
   const h = WINDOW_HASH, w = WINDOW_LIGHT;
   const window = pcg(facade.bitXor(facadeKey([column, storey], h.cell)));
   const epoch = floor(nightUniforms.hour.div(h.epochHours).add(unit(salt(window, h.phase))));
   const roll = unit(pcg(window.bitXor(epoch.toInt().toUint())));
   const storeyBias = unit(salt(pcg(facade.bitXor(storey.toInt().toUint())), h.storey)).sub(0.5).mul(h.storeyBias);
-  const lit = step(roll, nightUniforms.litFraction.add(storeyBias));
+  const useLevel = mix(mix(float(1), nightUniforms.useLevels.x, step(.5, use)), nightUniforms.useLevels.y, step(1.5, use));
+  // Scale the storey bias too: a dark office schedule must not retain whole bright floors.
+  const lit = step(roll, nightUniforms.litFraction.add(storeyBias).mul(useLevel).clamp(0, .95));
   const tone = unit(salt(window, h.tone));
   const cool = step(1 - w.coolShare, tone);
   const tint = mix(vec3(...w.warm), vec3(...w.cool).mul(w.coolLevel), cool);

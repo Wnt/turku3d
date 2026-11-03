@@ -1,28 +1,176 @@
 {
   "about": "Authored night priors informed by local-only Aurajoki previews. No reference pixels; dimensions and CCT are estimates unless mapped. RGB is linear, intensity is renderer-relative, not photometry.",
   "lamps": {
-    "evidence": [509952, 578009, 683262, 333084],
+    "evidence": [
+      509952,
+      578009,
+      683262,
+      333084
+    ],
     "pathHeight": 4.8,
-    "roadScales": [0.6, 0.75, 1.0, 1.15],
+    "roadScales": [
+      0.6,
+      0.75,
+      1.0,
+      1.15
+    ],
     "fallbackSpacing": 30,
     "types": {
-      "led": {"color": [1, 0.86, 0.68], "intensity": 5},
-      "warm_led": {"color": [1, 0.78, 0.52], "intensity": 4.6},
-      "sodium": {"color": [1, 0.62, 0.28], "intensity": 4.6},
-      "path": {"color": [1, 0.78, 0.52], "intensity": 3.6},
-      "wall": {"color": [1, 0.74, 0.46], "intensity": 1.8}
+      "led": {
+        "color": [
+          1,
+          0.86,
+          0.68
+        ],
+        "intensity": 5
+      },
+      "warm_led": {
+        "color": [
+          1,
+          0.78,
+          0.52
+        ],
+        "intensity": 4.6
+      },
+      "sodium": {
+        "color": [
+          1,
+          0.62,
+          0.28
+        ],
+        "intensity": 4.6
+      },
+      "path": {
+        "color": [
+          1,
+          0.78,
+          0.52
+        ],
+        "intensity": 3.6
+      },
+      "wall": {
+        "color": [
+          1,
+          0.74,
+          0.46
+        ],
+        "intensity": 1.8
+      }
     }
   },
   "windows": {
     "about": "Use class encoded in the fourth layout component; unknown/residential=0, office/education=1, hospitality=2. Multipliers apply to the residential timecycle occupancy.",
-    "hour": [0, 4, 8, 12, 16, 18, 20, 22, 24],
-    "office": [0.12, 0.08, 1, 1, 1, 0.65, 0.25, 0.15, 0.12],
-    "hospitality": [1.8, 0.4, 0.7, 1.2, 1.5, 1.8, 1.9, 1.9, 1.8],
-    "evidence": [856077, 953701, 329619, 770680, 321764]
+    "hour": [
+      0,
+      4,
+      8,
+      12,
+      16,
+      18,
+      20,
+      22,
+      24
+    ],
+    "office": [
+      0.12,
+      0.08,
+      1,
+      1,
+      1,
+      0.65,
+      0.25,
+      0.15,
+      0.12
+    ],
+    "hospitality": [
+      1.8,
+      0.4,
+      0.7,
+      1.2,
+      1.5,
+      1.8,
+      1.9,
+      1.9,
+      1.8
+    ],
+    "evidence": [
+      856077,
+      953701,
+      329619,
+      770680,
+      321764
+    ]
   },
   "bridges": {
-    "Q11871663": {"name": "Kirjastosilta", "rail": [0.3, 0.57, 1], "railIntensity": 2.8, "evidence": [509951, 509952, 507660]},
-    "Q6947737": {"name": "Myllysilta", "soffit": [0.52, 0.48, 0.82], "soffitIntensity": 0.45, "evidence": [333084, 333087, 556504]}
+    "Q11871663": {
+      "name": "Kirjastosilta",
+      "rail": [
+        0.3,
+        0.57,
+        1
+      ],
+      "evidence": [
+        509951,
+        509952,
+        507660
+      ]
+    },
+    "Q6947737": {
+      "name": "Myllysilta",
+      "soffit": [
+        0.52,
+        0.48,
+        0.82
+      ],
+      "evidence": [
+        333084,
+        333087,
+        556504
+      ]
+    }
   },
-  "boats": {"cabinColor": [1, 0.72, 0.38], "cabinIntensity": 0.85, "bulbIntensity": 3, "bulbSpacing": 1.8, "evidence": [321764, 554993, 399195]}
+  "boats": {
+    "cabinColor": [
+      1,
+      0.72,
+      0.38
+    ],
+    "bulbSpacing": 1.8,
+    "evidence": [
+      321764,
+      554993,
+      399195
+    ],
+    "maxBulbs": 64
+  },
+  "materials": {
+    "night_bridge_rail": {
+      "intensity": 2.8
+    },
+    "night_bridge_soffit": {
+      "intensity": 0.45
+    },
+    "night_boat_cabin": {
+      "intensity": 0.85
+    },
+    "night_boat_bulb": {
+      "intensity": 3
+    },
+    "night_landmark_wall": {
+      "intensity": 1
+    },
+    "night_quay_bar": {
+      "intensity": 8
+    }
+  },
+  "quay": {
+    "about": "Lower-quay LED bars (issue 019). Placement policy, tint and wash depth live in coarse/quay_lighting_observations.json; these are renderer-relative intensities only.",
+    "washIntensity": 4,
+    "evidence": [
+      554993,
+      399195,
+      333083,
+      334533
+    ]
+  }
 }

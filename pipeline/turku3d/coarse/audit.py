@@ -45,6 +45,17 @@ def submit(out, visual, *, launch=True, require_snapshot=False):
         print(f'Post-publication audit enqueue failed: {error}', file=sys.stderr)
 
 
+def submit_all(out, visuals, *, require_snapshot=False):
+    """Queue a composed visual once, including model-only changes to cached terrain."""
+    for visual in visuals:
+        submit(out, visual, launch=False, require_snapshot=require_snapshot)
+    root = out.parent / '.visual-audits'
+    if any(root.glob('*.pending.json')):
+        subprocess.Popen([sys.executable, '-m', __name__, str(root)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+
+
 def drain(root):
     root = Path(root)
     os.nice(10)

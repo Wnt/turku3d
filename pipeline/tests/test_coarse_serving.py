@@ -182,3 +182,20 @@ def test_no_complete_collision_means_no_visible_fragment(tmp_path):
     assert retained_fragment(b, TILE.id) is None
     assert "fragment" not in b.request(TILE.id, 0)
     b.stop()
+
+
+def test_missing_building_model_prevents_partial_visual_publication(tmp_path):
+    from turku3d.coarse.serving import complete, public_fragment
+
+    value = publish(tmp_path, "manifest.json")
+    digest = hashlib.sha256(b"building").hexdigest()
+    value["buildingPlacements"] = dict(version=1, models=[
+        dict(id=digest, uri=f"../shared/{digest}.glb", bytes=8)], placements=[])
+    assert not complete(tmp_path, TILE.id, value)
+    (tmp_path / "shared").mkdir()
+    path = tmp_path / "shared" / f"{digest}.glb"
+    path.write_bytes(b"building")
+    assert complete(tmp_path, TILE.id, value)
+    assert public_fragment(value)["buildingPlacements"] == value["buildingPlacements"]
+    path.write_bytes(b"truncated")
+    assert not complete(tmp_path, TILE.id, value)

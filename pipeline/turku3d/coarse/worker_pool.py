@@ -19,7 +19,8 @@ class Workers:
     memory), and when a pipeline source file changed since it started, so code edits take effect."""
 
     MAX_BUILDS = 50
-    SOURCES = ("pipeline/turku3d/**/*.py", "pipeline/turku3d/package/*.mjs")
+    SOURCES = ("pipeline/turku3d/**/*.py", "pipeline/turku3d/package/*.mjs",
+               "pipeline/turku3d/night_lighting.json")
 
     def __init__(self):
         self.local = threading.local()

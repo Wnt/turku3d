@@ -91,11 +91,15 @@ class HeightQuery:
     Triangles are bucketed by the grid cells their bounding boxes overlap, so a query tests
     only the triangles of its own cell. Each triangle interpolates from its vertices in
     coordinate order, so the same triangle cut from another envelope gives the same bits.
-    Points outside every triangle are NaN."""
+    Points outside every triangle are NaN. Optional tolerance is in metres;
+    accepted near-hits project to an edge. A reference height selects the
+    closest floor where several levels meet, preserving each side of a crest.
+    """
 
     CHUNK = 262_144
 
-    def __init__(self, mesh):
+    def __init__(self, mesh, *, tolerance=0.0):
+        self.tolerance = tolerance
         p = np.asarray(mesh.positions, np.float64)
         f = np.asarray(mesh.indices, np.int64).reshape(-1, 3)
         xz = p[:, [0, 2]]
@@ -114,7 +118,7 @@ class HeightQuery:
             self.triangles = np.empty(0, np.int64)
             self.origin, self.size, self.shape = np.zeros(2), 1.0, (0, 0)
             return
-        lo, hi = corners.min(axis=1), corners.max(axis=1)
+        lo, hi = corners.min(axis=1) - tolerance, corners.max(axis=1) + tolerance
         self.origin = lo.min(axis=0)
         self.size = max(float(np.median(hi - lo)) / 2, 1e-3)
         first = np.floor((lo - self.origin) / self.size).astype(np.int64)
@@ -130,14 +134,16 @@ class HeightQuery:
         order = np.argsort(cells, kind="stable")
         self.cells, self.triangles = cells[order], owner[order]
 
-    def __call__(self, xz):
+    def __call__(self, xz, reference=None):
         xz = np.asarray(xz, np.float64).reshape(-1, 2)
+        reference = None if reference is None else np.asarray(reference, np.float64)
         out = np.full(len(xz), np.nan)
         for start in range(0, len(xz), self.CHUNK):
-            out[start : start + self.CHUNK] = self._query(xz[start : start + self.CHUNK])
+            ref = None if reference is None else reference[start : start + self.CHUNK]
+            out[start : start + self.CHUNK] = self._query(xz[start : start + self.CHUNK], ref)
         return out
 
-    def _query(self, q):
+    def _query(self, q, reference=None):
         out = np.full(len(q), np.nan)
         if not len(self.cells):
             return out
@@ -155,10 +161,37 @@ class HeightQuery:
             u = (dx * r[:, 5] - dz * r[:, 4]) / r[:, 6]
             v = (r[:, 2] * dz - r[:, 3] * dx) / r[:, 6]
         eps = 1e-12
-        inside = (r[:, 6] != 0) & (u >= -eps) & (v >= -eps) & (u + v <= 1 + eps)
+        if self.tolerance:
+            # Use metres, not a fixed barycentric epsilon: a narrow overlay
+            # sliver and a broad terrain triangle need the same edge tolerance.
+            area = np.maximum(abs(r[:, 6]), 1e-300)
+            eu = eps + self.tolerance * np.linalg.norm(r[:, 4:6], axis=1) / area
+            ev = eps + self.tolerance * np.linalg.norm(r[:, 2:4], axis=1) / area
+            ew = eps + self.tolerance * np.linalg.norm(r[:, 2:4] - r[:, 4:6], axis=1) / area
+            inside = (r[:, 6] != 0) & (u >= -eu) & (v >= -ev) & (u + v <= 1 + ew)
+        else:
+            inside = (r[:, 6] != 0) & (u >= -eps) & (v >= -eps) & (u + v <= 1 + eps)
         point, tri, u, v = point[inside], tri[inside], u[inside], v[inside]
         if not len(point):
             return out
+        h = self.rows[tri, 7:]
+        hit = h[:, 0] + u * (h[:, 1] - h[:, 0]) + v * (h[:, 2] - h[:, 0])
+        outside = (u < 0) | (v < 0) | (u + v > 1)
+        if self.tolerance and outside.any():
+            # A metric near-hit is on the nearest edge, not an extrapolation
+            # of a nearly vertical sliver's plane (which can be hundreds of m).
+            row = self.rows[tri[outside]]
+            corners = np.stack([row[:, :2], row[:, :2] + row[:, 2:4],
+                                row[:, :2] + row[:, 4:6]], axis=1)
+            a, b = corners, np.roll(corners, -1, axis=1)
+            delta = b - a
+            t = np.clip(np.sum((q[point[outside], None] - a) * delta, axis=2)
+                        / np.maximum(np.sum(delta * delta, axis=2), 1e-300), 0, 1)
+            distance = np.sum((a + t[:, :, None] * delta - q[point[outside], None])**2, axis=2)
+            edge = distance.argmin(axis=1)
+            heights = h[outside]
+            near = heights + t * (np.roll(heights, -1, axis=1) - heights)
+            hit[outside] = near[np.arange(len(edge)), edge]
         # Hits are grouped by point. A point on a shared edge picks the triangle with the
         # lowest corner coordinates.
         start = np.r_[True, point[1:] != point[:-1]]
@@ -166,11 +199,14 @@ class HeightQuery:
         shared = np.flatnonzero(np.bincount(run)[run] > 1)
         keep = np.flatnonzero(np.bincount(run)[run] == 1)
         if len(shared):
-            rank = shared[np.lexsort((*self.key[tri[shared]].T[::-1], point[shared]))]
+            keys = (*self.key[tri[shared]].T[::-1],)
+            if self.tolerance:
+                keys += (outside[shared],)
+            if reference is not None:
+                keys += (abs(hit[shared] - reference[point[shared]]),)
+            rank = shared[np.lexsort((*keys, point[shared]))]
             keep = np.r_[keep, rank[np.r_[True, point[rank][1:] != point[rank][:-1]]]]
-        point, tri, u, v = point[keep], tri[keep], u[keep], v[keep]
-        h = self.rows[tri, 7:]
-        out[point] = h[:, 0] + u * (h[:, 1] - h[:, 0]) + v * (h[:, 2] - h[:, 0])
+        out[point[keep]] = hit[keep]
         return out
 
 

@@ -146,10 +146,13 @@ def terrain_stage(tile, inputs):
     """Terrain and deck outputs, including the approaches that mutate the ground grid."""
     from turku3d.col.materials import mat_id
 
-    from . import gardens, surfaces, walkable
+    from . import gardens, roof_returns, surfaces, walkable
     from .build import grid_mesh, water_level, water_mask
 
-    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
+    heights, _ = roof_returns.terrain_heights(
+        tile, inputs.points, inputs.heights, footprints(inputs), wall_lines(inputs)
+    )
+    grid_pos, grid_idx = grid_mesh(tile, heights)
     grid_pos = gardens.grade(grid_pos, inputs.gardens)
     grid_pos = walkable.grade(grid_pos, inputs.walkable)
     centroids = grid_pos[grid_idx].mean(axis=1)
@@ -166,19 +169,35 @@ def terrain_stage(tile, inputs):
     return grid_pos, grid_idx, materials, wet, level
 
 
+def footprints(inputs):
+    """Complete owned and neighbouring buildings, so seam key points agree."""
+    return [*inputs.buildings, *inputs.wall_context]
+
+
+def wall_lines(inputs):
+    from . import roof_returns
+
+    return roof_returns.guards(inputs.barriers, inputs.retaining)
+
+
 def cached_terrain(cache, tile, inputs, common):
     """Keep the structural terrain cache orchestration outside the tile build body."""
     from pathlib import Path
 
     from turku3d.stage_cache import source_key
 
-    from . import gardens, surfaces, walkable
+    from . import gardens, roof_returns, surfaces, walkable
     from .build import grid_mesh, water_level, water_mask
+    from .inputs import grid_heights
 
     return cache.run(
         "terrain",
         source_key(
             terrain_stage,
+            footprints,
+            wall_lines,
+            Path(roof_returns.__file__),
+            grid_heights,
             grid_mesh,
             water_mask,
             water_level,
@@ -199,6 +218,10 @@ def cached_terrain(cache, tile, inputs, common):
             inputs.surfaces,
             inputs.water,
             bool(inputs.roads and inputs.roads.get("bridge_ways")),
+            [(b.key, b.footprint.wkb, b.base, [(g.wkb, tuple(map(float, plane)))
+                                                for g, plane in b.roof_parts or ()])
+             for b in footprints(inputs)],
+            [g.wkb for g in wall_lines(inputs)],
         ],
         lambda: terrain_stage(tile, inputs),
     )
@@ -208,12 +231,38 @@ def structures_stage(
     cache, tile, inputs, grid_pos, sample, dry, river, bank, solid, sources, decks, openings
 ):
     """Compose mapped stairs, retaining edges and moored boats, then preserve passages."""
-    from . import boats, stairs
+    from . import boats, stairs, surface_join
     from .openings import stage as opening_stage
+    from pathlib import Path
+    from turku3d.stage_cache import source_key
+    from turku3d.ground.mesh import Mesh
+    from .banks import join
 
+    source_dry = dry
     stair_meshes, dry, solid = stairs.from_inputs(
         cache, tile, inputs, grid_pos, sample, dry, solid, sources, decks
     )
+    def contacts():
+        floors = [dry]
+        for mesh in stair_meshes:
+            if not mesh.visual:
+                continue
+            triangles = mesh.positions[mesh.indices]
+            normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+            keep = normal[:, 1] > 1e-9
+            if keep.any():
+                floors.append(Mesh(mesh.positions, mesh.indices[keep],
+                                   np.zeros(keep.sum(), np.uint8)))
+        target = join(*floors)
+        return (surface_join.align_upper(bank, source_dry, target),
+                surface_join.align_upper(solid, source_dry, target))
+
+    if stair_meshes:
+        bank, solid = cache.run(
+            "quay_contacts", source_key(contacts, Path(surface_join.__file__),
+                                        Path(surface_join.__file__).parents[1] / "ground/mesh.py"),
+            [bank, solid, source_dry, dry, stair_meshes], contacts,
+        )
     boat_meshes = boats.stage(cache, tile, inputs.boats)
     dry, river, bank, solid, stair_meshes = opening_stage(
         cache, openings, dry, river, bank, solid, stair_meshes

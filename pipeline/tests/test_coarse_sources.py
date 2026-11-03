@@ -145,6 +145,8 @@ def test_collision_identity_ignores_visual_changes_but_tracks_structure(monkeypa
     from turku3d.facade_programs import source_paths
 
     for program in source_paths():
+        if program.name == "night_lighting.py":
+            continue  # shared with structural lamp posts, so it rightly keys collision too
         changes[program] = read(program) + b"\n# facade layout changed\n"
     assert collision_key.code_hash() == before
     build = Path(collision_key.__file__).with_name("build.py")
