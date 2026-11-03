@@ -1,3 +1,4 @@
+import { nightSurface } from './nightSurface';
 import { wetSurface } from './weather/surfaces';
 import { StyledMaterials } from './styledMaterials';
 import { reflectionSurface, REFLECTION_LAYER } from './reflections';
@@ -83,6 +84,12 @@ export class MaterialStyler {
       const style = (source: THREE.Material): THREE.Material => {
         const key = materialKey(mesh, source);
         if (!key) return source;
+        if (key.startsWith('night_')) {
+          if ((source as THREE.MeshStandardNodeMaterial).isMeshStandardNodeMaterial)
+            return nightSurface(source as THREE.MeshStandardNodeMaterial, key);
+          return this.shared.acquire(source, key, model, () => nightSurface(
+            this.renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial, key));
+        }
         if (key === 'facade_kit') {
           const cached = cache.get(source.uuid);
           if (cached) return cached;

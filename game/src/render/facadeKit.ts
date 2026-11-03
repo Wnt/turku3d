@@ -1,3 +1,4 @@
+import { nightSurface } from './nightSurface';
 import { wetSurface } from './weather/surfaces';
 // A single shared atlas supplies upper-storey bays and a separate row at the building base.
 import * as THREE from 'three/webgpu';
@@ -18,7 +19,8 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   const packedPaint = (p.version ?? 1) >= 5 ? facadePaintAttributes() : null;
   // GLTFLoader exposes custom semantics in lowercase on both renderer backends.
   // Retain v1 support for published tiles until their next rebuild.
-  const layout = (p.version ?? 1) >= 2 ? facadeAttribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1);
+  const layout6 = (p.version ?? 1) >= 6 ? facadeAttribute('_kit_layout', 'vec4') : null;
+  const layout = layout6?.xyz ?? ((p.version ?? 1) >= 2 ? facadeAttribute('_kit_layout', 'vec3') : vec3(p.module!, 1, 1));
   const origin = (p.version ?? 1) >= 4 ? facadeAttribute('_kit_extent', 'vec4').xy
     : (p.version ?? 1) >= 2 ? facadeAttribute('_kit_origin', 'vec2') : vec2(0);
   const metres = uv().sub(origin);
@@ -67,7 +69,7 @@ export function facadeKitMaterial(source: THREE.Material, renderer: THREE.WebGPU
   material.metalnessNode = mix(paint ? mix(orm.b, float(0), paint.band) : orm.b, float(0), opening);
   material.aoNode = mix(orm.r, float(.85), opening);
   if ((p.version ?? 1) >= 5 && program && paint) {
-    material.emissiveNode = facadeProgramEmission(program, paint, metres, layout);
+    material.emissiveNode = facadeProgramEmission(program, paint, metres, layout, layout6?.w);
   } else if ((p.version ?? 1) >= 4) {
     material.emissiveNode = facadeProgramSurface(p.version).emission;
   } else {
@@ -122,7 +124,9 @@ export function tintDraft(model: THREE.Object3D, renderer: THREE.WebGPURenderer,
         const create = () => {
           const kit = facadeKitMaterial(source, renderer);
           const material = kit ?? renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial;
-          if (!kit && wall && material.isMeshStandardNodeMaterial) draftWindows(material);
+          const key = String(source.userData.material_key ?? mesh.userData.material_key ?? "");
+          if (!kit && wall && !key.startsWith("night_") && material.isMeshStandardNodeMaterial) draftWindows(material);
+          if (material.isMeshStandardNodeMaterial) nightSurface(material, key);
           material.polygonOffset = true; material.polygonOffsetFactor = -1; material.polygonOffsetUnits = -2;
           return material;
         };
