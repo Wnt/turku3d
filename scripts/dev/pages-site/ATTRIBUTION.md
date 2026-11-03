@@ -4,13 +4,20 @@
 
 | Source | Used for | Licence |
 |---|---|---|
-| City of Turku open data (Turun kaupunki): WFS base map layers (building footprints, CityGML LoD2/LoD3 buildings, street areas and centrelines, curbs, stairs, walls, trees, street furniture, traffic signs, water) | Buildings, streets, curbs, stairs, props, vegetation placement | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), © City of Turku, [source](https://www.turku.fi/tietoa-turusta/kartat-ja-paikkatieto) |
-| City of Turku 2021 lidar point cloud | Terrain and building heights | CC BY 4.0, © City of Turku |
-| City of Turku aerial imagery: 2022 true orthophoto and 2025 orthophoto | Ground textures | CC BY 4.0, © City of Turku |
-| OpenStreetMap | Street network, crossings and road markings | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/), © OpenStreetMap contributors, [copyright](https://www.openstreetmap.org/copyright) |
+| City of Turku open data (Turun kaupunki): WFS base map layers (building footprints, CityGML LoD2/LoD3 buildings, street areas and centrelines, curbs, stairs, walls, trees, street furniture, traffic signs, water) | Buildings, streets, curbs, stairs, props, vegetation placement | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), © City of Turku, [source](https://www.turku.fi/tietoa-turusta/kartat-ja-paikkatieto); catalogue: [city model](https://avoindata.suomi.fi/data/en_GB/dataset/turun-kaupungin-kaupunkitietomalli), [base map](https://avoindata.suomi.fi/data/en_GB/dataset/turun-kantakartta), [street areas](https://avoindata.suomi.fi/data/en_GB/dataset/turun-ja-kaarinan-yllapitamat-katualueet), [traffic signs](https://avoindata.suomi.fi/data/en_GB/dataset/turun-kaupungin-liikennemerkit) |
+| City of Turku 2021 lidar point cloud and ground points (part of the city model) | Terrain and building heights | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), © City of Turku, [catalogue](https://avoindata.suomi.fi/data/en_GB/dataset/turun-kaupungin-kaupunkitietomalli) |
+| City of Turku aerial imagery: 2022 true orthophoto and 2025 orthophoto | Ground classification and textures | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), © City of Turku, catalogue: [2022](https://avoindata.suomi.fi/data/en_GB/dataset/turun-ilmakuva-2022), [regional](https://avoindata.suomi.fi/data/en_GB/dataset/turun-seudun-ilmakuva) |
+| OpenStreetMap | Street network and road graph, crossings and road markings, kerbs, bridges, tunnels, fences and walls, trees, signs, building levels, landmarks | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/), © OpenStreetMap contributors, [copyright](https://www.openstreetmap.org/copyright) |
 
-The data was resampled, classified, clipped, meshed and textured for the game. No street-level
-photography (Google Street View, Apple Look Around, Mapillary) is published here.
+The game world is derived from these sources. The data was resampled, classified, clipped, meshed and
+textured for the game, and the city data was merged with OpenStreetMap. No street-level photography
+(Google Street View, Apple Look Around, Mapillary) is published here.
+
+The game's tiles are Produced Works under the ODbL. The street graphs the game downloads (`roads.json`
+in each tile) and other OpenStreetMap-derived data inside the tiles are derivative databases of
+OpenStreetMap. They are available under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/), regardless
+of the licence of the surrounding code and assets. The public source repository
+([Wnt/turku3d](https://github.com/Wnt/turku3d)) contains the pipeline that builds them from a dated Geofabrik Finland extract.
 
 ## Software and assets
 

@@ -126,6 +126,10 @@ WMS_LAYERS: tuple[WmsLayer, ...] = (
 )
 
 
+# Verified in the national open data catalogue (avoindata.suomi.fi) on 2026-11-03.
+TURKU_LICENCE = "CC BY 4.0, (c) Turun kaupunki (City of Turku), verified 2026-11-03"
+
+
 def sources_yaml() -> str:
     def q(s: str) -> str:
         return '"' + s.replace('"', '\\"') + '"'
@@ -139,9 +143,14 @@ def sources_yaml() -> str:
         "  index: data-manifests/laz-tiles.csv",
         "  epoch: 2021-04-17",
         '  notes: "use curl -L (opaskartta host 301-redirects); no CRS VLR, EPSG:3877 assumed; 130-150 MB/tile"',
-        '  licence: "Turku open data (CC BY 4.0, Turun kaupunki) [U]"',
+        f"  licence: {q(TURKU_LICENCE + '; dataset turun-kaupungin-kaupunkitietomalli')}",
         "wfs:",
         f"  url: {q(WFS_URL)}",
+        "  licence: "
+        + q(
+            TURKU_LICENCE + "; datasets turun-kaupungin-kaupunkitietomalli, turun-kantakartta, "
+            "turun-ja-kaarinan-yllapitamat-katualueet, turun-kaupungin-liikennemerkit"
+        ),
         "  format: GML only (no JSON)",
         f"  feature_cap_per_request: {WFS_FEATURE_CAP}",
         '  paging: "spatial quadtree split until a page has < cap features; dedupe by gml:id or content hash"',
@@ -157,6 +166,7 @@ def sources_yaml() -> str:
         "wms:",
         f"  url: {q(WMS_URL)}",
         f"  max_px: {WMS_MAX_PX}",
+        f"  licence: {q(TURKU_LICENCE + '; datasets turun-ilmakuva-2022, turun-seudun-ilmakuva, turun-lennokkikuvaukset')}",
         "  layers:",
     ]
     for W in WMS_LAYERS:
@@ -168,7 +178,7 @@ def sources_yaml() -> str:
         "osm:",
         f"  url: {q(GEOFABRIK_FINLAND)}",
         '  notes: "latest redirects to a dated file; md5 checked; clipped with osmium extract --strategy smart"',
-        '  licence: "ODbL 1.0 (c) OpenStreetMap contributors"',
+        '  licence: "ODbL 1.0 (c) OpenStreetMap contributors; tile road graphs are ODbL derivative databases"',
     ]
     return "\n".join(out) + "\n"
 

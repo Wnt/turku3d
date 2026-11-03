@@ -6,9 +6,10 @@ laz:
   index: data-manifests/laz-tiles.csv
   epoch: 2021-04-17
   notes: "use curl -L (opaskartta host 301-redirects); no CRS VLR, EPSG:3877 assumed; 130-150 MB/tile"
-  licence: "Turku open data (CC BY 4.0, Turun kaupunki) [U]"
+  licence: "CC BY 4.0, (c) Turun kaupunki (City of Turku), verified 2026-11-03; dataset turun-kaupungin-kaupunkitietomalli"
 wfs:
   url: "https://turku.asiointi.fi/TeklaOGCWeb/WFS.ashx"
+  licence: "CC BY 4.0, (c) Turun kaupunki (City of Turku), verified 2026-11-03; datasets turun-kaupungin-kaupunkitietomalli, turun-kantakartta, turun-ja-kaarinan-yllapitamat-katualueet, turun-kaupungin-liikennemerkit"
   format: GML only (no JSON)
   feature_cap_per_request: 1000
   paging: "spatial quadtree split until a page has < cap features; dedupe by gml:id or content hash"
@@ -56,6 +57,7 @@ wfs:
 wms:
   url: "https://turku.asiointi.fi/TeklaOGCWeb/WMS.ashx"
   max_px: 4096
+  licence: "CC BY 4.0, (c) Turun kaupunki (City of Turku), verified 2026-11-03; datasets turun-ilmakuva-2022, turun-seudun-ilmakuva, turun-lennokkikuvaukset"
   layers:
     - {name: "Ilmakuva 2022 True ortho", slug: ortho2022to, request_px_m: 0.05, native_cm: 5.5, year: "2022", compress: DEFLATE, note: "true ortho, no building lean: primary roof/ground texture"}
     - {name: "Ilmakuva 2025", slug: ortho2025, request_px_m: 0.05, native_cm: 5.2, year: "2025", compress: DEFLATE, note: "most recent"}
@@ -63,4 +65,4 @@ wms:
 osm:
   url: "https://download.geofabrik.de/europe/finland-latest.osm.pbf"
   notes: "latest redirects to a dated file; md5 checked; clipped with osmium extract --strategy smart"
-  licence: "ODbL 1.0 (c) OpenStreetMap contributors"
+  licence: "ODbL 1.0 (c) OpenStreetMap contributors; tile road graphs are ODbL derivative databases"
