@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-FLOAT, UINT32 = 5126, 5125
+FLOAT, UINT32, UINT8 = 5126, 5125, 5121
 ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER = 34962, 34963
 
 
@@ -95,13 +95,16 @@ def build_glb(
         gltf["bufferViews"].append(bv)
         return len(gltf["bufferViews"]) - 1
 
-    def accessor(arr: np.ndarray, ctype: int, typ: str, target: int, minmax: bool = False) -> int:
+    def accessor(arr: np.ndarray, ctype: int, typ: str, target: int, minmax: bool = False,
+                 normalized: bool = False) -> int:
         acc = {
             "bufferView": view(arr.tobytes(), target),
             "componentType": ctype,
             "count": int(arr.shape[0]),
             "type": typ,
         }
+        if normalized:
+            acc["normalized"] = True
         if minmax:
             acc["min"] = [float(v) for v in arr.min(0)]
             acc["max"] = [float(v) for v in arr.max(0)]
@@ -144,9 +147,10 @@ def build_glb(
             if (visibility.shape != pos.shape or not np.isfinite(visibility).all()
                     or np.any(visibility < 0) or np.any(visibility > 1)):
                 raise ValueError(f"{m.name}: baked_visibility must be finite (N,3) values in [0,1]")
-            attrs["COLOR_1"] = accessor(
-                np.ascontiguousarray(visibility, np.float32), FLOAT, "VEC3", ARRAY_BUFFER
-            )
+            # UNORM8 RGBA: 4 bytes per vertex (aligned), A unused; 1/255 steps are below visible banding.
+            packed = np.full((len(visibility), 4), 255, np.uint8)
+            packed[:, :3] = np.round(visibility * 255)
+            attrs["COLOR_1"] = accessor(packed, UINT8, "VEC4", ARRAY_BUFFER, normalized=True)
         if m.uvs is not None:
             attrs["TEXCOORD_0"] = accessor(
                 np.ascontiguousarray(m.uvs, np.float32), FLOAT, "VEC2", ARRAY_BUFFER
@@ -246,7 +250,9 @@ def read_glb(data: bytes) -> tuple[dict, bytes]:
 def accessor_array(js: dict, binc: bytes, i: int) -> np.ndarray:
     acc = js["accessors"][i]
     bv = js["bufferViews"][acc["bufferView"]]
-    dt = {FLOAT: np.float32, UINT32: np.uint32}[acc["componentType"]]
+    dt = {FLOAT: np.float32, UINT32: np.uint32, UINT8: np.uint8}[acc["componentType"]]
     ncomp = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}[acc["type"]]
     a = np.frombuffer(binc, dt, acc["count"] * ncomp, bv["byteOffset"])
+    if acc.get("normalized"):
+        a = a.astype(np.float32) / np.float32(np.iinfo(dt).max)
     return a.reshape(-1, ncomp) if ncomp > 1 else a

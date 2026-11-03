@@ -753,8 +753,15 @@ def build(
     )
     from turku3d.wall_assembly import assemble_layers
 
+    from . import visibility
+
+    context = [*blds, *inputs.wall_context]
     with cache.measure("wall_assembly"):
-        layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache)
+        layer_files = assemble_layers(
+            tile, layer_files, building_meshes, shells, out, stage, cache,
+            bake=lambda meshes: visibility.stage(cache, tile, meshes, context, inputs.heights),
+        )
+    seconds["visibility"] = cache.metrics["visibility"]["seconds"]
 
     surface_channels = surfaces.channels(ground_meshes)
     seconds["visual_geometry"] = time.perf_counter() - t
