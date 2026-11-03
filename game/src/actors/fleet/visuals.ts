@@ -51,6 +51,10 @@ export class ParkedCarVisuals {
   private rotation=new THREE.Quaternion(); private scale=new THREE.Vector3(1,1,1);
   private loading: Promise<void>=Promise.resolve();
   private loaded=false;
+  /** One detached, prepared driven-car actor per loaded design: r186 keys a plain Mesh's programs apart from the
+   *  instanced batches, so the first takeOver of a design built its beauty, prepass, shadow and reflection programs
+   *  inside that frame (live play only: replays never take a car over). Held so r186 keeps the builds; never drawn. */
+  private keepers=new Map<string,THREE.Mesh>();
   private wheelMotion=new Map<string,{x:number;z:number;yaw:number;spin:number;steer:number}>();
   private wheelMatrix=new THREE.Matrix4(); private hubMatrix=new THREE.Matrix4();
   private hubPosition=new THREE.Vector3(); private hubRotation=new THREE.Quaternion();
@@ -168,6 +172,19 @@ export class ParkedCarVisuals {
     const resident=new Set(cars.map(c=>c.object_id));
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
     this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
+    void this.warmActors(models).catch(error=>console.warn(`[fleet] actor warmup: ${error}`));
+  }
+  /** Prepare a takeOver actor of each design ahead (see `keepers`); a design whose geometry is not built yet waits for
+   *  its own load. */
+  private async warmActors(models:readonly FleetModel[]) {
+    for(const model of models) {
+      if(this.keepers.has(model.id)||!this.geometries.has(`${model.id}/0`))continue;
+      const keeper=this.actor(model,'silver',`keeper/${model.id}`);
+      // Detached on purpose: the graphics queue prepares it even after the menu (render/graphicsPreparation.ts).
+      keeper.userData.preparesDetached=true;
+      this.keepers.set(model.id,keeper);
+      await this.prepare(keeper);
+    }
   }
   private actor(model:FleetModel,color:string,name:string) {
     const parts=this.authoredParts.get(`${model.id}/0`);
