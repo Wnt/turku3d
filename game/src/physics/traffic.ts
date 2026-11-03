@@ -62,8 +62,25 @@ export interface TrafficHost {
   player(): V3 | null;
 }
 
+/** GTA-style car tiers (techstudy Brief 1). Real cars (in view, within 70 m and among the 8 nearest; kept to 80 m
+ *  and the 12 nearest) sample their wheels on collision every substep. Dummies follow their lane's collision-sampled
+ *  heights and pitch with no wheel rays. Far cars (beyond 200 m, back inside 190 m) take an exact pose at 5 Hz and
+ *  drift along their heading in between. A real/dummy change blends wheel and lane poses over half a second.
+ *  Rendering only: the shared flow, identities and bodies (within 70 m of the player) are untouched. */
+export const TIERS = { realIn: 70, realOut: 80, realCount: 8, realKeep: 12, farIn: 200, farOut: 190, farPeriod: 0.2, blend: 0.5 } as const;
+export type Tier = 0 | 1 | 2;
+
 interface ActiveCar {
   motion: FlowCar;
+  /** 0 real, 1 dummy, 2 far; `blend` runs 0 (lane pose) to 1 (wheel pose). */
+  tier: Tier; blend: number;
+  /** Far tier: the time and position of the last exact pose. */
+  farAt: number; farX: number; farZ: number;
+  /** Drawn chassis rotation and wheel heights (blended between lane and wheel poses). */
+  rot: Quat; wheelY: number[];
+  distance: number;
+  /** Appearance seed, hashed once. */
+  seed?: number;
   handle: number;
   lane: Lane; n: number; key: string;
   model: number; paint: number;
@@ -100,8 +117,14 @@ export class TrafficSim {
   time = 0;
   /** `stepMs`: mean traffic cost per physics substep (ring, poses, bodies, contacts; ms, EMA), `stepMax` its
    *  recent peak (decaying), `activationMs` the last ring pass. */
-  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0, hour: 0, deferred: 0 };
+  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0, hour: 0, deferred: 0,
+    /** Drawn cars per tier: real, dummy, far. */
+    tiers: [0, 0, 0] };
   private substepMs = 0;
+  private previousTime = 0;
+  private ground = (x: number, top: number, z: number, depth: number) => this.host.ground(x, top, z, depth);
+  /** Lanes waiting for (or being) sampled. */
+  private queued = new Set<Lane>();
 
   constructor(private readonly R: R, private readonly world: RAPIER_NS.World, private readonly host: TrafficHost) {
     this.network.density = { hourAt: t => this.hourAt(t), multiplier: 1 };
@@ -126,7 +149,7 @@ export class TrafficSim {
         console.warn(`[traffic] ${t.tile}: ${(error as Error).message}`);
       }
     }
-    this.heights.clear(); this.sampleQueue = []; this.sampling = null;
+    this.heights.clear(); this.sampleQueue = []; this.sampling = null; this.queued.clear();
     this.claims.reset();
     this.stats.tiles = this.network.tiles.size;
     this.stats.lanes = [...this.network.tiles.values()].reduce((n, t) => n + t.lanes.length, 0);
@@ -177,29 +200,47 @@ export class TrafficSim {
     }
     this.sampleSome(performance.now() + SAMPLE_MS_PER_STEP);
     const player = this.host.player();
+    const step = Math.max(0, Math.min(0.1, t - this.previousTime));
+    this.previousTime = t;
     let bodies = 0;
     for (const car of this.active.values()) {
       const motion = this.flow.cars.get(car.key);
       if (!motion) { this.deactivate(car); continue; }
       car.motion = motion; car.lane = motion.lane; car.n = motion.n;
-      interpolateFlowPose(motion, (t - this.flow.tick * FLOW_STEP) / FLOW_STEP, this.height, car.pose);
-      if (this.view && mustRemove(Math.hypot(car.pose.x - this.view.x, car.pose.z - this.view.z),
-        inView(this.view, car.pose.x, car.pose.z))) { this.deactivate(car); continue; }
-      const view=player??this.view;
-      if(view&&Number.isFinite(car.pose.y)&&this.host.resident(car.pose.x,car.pose.z)&&Math.hypot(car.pose.x-view.x,car.pose.z-view.z)<100){
+      if (car.tier !== 2 || t - car.farAt >= TIERS.farPeriod || t < car.farAt) {
+        interpolateFlowPose(motion, (t - this.flow.tick * FLOW_STEP) / FLOW_STEP, this.height, car.pose);
+        car.farAt = t; car.farX = car.pose.x; car.farZ = car.pose.z;
+      } else {
+        // Far: closed-form drift along the last exact heading until the next 5 Hz pose.
+        const dt = t - car.farAt;
+        car.pose.x = car.farX + car.pose.hx * car.pose.speed * dt; car.pose.z = car.farZ + car.pose.hz * car.pose.speed * dt;
+      }
+      if (this.view) {
+        const vx = car.pose.x - this.view.x, vz = car.pose.z - this.view.z;
+        if (mustRemove(Math.sqrt(vx * vx + vz * vz), inView(this.view, car.pose.x, car.pose.z))) { this.deactivate(car); continue; }
+      }
+      // Real cars sample their wheels on collision; a tier change blends towards the other pose over half a second.
+      car.blend = Math.max(0, Math.min(1, car.blend + (car.tier === 0 ? step : -step) / TIERS.blend));
+      if(car.blend>0&&Number.isFinite(car.pose.y)&&this.host.resident(car.pose.x,car.pose.z)){
         const p=car.pose,yaw=Math.atan2(-p.hz,p.hx),last=car.groundAt;
-        if(!last||Math.hypot(p.x-last.x,p.z-last.z)>.08||Math.abs(yaw-last.yaw)>.025){
+        if(!last||(p.x-last.x)**2+(p.z-last.z)**2>.0064||Math.abs(yaw-last.yaw)>.025){
           const model=car.visualModel??=fleetModel(TRAFFIC_MODELS[car.model],String(hash32('appearance',car.key)));
-          const pose=sampleWheelGround({x:p.x,y:p.y,z:p.z},yaw,fleetWheelFootprint(model),this.host.ground.bind(this.host));
-          car.terrain=pose??undefined;car.groundAt={x:p.x,z:p.z,yaw};
+          const pose=sampleWheelGround({x:p.x,y:p.y,z:p.z},yaw,fleetWheelFootprint(model),this.ground);
+          car.terrain=pose??undefined;
+          if(last){last.x=p.x;last.z=p.z;last.yaw=yaw;}else car.groundAt={x:p.x,z:p.z,yaw};
         }
       }else car.terrain=undefined;
+      chassisRotationInto(car.pose, car.rot);
+      const rest = (car.visualModel?.wheel ?? .33) - CHASSIS_LIFT;
       if(car.terrain){
         const model=car.visualModel!;
         car.terrain=wheelGroundPose({x:car.pose.x,y:car.pose.y,z:car.pose.z},Math.atan2(-car.pose.hz,car.pose.hx),
           fleetWheelFootprint(model),car.terrain.heights)!;
-        car.pose.y=car.terrain.pos.y-CHASSIS_LIFT;
-      }
+        const b = car.blend, wheelY = car.terrain.pos.y - CHASSIS_LIFT;
+        car.pose.y = b >= 1 || !Number.isFinite(car.pose.y) ? wheelY : car.pose.y + (wheelY - car.pose.y) * b;
+        blendRotation(car.rot, car.terrain.rot, b >= 1 || !Number.isFinite(car.pose.y) ? 1 : b);
+        for (let i = 0; i < 4; i++) car.wheelY[i] = rest + (car.terrain.wheelY[i] - rest) * b;
+      } else for (let i = 0; i < 4; i++) car.wheelY[i] = rest;
       const near = player && Number.isFinite(car.pose.y)
         ? Math.hypot(car.pose.x - player.x, car.pose.z - player.z) < (car.body ? RING.bodyOff : RING.bodyOn) : false;
       if (near && !car.body) this.addBody(car);
@@ -207,7 +248,7 @@ export class TrafficSim {
       if (car.body) {
         bodies++;
         car.body.setNextKinematicTranslation({ x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z });
-        car.body.setNextKinematicRotation((car.terrain?.rot??chassisRotation(car.pose)));
+        car.body.setNextKinematicRotation(car.rot);
       }
     }
     this.stats.active = this.active.size; this.stats.bodies = bodies;
@@ -258,7 +299,7 @@ export class TrafficSim {
     if (!car || !Number.isFinite(car.pose.y)) return null;
     const id = `tr:${car.key}`;
     const model = TRAFFIC_MODELS[car.model], [w, h, l] = MODEL_SIZE[model];
-    const pos = { x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z }, rot = (car.terrain?.rot??chassisRotation(car.pose));
+    const pos = { x: car.pose.x, y: car.pose.y + CHASSIS_LIFT, z: car.pose.z }, rot = { ...car.rot };
     const yaw = Math.atan2(-car.pose.hz, car.pose.hx);
     const linvel = { x: car.pose.hx * car.pose.speed, y: 0, z: car.pose.hz * car.pose.speed };
     this.claims.addLocal(car.key);
@@ -290,11 +331,12 @@ export class TrafficSim {
     for (const car of this.active.values()) {
       const p = car.pose;
       if (!Number.isFinite(p.y)) continue;
-      const q = car.terrain?.rot??chassisRotation(p);
+      const q = car.rot;
       const { indicator, braking } = vehicleLights(car.motion, this.time);
       out.push(car.handle, car.model, car.paint, round(p.x), round(p.y + CHASSIS_LIFT), round(p.z),
         round4(q.x), round4(q.y), round4(q.z), round4(q.w), round(p.hx * p.speed), round(p.hz * p.speed),
-        hash32('appearance', car.key), indicator, (braking ? 1 : 0) | (honking(car.motion) ? 2 : 0), round(p.speed),...(car.terrain?.wheelY??Array(4).fill((car.visualModel?.wheel??.33)-CHASSIS_LIFT)).map(round4));
+        car.seed ??= hash32('appearance', car.key), indicator, (braking ? 1 : 0) | (honking(car.motion) ? 2 : 0), round(p.speed),
+        round4(car.wheelY[0]), round4(car.wheelY[1]), round4(car.wheelY[2]), round4(car.wheelY[3]));
     }
     return out;
   }
@@ -344,11 +386,35 @@ export class TrafficSim {
       if (this.byKey.has(c.key)) continue;
       const car: ActiveCar = { motion: c.motion, handle: this.nextHandle++, lane: c.lane, n: c.n, key: c.key,
         model: c.motion.model, paint: pick(hash01('paint', c.key), PAINT_WEIGHTS),
-        pose: blankPose(), body: null, visible: false };
+        pose: blankPose(), body: null, visible: false, tier: 1, blend: 0, farAt: -Infinity, farX: 0, farZ: 0,
+        rot: { x: 0, y: 0, z: 0, w: 1 }, wheelY: [0, 0, 0, 0], distance: 0 };
       interpolateFlowPose(car.motion, (t - this.flow.tick * FLOW_STEP) / FLOW_STEP, this.height, car.pose);
       this.active.set(car.handle, car); this.byKey.set(car.key, car);
     }
     this.fill = false;
+    this.assignTiers(view);
+  }
+
+  private ranked: ActiveCar[] = [];
+  /** Real / dummy / far with hysteresis, at the ring's 5 Hz: distance from the player (else the view). */
+  assignTiers(view: View) {
+    const at = this.host.player() ?? view, ranked = this.ranked;
+    ranked.length = 0;
+    for (const car of this.active.values()) {
+      const dx = car.pose.x - at.x, dz = car.pose.z - at.z;
+      car.distance = Number.isFinite(dx + dz) ? Math.sqrt(dx * dx + dz * dz) : Infinity;
+      ranked.push(car);
+    }
+    ranked.sort((a, b) => a.distance - b.distance || a.handle - b.handle);
+    let real = 0, far = 0;
+    for (const car of ranked) {
+      const d = car.distance, wasReal = car.tier === 0, visible = inView(view, car.pose.x, car.pose.z);
+      if (visible && (d < TIERS.realIn || wasReal && d < TIERS.realOut) && (real < TIERS.realCount || wasReal && real < TIERS.realKeep)) {
+        car.tier = 0; real++;
+      } else if (d > TIERS.farIn || car.tier === 2 && d > TIERS.farOut) { car.tier = 2; far++; }
+      else car.tier = 1;
+    }
+    this.stats.tiers = [real, ranked.length - real - far, far];
   }
 
   private deactivate(car: ActiveCar) {
@@ -376,7 +442,7 @@ export class TrafficSim {
   private addBody(car: ActiveCar) {
     const [w, h, l] = MODEL_SIZE[TRAFFIC_MODELS[car.model]];
     const body = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased()
-      .setTranslation(car.pose.x, car.pose.y + CHASSIS_LIFT, car.pose.z).setRotation((car.terrain?.rot??chassisRotation(car.pose))));
+      .setTranslation(car.pose.x, car.pose.y + CHASSIS_LIFT, car.pose.z).setRotation(car.rot));
     const collider = this.world.createCollider(this.R.ColliderDesc.cuboid(l / 2, h * 0.28, w / 2)
       .setCollisionGroups(groups(GROUP.VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC))
       .setActiveEvents(this.R.ActiveEvents.COLLISION_EVENTS).setActiveHooks(this.R.ActiveHooks.FILTER_CONTACT_PAIRS), body);
@@ -391,20 +457,23 @@ export class TrafficSim {
     car.body = null;
   }
 
-  /** Lane surface: the data's Y, else collision samples every 4 m (queued; null until sampled). */
+  /** Lane surface: collision samples every 4 m along the lane, sampled once per lane and cached (on real t0_0_0 lanes
+   *  within 3.5 cm of the collision ground, where the surveyed lane Y is off by up to 0.21 m, p95 8.7 cm); the data's
+   *  Y until they are in; null without either. Dummy and far cars stand on it; real cars sample their wheels. */
   private height = (lane: Lane, s: number): number | null => {
-    if (lane.ys) return interpolate(lane.ys, lane.cum, s);
     const entry = this.heights.get(lane);
-    if (!entry || this.time > entry.retry) {
-      if (!this.sampleQueue.includes(lane)) this.sampleQueue.push(lane);
-      if (!entry) return null;
+    if ((!entry || this.time > entry.retry) && !this.queued.has(lane)) { this.queued.add(lane); this.sampleQueue.push(lane); }
+    if (entry) {
+      const samples = entry.ys;
+      if (samples.length === 1) { if (Number.isFinite(samples[0])) return samples[0]; }
+      else {
+        const f = Math.max(0, Math.min(samples.length - 1, s / SAMPLE_STEP)), i = Math.min(samples.length - 2, Math.floor(f));
+        const a = samples[i], b = samples[i + 1], y = a + (b - a) * (f - i);
+        if (Number.isFinite(y)) return y;
+        if (!lane.ys) return Number.isFinite(a) ? a : Number.isFinite(b) ? b : null;
+      }
     }
-    const samples = entry.ys;
-    const f = Math.max(0, Math.min(samples.length - 1, s / SAMPLE_STEP)), i = Math.min(samples.length - 2, Math.floor(f));
-    if (samples.length === 1) return Number.isFinite(samples[0]) ? samples[0] : null;
-    const a = samples[i], b = samples[i + 1];
-    const y = a + (b - a) * (f - i);
-    return Number.isFinite(y) ? y : Number.isFinite(a) ? a : Number.isFinite(b) ? b : null;
+    return lane.ys ? interpolate(lane.ys, lane.cum, s) : null;
   };
 
   /** Samples queued lanes' road surface until the time `until`, following a lane under bridges by searching
@@ -420,15 +489,18 @@ export class TrafficSim {
       const job = this.sampling;
       for (; job.i < job.out.length; job.i++) {
         if (performance.now() > until) return;
-        const p = pointAlong(job.lane, Math.min(job.lane.length, job.i * SAMPLE_STEP));
+        const along = Math.min(job.lane.length, job.i * SAMPLE_STEP), p = pointAlong(job.lane, along);
         if (!this.host.resident(p.x, p.z)) continue;
-        let y = job.previous !== null ? this.host.ground(p.x, job.previous + 3, p.z, 8) : null;
+        // Search near the previous sample, or near the surveyed lane height (under bridges a top-down ray lands on the deck).
+        const near = job.previous ?? (job.lane.ys ? interpolate(job.lane.ys, job.lane.cum, along) : null);
+        let y = near !== null ? this.host.ground(p.x, near + 3, p.z, 8) : null;
         y ??= this.host.ground(p.x, 400, p.z, 500);
         if (y !== null) { job.out[job.i] = y; job.previous = y; }
       }
       if (job.i < job.out.length) return;
       // A lane with unresident samples is sampled again later, once its collision arrives.
       this.heights.set(job.lane, { ys: job.out, retry: job.out.some(v => !Number.isFinite(v)) ? this.time + 2 : Infinity });
+      this.queued.delete(job.lane);
       this.sampling = null;
     }
   }
@@ -436,9 +508,20 @@ export class TrafficSim {
 
 /** Physics chassis rotation (+X forward): heading yaw about Y, then pitch about the chassis Z axis. */
 export function chassisRotation(p: CarPose): Quat {
+  return chassisRotationInto(p, { x: 0, y: 0, z: 0, w: 1 });
+}
+export function chassisRotationInto(p: CarPose, out: Quat): Quat {
   const yaw = Math.atan2(-p.hz, p.hx);
   const sy = Math.sin(yaw / 2), cy = Math.cos(yaw / 2), sp = Math.sin(p.pitch / 2), cp = Math.cos(p.pitch / 2);
-  return { x: sy * sp, y: sy * cp, z: cy * sp, w: cy * cp };
+  out.x = sy * sp; out.y = sy * cp; out.z = cy * sp; out.w = cy * cp;
+  return out;
+}
+/** `a` moved towards `b` by `f` (normalised lerp along the shorter arc; the angles here are small). */
+function blendRotation(a: Quat, b: Quat, f: number) {
+  const sign = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0 ? -1 : 1;
+  const x = a.x + (sign * b.x - a.x) * f, y = a.y + (sign * b.y - a.y) * f, z = a.z + (sign * b.z - a.z) * f, w = a.w + (sign * b.w - a.w) * f;
+  const d = Math.sqrt(x * x + y * y + z * z + w * w) || 1;
+  a.x = x / d; a.y = y / d; a.z = z / d; a.w = w / d;
 }
 
 /** The character against a car's footprint (capsule radius included): inside the braking path ahead of it, or

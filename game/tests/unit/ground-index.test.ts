@@ -153,3 +153,33 @@ describe('collision ground index', () => {
     expect([g.version(70, 5), g.ground(70, 400, 5, 800)]).toEqual([-1, null]);
   });
 });
+
+test.skipIf(!DIR)('dummy-car lane heights (collision every 4 m along the lane, interpolated) stay within 5 cm of the ground', async () => {
+  const { trafficRoads } = await import('../../src/traffic/roads');
+  const { buildTileTraffic } = await import('../../src/traffic/tileNetwork');
+  await MeshoptDecoder.ready;
+  const ground = new GroundIndex();
+  for (const f of fs.readdirSync(`${DIR}/col`)) { const b = fs.readFileSync(`${DIR}/col/${f}`); ground.add(await readCol(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))); }
+  const json = JSON.parse(fs.readFileSync(`${DIR}/roads-${TILE}.json`, 'utf8'));
+  const tile = buildTileTraffic(TILE, trafficRoads(json), json.bbox, 'parity');
+  const errors: number[] = [];
+  for (const lane of tile.lanes) {
+    const at = (s: number) => {
+      let i = 1; while (i < lane.cum.length - 1 && lane.cum[i] < s) i++;
+      const f = Math.max(0, Math.min(1, (s - lane.cum[i - 1]) / Math.max(0.01, lane.cum[i] - lane.cum[i - 1])));
+      const y = lane.ys ? lane.ys[i - 1] + (lane.ys[i] - lane.ys[i - 1]) * f : 400;
+      return [lane.points[2 * i - 2] + (lane.points[2 * i] - lane.points[2 * i - 2]) * f, lane.points[2 * i - 1] + (lane.points[2 * i + 1] - lane.points[2 * i - 1]) * f, y];
+    };
+    const n = Math.max(2, Math.ceil(lane.length / 4) + 1), samples: (number | null)[] = [];
+    for (let k = 0; k < n; k++) { const [x, z, y] = at(Math.min(lane.length, k * 4)); samples.push(ground.ground(x, y + 3, z, 8)); }
+    for (let s = 0; s <= lane.length; s += 1) {
+      const fk = Math.min(n - 1, s / 4), k = Math.min(n - 2, Math.floor(fk)), a = samples[k], b = samples[k + 1];
+      const [x, z, y] = at(s), g = ground.ground(x, y + 3, z, 8);
+      if (a === null || b === null || g === null) continue;
+      errors.push(Math.abs(a + (b - a) * (fk - k) - g));
+    }
+  }
+  expect(errors.length).toBeGreaterThan(500);
+  // 2026-11-03, t0_0_0: p95 1.2 cm, max 3.5 cm (the surveyed lane Y: p95 8.7 cm, max 21 cm).
+  expect(Math.max(...errors)).toBeLessThan(0.05);
+}, 120_000);

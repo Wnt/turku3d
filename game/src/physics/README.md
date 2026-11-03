@@ -176,6 +176,17 @@ Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared 
   density change) is `deferred`: it drives on until it is out of view, so density changes never pop a car in
   sight. The density clock is the shared cycle in multiplayer; in single player the clock the player sees
   (`?time=`, `?cycle=`, the developer time menu).
+- Drawn cars have GTA-style tiers (`TIERS` in `physics/traffic.ts`, reassigned at the ring's 5 Hz):
+  - **real**: in view, within 70 m and among the 8 nearest (kept to 80 m and the 12 nearest); wheels sampled on
+    collision every substep;
+  - **dummy**: everything else within 200 m; stands on the lane's collision samples (every 4 m, sampled once per
+    lane; within 3.5 cm of the ground on t0_0_0 lanes, where the surveyed lane Y is off by up to 21 cm), pitch
+    from the same samples, no wheel rays;
+  - **far**: beyond 200 m (back inside 190 m); an exact pose at 5 Hz with closed-form drift along its heading in
+    between.
+  A real/dummy change blends height, rotation and wheels over 0.5 s. Bodies (within 70 m of the player) and the
+  shared flow do not depend on tiers. Lane-change planning is capped at `PLAN_BUDGET` (60) evaluations per flow
+  tick, about ten per frame, in the flow's canonical order. `stats.tiers` counts drawn cars per tier.
 - The main thread (`traffic/client.ts`) feeds the worker the drawn draft tiles' road graphs and copies the
   published poses, moved on by their velocity to the frame, into the parked cars' per-body InstancedMeshes
   after their parked instances (`ParkedCarVisuals.setTraffic`; capacity reserved at load): no draw, material

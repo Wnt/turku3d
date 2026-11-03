@@ -5,6 +5,10 @@ import type { FlowCar } from './flow';
 import type { Lane } from './tileNetwork';
 
 export const LANE_CHANGE_SECONDS = 3.2;
+/** At most this many lane-change evaluations per flow tick (10 Hz): about ten per 60 Hz frame, GTA's per-frame AI
+ *  budget. Cars are already spread round-robin over ten ticks; the cap bounds a dense resident area. The flow visits
+ *  cars in its canonical order, so which cars plan is the same on every client. */
+export const PLAN_BUDGET = 60;
 
 export interface LaneChange {
   from: Lane; direction: -1 | 1; progress: number; duration: number; rate: number;
@@ -18,6 +22,9 @@ const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export class LaneChangePlanner {
   private siblings = new Map<Lane, Lane[]>();
+  /** Evaluations in the current tick (`planTick`). */
+  planned = 0;
+  private planTick = -1;
   constructor(lanes: readonly Lane[], private movements: ReadonlyMap<Lane, readonly Lane[]>) {
     const groups = new Map<string, Lane[]>();
     for (const lane of lanes) {
@@ -58,6 +65,9 @@ export class LaneChangePlanner {
     if (siblings.length < 2) return null;
     // Spread planning work across ticks and prevent weaving when a small gap fluctuates.
     if (!car.signal && (tick + hash32(car.key)) % 10 !== 0) return null;
+    if (tick !== this.planTick) { this.planTick = tick; this.planned = 0; }
+    if (this.planned >= PLAN_BUDGET) return null;
+    this.planned++;
     const intent = this.intent(lane, `${car.key}/${car.hops}`);
     let wanted = siblings.filter(l => (this.movements.get(l) ?? []).some(r => kind(r) === intent))
       .sort((a, b) => Math.abs(a.k - lane.k) - Math.abs(b.k - lane.k) || a.k - b.k)[0];
