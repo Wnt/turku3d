@@ -8,6 +8,10 @@ from turku3d.ground.mesh import Mesh
 
 from . import surfaces
 
+# A measured surface this far above the sea datum is inland water with natural banks.
+INLAND = 0.01
+SHORE_DEPTH = 0.3  # m below an inland surface at its natural shore
+
 
 def surveyed_crest(points, ground, water, masonry):
     """Recover a mapped stone rim from dry lidar support before wet-grid interpolation.
@@ -166,16 +170,25 @@ def pond_levels(water, paths):
     return result
 
 
-def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=(), walks=(), ground=()):
+def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=(), walks=(),
+            ground=(), levels=None):
     """Cut both sides on the same outline, keeping grid and collision-tile constraints.
 
-    Mapped quays/walls retain the surveyed rim and descend vertically. Other banks
-    blend over three metres to 40 cm below water. Small ponds instead have a
-    two-metre grassy lip and a 65 cm bed without natural vertical faces. The bed is collision
-    only; the bank faces are identical in the visual and solid meshes.
+    Mapped quays/walls retain the surveyed rim and descend vertically. Tidal banks
+    blend over three metres to 40 cm below the sea datum ``level``. Inland water
+    (``levels``, a measured surface above the datum) meets a natural bank at its own
+    surface: the bank blends over three metres to 5 cm above it and the bed deepens
+    from 30 cm at the shore, so a ditch is never carved to sea level. Small ponds
+    instead have a two-metre grassy lip and a 65 cm bed without natural vertical faces.
+    The bed is collision only; the bank faces are identical in the visual and solid meshes.
     """
     empty = Mesh(np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
     from . import walkable
+
+    def water_surface(points):
+        if levels is None or not len(points):
+            return np.full(len(points), float(level))
+        return levels.at(points[:, [0, 2]])
 
     positions, indices, materials, keep = walkable.constrain(
         positions, indices, materials, keep, walks
@@ -256,8 +269,15 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
             else np.clip(1 - shapely.distance(shapely.points(points[:, [0, 2]]), quay), 0, 1)
         )
         blend = np.clip(distance / 3, 0, 1)
-        target = (level - 0.4) * (1 - blend) + points[:, 1] * blend
+        water_level = np.full(len(points), float(level))
+        near = blend < 1
+        water_level[near] = water_surface(points[near])
+        target = (water_level - 0.4) * (1 - blend) + points[:, 1] * blend
         height = np.minimum(points[:, 1], target * (1 - masonry) + points[:, 1] * masonry)
+        # A measured inland surface meets its natural bank: raise or lower toward it.
+        inland = near & (water_level > level + INLAND)
+        target = (water_level + 0.05) * (1 - blend) + points[:, 1] * blend
+        height[inland] = (target * (1 - masonry) + points[:, 1] * masonry)[inland]
         for pond, _ in ponds:
             d = shapely.distance(shapely.points(points[:, [0, 2]]), pond)
             nearest = d <= distance + 1e-7
@@ -295,7 +315,11 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     top = quay_crest(top, walks, body, quay)
     top = top.reshape(-1, 2, 3)
     bottom = top.copy()
-    bottom[:, :, 1] = level - 3
+    stone = shapely.distance(shapely.points(ends.mean(axis=1)[:, [0, 2]]), quay) < 1e-7
+    shore_level = water_surface(ends.reshape(-1, 3)).reshape(-1, 2)
+    # A natural inland shore descends to its shallow bed edge; stone and tidal faces keep 3 m.
+    natural = (shore_level > level + INLAND) & ~stone[:, None]
+    bottom[:, :, 1] = np.where(natural, shore_level - SHORE_DEPTH, shore_level - 3)
     pond_edge = np.zeros(len(ends), bool)
     for pond, surface in ponds:
         near = shapely.distance(shapely.points(ends.mean(axis=1)[:, [0, 2]]), pond) < 1e-7
@@ -306,7 +330,6 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     bank_ix = (np.arange(len(top))[:, None, None] * 4 + np.array([[0, 1, 2], [1, 3, 2]])).reshape(
         -1, 3
     )
-    stone = shapely.distance(shapely.points(ends.mean(axis=1)[:, [0, 2]]), quay) < 1e-7
     bank_ids = np.repeat(np.where(stone, mat_id("quay"), mat_id("soil")), 2).astype(np.uint8)
     # Natural pond edges join the shallow bed continuously; only mapped stone has a face.
     visible = np.repeat(~pond_edge | stone, 2)
@@ -317,9 +340,15 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
         np.full(len(wet_mesh.indices), mat_id("soil"), np.uint8),
     )
     shore_heights = wet_mesh.positions[:, 1].copy()
-    bed.positions[:, 1] = level - 3
+    water_level = water_surface(wet_mesh.positions)
+    depth = np.full(len(water_level), 3.0)
+    inland = water_level > level + INLAND
+    if inland.any():
+        offshore = shapely.distance(shapely.points(wet_mesh.positions[inland][:, [0, 2]]), body.boundary)
+        depth[inland] = np.minimum(3.0, SHORE_DEPTH + 0.5 * offshore)
+    bed.positions[:, 1] = water_level - depth
     pond_triangles = np.zeros(len(bed.indices), bool)
-    wet_mesh.positions[:, 1] = level
+    wet_mesh.positions[:, 1] = water_level
     for pond, surface in ponds:
         xy = shapely.points(wet_mesh.positions[:, [0, 2]])
         inside = shapely.distance(xy, pond) < 1e-7
@@ -351,6 +380,19 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
                     if (C.raw_dir("laz") / "maanpinta" / f"{b.name}.laz").exists()})
     ponds = cache.run("pond_levels", source_key(Path(__file__)),
                       [candidates, [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]], lambda: pond_levels(candidates, paths)) if paths else []
+    levels = None
+    if inputs.water:
+        from . import water_levels
+
+        roads = inputs.sources.get("roads", ())
+        steps = water_levels.step_lines(roads[0] if roads else None)
+        level_paths = water_levels.lidar_paths(tile)
+        levels = cache.run(
+            "water_levels", source_key(Path(water_levels.__file__)),
+            [tile, inputs.water, steps,
+             [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in level_paths]],
+            lambda: water_levels.measure(tile, inputs.water, steps, level_paths),
+        )
     centres = grid_pos[grid_idx].mean(axis=1)
     ids = surfaces.classify(centres, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     water = inputs.water
@@ -365,12 +407,15 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
         source_key(
             Path(__file__),
             Path(__file__).with_name("walkable.py"),
+            Path(__file__).with_name("water_levels.py"),
             surfaces.split_boundaries,
             Path(C.__file__),
             Path(__file__).parents[1] / "col/materials_v1.json",
         ),
-        [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable, inputs.points],
+        [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable,
+         inputs.points, levels],
         lambda: produce(
-            grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable, inputs.points
+            grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable,
+            inputs.points, levels
         ),
     )

@@ -25,7 +25,8 @@ export class RiverMaterial {
     const rgb = waterColour(mesh.userData);
     this.bodyColour = rgb ? new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace) : new THREE.Color(0.075, 0.062, 0.035);
     const scale = QUALITY[tier].reflectionScale;
-    const reflection = this.reflection = scale > 0 ? reflector({ bounces: false, samples: 0 }) : null;
+    // Sloped reaches (rapids, weirs) have no single mirror plane; they shade from the sky.
+    const reflection = this.reflection = scale > 0 && mesh.userData.water_slope !== true ? reflector({ bounces: false, samples: 0 }) : null;
     this.reflectionUV = reflection?.uvNode ?? null;
     // Reflections do not sample the main camera's screen-space GTAO context.
     const context = this.context = renderer.contextNode;

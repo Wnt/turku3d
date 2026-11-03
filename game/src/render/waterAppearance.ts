@@ -6,5 +6,5 @@ export function waterColour(data: Record<string, unknown>): [number, number, num
 }
 
 export function waterSharingKey(plane: string, data: Record<string, unknown>): string {
-  return JSON.stringify([plane, data.water_body ?? null, waterColour(data) ?? null]);
+  return JSON.stringify([plane, data.water_body ?? null, waterColour(data) ?? null, data.water_slope === true]);
 }

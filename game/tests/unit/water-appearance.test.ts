@@ -8,6 +8,7 @@ describe('water body appearance', () => {
     expect(waterSharingKey('0,1,0,0', pool)).toBe(waterSharingKey('0,1,0,0', {...pool}));
     expect(waterSharingKey('0,1,0,0', pool)).not.toBe(waterSharingKey('0,1,0,0', river));
     expect(waterSharingKey('0,1,0,0', pool)).not.toBe(waterSharingKey('0,1,0,2', pool));
+    expect(waterSharingKey('0,1,0,0', pool)).not.toBe(waterSharingKey('0,1,0,0', {...pool, water_slope: true}));
     expect(waterColour(pool)).toEqual([.6, .8, .9]);
     expect(waterColour({water_color: [1, NaN, 0]})).toBeUndefined();
     expect(waterColour({water_color: [255, 128, 0]})).toBeUndefined();

@@ -33,3 +33,19 @@ def test_same_level_water_bodies_keep_separate_colour_and_all_triangles():
     assert [m.extras['water_body'] for m in meshes] == ['pool', 'river']
     assert [m.extras['water_color'] for m in meshes] == [r[2] for r in records]
     assert sum(len(m.indices) for m in meshes) == len(ix)
+
+
+def test_sloped_reach_and_level_bands_get_their_own_mirror_meshes():
+    tile = C.VisualTile(0, 0, 0)
+    p = np.array([[0, 7.6, 0], [0, 7.6, 2], [2, 7.6, 0],
+                  [10, 7.6, 0], [10, 7.6, 2], [12, 7.4, 0],
+                  [20, 0, 0], [20, 0, 2], [22, 0, 0]], float)
+    ix = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype='uint32')
+    records = [(shapely.box(-1, -1, 30, 3), 'aura', None)]
+    meshes = appearance.visuals(tile, SimpleNamespace(positions=p, indices=ix), records)
+    by_id = {m.extras['object_id']: m for m in meshes}
+    assert set(by_id) == {'water_t0_0_0_aura', 'water_t0_0_0_aura_b15', 'water_t0_0_0_aura_slope'}
+    assert by_id['water_t0_0_0_aura_slope'].extras['water_slope'] is True
+    assert 'water_band' not in by_id['water_t0_0_0_aura'].extras
+    assert by_id['water_t0_0_0_aura_b15'].extras['water_band'] == 15
+    assert all(np.all(m.normals == [0, 1, 0]) for m in meshes)

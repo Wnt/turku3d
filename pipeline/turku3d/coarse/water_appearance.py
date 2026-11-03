@@ -68,22 +68,38 @@ def prepare(cache, inputs, sources):
     )
 
 
+# One mirror plane serves a mesh: measured inland surfaces split into 0.5 m bands, and
+# reaches steeper than 0.5 % (rapids, weirs) form their own unmirrored mesh.
+BAND = 0.5
+SLOPE = 0.005
+
+
 def visuals(tile, water, records):
-    centres = water.positions[water.indices].mean(axis=1)
+    triangles = water.positions[water.indices]
+    centres = triangles.mean(axis=1)
     owner = np.full(len(centres), -1, dtype=int)
     for i, (body, _, _) in enumerate(records):
         owner[shapely.intersects_xy(body, centres[:, 0], centres[:, 2])] = i
+    normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    sloped = np.hypot(normal[:, 0], normal[:, 2]) > SLOPE * np.abs(normal[:, 1])
+    band = np.where(sloped, -1, np.floor(centres[:, 1] / BAND + 1e-9).astype(int))
     meshes = []
-    for i in np.unique(owner):
+    for i, b in sorted({(int(i), int(b)) for i, b in zip(owner, band)}):
         key, colour = records[i][1:] if i>=0 else ("unmeasured", None)
-        selected = water.indices[owner==i]
+        selected = water.indices[(owner==i) & (band==b)]
         ids, inverse = np.unique(selected, return_inverse=True)
-        extras = dict(layer="ground", object_id=f"water_{tile.id}_{key}",
+        suffix = "" if b == 0 else ("_slope" if b < 0 else f"_b{b}")
+        extras = dict(layer="ground", object_id=f"water_{tile.id}_{key}{suffix}",
                       material_key="water", sensor=True, water_body=key,
                       reflection_surface=key)
+        if b != 0:
+            extras["water_band"] = b
+        if b < 0:
+            extras["water_slope"] = True
         if colour is not None:
             extras["water_color"] = colour  # sRGB, converted to linear by the shader
         meshes.append(GlbMesh(extras["object_id"], water.positions[ids]-tile.origin,
                               inverse.reshape(-1, 3).astype(np.uint32),
+                              normals=np.tile(np.float32([0, 1, 0]), (len(ids), 1)),
                               uvs=water.positions[ids][:, [0, 2]]*[1, -1], extras=extras))
     return meshes
