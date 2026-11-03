@@ -94,6 +94,7 @@ class Prop:
     variant: str = ""  # model variant of a non-sign kind (bin colour, bike-rack length)
     rank: int = 0  # source quality among duplicates; lower wins
     light_tags: dict | None = None  # mapped fixture metadata; position still comes from register
+    adjusted: str = ""  # the rule that moved the source point (props.seating, furniture moves)
 
     @property
     def prototype(self):
