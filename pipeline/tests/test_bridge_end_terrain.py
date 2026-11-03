@@ -97,8 +97,10 @@ def test_final_terrain_inserts_contact_edge_and_keeps_holes_and_materials():
         result.positions[result.indices][:, 2] - result.positions[result.indices][:, 0],
     )
     # Walkable and sloped land keeps its materials; near-vertical exposed faces are masonry.
+    from turku3d.coarse.surfaces import STEEP
+
     np.testing.assert_array_equal(
-        np.unique(result.material[abs(normals[:, 1]) > 0.1 * np.linalg.norm(normals, axis=1)]),
+        np.unique(result.material[abs(normals[:, 1]) >= STEEP * np.linalg.norm(normals, axis=1)]),
         np.unique(original.material),
     )
     assert mat_id("quay") in result.material  # exposed abutment cap closes vertically

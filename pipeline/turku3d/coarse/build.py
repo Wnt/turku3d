@@ -644,7 +644,7 @@ def build(
         "surface_boundaries",
         source_key(surfaces.split_boundaries, base / "package/gltf.py", *common),
         surface_args,
-        lambda: surfaces.split_boundaries(*surface_args),
+        lambda: surfaces.split_boundaries(*surface_args, keep_steep=True),
     )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
     visual_args = (

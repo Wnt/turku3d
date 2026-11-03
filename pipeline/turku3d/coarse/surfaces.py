@@ -209,13 +209,28 @@ def classify(centroids, rgb, tile, streets, regions=()):
     return out
 
 
+# A face steeper than this (|normal y| below it, about 63 degrees) is a wall,
+# quay, bank or step face, not ground a lawn or paving finish lies on.
+STEEP = 0.45
+
+
+def steep(triangles):
+    """Near-vertical faces of (n, 3, 3) triangles."""
+    face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    return np.abs(face[:, 1]) < STEEP * np.linalg.norm(face, axis=1)
+
+
+def walking_finishes():
+    """Lawn and paving finishes painted in plan, never onto a near-vertical face."""
+    names = ("grass", "soil", "sand", "gravel", "road", "sidewalk", "crossing", "cycleway",
+             "cobblestone", "paving_slab", "bridge_deck")
+    return np.asarray([*(mat_id(name) for name in names), *street_materials.FINISH_KEYS], np.uint8)
+
+
 def slope_fallback(positions, indices, materials):
     """Avoid projecting pavement onto bare, near-vertical terrain faces."""
-    triangles = positions[indices]
-    face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
-    steep = np.abs(face[:, 1]) < 0.45 * np.linalg.norm(face, axis=1)
     result = materials.copy()
-    result[steep & (materials == mat_id("paving_slab"))] = mat_id("rock")
+    result[steep(positions[indices]) & (materials == mat_id("paving_slab"))] = mat_id("rock")
     return result
 
 
@@ -479,8 +494,15 @@ def split_boundaries(
     fallback_materials=None,
     *,
     preserve_materials=False,
+    keep_steep=False,
 ):
-    """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals."""
+    """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals.
+
+    With `keep_steep` (the visual finish pass), near-vertical faces are not cut
+    and no lawn or paving region or ortho fallback repaints them: they keep the
+    material of the stage that made them, which collision uses too. A masonry
+    finish such as a mapped quay still applies.
+    """
     import mapbox_earcut
 
     def overlay(operation, left, right):
@@ -515,19 +537,33 @@ def split_boundaries(
     boundary = np.unique(boundary)
     # Vertical bank faces have no terrain plane in x/z. Preserve them exactly;
     # trying to invert their projected basis used to fail the entire tile.
-    boundary = boundary[shapely.area(footprints[boundary]) > 1e-12]
+    planar = shapely.area(footprints) > 1e-12
+    fixed = planar & steep(triangles) if keep_steep and not preserve_materials else np.zeros_like(planar)
+    boundary = boundary[planar[boundary] & ~fixed[boundary]]
     if not preserve_materials:
+        region_materials = np.asarray([m for _, m in regions], np.uint8)
+
+        def last_region(faces, predicate):
+            qi, pi = shapely.STRtree(polygons).query(
+                shapely.points(triangles[faces][:, :, [0, 2]].mean(axis=1)), predicate=predicate
+            )
+            winner = np.full(len(faces), -1, dtype=np.int64)
+            np.maximum.at(winner, qi, pi)
+            return winner
+
         # Interior triangles need the same last-region-wins classification as
         # cut pieces. A visual finish can differ from the physical input ids.
-        interior = np.flatnonzero((shapely.area(footprints) > 1e-12) & ~np.isin(np.arange(len(selected)), boundary))
-        qi, pi = shapely.STRtree(polygons).query(
-            shapely.points(triangles[interior][:, :, [0, 2]].mean(axis=1)), predicate="within"
-        )
-        winner = np.full(len(interior), -1, dtype=np.int64)
-        np.maximum.at(winner, qi, pi)
+        interior = np.flatnonzero(planar & ~fixed & ~np.isin(np.arange(len(selected)), boundary))
+        winner = last_region(interior, "within")
         matched = np.flatnonzero(winner >= 0)
         materials = materials.copy()
-        materials[selected[interior[matched]]] = np.asarray([m for _, m in regions], np.uint8)[winner[matched]]
+        materials[selected[interior[matched]]] = region_materials[winner[matched]]
+        faces = np.flatnonzero(fixed)
+        if len(faces):
+            winner = last_region(faces, "intersects")
+            masonry = np.flatnonzero(winner >= 0)
+            masonry = masonry[~np.isin(region_materials[winner[masonry]], walking_finishes())]
+            materials[selected[faces[masonry]]] = region_materials[winner[masonry]]
     if not len(boundary):
         return positions, indices[keep], materials[keep], normals
     uncut = np.ones(len(selected), bool)

@@ -551,3 +551,34 @@ def test_untagged_park_footway_inherits_only_connected_unambiguous_gravel(tmp_pa
     assert finish(20, 15) == mat_id("gravel")
     for x in (10, 30, 40, 120):
         assert finish(x, 15) == mat_id("paving_slab")
+
+
+def test_visual_finish_never_paints_lawn_or_paving_onto_near_vertical_faces():
+    from turku3d.coarse.surfaces import split_boundaries
+
+    # A flat lawn, a steep quay step across the lawn edge, a steep soil bank
+    # inside a lawn, and a steep cobbled step inside a mapped quay.
+    p = np.array([
+        [0.0, 0, 0], [4, 0, 0], [0, 0, 4],
+        [5, 0, 0], [5.2, 3, 0], [5, 0, 4],
+        [7, 0, 0], [7.2, 3, 0], [7, 0, 2],
+        [9, 0, 0], [9.2, 3, 0], [9, 0, 2],
+    ])
+    ix = np.arange(12, dtype=np.uint32).reshape(4, 3)
+    own = np.array([mat_id("cobblestone"), mat_id("quay"), mat_id("soil"), mat_id("cobblestone")])
+    lawn = shapely.box(-1, -1, 8, 2)
+    quay = shapely.box(8.5, -1, 10, 3)
+    regions = [(lawn, mat_id("grass")), (quay, mat_id("quay"))]
+    ortho = np.full(4, mat_id("road"), np.uint8)
+    pos, idx, mat, _ = split_boundaries(p, ix, own, np.ones(4, bool), regions, ortho, keep_steep=True)
+    # Steep faces are neither cut nor repainted with lawn, paving or the ortho fallback.
+    for face, expected in ((1, "quay"), (2, "soil"), (3, "quay")):
+        hits = [k for k, t in enumerate(pos[idx]) if np.allclose(np.sort(t, axis=0), np.sort(p[ix[face]], axis=0))]
+        assert len(hits) == 1 and mat[hits[0]] == mat_id(expected), face
+    # The flat face is still cut at the lawn edge with the usual precedence.
+    flat = shapely.polygons(pos[idx][:, :, [0, 2]])
+    inside = np.asarray([shapely.Polygon(p[ix[0]][:, [0, 2]]).covers(g) for g in flat])
+    assert set(mat[inside].tolist()) == {mat_id("grass"), mat_id("road")}
+    # Without the option the old repaint remains for other cut passes.
+    _, _, legacy, _ = split_boundaries(p, ix, own, np.ones(4, bool), regions, ortho)
+    assert mat_id("grass") in legacy[:3].tolist() or mat_id("road") in legacy.tolist()
