@@ -5,7 +5,10 @@ A one-shot build pays its interpreter start, imports, prepared-input key closure
 the EPYC. Each concurrent build instead takes an idle ``python -m turku3d.coarse worker`` of its
 revision and generation, sends it one tile and reads one result line. Products are byte-identical
 to one-shot builds. A worker is replaced after ``max_builds`` tiles, when its resident memory
-exceeds ``max_rss_gib``, and after any failure, timeout or disk-floor stop.
+exceeds ``max_rss_gib`` after a tile, and after any failure, timeout or disk-floor stop. A worker
+retains about 0.5 GiB across tiles (peak 2.1-2.3 GiB after t0_0_0, t0_-7_7 and t0_-5_4, against
+1.8 GiB one-shot), so replacing it above 2 GiB keeps heavy tiles within the bulk admission
+reservation per worker.
 """
 import json
 import os
@@ -92,7 +95,7 @@ class Worker:
 
 
 class WarmWorkers:
-    def __init__(self, farm, runner, *, max_builds=40, max_rss_gib=2.5, timeout=1800):
+    def __init__(self, farm, runner, *, max_builds=40, max_rss_gib=2.0, timeout=1800):
         self.farm, self.runner = farm, runner
         self.max_builds, self.max_rss, self.timeout = max_builds, max_rss_gib * GIB, timeout
         self.idle, self.lock, self.started = [], threading.Lock(), 0
