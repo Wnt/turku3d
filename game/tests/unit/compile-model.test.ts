@@ -95,3 +95,44 @@ test('compilation selects the observed nested render context and restores the co
   expect(get).toHaveBeenCalledWith(target, null, 3); expect(contexts.get).toBe(get);
   target.dispose();
 });
+
+test('compiles in one frame share one light walk of the world; a new frame walks again', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  Object.assign(renderer, { _renderContexts: { get: () => ({}) } });
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(), target = new THREE.RenderTarget();
+  for (let i = 0; i < 200; i++) scene.add(new THREE.Group().add(new THREE.Object3D(), new THREE.Object3D()));
+  const sun = new THREE.DirectionalLight(), hidden = new THREE.PointLight(), beam = new THREE.SpotLight();
+  hidden.visible = false;
+  scene.add(sun, hidden, new THREE.Group().add(beam));
+  const model = new THREE.Group();
+  for (let i = 0; i < 3; i++) model.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+  scene.add(model);
+  let worldWalks = 0;
+  const walk = scene.traverseVisible;
+  vi.spyOn(THREE.Object3D.prototype, 'traverseVisible').mockImplementation(function (this: THREE.Object3D, callback) {
+    if (this === scene) worldWalks++;
+    walk.call(this, callback);
+  });
+  const seen: THREE.Object3D[][] = [];
+  vi.spyOn(renderer, 'compileAsync').mockImplementation((_mesh, _camera, world) => {
+    // As r186 compileAsync: include lights from the target scene.
+    const lights: THREE.Object3D[] = [];
+    world!.traverseVisible(object => { if ((object as THREE.Light).isLight) lights.push(object); });
+    seen.push(lights);
+    return Promise.resolve();
+  });
+  await compileModel(renderer, model, scene, camera, target, null, renderer.contextNode);
+  expect(seen).toEqual([[sun, beam], [sun, beam], [sun, beam]]);
+  expect(worldWalks).toBe(1); // r186 alone walks the world once per compile: three here
+  expect(Object.hasOwn(scene, 'traverseVisible')).toBe(false);
+  const lamp = new THREE.PointLight(); scene.add(lamp);
+  (renderer.info as { frame: number }).frame++;
+  seen.length = 0;
+  await compileModel(renderer, model, scene, camera, target, null, renderer.contextNode);
+  expect(seen).toEqual([[sun, beam, lamp], [sun, beam, lamp], [sun, beam, lamp]]);
+  expect(worldWalks).toBe(2);
+  target.dispose();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
