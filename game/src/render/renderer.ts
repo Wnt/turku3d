@@ -28,10 +28,11 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   opts: { qa?: boolean; idPass?: boolean; mobile?: boolean; quality?: QualityTier } = {}): Promise<RendererInfo> {
   // TRAA handles color antialiasing; MSAA must be off for its depth/velocity history.
   const renderer = new GameRenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
-  // ?uniformPool=0: one GPU buffer per uniform binding, as r186 does (the A/B of render/uniformPool.ts).
-  renderer.poolUniforms = new URLSearchParams(location.search).get('uniformPool') !== '0';
-  // ?geomPool=0: one GPU buffer per vertex attribute and index, as r186 does (the A/B of render/geometryPool.ts).
-  renderer.poolGeometry = new URLSearchParams(location.search).get('geomPool') !== '0';
+  // Off by default: the uniform pool hung the GPU on Jonni's M1 Max (Metal command buffer hang, then device loss).
+  // ?uniformPool=1 / ?geomPool=1 opt in while the cause is found (render/uniformPool.ts, render/geometryPool.ts).
+  const search = new URLSearchParams(location.search);
+  renderer.poolUniforms = search.get('uniformPool') === '1';
+  renderer.poolGeometry = search.get('geomPool') === '1';
   // Installed once, before any compile: the tier's light slots exist for the whole session.
   renderer.lighting = new GameLighting(QUALITY[opts.quality ?? 'medium'].lights);
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa, opts.mobile, QUALITY[opts.quality ?? 'medium'].maxPixels));

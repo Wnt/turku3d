@@ -89,10 +89,10 @@ export class GameRenderer extends THREE.WebGPURenderer {
   /** Set by PostProcessing.render around the per-frame pipeline: first-use draws compile their pipeline asynchronously. */
   liveFrame = false;
   /** Uniform buffers sub-allocated from shared pages (render/uniformPool.ts); set before init. */
-  poolUniforms = true;
+  poolUniforms = false;
   uniformPool: ReturnType<typeof poolUniformBuffers> = null;
   /** Small static vertex/index buffers sub-allocated from shared pages (render/geometryPool.ts); set before init. */
-  poolGeometry = true;
+  poolGeometry = false;
   geometryPool: ReturnType<typeof poolGeometryBuffers> = null;
   override async init(): Promise<this> {
     await super.init();
