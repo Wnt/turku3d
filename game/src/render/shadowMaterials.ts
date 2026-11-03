@@ -10,6 +10,7 @@ import { executeBundles, renderBundle, type BundleDrawHook } from './bundleRepla
 import { altitudeShadows } from './shadowAltitude';
 import type { ReflectionScope } from './reflectionScope';
 import { poolUniformBuffers } from './uniformPool';
+import { poolGeometryBuffers } from './geometryPool';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -90,10 +91,16 @@ export class GameRenderer extends THREE.WebGPURenderer {
   /** Uniform buffers sub-allocated from shared pages (render/uniformPool.ts); set before init. */
   poolUniforms = true;
   uniformPool: ReturnType<typeof poolUniformBuffers> = null;
+  /** Small static vertex/index buffers sub-allocated from shared pages (render/geometryPool.ts); set before init. */
+  poolGeometry = true;
+  geometryPool: ReturnType<typeof poolGeometryBuffers> = null;
   override async init(): Promise<this> {
     await super.init();
-    if (this.poolUniforms && !this.uniformPool && (this.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend)
+    const webgpu = (this.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
+    if (this.poolUniforms && !this.uniformPool && webgpu)
       this.uniformPool = poolUniformBuffers(this.backend as unknown as Parameters<typeof poolUniformBuffers>[0], () => this.info.frame);
+    if (this.poolGeometry && !this.geometryPool && webgpu)
+      this.geometryPool = poolGeometryBuffers(this.backend as unknown as Parameters<typeof poolGeometryBuffers>[0], () => this.info.frame);
     this.releaseAttributes ??= ownNodeAttributes(this);
     this.instanceSharing ??= shareInstancePrograms(this);
     this.asyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
@@ -122,7 +129,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
     try { return base._renderScene.call(this, scene, camera, useFrameBufferTarget); }
     finally { scope?.end(); self._currentRenderBundle = outer; }
   }
-  override dispose() { this.uniformPool?.release(); this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  override dispose() { this.geometryPool?.release(); this.uniformPool?.release(); this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;

@@ -3,12 +3,17 @@
 // each rounded up to 64 KiB as D3D12 places buffers; textures count their mip data. Shared buffers and texture
 // sources count once per measurement. three's info.memory is not used: it over-counts.
 import type * as THREE from 'three/webgpu';
+import { pooledGeometryBytes } from '../render/geometryPool';
 
 const PLACEMENT = 64 * 1024;
 const placed = (bytes: number) => bytes > 0 ? Math.ceil(bytes / PLACEMENT) * PLACEMENT : 0;
 
 type Target = THREE.BufferAttribute | THREE.InterleavedBuffer;
 function targetBytes(target: Target) {
+  // Sub-allocated from a shared page (render/geometryPool.ts): its slot, not a 64 KiB placement. The slots of a page
+  // add up to the page once.
+  const pooled = pooledGeometryBytes(target);
+  if (pooled !== undefined) return pooled;
   const array = target.array as unknown as { constructor: { BYTES_PER_ELEMENT?: number } };
   const element = array?.constructor?.BYTES_PER_ELEMENT ?? 4;
   const width = (target as THREE.InterleavedBuffer).stride ?? (target as THREE.BufferAttribute).itemSize;
