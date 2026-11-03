@@ -61,7 +61,8 @@ def prepare(tile, paths):
         pedestrian = tags.get("highway") in ("footway", "path", "pedestrian") or (
             tags.get("highway") == "cycleway" and tags.get("foot") in ("yes", "designated", "permissive"))
         if (not pedestrian
-                or tags.get("lit") == "no" or tags.get("bridge", "no") != "no"
+                or (tags.get("lit") == "no" and policy["footway_lit_no_excludes"])
+                or tags.get("bridge", "no") != "no"
                 or tags.get("tunnel", "no") not in ("no", "building_passage")
                 or tags.get("surface") in ("grass", "ground", "dirt", "wood", "metal")
                 or geom.geom_type != "LineString"):
@@ -71,7 +72,7 @@ def prepare(tile, paths):
         except ValueError:
             width = 3
         width = float(np.clip(width, 1, 12)) if np.isfinite(width) else 3
-        corridor = geom.buffer(width / 2 + 2.5).intersection(area)
+        corridor = geom.buffer(width / 2 + policy["walk_margin_m"]).intersection(area)
         if not corridor.is_empty:
             result.append(corridor)
     return result
@@ -88,11 +89,11 @@ def visuals(tile, bank, walks, corridors, water_level):
     from . import surfaces
 
     allowed = shapely.union_all(corridors)
-    measured = shapely.union_all([p["line"].buffer(p["width"] / 2 + 2.5) for p in walks])
+    policy = json.loads(OBSERVATIONS.read_text())
+    measured = shapely.union_all([p["line"].buffer(p["width"] / 2 + policy["walk_margin_m"]) for p in walks])
     eligible = allowed.intersection(measured)
     keep = np.ones(len(bank.indices), bool)
     wall_p, wall_i, masks, bar_p, bar_i = [], [], [], [], []
-    policy = json.loads(OBSERVATIONS.read_text())
     depth = policy["wash_depth_m"]
     tint = np.asarray(policy["linear_rgb"], float)
     for i in range(0, len(bank.indices) - 1, 2):

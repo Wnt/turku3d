@@ -1,8 +1,18 @@
 {
   "waterway": "Aurajoki",
-  "between_bridges": ["Tuomiokirkkosilta", "Martinsilta"],
+  "between_bridges": [
+    "Tuomiokirkkosilta",
+    "Martinsilta"
+  ],
   "extent_evidence": "Jonni 2026-11-03 estimate; exact continuous coverage is not surveyed",
   "appearance_evidence": "Jonni dusk/night references and Vastavalo previews 554993/399195: warm line beneath crest, downward stone wash, interrupted by stairs and openings. No measured fixture spacing.",
-  "linear_rgb": [1.0, 0.74, 0.44],
-  "wash_depth_m": 0.9
+  "linear_rgb": [
+    1.0,
+    0.74,
+    0.44
+  ],
+  "wash_depth_m": 0.9,
+  "walk_margin_m": 4.0,
+  "footway_lit_no_excludes": false,
+  "placement_evidence": "2026-11-03 real-tile audit (t0_2_-1, t0_-2_2): in-reach lower crests sit 4-6 m from wide lower walkways mapped at their centreline (p75 4.8 m), and the lower-quay footways in this reach are often lit=no (no lamp posts). The bars are a quay-wall fixture, so lit=no on the path does not exclude them inside the reach."
 }
