@@ -28,11 +28,6 @@ def read(path,default=None):
     except FileNotFoundError:return default
 
 
-def cpu_ticks():
-    values=list(map(int,Path('/proc/stat').read_text().splitlines()[0].split()[1:]))
-    return sum(values[:8]),values[7]
-
-
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('root',type=Path)
@@ -45,6 +40,8 @@ def main():
     p.add_argument('--report-dir',type=Path,help='separate proof reports while an earlier generation is being pulled')
     p.add_argument('--control',type=Path,help='atomically replace JSON {workers:N} to adjust live admission')
     p.add_argument('--floor-gib',type=float,default=25)
+    p.add_argument('--warm-only',action='store_true',help='city runs: compile the one-time shared work (warm.py) and exit, e.g. on the small plan before the resize')
+    p.add_argument('--keep-caches',action='store_true',help='city runs: keep per-tile stage/input caches and lidar units (default: delete when done)')
     a=p.parse_args();root=a.root.resolve();state=root/'state'
     reports=a.report_dir or state;reports.mkdir(parents=True,exist_ok=True)
     maximum=worker_limit()
@@ -92,6 +89,7 @@ def main():
         signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
         # Dedicated bulk host only: leave the LAN daemon's 12-worker limit untouched.
         shared.MAX_WORKERS=maximum
+        transient=None;requested={}
         class BulkFarm(shared.Farm):
             def _make_room(self,target):
                 return preserve_products(self,super()._make_room,target)
@@ -103,6 +101,7 @@ def main():
                 if kind in ('built','failed'):
                     with (reports/'bulk-progress.jsonl').open('a') as log:
                         log.write(json.dumps(dict(event=kind,at=time.time(),**row))+'\n')
+                    if transient and row.get('tile'):transient.done(row['tile'])
                 changed.set()
         # Reject unrelated recoverable work before the Farm constructor can resume it.
         expected_revision=hashlib.sha256((commit+':'+sources['version']).encode()).hexdigest()
@@ -129,9 +128,22 @@ def main():
                      TURKU3D_WORK=str(root/'farm/products'/generation/'work'),
                      TURKU3D_SHARED_CACHE=str(root/'farm/cache'))
             farm.mount_supplements(Path(env['TURKU3D_DATA']),Path(env['TURKU3D_WORK']))
-            subprocess.run([str(root/'run.sh'),'python',str(warm),str(root/'farm/products'/generation)],env=env,check=True)
+            if not (root/'farm/products'/generation/'warm.json').exists():
+                subprocess.run([str(root/'run.sh'),'python',str(warm),str(root/'farm/products'/generation)],env=env,check=True)
+            if a.warm_only:
+                print(json.dumps(dict(warm=str(root/'farm/products'/generation/'warm.json'))),flush=True)
+                farm.close();pool.close();return 0
+            if not a.keep_caches:
+                # A fresh city run computes each tile once: finished tiles and lidar units
+                # leave no caches behind, so the run fits the staging disk (transient.py).
+                from transient import Transient,UnitCaches
+                _,build_env=farm.build_environment(revision,root/'farm/products'/generation)
+                os.environ.update({k:build_env[k] for k in ('TURKU3D_SHARED_CACHE','TURKU3D_WORK','TURKU3D_DATA') if k in build_env})
+                os.environ['TURKU3D_STAGE_CACHE']='transient'  # builds inherit it: no stage entries are written
+                caches=UnitCaches(root/'repo',root/'farm/cache')
+                transient=Transient(root/'farm/cache',list(wanted),caches.units,caches.paths)
 
-        started=time.monotonic();before=resource.getrusage(resource.RUSAGE_CHILDREN);ticks0=cpu_ticks()
+        started=time.monotonic();before=resource.getrusage(resource.RUSAGE_CHILDREN);swept=started
         failed=[];already=[];pressure=False;memory_pressure=False
         try:
             while wanted or farm.jobs:
@@ -152,16 +164,23 @@ def main():
                     farm.workers=cap;farm.queue_limit=maximum;farm.pump();count=len(farm.jobs)
                 monitor.record(target_workers=target,admission_cap=cap,active=count,remaining=len(wanted),
                                free_gib=round(farm.free()/2**30,3))
+                if transient and time.monotonic()-swept>60:
+                    with farm.lock:inflight=[requested.get(tile,time.time()) for _,tile in farm.jobs]
+                    transient.sweep(min(inflight,default=time.time()));swept=time.monotonic()
                 while wanted and fits():
                     tile=wanted[0]
                     ack=read(root/'farm/exported'/generation/(tile+'.json'))
                     if ack and ack.get('generation')==generation and ack.get('verified'):
-                        already.append(tile);wanted.popleft();continue
+                        already.append(tile);wanted.popleft()
+                        if transient:transient.done(tile)
+                        continue
                     receipt=root/'farm/products'/generation/tile/'ready.json'
                     if receipt.exists():
                         product=receipt.parent
                         farm.validate(product.parent,tile,read(product/'manifest.json'))
-                        already.append(tile);wanted.popleft();continue
+                        already.append(tile);wanted.popleft()
+                        if transient:transient.done(tile)
+                        continue
                     if not count:
                         # Restore headroom for the whole requested wave while raw
                         # caches have no readers. Otherwise a low-space resume would
@@ -170,12 +189,14 @@ def main():
                         if not farm.make_room(farm.floor+farm.reserve*cap):
                             pressure=True;farm.grace_seconds=60;break
                     pressure=False
-                    status,result=farm.request(revision,tile)
+                    requested[tile]=time.time();status,result=farm.request(revision,tile)
                     farm.grace_seconds=60
                     if status==507:
                         pressure=True;break
                     wanted.popleft()
-                    if status>=400:failed.append(dict(tile=tile,result=result))
+                    if status>=400:
+                        failed.append(dict(tile=tile,result=result))
+                        if transient:transient.done(tile)
                     elif peaks:reserved+=need(tile);available-=need(tile)*2**30
                     with farm.lock:count=len(farm.jobs)
                 with farm.lock:active=len(farm.jobs)
@@ -188,13 +209,14 @@ def main():
         finally:
             farm.close()
             pool.close()  # Reaped before the CPU totals below.
-        after=resource.getrusage(resource.RUSAGE_CHILDREN);ticks1=cpu_ticks()
+            if transient:transient.close()
+        after=resource.getrusage(resource.RUSAGE_CHILDREN)
         failed.extend(farm.failures.values())
         excluded,failed=split_exclusions(failed,root/'farm/logs')
         report=dict(**registered,workers=a.workers,final_target_workers=target,wall_seconds=round(time.monotonic()-started,3),
                     cpu_seconds=round(after.ru_utime+after.ru_stime-before.ru_utime-before.ru_stime,3),
-                    cpu_steal_fraction=(ticks1[1]-ticks0[1])/max(1,ticks1[0]-ticks0[0]),
                     peak_child_rss_kib=after.ru_maxrss,metrics=farm.metrics,already_complete=len(already),
+                    transient=transient.metrics if transient else None,
                     remaining=list(wanted),outside_coverage=len(set(selected)&outside),failures=failed,
                     expected_exclusions=[row.get('tile') for row in excluded],
                     disk_pressure=pressure,memory_pressure=memory_pressure,interrupted=stopping.is_set())
