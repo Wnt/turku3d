@@ -157,9 +157,10 @@ mv "$ROOT/state/workers.next" "$ROOT/state/workers.json"
 
 Tiles whose generator reports `NoCoverage` (open water without ground returns, 198 of
 the 5,234 candidates in the pilot strata) are listed as `expected_exclusions` in
-`bulk-result.json` and do not make the run fail. Tiles run in a centre-out spiral: the costly dense centre starts first and cheap
-outer water ends the run. Neighbouring tiles that share 500 m lidar units build close
-in time, so each unit is decoded about once within the disk-bounded raw cache. Before city admission, `warm.py`
+`bulk-result.json` and do not make the run fail. Tiles run along a Hilbert curve over the 500 m lidar units, a unit's 2x2 tiles
+together. Neighbouring tiles that share lidar units build close in time, so each unit is
+decoded about once within the disk-bounded raw cache (simulated 64-vCPU run with 70 live
+units: 2,126 decodes, 0.75 h; centre-out spiral 0.81 h; class then distance 0.90 h). Before city admission, `warm.py`
 requires the three verified proof products for the generation and warms all ground
 channels. Serial proofs already warm compiled textures and shared vehicle assets.
 

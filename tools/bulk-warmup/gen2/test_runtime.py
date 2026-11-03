@@ -23,13 +23,19 @@ class Runtime(unittest.TestCase):
                 self.assertEqual(target,80);self.assertTrue(error)
             path.write_text('{"workers":88}')
             self.assertEqual(target_workers(path,80,96),(88,None))
-    def test_centre_out_spiral_keeps_neighbouring_tiles_together(self):
+    def test_hilbert_order_keeps_each_lidar_unit_together(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'progress.jsonl'
-            path.write_text(json.dumps(dict(event='built',tile='t0_50_50',seconds=300))+'\n')
-            result,timings=ordered(['t0_30_30','t0_0_1','t0_50_50','t0_-1_0','t0_0_0'],path)
-            self.assertEqual(result,['t0_-1_0','t0_0_0','t0_0_1','t0_30_30','t0_50_50'])
-            self.assertEqual(timings,{'t0_50_50':300})
+            path.write_text(json.dumps(dict(event='built',tile='t0_9_9',seconds=300))+'\n')
+            tiles=[f't0_{i}_{j}' for i in range(-4,4) for j in range(-4,4)]
+            result,timings=ordered(tiles,path)
+            self.assertEqual(sorted(result),sorted(tiles))
+            self.assertEqual(timings,{'t0_9_9':300})
+            units=[(int(t.split('_')[1])//2,int(t.split('_')[2])//2) for t in result]
+            # Each unit's four tiles are consecutive, and consecutive units are neighbours.
+            groups=[units[k] for k in range(0,len(units),4)]
+            self.assertTrue(all(len(set(units[k:k+4]))==1 for k in range(0,len(units),4)))
+            self.assertTrue(all(abs(a[0]-b[0])+abs(a[1]-b[1])==1 for a,b in zip(groups,groups[1:])))
     def test_tiles_without_ground_returns_are_expected_exclusions(self):
         with tempfile.TemporaryDirectory() as tmp:
             logs=Path(tmp)
