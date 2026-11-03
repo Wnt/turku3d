@@ -653,16 +653,41 @@ def survey_paths(tile) -> dict | None:
     return paths
 
 
+def survey(paths, bbox):
+    """(engine xyz, classes) of the returns inside ``bbox``, streamed from the LAZ blocks once.
+
+    Nothing is cached or written: a city migration reads each block a few times instead of
+    keeping decoded copies on the farm's disk."""
+    import laspy
+
+    from turku3d import config as C
+
+    xyz, classes = [], []
+    for name in sorted(paths):
+        with laspy.open(paths[name]) as reader:
+            (sx, sy, sz), (ox, oy, oz) = reader.header.scales, reader.header.offsets
+            for chunk in reader.chunk_iterator(2_000_000):
+                x = np.asarray(chunk.X) * sx + ox - C.ORIGIN_E
+                z = C.ORIGIN_N - (np.asarray(chunk.Y) * sy + oy)
+                keep = (x >= bbox.xmin) & (x < bbox.xmax) & (z >= bbox.zmin) & (z < bbox.zmax)
+                if not keep.any():
+                    continue
+                y = np.asarray(chunk.Z)[keep] * sz + oz - C.ORIGIN_H
+                xyz.append(np.c_[x[keep], y, z[keep]])
+                classes.append(np.asarray(chunk.classification)[keep])
+    if not xyz:
+        return np.empty((0, 3)), np.empty(0, np.uint8)
+    return np.concatenate(xyz), np.concatenate(classes)
+
+
 def tile_wires(tile) -> dict | None:
     """The ``lights.wires`` record of a visual tile, or None without survey or wires."""
-    from turku3d.lidar import TileStore
-
     paths = survey_paths(tile)
     if not paths:
         return None
-    cloud = TileStore(source_paths=paths).query(tile.bbox.buffered(SEARCH))
-    if not len(cloud):
+    xyz, classes = survey(paths, tile.bbox.buffered(SEARCH))
+    if not len(xyz):
         return None
     b = tile.bbox
-    found, lamps = detect(cloud.points, cloud.records["classification"], (b.xmin, b.zmin, b.xmax, b.zmax))
+    found, lamps = detect(xyz, classes, (b.xmin, b.zmin, b.xmax, b.zmax))
     return record(found, lamps)
