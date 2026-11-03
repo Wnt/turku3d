@@ -544,9 +544,15 @@ def sample(building_id, attrs, geometry):
         floors = None
     floors = int(floors) if isinstance(floors, (int, float)) and floors > 0 else None
     spec = ARCHETYPES[r["archetype"]]
-    heads = spec.get("heads") or (("flat", "segmental-arch", "round-arch") if r["archetype"] in (
+    # Arched heads are period vocabulary. Use-selected civic buildings dated from
+    # functionalism onwards (a 1960s concrete museum) keep flat heads.
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    historic_heads = r["archetype"] in (
         "neo_renaissance", "jugend", "civic", "empire", "nordic_classicism"
-    ) else ("flat",))
+    ) and not (year and year >= 1930)
+    heads = spec.get("heads") or (
+        ("flat", "segmental-arch", "round-arch") if historic_heads else ("flat",)
+    )
     head = random.Random(stable_seed(seed_id, "head_shape")).choice(heads)
     door_head = spec.get("door_head", head)
     v = lambda x: value(x, "rule sample")  # noqa: E731

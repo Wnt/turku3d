@@ -197,6 +197,19 @@ def test_massive_pre_industrial_masonry_is_a_measured_class_without_shopfronts()
     assert min(int(style["wall"][i:i + 2], 16) for i in (1, 3, 5)) > 200
 
 
+def test_modern_civic_buildings_never_sample_arched_openings():
+    for i in range(40):
+        attrs = dict(construction_year=1965, use="2120", material_class="concrete", levels=3)
+        p = sample(f"museum-{i}", attrs, [dict(wall_id="w", width_m=30.0, height_m=12.0)])
+        assert p["archetype"] == "civic"
+        w = p["walls"][0]
+        assert {w[s]["head_shape"]["value"] for s in ("windows", "base", "doors")} == {"flat"}
+    old = {sample(f"hall-{i}", dict(construction_year=1905, use="2120"),
+                  [dict(wall_id="w", width_m=30.0, height_m=12.0)])["walls"][0]["windows"]["head_shape"]["value"]
+           for i in range(40)}
+    assert "round-arch" in old
+
+
 def test_fallback_periods_are_seeded_and_explicit_evidence_wins():
     from turkutex.facade_archetypes import inferred_period, recipe
 
