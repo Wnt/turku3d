@@ -142,16 +142,14 @@ export class BuildingModelCache {
   private committed = new WeakSet<object>();
   /** The owner's tile is drawn: templates only committed tiles use may release their render arrays. */
   markCommitted(owner: THREE.Object3D) { this.committed.add(owner); }
-  /** Release the uploaded render-only arrays of templates every holder of which is a committed tile. */
-  releaseCommitted(release: (geometry: THREE.BufferGeometry) => number) {
+  /** Release templates every holder of which is a committed tile, once each (`release` gets the template and the
+   *  tiles holding it; it decides per geometry). */
+  releaseCommitted(release: (root: THREE.Object3D, owners: object[]) => number) {
     let bytes = 0;
     for (const entry of this.entries.values()) {
       if (entry.released || !entry.root || !entry.owners.size || [...entry.owners].some(owner => !this.committed.has(owner))) continue;
-      const geometries = new Set<THREE.BufferGeometry>();
-      entry.root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
-      let freed = 0;
-      for (const geometry of geometries) freed += release(geometry);
-      if (freed) { entry.released = true; bytes += freed; }
+      entry.released = true;
+      bytes += release(entry.root, [...entry.owners]);
     }
     return bytes;
   }

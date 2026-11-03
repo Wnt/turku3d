@@ -214,7 +214,7 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
       install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
       uninstall: () => { window.__render!.afterFrame = previous; },
     });
-  }, memory: () => memoryCensus({ scene, coarse: censusSources.coarse, collision: censusSources.collision }),
+  }, memory: () => memoryCensus({ scene, coarse: censusSources.coarse, collision: censusSources.collision, ground: censusSources.ground }),
   setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
@@ -417,7 +417,7 @@ function applyQaCamera() {
 }
 
 /** What `__render.memory()` reads once the world exists. */
-const censusSources: { coarse: CoarseTiles | null; collision: CollisionStreamer | null } = { coarse: null, collision: null };
+const censusSources: { coarse: CoarseTiles | null; collision: CollisionStreamer | null; ground: GroundIndex | null } = { coarse: null, collision: null, ground: null };
 
 async function draftWorld() {
   const physics = new PhysicsClient();
@@ -479,7 +479,7 @@ async function runQa() {
       ground.add(col);
     },
   });
-  censusSources.coarse = coarse;
+  censusSources.coarse = coarse; censusSources.ground = ground;
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,

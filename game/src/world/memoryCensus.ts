@@ -14,12 +14,14 @@ export interface MemorySources {
   scene: THREE.Scene;
   coarse?: { memoryParts(): ReturnType<import('./coarseTiles').CoarseTiles['memoryParts']> } | null;
   collision?: { retainedBytes(): MemoryRow } | null;
+  /** Decoded collision ground of fixed-camera and replay modes (world/groundIndex.ts). */
+  ground?: { retainedBytes(): MemoryRow } | null;
 }
 
 const MiB = 2 ** 20;
 const mib = (bytes: number) => Math.round(bytes / MiB * 10) / 10;
 
-export async function memoryCensus({ scene, coarse, collision }: MemorySources) {
+export async function memoryCensus({ scene, coarse, collision, ground }: MemorySources) {
   const arrays = new Set<ArrayBufferView>(), textures = new Set<unknown>();
   const rows = new Map<string, MemoryRow>();
   const add = (category: string, bytes: number, count = 1) => {
@@ -102,12 +104,19 @@ export async function memoryCensus({ scene, coarse, collision }: MemorySources) 
   add('cache: decoded KTX2 textures', decodedTextures.residentBytes, decodedTextures.count);
   if (parts) {
     add('cache: final tile fragments', parts.fragmentCache.bytes, parts.fragmentCache.count);
-    add('preview fragments (parsed JSON, count only)', 0, parts.previewFragments);
-    add('road graphs (count only)', 0, parts.roads);
-    add('released so far (CPU geometry arrays freed after upload)', 0, Math.round(parts.releasedBytes / MiB));
+    add('JSON: preview fragments (serialized size estimate)', parts.previewJsonBytes(), parts.previewFragments);
+    add('JSON: road graphs (serialized size estimate)', parts.roadsJsonBytes(), parts.roads);
   }
   const cells = collision?.retainedBytes();
   if (cells) add('collision cells (retained bytes)', cells.bytes, cells.count);
+  const indexed = ground?.retainedBytes();
+  if (indexed) add('collision ground index (replay and fixed cameras)', indexed.bytes, indexed.count);
+  // Object counts: each three.js object, material and texture costs heap beyond its arrays.
+  let objects = 0, meshes = 0;
+  const materials = new Set<unknown>();
+  scene.traverse(object => { objects++; const mesh = object as THREE.Mesh; if (mesh.isMesh) { meshes++; for (const m of [mesh.material].flat()) materials.add(m); } });
+  add('scene objects (count only)', 0, objects); add('scene meshes (count only)', 0, meshes);
+  add('scene materials (count only)', 0, materials.size); add('scene textures (count only)', 0, textures.size);
   const heap = (performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
   let browser: unknown = null;
   const measure = (performance as unknown as { measureUserAgentSpecificMemory?: () => Promise<{ bytes: number; breakdown: { bytes: number; types: string[]; attribution: { scope?: string; url?: string }[] }[] }> }).measureUserAgentSpecificMemory;
@@ -125,6 +134,8 @@ export async function memoryCensus({ scene, coarse, collision }: MemorySources) 
   const sorted = [...rows].sort((a, b) => b[1].bytes - a[1].bytes);
   return {
     totalMiB: mib(sorted.reduce((sum, [, row]) => sum + row.bytes, 0)),
+    /** CPU geometry arrays freed after their GPU upload since load (not in the total). */
+    releasedMiB: parts ? mib(parts.releasedBytes) : 0, releases: parts?.releases ?? 0,
     rows: Object.fromEntries(sorted.map(([name, row]) => [name, { MiB: mib(row.bytes), count: row.count }])),
     heapMiB: heap ? { used: mib(heap.usedJSHeapSize), total: mib(heap.totalJSHeapSize) } : null,
     browser,

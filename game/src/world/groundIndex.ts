@@ -27,6 +27,12 @@ export class GroundIndex {
   generation = 0;
 
   get size() { return this.cells.size; }
+  /** Retained bytes and cells (memory census). */
+  retainedBytes() {
+    let bytes = 0;
+    for (const cell of this.cells.values()) bytes += cell.start.byteLength + cell.tris.byteLength + cell.v.byteLength;
+    return { bytes, count: this.cells.size };
+  }
 
   /** Index one decoded collision cell (replaces an earlier one with the same id). */
   add(col: ColTile) {

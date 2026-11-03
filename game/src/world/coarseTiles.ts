@@ -35,7 +35,7 @@ export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
 import { streamingAllowance } from '../render/preparationBudget';
-import { releaseRenderArrays, releaseTileArrays, rendererUploaded } from './releaseArrays';
+import { TileArrays, drawnGeometries, rendererUploaded } from './releaseArrays';
 
 const POLL_MS = 1000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
@@ -217,6 +217,7 @@ export class CoarseTiles {
   constructor(private host: CoarseHost) {
     this.fetch = host.fetch ?? fetch.bind(globalThis);
     this.load = host.loadModel ?? this.gltfLoader();
+    if (!host.keepArrays && (host.renderer as unknown as { backend?: unknown })?.backend) this.arrays = new TileArrays(rendererUploaded(host.renderer));
     this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials),
       undefined, undefined, (root, owner) => styleBlockLod(root, owner, this.materials));
     this.page = host.pageUrl ?? location.href;
@@ -1063,7 +1064,7 @@ export class CoarseTiles {
     if (old && old !== under) this.dispose(old, id);
     if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
-    this.buildingModels.markCommitted(model);
+    this.releaseCommitted(model);
     // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
     if (!old || wasPreview) this.dissolveIn(id, model, own, under);
     if (installing) {
@@ -1186,22 +1187,29 @@ export class CoarseTiles {
   }
 
   private nextRelease = 0;
-  /** Every RELEASE_MS: committed full tiles (drawn or cached) and the building templates only they use drop the CPU
-   *  copies of their uploaded render-only arrays (world/releaseArrays.ts). */
+  /** CPU copies of uploaded render-only geometry (world/releaseArrays.ts); none while the host keeps arrays. */
+  private arrays: TileArrays | null = null;
+  private drawnSets = new WeakMap<object, Set<THREE.BufferGeometry>>();
+  /** A full tile committed: release its uploaded render-only arrays, and templates only committed tiles hold. */
+  private releaseCommitted(model: THREE.Object3D) {
+    if (!this.arrays) return;
+    this.arrays.commit(model);
+    this.buildingModels.markCommitted(model);
+    this.buildingModels.releaseCommitted((root, owners) => this.arrays!.template(root, geometry => owners.some(owner => {
+      let drawn = this.drawnSets.get(owner);
+      if (!drawn) { drawn = drawnGeometries(owner as THREE.Object3D); this.drawnSets.set(owner, drawn); }
+      return drawn.has(geometry);
+    })));
+  }
+  /** Every RELEASE_MS: only targets still waiting for their upload are visited. */
   private releaseUploadedArrays(now: number) {
-    if (this.host.keepArrays || now < this.nextRelease) return;
+    if (!this.arrays || now < this.nextRelease) return;
     this.nextRelease = now + RELEASE_MS;
-    const uploaded = rendererUploaded(this.host.renderer);
-    let bytes = 0;
-    for (const e of this.entries.values()) {
-      if (e.model && !e.preview && e.state === 'draft' && !e.refreshing) bytes += releaseTileArrays(e.model, uploaded);
-    }
-    bytes += this.buildingModels.releaseCommitted(geometry => releaseRenderArrays(geometry, uploaded));
-    this.releasedBytes += bytes;
+    const bytes = this.arrays.check();
     if (bytes) streamTrace.event('mem.release', undefined, { mib: Math.round(bytes / 2 ** 16) / 16 });
   }
   /** CPU array bytes released so far (memory census). */
-  releasedBytes = 0;
+  get releasedBytes() { return this.arrays?.releasedBytes ?? 0; }
 
   /** Streaming residency for the memory census (world/memoryCensus.ts). */
   memoryParts() {
@@ -1213,7 +1221,13 @@ export class CoarseTiles {
       if (!e.model) continue;
       (e.cachedAt !== undefined ? cached : e.preview ? previews : full).push(e.model);
     }
-    return { full, cached, previews, previewFragments, roads, releasedBytes: this.releasedBytes,
+    const json = (pick: (e: Entry) => unknown) => () => {
+      let bytes = 0;
+      for (const e of this.entries.values()) { const value = pick(e); if (value) bytes += 2 * JSON.stringify(value).length; }
+      return bytes;
+    };
+    return { full, cached, previews, previewFragments, roads, releasedBytes: this.releasedBytes, releases: this.arrays?.releases ?? 0,
+      previewJsonBytes: json(e => e.preview), roadsJsonBytes: json(e => e.roads),
       fragmentCache: { bytes: this.fragmentBytes, count: this.fragments.size },
       buildingTemplates: () => this.buildingModels.templates() };
   }
@@ -1285,6 +1299,7 @@ export class CoarseTiles {
   private dispose(model: THREE.Object3D, id?: string) {
     lodFades.cancelWithin(model);
     model.removeFromParent();
+    this.arrays?.forget(model);
     if (id) this.host.untrackModel?.(model, id);
     const release = () => {
       this.host.unstyle?.(model);

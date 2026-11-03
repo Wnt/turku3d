@@ -5,7 +5,8 @@ import { loading, loadBytes } from '../core/loading';
 
 let started = 0, completed = 0;
 const templates = new WeakMap<object, CompressedTexture>();
-export const decodedTextures = new AssetCache<CompressedTexture>(64 * 1024 ** 2, textureBytes);
+// Decoded KTX2 textures shared between tiles; 16 MiB (census: 62 MiB at a 64 MiB cap, mostly not shared again).
+export const decodedTextures = new AssetCache<CompressedTexture>(16 * 1024 ** 2, textureBytes);
 const decoded = decodedTextures;
 
 /** Also counts embedded glTF textures, which have no separate Resource Timing entry. */
