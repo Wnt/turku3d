@@ -1,10 +1,10 @@
 import type { CompressedTexture } from 'three';
-import { AssetCache, sharedAssetKey, textureBytes, residentTexture } from './sharedAssets';
+import { AssetCache, sharedAssetKey, textureBytes, residentTexture, ktxTemplates } from './sharedAssets';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { loading, loadBytes } from '../core/loading';
 
 let started = 0, completed = 0;
-const templates = new WeakMap<object, CompressedTexture>();
+const templates = ktxTemplates as WeakMap<object, CompressedTexture>;
 // Decoded KTX2 textures shared between tiles; 16 MiB (census: 62 MiB at a 64 MiB cap, mostly not shared again).
 export const decodedTextures = new AssetCache<CompressedTexture>(16 * 1024 ** 2, textureBytes);
 const decoded = decodedTextures;

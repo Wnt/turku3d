@@ -48,6 +48,10 @@ export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set
 }
 
 const queues = new WeakMap<THREE.WebGPURenderer, TextureUploads>();
+/** Whether `texture` went through the upload queue at its current version (its GPU copy is current). */
+export function textureUploaded(renderer: THREE.WebGPURenderer, texture: THREE.Texture) {
+  return queues.get(renderer)?.uploadedAt(texture) === texture.version;
+}
 export function textureUploads(renderer: THREE.WebGPURenderer): TextureUploads {
   let queue = queues.get(renderer);
   if (!queue) { queue = new TextureUploads(renderer); queues.set(renderer, queue); }
@@ -58,7 +62,13 @@ class TextureUploads {
   private budget = new UploadBudget();
   private scheduled = false;
   private versions = new WeakMap<THREE.Texture, { version: number; done: Promise<void> }>();
+  private uploaded = new WeakMap<THREE.Texture, number>();
   constructor(private renderer: THREE.WebGPURenderer) {}
+  uploadedAt(texture: THREE.Texture) { return this.uploaded.get(texture); }
+  private init(texture: THREE.Texture) {
+    this.renderer.initTexture(texture);
+    this.uploaded.set(texture, texture.version);
+  }
   enqueue(texture: THREE.Texture): Promise<void> {
     const previous = this.versions.get(texture);
     if (previous?.version === texture.version) return previous.done;
@@ -66,7 +76,7 @@ class TextureUploads {
     const image = texture.image as { data?: ArrayBufferView; width?: number; height?: number } | undefined;
     const bytes = mipmaps?.reduce((sum, mip) => sum + (mip.data?.byteLength ?? 0), 0)
       || image?.data?.byteLength || 4 * (image?.width ?? 1) * (image?.height ?? 1);
-    const done = this.budget.enqueue(bytes, () => this.renderer.initTexture(texture));
+    const done = this.budget.enqueue(bytes, () => this.init(texture));
     this.versions.set(texture, { version: texture.version, done });
     this.schedule();
     return done;
@@ -76,7 +86,7 @@ class TextureUploads {
   update(texture: THREE.Texture, bytes: number, change: () => void): Promise<void> {
     const done = this.budget.enqueue(bytes, () => {
       change();
-      this.renderer.initTexture(texture);
+      this.init(texture);
       this.versions.set(texture, { version: texture.version, done });
     });
     this.schedule();

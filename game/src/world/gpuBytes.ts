@@ -24,6 +24,8 @@ function textureBytes(texture: THREE.Texture) {
   const mipmaps = texture.mipmaps as { data?: { byteLength: number } }[] | undefined;
   const mips = mipmaps?.reduce((sum, mip) => sum + (mip.data?.byteLength ?? 0), 0) ?? 0;
   if (mips) return mips;
+  // CPU mips dropped after upload (world/sharedAssets.ts releaseTextureData): the GPU copy keeps its size.
+  if (typeof texture.userData.releasedBytes === 'number') return texture.userData.releasedBytes;
   const image = texture.image as { width?: number; height?: number; data?: ArrayBufferView } | undefined;
   if (image?.data?.byteLength) return image.data.byteLength;
   // Uploaded RGBA8 with a mip chain.

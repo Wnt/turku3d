@@ -5,7 +5,7 @@
 import type * as THREE from 'three/webgpu';
 import { visualBuffers } from './loadGlb';
 import { decodedTextures } from './loadingKtx';
-import { sharedBuffers, textureBytes } from './sharedAssets';
+import { sharedBuffers, textureBytes, textureRelease } from './sharedAssets';
 import { staticBatchSources } from './staticBatch';
 import { vegetationOwner } from './vegetationLod';
 import { GpuMeter } from './gpuBytes';
@@ -170,6 +170,7 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
     totalMiB: mib(sorted.reduce((sum, [, row]) => sum + row.bytes, 0)),
     /** CPU geometry arrays freed after their GPU upload since load (not in the total). */
     releasedMiB: parts ? mib(parts.releasedBytes) : 0, releases: parts?.releases ?? 0,
+    texturesReleasedMiB: mib(textureRelease.bytes), textureReleases: textureRelease.count,
     rows: Object.fromEntries(sorted.map(([name, row]) => [name, { MiB: mib(row.bytes), count: row.count }])),
     heapMiB: heap ? { used: mib(heap.usedJSHeapSize), total: mib(heap.totalJSHeapSize) } : null,
     gpuMiB: gpu, gpuResidency: parts?.gpuResidency ?? null,

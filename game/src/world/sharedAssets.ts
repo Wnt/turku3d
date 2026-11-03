@@ -41,6 +41,54 @@ export function textureBytes(texture: THREE.Texture): number {
     || (texture.image as { data?: ArrayBufferView })?.data?.byteLength || 0;
 }
 
+/** Decoded KTX2 templates by texture source: LoadingKtx clones new variants from them (world/loadingKtx.ts). A
+ *  template lives as long as any texture of its source, so its mips do too until releaseTextureData drops it. */
+export const ktxTemplates = new WeakMap<object, THREE.Texture>();
+/** CPU mips dropped after upload so far (memory census). */
+export const textureRelease = { bytes: 0, count: 0 };
+type Mip = { data: ArrayBufferView; width: number; height: number };
+
+/** Texture surface arrays copy from these maps' mips later (render/surfaceArrays.ts): they keep them. */
+export function keepTextureData(texture: THREE.Texture | null | undefined) { if (texture?.isTexture) texture.userData.keepData = true; }
+
+/** Drop a shared compressed texture's CPU mips once `uploaded` (its GPU copy is current). Only resident textures:
+ *  their GPU copy is reused by every tile, tile clones resolve to them before upload (shareModelTextures) and they
+ *  are disposed only when no model uses them. The texture keeps mip sizes (empty data) and its byte size in
+ *  `userData.releasedBytes`; its decoded template goes too, so a new variant decodes the source again. */
+export function releaseTextureData(texture: THREE.Texture, uploaded: (texture: THREE.Texture) => boolean): number {
+  if (!managed.has(texture) || texture.userData.keepData || texture.userData.releasedBytes !== undefined) return 0;
+  const compressed = texture as THREE.CompressedTexture & { isCompressedArrayTexture?: boolean };
+  if (!compressed.isCompressedTexture || compressed.isCompressedArrayTexture) return 0;
+  const mipmaps = compressed.mipmaps as unknown as Mip[];
+  if (!mipmaps?.length || !mipmaps.every(mip => ArrayBuffer.isView(mip.data) && mip.data.byteLength > 0) || !uploaded(texture)) return 0;
+  let bytes = 0;
+  // New mip objects: other variants and the template share the old ones.
+  compressed.mipmaps = mipmaps.map(mip => {
+    bytes += mip.data.byteLength;
+    return { ...mip, data: new (mip.data.constructor as new (length: number) => ArrayBufferView)(0) };
+  }) as unknown as THREE.CompressedTexture['mipmaps'];
+  texture.userData.releasedBytes = bytes;
+  ktxTemplates.delete(texture.source);
+  textureRelease.bytes += bytes; textureRelease.count++;
+  return bytes;
+}
+
+/** releaseTextureData for every material slot texture of a committed model. */
+export function releaseModelTextureData(model: THREE.Object3D, uploaded: (texture: THREE.Texture) => boolean): number {
+  const materials = new Set<THREE.Material>();
+  let bytes = 0;
+  model.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (materials.has(material)) continue;
+      materials.add(material);
+      for (const value of Object.values(material)) if ((value as THREE.Texture)?.isTexture) bytes += releaseTextureData(value as THREE.Texture, uploaded);
+    }
+  });
+  return bytes;
+}
+
 interface Resident { key: string; texture: THREE.Texture; users: number; bytes: number }
 const residents = new Map<string, Resident>();
 const owners = new WeakMap<THREE.Object3D, Set<Resident>>();

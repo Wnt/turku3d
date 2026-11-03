@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { attribute, float, int, mix, normalMap, positionWorld, select, texture, uniformArray, vec2, vec3, vec4 } from 'three/tsl';
 import { QUALITY, type QualityTier } from './quality';
 import { wetSurface } from './weather/surfaces';
+import { keepTextureData } from '../world/sharedAssets';
 
 // Census at spawn (16:02): each tile drew ~25 meshes, one per distinct ground/surface material. The coarse
 // generator's wet library surfaces (asphalt, granite curb, cobblestone, concrete slabs, quay stone) share one
@@ -27,7 +28,7 @@ function compressed(value: THREE.Texture | null): value is Compressed {
   const texture = value as Compressed | null;
   return !!texture && (texture as THREE.CompressedTexture).isCompressedTexture === true && !(texture as THREE.CompressedArrayTexture).isCompressedArrayTexture
     && typeof texture.userData.sharedAsset === 'string' && Array.isArray(texture.mipmaps) && texture.mipmaps.length > 0
-    && texture.mipmaps.every(mip => mip.data && ArrayBuffer.isView(mip.data)) && texture.channel === 0;
+    && texture.mipmaps.every(mip => mip.data && ArrayBuffer.isView(mip.data) && mip.data.byteLength > 0) && texture.channel === 0;
 }
 const arrayNode = (array: THREE.CompressedArrayTexture) => texture(array);
 const transform = (t: THREE.Texture) => [...t.offset.toArray(), ...t.repeat.toArray(), ...t.center.toArray(), t.rotation].join(',');
@@ -226,6 +227,12 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
       let owner: THREE.Object3D | null = mesh;
       while (owner && !owner.userData.layer) owner = owner.parent;
       if (owner?.userData.layer !== 'ground') return;
+      // Ground maps feed the arrays now or in a later tile: their CPU mips stay after upload.
+      for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+        const standard = material as THREE.MeshStandardMaterial;
+        keepTextureData(standard.map); keepTextureData(standard.normalMap); keepTextureData(standard.roughnessMap);
+        keepTextureData(standard.metalnessMap); keepTextureData(standard.aoMap);
+      }
       const style = kindOf(mesh);
       const slice = style && surfaceSlice(mesh, style.kind, style.key);
       const layer = slice && arrays.layer(slice);

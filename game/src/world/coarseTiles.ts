@@ -12,7 +12,8 @@ import { ScreenshotScenery } from './screenshotScenery';
 import { TILE_DETAIL } from './sceneryView';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
-import { textureUploads } from '../render/textureUploads';
+import { textureUploaded, textureUploads } from '../render/textureUploads';
+import { releaseModelTextureData } from './sharedAssets';
 import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, inViewWedge, preparationTiles, retainDraftTile, retainPreparedTile, startupDraftTiles, viewWedgeTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
@@ -1225,6 +1226,8 @@ export class CoarseTiles {
   private releaseCommitted(model: THREE.Object3D) {
     if (!this.arrays) return;
     this.arrays.commit(model);
+    // Its shared textures were uploaded at load and styled since (surface arrays took their ground maps).
+    releaseModelTextureData(model, texture => textureUploaded(this.host.renderer, texture));
     this.buildingModels.markCommitted(model);
     this.buildingModels.releaseCommitted((root, owners) => this.arrays!.template(root, geometry => owners.some(owner => {
       let drawn = this.drawnSets.get(owner);
