@@ -1,0 +1,103 @@
+import { expect, test } from 'vitest';
+import * as THREE from 'three/webgpu';
+import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
+// @ts-expect-error r186 internal node manager has no DefinitelyTyped declaration.
+import NodeManager from 'three/src/renderers/common/nodes/NodeManager.js';
+import { GameRenderer } from '../../src/render/shadowMaterials';
+import { GameLighting } from '../../src/render/lighting';
+import { Environment } from '../../src/render/environment';
+import { MaterialStyler } from '../../src/render/materials';
+import { QUALITY } from '../../src/render/quality';
+import { SURFACE_LAYER } from '../../src/render/surfaceArrays';
+
+/** A KTX2-decoded shared library texture: compressed mips kept on the CPU, content hash from the asset URL. */
+function compressedTexture(asset: string, size: number, srgb: boolean, seed: number) {
+  const mipmaps = [];
+  for (let s = size, level = 0; s >= 4; s >>= 1, level++) mipmaps.push({ data: new Uint8Array(s * s).fill((seed * 16 + level) & 255), width: s, height: s });
+  const texture = new THREE.CompressedTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], size, size, THREE.RGBA_ASTC_4x4_Format);
+  texture.userData.sharedAsset = `${asset}.ktx2`;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.repeat.set(0.5, 0.5);
+  if (srgb) texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+function surfaceMaterial(name: string, seed: number, albedo = 32) {
+  const orm = compressedTexture(`${name}-orm`, 8, false, seed + 2);
+  return new THREE.MeshStandardMaterial({ map: compressedTexture(`${name}-albedo`, albedo, true, seed), normalMap: compressedTexture(`${name}-normal`, 16, false, seed + 1),
+    roughnessMap: orm, metalnessMap: orm, aoMap: orm, roughness: 0.9 });
+}
+function surfaceMesh(key: string, material: THREE.Material, x: number, objects?: Record<string, unknown>[]) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([x, 0, 0, x + 1, 0, 0, x, 0, 1, x + 1, 0, 1], 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
+  geometry.setAttribute('color_1', new THREE.BufferAttribute(new Uint8Array(16).fill(200), 4, true));
+  geometry.setIndex([0, 2, 1, 1, 2, 3]);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.userData = { layer: 'ground', material_key: key, ...(objects ? { objects } : {}) };
+  return mesh;
+}
+/** A tile as GLTFLoader returns it: library surfaces under the tile's translated root node, own material objects. */
+function tile() {
+  const model = new THREE.Group(), root = new THREE.Group();
+  root.position.set(250, 0, -250); model.add(root);
+  const asphalt = surfaceMaterial('asphalt', 1);
+  root.add(surfaceMesh('draft_asphalt_worn', asphalt, 0), surfaceMesh('draft_asphalt_worn', asphalt, 2, [{ object_id: 'road:1', start: 0, count: 6 }]),
+    surfaceMesh('draft_granite_curb', surfaceMaterial('granite', 4), 4), surfaceMesh('draft_concrete_slabs', surfaceMaterial('slabs', 7), 6),
+    surfaceMesh('draft_grass', surfaceMaterial('grass', 10), 8), surfaceMesh('draft_fieldstone', surfaceMaterial('fieldstone', 13, 64), 10));
+  return { model, root };
+}
+function world() {
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  renderer.hasFeature = () => false;
+  Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
+  renderer.lighting = new GameLighting(QUALITY.medium.lights);
+  const scene = new THREE.Scene(), env = new Environment(scene, renderer, 'medium');
+  scene.environment = Object.assign(new THREE.DataTexture(new Uint8Array(4 * 64 * 64), 64, 64), { mapping: THREE.CubeUVReflectionMapping });
+  return { renderer, scene, env, styler: new MaterialStyler(renderer, env, 'medium', true) };
+}
+
+test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arrays; others keep their own draw', () => {
+  const { styler } = world();
+  const a = tile();
+  styler.apply(a.model);
+  const names = a.root.children.map(child => (child as THREE.Mesh).userData.material_key ?? child.name);
+  expect(names).toEqual(['draft_grass', 'draft_fieldstone', 'surface-array']); // grass: no wet film; fieldstone: other texture size
+  const merged = a.root.children.at(-1) as THREE.Mesh;
+  const layers = [...(merged.geometry.getAttribute(SURFACE_LAYER).array as Float32Array)];
+  expect(layers).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]); // the two asphalt meshes share one layer
+  expect([...merged.geometry.index!.array]).toEqual([0, 2, 1, 1, 2, 3, 4, 6, 5, 5, 6, 7, 8, 10, 9, 9, 10, 11, 12, 14, 13, 13, 14, 15]);
+  expect(merged.geometry.getAttribute('position').getX(4)).toBe(2); // local to the translated root, like its sources
+  expect((merged.userData.objects as { object_id?: string; start: number }[]).find(row => row.object_id === 'road:1')!.start).toBe(6);
+  const material = merged.material as THREE.MeshStandardNodeMaterial;
+  expect(material.userData.weatherWetness).toBe(true);
+  // Each array slice holds exactly that surface's compressed mips.
+  const albedo = (styler as unknown as { surfaces: { arrays: THREE.CompressedArrayTexture[] } }).surfaces.arrays[0];
+  const slice = albedo.mipmaps[1].data as Uint8Array, level = 16 * 16;
+  expect(slice[level * 1]).toBe((4 * 16 + 1) & 255); // layer 1 (granite), mip 1
+  expect(albedo.image.depth).toBe(4); expect(albedo.repeat.toArray()).toEqual([0.5, 0.5]);
+
+  // A second tile with its own texture objects for the same assets adds no layer and shares the program.
+  const b = tile();
+  styler.apply(b.model);
+  const other = b.root.children.at(-1) as THREE.Mesh;
+  expect(other.material).toBe(material);
+  expect((styler as unknown as { surfaces: { layers: number } }).surfaces.layers).toBe(3);
+
+  styler.release(a.model);
+  expect(a.root.children.map(child => (child as THREE.Mesh).userData.material_key).sort())
+    .toEqual(['draft_asphalt_worn', 'draft_asphalt_worn', 'draft_concrete_slabs', 'draft_fieldstone', 'draft_granite_curb', 'draft_grass']);
+  expect(a.root.children.some(child => child.name === 'surface-array')).toBe(false);
+});
+
+test('the merged surface material builds a WebGPU program with r186\'s CPU builder', () => {
+  const { renderer, scene, styler } = world();
+  const a = tile(); styler.apply(a.model); scene.add(a.model);
+  const merged = a.root.children.at(-1) as THREE.Mesh, material = merged.material as THREE.NodeMaterial;
+  type Builder = NodeBuilder & { build(): void; fragmentShader: string };
+  const nodes = new NodeManager(renderer, renderer.backend) as { _createNodeBuilder(draw: object, material: THREE.Material): Builder };
+  const lightsNode = renderer.lighting.getNode(scene);
+  const builder = nodes._createNodeBuilder({ object: merged, material, scene, camera: new THREE.PerspectiveCamera(), lightsNode, clippingContext: null }, material);
+  builder.build();
+  expect(builder.fragmentShader).toMatch(/texture_2d_array/);
+  expect(builder.fragmentShader.length).toBeGreaterThan(1000);
+});

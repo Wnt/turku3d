@@ -1,0 +1,235 @@
+import * as THREE from 'three/webgpu';
+import { attribute, float, int, mix, normalMap, positionWorld, select, texture, uniformArray, vec2, vec4 } from 'three/tsl';
+import { QUALITY, type QualityTier } from './quality';
+import { wetSurface } from './weather/surfaces';
+
+// Census at spawn (16:02): each tile drew ~25 meshes, one per distinct ground/surface material. The coarse
+// generator's wet library surfaces (asphalt, granite curb, cobblestone, concrete slabs, quay stone) share one
+// texture layout (albedo 1024² ETC1S, normal 512² UASTC, ORM 256² UASTC, the same UV transform), so a tile's
+// ground draws them as ONE mesh: a per-vertex layer selects the slice of city-wide texture arrays assembled from
+// the very same compressed mips, and per-layer factors reproduce MaterialStyler's per-kind styling.
+
+/** MaterialStyler kinds that render identically apart from texture and grain frequency (render/materials.ts). */
+const GRAIN: Record<string, number> = { asphalt: 4, granite: 2.5, cobblestone: 2 };
+const WET_STANDARD = /(?:concrete|stone|brick|road_paint|fieldstone)/;
+export const SURFACE_LAYER = '_surface_layer';
+const MAX_LAYERS = 64;
+
+type Compressed = THREE.CompressedTexture & { mipmaps: { data: ArrayBufferView; width: number; height: number }[] };
+export interface SurfaceSlice { key: string; maps: [Compressed, Compressed, Compressed]; grain: number;
+  color: THREE.Color; roughness: number; metalness: number; ao: number; normalScale: THREE.Vector2 }
+
+const ATTRIBUTES = ['color_1', 'normal', 'position', 'uv'];
+function compressed(value: THREE.Texture | null): value is Compressed {
+  const texture = value as Compressed | null;
+  return !!texture && (texture as THREE.CompressedTexture).isCompressedTexture === true && !(texture as THREE.CompressedArrayTexture).isCompressedArrayTexture
+    && typeof texture.userData.sharedAsset === 'string' && Array.isArray(texture.mipmaps) && texture.mipmaps.length > 0
+    && texture.mipmaps.every(mip => mip.data && ArrayBuffer.isView(mip.data)) && texture.channel === 0;
+}
+const transform = (t: THREE.Texture) => [...t.offset.toArray(), ...t.repeat.toArray(), ...t.center.toArray(), t.rotation].join(',');
+/** Everything that must match for two textures to be slices of one array. */
+const layout = (t: Compressed) => JSON.stringify([t.format, t.type, t.colorSpace, t.wrapS, t.wrapT, t.magFilter, t.minFilter, t.flipY,
+  t.mipmaps.map(m => [m.width, m.height, m.data.byteLength]), transform(t)]);
+
+/** The slice for a mesh whose material MaterialStyler would style as a wet library surface; null keeps it apart. */
+export function surfaceSlice(mesh: THREE.Mesh, kind: string, key: string): SurfaceSlice | null {
+  const material = mesh.material as THREE.MeshStandardMaterial;
+  if (Array.isArray(mesh.material) || !material.isMeshStandardMaterial || (material as unknown as THREE.NodeMaterial).isNodeMaterial) return null;
+  const grain = GRAIN[kind] ?? (kind === 'standard' && WET_STANDARD.test(key) ? 0 : -1);
+  if (grain < 0 || key.startsWith('night_') || key === 'draft_quay_stone_lit' || key === 'facade_kit') return null;
+  if (material.transparent || material.alphaTest > 0 || material.side !== THREE.FrontSide || material.vertexColors
+    || material.emissiveMap || material.lightMap || material.bumpMap || material.displacementMap || material.alphaMap
+    || material.emissive.getHex() !== 0 || material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return null;
+  const orm = material.roughnessMap;
+  if (!compressed(material.map) || !compressed(material.normalMap) || !compressed(orm) || material.metalnessMap !== orm
+    || (material.aoMap && material.aoMap !== orm)) return null;
+  const geometry = mesh.geometry;
+  if (!geometry.index || geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0
+    || geometry.drawRange.count !== Infinity || Object.keys(geometry.attributes).sort().join() !== ATTRIBUTES.join()) return null;
+  if ((mesh as THREE.InstancedMesh).isInstancedMesh || mesh.children.length) return null;
+  if (mesh.userData.prop_type || (mesh.userData.objects as Record<string, unknown>[] | undefined)?.some(row => row.prop_type)) return null;
+  return { key: [material.map, material.normalMap, orm].map(t => t.userData.sharedAsset).join('|'), maps: [material.map, material.normalMap, orm],
+    grain, color: material.color.clone(), roughness: material.roughness, metalness: material.metalness,
+    ao: material.aoMap ? material.aoMapIntensity : 0, normalScale: material.normalScale.clone() };
+}
+
+/** City-wide texture arrays (albedo, normal, ORM) and the one shared surface material that samples them. */
+export class SurfaceArrays {
+  private keys = new Map<string, number>();
+  private slices: SurfaceSlice[] = [];
+  private layouts: string[] | null = null;
+  private arrays: THREE.CompressedArrayTexture[] = [];
+  private nodes: ReturnType<typeof texture>[] = [];
+  private factors = [Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()), Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()),
+    Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4())];
+  private material: THREE.MeshStandardNodeMaterial | null = null;
+  constructor(private tier: QualityTier, private detail: THREE.Texture) {}
+
+  owns(material: THREE.Material) { return material === this.material; }
+  get layers() { return this.slices.length; }
+
+  /** The array layer of a slice, adding it (and growing the arrays) when new; null if its layout differs. */
+  layer(slice: SurfaceSlice): number | null {
+    const known = this.keys.get(slice.key);
+    if (known !== undefined) return known;
+    const layouts = slice.maps.map(layout);
+    if (this.layouts && layouts.some((value, i) => value !== this.layouts![i])) return null;
+    if (this.slices.length >= MAX_LAYERS) return null;
+    this.layouts ??= layouts;
+    const index = this.slices.length;
+    this.slices.push(slice); this.keys.set(slice.key, index);
+    const [a, b, c] = this.factors;
+    a[index].set(slice.color.r, slice.color.g, slice.color.b, slice.grain);
+    b[index].set(slice.roughness, slice.metalness, slice.ao, 0);
+    c[index].set(slice.normalScale.x, slice.normalScale.y, 0, 0);
+    this.rebuild();
+    return index;
+  }
+
+  /** Arrays hold a power-of-two capacity; a new slice rewrites only its own layer unless capacity grows. */
+  private rebuild() {
+    const capacity = Math.max(4, 2 ** Math.ceil(Math.log2(this.slices.length)));
+    for (let channel = 0; channel < 3; channel++) {
+      const first = this.slices[0].maps[channel];
+      let array = this.arrays[channel];
+      if (!array || array.image.depth !== capacity) {
+        const mipmaps = first.mipmaps.map(mip => ({ data: new Uint8Array(mip.data.byteLength * capacity), width: mip.width, height: mip.height }));
+        const next = new THREE.CompressedArrayTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], first.image.width, first.image.height, capacity, first.format, first.type);
+        for (const property of ['colorSpace', 'wrapS', 'wrapT', 'magFilter', 'minFilter', 'flipY', 'premultiplyAlpha', 'unpackAlignment'] as const)
+          (next as unknown as Record<string, unknown>)[property] = first[property];
+        next.anisotropy = first.anisotropy; // the sources' sampling, so the look is unchanged
+        next.offset.copy(first.offset); next.repeat.copy(first.repeat); next.center.copy(first.center); next.rotation = first.rotation;
+        next.generateMipmaps = false; next.name = `surface-array-${channel}`;
+        for (let i = 0; i < this.slices.length; i++) this.copy(next, i, channel);
+        next.needsUpdate = true;
+        array?.dispose();
+        this.arrays[channel] = next;
+        if (this.nodes[channel]) this.nodes[channel].value = next;
+      } else {
+        const index = this.slices.length - 1;
+        this.copy(array, index, channel);
+        array.addLayerUpdate(index); array.needsUpdate = true;
+      }
+    }
+  }
+
+  private copy(array: THREE.CompressedArrayTexture, index: number, channel: number) {
+    const source = this.slices[index].maps[channel];
+    array.mipmaps.forEach((mip, level) => {
+      const data = source.mipmaps[level].data;
+      (mip.data as Uint8Array).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), index * data.byteLength);
+    });
+  }
+
+  /** One node material for every merged tile surface: MaterialStyler's library-surface styling per layer. */
+  surfaceMaterial(): THREE.MeshStandardNodeMaterial {
+    if (this.material) return this.material;
+    const material = new THREE.MeshStandardNodeMaterial({ name: 'surface-array' });
+    const layer = int(attribute(SURFACE_LAYER, 'float').add(0.5));
+    const [albedo, normal, orm] = this.nodes = this.arrays.map(array => texture(array));
+    const [colours, pbr, scales] = this.factors.map(values => uniformArray(values, 'vec4'));
+    const element = (values: ReturnType<typeof uniformArray>) => values.element(layer) as unknown as THREE.Node<'vec4'>;
+    const colour = vec4(element(colours)), surface = vec4(element(pbr)), scale = vec4(element(scales));
+    const sampled = orm.depth(layer);
+    const q = QUALITY[this.tier];
+    // World coordinates remain continuous across tile boundaries (as MaterialStyler's grain); frequency 0: none.
+    const frequency = colour.w;
+    const grainUv = positionWorld.xz.add(positionWorld.y.mul(0.37)).mul(frequency);
+    const grains = frequency.greaterThan(0);
+    const grain = texture(this.detail, grainUv).r.sub(0.5).mul(select(grains, float(q.detail), float(0)));
+    material.colorNode = albedo.depth(layer).rgb.mul(colour.xyz).mul(grain.add(1));
+    const roughness = sampled.g.mul(surface.x);
+    material.roughnessNode = select(grains, roughness.add(grain).clamp(0.45, 1), roughness);
+    material.metalnessNode = sampled.b.mul(surface.y);
+    material.aoNode = mix(float(1), sampled.r, surface.z);
+    material.normalNode = normalMap(normal.depth(layer).rgb, vec2(scale.x, scale.y));
+    wetSurface(material);
+    return this.material = material;
+  }
+
+  dispose() { for (const array of this.arrays) array.dispose(); this.material?.dispose(); this.arrays = []; this.material = null; }
+}
+
+const position = new THREE.Vector3(), normal = new THREE.Vector3(), normalMatrix = new THREE.Matrix3();
+/** One mesh per parent for the merged slices; sources detach (restored by the returned function). */
+export function mergeSurfaces(model: THREE.Object3D, arrays: SurfaceArrays, kindOf: (mesh: THREE.Mesh) => { kind: string; key: string } | null) {
+  const groups = new Map<THREE.Object3D, { mesh: THREE.Mesh; layer: number }[]>();
+  model.updateWorldMatrix(true, true);
+  model.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.parent) return;
+    let owner: THREE.Object3D | null = mesh;
+    while (owner && !owner.userData.layer) owner = owner.parent;
+    if (owner?.userData.layer !== 'ground') return;
+    const style = kindOf(mesh);
+    const slice = style && surfaceSlice(mesh, style.kind, style.key);
+    const layer = slice && arrays.layer(slice);
+    if (layer === null || layer === undefined) return;
+    const list = groups.get(mesh.parent) ?? []; list.push({ mesh, layer }); groups.set(mesh.parent, list);
+  });
+  const merged: { mesh: THREE.Mesh; sources: THREE.Mesh[]; parent: THREE.Object3D }[] = [];
+  for (const [parent, sources] of groups) {
+    if (sources.length < 2) continue;
+    let vertices = 0, indices = 0;
+    for (const { mesh } of sources) { vertices += mesh.geometry.attributes.position.count; indices += mesh.geometry.index!.count; }
+    const geometry = new THREE.BufferGeometry();
+    const first = sources[0].mesh.geometry;
+    for (const name of ATTRIBUTES) {
+      const source = first.getAttribute(name);
+      const Array = (source.array as THREE.TypedArray).constructor as new (length: number) => THREE.TypedArray;
+      geometry.setAttribute(name, new THREE.BufferAttribute(new Array(vertices * source.itemSize), source.itemSize, source.normalized));
+    }
+    const layers = new Float32Array(vertices);
+    const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+    const rows: Record<string, unknown>[] = [];
+    let vertex = 0, offset = 0;
+    for (const { mesh, layer } of sources) {
+      const g = mesh.geometry, count = g.attributes.position.count, identity = mesh.matrix.equals(new THREE.Matrix4());
+      normalMatrix.getNormalMatrix(mesh.matrix);
+      for (const name of ATTRIBUTES) {
+        const from = g.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute, to = geometry.getAttribute(name) as THREE.BufferAttribute;
+        copyRaw(from, to, vertex, count);
+        if (identity) continue;
+        if (name === 'position') for (let i = vertex; i < vertex + count; i++) { position.fromBufferAttribute(to, i).applyMatrix4(mesh.matrix); to.setXYZ(i, position.x, position.y, position.z); }
+        if (name === 'normal') for (let i = vertex; i < vertex + count; i++) { normal.fromBufferAttribute(to, i).applyMatrix3(normalMatrix).normalize(); to.setXYZ(i, normal.x, normal.y, normal.z); }
+      }
+      layers.fill(layer, vertex, vertex + count);
+      const source = g.index!;
+      for (let i = 0; i < source.count; i++) index[offset + i] = source.getX(i) + vertex;
+      for (const row of (mesh.userData.objects as Record<string, number>[] | undefined) ?? [{ ...mesh.userData, start: 0, count: source.count }])
+        rows.push({ ...row, start: (row.start as number) + offset });
+      vertex += count; offset += source.count;
+    }
+    geometry.setAttribute(SURFACE_LAYER, new THREE.BufferAttribute(layers, 1));
+    geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial());
+    mesh.name = 'surface-array';
+    mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length };
+    mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = true;
+    mesh.layers.mask = sources[0].mesh.layers.mask; mesh.renderOrder = sources[0].mesh.renderOrder;
+    for (const { mesh: source } of sources) source.removeFromParent();
+    parent.add(mesh);
+    merged.push({ mesh, sources: sources.map(s => s.mesh), parent });
+  }
+  return {
+    meshes: merged.map(m => m.mesh),
+    restore() {
+      for (const { mesh, sources, parent } of merged) {
+        mesh.removeFromParent(); mesh.geometry.dispose();
+        for (const source of sources) parent.add(source);
+      }
+    },
+  };
+}
+
+/** Stored values (normalized integers stay raw), from plain or interleaved sources of the same array type. */
+function copyRaw(from: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, to: THREE.BufferAttribute, at: number, count: number) {
+  const size = from.itemSize, target = to.array as THREE.TypedArray;
+  if (!(from as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) {
+    target.set((from.array as THREE.TypedArray).subarray(0, count * size), at * size);
+    return;
+  }
+  const interleaved = from as THREE.InterleavedBufferAttribute, data = interleaved.data.array as THREE.TypedArray;
+  for (let i = 0; i < count; i++) for (let c = 0; c < size; c++) target[(at + i) * size + c] = data[i * interleaved.data.stride + interleaved.offset + c];
+}

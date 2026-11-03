@@ -15,6 +15,7 @@ import { RiverMaterial } from './water';
 import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
 import { shareInstanceProgram } from './instancePrograms';
+import { SurfaceArrays, mergeSurfaces } from './surfaceArrays';
 import type { Environment } from './environment';
 
 type SurfaceStyle = 'asphalt' | 'granite' | 'cobblestone' | 'grass' | 'water' | 'standard';
@@ -57,7 +58,9 @@ export class MaterialStyler {
   readonly ground: GroundBindings | null;
   private detail = detailTexture();
   private shared = new StyledMaterials();
-  private owned = new Map<THREE.Object3D, { sources: Map<THREE.Mesh, THREE.Mesh['material']>; rivers: THREE.Mesh[] }>();
+  private owned = new Map<THREE.Object3D, { sources: Map<THREE.Mesh, THREE.Mesh['material']>; rivers: THREE.Mesh[]; restoreSurfaces: () => void }>();
+  /** City-wide surface texture arrays: a tile's wet library surfaces draw as one mesh (render/surfaceArrays.ts). */
+  private surfaces: SurfaceArrays;
   private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
   private preparing: Promise<void> = Promise.resolve();
   private riverKeys = new Map<THREE.Mesh, string>();
@@ -65,6 +68,7 @@ export class MaterialStyler {
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean, tileset?: string) {
     this.ground = tileset ? new GroundBindings(renderer, new URL(tileset, location.href).href) : null;
+    this.surfaces = new SurfaceArrays(tier, this.detail);
   }
 
   async applyAsync(model: THREE.Object3D) {
@@ -77,6 +81,11 @@ export class MaterialStyler {
 
   apply(model: THREE.Object3D) {
     model.updateWorldMatrix(true, true);
+    // Bound ground library surfaces become one draw per tile before the per-material styling below.
+    const surfaces = this.ground ? null : mergeSurfaces(model, this.surfaces, mesh => {
+      const key = materialKey(mesh, mesh.material as THREE.Material);
+      return key ? { kind: surfaceStyle(key), key } : null;
+    });
     const sources = new Map<THREE.Mesh, THREE.Mesh['material']>(), rivers: THREE.Mesh[] = [];
     const cache = new Map<string, THREE.Material>();
     model.traverse(object => {
@@ -86,6 +95,7 @@ export class MaterialStyler {
       // Tile glTF instancing (EXT_mesh_gpu_instancing) uses source/styled tile materials without object graphs.
       if ((mesh as THREE.InstancedMesh).isInstancedMesh) shareInstanceProgram(mesh as THREE.InstancedMesh);
       const style = (source: THREE.Material): THREE.Material => {
+        if (this.surfaces.owns(source)) return source;
         const key = materialKey(mesh, source);
         if (!key) return source;
         if (key.startsWith('night_')) {
@@ -164,7 +174,7 @@ export class MaterialStyler {
       if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
       else mesh.layers.disable(REFLECTION_LAYER);
     });
-    this.owned.set(model, { sources, rivers });
+    this.owned.set(model, { sources, rivers, restoreSurfaces: surfaces?.restore ?? (() => {}) });
     return this.ground?.apply(model);
   }
 
@@ -197,6 +207,7 @@ export class MaterialStyler {
       mesh.material = this.riverSources.get(mesh)!; this.riverSources.delete(mesh);
     }
     for (const [mesh, source] of owned.sources) mesh.material = source;
+    owned.restoreSurfaces();
     this.shared.release(model);
     // The tile renderer owns and disposes the original GLB textures, geometries and source materials.
     this.owned.delete(model);
@@ -205,6 +216,7 @@ export class MaterialStyler {
   dispose() {
     for (const model of this.owned.keys()) this.release(model);
     this.detail.dispose();
+    this.surfaces.dispose();
     this.ground?.dispose();
   }
 }
