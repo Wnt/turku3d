@@ -19,6 +19,25 @@ interface Slot {
 }
 const PASS_LIMIT = 128, QUERY_COUNT = 2 + PASS_LIMIT * 2;
 
+/** Per-pass GPU time on the frame's serialized timeline. `values` holds the frame begin/end markers, then one
+ * begin/end pair per pass in encoding order. Tile-based GPUs (Apple M-series) start a pass's vertex stage, and so
+ * its beginning timestamp, while earlier passes still shade: chained fullscreen passes then overlap, and summing
+ * each pass's own begin..end counted bloom's 12 tiny passes as 20 ms of a 16 ms frame (capture 20261103-133034).
+ * Each pass is credited only with the time its end extends past every earlier pass's end (never before its own
+ * start), so the totals add up to at most the frame span; the remainder is idle, copy or compute time. */
+export function serialPassTimes(passes: readonly GpuPass[], values: BigUint64Array): GpuPassTimes | undefined {
+  const times: GpuPassTimes = {};
+  let covered = values[0];
+  for (const [i, name] of passes.entries()) {
+    const start = values[2 + i * 2], end = values[3 + i * 2];
+    if (end < start) return undefined;
+    const from = start > covered ? start : covered;
+    times[name] = (times[name] ?? 0) + (end > from ? Number(end - from) / 1e6 : 0);
+    if (end > covered) covered = end;
+  }
+  return times;
+}
+
 /** Whole-frame GPU interval. Independent readback slots prevent reusing queries still in flight.
  * WebGPU markers also include command-copy work and GPU idle gaps between this frame's submissions.
  * WebGL uses one disjoint timer query around the entire frame, never nested per-pass timers.
@@ -123,12 +142,8 @@ export class GpuFrameTimer {
         const values = new BigUint64Array(slot.read!.getMappedRange());
         const ms = Number(values[1] - values[0]) / 1e6;
         if (this.releasePassHooks && !slot.overflow) {
-          passTimes = {};
-          for (const [i, name] of slot.passes.entries()) {
-            const start = values[2 + i * 2], end = values[3 + i * 2];
-            if (end < start) { passTimes = undefined; this.passSkipped++; break; }
-            passTimes[name] = (passTimes[name] ?? 0) + Number(end - start) / 1e6;
-          }
+          passTimes = serialPassTimes(slot.passes, values);
+          if (!passTimes) this.passSkipped++;
         } else if (slot.overflow) this.passSkipped++;
         slot.read!.unmap();
         return ms;
