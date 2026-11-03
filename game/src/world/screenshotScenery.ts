@@ -8,11 +8,15 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
-import { LOD_FADE_SECONDS, fadeTier, lodFades } from '../render/lodFade';
+import { LOD_FADE_BIAS, LOD_FADE_SECONDS, fadeTier, lodFades } from '../render/lodFade';
 import { streamTrace } from '../telemetry/streamTrace';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
+
+/** Bias tiers a cell of quadtree `level` can fade on: 250 m cells hand over and refine within ~1.8 km, 1 km nodes
+ *  change at 0.7-4.5 km, 4 km nodes beyond (render/lodFade.ts LOD_FADE_BIAS). */
+export const dissolveTiers = (level: number) => level === 0 ? [0, 1] : level === 2 ? [1, 2] : [2];
 
 /** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
@@ -92,14 +96,25 @@ export class ScreenshotScenery {
 
   /** Dissolve a scenery model in over what already draws there, or out over what replaces it. A reversal
    *  continues from the current coverage. Fading models draw their own meshes, outside merged batches. */
-  private fade(model: THREE.Object3D, direction: 'in' | 'out', id?: string) {
+  /** Returns false when no compiled twin tier fits: the model then swaps at once (no in-frame shader build). */
+  private fade(model: THREE.Object3D, direction: 'in' | 'out', id?: string): boolean {
     const from = model.userData.lodFading ? lodFades.coverage(model) : direction === 'in' ? 0 : 1;
     const view = this.view ?? this.footprintView;
     const distance = id && view ? Math.hypot(sceneryDistance(id, view.x, view.z), Math.max(0, view.y - 30)) : 0;
+    // The ideal bias tier, else the nearest one this model's preparation compiled.
+    const ideal = fadeTier(distance);
+    const tier = model.userData.lodFading ? ideal
+      : [ideal, ideal + 1, ideal - 1, ideal + 2, ideal - 2].find(t => t >= 0 && t < LOD_FADE_BIAS.length && lodFades.canStart(model, t));
+    if (tier === undefined) {
+      streamTrace.event('band.swap', id, { dir: direction, reason: 'twin not compiled' });
+      model.userData.lodFading = undefined;
+      model.visible = direction === 'in';
+      this.batches.invalidate(model);
+      return false;
+    }
     model.userData.lodFading = direction;
     model.visible = true;
     this.batches.invalidate(model);
-    const tier = fadeTier(distance);
     streamTrace.event('band.fade', id, { dir: direction, from, tier, held: !!id && this.held.has(id) });
     lodFades.start(model, from, direction === 'in' ? 1 : 0, () => {
       streamTrace.event('band.fadeEnd', id, { dir: direction });
@@ -108,6 +123,7 @@ export class ScreenshotScenery {
       this.batches.invalidate(model);
       this.cutState.clear(); // the landed model's cut visibility is decided again on the next update
     }, this.clock, LOD_FADE_SECONDS, tier);
+    return true;
   }
 
   private updateCoverage() {
@@ -381,7 +397,7 @@ export class ScreenshotScenery {
       if (!show || model.visible) continue;
       const under = hiding.filter(other => sceneryContains(other, id) || sceneryContains(id, other));
       if (!under.length && !this.held.has(id)) continue;
-      this.fade(model, 'in', id);
+      if (!this.fade(model, 'in', id)) continue;
       for (const other of under) this.outgoing.set(other, Math.max(this.outgoing.get(other) ?? 0, until));
     }
     for (const [id, end] of this.outgoing) if (end <= now || !this.entries.get(id)?.model) this.outgoing.delete(id);
@@ -448,6 +464,8 @@ export class ScreenshotScenery {
         await this.prepareTrees(id,e,model,distance,source);
         trees({ ready: e.treesReady });
         const prepared = streamTrace.begin('cell.prepare', id);
+        // Its preparation also compiles the dissolve twins of the bias tiers this level's fades use.
+        model.userData.dissolveTiers = dissolveTiers(sceneryBounds(id).level);
         await this.host.prepareGraphics?.(model);
         prepared();
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }

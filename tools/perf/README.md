@@ -55,7 +55,7 @@ Event kinds:
     `tile.cache`, `tile.restore`, `tile.hold`, `tile.release` (`ms` held, `covered`), `tile.drop`, `tile.fail`.
 - **Bands:**
   - switches: `band.tile` (`to` full or cell: height-aware detail), `band.block` (`to` hd or lod), `band.props`;
-  - dissolves: `band.fade` and `band.fadeEnd` (`dir` in or out, bias `tier`, `held`);
+  - dissolves: `band.fade` and `band.fadeEnd` (`dir` in or out, bias `tier`, `held`); `band.swap` when a model swapped at once because its dissolve twin was not compiled yet;
   - `cut.commit`, the quadtree cut: wanted, shown, hidden, outgoing, held, standby, pending;
   - `coverage` every second: `cells` is a 9x9 grid of 250 m squares around the camera, rows by z from `j0`,
     columns by x from `i0`, one character each:

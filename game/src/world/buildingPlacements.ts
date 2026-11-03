@@ -202,6 +202,12 @@ function mergeBlockLods(owner: THREE.Object3D, wrappers: THREE.Object3D[]) {
   return merged;
 }
 
+/** The block LOD shells of a tile model, whose dissolve twins its preparation compiles (tier 0: 280 m swaps). */
+export function blockLodRoots(model: THREE.Object3D): THREE.Object3D[] {
+  const blocks = model.userData.blockLods as Map<string, BlockState> | undefined;
+  return blocks ? [...blocks.values()].map(state => state.lod) : [];
+}
+
 /** Cull complete placements against their own expanded bounds, never their container square. */
 export function updateBuildingDistances(root: THREE.Object3D, x: number, z: number,
   visibility: PlacementVisibility = placementVisibility, fades: LodFades = lodFades, y = NaN) {
@@ -223,9 +229,10 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
         state.near = near;
         streamTrace.event('band.block', root.userData.traceId as string | undefined, { block: state.lod.userData.blockLod, to: near ? 'hd' : 'lod',
           d3: Math.round(d), fade: shown });
+        // A shell whose dissolve twin is not compiled yet swaps at once rather than building a shader mid-frame.
         if (!shown) { fades.cancel(state.lod); state.hd = near; }
         else if (near) { state.hd = true; fades.start(state.lod, 1, 0); }
-        else fades.start(state.lod, 0, 1, () => { state.hd = state.near; });
+        else if (!fades.start(state.lod, 0, 1, () => { state.hd = state.near; })) state.hd = false;
       }
       merged &&= !state.near && !state.hd && !fades.has(state.lod);
     }

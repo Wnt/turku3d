@@ -31,6 +31,8 @@ import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
 import { GraphicsPreparation, type PreparationPriority } from './render/graphicsPreparation';
+import { precompileDissolve } from './render/lodFade';
+import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
@@ -189,11 +191,20 @@ const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unkn
   }
   return graphics.enqueue(model, prepare, signal, false, priority);
 };
+// Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
+// builds a shader or pipeline inside a frame: block LOD shells of a tile, the level's bias tiers of a scenery cell.
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
-  queueGraphics(model, () => materials?.prepare(model, scene, camera, signal), signal);
+  queueGraphics(model, async () => {
+    await materials?.prepare(model, scene, camera, signal);
+    const shells = blockLodRoots(model);
+    if (shells.length && post) await precompileDissolve(shells, [0], root => post!.prepare(root));
+  }, signal);
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
-const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model,
-  () => Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map))), undefined, 'scenery');
+const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
+  await Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map)));
+  const tiers = model.userData.dissolveTiers as number[] | undefined;
+  if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
+}, undefined, 'scenery');
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;

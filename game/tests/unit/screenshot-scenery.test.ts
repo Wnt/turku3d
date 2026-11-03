@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { ScreenshotScenery } from '../../src/world/screenshotScenery';
+import { ScreenshotScenery, dissolveTiers } from '../../src/world/screenshotScenery';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
@@ -463,4 +463,23 @@ test('the cell under a resident full tile is preloaded hidden and covers the squ
   expect(cell.visible).toBe(true);
   expect(request.mock.calls.filter(([url]) => !url.includes('/scenery?')).length)
     .toBe(request.mock.calls.slice(0, requests).filter(([url]) => !url.includes('/scenery?')).length);
+});
+
+test('a cell whose dissolve twins are not compiled swaps at once instead of fading or building a shader', async () => {
+  const { scenery, scene } = setup();
+  scenery.setRadius(8000, { x: 100, y: 20, z: 100, dx: 1, dz: 0, halfAngle: .8 });
+  await settle();
+  const state = scenery as unknown as { footprint: string[]; unavailable: Set<string>;
+    entries: Map<string, { model: THREE.Group; next: number; seen: number; complete: boolean }> };
+  state.footprint = ['t0_0_0', 't0_1_0']; state.unavailable.clear();
+  const parent = new THREE.Group(), left = new THREE.Group(), right = new THREE.Group();
+  // Real meshes with node materials and no compiled twins.
+  for (const cell of [left, right]) cell.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial()));
+  scene.add(parent, left, right); left.visible = right.visible = false;
+  const entry = (model: THREE.Group) => ({ model, next: Infinity, seen: 0, complete: true });
+  state.entries.set('t2_0_0', entry(parent)); state.entries.set('t0_0_0', entry(left)); state.entries.set('t0_1_0', entry(right));
+  scenery.update(100, 100, 1000, true);
+  expect([left.visible, right.visible, parent.visible]).toEqual([true, true, false]);
+  expect(lodFades.has(left) || lodFades.has(right)).toBe(false);
+  expect(dissolveTiers(0)).toEqual([0, 1]); expect(dissolveTiers(2)).toEqual([1, 2]); expect(dissolveTiers(4)).toEqual([2]);
 });

@@ -39,8 +39,15 @@ export function ditherThreshold() {
   return fract(ordered.add(float(frameId).mod(1024).mul(.61803398875)));
 }
 
+/** One mask and one shadow mask for every twin: the screen-door test against the drawn object's own coverage, so a
+ *  twin differs from its base only by this shared node and its bias tier. */
+const KEEP = ditherThreshold().lessThan(coverage);
+const WHOLE = bool(true);
+
 const twins = new WeakMap<THREE.Material, THREE.Material[]>();
 const twinSet = new WeakSet<THREE.Material>();
+/** Twins whose programs and pipelines were compiled during preparation (precompileDissolve). */
+const ready = new WeakSet<THREE.Material>();
 /** Twins belong to their base material, never to a model that happens to hold one while it fades. */
 export const isDissolveTwin = (material: THREE.Material) => twinSet.has(material);
 
@@ -53,10 +60,9 @@ export function dissolveTwin(material: THREE.Material, tier = 0): THREE.Material
   if (!base.isNodeMaterial) return material;
   const node = base.clone() as THREE.NodeMaterial;
   node.name = `${base.name}:dissolve${tier ? `-${tier}` : ''}`;
-  const keep = ditherThreshold().lessThan(coverage);
-  node.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(keep) : keep;
-  // Shadows stay whole while the pixels dissolve; the nearer model casts the same shape meanwhile.
-  node.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? bool(true);
+  node.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(KEEP) : KEEP;
+  // Fading meshes cast no shadow (LodFades.start); the nearer model draws, and casts, throughout the fade.
+  node.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? WHOLE;
   node.polygonOffset = true;
   node.polygonOffsetUnits = LOD_FADE_BIAS[tier].units; node.polygonOffsetFactor = LOD_FADE_SLOPE;
   if (!list) {
@@ -67,10 +73,48 @@ export function dissolveTwin(material: THREE.Material, tier = 0): THREE.Material
   return node;
 }
 
+/** Whether `material`'s twin for `tier` was compiled during preparation. Non-node materials never dissolve. */
+export function dissolveReady(material: THREE.Material, tier = 0) {
+  const twin = twins.get(material)?.[tier];
+  return !!twin && ready.has(twin);
+}
+
+/** Meshes a dissolve of `root` would swap (everything but instanced vegetation). */
+function dissolvingMeshes(root: THREE.Object3D) {
+  const meshes: THREE.Mesh[] = [];
+  root.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.isMesh && !(mesh as THREE.InstancedMesh).isInstancedMesh) meshes.push(mesh);
+  });
+  return meshes;
+}
+const materialsOf = (mesh: THREE.Mesh) => Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+/** Compile the dissolve twins of every mesh under `roots` for `tiers` through `compile` (the game's own preparation
+ *  path: post.prepare), with the twins swapped in only while it runs. A fade only ever uses compiled twins, so no
+ *  dissolve builds a shader or pipeline inside a frame, and none waits for an async pipeline with nothing drawn. */
+export async function precompileDissolve(roots: readonly THREE.Object3D[], tiers: readonly number[],
+  compile: (root: THREE.Object3D) => void | Promise<unknown>) {
+  for (const tier of tiers) for (const root of roots) {
+    const swaps: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [], compiled: THREE.Material[] = [];
+    for (const mesh of dissolvingMeshes(root)) {
+      const list = materialsOf(mesh).map(material => dissolveTwin(material, tier));
+      if (list.every(twin => !isDissolveTwin(twin) || ready.has(twin))) continue;
+      swaps.push([mesh, mesh.material]);
+      mesh.material = Array.isArray(mesh.material) ? list : list[0];
+      compiled.push(...list.filter(isDissolveTwin));
+    }
+    if (!swaps.length) continue;
+    try { await compile(root); for (const twin of compiled) ready.add(twin); }
+    finally { for (const [mesh, material] of swaps) mesh.material = material; }
+  }
+}
+
 interface Fade {
   from: number; to: number; start: number; seconds: number;
-  meshes: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[] }[];
+  meshes: { mesh: THREE.Mesh; material: THREE.Material | THREE.Material[]; castShadow: boolean }[];
   done?: () => void;
+  tier: number;
 }
 
 /** Drives coverage for dissolving roots. A root fades as a whole: every mesh below it shares one coverage. */
@@ -87,26 +131,34 @@ export class LodFades {
     return fade ? this.value(fade) : 1;
   }
 
-  /** Start (or reverse from its current coverage) a dissolve of `root` towards `to`; `done` runs once it lands. */
+  /** Whether `root` can dissolve on `tier` now: every mesh's twin compiled during preparation. */
+  canStart(root: THREE.Object3D, tier = 0) {
+    return dissolvingMeshes(root).every(mesh => materialsOf(mesh).every(material => dissolveReady(material, tier)));
+  }
+
+  /** Start (or reverse from its current coverage) a dissolve of `root` towards `to`; `done` runs once it lands.
+   *  Returns false, changing nothing, when a twin of `tier` is not compiled yet: the caller swaps at once instead.
+   *  A running dissolve is always reversed on its own tier. */
   start(root: THREE.Object3D, from: number, to: number, done?: () => void, now = performance.now(), seconds = LOD_FADE_SECONDS,
-    tier = 0) {
+    tier = 0): boolean {
     this.clock = now;
     const running = this.fades.get(root);
     if (running) {
       from = this.value(running);
       running.done = undefined;
+      tier = running.tier;
       this.restore(root, running);
-    }
-    if (from === to || seconds <= 0) { done?.(); return; }
+    } else if (!this.canStart(root, tier)) return false;
+    if (from === to || seconds <= 0) { done?.(); return true; }
     const meshes: Fade['meshes'] = [];
-    root.traverse(object => {
-      const mesh = object as THREE.Mesh;
-      if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh) return;
-      meshes.push({ mesh, material: mesh.material });
+    for (const mesh of dissolvingMeshes(root)) {
+      meshes.push({ mesh, material: mesh.material, castShadow: mesh.castShadow });
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => dissolveTwin(m, tier)) : dissolveTwin(mesh.material, tier);
+      mesh.castShadow = false;
       mesh.userData.lodCoverage = from;
-    });
-    this.fades.set(root, { from, to, start: this.clock, seconds, meshes, done });
+    }
+    this.fades.set(root, { from, to, start: this.clock, seconds, meshes, done, tier });
+    return true;
   }
 
   /** Abort a dissolve and restore its materials, without running its completion. Call before disposing `root`. */
@@ -148,7 +200,7 @@ export class LodFades {
   }
 
   private restore(root: THREE.Object3D, fade: Fade) {
-    for (const { mesh, material } of fade.meshes) { mesh.material = material; delete mesh.userData.lodCoverage; }
+    for (const { mesh, material, castShadow } of fade.meshes) { mesh.material = material; mesh.castShadow = castShadow; delete mesh.userData.lodCoverage; }
     this.fades.delete(root);
   }
 }
