@@ -166,9 +166,9 @@ export class PostProcessing {
   async prepare(model: THREE.Object3D) {
     if (this.pre) await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true, this.preDepth, this.pre.overrideMaterial);
     await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext, false, this.beautyDepth);
-    // Shadow casters as each cascade last drew them (render/shadowMaterials.ts).
-    if (this.renderer instanceof GameRenderer) for (const shadow of [...this.renderer.shadowPasses.values()])
-      await compileModel(this.renderer, model, this.scene, shadow.camera, shadow.target, shadow.mrt, shadow.context, false, shadow.depth, shadow.override, true);
+    // Shadow casters as a cascade last drew them; the cascades share programs (render/shadowMaterials.ts).
+    const shadow = this.renderer instanceof GameRenderer ? this.renderer.shadowPasses.values().next().value : undefined;
+    if (shadow) await compileModel(this.renderer, model, this.scene, shadow.camera, shadow.target, shadow.mrt, shadow.context, false, shadow.depth, shadow.override, true);
   }
 
   /** The prepass and scene-pass render targets, so the bench probe (qa/bench.ts) can attribute draws to passes. */

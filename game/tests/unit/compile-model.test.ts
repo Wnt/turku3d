@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { context, mrt, normalView, velocity } from 'three/tsl';
 import { compileModel } from '../../src/render/compileModel';
-import { GameRenderer } from '../../src/render/shadowMaterials';
+import { GameRenderer, ShadowMaterials } from '../../src/render/shadowMaterials';
 
 test('one-draw compilation preserves material arrays, children, visibility and renderer state across awaits', async () => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
@@ -157,6 +157,7 @@ test('a live cascade shadow draw records its pass for preparation; precompiles a
     const other = Object.assign(new THREE.NodeMaterial(), { isShadowPassMaterial: true });
     scene.overrideMaterial = other; (renderer as unknown as { _isPreCompiling: boolean })._isPreCompiling = true; draw();
     expect(renderer.shadowPasses.has(other)).toBe(false);
+    override.dispose(); expect(renderer.shadowPasses.has(override)).toBe(false); // a released cascade leaves no record
     target.dispose(); rebuilt.dispose();
   } finally { base.mockRestore(); }
 });
@@ -207,4 +208,17 @@ test('hidden draws flagged prepareHidden (walkers) compile with the model; other
   await compileModel(renderer, scene, scene, camera, target, null, renderer.contextNode);
   expect(compiled).toEqual([walker]); expect(walker.visible).toBe(false);
   target.dispose();
+});
+
+test('every cascade draws with one shadow material, so casters build one shadow program, not one per cascade', () => {
+  const materials = new ShadowMaterials();
+  const cascades = [0, 1, 2].map(() => Object.assign(new THREE.NodeMaterial(), { isShadowPassMaterial: true, name: 'ShadowMaterial' }));
+  const opaque = new THREE.MeshStandardMaterial(), cutout = new THREE.MeshStandardMaterial({ alphaTest: 0.5 });
+  expect(new Set(cascades.map(cascade => materials.select(opaque, cascade)))).toEqual(new Set([cascades[0]]));
+  const masked = new Set(cascades.map(cascade => materials.select(cutout, cascade)));
+  expect(masked.size).toBe(1); expect([...masked][0]).not.toBe(cascades[0]);
+  expect(materials.select(opaque, null)).toBeNull();
+  const prepass = new THREE.MeshBasicMaterial(); expect(materials.select(opaque, prepass)).toBe(prepass); // not a shadow pass
+  cascades[0].dispose(); // the shared one released (lights rebuilt): the next cascade takes over
+  expect(materials.select(opaque, cascades[1])).toBe(cascades[1]);
 });
