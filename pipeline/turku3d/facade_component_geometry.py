@@ -28,6 +28,46 @@ def frame(vertices):
     return tangent, np.array([tangent[2], 0, -tangent[0]])
 
 
+def measured_columns(desc, offset, sign, width):
+    """Reviewed metric column rhythm: first centre and pitch in surveyed-wall metres.
+
+    End piers/antae stand outside the first and last column, so a measured phase
+    must not be re-spread over the whole opening. Invalid readings return None.
+    """
+    pitch, first, count = desc.get("column_pitch_m"), desc.get("first_column_m"), desc.get("count")
+    if not all(isinstance(v, (int, float)) and np.isfinite(v) for v in (pitch, first)):
+        return None
+    if type(count) is not int or count < 2 or pitch < 0.8 or first < 0:
+        return None
+    if first + pitch * (count - 1) > width:
+        return None
+    return np.sort(offset + sign * (first + pitch * np.arange(count)))
+
+
+def column_style(desc, wall):
+    """Measured column shape and diameter; painted like the wall's supported trim."""
+    from turku3d.facade_inference import supported
+
+    shape = desc.get("column_shape")
+    if shape not in ("round", "square"):
+        return None
+    size = desc.get("column_width_m")
+    size = float(size) if isinstance(size, (int, float)) and 0.12 <= size <= 1.2 else 0.24
+    colour = desc.get("column_colour")
+    trim = wall.get("trim", {}).get("colour")
+    if not colour and supported(trim):
+        colour = trim["value"]
+    if not (isinstance(colour, str) and len(colour) == 7 and colour.startswith("#")):
+        colour = None
+    return dict(shape=shape, width=size, colour=colour)
+
+
+def linear_rgba(colour):
+    srgb = np.array([int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5)])
+    rgb = np.where(srgb <= 0.04045, srgb / 12.92, ((srgb + 0.055) / 1.055) ** 2.4)
+    return (*map(float, rgb), 1.0)
+
+
 def plan(vertices, wall):
     """Fit components to surviving walls; clip arcades without resetting columns.
 
@@ -71,9 +111,12 @@ def plan(vertices, wall):
             # A long arcade crosses roof/passage fragments. Clip its surface,
             # while retaining the surveyed column phase and true end returns.
             count = max(2, desc["count"] if desc["count"] > 1 else int((right - left) / 4) + 1)
+            rhythm = measured_columns(desc, offset, sign, width)
             columns = (
                 np.array([])
                 if desc.get("no_columns")
+                else rhythm
+                if rhythm is not None
                 else np.linspace(left + 0.18, right - 0.18, count)
             )
             left, right = max(left, 0), min(right, length)
@@ -107,6 +150,7 @@ def plan(vertices, wall):
                 "tangent": tangent,
                 "normal": normal,
                 "column_centres": columns,
+                "column_style": column_style(desc, wall) if desc["kind"] == "arcade" else None,
                 "returns": [False] * 4
                 if desc.get("no_returns")
                 else [
@@ -244,6 +288,70 @@ def geometry(vertices, plans, building, origin):
         if solid:
             boxes.append((points, mesh.indices))
 
+    def column(x, bottom, top, style):
+        """Tapered 12-sided shaft, echinus and square abacus under the soffit.
+
+        The abacus front is flush with the entablature (wall plane). Collision is
+        the shaft's bounding box; the visual mesh is never a GPU box instance.
+        """
+        radius = style["width"] / 2
+        abacus, abacus_h, echinus_h = radius * 1.3, 0.1, 0.1
+        centre = -abacus
+        if top - bottom < abacus_h + echinus_h + 0.5:
+            return
+        quads, parts = [], []
+        angles = np.linspace(0, 2 * np.pi, 13)
+
+        def ring(y, r):
+            return np.c_[x + r * np.cos(angles), np.full(13, y), centre + r * np.sin(angles)]
+
+        neck = top - abacus_h - echinus_h
+        for y0, r0, y1, r1 in (
+            (bottom, radius, neck, radius * 0.82),
+            (neck, radius * 0.82, top - abacus_h, abacus * 0.92),
+        ):
+            lower, upper = ring(y0, r0), ring(y1, r1)
+            middle = np.array([x, (y0 + y1) / 2, centre])
+            for i in range(12):
+                quads.append([lower[i], lower[i + 1], upper[i + 1], upper[i]])
+                parts.append(middle)
+        x0, x1, z0, z1 = x - abacus, x + abacus, centre - abacus, centre + abacus
+        y0, y1 = top - abacus_h, top
+        corners = np.array(
+            [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+             [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]
+        )
+        middle = np.array([x, (y0 + y1) / 2, centre])
+        for face_ in ([0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]):
+            quads.append(corners[face_])
+            parts.append(middle)
+        points = []
+        for quad, middle in zip(quads, parts, strict=True):
+            quad = world(np.asarray(quad))
+            n = np.cross(quad[3] - quad[0], quad[2] - quad[0])
+            # Orient each convex-part quad outward for the default TRI winding.
+            points.append(quad if n @ (quad.mean(axis=0) - world([middle])[0]) > 0 else quad[::-1])
+        colour = style.get("colour")
+        meshes.append(
+            GlbMesh(
+                f"{identity}_{len(meshes)}",
+                np.concatenate(points) - origin,
+                np.concatenate([TRI + i * 4 for i in range(len(points))]),
+                color=linear_rgba(colour) if colour else COLOURS["slab"],
+                roughness=0.8,
+                extras=dict(
+                    layer="buildings",
+                    object_id=f"{identity}_{len(meshes)}",
+                    surface="facade-component",
+                    building_id=building,
+                    material_key="component_column",
+                ),
+            )
+        )
+        before = len(meshes)
+        box(x - radius, bottom, centre - radius, x + radius, top, centre + radius)
+        del meshes[before:]
+
     def rail(left, r, y, d):
         # Posts meet horizontal bars at boundaries, never overlap their front surfaces.
         box(left, y, d - 0.06, r, y + 0.07, d, "rail")
@@ -283,9 +391,14 @@ def geometry(vertices, plans, building, origin):
                 centres = p.get("column_centres")
                 if centres is None:
                     centres = np.linspace(left + 0.18, r - 0.18, count)
+                style = p.get("column_style")
+                half = style["width"] / 2 if style else 0.12
                 for x in centres:
-                    if x + 0.12 > left and x - 0.12 < r:
-                        box(max(left, x - 0.12), y, 0.03, min(r, x + 0.12), t - 0.2, 0.31)
+                    if style and style["shape"] == "round":
+                        if x - half * 1.3 >= left and x + half * 1.3 <= r:
+                            column(x, y, t, style)
+                    elif x + half > left and x - half < r:
+                        box(max(left, x - half), y, 0.03, min(r, x + half), t - 0.2, 0.31)
                 if p["head"] != "flat":
                     # Faceted arch spandrels occupy only the head above the opening.
                     for a, b in zip(
