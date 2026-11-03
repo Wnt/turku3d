@@ -9,13 +9,17 @@ export interface WorldPoint {
   y?: number;
 }
 
-export type TargetKind = 'pickup' | 'dropoff' | 'shop' | 'market';
+/** `job`: a black-market job's place (the truck heist's yard and drop-off), probed from ZONE_RAY_TOP, not checked as a
+ *  delivery drop-off. */
+export type TargetKind = 'pickup' | 'dropoff' | 'shop' | 'market' | 'job';
 
 export interface RouteTarget {
   id: string;
   point: WorldPoint;
   label: string;
   kind: TargetKind;
+  /** Where the street route ends when the marker lies off the street graph or under a bridge; default `point`. */
+  approach?: WorldPoint;
 }
 
 export interface MissionHudState {

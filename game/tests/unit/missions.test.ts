@@ -154,6 +154,8 @@ describe('mission state machine', () => {
       ['forged_plates', PLATES_PRICE, true, null],
       ['sell_kidney', -KIDNEY_PAYOUT, true, null],
       ['expiry_warning', WARNING_PRICE, true, null],
+      ['job_truck_heist', null, true, null],
+      ['abandon_truck_heist', null, false, lineText('reason_no_heist')],
       ['leave', null, true, null],
     ]);
     expect(shop.options[0]).toMatchObject({ label: lineText('option_rent_permit'), detail: lineText('detail_rent_permit'), icon: 'icon_permit' });

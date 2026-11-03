@@ -11,14 +11,14 @@ import { DIALOGUE, lineText } from '../content/dialogue';
 import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
 import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
-import { DEALER, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../content/locations';
+import { DEALER, HEIST_DROP, HEIST_YARD, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
 import { drawLimitedOrder, drawOrder, openingOrder } from './orders';
 import type { ShopView } from './shopView';
 export type { ShopView, ShopOptionView } from './shopView';
 import { legMetres, longOrder, orderQuote, type OrderQuote, type StopLeg } from './quotes';
 export type { OrderQuote } from './quotes';
-import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
+import { freshSave, newSeed, parseSave, type HeistStage, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
 import { CARRY_HINT_DELAY, lineSeconds, saidText, type Said } from './speech';
 import { applyPoleFine } from '../poles/fine';
@@ -104,6 +104,14 @@ const NO_MONEY_LINE: Record<ShopId, string> = {
 
 const distance = (a: WorldPoint, b: WorldPoint) => Math.hypot(a.x - b.x, a.z - b.z);
 
+/** The truck heist finishes when the player gets out within this many metres of the drop-off ... */
+export const HEIST_DROP_RADIUS = 8;
+/** ... at the road's level, not on the bridge deck above it. */
+const HEIST_DROP_LEVEL_M = 2.5;
+const atHeistDrop = (p: WorldPoint) => distance(p, HEIST_DROP.point) <= HEIST_DROP_RADIUS
+  && (p.y === undefined || Math.abs(p.y - HEIST_DROP.point.y!) <= HEIST_DROP_LEVEL_M);
+export type HeistEvent = 'started' | 'delivered' | 'abandoned';
+
 type TipBand = 'fast' | 'ok' | 'slow';
 
 export class MissionSystem implements MissionHudSource {
@@ -131,6 +139,9 @@ export class MissionSystem implements MissionHudSource {
   private loanerHinted = false;
   /** This frame asked for the player's vehicle at the pizzeria kerb (returned by update). */
   private parkAtPizzeria = false;
+  /** The vehicle driven in the previous frame: leaving the truck at the heist drop-off finishes the job. */
+  private lastVehicleId: string | null = null;
+  private heistEvent: HeistEvent | null = null;
   private phrase(kind: PhraseKind): string { return nextPhrase(kind, this.s.phrases ??= {}, this.s.seed); }
 
   constructor(private readonly options: MissionOptions) {
@@ -237,7 +248,9 @@ export class MissionSystem implements MissionHudSource {
   /** Advances timers and dialogue by dt seconds (0 while paused), handles the interaction button and the menu. */
   update(dt: number, frame: MissionFrame): { bought: BoughtVehicle | null; opened: boolean; checkpoint: Checkpoint | null;
     /** Park the player's vehicle (`rideId`) at the pizzeria kerb (content/locations.ts PIZZERIA_VEHICLE_SPOT). */
-    park: boolean; } {
+    park: boolean;
+    /** The truck heist started, was finished (plates earned: the truck leaves, a car waits nearby) or abandoned. */
+    heist: HeistEvent | null; } {
     this.frame = frame;
     this.parkAtPizzeria = false;
     this.bringCooldown = Math.max(0, this.bringCooldown - dt);
@@ -252,6 +265,7 @@ export class MissionSystem implements MissionHudSource {
       this.checkpoint = 'delivery';
     }
     this.limitedClock(dt, frame);
+    this.heistStep(frame);
     this.energy = Math.max(0, this.energy - dt);
     if ((this.s.phase === 'delivered' || this.s.phase === 'failed') && this.queue.length === 0) {
       this.s.phase = this.restPhase();
@@ -275,7 +289,33 @@ export class MissionSystem implements MissionHudSource {
     this.emit();
     const checkpoint = this.checkpoint;
     this.checkpoint = null;
-    return { bought, opened: !wasOpen && this.open !== null, checkpoint, park: this.parkAtPizzeria };
+    const heist = this.heistEvent;
+    this.heistEvent = null;
+    return { bought, opened: !wasOpen && this.open !== null, checkpoint, park: this.parkAtPizzeria, heist };
+  }
+
+  /** The truck heist's stage, or null when no job runs (docs/design/story.md, "Truck heist"). */
+  get heist(): HeistStage | null { return this.s.heist ?? null; }
+
+  /** Getting into the trophy truck sends it to the bridge; stopping it under the bridge and getting out finishes the
+   *  job: the forged plates are the reward, and play.ts takes the truck away and parks a car nearby. */
+  private heistStep(frame: MissionFrame) {
+    const was = this.lastVehicleId;
+    this.lastVehicleId = frame.vehicleId;
+    if (this.s.heist === 'pickup' && frame.vehicleId === TRUCK_ID) {
+      this.s.heist = 'deliver';
+      this.say('heist_in_truck');
+    } else if (this.s.heist === 'deliver' && was === TRUCK_ID && frame.vehicleId === null && atHeistDrop(frame.position)) {
+      this.s.heist = null;
+      this.s.plates = true;
+      this.heistEvent = 'delivered';
+      this.say('heist_done');
+      this.checkpoint = 'purchase';
+    }
+  }
+
+  private heistTarget(): RouteTarget | null {
+    return this.s.heist === 'pickup' ? HEIST_YARD : this.s.heist === 'deliver' ? HEIST_DROP : null;
   }
 
   /** Why the pause menu's "Bring my vehicle here" is unavailable now (a dialogue line id), or null. */
@@ -426,6 +466,11 @@ export class MissionSystem implements MissionHudSource {
       case 'forged_plates': return s.plates ? { price: PLATES_PRICE, reason: 'reason_plates_owned' } : money(PLATES_PRICE);
       case 'sell_kidney': return { price: -KIDNEY_PAYOUT, reason: s.kidney ? 'reason_kidney_sold' : null };
       case 'expiry_warning': return s.warning ? { price: WARNING_PRICE, reason: 'reason_warning_owned' } : money(WARNING_PRICE);
+      case 'job_truck_heist':
+        return { price: null, reason: s.heist ? 'reason_heist_active' : s.plates ? 'reason_plates_owned'
+          : s.vehicle === 'truck' ? 'reason_heist_truck_owned' : s.phase === 'carrying' ? 'reason_carrying' : null };
+      case 'abandon_truck_heist':
+        return { price: null, reason: !s.heist ? 'reason_no_heist' : this.frame?.vehicleId === TRUCK_ID ? 'reason_heist_in_truck' : null };
       case 'take_long_order':
       case 'take_limited_order':
       case 'take_order': {
@@ -435,6 +480,7 @@ export class MissionSystem implements MissionHudSource {
         const reason = long && !this.longUnlocked ? 'reason_long_locked'
           : long && !quote ? (id === 'take_long_order' ? 'reason_no_long_route' : 'reason_no_limited')
           : long && this.parVehicle(job) === 'none' ? 'reason_long_vehicle'
+          : s.heist ? 'reason_heist_active'
           : s.phase === 'carrying' ? 'reason_carrying' : s.permit === 0 ? 'reason_no_permit'
           : !this.mayDeliverWith(this.frame?.vehicleId ?? null, job) ? 'reason_own_vehicle_only' : null;
         return { price: null, reason, quote: quote ?? undefined };
@@ -447,6 +493,7 @@ export class MissionSystem implements MissionHudSource {
       case 'buy_truck': {
         const price = VEHICLE_PRICE[SOLD[id]!];
         if (!dealerOpen) return { price, reason: 'reason_no_permit' };
+        if (id === 'buy_truck' && s.heist) return { price, reason: 'reason_heist_active' };
         return s.vehicle !== 'none' ? { price, reason: 'reason_vehicle_owned' } : money(price);
       }
       case 'sell_vehicle':
@@ -482,6 +529,8 @@ export class MissionSystem implements MissionHudSource {
       case 'forged_plates': this.s.plates = true; this.reply('market_sold_plates'); break;
       case 'sell_kidney': this.s.kidney = true; this.reply('market_sold_kidney'); break;
       case 'expiry_warning': this.s.warning = true; this.reply('market_sold_warning'); break;
+      case 'job_truck_heist': this.s.heist = 'pickup'; this.heistEvent = 'started'; this.reply('heist_briefing'); break;
+      case 'abandon_truck_heist': this.s.heist = null; this.heistEvent = 'abandoned'; this.reply('heist_abandoned'); break;
       case 'take_long_order':
         this.s.job = 'long'; this.s.order = this.longOrder()!; this.quoteCache = null;
         this.pickUp(); this.open = null; break;
@@ -716,6 +765,7 @@ export class MissionSystem implements MissionHudSource {
     if (this.open) return null; // the menu shows the shopkeeper; no prompt behind it
     const action = this.frame ? this.action(this.frame) : null;
     if (action && this.s.phase !== 'idle') return { id: `${action.prompt}_${this.frame!.input === 'keyboard' ? 'key' : 'pad'}` };
+    if (this.s.heist && this.s.phase !== 'idle') return { id: this.s.heist === 'pickup' ? 'hint_heist_pickup' : 'hint_heist_deliver' };
     switch (this.s.phase) {
       case 'idle': return null;
       case 'permit_needed': return this.hint(`permit:${this.s.delivery}:${this.s.permit}`, 'hint_permit');
@@ -743,8 +793,10 @@ export class MissionSystem implements MissionHudSource {
   private buildState(): MissionHudState {
     const targets: RouteTarget[] = [PIZZERIA, DEALER, MARKET];
     if (this.s.phase === 'carrying') targets.push(this.dropoffTarget());
-    const active = this.s.phase === 'idle' ? null : this.s.phase === 'permit_needed' ? MARKET.id
-      : this.s.phase === 'carrying' ? this.currentStop.id : PIZZERIA.id;
+    const heist = this.heistTarget();
+    if (heist) targets.push(heist);
+    const active = this.s.phase === 'idle' ? null : this.s.phase === 'carrying' ? this.currentStop.id
+      : heist ? heist.id : this.s.phase === 'permit_needed' ? MARKET.id : PIZZERIA.id;
     const said = this.message();
     return {
       targets: this.hud && sameTargets(this.hud.targets, targets) ? this.hud.targets : targets,

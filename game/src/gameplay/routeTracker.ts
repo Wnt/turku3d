@@ -45,7 +45,7 @@ export class RouteTracker {
     this.offSince = null;
     this.plannedAt = now;
     const t0 = performance.now();
-    this.route = target ? this.router.route(position, target.point) : null;
+    this.route = target ? this.router.route(position, target.approach ?? target.point) : null;
     this.computeMs = performance.now() - t0;
     this.length = this.route ? this.router.distance(this.route) : 0;
     return true;

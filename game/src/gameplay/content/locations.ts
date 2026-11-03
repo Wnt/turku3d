@@ -8,6 +8,19 @@ export const MARKET: RouteTarget = { id: 'market', kind: 'market', label: 'Black
   point: { x: 291.32, y: 1.12, z: 210.84 } };
 export const DEALER: RouteTarget = { id: 'dealer', kind: 'shop', label: 'Rantakadun Kulkine, Kristiinankatu',
   point: { x: 101.5, z: 290.5 } };
+/** The black market's truck heist (docs/design/story.md, "Truck heist"). The trophy truck waits in the inner yard of
+ *  Rettigin palatsi (Itäinen Rantakatu 4–6): open sky, road surface at y 10.37 in the collision, a straight 4–11 m wide
+ *  drivable lane south to Hämeenkatu past the private driveways and their gate nodes, which carry no collision. The
+ *  route ends where the street graph reaches the yard (the service way to its north-east gate). */
+export const HEIST_YARD: RouteTarget = { id: 'heist_yard', kind: 'job', label: 'Rettigin palatsi inner yard',
+  point: { x: 546.9, y: 10.37, z: 122.7 } };
+/** The truck's spawn pose in the yard, nose towards the Hämeenkatu exit. */
+export const HEIST_TRUCK_SPOT = { x: 546.9, y: 10.37, z: 122.7, yaw: -1.65 };
+/** The drop-off on the road under Aninkaistensilta: ground y 9.67, the deck's underside at 14.6 and its road at 15.5.
+ *  The street graph's nearest edge here is the bridge itself, so the route ends on Ratapihankatu south of it. */
+export const HEIST_DROP: RouteTarget = { id: 'heist_drop', kind: 'job', label: 'Under Aninkaistensilta',
+  point: { x: 243.4, y: 9.67, z: -873.5 }, approach: { x: 242.2, z: -907.9 } };
+
 /** Where a bought vehicle waits: the player's car is moved to this kerb on Läntinen Rantakatu. */
 export const DEALER_VEHICLE_SPOT = { x: 119, z: 286.5, yaw: 0.473 };
 /** The pizzeria's kerb on Linnankatu, where "Bring my vehicle" parks the player's vehicle and the loaner scooter
