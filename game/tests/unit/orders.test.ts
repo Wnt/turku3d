@@ -5,7 +5,7 @@ import { DIALOGUE, lineText } from '../../src/gameplay/content/dialogue';
 import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
-import { BASE_PAY, DOUBLE_BONUS, MAX_TIP, parSeconds } from '../../src/gameplay/economy';
+import { BASE_PAY, DOUBLE_BONUS, LOANER_FEE, MAX_TIP, parSeconds } from '../../src/gameplay/economy';
 import { houseNumber } from '../../src/gameplay/minimap';
 import {
   DOUBLE_EVERY, LADDER_MAX_M, LADDER_START_M, LADDER_STEP_M, drawOrder, isDouble, ladderMetres, openingOrder,
@@ -217,7 +217,8 @@ describe('pool orders in the mission system', () => {
     g.choose(MARKET.point, 'rent_permit');
     g.at(near(PIZZERIA.point), { interact: true });
     const quote = g.missions.shop!.options.find(o => o.id === 'take_order')!.quote!;
-    expect(quote).toEqual({ address: 'Testikatu 11', metres: 280, par: parSeconds(280, 'none'), stops: 1, pay: BASE_PAY });
+    // Owning no vehicle, the order is timed for the pizzeria's loaner scooter on the driving route.
+    expect(quote).toEqual({ address: 'Testikatu 11', metres: 308, par: parSeconds(308, 'scooter'), stops: 1, pay: BASE_PAY, fee: LOANER_FEE });
     expect(g.missions.shop!.delivered).toBe(DELIVERIES.length);
     g.at(near(PIZZERIA.point), { choose: 'take_order' });
     expect(g.missions.snapshot().dialogue).toEqual(['order_single']);

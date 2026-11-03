@@ -17,6 +17,8 @@ export interface OrderQuote {
   pay?: number;
   /** Whole seconds left of a LIMITED TIME offer. */
   expires?: number;
+  /** Euros off the pay when the order is carried on the pizzeria's loaner scooter (economy.ts LOANER_FEE). */
+  fee?: number;
 }
 
 type StreetMetres = (from: WorldPoint, to: WorldPoint) => number;

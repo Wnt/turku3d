@@ -72,7 +72,11 @@ The frame also passes `rideAt`, where `missions.rideId` stands; `update` returns
 pizzeria's "Bring my vehicle" asks for it at `PIZZERIA_VEHICLE_SPOT`, and the pause menu's "Bring my
 vehicle here" (`missions.bringHereReason()`, `broughtHere()`, `bringFailed()`) parks it at the first
 `kerbSpots` candidate that passes `vehicleGround` (`vehicleSave.ts`). Both reuse `play.ts` `parkRide`,
-the dealer kerb's path: the car is reset, the scooter and the truck are spawned (moved).
+the dealer kerb's path: the car is reset, the scooter and the truck are spawned (moved). Owning no
+vehicle, `rideId` is `LOANER_ID` (the scooter's body as the pizzeria's loaner): `play.ts` spawns it at
+`PIZZERIA_VEHICLE_SPOT` whenever it is missing, the mission system accepts it for short orders at
+scooter par, charges `LOANER_FEE` for an order ridden on it (save field `loaner`) and asks for it at the
+kerb (`park`) when a short order is taken off it.
 The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,

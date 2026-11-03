@@ -3,9 +3,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEALER, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../../src/gameplay/content/locations';
 import { bringSpots, kerbSpots, offScreen } from '../../src/gameplay/kerbSpots';
-import { BRING_COOLDOWN_SECONDS, BRING_NEAR_M, SCOOTER_ID } from '../../src/gameplay/missions/missions';
+import { LOANER_FEE, parSeconds } from '../../src/gameplay/economy';
+import { BRING_COOLDOWN_SECONDS, BRING_NEAR_M, LOANER_ID, SCOOTER_ID } from '../../src/gameplay/missions/missions';
 import { CAR, FOOT, mergeRoadGraphs, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { SaveMenuFlow, type GameHooks, type MenuPage } from '../../src/ui/menu';
+import { optionDetail } from '../../src/ui/shopMenu';
 import { far, harness, near } from './missionHarness';
 
 /** A two-way street (class 2, 6.5 m wide in v1) from (0, 0) to (100, 0) and a junction at its east end. */
@@ -132,5 +134,74 @@ describe('bring my vehicle', () => {
     row.run();
     expect(calls).toEqual(['bring']);
     expect(new SaveMenuFlow(host, store, { ...hooks, bringVehicle: undefined }).pause().items.some(i => i.id === 'bring-vehicle')).toBe(false);
+  });
+});
+
+describe('the pizzeria loaner scooter', () => {
+  /** A new game that rented its permit: 40 € left, too little for the 60 € scooter. */
+  function broke() {
+    const h = harness();
+    h.missions.begin();
+    h.choose(MARKET.point, 'rent_permit'); h.leave(MARKET.point);
+    expect(h.missions.money).toBe(40);
+    return h;
+  }
+
+  it('dead end 2: no vehicle and no money for one: the order goes out on the loaner at scooter par, 2 € less', () => {
+    const h = broke();
+    h.press(near(PIZZERIA.point), { rideAt: far });
+    const quote = h.option('take_order').quote!;
+    expect(h.option('take_order').enabled).toBe(true);
+    expect(quote.fee).toBe(LOANER_FEE);
+    expect(quote.par).toBeCloseTo(parSeconds(quote.metres, 'scooter'));
+    expect(optionDetail(h.option('take_order'))).toContain('· 6 € + tip · loaner scooter −2 €');
+    // The loaner was left far away: taking the order brings it back to the kerb.
+    expect(h.at(near(PIZZERIA.point), 0.1, { choose: 'take_order', rideAt: far }).park).toBe(true);
+    expect(h.missions.snapshot().dialogue).toContain('pizzeria_loaner');
+    expect(h.missions.mayDrive(LOANER_ID)).toBe(true);
+    expect(h.missions.mayDrive('parked-car')).toBe(false);
+    h.at(near(PIZZERIA.point), 0.1, { vehicleId: LOANER_ID });
+    // A reload mid-order keeps the fee.
+    const resumed = harness(h.missions.serialize());
+    resumed.press(near(resumed.missions.currentStop.point));
+    expect(resumed.missions.money).toBe(40 + 6 + 8 - LOANER_FEE);
+    expect(resumed.missions.snapshot().dialogue).toContain('paid_loaner_fee');
+  });
+
+  it('charges nothing when the order is run on foot, and leaves a loaner at the kerb where it is', () => {
+    const h = broke();
+    h.press(near(PIZZERIA.point), { rideAt: PIZZERIA_VEHICLE_SPOT });
+    expect(h.at(near(PIZZERIA.point), 0.1, { choose: 'take_order', rideAt: PIZZERIA_VEHICLE_SPOT }).park).toBe(false);
+    h.press(near(h.missions.currentStop.point));
+    expect(h.missions.money).toBe(40 + 6 + 8);
+    expect(h.missions.snapshot().dialogue).not.toContain('paid_loaner_fee');
+  });
+
+  it('takes no long or limited job, and is no delivery vehicle once a car is owned', () => {
+    const h = broke();
+    for (let i = 0; i < 4; i++) { h.choose(PIZZERIA.point, 'take_order', { vehicleId: LOANER_ID }); h.press(near(h.missions.currentStop.point)); }
+    h.press(near(PIZZERIA.point), { vehicleId: LOANER_ID });
+    expect(h.option('take_long_order').reason).toMatch(/^(Buy a delivery vehicle|No drivable)/);
+    h.leave(PIZZERIA.point);
+    h.missions.grantDevMoney(400);
+    h.choose(DEALER.point, 'buy_car');
+    h.wait(DEALER.point, 10);
+    expect(h.missions.rideId).toBe('player');
+    h.press(near(PIZZERIA.point), { vehicleId: LOANER_ID });
+    expect(h.option('take_order').reason).toBe('Only on foot or in your own vehicle, unless you have forged plates.');
+    expect(h.option('take_order').quote!.fee).toBeUndefined();
+  });
+
+  it('becomes the player\'s own scooter when bought: no fee after that', () => {
+    const h = broke();
+    expect(h.missions.rideId).toBe(LOANER_ID);
+    h.missions.grantDevMoney(30);
+    h.choose(DEALER.point, 'buy_scooter');
+    h.wait(DEALER.point, 10);
+    expect(h.missions.rideId).toBe(SCOOTER_ID);
+    h.choose(PIZZERIA.point, 'take_order', { vehicleId: SCOOTER_ID });
+    const before = h.missions.money;
+    h.press(near(h.missions.currentStop.point), { vehicleId: SCOOTER_ID });
+    expect(h.missions.money).toBe(before + 6 + 8);
   });
 });

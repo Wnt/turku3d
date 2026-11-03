@@ -22,6 +22,9 @@ export const VEHICLE_PRICE: Record<Exclude<VehicleOwnership, 'none'>, number> = 
 export const sellBackPrice = (vehicle: Exclude<VehicleOwnership, 'none'>) => Math.floor(VEHICLE_PRICE[vehicle] / 2);
 export const BASE_PAY = 6;
 export const MAX_TIP = 8;
+/** Owning no vehicle, a short order may be carried on the pizzeria's loaner scooter (at scooter par); an order
+ *  carried on it pays this much less, charged with its last drop-off. */
+export const LOANER_FEE = 2;
 /** Paid with the second pizza of a double order unless it is late enough to earn no tip. */
 export const DOUBLE_BONUS = 4;
 

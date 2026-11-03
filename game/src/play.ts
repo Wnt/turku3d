@@ -48,7 +48,7 @@ import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
+import { LOANER_ID, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
 import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
@@ -85,6 +85,8 @@ import { CROWD_RADIUS } from './audio/mix';
 /** "Bring my vehicle here" looks for a kerb within this many metres of the player, off screen first, then up to
  *  BRING_FAR_M nearest first, ground-checking at most BRING_CHECKS candidates. */
 const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
+/** Seconds between attempts to put a missing loaner scooter at the pizzeria kerb. */
+const LOANER_RETRY_MS = 2000;
 const rideKind = (id: string): VehicleKind => (id === SCOOTER_ID ? 'scooter' : id === TRUCK_ID ? 'truck' : 'car');
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
@@ -390,6 +392,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let lastCrowd = -1;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
+  let loanerRetryAt = 0;
   const framePacer = new FramePacer(params.mobile ? 30 : 0);
   Object.assign(window.__game!, { framePacer });
   document.addEventListener('visibilitychange', () => {
@@ -519,7 +522,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
-    const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
+    const st0 = physics.latest;
+    const ride = st0?.vehicles.find(v => v.id === missions.rideId);
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
@@ -546,8 +550,19 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (saveGame.loading) owned = missions.vehicle;
     else if (missions.vehicle !== owned) {
       owned = missions.vehicle;
-      const id = ownedVehicleId(owned);
-      if (id && drivenId !== id) void parkRide(id, DEALER_VEHICLE_SPOT).catch(fail);
+      // A bought scooter is the loaner's body: unless the player rides it, it too moves to the dealer kerb. Selling
+      // the vehicle puts the loaner (the scooter's body, spawned if missing) back at the pizzeria kerb.
+      const id = missions.rideId, spot = owned === 'none' ? PIZZERIA_VEHICLE_SPOT : DEALER_VEHICLE_SPOT;
+      if (drivenId !== id) void parkRide(id, spot).catch(fail);
+    }
+    // Owning no vehicle, the pizzeria's loaner stands at its kerb once its tile is loaded; in multiplayer never while
+    // another player holds it (net/sharedVehicles.ts would remove the copy).
+    const loanerTile = collisionTileAt(PIZZERIA_VEHICLE_SPOT.x, PIZZERIA_VEHICLE_SPOT.z);
+    if (!saveGame.loading && !startScreen.active && missions.vehicle === 'none' && now >= loanerRetryAt && st0
+      && !st0.vehicles.some(v => v.id === LOANER_ID) && physics.loaded.has(`c_${loanerTile.i}_${loanerTile.j}`)
+      && !(multiplayerPlaying && sharedVehicles?.record(LOANER_ID))) {
+      loanerRetryAt = now + LOANER_RETRY_MS;
+      void parkRide(LOANER_ID, PIZZERIA_VEHICLE_SPOT).catch(fail);
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);

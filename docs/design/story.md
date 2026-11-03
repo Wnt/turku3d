@@ -84,6 +84,7 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Car | 350 € |
 | Trophy truck | 600 € |
 | Vehicle sold back | half the price, rounded down: 30 € / 175 € / 300 € |
+| Pizzeria loaner scooter | free to use while owning no vehicle; an order carried on it pays 2 € less (`LOANER_FEE`) |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
 | Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car, 10.5 m/s trophy truck |
@@ -93,7 +94,7 @@ The route distance is the `Router` path length from the pizzeria to the drop-off
 no path (either end off the graph), the straight-line distance is used.
 
 The par speed is that of the vehicle the player **owns**, or a car's when the order is taken from a
-borrowed car with forged plates. While carrying a pizza the player may travel only on foot or with
+borrowed car with forged plates; owning none, a short order is timed for the pizzeria's loaner scooter. While carrying a pizza the player may travel only on foot or with
 their own vehicle: entering any other car is refused with the notice `notice_own_vehicle_only`, and
 the pizzeria greys out the order in a borrowed car (`reason_own_vehicle_only`). Forged plates lift
 both limits. Free roam outside a delivery is unchanged, so every car stays drivable then. Faster vehicles do not raise the tip (the par is fair
@@ -108,14 +109,28 @@ permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and play
 - *Bring my vehicle here* (pause menu): parks it at the nearest ground-checked kerb beside the player
   (`gameplay/kerbSpots.ts`; within 40 m a spot outside the camera view comes first, then up to 150 m
   nearest first), so a vehicle wrecked or stuck mid-delivery is back in seconds. Not while riding it;
-  then 60 s of play before the next use (`BRING_COOLDOWN_SECONDS`).
+  then 60 s of play before the next use (`BRING_COOLDOWN_SECONDS`). Owning no vehicle, it fetches the loaner.
+- *Pizzeria loaner scooter*: while the player owns no vehicle, the scooter's physics vehicle (`LOANER_ID`
+  = `scooter`) stands at the pizzeria's kerb. Short orders may be carried on it and are quoted and timed at
+  scooter par on the driving distance; an order ridden on it at any time pays `LOANER_FEE` (2 €) less,
+  charged with its last drop-off (quote: "loaner scooter −2 €", paid line `paid_loaner_fee`; the
+  multiplayer payout stays the earned pay, the fee is spending like the permit). The first loaner order of
+  a session adds `pizzeria_loaner`. Long and LIMITED TIME jobs still need an own vehicle or plates.
+  Taking a short order off the loaner brings it back to the kerb unless it is already within 8 m
+  (`LOANER_AT_KERB_M`); selling the own vehicle puts it back there too. Buying the scooter makes the
+  loaner's body the player's scooter, and like any purchase it waits at the dealer's kerb (unless the
+  player rides it there). With a car or truck bought, a loaner left in the world is an ordinary scooter.
+  Each player's loaner is their own local `scooter` (in multiplayer the shared vehicle
+  `<player id>:scooter`); it is placed only while no shared record of it exists, so a loaner another
+  player holds is never duplicated. A save keeps it through the last-used vehicle; otherwise it appears
+  at the kerb once that collision tile is loaded.
 
 The dealer sells nothing before the first permit is rented (the start money would otherwise fall
 short of the permit and no income would be possible). The player owns at most one vehicle: buying
 another needs the current one sold back first.
 
-Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so on foot
-the permit eats most of the margin and a scooter takes some twenty deliveries. The kidney (+400 €) is
+Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so the permit eats
+most of the margin, and on the pizzeria's loaner (2 € a run) a scooter of one's own takes some fifteen deliveries. The kidney (+400 €) is
 the shortcut to a car, and the 15 % run penalty is what it costs for the rest of the game; the slice
 is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some sixty
 deliveries, or the kidney and a good run.

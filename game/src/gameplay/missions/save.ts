@@ -70,6 +70,8 @@ export interface MissionSave {
   phrases?: PhraseCounts;
   /** Missing in saves from before LIMITED TIME offers: the first offer is due once long jobs are unlocked. */
   limited: LimitedOffer;
+  /** The carried order has been ridden on the pizzeria's loaner scooter, so its pay loses LOANER_FEE. Missing: false. */
+  loaner?: boolean;
 }
 
 /** The save format of main e323e39 (four looping deliveries, no address pool). */
@@ -109,7 +111,7 @@ const freshOffer = (): LimitedOffer => ({ n: 0, stops: [], left: 0 });
 export function freshSave(seed: number): MissionSave {
   return { version: 4, job: 'short', shortDeliveries: 0, longDeliveries: 0, longAnnounced: false, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
     vehicle: 'none', delivery: 0, opening: [], pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
-    par: 0, firstPar: 0, devMoney: 0, phrases: {}, limited: freshOffer() };
+    par: 0, firstPar: 0, devMoney: 0, phrases: {}, limited: freshOffer(), loaner: false };
 }
 
 /** The opening served by a save from before the seeded opening order: DELIVERIES in list order. */
@@ -189,7 +191,7 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
       .map(([kind, count]) => [kind, Math.floor(count as number)]));
     return { ...save, money: Math.round(save.money), permit: Math.floor(save.permit), delivery: Math.floor(save.delivery),
       pizzas: Math.floor(save.pizzas), stop: Math.floor(save.stop), devMoney: Math.round(save.devMoney ?? 0),
-      phrases };
+      phrases, loaner: save.phase === 'carrying' && save.loaner === true };
   } catch {
     return freshSave(seed);
   }
