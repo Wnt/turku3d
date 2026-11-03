@@ -53,6 +53,11 @@ def test_vault_masonry_faces_outward_on_top_sides_and_both_portals():
         top = np.all(np.isclose(tri[:, :, 1], 6), axis=1)
         assert top.sum() == 4
         assert (normals[top, 1] > 0).all()
+        roof_uv = mesh.uvs[mesh.indices[top]]
+        a, b = roof_uv[:, 1]-roof_uv[:, 0], roof_uv[:, 2]-roof_uv[:, 0]
+        # Every horizontal triangle must cover a genuine two-dimensional stone patch.
+        uv_area = abs(a[:, 0]*b[:, 1]-a[:, 1]*b[:, 0])/2
+        np.testing.assert_allclose(uv_area, normals[top, 1]/2)
         side = (np.all(np.isclose(abs(tri[:, :, 2]-10), 1.5), axis=1)
                 & (abs(normals[:, 1]) < 1e-10))
         assert side.any()
