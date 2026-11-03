@@ -19,6 +19,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import signal
 import socket
@@ -44,6 +45,11 @@ RAW_CACHES = {
     'vegetation': ('vegetation/trees.py',),
     'coarse-roofs': ('buildings/reconstruct.py', 'buildings/inputs.py'),
     'lidar': ('lidar/cache.py',),
+}
+RAW_PRODUCERS = {
+    'vegetation/trees.py': ('reduced_points',),
+    'buildings/reconstruct.py': ('class6',),
+    'buildings/inputs.py': ('read_points',),
 }
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'generation')
@@ -657,6 +663,8 @@ class Farm:
         """Whole-source decoding has its own producer identity, independent of tile geometry."""
         base = repo / 'pipeline/turku3d'
         result = {}
+        selector = base / 'source_code.py'
+        select = runpy.run_path(str(selector))['selected_source'] if selector.exists() else None
         for name, sources in RAW_CACHES.items():
             paths = [base / 'config.py', *(base / p for p in sources)]
             # Older immutable revisions still use direct LAZ readers during handoff.
@@ -664,7 +672,12 @@ class Farm:
             if decoder.exists():
                 paths.append(decoder)
             if all(p.exists() for p in paths):
-                digest = hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
+                code = []
+                for path in paths:
+                    source = path.read_bytes()
+                    roots = RAW_PRODUCERS.get(str(path.relative_to(base)))
+                    code.append(select(source, roots) if select and roots else source)
+                digest = hashlib.sha256(b''.join(code)).hexdigest()
                 result[name] = self.root / 'cache/raw-derived' / name / digest
         return result
 

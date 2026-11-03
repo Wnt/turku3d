@@ -500,6 +500,30 @@ class FarmTests(unittest.TestCase):
         self.assertTrue(cold.with_suffix('.lock').exists())
         self.assertEqual(farm.metrics['evicted_bytes'], len(b'exact source columns'))
 
+    def test_raw_reducers_ignore_unrelated_geometry_but_track_local_helpers(self):
+        farm = self.farm()
+        repo = self.root / 'revisions' / REV / 'repo'
+        base = repo / 'pipeline/turku3d'
+        for name, text in {
+            'config.py': 'ORIGIN = 0',
+            'source_code.py': (Path(__file__).parents[3] / 'pipeline/turku3d/source_code.py').read_text(),
+            'vegetation/trees.py': 'CELL = .5\ndef reduced_points(): return helper()\ndef helper(): return CELL\ndef placement(): return 1',
+            'buildings/reconstruct.py': 'def class6(): return 1\ndef unrelated(): return 1',
+            'buildings/inputs.py': 'def read_points(): return 1',
+            'lidar/cache.py': 'cache',
+        }.items():
+            path = base / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        before = farm.intermediate_roots(repo)
+        path = base / 'vegetation/trees.py'
+        path.write_text(path.read_text().replace('placement(): return 1', 'placement(): return 2'))
+        self.assertEqual(farm.intermediate_roots(repo), before)
+        path.write_text(path.read_text().replace('CELL = .5', 'CELL = .25'))
+        after = farm.intermediate_roots(repo)
+        self.assertNotEqual(after['vegetation'], before['vegetation'])
+        self.assertEqual(after['coarse-roofs'], before['coarse-roofs'])
+
     def test_game_polling_counts_only_its_requested_generation(self):
         entered, release = threading.Event(), threading.Event()
         def build(revision, tile, root):

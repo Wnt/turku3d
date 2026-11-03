@@ -472,7 +472,8 @@ def test_prepared_surveys_survive_mesh_only_edits(tmp_path, monkeypatch):
 
     monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'cache'))
     before = {name: inputs._key([], name) for name in
-              ('attachments', 'retaining', 'walkable', 'stairs', 'surfaces', 'markings')}
+              ('attachments', 'retaining', 'walkable', 'stairs', 'surfaces', 'markings',
+               'vegetation_canopy', 'ground', 'wfs')}
     original = Path.read_bytes
     def edited(path):
         data = original(path)
@@ -482,6 +483,12 @@ def test_prepared_surveys_survive_mesh_only_edits(tmp_path, monkeypatch):
             data = data.replace(b'def grade(', b'def unused_mesh_grade(')
         if path.name == 'surfaces.py':
             data = data.replace(b'def split_boundaries(', b'def unused_mesh_split(')
+        if path.name == 'canopy_trees.py':
+            data = data.replace(b'def inventory(', b'def unused_inventory(')
+        if path.name == 'trees.py':
+            data = data.replace(b'def variant(', b'def unused_variant(')
+        if path.name == 'reconstruct.py':
+            data = data.replace(b'def selection_code(', b'def unused_selection_code(')
         return data
     monkeypatch.setattr(Path, 'read_bytes', edited)
     assert {name: inputs._key([], name) for name in before} == before

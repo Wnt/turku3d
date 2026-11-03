@@ -21,6 +21,11 @@ HELPERS = {
 # Preparation must not depend on downstream mesh emitters in the same module.
 # Other modules remain explicit transitive dependencies in inputs.DEPENDENCIES.
 PREPARERS = {
+    ("vegetation_canopy", "canopy_trees.py"): ("canopy_points",),
+    ("vegetation_canopy", "trees.py"): ("reduced_points",),
+    ("ground", "trees.py"): ("highest_per_cell",),
+    ("wfs", "reconstruct.py"): ("class6",),
+    ("wfs", "inputs.py"): ("read_points",),
     ("surfaces", "surfaces.py"): ("osm_surfaces",),
     ("markings", "surfaces.py"): ("mapped_paint",),
     ("kerbs", "kerbs.py"): ("prepare",),
@@ -46,33 +51,9 @@ def dependency_code(path, dataset):
     roots = PREPARERS.get((dataset.removesuffix("-first"), path.name))
     if roots is None:
         return source
-    tree = ast.parse(source)
-    bindings = {}
-    for index, node in enumerate(tree.body):
-        names = []
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            names = [node.name]
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            names = [alias.asname or alias.name.split(".")[0] for alias in node.names]
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            names = [item.id for target in targets for item in ast.walk(target)
-                     if isinstance(item, ast.Name)]
-        for name in names:
-            bindings.setdefault(name, []).append(index)
-    pending, selected = list(roots), set()
-    while pending:
-        name = pending.pop()
-        for index in bindings.get(name, ()):
-            if index in selected:
-                continue
-            selected.add(index)
-            pending.extend(node.id for node in ast.walk(tree.body[index])
-                           if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load))
-    if not all(name in bindings for name in roots):
-        raise ValueError(f"missing input producer in {path}: {roots}")
-    return ast.dump(ast.Module(body=[tree.body[i] for i in sorted(selected)], type_ignores=[]),
-                    include_attributes=False).encode()
+    from turku3d.source_code import selected_source
+
+    return selected_source(source, roots)
 
 
 @lru_cache(maxsize=2)
