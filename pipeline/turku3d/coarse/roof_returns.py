@@ -110,9 +110,60 @@ def lower(points, buildings, protected=()):
     return out, changed
 
 
+def roof_decks(points, buildings):
+    """Return (points, changed): interior returns on a building's own roof follow the terrain.
+
+    A drivable roof deck (a garage built into a slope, a roof terrace) classified as
+    ground lies on the LoD2 roof plane inside the footprint. Triangulated against the
+    street outside it drapes a mound over the walls. Such points take the open terrain
+    level interpolated from the ring around the footprint, so neither a mound beside
+    the low wall nor a dip beside the uphill wall appears. Positions are unchanged.
+    Interior ground at street level (passages beneath the roof) keeps its height.
+    """
+    from .roofs import plane_height
+
+    out = np.array(points, dtype=float, copy=True)
+    changed = np.zeros(len(out), bool)
+    if not len(out) or not buildings:
+        return out, changed
+    xz = out[:, [0, 2]]
+    for b in sorted(buildings, key=lambda b: b.key):
+        inset = b.footprint.buffer(-0.5) if b.footprint is not None else None
+        if inset is None or inset.is_empty:
+            continue
+        inside = np.flatnonzero(shapely.contains_xy(inset, xz[:, 0], xz[:, 1]))
+        inside = inside[out[inside, 1] > b.base + STEP]
+        deck = []
+        for i in inside:
+            point = shapely.Point(*xz[i])
+            roof = next(
+                (float(plane_height(plane, xz[i])) for polygon, plane in b.roof_parts or ()
+                 if polygon.contains(point)),
+                None if b.roof_parts else float(b.top),
+            )
+            if roof is not None and abs(out[i, 1] - roof) <= ROOF_MATCH:
+                deck.append(i)
+        if not deck:
+            continue
+        ring = shapely.contains_xy(
+            b.footprint.buffer(BAND + REACH).difference(b.footprint.buffer(BAND)), xz[:, 0], xz[:, 1]
+        )
+        refs = np.flatnonzero(ring & ~changed)
+        if len(refs) < 4:
+            continue
+        tree = cKDTree(xz[refs])
+        distance, nearest = tree.query(xz[deck], k=min(8, len(refs)))
+        weights = 1 / np.maximum(distance, 0.5) ** 2
+        out[deck, 1] = (weights * out[refs][nearest, 1]).sum(axis=1) / weights.sum(axis=1)
+        changed[deck] = True
+    return out, changed
+
+
 def terrain_heights(tile, points, heights, buildings, protected=()):
-    """The terrain grid without roof and eave returns; the input grid when none are found."""
-    cleaned, changed = lower(points, buildings, protected)
+    """The terrain grid without roof decks, roof and eave returns; else the input grid."""
+    decks, flat = roof_decks(points, buildings)
+    cleaned, changed = lower(decks, buildings, protected)
+    changed |= flat
     if not changed.any():
         return heights, 0
     from .inputs import grid_axes, grid_heights

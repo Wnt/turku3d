@@ -788,8 +788,10 @@ def gather(
         if not pool_mask.is_empty
         else values["water"]
     )
-    from .register import enrich, open_ground_levels, period_evidence
+    from .register import enrich, open_ground_levels, period_evidence, settle_base
 
+    for building in [*wfs["buildings"], *wfs.get("wall_context", [])]:
+        settle_base(building, ground["points"])
     for building in wfs["buildings"]:
         enrich(building, values["register"], values["appearance"] or {})
         open_ground_levels(building, ground["points"])

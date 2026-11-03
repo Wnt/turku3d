@@ -214070,7 +214070,7 @@
       {
         "wall_id": "103446956K_riverside_colonnade",
         "width_m": 28.596,
-        "height_m": 2.34,
+        "height_m": 3.13,
         "geometry": {
           "p0": [
             23460087.51,
@@ -214084,7 +214084,7 @@
             -0.8895,
             0.4566
           ],
-          "base_h": 5.09
+          "base_h": 4.3
         },
         "material_bands": [],
         "observation": {
@@ -214092,12 +214092,12 @@
           "scope": "full-wall",
           "source": "direct Street View 2017 / Look Around review 2026-11-03 (vfix 025)",
           "reference_id": "local-only vfix025 refs",
-          "notes": "Riverside front: continuous colonnade of 13 white Doric columns between end piers, deep veranda, painted timber back wall with glazed doors, pale entablature. Column centres and pitch from a metric projection of the 2017 panorama onto the LoD2 front line (solved heading 71.6 deg vs URL 72 deg). Veranda depth from the LoD2 pavilion wall plane 2.2 m behind the front.",
+          "notes": "Riverside front: continuous colonnade of 13 white Doric columns between end piers, deep veranda, painted timber back wall with glazed doors, pale entablature. Column centres and pitch from a metric projection of the 2017 panorama onto the LoD2 front line (solved heading 71.6 deg vs URL 72 deg). Veranda depth from the LoD2 pavilion wall plane 2.2 m behind the front. vfix040/025 2026-11-03: veranda floor at about 4.3 m (Street View column-base projection); the shell now starts at the open terrain, so the colonnade reaches its floor.",
           "excluded_rectangles_m": []
         },
         "split": {
           "base_height_m": {
-            "value": 2.34,
+            "value": 3.13,
             "source": "single-storey veranda wing; whole surviving shell height",
             "support": 0.8
           },
@@ -214286,7 +214286,7 @@
               0.02798,
               0,
               0.94419,
-              0.78632
+              0.84026
             ],
             "rows": 1,
             "count": 13,

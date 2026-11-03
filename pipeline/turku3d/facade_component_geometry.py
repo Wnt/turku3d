@@ -500,7 +500,17 @@ def geometry(vertices, plans, building, origin):
                 if not (low - 0.01 <= middle < high):
                     continue
                 box(left, level - thickness, 0.0, r, level, d, solid=False, colour=p.get("colour"))
-                if parapet > 0:
+                slant = p.get("slant_m", 0)
+                if parapet > 0 and slant > 0:
+                    # Outward-leaning band: sloped outer and inner faces with a top cap.
+                    colour = p.get("colour")
+                    outer = [[left, level, d], [r, level, d], [r, level + parapet, d + slant], [left, level + parapet, d + slant]]
+                    inner = [[left, level, d - 0.12], [r, level, d - 0.12], [r, level + parapet, d + slant - 0.12], [left, level + parapet, d + slant - 0.12]]
+                    cap = [[left, level + parapet, d + slant - 0.12], [r, level + parapet, d + slant - 0.12], [r, level + parapet, d + slant], [left, level + parapet, d + slant]]
+                    for coords in (outer, inner, cap):
+                        face(coords, "slab", colour=colour)
+                        face(coords[::-1], "slab", colour=colour)
+                elif parapet > 0:
                     box(left, level, d - 0.1, r, level + parapet, d, solid=False, colour=p.get("colour"))
         if kind == "awning":
             # Double-sided sloped fabric and a front valance; visual only.

@@ -69,6 +69,7 @@ def expand(wall):
                     depth_m=slab["depth_m"],
                     thickness_m=slab["thickness_m"],
                     parapet_m=slab.get("parapet_m", 0) if _number(slab.get("parapet_m"), 0, 1.5) else 0,
+                    slant_m=slab.get("slant_m", 0) if _number(slab.get("slant_m"), 0, 1.5) else 0,
                     colour=_colour(slab.get("colour")),
                     dimensions_source=profile.get("source", "reviewed modernist profile"),
                     support=support,

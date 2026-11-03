@@ -173,6 +173,7 @@ def read_osm(tile, path):
             or tags.get("building:use")
             or tags.get("building")
         )
+        d["parking"] = tags.get("parking")
         d["historic"] = tags.get("historic")
         d["heritage"] = tags.get("heritage")
         d["roof_shape"] = tags.get("roof:shape")
@@ -232,6 +233,30 @@ def open_ground_levels(building, points):
         level = float(np.median(points[near, 1])) if near.sum() >= 3 else float(building.base)
         result.append((piece, low, max(level, float(building.base))))
     building.open_ground = result
+
+
+def settle_base(building, points):
+    """Start the shell at the open terrain where the LoD2 ground floats above it.
+
+    LoD2 GroundSurface heights can sit metres above the lidar terrain along one side
+    (a garage built into a slope, a pavilion above its quay path). The wall bottom
+    then hangs over the ground and terrain ramps up to meet it. Where the lowest
+    open terrain 1-4 m around the footprint is 0.5-4 m below the LoD2 base, the
+    shell starts there; walls on higher sides continue below their ground unseen.
+    """
+    import numpy as np
+    import shapely
+
+    if points is None or not len(points) or building.footprint is None:
+        return
+    ring = building.footprint.buffer(4.0).difference(building.footprint.buffer(1.0))
+    near = shapely.contains_xy(ring, points[:, 0], points[:, 2])
+    if near.sum() < 6:
+        return
+    low = float(np.quantile(points[near, 1], 0.1))
+    if 0.5 <= building.base - low <= 4.0:
+        building.lod2_base = float(building.base)
+        building.base = low
 
 
 def lower_edge(tags):

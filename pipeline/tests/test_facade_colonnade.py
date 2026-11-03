@@ -170,3 +170,22 @@ def test_modernist_panels_read_rect_as_x_y_w_h_and_keep_a_sloped_bottom():
     fascia_mesh = meshes[-1]
     low_end = fascia_mesh.positions[fascia_mesh.positions[:, 0] < 3]
     assert low_end[:, 1].min() == pytest.approx(bottoms[0], abs=1e-6)
+
+
+def test_parking_garage_walls_get_slanted_parapet_bands_and_open_levels_not_a_grid():
+    import shapely
+    from turku3d.coarse.inputs import Building
+    from turku3d.facade_garage import garage_wall, is_garage
+
+    b = Building("g", shapely.box(0, 0, 30, 20), 20.5, 32.3, "facade_plaster")
+    b.attributes = {"osm_use": "parking", "parking": "multi-storey"}
+    assert is_garage(b)
+    v = np.array([[0, 20.5, 0], [30, 20.5, 0], [30, 32.3, 0], [0, 32.3, 0]], float)
+    w = garage_wall(dict(width_m=30, height_m=11.8, windows={}, base={}, bays={"count": 9, "support": 0},
+                         wall={}, observation={}), v, b)
+    assert w["bays"]["count"] == 0 and len(w["windows"]["rectangles_m"]) == 4  # one open gap per level
+    meshes, boxes = geometry(v, plan(v, w), "g", np.zeros(3))
+    slanted = [m for m in meshes if m.extras["material_key"] == "component_slab" and np.ptp(m.positions[:, 2]) > 0.3]
+    assert slanted and not boxes  # leaning parapet faces; visual only
+    b.attributes = {"osm_use": "parking", "parking": "underground"}
+    assert not is_garage(b)

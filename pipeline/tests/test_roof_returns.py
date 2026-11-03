@@ -1,6 +1,7 @@
 """Roof-terrace and eave returns at a footprint do not raise terrain spikes."""
 
 import numpy as np
+import pytest
 import shapely
 from turku3d import config as C
 from turku3d.coarse import roof_returns
@@ -94,3 +95,37 @@ def test_mapped_retaining_wall_keeps_the_measured_step():
     _, changed = roof_returns.lower(points, [building], guards)
     xz = shapely.points(points[changed][:, [0, 2]])
     assert not np.any(shapely.distance(wall, xz) <= roof_returns.GUARD)
+
+
+def test_roof_deck_inside_a_footprint_leaves_the_ground_model():
+    """A garage deck on the LoD2 roof drapes no mound; ground under passages stays."""
+    footprint = shapely.box(100, 100, 140, 130)
+    garage = Building("g", footprint, 21.0, 29.5, "facade_plaster")
+    garage.roof_parts = [(footprint, (0.0, 0.0, 29.5))]
+    p = lattice(1.0)
+    inside = shapely.contains_xy(footprint, p[:, 0], p[:, 2])
+    p[:, 1] = 21.0
+    p[inside, 1] = 29.5
+    passage = inside & (p[:, 0] > 118) & (p[:, 0] < 122)
+    p[passage, 1] = 21.2  # walk-through at street level keeps its ground
+    lowered, changed_points = roof_returns.roof_decks(p, [garage])
+    assert changed_points[inside & ~passage].all() and not changed_points[passage | ~inside].any()
+    assert np.allclose(lowered[inside & ~passage, 1], 21.0)
+    heights, changed = roof_returns.terrain_heights(TILE, p, grid_heights(p, *grid_axes(TILE)), [garage])
+    xs, zs = grid_axes(TILE)
+    outside = np.ix_((zs > 132) & (zs < 136), (xs > 100) & (xs < 140))
+    assert changed > 0 and heights[outside].max() < 21.5  # no mound beyond the wall
+
+
+def test_shell_starts_at_the_low_open_terrain_when_lod2_ground_floats():
+    from turku3d.coarse.register import settle_base
+
+    footprint = shapely.box(100, 100, 140, 130)
+    garage = Building("g", footprint, 23.2, 33.3, "facade_plaster")
+    p = lattice(1.0)
+    p[:, 1] = np.where(p[:, 0] < 120, 20.5, 31.0)  # street below one side, uphill road behind
+    settle_base(garage, p)
+    assert garage.base == pytest.approx(20.5) and garage.lod2_base == 23.2
+    level = Building("l", footprint, 20.4, 30.0, "facade_plaster")
+    settle_base(level, p)
+    assert level.base == 20.4 and not hasattr(level, "lod2_base")  # within 0.5 m: unchanged

@@ -225,6 +225,9 @@ def wall_meshes(b, walls, origin, layout=None):
     from turku3d.facade_programs import compile_wall, resolve, measured
     from turku3d.facade_apertures import cuts, volumes
     from turku3d.open_ground import edge_plans, interior_meshes
+    from turku3d.facade_garage import garage_wall, is_garage
+
+    garage = is_garage(b)
 
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
@@ -247,6 +250,8 @@ def wall_meshes(b, walls, origin, layout=None):
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
         wall = program["walls"][start // 4]
+        if garage and not wall.get("measured_wall_id"):
+            wall = program["walls"][start // 4] = garage_wall(wall, vertices, b)
         plans = plan(vertices, wall) + cuts(vertices, apertures)
         plans += edge_plans(vertices, b, plans)
         components, _ = geometry(vertices, plans, b.facade_key, origin)
