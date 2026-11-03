@@ -591,3 +591,17 @@ def test_monolith_channel_glass_reading_becomes_tinted_profiled_cladding():
     assert channel["kind"] == "blank" and channel["colour"] == MONOLITH_CHANNEL_GLASS["colour"]
     assert channel["panel_grid"][0] == 0.33 and "panel_grid" not in wall  # render volume has no joints
     assert wall["render_sections"][0].get("colour") is None
+
+
+def test_classical_order_skips_walls_off_the_footprint_outline():
+    from turku3d.facade_programs import classical
+    from turkutex.facade_archetypes import sample
+
+    attrs = dict(levels=2, construction_year=1903, material_class="brick", use="2120",
+                 footprint_m2=1200)
+    geometry = [dict(wall_id="outer", width_m=30, height_m=14.5, outline=True),
+                dict(wall_id="ring", width_m=29.4, height_m=15.0, outline=False)]
+    program = sample("rings", attrs, geometry)
+    classical(program, attrs, "")
+    outer, ring = program["walls"]
+    assert "order" in outer and "order" not in ring
