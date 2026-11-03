@@ -38,16 +38,21 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
     """
     if protected_only and not protected:
         return list(meshes)
-    records, refs = [], []
+    record_points, record_normals, record_meshes, record_triangles = [], [], [], []
     for mi, mesh in enumerate([*protected, *meshes]):
         triangles = np.asarray(mesh.positions, np.float32).astype(float)[mesh.indices]
         normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
         lengths = np.linalg.norm(normals, axis=1)
-        for ti in np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths)):
-            records.append((triangles[ti], normals[ti] / lengths[ti]))
-            refs.append((mi - len(protected), ti))
-    if not records:
+        walls = np.flatnonzero((lengths > 1e-12) & (abs(normals[:, 1]) < 0.02 * lengths))
+        record_points.append(triangles[walls])
+        record_normals.append(normals[walls] / lengths[walls, None])
+        record_meshes.append(np.full(len(walls), mi - len(protected)))
+        record_triangles.append(walls)
+    record_meshes = np.concatenate(record_meshes) if record_meshes else np.empty(0, int)
+    if not len(record_meshes):
         return list(meshes)
+    # (mesh, triangle) of each record; negative meshes are protected faces.
+    refs = list(zip(record_meshes.tolist(), np.concatenate(record_triangles).tolist(), strict=True))
 
     def projected_candidates(a, b):
         # For any axis n, intersection area <= projected overlap width / |n|
@@ -99,12 +104,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
 
     # A neighbour pass must not repeat local cuts after another float32 conversion.
     indexed_count = (
-        next((i for i, (mi, _) in enumerate(refs) if mi >= 0), len(refs))
-        if protected_only
-        else len(refs)
-    )
-    points = np.array([p for p, _ in records])
-    normals = np.array([n for _, n in records])
+        int(np.argmax(record_meshes >= 0)) if (record_meshes >= 0).any() else len(refs)
+    ) if protected_only else len(refs)
+    points = np.concatenate(record_points)
+    normals = np.concatenate(record_normals)
     low, high = points.min(axis=1), points.max(axis=1)
     direction = np.c_[-normals[:, 2], np.zeros(len(normals)), normals[:, 0]]
     direction /= np.linalg.norm(direction, axis=1)[:, None]
@@ -119,7 +122,7 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
     # dominant horizontal span, then apply the original full 3D/plane filters.
     for axis in (0, 2):
         rows = np.flatnonzero((abs(normals[:, 2]) >= abs(normals[:, 0])) == (axis == 0))
-        rows = rows[np.array([refs[i][0] >= 0 for i in rows], dtype=bool)]
+        rows = rows[record_meshes[rows] >= 0]
         boxes = shapely.box(low[:, axis] - 0.006, low[:, 1], high[:, axis] + 0.006, high[:, 1])
         # A selected wall's dominant horizontal normal has magnitude > 0.7069.
         # Accepted unit normals differ by < sqrt(2 - 2*0.99998) < 0.0064,
@@ -228,7 +231,7 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                 ]
                 if not len(js):
                     continue
-                p, n = records[i]
+                p, n = points[i], normals[i]
                 separation = (points[js] - p[0]) @ n
                 js = js[(separation.min(axis=1) <= 0.006) & (separation.max(axis=1) >= -0.006)]
                 if not len(js):
@@ -267,95 +270,84 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                             # The basis follows the original normal: preserve front-face winding.
                             pieces.append(coords)
                 changed[mi, ti] = (pieces, xy, p[0], basis)
-    changed_meshes = {mi for mi, _ in changed}
+    cuts = {}
+    for (mi, ti), replacement in changed.items():
+        cuts.setdefault(mi, {})[ti] = replacement
     result = []
     for mi, original in enumerate(meshes):
-        if mi not in changed_meshes:
+        if mi not in cuts:
             result.append(original)
-            continue
-        mesh = copy.copy(original)
-        positions, uvs, normals_out, colours = [], [], [], []
-        # Program ranges address vertices, not wall/triangle numbers. Retessellation
-        # duplicates even untouched triangles, so every output vertex needs its
-        # original instruction (including triangles preceding the first cut).
-        night_values = []
-        visibility_values = []
-        rows = original.extras.get("facade_kit_walls")
-        instructions = []
-        vertex_rows = np.full(len(original.positions), -1, dtype=int)
-        if rows is not None:
-            for ri, row in enumerate(rows):
-                vertex_rows[row["start"] : row["start"] + row["count"]] = ri
-        last_row = None
-
-        def instruction(
-            indices,
-            rows=rows,
-            vertex_rows=vertex_rows,
-            original=original,
-            instructions=instructions,
-            positions=positions,
-        ):
-            nonlocal last_row
-            if rows is None:
-                return
-            owners = vertex_rows[indices]
-            if owners[0] < 0 or owners[1] != owners[0] or owners[2] != owners[0]:
-                raise ValueError(f"Mixed facade instruction in {original.name}")
-            if last_row == owners[0]:
-                instructions[-1]["count"] += 3
-            else:
-                instructions.append(
-                    {**rows[owners[0]], "start": (len(positions) - 1) * 3, "count": 3}
-                )
-            last_row = owners[0]
-
-        for ti, indices in enumerate(original.indices):
-            replacement = changed.get((mi, ti))
-            if replacement is None:
-                positions.append(original.positions[indices])
-                instruction(indices)
-                if original.uvs is not None:
-                    uvs.append(original.uvs[indices])
-                if original.normals is not None:
-                    normals_out.append(original.normals[indices])
-                if original.colors is not None:
-                    colours.append(original.colors[indices])
-                if original.night_irradiance is not None:
-                    night_values.append(original.night_irradiance[indices])
-                if original.baked_visibility is not None:
-                    visibility_values.append(original.baked_visibility[indices])
-                continue
-            pieces, xy, origin, basis = replacement
-            for coords in pieces:
-                weights = np.linalg.solve(np.c_[xy, np.ones(3)].T, np.c_[coords, np.ones(3)].T).T
-                positions.append(origin + coords @ basis)
-                instruction(indices)
-                if original.uvs is not None:
-                    uvs.append(weights @ original.uvs[indices])
-                if original.normals is not None:
-                    normals_out.append(weights @ original.normals[indices])
-                if original.colors is not None:
-                    colours.append(weights @ original.colors[indices])
-                if original.night_irradiance is not None:
-                    night_values.append(weights @ original.night_irradiance[indices])
-                if original.baked_visibility is not None:
-                    visibility_values.append(weights @ original.baked_visibility[indices])
-        if not positions:
-            continue
-        mesh.positions = np.concatenate(positions)
-        mesh.indices = np.arange(len(mesh.positions), dtype=np.uint32).reshape(-1, 3)
-        mesh.uvs = np.concatenate(uvs) if uvs else None
-        mesh.normals = np.concatenate(normals_out) if normals_out else None
-        mesh.colors = np.concatenate(colours) if colours else None
-        # Barycentric weights carry float residue; night light is never negative.
-        mesh.night_irradiance = night_irradiance_values(np.concatenate(night_values)) if night_values else None
-        mesh.baked_visibility = np.clip(np.concatenate(visibility_values), 0, 1) if visibility_values else None
-        mesh.extras = {k: v for k, v in original.extras.items() if k != "component_box"}
-        if rows is not None:
-            mesh.extras["facade_kit_walls"] = instructions
-        result.append(mesh)
+        else:
+            mesh = _retessellate(original, cuts[mi])
+            if mesh is not None:
+                result.append(mesh)
     return result
+
+
+ATTRIBUTES = ("positions", "uvs", "normals", "colors", "night_irradiance", "baked_visibility")
+
+
+def _retessellate(original, cuts):
+    """Replace cut triangles by their pieces; runs of untouched triangles are copied whole.
+
+    Program ranges address vertices, not wall/triangle numbers. Retessellation
+    duplicates even untouched triangles, so every output vertex needs its
+    original instruction (including triangles preceding the first cut).
+    """
+    indices = np.asarray(original.indices)
+    present = [name for name in ATTRIBUTES if getattr(original, name) is not None]
+    blocks = {name: [] for name in present}
+    sources = []  # (first source triangle, count, repeat) per output run, in order
+    start = 0
+    for ti in sorted(cuts):
+        if ti > start:
+            run = indices[start:ti].reshape(-1)
+            for name in present:
+                blocks[name].append(getattr(original, name)[run])
+            sources.append(np.arange(start, ti))
+        pieces, xy, origin, basis = cuts[ti]
+        for coords in pieces:
+            weights = np.linalg.solve(np.c_[xy, np.ones(3)].T, np.c_[coords, np.ones(3)].T).T
+            blocks["positions"].append(origin + coords @ basis)
+            for name in present[1:]:
+                blocks[name].append(weights @ getattr(original, name)[indices[ti]])
+        sources.append(np.full(len(pieces), ti))
+        start = ti + 1
+    if start < len(indices):
+        run = indices[start:].reshape(-1)
+        for name in present:
+            blocks[name].append(getattr(original, name)[run])
+        sources.append(np.arange(start, len(indices)))
+    if not blocks["positions"]:
+        return None
+    mesh = copy.copy(original)
+    mesh.positions = np.concatenate(blocks["positions"])
+    mesh.indices = np.arange(len(mesh.positions), dtype=np.uint32).reshape(-1, 3)
+    values = {name: np.concatenate(blocks[name]) if name in blocks else None for name in ATTRIBUTES[1:]}
+    mesh.uvs, mesh.normals, mesh.colors = values["uvs"], values["normals"], values["colors"]
+    # Barycentric weights carry float residue; night light is never negative.
+    night = values["night_irradiance"]
+    mesh.night_irradiance = night_irradiance_values(night) if night is not None else None
+    visibility = values["baked_visibility"]
+    mesh.baked_visibility = np.clip(visibility, 0, 1) if visibility is not None else None
+    mesh.extras = {k: v for k, v in original.extras.items() if k != "component_box"}
+    rows = original.extras.get("facade_kit_walls")
+    if rows is not None:
+        vertex_rows = np.full(len(original.positions), -1, dtype=int)
+        for ri, row in enumerate(rows):
+            vertex_rows[row["start"] : row["start"] + row["count"]] = ri
+        owners = vertex_rows[indices[np.concatenate(sources)]]
+        if (owners[:, 0] < 0).any() or (owners != owners[:, :1]).any():
+            raise ValueError(f"Mixed facade instruction in {original.name}")
+        # One instruction per run of output triangles sharing a program row.
+        owner = owners[:, 0]
+        first = np.flatnonzero(np.r_[True, owner[1:] != owner[:-1]])
+        counts = np.diff(np.r_[first, len(owner)])
+        mesh.extras["facade_kit_walls"] = [
+            {**rows[row], "start": 3 * begin, "count": 3 * count}
+            for row, begin, count in zip(owner[first].tolist(), first.tolist(), counts.tolist(), strict=True)
+        ]
+    return mesh
 
 
 def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None, bake=None):
