@@ -389,7 +389,9 @@ def grandstand(b, fields, height_at):
     roof_at = _canopy(b, box, world, u0, u1, seat_depth, plane_height)
 
     roof_mid = roof_at((u0 + u1) / 2, seat_depth / 2)
-    podium, rows, roofed = _stand_profile(seat_depth, roof_mid - base)
+    # The top row keeps its clearance where a sloped canopy is lowest over the back of the stand.
+    roof_low = min(roof_mid, roof_at(u0, seat_depth), roof_at(u1, seat_depth))
+    podium, rows, roofed = _stand_profile(seat_depth, roof_low - base)
     sink = base - STRUCTURE_SINK
     s = Builder(f"venue:{b.key}")
     count = max(1, int(round((u1 - u0) / AISLE_SPACING)))
@@ -495,20 +497,20 @@ def _canopy(b, box, world, u0, u1, depth, plane_height):
         return lambda a, bb: top
     a, bb, h = np.asarray(samples, float).T
     am, bm = float(a.mean()), float(bb.mean())
-    keep = np.ones(len(h), bool)
-    for _ in range(2):
+    keep, su, sv = np.ones(len(h), bool), 0.0, 0.0
+    for refit in range(2):
         design = np.c_[a[keep] - am, bb[keep] - bm, np.ones(keep.sum())]
-        if np.linalg.matrix_rank(design) < 3:
-            su, sv = 0.0, 0.0
-        else:
-            su, sv, _ = np.linalg.lstsq(design, h[keep], rcond=None)[0]
-        su = float(np.clip(su, -ROOF_LEVEL, ROOF_LEVEL))
-        sv = float(np.clip(sv, -ROOF_PITCH, ROOF_PITCH))
+        if np.linalg.matrix_rank(design) == 3:
+            fit = np.linalg.lstsq(design, h[keep], rcond=None)[0]
+            su = float(np.clip(fit[0], -ROOF_LEVEL, ROOF_LEVEL))
+            sv = float(np.clip(fit[1], -ROOF_PITCH, ROOF_PITCH))
+        elif refit:
+            break  # The inliers no longer span the stand: keep the first fit's slopes.
         level = float(np.median(h[keep] - su * (a[keep] - am) - sv * (bb[keep] - bm)))
-        residual = np.abs(h - (level + su * (a - am) + sv * (bb - bm)))
-        if (residual <= ROOF_OUTLIER).sum() < 3:
+        inliers = np.abs(h - (level + su * (a - am) + sv * (bb - bm))) <= ROOF_OUTLIER
+        if inliers.sum() < 3:
             break
-        keep = residual <= ROOF_OUTLIER
+        keep = inliers
     return lambda u, v: level + su * (u - am) + sv * (v - bm)
 
 
