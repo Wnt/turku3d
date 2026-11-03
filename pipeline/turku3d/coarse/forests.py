@@ -147,6 +147,35 @@ def clears_path(tree, paths):
     return distance >= trunk_base_radius(tree.variant) * tree.crown_radius
 
 
+def built_surfaces(inputs):
+    """Solid wall bases and supported ground decks, preserving planting holes.
+
+    Crown maxima can belong to a neighbouring tree overhanging a wall. A crown
+    is not evidence that its inferred trunk can stand inside that structure.
+    Suspended balconies do not own the ground beneath them.
+    """
+    from .fences import STYLES, style
+
+    walls = [
+        geom.buffer(STYLES[style(tags)][1] / 2)
+        for geom, tags, _ in (*inputs.barriers, *inputs.retaining)
+        if tags.get("barrier") in ("wall", "city_wall", "retaining_wall")
+    ]
+    decks = [r["region"] for r in inputs.attachments if r["kind"] in ("terrace", "tread")]
+    return shapely.union_all([*walls, *decks])
+
+
+def clears_structure(tree, structures):
+    """A trunk needs soil under its column; roots/crowns may overhang a low wall."""
+    return structures.is_empty or structures.distance(shapely.Point(tree.x, tree.z)) > tree.trunk_radius
+
+
+def structure_clearance(trees, inputs):
+    """Shared final placement validity for draft sidecars and full tile geometry."""
+    structures = built_surfaces(inputs)
+    return [tree for tree in trees if clears_structure(tree, structures)]
+
+
 def produce(tile, inputs, height_at, mapped, carried=None):
     """Reuse vegetation Tree/prototypes; only trees (never edge bushes) receive trunk collision."""
     blocked = shapely.union_all(
@@ -295,6 +324,9 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         # A trunk outside the road is insufficient: its complete crown must clear the deck.
         trees = [t for t in trees if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]
         bushes = [t for t in bushes if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]
+    # Crown fitting changes trunk dimensions after candidate admission. Apply the
+    # final column clearance to every source before visual and collision output.
+    trees = structure_clearance(trees, inputs)
     return deduplicate(trees, 3.5 if len(measured_canopy) else SPACING), bushes
 
 
