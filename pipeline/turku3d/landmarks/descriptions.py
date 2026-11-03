@@ -46,8 +46,9 @@ def measured_class(building):
     """Reference-measured facade classes outrank unreviewed automatic seeds.
 
     Precedence: local override > reviewed distributed description > measured class
-    (massive masonry, a public monolith with photographed blank walls, or a classical
-    order named by the building's own reviewed walls or vision description) > automatic
+    (massive masonry, a public monolith with photographed blank walls, a classical
+    order named by the building's own reviewed walls or vision description, or a
+    reviewed modernist storey profile on its own walls) > automatic
     description > generic archetype.
     """
     from turku3d.facade_kit import read_description, renderer
@@ -60,6 +61,11 @@ def measured_class(building):
 
     attrs = getattr(building, "attributes", {}) or {}
     if massive_masonry(attrs):
+        return True
+    # A reviewed modernist storey profile on the building's own walls (vfix 029/041).
+    program = measured(building.facade_key) or {}
+    if any(w.get("observation", {}).get("dimension_source") == "reviewed modernist storey profile"
+           for w in program.get("walls", [])):
         return True
     footprint = getattr(building, "footprint", None)
     area = float(getattr(footprint, "area", 0) or attrs.get("footprint_m2") or 0)
