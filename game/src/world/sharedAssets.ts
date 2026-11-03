@@ -56,7 +56,9 @@ export function keepTextureData(texture: THREE.Texture | null | undefined) { if 
  *  are disposed only when no model uses them. The texture keeps mip sizes (empty data) and its byte size in
  *  `userData.releasedBytes`; its decoded template goes too, so a new variant decodes the source again. */
 export function releaseTextureData(texture: THREE.Texture, uploaded: (texture: THREE.Texture) => boolean): number {
-  if (!managed.has(texture) || texture.userData.keepData || texture.userData.releasedBytes !== undefined) return 0;
+  // Only textures LoadingKtx can decode again (world/loadingKtx.ts guardReleasedTextures restores an upload).
+  if (!managed.has(texture) || texture.userData.keepData || texture.userData.releasedBytes !== undefined
+    || typeof texture.userData.sharedUrl !== 'string') return 0;
   const compressed = texture as THREE.CompressedTexture & { isCompressedArrayTexture?: boolean };
   if (!compressed.isCompressedTexture || compressed.isCompressedArrayTexture) return 0;
   const mipmaps = compressed.mipmaps as unknown as Mip[];
@@ -71,6 +73,15 @@ export function releaseTextureData(texture: THREE.Texture, uploaded: (texture: T
   ktxTemplates.delete(texture.source);
   textureRelease.bytes += bytes; textureRelease.count++;
   return bytes;
+}
+
+/** A compressed texture whose mips hold no data: released here, or a clone of one (Texture.copy copies userData and
+ *  the mip list). Uploading it would write nothing (WebGPU validation error, black texture). */
+export function releasedMips(texture: THREE.Texture): boolean {
+  if (texture.userData.releasedBytes !== undefined) return true;
+  const compressed = texture as THREE.CompressedTexture;
+  return !!compressed.isCompressedTexture && Array.isArray(compressed.mipmaps)
+    && (compressed.mipmaps as unknown as Partial<Mip>[]).some(mip => ArrayBuffer.isView(mip?.data) && mip.data.byteLength === 0);
 }
 
 /** releaseTextureData for every material slot texture of a committed model. */

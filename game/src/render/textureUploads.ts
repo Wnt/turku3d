@@ -3,6 +3,7 @@ import type Node from 'three/src/nodes/core/Node.js';
 import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
 import { shareModelTextures } from '../world/sharedAssets';
+import { guardReleasedTextures } from '../world/loadingKtx';
 import { afterRender } from './afterRender';
 import { streamTrace } from '../telemetry/streamTrace';
 
@@ -63,7 +64,10 @@ class TextureUploads {
   private scheduled = false;
   private versions = new WeakMap<THREE.Texture, { version: number; done: Promise<void> }>();
   private uploaded = new WeakMap<THREE.Texture, number>();
-  constructor(private renderer: THREE.WebGPURenderer) {}
+  constructor(private renderer: THREE.WebGPURenderer) {
+    // Released texture mips are never uploaded (world/loadingKtx.ts).
+    guardReleasedTextures(renderer as unknown as Parameters<typeof guardReleasedTextures>[0]);
+  }
   uploadedAt(texture: THREE.Texture) { return this.uploaded.get(texture); }
   private init(texture: THREE.Texture) {
     this.renderer.initTexture(texture);

@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { AssetCache, sharedAssetKey, shareModelTextures, releaseModelTextures, releaseTextureData, releaseModelTextureData, keepTextureData,
   ktxTemplates, textureRelease } from '../../src/world/sharedAssets';
 import { modelGpuBytes } from '../../src/world/gpuBytes';
-import { LoadingKtx } from '../../src/world/loadingKtx';
+import { LoadingKtx, guardReleasedTextures, sharedKtx } from '../../src/world/loadingKtx';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
 const url = `https://turku.lab.madekivi.fi/coarse/shared/${'a'.repeat(64)}.ktx2`;
@@ -133,4 +133,33 @@ test('a resident compressed texture drops its CPU mips once uploaded; its templa
     expect(map(c)).toBe(map(a));
     for (const scene of [a, b, c]) releaseModelTextures(scene, new Set([map(scene)]));
   } finally { load.mockRestore(); }
+});
+
+test('released mips never reach an upload: the texture (or a clone) decodes again, keeps that data and uploads then', async () => {
+  const asset = url.replace('a'.repeat(64), 'c'.repeat(64));
+  const template = new THREE.CompressedTexture([{ data: new Uint8Array(64), width: 8, height: 8 }, { data: new Uint8Array(16), width: 4, height: 4 }] as unknown as THREE.CompressedTextureMipmap[], 8, 8);
+  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    // The backend's upload of a compressed texture: what WebGPU's WriteTexture would get, per mip.
+    const writes: number[][] = [];
+    const renderer = { isWebGPURenderer: true, hasFeature: () => false,
+      backend: { updateTexture: (texture: THREE.Texture, _options?: unknown) => { writes.push((texture.mipmaps as unknown as { data: Uint8Array }[]).map(mip => mip.data.byteLength)); } } };
+    guardReleasedTextures(renderer as never);
+    const scene = model(await sharedKtx(renderer as never).loadAsync(asset));
+    shareModelTextures(scene);
+    const resident = map(scene);
+    expect(releaseTextureData(resident, () => true)).toBe(80);
+    const clone = resident.clone(); // e.g. a placement's material clone made after the release
+    renderer.backend.updateTexture(resident, {}); renderer.backend.updateTexture(clone, {});
+    expect(writes).toEqual([]); // nothing uploads empty data
+    const versions = [resident.version, clone.version];
+    await vi.waitFor(() => expect([resident, clone].every(texture => texture.userData.keepData === true)).toBe(true));
+    expect([resident.version, clone.version].map((v, i) => v > versions[i])).toEqual([true, true]); // uploads again
+    renderer.backend.updateTexture(resident, {}); renderer.backend.updateTexture(clone, {});
+    expect(writes).toEqual([[64, 16], [64, 16]]);
+    expect(resident.userData.releasedBytes).toBeUndefined();
+    expect(releaseTextureData(resident, () => true)).toBe(0); // keeps its data from now on
+    releaseModelTextures(scene, new Set([resident]));
+  } finally { load.mockRestore(); warn.mockRestore(); }
 });
