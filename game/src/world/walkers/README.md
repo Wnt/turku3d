@@ -68,6 +68,7 @@ Yaw is smoothed per drawn walker. None of this changes where a walker is.
   path is walked round;
 - a vehicle at 2.5 m/s or more that still reaches the walker knocks it down: thrown along the car's motion, it
   falls (0.45 s), lies (4 s), gets up (0.9 s) and walks back to its route.
+- a standing or waiting walker turns to look at a player on foot within 2.5 m;
 - a moving walker keeps 0.6 m from other drawn walkers (standing people, someone coming the other way or slower
   ahead); standing and waiting walkers hold still.
 The walk cycle advances by the reaction's own metres, facing follows the combined motion, and the knock-down leans

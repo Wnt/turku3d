@@ -99,5 +99,13 @@ describe('walker reactions to players', () => {
     expect(closest).toBeGreaterThan(0.5);
     expect(closest).toBeLessThan(REACT.personal);
   });
+
+  test('a standing walker turns to look at a player who comes up close', () => {
+    const reactions = new Reactions();
+    const base: Base = { id: 12, x: 0, y: 0, z: 0, yaw: 0, speed: 0 };
+    expect(reactions.apply(base, [{ x: 6, y: 0, z: 0, vx: 0, vz: 0, car: null }], DT, 0).yaw).toBeNull();
+    const r = reactions.apply(base, [{ x: 2, y: 0, z: 0, vx: 0, vz: 0, car: null }], DT, DT);
+    expect(r.yaw).toBeCloseTo(Math.PI / 2, 5);
+  });
 });
 
