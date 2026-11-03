@@ -255,6 +255,9 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
             if "_lidar_base" in tags:
                 bottom = float(tags["_lidar_base"])
                 top = bottom+h
+                if tags.get("_lidar_low"):
+                    # A cheek wall follows its sloping lower side down to the ground.
+                    bottom = min(bottom, sample(*p), sample(*q), sample(*mid))
             if kind == "hedge" and "height" not in tags and "_hedge_top" in tags:
                 top = tags["_hedge_top"]
                 if top <= bottom + .1:
