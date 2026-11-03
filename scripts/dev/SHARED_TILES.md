@@ -265,5 +265,35 @@ source version, built explicitly as one tile) with the migrated base product: ev
 payload must be identical; manifest keys that only record build provenance (`built`, `seconds`,
 `code`, `collision_code`, `migration_base`) are listed apart.
 
+### Spot rebuilds
+
+A generator fix whose effect is limited to a class of tiles reaches the city as a `Rebuild` step:
+
+```python
+# pipeline/turku3d/migrations/stand_roofs.py
+from .core import Rebuild
+
+def affected(manifest):            # data only: which tiles contain what the rule changes
+    venues = manifest.get("venues") or {}
+    return bool(venues.get("grandstand_buildings") or venues.get("grandstands"))
+
+MIGRATION = Rebuild("stand-roof", 1, affected=affected)
+```
+
+The fix itself goes in the generator. In the generator the step is a no-op (the build already is
+the fixed product). On the farm an affected tile adopts the normal build of the step's commit with
+the base's source version; that build already applied the whole chain, so the runner records the
+rest of the chain instead of applying it again. Every other tile stays hard links. The step's
+generation id includes the rebuilt products' generation. `tile-migrate register` registers the
+code commit with the base's source version; a missing rebuilt tile is built by the farm on
+request (the base stands in meanwhile) or requested by a `run --watch`. Build the affected tiles
+explicitly first (`shared-tiles build --version <alias of the commit + source> TILES`).
+
+Before trusting a rebuild, prove its inputs: build the affected tiles with the old generator and
+the same source version, and `parity` them against the base (all payloads identical). Missing
+raw inputs of a source version can be reconstituted by hard link from any file with the
+catalog's sha256 (`source-version.json`), or downloaded from the original public source and
+checked against that hash.
+
 Checks: `bash pipeline/env/run.sh python -m pytest pipeline/tests/test_migrations.py -q` and
 `python3 -m unittest tests.test_shared_tiles.MigratedRevisionTests` (from `scripts/dev`).

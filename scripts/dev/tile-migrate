@@ -81,6 +81,15 @@ def main():
                                branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'),
                                purpose='tile-migration code'), host=args.host, root=args.root)
         base = resolve(args, args.base)
+        # A spot-rebuild step rebuilds tiles with this commit's generator and the base's source
+        # version: register that revision too (no alias; it never moves the game's pin).
+        base_meta = code_of(args, base)
+        source_version = base_meta.get('base_source_version') if base_meta.get('kind') == 'migrated' \
+            else base_meta.get('source_version')
+        if source_version:
+            urlopen(Request(args.url + '/register', data=json.dumps(dict(
+                revision=args.code, source_version=source_version)).encode(),
+                headers={'Content-Type': 'application/json'})).read()
         derived = json.loads(command('ssh', args.host, ' '.join([
             f'mkdir -p {shlex.quote(args.root)}/work/migrate &&',
             f'REPO={shlex.quote(args.root)}/revisions/{args.code}/repo',
