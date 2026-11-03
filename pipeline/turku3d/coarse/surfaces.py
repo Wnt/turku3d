@@ -38,6 +38,7 @@ BINDINGS = {
     "sand": 6,
     "rock": 6,
     "quay": 7,
+    "wall": 7,
     "curb": 2,
 }
 SURFACES = {
@@ -225,6 +226,46 @@ def walking_finishes():
     names = ("grass", "soil", "sand", "gravel", "road", "sidewalk", "crossing", "cycleway",
              "cobblestone", "paving_slab", "bridge_deck")
     return np.asarray([*(mat_id(name) for name in names), *street_materials.FINISH_KEYS], np.uint8)
+
+
+# Terrain still this steep (rise over run) beyond a face continues as natural rock.
+ROCK_SLOPE = 0.5
+# Lower faces are kerb or step risers that edge their own paving.
+RISER = 0.25
+
+
+def steep_context(mesh, terrain, abutments=None, retaining=None, quays=None):
+    """Material from context for near-vertical faces that still carry a lawn or paving id.
+
+    Applied after the closure stage to the walking and the collision ground, so
+    both agree: quay stone within reach of water or a bridge abutment
+    (`abutments`), the wall material beside a mapped retaining wall
+    (`retaining`), quay stone beside a mapped quay (`quays`), natural rock where
+    the lidar `terrain` (a HeightQuery) keeps sloping past the face, otherwise soil.
+    """
+    triangles = mesh.positions[mesh.indices]
+    # Soil and sand are bare natural ground, the default here, not a finish.
+    finishes = np.setdiff1d(walking_finishes(), [mat_id("soil"), mat_id("sand")])
+    faces = (
+        steep(triangles)
+        & np.isin(mesh.material, finishes)
+        & (np.ptp(triangles[:, :, 1], axis=1) > RISER)
+    )
+    if not faces.any():
+        return mesh
+    ids = np.flatnonzero(faces)
+    centre = triangles[ids].mean(axis=1)[:, [0, 2]]
+    normal = np.cross(triangles[ids, 1] - triangles[ids, 0], triangles[ids, 2] - triangles[ids, 0])
+    across = normal[:, [0, 2]] / np.maximum(np.linalg.norm(normal[:, [0, 2]], axis=1, keepdims=True), 1e-12)
+    h = [np.nan_to_num(terrain(centre + s * across), nan=0.0) for s in (-3.5, -1.5, 1.5, 3.5)]
+    beyond = np.maximum(abs(h[1] - h[0]), abs(h[3] - h[2])) / 2
+    material = np.where(beyond >= ROCK_SLOPE, mat_id("rock"), mat_id("soil")).astype(np.uint8)
+    for zone, name in ((quays, "quay"), (retaining, "wall"), (abutments, "quay")):
+        if zone is not None and not zone.is_empty:
+            material[shapely.intersects_xy(zone, centre[:, 0], centre[:, 1])] = mat_id(name)
+    result = mesh.material.copy()
+    result[ids] = material
+    return type(mesh)(mesh.positions, mesh.indices, result)
 
 
 def slope_fallback(positions, indices, materials):

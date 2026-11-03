@@ -582,3 +582,32 @@ def test_visual_finish_never_paints_lawn_or_paving_onto_near_vertical_faces():
     # Without the option the old repaint remains for other cut passes.
     _, _, legacy, _ = split_boundaries(p, ix, own, np.ones(4, bool), regions, ortho)
     assert mat_id("grass") in legacy[:3].tolist() or mat_id("road") in legacy.tolist()
+
+
+def test_near_vertical_lawn_and_paving_faces_take_their_material_from_context():
+    from turku3d.coarse.surfaces import steep_context
+    from turku3d.ground.mesh import HeightQuery, Mesh
+
+    # Four 2 m steps with lawn/paving ids, a low kerb riser and a soil bank face.
+    def step(x, z, rise=2.0):
+        return [[x, 0, z], [x + 0.1, rise, z], [x, 0, z + 1]]
+
+    p = np.array([*step(1, 1), *step(20, 1), *step(40, 1), *step(60, 1), *step(80, 1, 0.15), *step(1, 4)], float)
+    ix = np.arange(len(p), dtype=np.uint32).reshape(-1, 3)
+    own = np.array([mat_id(k) for k in ("grass", "cobblestone", "road", "grass", "road", "soil")], np.uint8)
+    # Lidar terrain: flat, except a 45 degree hillside around x = 60.
+    x, z = np.meshgrid(np.arange(0, 101.0), np.arange(-10, 11.0))
+    h = np.clip(x - 55, 0, 10)
+    grid = np.c_[x.ravel(), h.ravel(), z.ravel()]
+    cells = [(r * 101 + c) for r in range(20) for c in range(100)]
+    tris = [[a, a + 101, a + 1] for a in cells] + [[a + 1, a + 101, a + 102] for a in cells]
+    terrain = HeightQuery(Mesh(grid, np.asarray(tris, np.uint32), np.zeros(len(tris), np.uint8)))
+    result = steep_context(
+        Mesh(p, ix, own),
+        terrain,
+        abutments=shapely.box(-3, -3, 0, 3).buffer(3.0),  # 3 m reach from water beside step 1
+        retaining=shapely.LineString([(20, 0), (20, 3)]).buffer(2.0),
+    )
+    assert [int(m) for m in result.material] == [
+        mat_id("quay"), mat_id("wall"), mat_id("soil"), mat_id("rock"), mat_id("road"), mat_id("soil"),
+    ]

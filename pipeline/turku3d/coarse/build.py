@@ -483,6 +483,20 @@ def build(
     )
     stair_meshes = [*stair_meshes, *seam_meshes]
     seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
+    # Near-vertical faces never keep a lawn or paving id, in visuals and collision alike.
+    from turku3d.ground.mesh import HeightQuery
+
+    walls = [g for g, tags, *_ in inputs.barriers if (tags or {}).get("barrier") == "retaining_wall"]
+    walls += [g for g, *_ in inputs.retaining]
+    steep_args = dict(
+        abutments=shapely.union_all([*water, *[p["area"] for p in aprons]]).buffer(3.0),
+        retaining=shapely.union_all([g for g in walls if g is not None]).buffer(2.0),
+        quays=shapely.union_all(
+            [g for g, m in inputs.surfaces if m == mat_id("quay")]
+        ).buffer(3.0),
+    )
+    terrain_height = HeightQuery(bridge_base)
+    dry, solid = (surfaces.steep_context(m, terrain_height, **steep_args) for m in (dry, solid))
     from . import footings
 
     passages = [line for _, line, _ in inputs.tunnels]
