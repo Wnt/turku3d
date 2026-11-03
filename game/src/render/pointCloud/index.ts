@@ -59,6 +59,12 @@ export interface PointCloudOverlayApi extends HookOverlay {
   snapshot(): Record<string, unknown>;
 }
 
+// This module owns the global; dev/editor/pointCloudHook.ts reads it structurally.
+declare global { interface Window { __turku3dPointCloud?: PointCloudOverlayApi } }
+
+/** The COPC product: same-origin through the dev server's proxy (vite.config.ts), else osgallery-dev's server. */
+export const SOURCES = ['./pointcloud/', 'http://192.168.1.114:7960/'] as const;
+
 /** Hard point budgets per tier (drawn points; 24 B each on the GPU). Desktop medium is the M1 Max target. */
 export const BUDGET: Record<QualityTier, number> = { mobile: 300_000, low: 600_000, reduced: 1_000_000, medium: 1_500_000, high: 3_000_000 };
 export const LOD = {
@@ -201,7 +207,11 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
   private loadedPoints = 0;
   private errors: string[] = [];
 
-  constructor(tier: QualityTier, private readonly base = './pointcloud/') {
+  /** Where the product answered: the dev server's same-origin /pointcloud proxy, else the COPC server directly
+   *  (tools/pointcloud/serve.py sends CORS headers), e.g. on a dev server started before the proxy existed. */
+  private base: string | null = null;
+
+  constructor(tier: QualityTier, private readonly bases: readonly string[] = SOURCES) {
     this.budget = BUDGET[tier];
     for (let c = 0; c < 32; c++) {
       const [r, g, b] = CLASS_COLORS[c] ?? [0.7, 0.7, 0.7];
@@ -315,21 +325,29 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
 
   private async loadIndex(now: number) {
     this.indexState = 'loading'; this.indexAt = now;
-    try {
-      const reply = await fetch(new URL('index.json', new URL(this.base, location.href)), { cache: 'no-store' });
-      if (!reply.ok) throw new Error(`point-cloud index HTTP ${reply.status}`);
-      const index = await reply.json() as { tiles: IndexTile[] };
-      for (const t of index.tiles) {
-        if (this.tiles.has(t.name)) continue;
-        const a = surveyToEngine(t.min[0], t.max[1], 0), b = surveyToEngine(t.max[0], t.min[1], 0);
-        this.tiles.set(t.name, { name: t.name, url: new URL(t.file, new URL(this.base, location.href)).href,
-          footprint: [a[0], a[2], b[0], b[2]], state: 'idle' });
+    const failures: string[] = [];
+    for (const candidate of this.base ? [this.base] : this.bases) {
+      const base = new URL(candidate, location.href).href;
+      try {
+        const reply = await fetch(new URL('index.json', base), { cache: 'no-store' });
+        if (!reply.ok) throw new Error(`HTTP ${reply.status}`);
+        // An SPA fallback answers 200 with index.html where no proxy exists.
+        if (!/json/.test(reply.headers.get('content-type') ?? '')) throw new Error('not JSON');
+        const index = await reply.json() as { tiles: IndexTile[] };
+        this.base = base;
+        for (const t of index.tiles) {
+          if (this.tiles.has(t.name)) continue;
+          const a = surveyToEngine(t.min[0], t.max[1], 0), b = surveyToEngine(t.max[0], t.min[1], 0);
+          this.tiles.set(t.name, { name: t.name, url: new URL(t.file, base).href, footprint: [a[0], a[2], b[0], b[2]], state: 'idle' });
+        }
+        this.indexState = 'ready';
+        return;
+      } catch (error) {
+        failures.push(`${base}: ${(error as Error).message ?? error}`);
       }
-      this.indexState = 'ready';
-    } catch (error) {
-      this.indexState = 'failed';
-      this.note(String(error));
     }
+    this.indexState = 'failed';
+    this.note(`index unavailable (${failures.join('; ')})`);
   }
 
   private discoverTiles(at: THREE.Vector3) {
@@ -512,7 +530,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     for (const tile of this.tiles.values()) if (tile.nodes) for (const node of tile.nodes.values())
       if (node.mesh) { ready++; if (node.mesh.visible) drawn += node.mesh.geometry.instanceCount; }
     return {
-      visible: this.visible, opacity: this.opacity.value, pointSize: this.pointSize, colorMode: this.colorMode, budget: this.budget,
+      visible: this.visible, source: this.base, opacity: this.opacity.value, pointSize: this.pointSize, colorMode: this.colorMode, budget: this.budget,
       index: this.indexState, tiles: this.tiles.size, tilesReady: [...this.tiles.values()].filter(t => t.state === 'ready').length,
       selected: this.selection?.selected.length ?? 0, selectedPoints: this.selection?.points ?? 0, drawnPoints: drawn,
       nodesReady: ready, loadedPoints: this.loadedPoints, inFlight: this.inFlight, attachQueue: this.attachQueue.length,

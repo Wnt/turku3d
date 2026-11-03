@@ -1,7 +1,9 @@
 // COPC range reads and LAZ decompression off the main thread: a tile's header and whole hierarchy, then one node's
 // points at a time (fetch the chunk's byte range, laz-perf ChunkDecoder, decode, shuffle so a prefix is a uniform
 // subsample for distance thinning). Positions arrive engine-frame, relative to the node's centre.
-import createLazPerf from 'laz-perf/lib/worker/laz-perf.js';
+// laz-perf ships CommonJS/UMD. As raw source evaluated here it needs no Vite dependency pre-bundling, which a running
+// dev server would otherwise do on first use (re-optimising every dep under a live page) and the build inlines it.
+import lazPerfSource from 'laz-perf/lib/worker/laz-perf.js?raw';
 import wasmUrl from 'laz-perf/lib/worker/laz-perf.wasm?url';
 import { HEAD_READ, decodeRecords, decompressChunk, parseHeader, parseHierarchyPage, type CopcHeader, type CopcNode,
   type LazPerfModule } from './copc';
@@ -12,8 +14,11 @@ export type WorkerRequest =
   | { id: number; kind: 'node'; url: string; node: CopcNode; header: CopcHeader; anchor: [number, number, number] };
 
 let lazPerf: Promise<LazPerfModule> | null = null;
-const lazModule = () => lazPerf ??= fetch(wasmUrl).then(r => r.arrayBuffer())
-  .then(wasmBinary => (createLazPerf as unknown as (args: object) => Promise<LazPerfModule>)({ wasmBinary }));
+const lazModule = () => lazPerf ??= fetch(wasmUrl).then(r => r.arrayBuffer()).then(wasmBinary => {
+  // The UMD wrapper finds no module system in a module worker and leaves the Emscripten factory in a local var.
+  const create = new Function(`${lazPerfSource}\nreturn createLazPerf;`)() as (args: object) => Promise<LazPerfModule>;
+  return create({ wasmBinary });
+});
 
 /** `size` bytes at `offset`; `upTo` accepts fewer when the file ends first. */
 async function range(url: string, offset: number, size: number, upTo = false): Promise<ArrayBuffer> {
