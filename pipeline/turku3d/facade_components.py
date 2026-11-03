@@ -206,6 +206,13 @@ def components(form, floors):
         if kind == "stairs" and (not section.get("rise_m") or not section.get("run_m")):
             pending.append(f"section {index}: stairs need rise and run")
             continue
+        # Only an explicitly named order changes the column solid; others stay square.
+        shape = None
+        if kind == "arcade":
+            if re.search(r"\b(?:round|cylindrical|doric|tuscan|ionic) (?:\w+ )?(?:columns|pillars)", combined):
+                shape = "round"
+            elif re.search(r"\bsquare (?:\w+ )?(?:columns|pillars|piers)", combined):
+                shape = "square"
         depth = section.get("depth_m", DEPTH[kind])
         if not isinstance(depth, (float, int)) or not np.isfinite(depth) or not 0 <= depth <= 4:
             pending.append(f"section {index}: invalid depth")
@@ -225,6 +232,7 @@ def components(form, floors):
                 rise_m=section.get("rise_m"),
                 run_m=section.get("run_m"),
                 direction=-1 if "left" in features else 1,
+                **({"column_shape": shape} if shape else {}),
             )
         )
     return result, pending
