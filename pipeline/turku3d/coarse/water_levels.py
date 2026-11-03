@@ -314,6 +314,9 @@ def follow(inputs, levels):
     if levels is None:
         return
     for boat in inputs.boats or ():
+        # Harbour cranes, masts and towers carry no waterline or deck.
+        if boat.get("kind") not in ("pier", "ship") or "deck" not in boat or "water" not in boat:
+            continue
         water = surface(levels, boat.get("outline"))
         if water is None:
             continue

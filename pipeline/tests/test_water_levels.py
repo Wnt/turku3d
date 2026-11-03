@@ -110,7 +110,8 @@ def test_piers_boats_and_bridge_footings_float_on_an_inland_pool():
                 deck_source="waterline-fallback", floating=True)
     ship = dict(kind="ship", outline=shapely.box(50, 5, 70, 12), deck=1.5, water=0.2)
     way = dict(line=shapely.LineString([(100, -20), (100, 60)]), survey={})
-    inputs = SimpleNamespace(boats=[pier, ship], water=[pool], roads={"bridge_ways": [way]})
+    crane = dict(kind="crane", outline=shapely.box(80, 5, 82, 7), height=20.0)
+    inputs = SimpleNamespace(boats=[pier, ship, crane], water=[pool], roads={"bridge_ways": [way]})
     water_levels.follow(inputs, levels)
     water_levels.follow(inputs, levels)
     assert pier["water"] == 7.5 and abs(pier["deck"] - 8.05) < 1e-9
