@@ -30,6 +30,7 @@ PRODUCERS = (
     "gardens",
     "garden_inputs",
     "build",
+    "archetypes",
     "basic",
     "area",
     "collision",
@@ -238,7 +239,7 @@ def _package_visual(
     return (stage / "out" / "tile.glb").read_bytes(), stats
 
 
-def package_visual(tile, layer_files, stage, work, library, *, first_pass=False):
+def package_visual(tile, layer_files, stage, work, library, *, first_pass=False, cache_unit=None):
     """Reuse a packed visual when emitted geometry, material files and packaging code match."""
     from turku3d.tile_layer import identities
 
@@ -263,7 +264,7 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False)
         for slot, path in kit["maps"].items():
             files["kit/" + slot] = Path(path)
         kit = {k: v for k, v in kit.items() if k != "maps"}
-    cache = StageCache(work / ".stages" / tile.id, retain=True)
+    cache = StageCache(work / ".stages" / (cache_unit or tile.id), retain=True)
 
     def package():
         visual, stats = _package_visual(

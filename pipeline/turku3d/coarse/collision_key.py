@@ -8,6 +8,7 @@ from pathlib import Path
 from .packaging import producer_paths
 
 VISUAL_ONLY = {
+    "archetypes.py",
     "bridge_materials.py",
     "ground_finishes.py",
     "street_materials.py",

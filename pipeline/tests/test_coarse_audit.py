@@ -66,3 +66,23 @@ def test_real_decoded_audit_records_stage_and_total_times(tmp_path, monkeypatch)
     assert result['seconds'] >= result['stage_seconds']['total'] >= 0
     assert set(result['stage_seconds']) == {'decode', 'walls', 'snapshot', 'total'}
     assert audit.health(tmp_path) == dict(pending=0, passed=1, failed=0, failed_tiles=[])
+
+
+def test_composed_visual_audits_new_models_even_when_terrain_was_already_checked(tmp_path, monkeypatch):
+    out = tmp_path / 't0_0_0'
+    out.mkdir()
+    root = tmp_path / '.visual-audits'
+    root.mkdir()
+    terrain = dict(sha256='a' * 64, url='vis.glb')
+    (root / (terrain['sha256'] + '.result.json')).write_text('{}')
+    shared = tmp_path / 'shared'
+    shared.mkdir()
+    digest = hashlib.sha256(b'new model').hexdigest()
+    (shared / (digest + '.glb')).write_bytes(b'new model')
+    model = dict(sha256=digest, url='../shared/' + digest + '.glb')
+    started = []
+    monkeypatch.setattr(audit.subprocess, 'Popen', lambda *args, **kwargs: started.append(args))
+    audit.submit_all(out, [terrain, model], require_snapshot=True)
+    assert len(started) == 1
+    assert (root / (digest + '.pending.json')).exists()
+    assert (root / (digest + '.glb')).read_bytes() == b'new model'
