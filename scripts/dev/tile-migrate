@@ -69,6 +69,8 @@ def main():
         if name == 'parity':
             p.add_argument('--generated', required=True,
                            help='alias of the generator at the migration commit, same source version')
+        if name in ('apply', 'run'):
+            p.add_argument('--code', help='newer runner snapshot (git ref); its transform code must match')
         if name == 'run':
             p.add_argument('--jobs', type=int, default=6)
             p.add_argument('--watch', type=float, default=0, help='rescan the base every N seconds')
@@ -98,7 +100,13 @@ def main():
     meta = code_of(args, revision)
     if meta.get('kind') != 'migrated':
         raise SystemExit(f'{args.version} is not a migrated revision')
-    args.code = meta['code_revision']
+    if getattr(args, 'code', None):
+        args.code = command('git', 'rev-parse', args.code + '^{commit}')
+        upload(args.code, dict(revision=args.code, generation=generator_identity(args.code, cwd=toplevel()),
+                               branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'),
+                               purpose='tile-migration code'), host=args.host, root=args.root)
+    else:
+        args.code = meta['code_revision']
     if args.action == 'status':
         return remote(args, 'status', '--revision', revision)
     if args.action == 'apply':
