@@ -61,9 +61,9 @@ const DETAIL_LEAD_S = 28;
 const DETAIL_LEAD_M = 450;
 const DETAIL_LEAD_MAX_M = 700;
 const DETAIL_LEAD_MAX_SPEED = 40;
-/** Concurrent full-visual installs; tiles ahead may use all but one, which stays free for the current window. */
+/** Concurrent full-visual installs; tiles ahead and in view may use all but two, which stay free for the current window. */
 const DETAIL_SLOTS = 5;
-const AHEAD_DETAIL_SLOTS = DETAIL_SLOTS - 1;
+const AHEAD_DETAIL_SLOTS = DETAIL_SLOTS - 2;
 /** Concurrent unconfirmed ahead acknowledgements, and concurrent collision previews being prepared. */
 const ACK_SLOTS = 4;
 const PREVIEW_SLOTS = 6;
@@ -262,9 +262,10 @@ export class CoarseTiles {
       // Static batches, shadow batches, vegetation draws and shader/pipeline preparation of the whole model.
       stage = streamTrace.begin('tile.prepare', id);
       await this.host.styled?.(model); stage();
-      ready = this.entries.get(id) === entry && entry.state === state;
+      ready = this.entries.get(id) === entry && entry.state === state && !entry.abandoned;
       return ready;
     } finally {
+      if (!ready && entry.abandoned) streamTrace.event('tile.abandon', id);
       if (!ready) this.dispose(model);
     }
   }

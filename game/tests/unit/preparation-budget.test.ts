@@ -48,28 +48,37 @@ test('a streaming budget resumes a stale window after one task hop, not a drawn 
   expect([frames, tasks]).toEqual([2, 1]); // frame-aligned budgets (shader compiles) keep waiting for a frame
 });
 
-test('streaming spends the frame headroom against a 40 fps target, more for the current window, little after long frames', async () => {
+test('streaming windows follow the frame headroom against a 40 fps target; the current window never drops below 2 ms', () => {
   let now = 0;
   const account = new StreamingAllowance(() => now);
-  for (let i = 0; i < 30; i++) account.frame(10, 16.7); // a light 10 ms frame callback
+  for (let i = 0; i < 30; i++) account.frame(10, 16.7); // a light 10 ms frame callback: 13 ms of slack
   expect(account.limit).toBe(3); // prefetch-only installs: capped
   account.urgent = true;
-  expect(account.limit).toBe(8); // the 3x3 window waits: most of the 13 ms slack
+  expect(account.limit).toBe(6); // the 3x3 window waits: one budget may take most of the slack (capped)
+  for (let i = 0; i < 4; i++) account.opened();
+  account.frame(10, 16.7);
+  expect(account.limit).toBeCloseTo(0.8 * 13 / 4, 0); // four budgets worked last frame: they share it
   for (let i = 0; i < 30; i++) account.frame(21, 22);
-  expect(account.limit).toBeCloseTo(1.6, 0); // little slack left
-  account.frame(21, 45);
-  expect(account.limit).toBe(StreamingAllowance.MIN_MS); // an overlong frame: back off
+  expect(account.limit).toBe(2); // little slack: the window keeps the old 2 ms
+  account.urgent = false;
+  expect(account.limit).toBeCloseTo(1.6, 1); // prefetch takes 80 % of the 2 ms slack
+  for (let i = 0; i < 3; i++) account.opened();
+  account.frame(21, 22);
+  expect(account.limit).toBe(StreamingAllowance.MIN_MS); // shared by three budgets: the 1 ms floor
+  account.frame(21, 45); account.urgent = true;
+  expect(account.limit).toBe(2); // an overlong frame: the window still gets its floor
   now = 500; expect(account.limit).toBe(2); // no frame reports: the old fixed window
-  // Budgets share one account: what one stage spent this frame is gone for the others.
-  now = 0; account.urgent = true; for (let i = 0; i < 30; i++) account.frame(15, 20);
-  let frames = 0;
+});
+
+test('every streaming budget keeps its own window, so one stage cannot starve another', async () => {
+  let now = 0, frames = 0;
+  const account = new StreamingAllowance(() => now);
+  account.urgent = true; for (let i = 0; i < 30; i++) account.frame(15, 20);
   const frame = () => { frames++; return Promise.resolve(); };
   const a = new PreparationBudget(() => now, frame, null, account), b = new PreparationBudget(() => now, frame, null, account);
   const limit = account.limit;
-  a.checkpoint(); b.checkpoint();
-  now = limit - 0.5; expect(a.checkpoint()).toBeUndefined();
-  now = limit + 0.1; await a.checkpoint(); // a spent the frame's allowance
+  expect(limit).toBeGreaterThan(2);
+  a.checkpoint(); now = limit + 0.1; await a.checkpoint(); // a used its window
   expect(frames).toBe(1);
-  await b.checkpoint(); // b's own window is short, but the account is spent
-  expect(frames).toBe(2);
+  b.checkpoint(); now += limit - 0.5; expect(b.checkpoint()).toBeUndefined(); // b still has its own
 });
