@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -101,6 +102,19 @@ class WarmWorkersTest(unittest.TestCase):
         pool("r1", "d", self.out)
         self.assertEqual(len(pool.idle), 1)
         pool.close()
+
+    def test_a_worker_too_large_for_the_tile_reservation_is_not_reused(self):
+        import workers
+        sizes = {}
+        with mock.patch.object(workers, "resident", lambda pid: sizes.get(pid, 0)):
+            pool = WarmWorkers(self.farm, self.runner, reserve=lambda tile: 1.1 if tile.startswith("w") else 2.1)
+            pool("r1", "a", self.out)
+            sizes[int(self.pid("a"))] = int(1.5 * 2**30)  # retained after a suburb tile
+            pool("r1", "b", self.out)  # suburb, 2.1 GiB reserved: 1.5 + 0.5 fits
+            pool("r1", "w1", self.out)  # water, 1.1 GiB reserved: a fresh worker builds it
+            self.assertEqual(self.pid("a"), self.pid("b"))
+            self.assertNotEqual(self.pid("b"), self.pid("w1"))
+            pool.close()
 
     def test_timeout_stops_the_worker(self):
         pool = WarmWorkers(self.farm, self.runner, timeout=0)
