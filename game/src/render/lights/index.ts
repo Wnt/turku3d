@@ -11,6 +11,7 @@ import type { Footprint } from './tileScan';
 import { nightLevel, type NightInputs } from './night';
 import { GroundLampField } from './groundField';
 import { FloodMasts, type FloodTile } from './floodlights';
+import { FloodArea, areaVenues } from './floodArea';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
 const STEP_MS = 1.5;
@@ -30,6 +31,8 @@ export class StreetLights {
   readonly ground: GroundLampField;
   /** Poles of the floodlight masts the city does not draw already. */
   readonly masts: FloodMasts;
+  /** Floodlit venues' light on everything around them (the light set's area light). */
+  readonly area = new FloodArea();
   night = 0;
   private floodMasts = 0;
   private floodVenues = 0;
@@ -72,14 +75,16 @@ export class StreetLights {
       this.posts.setLamps(all.filter(l => l.post));
       this.ground.setLamps(all);
       const flood = [...this.flood.values()];
-      this.ground.setVenues(flood.flatMap(f => f.venues));
-      this.floodMasts = this.masts.setMasts(flood.flatMap(f => f.masts));
+      const masts = flood.flatMap(f => f.masts);
+      this.area.setVenues(areaVenues(flood.flatMap(f => f.venues), masts));
+      this.floodMasts = this.masts.setMasts(masts);
       this.floodVenues = flood.reduce((n, f) => n + f.venues.length, 0);
       if (this.pools.size) this.pools.setLamps(all.map(poolLamp).filter((l): l is PoolLamp => l !== null));
     }
     this.night = this.override ?? nightLevel(inputs);
     this.posts.night.value = this.night;
     this.ground.update(camera.position.x, camera.position.z, this.night);
+    this.area.update(camera.position.x, camera.position.z, this.night);
     this.posts.update(camera.position.x, camera.position.z, now);
     camera.getWorldDirection(this.forward);
     this.pools.update(camera.position.x, camera.position.z, this.forward.x, this.forward.z, this.night, now);
@@ -92,12 +97,12 @@ export class StreetLights {
     for (const list of this.tiles.values()) { lamps += list.length; posts += list.filter(l => l.post).length; }
     return { tiles: this.tiles.size, pending: this.field.pending() || this.ground.pending, lamps, posts, postsDrawn: this.posts.drawn,
       sprites: this.sprites.count, spriteCapacity: this.sprites.capacity, spritesDropped: this.sprites.dropped, night: this.night,
-      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts,
+      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts, floodLit: this.area.snapshot(),
       floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0) };
   }
 
   dispose() {
     this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent();
-    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose();
+    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); this.area.dispose();
   }
 }
