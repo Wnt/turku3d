@@ -13,6 +13,7 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
 * Load: every ``--interval`` seconds the cap moves by one: down while the one-minute load per core is above
   ``--high`` (0: no new tile starts), up while it is below ``--low``, between 0 and ``--max-jobs``. Running tiles
   always finish. Workers run at nice 19, under the farm's serving and builds.
+* Disk: no new tile starts while the farm's disk has less than ``--min-free-gb`` free (the steps' caches grow there).
 * Resumable: a tile finished earlier is kept (``migrate_tile``'s ready check), so a stopped pass resumes.
 * Survey: a tile whose catalog-listed survey blocks are not all on disk waits (re-checked every
   ``--survey-interval`` s, for at most ``--wait-hours``): migrated without them it would stay without wires and
@@ -29,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
@@ -227,6 +229,7 @@ def main():
     parser.add_argument('--no-survey-wait', action='store_true', help='migrate tiles whose survey blocks are missing')
     parser.add_argument('--survey-interval', type=float, default=600, help='seconds between looks for new blocks')
     parser.add_argument('--wait-hours', type=float, default=24, help='give up waiting for blocks after this long')
+    parser.add_argument('--min-free-gb', type=float, default=12, help='no new tile while the farm disk has less free')
     parser.add_argument('--blocks', type=int, default=9, help='decoded LAZ blocks each lane keeps (~260 MB each)')
     parser.add_argument('--checkpoint', help='also store the product after this step (e.g. wires@2), so a later '
                         'chain that changes only the steps after it resumes from there')
@@ -265,7 +268,10 @@ def main():
                 busy = [lane for lane in lanes if lane.future]
                 if now >= next_adjust:
                     next_adjust = now + args.interval
-                    if load > args.high:
+                    free = shutil.disk_usage(root).free / 1e9
+                    if free < args.min_free_gb:
+                        cap = 0  # The steps' caches grow on the farm's disk: hold new tiles until space returns.
+                    elif load > args.high:
                         cap = max(0, cap - 1)
                     elif load < args.low:
                         cap = min(len(lanes), cap + 1)
@@ -273,6 +279,7 @@ def main():
                     atomic_json(progress, dict(
                         revision=meta['revision'], generation=meta['generation'], pid=os.getpid(), cap=cap,
                         running=sorted(lane.tile for lane in busy), load_per_core=round(load, 2),
+                        disk_free_gb=round(free, 1),
                         waiting_for_survey=len(waiting), survey_linked=survey.linked if survey else 0,
                         updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                         rate_tiles_per_hour=round(rate * 3600, 1),
