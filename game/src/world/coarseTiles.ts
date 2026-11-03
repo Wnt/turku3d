@@ -35,6 +35,7 @@ export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
 import { streamingAllowance } from '../render/preparationBudget';
+import { releaseRenderArrays, releaseTileArrays, rendererUploaded } from './releaseArrays';
 
 const POLL_MS = 1000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
@@ -89,6 +90,8 @@ const VIEW_KEEP_M = 75;
  *  rest. Lower cameras keep the ground rules (3x3 window, path and view wedge). */
 const HIGH_CAMERA_M = 40;
 const HD_3D_M = 250;
+/** How often committed tiles release the CPU copies of uploaded render-only arrays (ms). */
+const RELEASE_MS = 2000;
 /** At load and spawn the start's view wedge within this distance (m) installs full detail with the ground under it,
  *  so the player never starts looking at scenery cells. Half angle of that wedge (rad). */
 const START_VIEW_M = 300;
@@ -529,6 +532,7 @@ export class CoarseTiles {
       return;
     }
     for (const [id, e] of this.entries) void this.compare(id, e);
+    this.releaseUploadedArrays(now);
     void this.want(x, z, now);
     if (this.remote) {
       const demand = draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
@@ -1059,6 +1063,7 @@ export class CoarseTiles {
     if (old && old !== under) this.dispose(old, id);
     if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
+    this.buildingModels.markCommitted(model);
     // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
     if (!old || wasPreview) this.dissolveIn(id, model, own, under);
     if (installing) {
@@ -1178,6 +1183,39 @@ export class CoarseTiles {
     }
     return { state: e.state, preview: !!e.preview, full: !!e.model && !e.preview, pass: e.pass ?? null, error: e.error ?? null,
       retryInMs: e.state === 'draft' ? 0 : Math.max(0, e.nextPoll - this.clock) };
+  }
+
+  private nextRelease = 0;
+  /** Every RELEASE_MS: committed full tiles (drawn or cached) and the building templates only they use drop the CPU
+   *  copies of their uploaded render-only arrays (world/releaseArrays.ts). */
+  private releaseUploadedArrays(now: number) {
+    if (this.host.keepArrays || now < this.nextRelease) return;
+    this.nextRelease = now + RELEASE_MS;
+    const uploaded = rendererUploaded(this.host.renderer);
+    let bytes = 0;
+    for (const e of this.entries.values()) {
+      if (e.model && !e.preview && e.state === 'draft' && !e.refreshing) bytes += releaseTileArrays(e.model, uploaded);
+    }
+    bytes += this.buildingModels.releaseCommitted(geometry => releaseRenderArrays(geometry, uploaded));
+    this.releasedBytes += bytes;
+    if (bytes) streamTrace.event('mem.release', undefined, { mib: Math.round(bytes / 2 ** 16) / 16 });
+  }
+  /** CPU array bytes released so far (memory census). */
+  releasedBytes = 0;
+
+  /** Streaming residency for the memory census (world/memoryCensus.ts). */
+  memoryParts() {
+    const full: THREE.Object3D[] = [], cached: THREE.Object3D[] = [], previews: THREE.Object3D[] = [];
+    let previewFragments = 0, roads = 0;
+    for (const e of this.entries.values()) {
+      if (e.preview) previewFragments++;
+      if (e.roads) roads++;
+      if (!e.model) continue;
+      (e.cachedAt !== undefined ? cached : e.preview ? previews : full).push(e.model);
+    }
+    return { full, cached, previews, previewFragments, roads, releasedBytes: this.releasedBytes,
+      fragmentCache: { bytes: this.fragmentBytes, count: this.fragments.size },
+      buildingTemplates: () => this.buildingModels.templates() };
   }
 
   /** Draft L0 tiles currently drawn. */

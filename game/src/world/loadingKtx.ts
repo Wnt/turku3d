@@ -5,7 +5,8 @@ import { loading, loadBytes } from '../core/loading';
 
 let started = 0, completed = 0;
 const templates = new WeakMap<object, CompressedTexture>();
-const decoded = new AssetCache<CompressedTexture>(64 * 1024 ** 2, textureBytes);
+export const decodedTextures = new AssetCache<CompressedTexture>(64 * 1024 ** 2, textureBytes);
+const decoded = decodedTextures;
 
 /** Also counts embedded glTF textures, which have no separate Resource Timing entry. */
 export class LoadingKtx extends KTX2Loader {

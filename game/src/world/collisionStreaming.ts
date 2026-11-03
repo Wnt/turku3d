@@ -31,6 +31,12 @@ export class CollisionStreamer {
   private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
   private installed = new Map<string, string>();
   private refreshes = new Set<string>();
+  /** Retained collision cell bytes and cells (memory census). */
+  retainedBytes() {
+    let bytes = 0;
+    for (const { buffer } of this.prepared.values()) bytes += buffer.byteLength;
+    return { bytes, count: this.prepared.size };
+  }
   retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) {
     this.prepared.set(id, { entry, buffer });
     this.lastCheck = -Infinity; // Newly published ground must reach the worker before the next edge.

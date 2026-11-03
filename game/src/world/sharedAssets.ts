@@ -14,6 +14,9 @@ export class AssetCache<T> {
   private entries = new Map<string, { promise: Promise<T>; bytes: number }>();
   private bytes = 0;
   constructor(private maxBytes: number, private size: (value: T) => number) {}
+  /** Resident bytes and entries (memory census). */
+  get residentBytes() { return this.bytes; }
+  get count() { return this.entries.size; }
   get(key: string, load: () => Promise<T>): Promise<T> {
     let entry = this.entries.get(key);
     if (entry) { this.entries.delete(key); this.entries.set(key, entry); return entry.promise; }

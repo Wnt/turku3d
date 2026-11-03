@@ -40,6 +40,7 @@ import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
+import { memoryCensus } from './world/memoryCensus';
 import { readCol } from './physics/colTile';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
@@ -88,7 +89,9 @@ declare global {
       /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
       census?: () => Promise<unknown>; bundles?: StaticBundles | null;
       /** One frame's uniform-buffer writes by pass, object family, group and uniform (render/census.ts). */
-      uniforms?: () => Promise<unknown> };
+      uniforms?: () => Promise<unknown>;
+      /** Retained bytes by category: geometry, texture data, streaming caches, collision cells (world/memoryCensus.ts). */
+      memory?: () => Promise<unknown> };
   }
 }
 
@@ -192,7 +195,8 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
       install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
       uninstall: () => { window.__render!.afterFrame = previous; },
     });
-  }, setTime: (iso: string) => {
+  }, memory: () => memoryCensus({ scene, coarse: censusSources.coarse, collision: censusSources.collision }),
+  setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
@@ -389,6 +393,9 @@ function applyQaCamera() {
   camera.updateMatrixWorld();
 }
 
+/** What `__render.memory()` reads once the world exists. */
+const censusSources: { coarse: CoarseTiles | null; collision: CollisionStreamer | null } = { coarse: null, collision: null };
+
 async function draftWorld() {
   const physics = new PhysicsClient();
   physics.onError = e => fail(`physics: ${e}`);
@@ -400,6 +407,7 @@ async function draftWorld() {
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
   });
+  censusSources.coarse = coarse; censusSources.collision = streamer;
   return { physics, rapier, manifest, streamer, coarse };
 }
 
@@ -410,6 +418,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
     prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
     previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m),
+    // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
+    keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),
@@ -446,6 +456,7 @@ async function runQa() {
       ground.add(col);
     },
   });
+  censusSources.coarse = coarse;
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,

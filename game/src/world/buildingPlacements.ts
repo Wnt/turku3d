@@ -61,7 +61,9 @@ interface BlockState { lod: THREE.Object3D; bounds: BuildingBlock['bounds']; hdD
 /** Metres of hysteresis around a block's HD distance, so a camera on the threshold never flickers. */
 const SWAP_BAND = 10;
 
-interface Resident { users: number; promise: Promise<THREE.Object3D>; trace?: ReadTrace }
+interface Resident { users: number; promise: Promise<THREE.Object3D>; trace?: ReadTrace;
+  /** Tiles (or prefetch tokens) holding a lease; the resolved template; whether its render arrays were released. */
+  owners: Set<object>; root?: THREE.Object3D; released?: boolean }
 /** One model read for install traces: slot wait, then fetch/decode/parse, of which the texture upload wait. */
 interface ReadTrace { queueMs: number; loadMs: number; textureMs: number; textures: number }
 interface Lease { root: THREE.Object3D; release: () => void; trace?: ReadTrace }
@@ -110,27 +112,54 @@ export class BuildingModelCache {
     }
   }
 
-  private async acquire(model: BuildingModel, base: URL, priority = Infinity): Promise<Lease> {
+  private async acquire(model: BuildingModel, base: URL, priority = Infinity, owner: object = {}): Promise<Lease> {
     // Hashes are reusable across generation URL prefixes, but never across content hosts.
     const url = new URL(model.uri, base), key = `${url.origin}/${model.id}`;
     let entry = this.entries.get(key);
-    if (!entry) {
+    // A template whose render arrays were released cannot be cloned and merged again: a new tile reads it afresh,
+    // while the tiles already drawing it keep the old one until they release it.
+    if (!entry || entry.released) {
       const trace = streamTrace.on ? { queueMs: 0, loadMs: 0, textureMs: 0, textures: 0 } : undefined;
-      const created: Resident = { users: 0, promise: Promise.resolve(null as unknown as THREE.Object3D), trace };
+      const created: Resident = { users: 0, promise: Promise.resolve(null as unknown as THREE.Object3D), trace, owners: new Set() };
       created.promise = this.read(url.href, priority, trace, () => created.users > 0 && this.entries.get(key) === created);
+      void created.promise.then(root => { created.root = root; }, () => {});
       entry = created; this.entries.set(key, entry);
     }
-    entry.users++;
+    entry.users++; entry.owners.add(owner);
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
+      entry.owners.delete(owner);
       if (--entry.users) return;
       if (this.entries.get(key) === entry) this.entries.delete(key);
       void entry.promise.then(root => this.dispose(root), () => {});
     };
     try { return { root: await entry.promise, release, trace: entry.trace }; }
     catch (error) { release(); throw error; }
+  }
+
+  private committed = new WeakSet<object>();
+  /** The owner's tile is drawn: templates only committed tiles use may release their render arrays. */
+  markCommitted(owner: THREE.Object3D) { this.committed.add(owner); }
+  /** Release the uploaded render-only arrays of templates every holder of which is a committed tile. */
+  releaseCommitted(release: (geometry: THREE.BufferGeometry) => number) {
+    let bytes = 0;
+    for (const entry of this.entries.values()) {
+      if (entry.released || !entry.root || !entry.owners.size || [...entry.owners].some(owner => !this.committed.has(owner))) continue;
+      const geometries = new Set<THREE.BufferGeometry>();
+      entry.root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
+      let freed = 0;
+      for (const geometry of geometries) freed += release(geometry);
+      if (freed) { entry.released = true; bytes += freed; }
+    }
+    return bytes;
+  }
+
+  /** Resident model templates (memory census). */
+  async templates(): Promise<THREE.Object3D[]> {
+    const roots = await Promise.allSettled([...this.entries.values()].map(entry => entry.promise));
+    return roots.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
   }
 
   /** Start reading a tile's models before its own GLB has loaded; release once `attach` holds them. */
@@ -150,7 +179,7 @@ export class BuildingModelCache {
     const descriptors = new Map(data.models.map(model => [model.id, model]));
     const needed = this.needed(data);
     const traced = streamTrace.on, started = traced ? performance.now() : 0;
-    const results = await Promise.allSettled(needed.map(id => this.acquire(descriptors.get(id)!, base, priority)));
+    const results = await Promise.allSettled(needed.map(id => this.acquire(descriptors.get(id)!, base, priority, owner)));
     const leases = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') { for (const lease of leases) lease.release(); throw failure.reason; }

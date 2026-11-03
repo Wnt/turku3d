@@ -62,6 +62,8 @@ export interface CoarseHost {
   /** Retain validated bytes for the distance streamer; no second HTTP fetch to build colliders. */
   retainCollision?: (id: string, entry: ManifestEntry, buffer: ArrayBuffer) => void;
   previewCollision?: (buffers: ReadonlyMap<string, ArrayBuffer>) => Promise<THREE.Object3D>;
+  /** Keep CPU copies of uploaded geometry (id pass and other CPU readers of drawn meshes). */
+  keepArrays?: boolean;
   /** Compile and upload a collision preview outside the frame before it draws. */
   preparePreview?: (model: THREE.Object3D) => Promise<void>;
   /** After material styling and draft tint: register derived runtime geometry here. */

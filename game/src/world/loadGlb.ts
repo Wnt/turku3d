@@ -10,7 +10,7 @@ type Decoded = ReturnType<typeof decodeGlb>;
 let worker: Worker | undefined, sequence = 0;
 const budget = streamingBudget();
 // Cache immutable visual bytes, not mutable glTF objects or their render resources.
-const visualBuffers = new AssetCache<ArrayBuffer>(256 * 1024 ** 2, buffer => buffer.byteLength);
+export const visualBuffers = new AssetCache<ArrayBuffer>(256 * 1024 ** 2, buffer => buffer.byteLength);
 const pending = new Map<number, { objects: Record<string, unknown>[]; resolve: (decoded: Decoded) => void; reject: (error: Error) => void }>();
 function decode(buffer: ArrayBuffer): Promise<Decoded> {
   if (!worker) {

@@ -19,6 +19,8 @@ export function updateStaticBatchVisibility(model: THREE.Object3D) {
     batch.mesh.visible = batch.placements.some(placement => placement.visible);
 }
 const owners = new WeakMap<THREE.Object3D, Batch[]>();
+/** Source meshes a model's static batches detached (they return on release): memory census. */
+export function staticBatchSources(model: THREE.Object3D): THREE.Mesh[] { return (owners.get(model) ?? []).flatMap(batch => batch.sources); }
 const budget = streamingBudget();
 
 /** Only the canonical, tightly packed facade layout can bypass the general attribute merger. */
