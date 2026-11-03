@@ -39,6 +39,42 @@ def sections(line, spacing=2.0, radius=2.5):
     return centres, centres - sides, centres + sides
 
 
+# A ledge survey drops the sections beside a mapped flight (their side windows
+# take stair returns), which leaves the old bank between the ledge end and the
+# flight. Real gaps reach 4.0-4.5 m (t0_1_0 quay stairs): three 2 m sections.
+FLIGHT_REACH = 6.0
+
+
+def reach_flights(profile, levels, flights):
+    """Continue a measured run straight up to a flight its face line ends short of."""
+    centres, left, right = (np.array(a, float) for a in profile)
+    levels = np.asarray(levels, float)
+    if flights.is_empty or len(centres) < 2:
+        return (centres, left, right), levels
+    for end, previous in ((0, 1), (-1, -2)):
+        start = centres[end]
+        direction = start - centres[previous]
+        length = np.linalg.norm(direction)
+        if length < 1e-7 or flights.intersects(shapely.Point(start)):
+            continue
+        direction /= length
+        hit = shapely.LineString([start, start + direction * FLIGHT_REACH]).intersection(flights)
+        if hit.is_empty:
+            continue
+        reach = (shapely.get_coordinates(hit) - start) @ direction
+        # Overlap the flight; the flight cut clips faces and aprons exactly.
+        step = direction * min(reach.min() + 0.5, FLIGHT_REACH)
+        row = [centres[end] + step], [left[end] + step], [right[end] + step]
+        column = levels[:, [end]]
+        if end == 0:
+            centres, left, right = (np.r_[r, a] for r, a in zip(row, (centres, left, right), strict=True))
+            levels = np.c_[column, levels]
+        else:
+            centres, left, right = (np.r_[a, r] for r, a in zip(row, (centres, left, right), strict=True))
+            levels = np.c_[levels, column]
+    return (centres, left, right), levels
+
+
 def _areas(geometry):
     """The polygonal part of an overlay result. A degenerate cut leaves line and point slivers in a
     GeometryCollection; a mask of mixed dimension makes the next GEOS overlay fail ("Unable to
@@ -59,6 +95,7 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
     wet = shapely.union_all(water)
     window = shapely.box(*tile.bbox.as_tuple()).buffer(3)
     claimed = shapely.Polygon()
+    flights = shapely.union_all(list(stairs))
     for index, (geom, tags, _) in enumerate(records):
         if tags.get("barrier") not in ("retaining_wall", "wall", "city_wall"):
             continue
@@ -80,6 +117,8 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
             centres, left, right = profile
             levels = (np.asarray(measured["heights"]).T if measured else
                       np.array([[sample(*p) for p in side] for side in (left, right)]))
+            if measured:
+                (centres, left, right), levels = reach_flights(profile, levels, flights)
             # The new edge owns the discontinuity, but its aprons must meet the
             # surrounding ground exactly. Extrapolating the near-edge plane all
             # the way across a curved bank would leave a seam at the outer rail.
