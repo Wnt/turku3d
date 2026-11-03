@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 
 def png(array):
     stream = io.BytesIO()
-    Image.fromarray(np.asarray(array, np.uint8)).save(stream, format="PNG")
+    Image.fromarray(np.asarray(array, np.uint8)).save(stream, format="PNG", compress_level=1)
     return stream.getvalue()
 
 
