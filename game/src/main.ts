@@ -25,7 +25,7 @@ import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { QUALITY, deviceQuality, renderPixelRatio } from './render/quality';
+import { QUALITY, deviceQuality, renderPixelRatio, setRenderTier } from './render/quality';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
@@ -121,9 +121,12 @@ if (params.drive) {
 }
 // Lower-end GPUs default to the reduced tier (render/quality.ts deviceQuality); ?quality= always wins. Play and
 // ?view=live replays only: QA, the bench lab and recorded replays keep their deterministic tier.
-if ((!params.qa || params.drive?.view === 'live') && !new URLSearchParams(location.search).has('quality')) {
-  const gpu = params.backend === 'webgpu' ? await adapterInfo() : null, tier = deviceQuality(gpu, params.quality);
+{
+  const given = new URLSearchParams(location.search).has('quality'), live = params.drive?.view === 'live';
+  const detect = !given && (!params.qa || live);
+  const gpu = params.backend === 'webgpu' ? await adapterInfo() : null, tier = detect ? deviceQuality(gpu, params.quality) : params.quality;
   if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}`);
+  setRenderTier({ tier, gpu, source: given ? 'url' : params.drive && !live ? 'recorded' : tier !== params.quality ? 'device' : 'default' });
   params.quality = tier;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);

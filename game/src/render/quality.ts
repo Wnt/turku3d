@@ -41,6 +41,15 @@ export function parseQuality(value: string | null, fallback: QualityTier = 'medi
   throw new Error(`bad ?quality= (mobile|low|reduced|medium|high): ${value}`);
 }
 
+/** The tier this session renders with and why: `url` (?quality=), `recorded` (a recorded drive replay's), `device`
+ *  (deviceQuality lowered the default) or `default`. main.ts resolves it before the renderer exists; streaming
+ *  residency (stream2) reads it. */
+export interface RenderTier { tier: QualityTier; source: 'url' | 'recorded' | 'device' | 'default'; gpu: { vendor: string; architecture: string } | null }
+let current: RenderTier | null = null;
+export function setRenderTier(value: RenderTier) { current = value; }
+/** The session's resolved tier; null until main.ts has resolved it. */
+export function renderTier(): RenderTier | null { return current; }
+
 /** GPU classes whose default is `reduced` instead of `medium`, by WebGPU adapter info: AMD GCN (Polaris/Vega,
  *  measured on the Radeon Pro 560X) and Intel's integrated `gen-*` graphics. Apple, NVIDIA and AMD RDNA keep medium. */
 export function deviceQuality(gpu: { vendor?: string; architecture?: string } | null | undefined, fallback: QualityTier): QualityTier {

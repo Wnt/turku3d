@@ -2,6 +2,7 @@ import { localFeature } from '../core/localOnly';
 import { Vector2 } from 'three/webgpu';
 import { SLICES, streamTrace } from './streamTrace';
 import { buildStatus } from '../core/build';
+import { renderTier } from '../render/quality';
 
 // The recorder boundary also supports the QA replay host, which exposes the same state shape as play.
 type Host = Record<string, any>;
@@ -49,7 +50,7 @@ export class DriveCapture {
       start: { performanceNow: performance.now(), wall: Date.now() }, replay: game.replay?.snapshot?.() ?? null,
       hour: game.dayClock?.hour ?? null, params: game.params, backend: game.backend, ua: navigator.userAgent, three: game.three,
       clockMode: game.dayClock?.captureMode?.() ?? null,
-      quality: game.params?.quality, pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport(),
+      quality: game.params?.quality, tier: renderTier(), pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport(),
       gpu: (() => { const info = (r.renderer.backend as Host)?.device?.adapterInfo; return info ? Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(k => [k, info[k] ?? null])) : null; })(), ...extra };
     this.meta.trace = { version: 1, slices: SLICES, capacity: streamTrace.capacity };
     this.mark(this.paused ? 'pause' : 'resume');

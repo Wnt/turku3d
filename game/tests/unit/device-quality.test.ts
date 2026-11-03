@@ -48,3 +48,10 @@ test('the adaptive resolution floor is per tier', () => {
   expect(run(QUALITY.medium.resolutionFloor)).toBe(0.5);
   expect(run(QUALITY.reduced.resolutionFloor)).toBe(0.4);
 });
+
+test('the resolved tier is readable for streaming residency', async () => {
+  const { renderTier, setRenderTier } = await import('../../src/render/quality');
+  const gpu = { vendor: 'amd', architecture: 'gcn-4' };
+  setRenderTier({ tier: 'reduced', source: 'device', gpu });
+  expect(renderTier()).toEqual({ tier: 'reduced', source: 'device', gpu });
+});
