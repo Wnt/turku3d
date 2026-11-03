@@ -10,19 +10,32 @@ export const CELL_M = VISUAL_L0 / 10;
 /** Pipeline node precision (turku3d.roads PRECISION = 0.1 m). */
 const Q = 10;
 
-/** 32-bit integer hash (murmur3 mixing) of int32 values; identical in every JavaScript engine. */
-export function hash32(...values: number[]): number {
-  let h = 0x9e3779b9 | 0;
-  for (const value of values) {
-    let k = Math.imul(value | 0, 0xcc9e2d51);
-    k = (k << 15) | (k >>> 17);
-    h ^= Math.imul(k, 0x1b873593);
-    h = (h << 13) | (h >>> 19);
-    h = (Math.imul(h, 5) + 0xe6546b64) | 0;
-  }
-  h ^= values.length;
+const mix = (h: number, value: number) => {
+  let k = Math.imul(value | 0, 0xcc9e2d51);
+  k = (k << 15) | (k >>> 17);
+  h ^= Math.imul(k, 0x1b873593);
+  h = (h << 13) | (h >>> 19);
+  return (Math.imul(h, 5) + 0xe6546b64) | 0;
+};
+const finish = (h: number, count: number) => {
+  h ^= count;
   h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
   return h >>> 0;
+};
+/** 32-bit integer hash (murmur3 mixing) of one to four int32 values; identical in every JavaScript engine. Fixed
+ *  parameters: the per-walker paths call it thousands of times a frame and must not allocate. */
+export function hash32(a: number, b?: number, c?: number, d?: number): number {
+  let h = mix(0x9e3779b9 | 0, a), count = 1;
+  if (b !== undefined) { h = mix(h, b); count++;
+    if (c !== undefined) { h = mix(h, c); count++;
+      if (d !== undefined) { h = mix(h, d); count++; } } }
+  return finish(h, count);
+}
+/** The same hash over any number of values (chain identities). */
+export function hashValues(values: ArrayLike<number>): number {
+  let h = 0x9e3779b9 | 0;
+  for (let i = 0; i < values.length; i++) h = mix(h, values[i]);
+  return finish(h, values.length);
 }
 export const unit = (h: number) => h / 4294967296;
 
@@ -194,7 +207,7 @@ export function buildWalkNetwork(parts: readonly RoadGraphJson[]): WalkNetwork {
       const dx = points[2 * i] - points[2 * i - 2], dz = points[2 * i + 1] - points[2 * i - 1];
       cumulative[i] = cumulative[i - 1] + Math.sqrt(dx * dx + dz * dz);
     }
-    const id = hash32(...seq);
+    const id = hashValues(seq);
     chains.push({ id, a: flip ? end : start, b: flip ? start : end, points, cumulative, length: cumulative[cumulative.length - 1],
       heights: hs ? Float64Array.from(flip ? [...hs].reverse() : hs) : null, flags: edges[first].flags, gates: [] });
   };

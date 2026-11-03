@@ -138,6 +138,9 @@ function walkerGeometry(asset: WalkerAsset, variant: WalkerVariant, capacity: nu
   return geometry;
 }
 
+const UNIT_SHAPE = [1, 1, 1, 1] as const;
+const INSTANCE_ATTRIBUTES = [WALKER_ATTRIBUTES.anim, WALKER_ATTRIBUTES.look, WALKER_ATTRIBUTES.trim, WALKER_ATTRIBUTES.shape];
+
 export interface WalkerInstance {
   variant: number;
   lod?: 0 | 1;
@@ -165,6 +168,7 @@ export class WalkerMeshes {
   private leanAxis = new THREE.Vector3();
   private translation = new THREE.Vector3();
   private scale = new THREE.Vector3();
+  private counts: number[] = [];
 
   constructor(readonly asset: WalkerAsset, readonly capacity: number) {
     this.group.name = 'walkers';
@@ -182,13 +186,16 @@ export class WalkerMeshes {
       this.group.add(mesh);
       return mesh;
     }));
+    this.counts = this.meshes.map(() => 0);
   }
 
   /** Writes this frame's instances; at most `capacity` per variant. */
   update(instances: readonly WalkerInstance[]) {
     this.contact.update(instances);
-    const counts = this.meshes.map(() => 0);
-    for (const w of instances) {
+    const counts = this.counts;
+    counts.fill(0);
+    for (let i = 0; i < instances.length; i++) {
+      const w = instances[i];
       const variant = w.variant * 2 + (w.lod ?? 0);
       const mesh = this.meshes[variant], k = counts[variant];
       if (!mesh || k >= this.capacity) continue;
@@ -204,14 +211,15 @@ export class WalkerMeshes {
       (g[WALKER_ATTRIBUTES.anim] as THREE.InterleavedBufferAttribute).setXYZW(k, w.rowStart, w.frames, w.phase, w.previousPhase);
       (g[WALKER_ATTRIBUTES.look] as THREE.InterleavedBufferAttribute).setXYZW(k, w.skin, w.top, w.bottom, w.hair);
       (g[WALKER_ATTRIBUTES.trim] as THREE.InterleavedBufferAttribute).setXYZW(k, w.shoes, w.inner, w.legwear, w.fade);
-      (g[WALKER_ATTRIBUTES.shape] as THREE.InterleavedBufferAttribute).setXYZW(k, ...(w.shape ?? [1, 1, 1, 1]));
+      const shape = w.shape ?? UNIT_SHAPE;
+      (g[WALKER_ATTRIBUTES.shape] as THREE.InterleavedBufferAttribute).setXYZW(k, shape[0], shape[1], shape[2], shape[3]);
     }
     this.meshes.forEach((mesh, v) => {
       mesh.count = counts[v];
       mesh.visible = counts[v] > 0;
       if (!counts[v]) return;
       mesh.instanceMatrix.needsUpdate = true;
-      for (const name of [WALKER_ATTRIBUTES.anim, WALKER_ATTRIBUTES.look, WALKER_ATTRIBUTES.trim, WALKER_ATTRIBUTES.shape]) mesh.geometry.attributes[name].needsUpdate = true;
+      for (const name of INSTANCE_ATTRIBUTES) mesh.geometry.attributes[name].needsUpdate = true;
       mesh.computeBoundingSphere();
     });
   }
