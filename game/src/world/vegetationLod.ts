@@ -253,7 +253,7 @@ export class VegetationLod {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
         // Library materials are object-agnostic: every tile's draws of this part reuse one built program per pass.
-        shareInstanceProgram(mesh);
+        shareInstanceProgram(mesh, true);
         // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
         mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds,
           ...(this.poolRoot ? { pooledVegetation: true } : {}) };
@@ -421,7 +421,7 @@ export class VegetationLod {
     pool.meshes = parts.map(part => {
       const mesh = new THREE.InstancedMesh(part.geometry, part.material, pool.capacity);
       mesh.instanceMatrix = pool.matrices!; mesh.instanceColor = pool.colors;
-      shareInstanceProgram(mesh);
+      shareInstanceProgram(mesh, true); // the tile draws' prepared programs, also after the pool grows
       const { pooledVegetation: _, ...userData } = part.userData;
       mesh.userData = { ...userData, instance_object_ids: pool.objectIds };
       mesh.name = `vegetation-pool:${part.userData.nature}:${part.userData.level}`;

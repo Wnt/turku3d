@@ -30,21 +30,28 @@ export function instancePrograms(builder: NodeBuilder, object: THREE.Object3D) {
     (builder as NodeBuilder & { getUniformBufferLimit(): number }).getUniformBufferLimit = () => 0;
 }
 
-const SHARED = 'sharedInstanceProgram';
+const SHARED = 'sharedInstanceProgram', STATIC = 'staticInstances';
 /** Opt in for an InstancedMesh whose materials read no object-specific data while their graph is built
  * (no builder.object lookups). Its built program is then shared by every such mesh with the same
- * material, geometry layout, pass and instance layout, so streamed tiles add instances, not builds. */
-export function shareInstanceProgram(mesh: THREE.InstancedMesh) { mesh.userData[SHARED] = true; }
+ * material, geometry layout, pass and instance layout, so streamed tiles add instances, not builds.
+ * `still`: instances never move (vegetation), so velocity passes may share too: their velocity is the camera's
+ * alone, and a repacked pool never pairs a slot with another tree's previous matrix. */
+export function shareInstanceProgram(mesh: THREE.InstancedMesh, still = false) {
+  mesh.userData[SHARED] = true;
+  if (still) mesh.userData[STATIC] = true;
+}
 
 /** r186 keys every InstancedMesh build by object.uuid because its instance nodes bind that mesh's own
  * matrix/colour buffers. Shared draws instead remap those vertex buffers per draw. Velocity passes keep
- * the per-object key: their previous-matrix copies are object hooks inside the built state. */
+ * the per-object key (their previous-matrix copies are object hooks inside the built state) unless the instances
+ * are still: each new city-wide tree pool mesh built its TRAA beauty programs inside a frame (census c9n7my:
+ * nature-leaves 46, bark 37, impostor 34). */
 export function sharesInstanceProgram(draw: InstanceDraw) {
   const mesh = draw.object as Mesh;
   return mesh.isInstancedMesh === true && mesh.userData[SHARED] === true && !mesh.isSkinnedMesh && !mesh.morphTexture
     && (mesh.instanceMatrix as InstanceAttribute).isStorageInstancedBufferAttribute !== true
     && (mesh.instanceColor as InstanceAttribute | null)?.isStorageInstancedBufferAttribute !== true
-    && draw.context.mrt?.has('velocity') !== true;
+    && (draw.context.mrt?.has('velocity') !== true || mesh.userData[STATIC] === true);
 }
 
 /** The r186 render-object key without the per-object instancing term, plus the instance layout. */
