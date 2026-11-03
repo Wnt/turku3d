@@ -143,13 +143,19 @@ def open_seams(visual, query, height, step=.5, spacing=.5):
     """
     from .surface_closure import crossed
 
-    key = np.floor(query / spacing).astype(np.int64)
-    index = {tuple(k): i for i, k in enumerate(key)}
-    pairs = [(i, index[(k[0] + dx, k[1] + dz)]) for i, k in enumerate(key)
-             for dx, dz in ((1, 0), (0, 1)) if (k[0] + dx, k[1] + dz) in index]
-    if not pairs:
+    if len(query) < 2:
         return []
-    i, j = np.asarray(pairs).T
+    key = np.floor(query / spacing).astype(np.int64)
+    key -= key.min(axis=0)
+    width = int(key[:, 1].max()) + 2
+    code = key[:, 0] * width + key[:, 1]
+    order = np.argsort(code)
+    pairs = []
+    for step_code in (width, 1):  # +x and +z neighbours on the sample grid
+        at = np.clip(np.searchsorted(code[order], code + step_code), 0, len(code) - 1)
+        found = code[order][at] == code + step_code
+        pairs.append(np.c_[np.flatnonzero(found), order[at[found]]])
+    i, j = np.concatenate(pairs).T
     ok = np.isfinite(height[i]) & np.isfinite(height[j]) & (abs(height[i] - height[j]) > step)
     i, j = i[ok], j[ok]
     mid = (height[i] + height[j]) / 2
