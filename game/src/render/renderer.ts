@@ -28,11 +28,12 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   opts: { qa?: boolean; idPass?: boolean; mobile?: boolean; quality?: QualityTier } = {}): Promise<RendererInfo> {
   // TRAA handles color antialiasing; MSAA must be off for its depth/velocity history.
   const renderer = new GameRenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
-  // Off by default: the uniform pool hung the GPU on Jonni's M1 Max (Metal command buffer hang, then device loss).
-  // ?uniformPool=1 / ?geomPool=1 opt in while the cause is found (render/uniformPool.ts, render/geometryPool.ts).
+  // Pooled uniform and geometry buffers (render/uniformPool.ts, render/geometryPool.ts); ?uniformPool=0 / ?geomPool=0
+  // turn them off. The M1 Max GPU hang came from stale bytes in reused uniform slots, fixed by c4a42e96 and validated
+  // in Jonni's Chrome (venue static night and day for 170 s, the full drive replay: no device loss).
   const search = new URLSearchParams(location.search);
-  renderer.poolUniforms = search.get('uniformPool') === '1';
-  renderer.poolGeometry = search.get('geomPool') === '1';
+  renderer.poolUniforms = search.get('uniformPool') !== '0';
+  renderer.poolGeometry = search.get('geomPool') !== '0';
   // Installed once, before any compile: the tier's light slots exist for the whole session.
   renderer.lighting = new GameLighting(QUALITY[opts.quality ?? 'medium'].lights);
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa, opts.mobile, QUALITY[opts.quality ?? 'medium'].maxPixels));
