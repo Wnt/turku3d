@@ -12,6 +12,8 @@ import { vegetationOwner } from './vegetationLod';
 export interface MemoryRow { bytes: number; count: number }
 export interface MemorySources {
   scene: THREE.Scene;
+  /** Shader programs and node-builder states are heap the geometry rows do not see. */
+  renderer?: THREE.WebGPURenderer;
   coarse?: { memoryParts(): ReturnType<import('./coarseTiles').CoarseTiles['memoryParts']> } | null;
   collision?: { retainedBytes(): MemoryRow } | null;
   /** Decoded collision ground of fixed-camera and replay modes (world/groundIndex.ts). */
@@ -21,7 +23,7 @@ export interface MemorySources {
 const MiB = 2 ** 20;
 const mib = (bytes: number) => Math.round(bytes / MiB * 10) / 10;
 
-export async function memoryCensus({ scene, coarse, collision, ground }: MemorySources) {
+export async function memoryCensus({ scene, coarse, collision, ground, renderer }: MemorySources) {
   const arrays = new Set<ArrayBufferView>(), textures = new Set<unknown>();
   const rows = new Map<string, MemoryRow>();
   const add = (category: string, bytes: number, count = 1) => {
@@ -117,6 +119,27 @@ export async function memoryCensus({ scene, coarse, collision, ground }: MemoryS
   scene.traverse(object => { objects++; const mesh = object as THREE.Mesh; if (mesh.isMesh) { meshes++; for (const m of [mesh.material].flat()) materials.add(m); } });
   add('scene objects (count only)', 0, objects); add('scene meshes (count only)', 0, meshes);
   add('scene materials (count only)', 0, materials.size); add('scene textures (count only)', 0, textures.size);
+  // userData rows (object ranges, facade kit parameters, extras) as serialized size, skipping three.js references.
+  let userData = 0, owners = 0;
+  const skip = (_key: string, value: unknown) => value && typeof value === 'object'
+    && ((value as THREE.Object3D).isObject3D || (value as THREE.Material).isMaterial || (value as THREE.Texture).isTexture
+      || ArrayBuffer.isView(value) || value instanceof Map || value instanceof Set) ? undefined : value;
+  const userDataOf = (root: THREE.Object3D) => root.traverse(object => {
+    if (!Object.keys(object.userData).length) return;
+    try { userData += 2 * JSON.stringify(object.userData, skip).length; owners++; } catch { /* cyclic: skipped */ }
+  });
+  userDataOf(scene);
+  for (const model of parts?.cached ?? []) userDataOf(model);
+  add('JS objects: userData (serialized size estimate)', userData, owners);
+  // r186 keeps every shader stage's WGSL and each node-builder state's sources as JS strings.
+  const internals = renderer as unknown as { _pipelines?: { programs?: Record<string, Map<string, unknown>> };
+    _nodes?: { nodeBuilderCache?: Map<string, unknown> } } | undefined;
+  let shaders = 0, stages = 0;
+  for (const map of Object.values(internals?._pipelines?.programs ?? {})) for (const code of map.keys()) { shaders += 2 * code.length; stages++; }
+  if (stages) add('shader stages (WGSL source strings)', shaders, stages);
+  const builders = internals?._nodes?.nodeBuilderCache?.size ?? 0;
+  // Node-builder states share their source strings with the stages above (counted once there).
+  if (builders) add('node-builder states (count only; sources shared with shader stages)', 0, builders);
   const heap = (performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
   let browser: unknown = null;
   const measure = (performance as unknown as { measureUserAgentSpecificMemory?: () => Promise<{ bytes: number; breakdown: { bytes: number; types: string[]; attribution: { scope?: string; url?: string }[] }[] }> }).measureUserAgentSpecificMemory;

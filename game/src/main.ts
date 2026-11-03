@@ -219,7 +219,7 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
       install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
       uninstall: () => { window.__render!.afterFrame = previous; },
     });
-  }, memory: () => memoryCensus({ scene, coarse: censusSources.coarse, collision: censusSources.collision, ground: censusSources.ground }),
+  }, memory: () => memoryCensus({ scene, renderer, coarse: censusSources.coarse, collision: censusSources.collision, ground: censusSources.ground }),
   setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
