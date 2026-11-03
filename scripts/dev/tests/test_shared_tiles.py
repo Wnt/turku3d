@@ -561,78 +561,65 @@ class FarmTests(unittest.TestCase):
         self.wait(farm)
         self.assertEqual(calls, ['t0_0_0', 't0_3_0', 't0_2_0', 't0_1_0'])
 
-    def superseded_order(self, old_demand=False):
+    def pinned_farm(self):
         entered, release = threading.Event(), threading.Event()
-        calls = []
+        calls, stopped = [], []
         def build(revision, tile, root):
-            calls.append(tile)
+            calls.append((revision, tile))
             if len(calls) == 1:
                 entered.set()
                 release.wait(3)
             return fake_build(revision, tile, root)
         now = time.time()
         os.utime(self.root / 'revisions' / REV / 'revision.json', (now - 600, now - 600))
-        farm = self.farm(workers=1, execute=build)
-        farm.request(REV2, 't0_0_0')
+        farm_module.atomic_json(self.root / 'pin-clients.json', ['proxy'])
+        farm = self.farm(workers=1, execute=build, stop=lambda info, output: stopped.append(output.name))
+        return farm, entered, release, calls, stopped
+
+    def test_new_game_version_cancels_older_builds_and_requeues_demanded_tiles(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.request(REV, 't0_0_0', 0, 'proxy')
         self.assertTrue(entered.wait(2))
-        farm.request(REV, 't0_1_0')
-        farm.request(REV2, 't0_2_0', 300)
-        farm.demand(REV2, 'camera', ['t0_2_0'], set(), set())
-        if old_demand:
-            farm.demand(REV, 'old-tab', ['t0_9_0'], set(), set())
-        release.set()
-        self.wait(farm)
-        return calls
-
-    def test_explicit_checks_of_replaced_versions_wait_behind_current_background(self):
-        self.assertEqual(self.superseded_order(), ['t0_0_0', 't0_2_0', 't0_1_0'])
-
-    def test_versions_with_live_demand_keep_explicit_precedence(self):
-        self.assertEqual(self.superseded_order(old_demand=True), ['t0_0_0', 't0_1_0', 't0_2_0'])
-
-    def test_game_manifest_requests_mark_a_version_live(self):
-        entered, release = threading.Event(), threading.Event()
-        calls = []
-        def build(revision, tile, root):
-            calls.append(tile)
-            if len(calls) == 1:
-                entered.set()
-                release.wait(3)
-            return fake_build(revision, tile, root)
-        now = time.time()
-        os.utime(self.root / 'revisions' / REV / 'revision.json', (now - 600, now - 600))
-        farm = self.farm(workers=1, execute=build)
-        farm.request(REV2, 't0_0_0')
-        self.assertTrue(entered.wait(2))
-        farm.request(REV, 't0_1_0')
-        self.assertEqual(farm.priority((GEN, 't0_1_0'))[0], 1)
-        farm.request(REV2, 't0_2_0', 300)
-        self.assertEqual(farm.priority((GEN, 't0_1_0'))[0], 4)
-        release.set()
-        self.wait(farm)
-        self.assertEqual(calls, ['t0_0_0', 't0_2_0', 't0_1_0'])
-
-    def test_full_queue_drops_queued_superseded_checks_for_current_work(self):
-        entered, release = threading.Event(), threading.Event()
-        def build(revision, tile, root):
-            entered.set()
-            release.wait(3)
-            return fake_build(revision, tile, root)
-        now = time.time()
-        os.utime(self.root / 'revisions' / REV / 'revision.json', (now - 600, now - 600))
-        farm = self.farm(workers=1, queue_limit=3, execute=build)
-        farm.request(REV, 't0_0_0')
-        self.assertTrue(entered.wait(2))
-        farm.request(REV, 't0_1_0')
+        farm.queue_info[(GEN, 't0_0_0')]['pid'] = 1  # A running generator to stop.
+        farm.request(REV, 't0_1_0', 50, 'proxy')
         farm.request(REV, 't0_2_0')
-        farm.demand(REV2, 'camera', ['t0_5_0'], set(), set())
-        self.assertEqual(farm.request(REV, 't0_3_0')[0], 429)
-        self.assertEqual(farm.request(REV2, 't0_5_0', 0)[0], 202)
-        self.assertIn((GEN, 't0_0_0'), farm.jobs)  # The running build is never dropped.
-        self.assertNotIn((GEN, 't0_1_0'), farm.jobs)
-        self.assertIn((GEN, 't0_2_0'), farm.jobs)
+        self.assertEqual(farm.pin['generation'], GEN)
+        farm.request(REV2, 't0_5_0', 0, 'proxy')
+        self.assertEqual(farm.pin['generation'], GEN2)
+        self.assertTrue(farm.queue_info[(GEN, 't0_0_0')]['cancelled'])
+        deadline = time.monotonic() + 2
+        while not stopped and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(stopped, ['t0_0_0'])
+        queued = {k for k in farm.jobs if k not in farm.dispatched}
+        self.assertEqual(queued, {(GEN2, 't0_0_0'), (GEN2, 't0_1_0'), (GEN2, 't0_5_0')})
+        farm.queue_info[(GEN, 't0_0_0')].pop('pid')
         release.set()
         self.wait(farm)
+        self.assertNotIn((REV, 't0_2_0'), calls)
+        self.assertEqual(farm.request(REV, 't0_3_0'), (409, dict(
+            state='superseded', revision=REV, generation=GEN, pin=REV2)))
+
+    def test_a_lagging_game_request_does_not_revert_the_version(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.request(REV2, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        self.assertEqual(farm.request(REV, 't0_1_0', 0, 'proxy')[0], 409)
+        self.assertEqual(farm.pin['generation'], GEN2)
+        self.assertEqual(farm.request(REV, 't0_1_0', 0, 'other-browser')[0], 409)
+        release.set()
+        self.wait(farm)
+        self.assertEqual(stopped, [])
+
+    def test_explicit_checks_of_newer_registrations_build_without_moving_the_version(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.request(REV, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        self.assertEqual(farm.request(REV2, 't0_1_0')[0], 202)
+        self.assertEqual(farm.pin['generation'], GEN)
+        release.set()
+        self.wait(farm)
+        self.assertEqual([tile for _, tile in calls], ['t0_0_0', 't0_1_0'])
 
     def test_completed_orphan_is_adopted_without_running_a_second_generator(self):
         fake_build(REV, 't0_0_0', self.root / 'products' / GEN)
