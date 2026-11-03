@@ -54,7 +54,7 @@ RAW_PRODUCERS = {
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'buildingPlacements', 'generation')
 GIB = 2**30
-PLAYER_SECONDS = 20    # a player stands on a tile while its d=0 requests continue (1 s polls)
+PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
 DEMAND_SECONDS = 120   # game demand without a request for this long has been left behind
 FAR_TILES = 8          # 2 km beyond every live player: dropped after half a minute
 FINISH_SECONDS = 60    # a new pin lets the player's own tile finish when this close to done
