@@ -113,16 +113,35 @@ test('GPU-bound frames spend the main thread idle time without halving on GPU-ca
   expect(vsync.limit).toBe(StreamingAllowance.BASE_MS);
 });
 
-test('the idle meter sums scheduler idle periods between frames', () => {
+test('the idle meter counts each idle period once and caps it by the frame', () => {
   const callbacks: ((deadline: IdleDeadline) => void)[] = [];
   const original = (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback;
   (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback = (callback: (deadline: IdleDeadline) => void) => { callbacks.push(callback); return 1; };
+  let now = 0;
   try {
-    const idle = new MainThreadIdle(); idle.start(); idle.start();
+    const idle = new MainThreadIdle(() => now); idle.start(); idle.start();
     expect(callbacks).toHaveLength(1);
-    callbacks.shift()!({ timeRemaining: () => 7, didTimeout: false });
-    callbacks.shift()!({ timeRemaining: () => 3, didTimeout: false });
-    expect(idle.take()).toBe(10);
+    const run = (remaining: number) => callbacks.shift()!({ timeRemaining: () => remaining, didTimeout: false });
+    // Callbacks re-posted inside one idle period see the same deadline: the period counts once.
+    now = 0; run(7); now = 0.5; run(6.5); now = 3; run(4); now = 6.9; run(0.1);
+    expect(idle.take()).toBe(7);
+    // The next period counts again.
+    now = 20; run(3);
+    expect(idle.take()).toBe(3);
+    // A frame caps idle by what its interval leaves after the callback.
+    now = 40; run(9);
+    expect(idle.take(0.7)).toBe(0.7);
     expect(idle.take()).toBe(0);
   } finally { (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback = original; }
+});
+
+test('a fast static scene (84 fps, GPU about the interval, little idle) is not GPU-bound', () => {
+  const account = new StreamingAllowance(() => 0);
+  // perf3 bench=static on the M1 Max: interval 11.9 ms, callback 11.2 ms, GPU 13 ms; idle capped at 0.7 ms.
+  for (let i = 0; i < 80; i++) { account.opened(); account.frame(11.2, 11.9, 0.7, 13); }
+  expect((account as unknown as { idle: number }).idle).toBeLessThan(StreamingAllowance.GPU_BOUND_IDLE_MS);
+  // The double-counted idle (a whole interval) would have looked like a GPU wait.
+  const overcounted = new StreamingAllowance(() => 0);
+  for (let i = 0; i < 80; i++) { overcounted.opened(); overcounted.frame(11.2, 11.9, 11.9, 13); }
+  expect((overcounted as unknown as { idle: number }).idle).toBeGreaterThan(StreamingAllowance.GPU_BOUND_IDLE_MS);
 });

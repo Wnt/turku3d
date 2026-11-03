@@ -4,20 +4,30 @@ import { afterRender } from './afterRender';
 const STALE_MS = 16;
 const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
-/** Main-thread idle time between frames, from the scheduler's idle periods (requestIdleCallback): each idle period's
- *  remaining time when it starts, summed until the next frame reads it. A main thread that is busy all the time
- *  (CPU-bound) reports none; one that waits on the GPU reports the wait. Zero where the API is missing. */
+/** Main-thread idle time between frames, from the scheduler's idle periods (requestIdleCallback). Each idle period
+ *  counts once, with the remaining time its first callback sees: a callback re-posted inside the same period sees the
+ *  same deadline and adds nothing. The frame caps the total at its interval minus the callback's CPU. A main thread
+ *  that is busy all the time (CPU-bound) reports none; one that waits on the GPU reports the wait. Zero where the API
+ *  is missing. */
 export class MainThreadIdle {
   private idle = 0;
+  private periodEnd = -Infinity;
   private started = false;
+  constructor(private now = () => performance.now()) {}
   start() {
     if (this.started || typeof requestIdleCallback !== 'function') return;
     this.started = true;
-    const sample = (deadline: IdleDeadline) => { this.idle += deadline.timeRemaining(); requestIdleCallback(sample); };
-    requestIdleCallback(sample);
+    requestIdleCallback(this.sample);
   }
-  /** Idle milliseconds since the previous call. */
-  take() { const idle = this.idle; this.idle = 0; return idle; }
+  /** One idle callback: a deadline more than 1 ms past the last one opens a new period. */
+  readonly sample = (deadline: IdleDeadline) => {
+    const remaining = deadline.timeRemaining(), end = this.now() + remaining;
+    if (end > this.periodEnd + 1) this.idle += remaining;
+    this.periodEnd = Math.max(this.periodEnd, end);
+    requestIdleCallback(this.sample);
+  };
+  /** Idle milliseconds since the previous call, at most `cap`. */
+  take(cap = Infinity) { const idle = Math.min(this.idle, Math.max(0, cap)); this.idle = 0; return idle; }
 }
 
 /** Streaming windows from the measured frame (render/performance.ts reports each frame). The target is main-thread

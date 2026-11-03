@@ -59,7 +59,8 @@ export class PerformanceMonitor {
     this.samples.set(this.frame, { frame: this.frame, cpu, interval, gpu: null });
     // Streaming spends this frame's measured headroom (render/preparationBudget.ts).
     mainThreadIdle.start();
-    streamingAllowance.frame(cpu, interval, mainThreadIdle.take(), this.lastGpu);
+    // Idle can only be what the interval leaves after the frame callback.
+    streamingAllowance.frame(cpu, interval, mainThreadIdle.take(interval === null ? Infinity : interval - cpu), this.lastGpu);
     this.previousStart = this.start;
     this.totalFrames++;
     if (this.samples.size > 600) this.samples.delete(this.samples.keys().next().value!);
