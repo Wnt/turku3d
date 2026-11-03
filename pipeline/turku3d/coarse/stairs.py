@@ -12,17 +12,23 @@ from .geometry import clip_mesh
 from .surfaces import split_boundaries
 
 
+SIDE_BARRIERS = ("wall", "retaining_wall", "city_wall", "fence", "hedge", "handrail", "guard_rail")
+
+
 def prepare(tile, path, survey_paths=()):
     from turku3d.spatial import rows as source_rows
 
     rows, areas, seen = [], [], set()
-    bridges, footways, rail_paths = [], [], []
+    bridges, footways, rail_paths, sides = [], [], [], []
     window = shapely.box(*tile.bbox.buffered(50).as_tuple())
     for _, row in source_rows(path, tile.bbox.buffered(50)):
         tags = json.loads(row["tags"] or "{}")
         geom = shapely.force_2d(row["geometry_local"])
         if tags.get("highway") in ("footway", "path", "pedestrian", "cycleway"):
             rail_paths.append((geom, tags))
+        # Mapped side structures bound a lidar-measured flight width.
+        if tags.get("barrier") in SIDE_BARRIERS or tags.get("building") not in (None, "no"):
+            sides.append(geom.boundary if geom.geom_type in ("Polygon", "MultiPolygon") else geom)
         if (
             tags.get("highway") in ("footway", "path", "pedestrian", "cycleway")
             and geom.geom_type == "LineString"
@@ -45,7 +51,7 @@ def prepare(tile, path, survey_paths=()):
             seen.add(row["osm_id"])
     from .stair_survey import attach
 
-    attach(rows, survey_paths, bridges, footways)
+    attach(rows, survey_paths, bridges, footways, shapely.union_all(sides), areas)
     from . import stair_rails
 
     stair_rails.attach(rows, rail_paths)
@@ -67,7 +73,7 @@ def produce(tile, prepared, sample, decks=(), *, landing_domain=None):
     for key, line, tags in rows:
         if line.length < 0.2 or tags.get("step_count") == "0":
             continue
-        width = np.clip(number(tags.get("width"), 2.5), 0.5, 30)
+        width = np.clip(number(tags.get("width"), tags.get("_flight_width", 2.5)), 0.5, 30)
         # An area:highway outline supplies the full mapped width when the way lacks it.
         area = next((a for a in areas if a.covers(line.interpolate(0.5, normalized=True))), None)
         if area is not None and "width" not in tags:

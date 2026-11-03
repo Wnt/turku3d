@@ -49,3 +49,24 @@ def test_clearance_ignores_steps_unconnected_paths_and_overhead_walkways():
     area = shapely.box(18, 8, 22, 11)
     stair_rails.attach(rows, [(area, {"highway": "pedestrian"})])
     assert rows[0][2]["_rail_clearance"].covers(area)
+
+
+def test_wide_entrance_flight_width_and_axis_come_from_lidar_between_side_walls():
+    import numpy as np
+    from turku3d.coarse.stair_survey import flight
+
+    # A 9 m wide flight rising 0.75 m in x 0-1.6 between walls at z = 0 and z = 9.
+    x, z = np.meshgrid(np.arange(-4, 6, 0.2), np.arange(-6, 15, 0.2))
+    x, z = x.ravel(), z.ravel()
+    h = np.where(z < 0, 8.0, np.where(z > 9, 5.0 + 0.02 * x, 5.0 + np.clip(x, 0, 1.6) / 1.6 * 0.75))
+    points = np.c_[x, h, z]
+    walls = shapely.MultiLineString([[(-4, 0), (6, 0)], [(-4, 9), (6, 9)]])
+    # Mapped as a short way 2 m from one wall, 15 degrees off the true ascent.
+    skew = np.radians(15)
+    a = np.array([0.0, 2.0]); b = a + 1.6 * np.array([np.cos(skew), np.sin(skew)])
+    line, width = flight(shapely.LineString([a, b]), points, walls)
+    direction = np.diff(np.asarray(line.coords), axis=0)[0] / line.length
+    assert abs(width - 9) <= 0.5 and abs(direction[1]) < 0.05
+    assert abs(np.asarray(line.centroid.coords)[0][1] - 4.5) <= 0.5
+    # Without side structures at both measured ends the width stays mapped.
+    assert flight(shapely.LineString([a, b]), points, shapely.LineString([(-4, 0), (6, 0)])) is None
