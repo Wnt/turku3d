@@ -165,6 +165,7 @@ def terrain_stage(tile, inputs):
     materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     # A bridge deck stays solid where a water polygon runs under it.
     separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
+    materials = surfaces.bare_rock(materials, centroids, inputs.ortho, tile, grid_pos, grid_idx, water)
     wet = water_mask(centroids, water)
     if not separate_decks:
         wet &= materials != mat_id("bridge_deck")

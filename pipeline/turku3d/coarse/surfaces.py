@@ -23,6 +23,7 @@ KEYS = (
     "gravel",
     "quay_stone",
     *street_materials.FINISH_KEYS.values(),
+    "granite_rock",
 )
 BINDINGS = {
     "road": 1,
@@ -36,7 +37,7 @@ BINDINGS = {
     "gravel": 6,
     "soil": 6,
     "sand": 6,
-    "rock": 6,
+    "rock": KEYS.index("granite_rock"),
     "quay": 7,
     "wall": 7,
     "curb": 2,
@@ -108,7 +109,15 @@ def osm_surfaces(tile, path):
             path_finishes.append(SURFACES.get(tags["surface"]))
     park_index = shapely.STRtree(parks)
     path_index = shapely.STRtree(tagged_paths)
+    rocks = []
     for tags, geom in records:
+        if tags.get("natural") in ROCK_TAGS:
+            area = geom
+            if area.geom_type == "LineString" and area.is_ring:
+                area = shapely.make_valid(shapely.Polygon(area))
+            if area.geom_type in ("Polygon", "MultiPolygon", "GeometryCollection"):
+                rocks.append(area)
+            continue
         if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") not in (
             "no",
             "building_passage",
@@ -184,8 +193,18 @@ def osm_surfaces(tile, path):
             geom = geom.buffer(width / 2, cap_style="flat")
         if geom.geom_type in ("Polygon", "MultiPolygon"):
             result.append((geom.intersection(window), mat_id(key)))
-    # Broad land cover first, smaller explicitly mapped areas/corridors last.
-    return sorted(result, key=lambda row: -row[0].area)
+    rock = mat_id("rock")
+    if rocks:
+        # Bare rock replaces land cover only: paths, paving and other mapped
+        # surfaces across an outcrop keep their own finish.
+        built = shapely.union_all([g for g, m in result if m != mat_id("grass")])
+        area = shapely.union_all(rocks).intersection(window).difference(built)
+        area = shapely.union_all([g for g in shapely.get_parts(area) if g.area > 0.5])
+        if not area.is_empty:
+            result.append((area, rock))
+    # Broad land cover first, smaller explicitly mapped areas/corridors last; bare
+    # rock (already clear of every built surface) after the cover it lies on.
+    return sorted(result, key=lambda row: (row[1] == rock, -row[0].area))
 
 
 def classify(centroids, rgb, tile, streets, regions=()):
@@ -207,7 +226,77 @@ def classify(centroids, rgb, tile, streets, regions=()):
         )
         order = np.argsort(pi, kind="stable")
         out[qi[order]] = np.asarray([m for _, m in polygons], np.uint8)[pi[order]]
+    # A mapped outcrop outline is coarse: bright lawn green in the ortho is a
+    # grassy hollow. Dark canopy over the rock does not say what lies under it.
+    rock = out == mat_id("rock")
+    if rock.any():
+        r, g, b = (rgb_mean(rgb, row, col, k) for k in range(3))
+        out[rock & lawn(r, g, b)] = mat_id("grass")
     return out
+
+
+ROCK_TAGS = ("bare_rock", "rock")
+
+
+def rgb_mean(rgb, row, col, channel, radius=3):
+    """Ortho channel averaged over a small window, so single pixels do not decide."""
+    from scipy.ndimage import uniform_filter
+
+    return uniform_filter(rgb[..., channel].astype(np.float32), 2 * radius + 1, mode="nearest")[row, col]
+
+
+def lawn(r, g, b):
+    return (g > 1.08 * r) & (g > 1.2 * b) & (g > 70)
+
+
+def bare_rock(materials, centroids, rgb, tile, positions, indices, water=()):
+    """Unmapped bare rock inside land cover, from the ortho and the lidar terrain.
+
+    Confidence is the product of an ortho score (grey or pink, low saturation,
+    not green, bright) and a lidar score (2 m grid roughness or curvature of
+    cracked, stepped bedrock), so neither a flat grey square nor a rough lawn
+    passes alone. Thresholds come from mapped Vartiovuori outcrops against its
+    park lawn. Isolated cells are dropped; paths and paving are never candidates,
+    nor is ground within 10 m of water, where quay steps and paved edges are
+    just as grey and rough (mapped shore rock still comes from OSM).
+    """
+    from scipy.ndimage import binary_opening, label
+
+    cover = materials == mat_id("grass")
+    n = int(round(np.sqrt(len(positions)))) if len(positions) else 0
+    if not cover.any() or n * n != len(positions) or 2 * (n - 1) ** 2 != len(indices):
+        return materials
+    px = rgb.shape[0]
+    col = np.clip(((centroids[:, 0] - tile.origin[0]) / tile.size * px).astype(int), 0, px - 1)
+    row = np.clip(((centroids[:, 2] - tile.origin[2]) / tile.size * px).astype(int), 0, px - 1)
+    r, g, b = (rgb_mean(rgb, row, col, k) for k in range(3))
+    high, low = np.maximum(np.maximum(r, g), b), np.minimum(np.minimum(r, g), b)
+    saturation = (high - low) / np.maximum(high, 1)
+    ortho = (np.clip((0.3 - saturation) / 0.15, 0, 1) * np.clip((1.12 - g / np.maximum(r, 1)) / 0.1, 0, 1)
+             * np.clip((high - 100) / 40, 0, 1))
+    h = positions[:, 1].reshape(n, n)
+    pad = np.pad(h, 1, mode="edge")
+    laplace = (pad[:-2, 1:-1] + pad[2:, 1:-1] + pad[1:-1, :-2] + pad[1:-1, 2:] - 4 * h) / 4
+    rough = np.abs(pad[:-2, :-2] + pad[2:, 2:] - pad[:-2, 2:] - pad[2:, :-2]) / 4
+    relief = np.maximum(rough, np.abs(laplace))
+    relief = ((relief[:-1, :-1] + relief[1:, 1:] + relief[:-1, 1:] + relief[1:, :-1]) / 4).ravel()
+    lidar = np.clip((relief - 0.05) / 0.08, 0, 1).repeat(2)
+    confident = cover & (ortho * lidar >= ROCK_CONFIDENCE)
+    if len(water):
+        shore = shapely.union_all(list(water)).buffer(10.0)
+        confident &= ~shapely.intersects_xy(shore, centroids[:, 0], centroids[:, 2])
+    mask = binary_opening(confident.reshape(-1, 2).any(axis=1).reshape(n - 1, n - 1), np.ones((2, 2), bool))
+    labels, count = label(mask)
+    if count:
+        mask &= np.bincount(labels.ravel())[labels] >= ROCK_MIN_CELLS
+    result = materials.copy()
+    result[np.repeat(mask.ravel(), 2) & cover] = mat_id("rock")
+    return result
+
+
+# Joint ortho x lidar confidence for unmapped rock, and the smallest outcrop (2 m cells).
+ROCK_CONFIDENCE = 0.6
+ROCK_MIN_CELLS = 8
 
 
 # A face steeper than this (|normal y| below it, about 63 degrees) is a wall,
@@ -286,6 +375,8 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
         channels[materials == mat_id(name)] = channel
     for material, name in street_materials.FINISH_KEYS.items():
         channels[materials == material] = KEYS.index(name)
+    rock = KEYS.index("granite_rock")
+    moss = rock_tint(positions, indices, keep & (channels == rock)) if (keep & (channels == rock)).any() else None
     meshes = []
     for channel in np.unique(channels[keep]):
         for projection in range(3):
@@ -309,6 +400,7 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
                     inverse.reshape(-1, 3).astype(np.uint32),
                     normals=normal[ids],
                     uvs=uv,
+                    colors=moss[ids] if channel == rock and moss is not None else None,
                     color=(1, 1, 1, 1),
                     extras=dict(
                         layer="ground",
@@ -318,6 +410,36 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
                 )
             )
     return meshes
+
+
+def rock_tint(positions, indices, rock):
+    """Vertex tint of bare rock: moss toward its edges and in lidar hollows.
+
+    The terrain is the lidar surface, so its curvature at the 2 m grid tells
+    rounded knobs (clean, pale rock) from hollows and cracks (moss, thin grass).
+    The edge band softens the change from rock to the surrounding lawn.
+    """
+    from turku3d.ground.mesh import HeightQuery, Mesh
+
+    tint = np.ones((len(positions), 3), np.float32)
+    used = np.unique(indices[rock])
+    xz = positions[used][:, [0, 2]]
+    footprint = shapely.union_all(shapely.polygons(positions[indices[rock]][:, :, [0, 2]]).tolist())
+    edge = np.clip(1 - shapely.distance(footprint.boundary, shapely.points(xz)) / MOSS_EDGE, 0, 1)
+    height = HeightQuery(Mesh(positions, indices, np.zeros(len(indices), np.uint8)))
+    centre = height(xz)
+    around = [height(xz + offset) for offset in ([2, 0], [-2, 0], [0, 2], [0, -2])]
+    laplace = np.nan_to_num(np.mean(around, axis=0) - centre, nan=0.0)
+    hollow = np.clip(laplace / 0.25, 0, 1)
+    knob = np.clip(-laplace / 0.25, 0, 1)
+    weight = np.clip(0.7 * edge + 0.6 * hollow, 0, 0.85)[:, None]
+    tint[used] = (1 - weight) * (1 + 0.06 * knob[:, None]) + weight * np.asarray(MOSS, np.float32)
+    return tint
+
+
+# Linear tint of moss and lichen on granite, and the width of the edge band (m).
+MOSS = (0.55, 0.68, 0.38)
+MOSS_EDGE = 1.5
 
 
 def fallback(channel, size=256):
