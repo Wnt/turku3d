@@ -1,6 +1,6 @@
 // Far openings retain the detailed facade's program or baked glazing mask.
 import * as THREE from 'three/webgpu';
-import { attribute, float, floor, fract, luminance, mix, positionWorld, texture, uv, varying, vec3, vertexColor } from 'three/tsl';
+import { attribute, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uv, varying, vec3, vertexColor } from 'three/tsl';
 import { nightUniforms, wallFrame, windowEmission } from './nightLights';
 import { facadeProgramSurface } from './facadeProgramSurface';
 import { interleaveProgram } from './facadeProgramAttributes';
@@ -31,6 +31,17 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
     material.colorNode = mix(mix(pigment.pigment, pigment.trim, pigment.band),
       mix(frame.rgb, vec3(.016, .028, .04), program.glass), program.inside.mul(float(1).sub(pigment.band)));
     material.emissiveNode = emission;
+    return material;
+  }
+  if (layer === 'buildings-lod-glazed') {
+    // Block LOD walls whose HD facade program has windows (pipeline/turku3d/coarse/blocks.py): a soft window in each
+    // 2.6 m x 3.2 m cell of the distant city's grid darkens the pigment by day and lights the same windows at night.
+    const frame = wallFrame(), storey = positionWorld.y.div(3.2), bay = frame.along.div(2.6);
+    const across = fract(bay), rise = fract(storey);
+    const glass = smoothstep(.22, .32, across).mul(smoothstep(.78, .68, across))
+      .mul(smoothstep(.25, .35, rise)).mul(smoothstep(.85, .75, rise)).mul(frame.wall);
+    material.colorNode = mix(sceneryPigment, vec3(.03, .045, .06), glass.mul(.8));
+    material.emissiveNode = windowEmission(frame.plane, floor(bay), floor(storey), rise, glass);
     return material;
   }
   // A surveyed shell or blank wall has no evidence of windows. Never invent them.
@@ -73,6 +84,20 @@ export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, co
     mesh.castShadow = false; mesh.receiveShadow = false;
   });
   for (const material of originals) if (!shared?.styled.has(material)) material.dispose();
+}
+
+const lodSource = new THREE.MeshStandardMaterial({ name: 'block-lod', roughness: 1, metalness: 0 });
+
+/** Style a block LOD parent clone; pooled materials are released with `owner` (its tile model). */
+export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, shared?: SharedMaterials) {
+  root.traverse(object => {
+    const mesh = object as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const layer = mesh.userData.lod === 'walls-glazed' ? 'buildings-lod-glazed' : 'buildings-lod';
+    mesh.material = shared ? shared.styled.acquire(lodSource, `block-lod:${layer}`, owner, () => sceneryMaterial(layer))
+      : sceneryMaterial(layer);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+  });
 }
 
 // Material experiments are applied explicitly to resident scenery through the dev session.
