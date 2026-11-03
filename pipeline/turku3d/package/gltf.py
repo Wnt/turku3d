@@ -64,6 +64,23 @@ def _mime(img: bytes) -> str:
     raise ValueError("image must be JPEG or PNG")
 
 
+def night_irradiance_values(values):
+    """Authored night light is non-negative and finite. Interpolation residue
+    (e.g. -1e-18 after a barycentric wall cut) and stray NaNs clamp to zero."""
+    return np.clip(np.nan_to_num(np.asarray(values, np.float64), nan=0.0, posinf=0.0, neginf=0.0), 0, None)
+
+
+def night_irradiance_attribute(values, shape):
+    """Optional baked accent: a malformed one is dropped (the surface renders unlit), never fails a tile."""
+    if values is None:
+        return None
+    night = np.asarray(values)
+    if night.shape != tuple(shape):
+        return None
+    return np.ascontiguousarray(night_irradiance_values(night), np.float32)
+
+
+
 def build_glb(
     meshes: list[GlbMesh],
     *,
@@ -137,11 +154,9 @@ def build_glb(
                 "VEC3",
                 ARRAY_BUFFER,
             )
-        if m.night_irradiance is not None:
-            night = np.asarray(m.night_irradiance)
-            if night.shape != pos.shape or not np.isfinite(night).all() or np.any(night < 0):
-                raise ValueError(f"{m.name}: invalid night irradiance")
-            attrs["_NIGHT_IRRADIANCE"] = accessor(np.ascontiguousarray(night, np.float32), FLOAT, "VEC3", ARRAY_BUFFER)
+        night = night_irradiance_attribute(m.night_irradiance, pos.shape)
+        if night is not None:
+            attrs["_NIGHT_IRRADIANCE"] = accessor(night, FLOAT, "VEC3", ARRAY_BUFFER)
         if m.baked_visibility is not None:
             visibility = np.asarray(m.baked_visibility)
             if (visibility.shape != pos.shape or not np.isfinite(visibility).all()
