@@ -8,7 +8,7 @@ import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
 import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
-import { litFraction, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
+import { litFraction, sampleMoved, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
 import { WEATHER_PRESETS, type WeatherSample } from './weather/schedule';
 import { weatherLighting } from './weather/lighting';
@@ -50,6 +50,8 @@ export class Environment {
   hour = 12;
   sample: TimecycleSample = timecycle(90);
   private baseSample = this.sample;
+  /** The timecycle sample last applied by setSun (render/timecycle.ts sampleMoved). */
+  private lit: TimecycleSample | null = null;
   private weather: Readonly<WeatherSample> = WEATHER_PRESETS['partly cloudy'];
   private weatherState = '0,0,0,0.38,0.28';
   /** True while sun intensity is 0 and the cascades are not re-rendered. */
@@ -150,7 +152,8 @@ export class Environment {
     this.follow(this.sun.target.position);
     this.sky.sunPosition.value.copy(this.sunDir);
     this.baseSample = timecycle(elevation);
-    this.applyLighting();
+    // The sun direction follows every frame (shadows, sky); lighting values only when they moved visibly.
+    if (!this.lit || sampleMoved(this.lit, this.baseSample)) { this.lit = this.baseSample; this.applyLighting(); }
     this.atmosphere.setSun(elevation, azimuth, this.sample);
     nightUniforms.night.value = this.sample.night;
     nightUniforms.hour.value = hour;
