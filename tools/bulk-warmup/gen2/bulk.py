@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 from recipe import acquisition_recipe
-from runtime import Monitor, admission_cap, memory, memory_stalled, ordered, preserve_products, target_workers, worker_limit
+from runtime import Monitor, admission_cap, memory, memory_stalled, ordered, preserve_products, split_exclusions, target_workers, worker_limit
 
 
 def read(path,default=None):
@@ -169,11 +169,13 @@ def main():
             farm.close()
         after=resource.getrusage(resource.RUSAGE_CHILDREN);ticks1=cpu_ticks()
         failed.extend(farm.failures.values())
+        excluded,failed=split_exclusions(failed,root/'farm/logs')
         report=dict(**registered,workers=a.workers,final_target_workers=target,wall_seconds=round(time.monotonic()-started,3),
                     cpu_seconds=round(after.ru_utime+after.ru_stime-before.ru_utime-before.ru_stime,3),
                     cpu_steal_fraction=(ticks1[1]-ticks0[1])/max(1,ticks1[0]-ticks0[0]),
                     peak_child_rss_kib=after.ru_maxrss,metrics=farm.metrics,already_complete=len(already),
                     remaining=list(wanted),outside_coverage=len(set(selected)&outside),failures=failed,
+                    expected_exclusions=[row.get('tile') for row in excluded],
                     disk_pressure=pressure,memory_pressure=memory_pressure,interrupted=stopping.is_set())
         shared.atomic_json(reports/'bulk-result.json',report)
         print(json.dumps(report))

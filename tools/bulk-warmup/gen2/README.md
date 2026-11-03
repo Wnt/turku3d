@@ -155,7 +155,9 @@ printf '{"workers":88}\n' > "$ROOT/state/workers.next"
 mv "$ROOT/state/workers.next" "$ROOT/state/workers.json"
 ```
 
-Tiles run in a centre-out spiral: the costly dense centre starts first and cheap
+Tiles whose generator reports `NoCoverage` (open water without ground returns, 198 of
+the 5,234 candidates in the pilot strata) are listed as `expected_exclusions` in
+`bulk-result.json` and do not make the run fail. Tiles run in a centre-out spiral: the costly dense centre starts first and cheap
 outer water ends the run. Neighbouring tiles that share 500 m lidar units build close
 in time, so each unit is decoded about once within the disk-bounded raw cache. Before city admission, `warm.py`
 requires the three verified proof products for the generation and warms all ground

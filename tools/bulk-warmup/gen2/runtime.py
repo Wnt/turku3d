@@ -97,3 +97,16 @@ def preserve_products(farm,evict,target):
     farm.aliases=retained
     try:return evict(target)
     finally:farm.aliases=previous
+
+
+def split_exclusions(failures,logs):
+    """Tiles whose generator reported NoCoverage (open water, no ground returns) are expected
+    exclusions, not failures; every other failure stays a failure."""
+    excluded,failed=[],[]
+    for row in failures:
+        tile,revision=row.get('tile'),row.get('revision')
+        log=logs/f'{revision}-{tile}.log' if tile and revision else None
+        try:text=log.read_text(errors='replace')[-4000:] if log else ''
+        except FileNotFoundError:text=''
+        (excluded if 'NoCoverage' in text else failed).append(row)
+    return excluded,failed

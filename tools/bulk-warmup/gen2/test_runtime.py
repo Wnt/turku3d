@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from runtime import GIB, admission_cap, memory_stalled, ordered, target_workers, worker_limit
+from runtime import GIB, admission_cap, memory_stalled, ordered, split_exclusions, target_workers, worker_limit
 
 class Runtime(unittest.TestCase):
     def test_memory_pressure_drains_without_stopping_workers(self):
@@ -30,5 +30,14 @@ class Runtime(unittest.TestCase):
             result,timings=ordered(['t0_30_30','t0_0_1','t0_50_50','t0_-1_0','t0_0_0'],path)
             self.assertEqual(result,['t0_-1_0','t0_0_0','t0_0_1','t0_30_30','t0_50_50'])
             self.assertEqual(timings,{'t0_50_50':300})
+    def test_tiles_without_ground_returns_are_expected_exclusions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            logs=Path(tmp)
+            (logs/'r-t0_-31_44.log').write_text('turku3d.coarse.sources.NoCoverage: t0_-31_44: only 0 ground key points\n')
+            (logs/'r-t0_1_1.log').write_text('TypeError: boom\n')
+            rows=[dict(tile='t0_-31_44',revision='r'),dict(tile='t0_1_1',revision='r'),dict(tile='t0_2_2',result={})]
+            excluded,failed=split_exclusions(rows,logs)
+            self.assertEqual([r['tile'] for r in excluded],['t0_-31_44'])
+            self.assertEqual([r['tile'] for r in failed],['t0_1_1','t0_2_2'])
 
 if __name__=='__main__':unittest.main()
