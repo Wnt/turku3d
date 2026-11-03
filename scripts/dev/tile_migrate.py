@@ -134,6 +134,16 @@ def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None) -
     return meta
 
 
+def checkpoint(meta: dict, key: str) -> dict:
+    """The derived revision cut after step ``key``: migrating a tile to it stores that prefix generation's product,
+    which a later chain with other steps after ``key`` resumes from (migrate_tile's longest finished prefix)."""
+    keys = [f"{s['name']}@{s['version']}" for s in meta['migrations']]
+    if key not in keys:
+        raise ValueError(f'{key} is not a step of {keys}')
+    steps = meta['migrations'][:keys.index(key) + 1]
+    return dict(meta, generation=steps[-1]['generation'], migrations=steps, checkpoint_of=meta['generation'])
+
+
 def products(root: Path, generation: str) -> Path:
     return root / 'products' / generation
 
@@ -149,6 +159,8 @@ def verified_chain(meta: dict):
     if theirs not in _VERIFIED:
         migrations = chain()
         mine = tuple((m.key, m.code_hash()) for m in migrations)
+        if meta.get('checkpoint_of'):  # A checkpoint: the first steps of the derived revision's chain.
+            mine, migrations = mine[:len(theirs)], migrations[:len(theirs)]
         if mine != theirs:
             raise RuntimeError(f'snapshot chain {mine} differs from the derived revision {theirs}')
         _VERIFIED[theirs] = migrations

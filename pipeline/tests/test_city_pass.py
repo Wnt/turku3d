@@ -5,7 +5,7 @@ import importlib.util
 import json
 import sys
 
-from test_migrations import TINT, farm, tile_migrate  # noqa: F401  (fixtures and the farm layout)
+from test_migrations import ROADS, TINT, farm, tile_migrate  # noqa: F401  (fixtures and the farm layout)
 from turku3d.migrations import registry
 
 spec = importlib.util.spec_from_file_location("tile_city_pass", tile_migrate.__file__.replace("tile_migrate", "tile_city_pass"))
@@ -40,3 +40,21 @@ def test_estimate_weights_surveyed_and_unsurveyed_tiles():
     out = city.estimate(rows, ["a", "b", "c", "d"], survey_share=0.5)
     assert out["left"] == 2 and out["steps"]["surveyed"]["wires@2"] == 80
     assert out["cpu_hours_left"] == round(2 * (0.5 * 100 + 0.5 * 2) / 3600, 1)
+
+
+def test_a_checkpoint_stores_the_prefix_that_a_changed_tail_resumes_from(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CHAIN", (TINT, ROADS))
+    root, meta, _ = farm(tmp_path)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city.os, "nice", lambda increment: 0)
+    monkeypatch.setattr(city, "surveyed", lambda tile: False)
+    argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0",
+            "--checkpoint", "test-tint@1"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert city.main() == 0
+    prefix = meta["migrations"][0]["generation"]
+    assert (root / "products" / prefix / "t0_0_0" / "ready.json").exists()
+    assert (root / "products" / meta["generation"] / "t0_0_0" / "ready.json").exists()
+    row = json.loads((root / "migrations" / meta["generation"] / "pass.jsonl").read_text().splitlines()[0])
+    assert row["state"] == "migrated" and row["applied"] == ["test-roads@1"]
+    assert set(row["steps"]) == {"test-tint@1", "test-roads@1"}

@@ -5,13 +5,15 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
 ``scripts/dev/tile-migrate pass``.
 
   tile_city_pass.py --farm-root ROOT --revision DERIVED [--max-jobs 6] [--high 3.5] [--low 2.5]
-                    [--interval 30] [--radius RINGS] [--estimate] [tiles ...]
+                    [--interval 30] [--radius RINGS] [--checkpoint STEP] [--estimate] [tiles ...]
 
 * Order: rings of tiles round t0_0_0, nearest first (the order players see them), or the given tiles.
 * Load: every ``--interval`` seconds the cap moves by one: down while the one-minute load per core is above
   ``--high`` (0: no new tile starts), up while it is below ``--low``, between 0 and ``--max-jobs``. Running tiles
   always finish. Workers run at nice 19, under the farm's serving and builds.
 * Resumable: a tile finished earlier is kept (``migrate_tile``'s ready check), so a stopped pass resumes.
+* ``--checkpoint STEP`` stores each tile's product after STEP too (``tile_migrate.checkpoint``): a later chain that
+  changes only the steps after STEP resumes from it instead of redoing the costly steps before.
 * Logs in ``farm/migrations/<generation>/``: ``pass.jsonl`` (one line per tile: state, wall and CPU seconds, each
   step's ``[wall, cpu]``, whether the tile has survey lidar, the cap and the load) and ``pass.json`` (progress, the
   mean CPU per step and tile, CPU hours left and an ETA at the current rate). ``--estimate`` prints the estimate
@@ -65,10 +67,12 @@ def surveyed(tile: str) -> bool:
 
 
 def _work(args):
-    root, meta, tile = args
+    root, meta, tile, cut = args
     STEPS.clear()
     wall, cpu = time.monotonic(), time.process_time()
-    result = M._worker((root, meta, tile))
+    result = M._worker((root, M.checkpoint(meta, cut), tile)) if cut else {}
+    if result.get('state') in (None, 'migrated', 'kept'):
+        result = M._worker((root, meta, tile))
     return dict(tile=tile, state=result.get('state'), error=result.get('error'), applied=result.get('applied'),
                 wall=round(time.monotonic() - wall, 3), cpu=round(time.process_time() - cpu, 3),
                 steps=dict(STEPS), survey=surveyed(tile))
@@ -121,6 +125,8 @@ def main():
     parser.add_argument('--interval', type=float, default=30)
     parser.add_argument('--radius', type=int, help='only tiles within this many rings of t0_0_0')
     parser.add_argument('--estimate', action='store_true')
+    parser.add_argument('--checkpoint', help='also store the product after this step (e.g. wires@2), so a later '
+                        'chain that changes only the steps after it resumes from there')
     args = parser.parse_args()
     root = args.farm_root
     meta = M.revision_meta(root, args.revision)
@@ -163,7 +169,7 @@ def main():
                 atomic_json(progress, state)
             while pending and len(running) < cap:
                 tile = pending.popleft()
-                future = pool.submit(_work, (str(root), meta, tile))
+                future = pool.submit(_work, (str(root), meta, tile, args.checkpoint))
                 running[future] = (tile, cap, round(load, 2))
             if not running:
                 time.sleep(min(args.interval, 5))
