@@ -24,6 +24,22 @@ def maps(key, size=None):
         height = gaussian_filter(grain, .6, mode="wrap") * .0005
         ao = np.ones((size, size))
         roughness = np.clip(.9 + grain * .02, .75, 1)
+    elif key == "track_rubber":
+        # Poured polyurethane athletics surface: terracotta with fine embedded granules.
+        speck = rng.random((size, size)) < .04
+        albedo = np.array([164, 74, 58]) + grain[..., None] * 6 + macro[..., None] * 3 - speck[..., None] * 22
+        height = gaussian_filter(grain, .5, mode="wrap") * .0004
+        ao = np.ones((size, size))
+        roughness = np.clip(.86 + grain * .03, .7, 1)
+    elif key in ("pitch_grass_light", "pitch_grass_dark"):
+        # Short mown turf; the two keys alternate as stripes, lit and shaded by the mower's lay.
+        blades = gaussian_filter(grain, .7, mode="wrap")
+        blades /= max(blades.std(), 1e-6)
+        tone = np.array([84, 122, 50]) if key == "pitch_grass_light" else np.array([66, 101, 41])
+        albedo = tone + blades[..., None] * [6, 9, 4] + macro[..., None] * [3, 4, 2]
+        height = blades * .0008
+        ao = .92 + .08 * np.clip(blades, -1, 1)
+        roughness = np.full((size, size), .93)
     elif key == "brick_paving":
         # Running bond, 200 x 100 mm bricks with narrow sand-filled joints.
         y, x = (np.indices((size, size)) + .5) * (period / size)

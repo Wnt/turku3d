@@ -251,6 +251,13 @@ def build(
         ],
     )
     seconds["buildings"] = time.perf_counter() - t
+    # Sports venues: grandstand shells leave the building program for generated stands.
+    from . import venues as venue_stage
+
+    venue = venue_stage.prepare(cache, tile, sources or Sources(), [*blds, *inputs.wall_context])
+    stand_buildings = [] if first_pass else [b for b in blds if b.key in venue.grandstands]
+    if not first_pass and venue.grandstands:
+        shells = [(b, shell) for b, shell in shells if b.key not in venue.grandstands]
 
     t = time.perf_counter()
     ground_sources = sources or Sources()
@@ -526,6 +533,14 @@ def build(
     )
     stair_meshes = [*stair_meshes, *footing_meshes]
     seconds["footings"] = cache.metrics["footings"]["seconds"]
+    venue_meshes, venue_stats = ([], {}) if first_pass or venue.empty else cache.run(
+        "venue_structures",
+        source_key(*venue_stage.source_files(), grid_height, *common),
+        [tile, venue, stand_buildings, grid_pos, venue_stage.courts(inputs.playgrounds)],
+        lambda: venue_stage.structures(
+            tile, stand_buildings, venue, lambda x, z: grid_height(tile, grid_pos, x, z),
+            venue_stage.courts(inputs.playgrounds)),
+    )
     # Street furniture and lights (G1): before collision, which merges their static primitives.
     from . import furniture
 
@@ -563,7 +578,7 @@ def build(
         pos, idx, mat = bridges.collision(osm_decks, tile, ct, pos, idx, mat)
         pos, idx, mat = tunnels.collision(ct, pos, idx, mat)
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
-        pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes], pos, idx, mat)
+        pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes, *venue_meshes], pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct] + street["collision"].get(ct.id, [])
         primitives += play["collision"].get(ct.id, [])
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
@@ -667,7 +682,8 @@ def build(
         visual_materials,
         dry_keep,
         [*visual_regions, *inputs.streets, *inputs.street_finishes,
-         *street_profiles.material_regions(dry), *paving_finishes],
+         *street_profiles.material_regions(dry), *paving_finishes,
+         *venue_stage.ground_regions(tile, venue)],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
@@ -728,9 +744,19 @@ def build(
     )
     if paint is not None:
         ground_meshes.append(paint)
+    venue_lines = venue_stage.line_polygons(tile, venue)
+    venue_paint = cache.run(
+        "venue_paint",
+        source_key(surfaces.paint_visual, *venue_stage.source_files(), *common),
+        [*paint_args[:-1], venue_lines],
+        lambda: surfaces.paint_visual(*paint_args[:-1], venue_lines, on=None, name="venue_paint"),
+    ) if venue_lines else None
+    if venue_paint is not None:
+        ground_meshes.append(venue_paint)
     ground_meshes.extend(kerbs.visuals(tile, kerb_meshes))
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
+    ground_meshes.extend(venue_stage.visuals(tile, venue_meshes))
     ground_meshes.extend(boats.visuals(tile, boat_meshes))
     from . import quay_lighting
 
@@ -844,7 +870,8 @@ def build(
     cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks, carried_mask)
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
-    _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
+    _write(out / "facade-candidates.json",
+           json.dumps(candidates([b for b in blds if b.key not in venue.grandstands])).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
     _write(out / visual_url, vis)
     _write(out / "vis.glb", vis)
@@ -924,6 +951,8 @@ def build(
         lights=street["lights"],
         furniture=street["stats"],
         playgrounds=dict(play["stats"], sites=play["sites"]),
+        venues=dict(venue_stage.stats(venue), **venue_stats,
+                    paint_triangles=len(venue_paint.indices) if venue_paint is not None else 0),
         barriers=barrier_stats,
         vegetation=dict(
             tree_cap=TREE_CAP,
