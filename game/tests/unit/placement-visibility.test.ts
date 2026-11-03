@@ -86,5 +86,19 @@ test('primary draws of hidden placements and fully hidden batches are skipped on
   run(visibility);
   c.position.x += 2; c.updateMatrixWorld(); visibility.update(c);
   expect(visibility.occluded(mesh, c)).toBe(false);
+  // A slot reused by a new placement never inherits the previous placement's hidden bit.
+  c.position.x -= 2; c.updateMatrixWorld(); visibility.update(c); run(visibility); visibility.update(c);
+  expect(visibility.occluded(mesh, c)).toBe(true);
+  visibility.unregister(b);
+  const other = new THREE.Group(), fresh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  other.position.set(0, 0, -55); other.add(fresh);
+  expect(visibility.register(other, { min: [-3, 0, -5], max: [3, 8, 5] }, 500, undefined)).toBe(b);
+  visibility.setActive(b, true);
+  expect(visibility.occluded(fresh, c)).toBe(false);
+  // The result for the camera published before registration does not apply; the next one does.
+  run(visibility); visibility.update(c);
+  expect(visibility.occluded(fresh, c)).toBe(false);
+  run(visibility); visibility.update(c);
+  expect(visibility.occluded(fresh, c)).toBe(true);
   visibility.unregister(b); visibility.setActive(a, false);
 });

@@ -32,6 +32,9 @@ export class PlacementVisibility {
   private high = 0;
   private meshes = new WeakMap<THREE.Object3D, number>();
   private snapshot = new Uint32Array(MAX_SLOTS / 32);
+  /** Camera sequence a slot's current placement was registered for; older results never apply to it. */
+  private since = new Int32Array(MAX_SLOTS);
+  private adopted = 0;
   private fresh = false;
   private forward = new THREE.Vector3();
   private seq = 0;
@@ -75,6 +78,7 @@ export class PlacementVisibility {
       }
     }
     v.boxCounts[slot] = boxes.length;
+    this.since[slot] = this.seq + 1;
     Atomics.store(v.control, CONTROL.slotCount, this.high);
     wrapper.userData.visibilitySlot = slot;
     wrapper.traverse(o => { if ((o as THREE.Mesh).isMesh) this.meshes.set(o, slot); });
@@ -106,7 +110,7 @@ export class PlacementVisibility {
     const position = camera.position, moved = Math.hypot(position.x - eye[0], position.y - eye[1], position.z - eye[2]);
     const turned = this.forward.x * eye[5] + this.forward.y * eye[6] + this.forward.z * eye[7];
     this.fresh = done > 0 && done === this.seq && moved <= STALE_METRES && turned >= STALE_COS;
-    if (this.fresh) { this.snapshot.set(v.results[half]); this.stats.hidden = eye[3]; this.stats.workerMs = eye[4]; }
+    if (this.fresh) { this.snapshot.set(v.results[half]); this.adopted = done; this.stats.hidden = eye[3]; this.stats.workerMs = eye[4]; }
     else this.stats.stale++;
     this.vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     v.camera.set(this.vp.elements, CAMERA.vp);
@@ -121,7 +125,8 @@ export class PlacementVisibility {
   }
 
   private hidden(slot: number | undefined) {
-    return slot !== undefined && slot >= 0 && (this.snapshot[slot >> 5] & (1 << (slot & 31))) !== 0;
+    return slot !== undefined && slot >= 0 && this.since[slot] <= this.adopted
+      && (this.snapshot[slot >> 5] & (1 << (slot & 31))) !== 0;
   }
 
   /** Whether a primary-camera draw of `object` can be skipped this frame. */
