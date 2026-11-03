@@ -54,6 +54,73 @@
         178.2481,
         346.9482
       ]
+    },
+    {
+      "id": "sv-aura-north-quay-bore-2020-10",
+      "reference": "streetview/PvX1X2iG_PV4lJ_-7fKz6Q/2020-10",
+      "vessel_id": "osm:223978564",
+      "name": "Bore",
+      "identity_status": "Name BORE legible on the bow and on the quay banner; OSM name=Bore.",
+      "observed": {
+        "hull": "beige/khaki hull to the sheer line, raked stem with the name on the bow",
+        "superstructure": "white tiers with rows of rectangular windows, bridge forward",
+        "funnels": "two oval funnels: black top, ochre, blue-white-blue bands with a white vertical stripe and a B, ochre base",
+        "masts": "tan foremast and mainmast; strings of lights from the stem over both mast heads to the stern",
+        "lifeboats": "orange lifeboats on davits along the aft upper deck"
+      },
+      "method": "patch medians on the overcast reference, white balance gain 1.14 from the superstructure white (186-196 to 217); band fractions measured on the left funnel; stem rake 0.5 m per metre of freeboard from the bow silhouette, corrected for the 38 degree view angle",
+      "confidence": {
+        "visible_materials": 0.9,
+        "identity": 0.98
+      },
+      "use": "Paint, band fractions and porthole rows only; sizes and positions stay with the lidar survey.",
+      "appearance": {
+        "hull_surface": "paint_9c8a6d",
+        "boot_surface": "hull",
+        "boot_height": 0.6,
+        "cabin_surface": "white",
+        "fascia_surface": "white",
+        "rail_surface": "white",
+        "mast_surface": "paint_aa8b75",
+        "lifeboat_surface": "paint_b8583d",
+        "funnel_bands": [
+          [
+            0.16,
+            "paint_2c3238"
+          ],
+          [
+            0.33,
+            "paint_b69a81"
+          ],
+          [
+            0.43,
+            "paint_426aa1"
+          ],
+          [
+            0.51,
+            "white"
+          ],
+          [
+            0.61,
+            "paint_426aa1"
+          ],
+          [
+            1.0,
+            "paint_b69a81"
+          ]
+        ],
+        "funnel_cross": [
+          0.33,
+          0.61,
+          "white"
+        ],
+        "porthole_rows": [
+          1.3
+        ],
+        "porthole_spacing": 1.7,
+        "dress_lights": true,
+        "stem_rake": 0.5
+      }
     }
   ]
 }
