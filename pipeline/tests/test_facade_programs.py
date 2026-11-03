@@ -549,3 +549,22 @@ def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(m
     # A panel-clad blank wall carries its joint grid in the opening slot.
     p["walls"][0]["panel_grid"] = dict(value=[1.5, 1.4, 0.025], source="test", support=0.6)
     assert compile_wall(p["walls"][0], 4)["opening"] == [1.5, 1.4, 0.025, -1.0]
+
+
+def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints():
+    from turku3d import facade_monolith
+    from turkutex.facade_program import value
+
+    m = lambda x, s: value(x, s, 0.6)  # noqa: E731
+    reading = dict(structure=dict(facade_observations=dict(sections=[
+        dict(position="upper majority", kind="blank grey rectangular panel cladding"),
+        dict(position="lower", kind="narrow recessed dark glazing strip behind pale supports"),
+        dict(position="foreground", kind="concrete boundary wall", belongs_to_facade=False),
+        dict(position="lower right", kind="small service door")])))
+    wall = dict(render_sections=[dict(index=0, bounds=[0, 1 / 3, 1, 2 / 3], kind="blank")])
+    facade_monolith.reviewed_wall(wall, reading, 2, True, m)
+    ribbon = wall["render_sections"][1]
+    assert ribbon["rhythm"] == "ribbon" and ribbon["count"] is None and ribbon["kind"] == "window"
+    assert ribbon["bounds"] == [0.0, 0.0, 1.0, 0.25]  # narrow strip at the base, full width
+    assert len(wall["render_sections"]) == 2  # doors and foreground structures are not glazing
+    assert wall["panel_grid"]["value"] == [1.5, 1.4, 0.025]

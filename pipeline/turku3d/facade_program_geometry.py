@@ -69,6 +69,10 @@ def _paint_layers(vertices, wall, style):
         **style,
         "module": 42 + style["module"] // 6 if style["module"] < 42 else style["module"],
     }
+    from turku3d.facade_programs import panel_grid
+
+    if panel_grid(wall):
+        blank["opening"] = panel_grid(wall)  # Reviewed blank cladding keeps its joint grid.
     # Observed upper-pane divisions/frame colours do not describe occluded
     # storefronts or areas outside the measured rectangle. Preserve their
     # generic pane treatment rather than leaking the reviewed upper pattern.

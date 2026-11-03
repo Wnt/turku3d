@@ -120,8 +120,11 @@ def apply(program, key, vertices, observed, description):
     panels = facts["panels"] and blank_material not in ("brick", "wood")
     for index, wall in enumerate(program["walls"]):
         points = np.asarray(vertices[index * 4: index * 4 + 4])
-        if matching_wall(points, observed):
-            continue  # The reviewed reading owns this wall in resolve().
+        reading = matching_wall(points, observed)
+        if reading:
+            # The reviewed reading owns this wall; add only what the class knows about it.
+            reviewed_wall(wall, reading, program["storeys"]["value"], panels, m)
+            continue
         facade = _own_wall_description(points, prepared) if prepared else None
         own = by_id.get(facade["metadata"]["facade_id"]) if facade else None
         if own and curtain(own):
@@ -138,6 +141,44 @@ def apply(program, key, vertices, observed, description):
         for role in ("blank", "curtain", "own description")
     }
     return program
+
+
+GLAZING_STRIP = re.compile(r"\b(glazing|glazed|glass)\b.*\b(strip|band|ribbon)\b|\bribbon\b")
+
+
+def reviewed_wall(wall, reading, floors, panels, m):
+    """Uncounted glazing strips/bands of a reviewed monolith wall become one ribbon each.
+
+    Blank volumes over recessed glazed bases are read as "lower/middle glazing strip";
+    the adapter leaves uncounted openings to the prior, which is blank on a monolith.
+    """
+    from turkutex.facade_archetypes import MONOLITH_PANEL
+    from turkutex.facade_sections import bounds
+
+    if panels:
+        wall["panel_grid"] = m([MONOLITH_PANEL["width_m"], MONOLITH_PANEL["height_m"],
+                                MONOLITH_PANEL["joint_m"]], "reference-measured panel joint grid")
+    if "render_sections" not in wall:
+        return
+    used = {s["index"] for s in wall["render_sections"]}
+    for index, section in enumerate(reading.get("structure", {}).get("facade_observations", {})
+                                    .get("sections", [])):
+        text = " ".join([str(section.get("kind", "")), *map(str, section.get("features", []))]).lower()
+        if index in used or section.get("belongs_to_facade") is False or not GLAZING_STRIP.search(text):
+            continue
+        extent = bounds(section.get("position"), max(3, floors or 3))
+        if not extent:
+            continue
+        x, y, w, h = extent
+        if "narrow" in text and h > 0.25:
+            position = str(section.get("position", "")).lower()
+            y = y + h - 0.25 if re.search(r"upper|top", position) else (
+                y if re.search(r"lower|base|ground", position) else y + (h - 0.25) / 2)
+            h = 0.25
+        wall["render_sections"].append(dict(index=index, bounds=[x, y, w, h], material="glass",
+                                            kind="window", count=None, rows=1, head="flat",
+                                            surround="none", rhythm="ribbon"))
+    wall["render_sections"].sort(key=lambda s: s["index"])
 
 
 def _material(wall, name, m):

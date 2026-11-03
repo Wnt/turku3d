@@ -127,6 +127,13 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                     confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")
                                 + (("opening_counts",) if "opening_counts" in section else ())},
                 )
+                if section.get("rhythm") != "ribbon" else
+                # An uncounted continuous strip is one ribbon, never an invented bay grid.
+                dict(role="base" if i == 0 else "middle", bay_count=None, bays=["window"],
+                     head=section["head"], surround=section["surround"], rhythm="ribbon",
+                     opening_class="tall",
+                     confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround",
+                                                  "rhythm", "opening_class")})
                 for i in range(rows)
             ],
         )
@@ -145,6 +152,8 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         )
         compiled = compile_structure(row, form, rows, min_support=0)
         compiled.update(measured_geometry=compiled["geometry"], measured_size=[w, h])
+        if section["kind"] == "blank" and "panel_grid" in wall:
+            compiled["panel_grid"] = wall["panel_grid"]
         section_style = compile_wall(compiled, rows)
         section_style.update(wall=style["wall"], base=style["base"], trim=style["trim"])
         section_style["origin"] = [0, y0 + y]
