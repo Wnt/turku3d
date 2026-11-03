@@ -84,6 +84,11 @@ const VIEW_DETAIL_M = 400;
 const VIEW_LEAD_S = 8;
 const VIEW_LEAD_MAX_M = 200;
 const VIEW_KEEP_M = 75;
+/** A camera this far above a tile's top (m) is flying: full installs only within HD_3D_M of 3D distance (GTA V's HD
+ *  band, techstudy L1/L5), so from 150 m up only a small disc under the camera installs; the scenery tier draws the
+ *  rest. Lower cameras keep the ground rules (3x3 window, path and view wedge). */
+const HIGH_CAMERA_M = 40;
+const HD_3D_M = 250;
 /** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
 const ABANDON_AFTER_MS = 2000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
@@ -537,6 +542,7 @@ export class CoarseTiles {
       const e = this.entries.get(id);
       const inWindow = wanted.includes(id), slots = inWindow ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
       if (!inWindow && !this.leadReady(id, now)) continue;
+      if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) continue;
       if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
         e.refreshing = true; e.abandoned = false; this.details++;
         void this.applyFragment(id, e, e.preview).catch(error => this.warn(`[coarse] ${id} detail: ${error}`))
@@ -734,6 +740,14 @@ export class CoarseTiles {
     const ordered = out.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).map(t => t.id);
     this.viewSet = new Set(ordered);
     return ordered;
+  }
+
+  /** A full install is due on the ground, or for a high camera within HD_3D_M of 3D distance to the tile. */
+  private withinHdBand(id: string, fragment: CoarseFragment, x: number, z: number) {
+    if (!Number.isFinite(this.viewY)) return true;
+    const top = (fragment.visual[id]?.h as [number, number] | undefined)?.[1] ?? 0;
+    const above = this.viewY - top;
+    return above < HIGH_CAMERA_M || Math.hypot(distToL0(id, x, z), above) <= HD_3D_M;
   }
 
   /** A lead tile is worth a full install: covered for LEAD_DWELL_MS and held by the window long enough. */

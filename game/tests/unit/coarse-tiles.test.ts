@@ -990,3 +990,28 @@ test('the view wedge looks ahead of a driving camera and keeps its tiles 75 m pa
   coarse.velocity = { x: 20, z: 0 }; view(10);
   expect(tiles(10)).toContain('t0_2_0'); // driving east: 8 s ahead it is within 400 m
 });
+
+test('a high camera installs full tiles only within 250 m of 3D distance; on the ground the whole window does', async () => {
+  const run = async (y: number) => {
+    const loaded: string[] = [];
+    const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+      visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3, h: [0, 20] } },
+      collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+    const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+      renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+      checkCollision: async () => {}, previewCollision: async () => new THREE.Group(), retainCollision: () => {},
+      loadModel: async url => { loaded.push(/vis\.(t0_[^.]+)\.glb/.exec(url)![1]); return new THREE.Group(); },
+      fetch: (async (url: string) => {
+        const path = new URL(url).pathname;
+        if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+        if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+        const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+        return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+      }) as typeof fetch });
+    const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+    for (let t = 0; t <= 8000; t += 500) { coarse.update(125, 125, t, { x: 0, z: 0 }, false, y); await settle(); }
+    return loaded;
+  };
+  expect((await run(5)).sort()).toEqual(wantedTiles(125, 125).sort()); // on the ground: the 3x3 window
+  expect(await run(250)).toEqual(['t0_0_0']); // 230 m above the tile tops: only the tile under the camera
+});
