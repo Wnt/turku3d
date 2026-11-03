@@ -29,6 +29,10 @@ interface Bucket {
   distance: number;
   count: number;
   index: number;
+  /** World positions of the instances (xyz), written when the bucket's tile becomes active: tile roots are static. */
+  world?: Float32Array;
+  /** Bounds in world space, with the instance positions. */
+  sphere?: THREE.Sphere;
 }
 interface Selection { bucket: Bucket; offset: number; count: number }
 interface Draw {
@@ -78,6 +82,14 @@ export class VegetationLod {
   private position = new THREE.Vector3();
   private treePosition = new THREE.Vector3();
   private visible: Bucket[] = [];
+  /** The inputs of the last selection: a still camera over an unchanged set of active tiles selects the same trees,
+   *  so it is not run again (bench=static and every pause re-ran the full per-tree selection each frame). */
+  private dirty = true;
+  private last = { position: new THREE.Vector3(NaN, NaN, NaN), forward: new THREE.Vector3(), up: new THREE.Vector3(),
+    fov: NaN, aspect: NaN, near: NaN, far: NaN, zoom: NaN, distance: NaN };
+  private forward = new THREE.Vector3();
+  private up = new THREE.Vector3();
+  private activeTiles = new Map<THREE.Object3D, boolean>();
   private library: NatureLibrary | null = null;
   private grass: GrassField | null = null;
   private readonly ready: Promise<void>;
@@ -157,7 +169,7 @@ export class VegetationLod {
       data.sources.push({ mesh, visible: mesh.visible, shadow: mesh.castShadow });
       if (kit) fences.push({ mesh, key: key! });
     });
-    this.models.set(model, data);
+    this.models.set(model, data); this.dirty = true;
     if (this.grass) yield* this.grass.addSteps(model);
     if (!data.sources.length) return;
     for (const { mesh } of data.sources) { mesh.visible = false; mesh.castShadow = false; }
@@ -274,29 +286,53 @@ export class VegetationLod {
     return { barrier: !shadows, asset: asset.name, id: this.nextDraw++, root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
   }
 
+  /** A still camera (within 5 cm and 0.1 degrees) with the same lens and screenshot range selects the same trees. */
+  private still(camera: THREE.PerspectiveCamera) {
+    const last = this.last;
+    camera.getWorldPosition(this.position);
+    this.forward.set(0, 0, -1).transformDirection(camera.matrixWorld);
+    this.up.set(0, 1, 0).transformDirection(camera.matrixWorld);
+    const still = this.position.distanceToSquared(last.position) < 0.0025 && this.forward.dot(last.forward) > 0.9999985
+      && this.up.dot(last.up) > 0.9999985 && camera.fov === last.fov && camera.aspect === last.aspect && camera.near === last.near
+      && camera.far === last.far && camera.zoom === last.zoom && this.screenshotDistance === last.distance;
+    if (!still) {
+      last.position.copy(this.position); last.forward.copy(this.forward); last.up.copy(this.up);
+      last.fov = camera.fov; last.aspect = camera.aspect; last.near = camera.near; last.far = camera.far; last.zoom = camera.zoom;
+      last.distance = this.screenshotDistance;
+    }
+    return still;
+  }
+
   update(camera: THREE.PerspectiveCamera) {
     camera.updateMatrixWorld();
-    this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
     this.grass?.update(camera);
-    camera.getWorldPosition(this.position);
-    const q = QUALITY[this.tier].vegetation;
-    this.visible.length = 0;
-    for (const [model, data] of this.models) {
+    const still = this.still(camera);
+    let changed = this.dirty;
+    for (const [model] of this.models) {
       let active = true;
       for (let node: THREE.Object3D | null = model; node; node = node.parent) if (!node.visible) active = false;
       // Inactive tiles can be cached with a parent pointer but absent from the scene's children.
       if (!model.parent || !model.parent.children.includes(model)) active = false;
+      if (this.activeTiles.get(model) !== active) { this.activeTiles.set(model, active); changed = true; }
+    }
+    if (still && !changed) return;
+    this.dirty = false;
+    this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
+    const q = QUALITY[this.tier].vegetation;
+    this.visible.length = 0;
+    for (const [model, data] of this.models) {
+      const active = this.activeTiles.get(model) === true;
       for (const draw of data.draws) {
         for (const selection of draw.selections) selection.length = 0;
         for (const level of draw.levels) for (const part of level) part.visible = false;
-        if (active) draw.root.updateWorldMatrix(true, false);
       }
+      if (!active) continue;
       for (const bucket of data.buckets) {
-        if (!active) continue;
-        this.sphere.copy(bucket.bounds).applyMatrix4(bucket.draw.root.matrixWorld);
-        bucket.distance = Math.max(0, this.position.distanceTo(this.sphere.center) - this.sphere.radius);
-        if (bucket.distance <= Math.max(q.far, this.screenshotDistance) && this.frustum.intersectsSphere(this.sphere)) this.visible.push(bucket);
+        if (!bucket.world) this.place(bucket);
+        const sphere = bucket.sphere!;
+        bucket.distance = Math.max(0, this.position.distanceTo(sphere.center) - sphere.radius);
+        if (bucket.distance <= Math.max(q.far, this.screenshotDistance) && this.frustum.intersectsSphere(sphere)) this.visible.push(bucket);
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
@@ -314,9 +350,10 @@ export class VegetationLod {
       }
       // Cells are only culling units. The tree's own position selects its LOD, in either pass.
       // Exhausting the high-detail budget may choose the reduced mesh, never a nearby impostor.
+      const world = bucket.world!, px = this.position.x, py = this.position.y, pz = this.position.z;
       for (let offset=0;offset<bucket.count;offset++) {
-        this.treePosition.fromArray(bucket.matrices,offset*16+12).applyMatrix4(bucket.draw.root.matrixWorld);
-        const distance=this.treePosition.distanceTo(this.position);
+        const dx = world[offset * 3] - px, dy = world[offset * 3 + 1] - py, dz = world[offset * 3 + 2] - pz;
+        const distance=Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (distance>Math.max(q.far,this.screenshotDistance)) continue;
         const wanted=vegetationLevel(distance,q);
         level=wanted===0 && near>0 ? 0 : wanted<2 ? 1 : 2;
@@ -368,6 +405,17 @@ export class VegetationLod {
       }
     }
     if (this.poolRoot) this.updatePools();
+  }
+
+  /** A bucket's world bounds and instance positions, once: tile roots never move after their install. */
+  private place(bucket: Bucket) {
+    const root = bucket.draw.root;
+    root.updateWorldMatrix(true, false);
+    bucket.sphere = bucket.bounds.clone().applyMatrix4(root.matrixWorld);
+    const world = bucket.world = new Float32Array(bucket.count * 3);
+    for (let i = 0; i < bucket.count; i++) {
+      this.treePosition.fromArray(bucket.matrices, i * 16 + 12).applyMatrix4(root.matrixWorld).toArray(world, i * 3);
+    }
   }
 
   /** Repack an asset LOD's city-wide instances only when a contributing tile's selection changed. Tile roots are
@@ -444,7 +492,7 @@ export class VegetationLod {
       for (const level of draw.levels) for (const part of level) part.dispose();
     }
     for (const source of data.sources) { source.mesh.visible = source.visible; source.mesh.castShadow = source.shadow; }
-    this.models.delete(model);
+    this.models.delete(model); this.activeTiles.delete(model); this.dirty = true;
   }
 }
 

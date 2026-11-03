@@ -406,3 +406,22 @@ describe('city-wide vegetation pools', () => {
     expect(scene.getObjectByName('vegetation-pools')).toBeUndefined();
   });
 });
+
+it('a still camera over unchanged tiles does not select again; moving, turning or hiding a tile does', () => {
+  const { model } = tile(), scene = new THREE.Scene(); scene.add(model);
+  const lod = new VegetationLod('medium', library), camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
+  lod.add(model);
+  const frustum = vi.spyOn((lod as unknown as { frustum: THREE.Frustum }).frustum, 'setFromProjectionMatrix');
+  lod.update(camera);
+  const batches = generated(model, model.children[0]), count = drawn(batches);
+  expect(count).toBeGreaterThan(0);
+  expect(frustum).toHaveBeenCalledTimes(1);
+  lod.update(camera); camera.position.x += 0.01; camera.updateMatrixWorld(); lod.update(camera);
+  expect(frustum).toHaveBeenCalledTimes(1);
+  expect(drawn(batches)).toBe(count);
+  camera.position.x += 1; lod.update(camera); expect(frustum).toHaveBeenCalledTimes(2);
+  camera.rotation.y += 0.01; lod.update(camera); expect(frustum).toHaveBeenCalledTimes(3);
+  model.visible = false; lod.update(camera); expect(frustum).toHaveBeenCalledTimes(4); expect(drawn(batches)).toBe(0);
+  model.visible = true; lod.update(camera); expect(drawn(batches)).toBe(count);
+  lod.remove(model); lod.update(camera); expect(frustum).toHaveBeenCalledTimes(6);
+});
