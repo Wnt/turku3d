@@ -133,7 +133,8 @@ export class ParkedCarVisuals {
         const geometryKey=`wheel-design/${key}`;
         if(!this.geometries.has(geometryKey))this.geometries.set(geometryKey,buildFleetWheel(plan.model,plan.lod as 0|1,1));
         const mesh=new THREE.InstancedMesh(this.geometries.get(geometryKey)!,fleetMaterial(),capacity);
-        mesh.name=`wheels/${key}`;mesh.castShadow=plan.lod===0;mesh.receiveShadow=true;
+        // Empty batches hide (count 0); compileModel still prepares them (prepareHidden), shadow pass included.
+        mesh.name=`wheels/${key}`;mesh.castShadow=plan.lod===0;mesh.receiveShadow=true;mesh.userData.prepareHidden=true;
         mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);
         wheelReplacements.push([key,{mesh,count:0,dirty:true}]);await this.prepare(mesh);
       }
@@ -145,7 +146,7 @@ export class ParkedCarVisuals {
           await this.authored(model,lod);
         }
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
-        mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true;
+        mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true; mesh.userData.prepareHidden=true;
         mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
         const glassGeometry=this.geometries.get(`${key}/glass`);
         const glass=glassGeometry?new THREE.InstancedMesh(glassGeometry,fleetGlassMaterial(),capacity):undefined;
