@@ -53,3 +53,22 @@ def test_clean_duplicate_and_zero_area_faces():
     m.indices = np.r_[m.indices, m.indices[:1], [[0,0,1]]]
     m.material = np.ones(4,np.uint8)
     assert len(clean(m).indices) == 2
+
+
+def test_rising_deck_face_keeps_ground_below_its_raised_part():
+    # One deck triangle starts at grade and rises 0.8 m: its centroid is on the
+    # ground sheet, but the walkway under its raised corner must stay.
+    source = square()
+    deck = Structure('draft-bridge:test:deck', 'road', [[0, 0, 0], [0, 0, 4], [4, .8, 4]],
+                     [[0, 1, 2]], np.zeros((3, 2)))
+    dry, solid, report = resolve(source, source, source, [], [deck], Openings(), shapely.Polygon())
+    assert abs(footprint(dry).area - 16) < 1e-6
+    assert abs(footprint(solid).area - 16) < 1e-6
+    assert report['uncovered_area_m2'] == 0
+
+
+def test_closure_never_removes_emitted_ground_under_structures():
+    source = square()
+    dry, _, report = resolve(source, source, source, [floor(1, 3)], [], Openings(), shapely.Polygon())
+    assert abs(footprint(dry).area - 16) < 1e-6
+    assert report['filled_area_m2'] == 0

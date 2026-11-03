@@ -4,6 +4,10 @@ Runs after terrain enrichment and structural producers, before both exporters.
 A source cut polygon is never evidence of coverage: only emitted triangles own it.
 Tunnel clearance remains authoritative after filling. Vertically separated decks
 are different sheets and do not erase lower ground.
+
+The closure only adds ground. It never deletes emitted ground: producers cut
+their own footprints, and a coverage polygon here is a union of whole triangles,
+so cutting with it removed walkable ground under elevated deck spans.
 """
 from pathlib import Path
 
@@ -49,9 +53,12 @@ def floor_coverage(meshes, reference, *, same_sheet=False):
         keep = n[:, 1] > np.linalg.norm(n, axis=1) * .25
         t = t[keep]
         if same_sheet and len(t):
-            mid = t.mean(axis=1)
-            y = source.cast(mid[:, [0, 2]], mid[:, 1])
-            t = t[np.isfinite(y) & (abs(y - mid[:, 1]) <= .3)]
+            # Every corner must lie on the ground sheet. A long deck face that
+            # starts at grade and rises over a lower walkway has an at-grade
+            # centroid, but it does not cover the ground below its raised part.
+            corners = t.reshape(-1, 3)
+            y = source.cast(corners[:, [0, 2]], corners[:, 1]).reshape(-1, 3)
+            t = t[np.all(np.isfinite(y) & (abs(y - t[:, :, 1]) <= .3), axis=1)]
         parts.extend(shapely.polygons(t[:, :, [0, 2]]))
     return shapely.union_all(parts)
 
@@ -72,13 +79,11 @@ def mesh_bounds(mesh):
 def resolve(reference, dry, solid, structures, decks, openings, excluded):
     original_count = len(dry.indices)
     dry = clean(dry)
-    # Structures > stair/deck floors > paving > fallback terrain. Paving/terrain
-    # already share one constrained material mesh; resolve actual structural top
-    # coverage, including the portions lost when landing cuts were too generous.
+    # Structures > stair/deck floors > paving > fallback terrain: emitted floors
+    # own their footprint, so fallback terrain never fills beneath them. Ground
+    # emitted by earlier stages is kept as it is.
     occupied = floor_coverage(structures, reference)
     occupied = occupied.union(floor_coverage(decks, reference, same_sheet=True))
-    dry = stairs.cut_ground(dry, [occupied]) if not occupied.is_empty else dry
-    solid = stairs.cut_ground(solid, [occupied]) if not occupied.is_empty else solid
     domain = footprint(reference).difference(excluded)
     missing = domain.difference(footprint(dry).union(occupied))
     # Preserve all meaningful holes, including long narrow cracks. Microscopic
