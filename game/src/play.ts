@@ -120,10 +120,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (!startScreen.active) void positionHud.copy();
   });
   const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
-  // Developer object editor (localhost; dev/editor/README.md): visual previews and edit sessions, no simulation change.
-  const editor = new ObjectEditor({ scene, camera, renderer, tiles, vegetation: world.vegetation, lights: world.lights, physics, coarse,
-    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }) });
-  Object.assign(window.__game!, { editor });
   const audioGameplay = new GameplayAudio(event => {
     audio.emit(event);
     if (event.type === 'footstep') haptics.footstep(event.material);
@@ -153,6 +149,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
   const traffic = new TrafficClient(physics, parkedVisuals, parkedVehicles, manifest, params.traffic ?? TRAFFIC_CAPS[params.quality],
     params.trafficDensity, world.trafficClock, root);
+  // Developer object editor (localhost; dev/editor/README.md): visual previews and edit sessions, no simulation change.
+  const editor = new ObjectEditor({ scene, camera, renderer, tiles, vegetation: world.vegetation, lights: world.lights, physics, coarse,
+    signals: () => traffic.signals,
+    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }) });
+  Object.assign(window.__game!, { editor });
   traffic.attach(coarse);
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
   const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,

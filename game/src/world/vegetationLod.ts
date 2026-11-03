@@ -90,6 +90,8 @@ interface Draw {
 }
 interface Model {
   sources: { mesh: THREE.InstancedMesh; visible: boolean; shadow: boolean }[];
+  /** Barrier prototypes (fences, walls, hedges, chains, bollards): one instance per generator segment or post. */
+  barriers: { mesh: THREE.InstancedMesh; key: string; tile: string }[];
   draws: Draw[];
   buckets: Bucket[];
 }
@@ -143,7 +145,8 @@ export class VegetationLod {
   private pools = new Map<string, Pool>();
   /** Developer object editor previews (dev/editor): a world matrix per placement id, null hides it. Visual only. */
   private edits = new Map<string, THREE.Matrix4 | null>();
-  private editOriginals = new Map<string, { bucket: Bucket; index: number; matrix: Float32Array }>();
+  /** Original local matrices of edited instances, per bucket and instance (a barrier segment spans many modules). */
+  private editOriginals = new WeakMap<Bucket, Map<number, Float32Array>>();
   private nextDraw = 0;
   private signature: number[] = [];
   private instance = new THREE.Matrix4();
@@ -208,7 +211,7 @@ export class VegetationLod {
 
   private *addSteps(model: THREE.Object3D, library: NatureLibrary): Generator<void> {
     if (this.models.has(model)) return;
-    const data: Model = { sources: [], draws: [], buckets: [] };
+    const data: Model = { sources: [], draws: [], buckets: [], barriers: [] };
     // Collect before adding children: traversal must never revisit generated meshes.
     const fences: { mesh: THREE.InstancedMesh; key: string }[] = [];
     model.traverse(object => {
@@ -266,9 +269,12 @@ export class VegetationLod {
     // Barrier segments (unit prototypes scaled to length x height x thickness) become 2 m kit modules along their
     // length; granite walls also stack 0.6 m courses. Their shadows stay in the tile's shadow batch.
     const offset = new THREE.Vector3(), module = new THREE.Vector3();
+    const tile = String(model.userData.traceId ?? model.uuid);
     for (const { mesh, key } of fences) {
       const byAsset: Placements = new Map();
+      data.barriers.push({ mesh, key, tile });
       for (let i = 0; i < mesh.count; i++) {
+        const segment = `barrier:${tile}:${key}:${i}`;
         if (i % 256 === 0) yield;
         mesh.getMatrixAt(i, matrix);
         matrix.decompose(t, q, s);
@@ -279,7 +285,7 @@ export class VegetationLod {
         for (let j = 0; j < modules; j++) for (let k = 0; k < courses; k++) {
           offset.set(-s.x / 2 + length * (j + 0.5), s.y * k / courses, 0).applyQuaternion(q).add(t);
           module.set(length / (asset.module ?? 2), s.y / courses / asset.height, name === 'hedge' ? s.z / 0.8 : 1);
-          place(byAsset, name, new THREE.Matrix4().compose(offset, q, module), tint, undefined);
+          place(byAsset, name, new THREE.Matrix4().compose(offset, q, module), tint, segment);
         }
       }
       yield* this.commit(data, mesh, mesh, byAsset, library, false);
@@ -304,11 +310,29 @@ export class VegetationLod {
         for (let i = 0; i < bucket.count; i++) {
           const id = bucket.objectIds[i];
           if (typeof id !== 'string') continue;
-          const original = this.editOriginals.get(id);
-          world.multiplyMatrices(root.matrixWorld, original?.bucket === bucket ? local.fromArray(original.matrix) : local.fromArray(bucket.matrices, i * 16));
+          const original = this.editOriginals.get(bucket)?.get(i);
+          world.multiplyMatrices(root.matrixWorld, original ? local.fromArray(original) : local.fromArray(bucket.matrices, i * 16));
           const sy = Math.hypot(world.elements[4], world.elements[5], world.elements[6]);
           const sx = Math.hypot(world.elements[0], world.elements[1], world.elements[2]);
           visit({ id, asset: bucket.draw.asset, matrix: world, height: (asset?.height ?? 8) * sy, radius: (asset?.radius ?? 2) * sx });
+        }
+      }
+    }
+  }
+
+  /** Barrier segments and posts of the drawn tiles (dev/editor): the generator's segment matrix (centre at the
+   *  ground, local X along the segment, scale = length × height × thickness) and a per-tile id. */
+  forEachBarrier(visit: (barrier: { id: string; kind: string; matrix: THREE.Matrix4 }) => void, near?: { x: number; z: number; radius: number }) {
+    const local = new THREE.Matrix4(), world = new THREE.Matrix4();
+    for (const [model, data] of this.models) {
+      if (this.activeTiles.get(model) !== true) continue;
+      for (const { mesh, key, tile } of data.barriers) {
+        mesh.updateWorldMatrix(true, false);
+        for (let i = 0; i < mesh.count; i++) {
+          mesh.getMatrixAt(i, local);
+          world.multiplyMatrices(mesh.matrixWorld, local);
+          if (near && Math.hypot(world.elements[12] - near.x, world.elements[14] - near.z) > near.radius + 30) continue;
+          visit({ id: `barrier:${tile}:${key}:${i}`, kind: key.replace(/^draft_/, ''), matrix: world });
         }
       }
     }
@@ -323,25 +347,27 @@ export class VegetationLod {
 
   private applyEdits(bucket: Bucket, only?: string) {
     const root = bucket.draw.root, inverse = new THREE.Matrix4(), m = new THREE.Matrix4(), p = new THREE.Vector3();
-    let changed = false;
+    let changed = false, saved = this.editOriginals.get(bucket);
     for (let i = 0; i < bucket.count; i++) {
       const id = bucket.objectIds[i];
       if (typeof id !== 'string' || (only !== undefined && id !== only)) continue;
-      const original = this.editOriginals.get(id);
-      if (!this.edits.has(id) && (!original || original.bucket !== bucket)) continue;
-      if (!original || original.bucket !== bucket) this.editOriginals.set(id, { bucket, index: i, matrix: bucket.matrices.slice(i * 16, i * 16 + 16) });
-      const edit = this.edits.get(id);
-      root.updateWorldMatrix(true, false);
+      const edit = this.edits.get(id), original = saved?.get(i);
       if (edit === undefined) {
-        bucket.matrices.set(this.editOriginals.get(id)!.matrix, i * 16);
-        this.editOriginals.delete(id);
-      } else if (edit === null) {
-        m.fromArray(this.editOriginals.get(id)!.matrix);
-        p.setFromMatrixPosition(m);
+        if (!original) continue;
+        bucket.matrices.set(original, i * 16);
+        saved!.delete(i); changed = true;
+        continue;
+      }
+      if (!saved) this.editOriginals.set(bucket, saved = new Map());
+      const source = original ?? bucket.matrices.slice(i * 16, i * 16 + 16);
+      saved.set(i, source);
+      root.updateWorldMatrix(true, false);
+      if (edit === null) {
+        p.setFromMatrixPosition(m.fromArray(source));
         m.makeScale(0, 0, 0).setPosition(p).toArray(bucket.matrices, i * 16);
       } else {
         // local' = root⁻¹ · delta · root · local (the original local matrix, not an earlier preview).
-        m.fromArray(this.editOriginals.get(id)!.matrix).premultiply(root.matrixWorld).premultiply(edit)
+        m.fromArray(source).premultiply(root.matrixWorld).premultiply(edit)
           .premultiply(inverse.copy(root.matrixWorld).invert()).toArray(bucket.matrices, i * 16);
       }
       changed = true;

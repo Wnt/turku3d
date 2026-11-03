@@ -27,6 +27,19 @@ const LAMP_STAGE = {
   missing: 'post records (manifest `lights`, render/lights/tileLights.ts) carry no register/OSM id: match by tile + post base within 0.15 m',
 };
 
+const BARRIER_STAGE = {
+  stage: 'fences (OSM barrier ways and nodes)', code: ['pipeline/turku3d/coarse/fences.py'],
+  rules: ['fences.DEFAULTS: height per barrier kind when OSM has none', 'segment prototypes with matching solid collision boxes'],
+};
+const SIGNAL_STAGE = {
+  stage: 'roads.json signal stop events (generator) + signal-head placement (client)',
+  code: ['pipeline/turku3d/roads/tile_graph.py', 'game/src/traffic/signals.ts'],
+  rules: ['tile_graph.controllers: OSM highway=traffic_signals / crossing=traffic_signals nodes, single-linkage SIGNAL_LINK 35 m = one junction controller',
+    'tile_graph: an undirected signal applies toward a car junction within APPROACH 40 m; traffic_signals:direction picks forward/backward',
+    'signals.signalHeads: one head per signalled direction, at the event, offset lanes.width / 2 + 0.35 m to the right of the approach'],
+  note: 'Signal phases, stop lines and drivers come from the roads graph: a moved head is visual only.',
+};
+
 /** The vegetation owner node (EXT_mesh_gpu_instancing prototype) of a tree id in the resident tile models. */
 function treeOwner(models: Iterable<THREE.Object3D>, id: string): { data: Record<string, unknown>; index: number } | null {
   for (const model of models) {
@@ -62,6 +75,21 @@ export function provenanceOf(e: Editable, models: Iterable<THREE.Object3D>): Rec
         near_water: owner ? (owner.data.instance_near_water as unknown[] | undefined)?.[owner.index] ?? null : null,
         prototype: owner?.data.object_id ?? null },
       missing: ['register attributes (trunk diameter, height class) behind the instance scale'] };
+  }
+  if (e.ref.kind === 'barrier') {
+    const r = e.ref;
+    return { dataset: 'osm', feature: null, generator: BARRIER_STAGE,
+      record: { kind: r.barrier, segment: r.index, length_m: Math.round(r.length * 100) / 100, height_m: Math.round(e.height * 100) / 100,
+        thickness_m: Math.round(r.thickness * 100) / 100 },
+      missing: ['OSM way/node id of the barrier segment (instances carry no ids: match by tile, kind, segment index and centre)'] };
+  }
+  if (e.ref.kind === 'signal') {
+    const h = e.ref.head;
+    return { dataset: 'osm', feature: null, generator: SIGNAL_STAGE,
+      record: { junction: h.controller, approach: h.source ? { edge: h.source.edge, way: h.source.way, s: h.source.s,
+        direction: h.source.direction, lanes: h.source.lanes, highway: h.source.highway } : null,
+        head: h.key, left_turn_head: h.left, facing: { hx: h.hx, hz: h.hz } },
+      missing: ['OSM node id of the traffic_signals node behind the stop event', 'per-head placement on the client (side offset rule)'] };
   }
   const lamp = e.ref.lamp;
   return { dataset: 'lights', feature: null, generator: LAMP_STAGE,

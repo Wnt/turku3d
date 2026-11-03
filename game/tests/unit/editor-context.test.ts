@@ -14,8 +14,10 @@ const raycast: Raycast = async (o, d) => {
   if (d.z < -0.5) { const toi = (o.z + 12) / -d.z; return { toi, point: { x: o.x + d.x * toi, y: o.y, z: -12 }, material: MAT.building }; }
   return null;
 };
-const graph: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [-50, -50, 50, 50], nodes: [],
-  edges: [[0, 1, 2 | (2 << 3), 100, -50, 0, 50, 0], [2, 3, 1, 100, -50, -8, 50, -8]], edgeIds: ['street', 'walk'],
+// Rows hold interior points only (the end points are nodes): the street bends through (0, 0), the walk is straight.
+const graph: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [-50, -50, 50, 50],
+  nodes: [-50, 0, 50, 0, -50, -8, 50, -8],
+  edges: [[0, 1, 2 | (2 << 3), 100, 0, 0], [2, 3, 1, 100]], edgeIds: ['street', 'walk'],
   edgeAttrColumns: ['way', 'width'], edgeAttrs: [[123, 8], [456, 2.5]] };
 
 test('ground under a bench looks through its own collision', async () => {

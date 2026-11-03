@@ -9,6 +9,7 @@ import type { Action, Input } from '../../input';
 import type { VisualTiles } from '../../world/tiles';
 import type { VegetationLod } from '../../world/vegetationLod';
 import type { StreetLights } from '../../render/lights';
+import type { TrafficSignals } from '../../traffic/signals';
 import type { CoarseTiles } from '../../world/coarseTiles';
 import type { RayHit as PhysicsHit, RayFilter } from '../../physics/protocol';
 import { EditableCatalog, type Editable, type V3 } from './catalog';
@@ -31,6 +32,8 @@ export interface EditorHosts {
   tiles: VisualTiles;
   vegetation: () => VegetationLod | null;
   lights: StreetLights | null;
+  /** Drawn traffic-signal heads (TrafficClient.signals). */
+  signals?: () => TrafficSignals | null;
   physics: { raycast(origin: V3, dir: V3, far: number, filter?: RayFilter): Promise<PhysicsHit | null> };
   coarse: CoarseTiles | null;
   /** Ambient facts for session.json (backend, viewport…). */
@@ -110,8 +113,8 @@ export class ObjectEditor {
     this.enabled = enabled;
     this.store = hosts.store ?? defaultStore();
     this.transport = hosts.transport ?? httpTransport();
-    this.catalog = new EditableCatalog(() => hosts.vegetation(), () => hosts.lights);
-    this.previews = new Previews({ vegetation: () => hosts.vegetation(), lights: hosts.lights });
+    this.catalog = new EditableCatalog(() => hosts.vegetation(), () => hosts.lights, 150, () => hosts.signals?.() ?? null);
+    this.previews = new Previews({ vegetation: () => hosts.vegetation(), lights: hosts.lights, signals: () => hosts.signals?.() ?? null });
     this.shots = new FrameShots(() => hosts.renderer.domElement);
     this.raycast = async (origin, dir, far) => {
       const hit = await hosts.physics.raycast(origin, dir, far, 'solid');
@@ -215,7 +218,9 @@ export class ObjectEditor {
     const state = this.previews.states.get(e.key);
     if (!state) return e;
     if (state.deleted) return null;
-    return { ...e, base: { ...state.after }, yawDeg: e.yawDeg === null ? null : e.yawDeg + state.turnDeg };
+    const m = e.anchors ? previewMatrix(state) : null, v = new THREE.Vector3();
+    return { ...e, base: { ...state.after }, yawDeg: e.yawDeg === null ? null : e.yawDeg + state.turnDeg,
+      anchors: e.anchors?.map(a => { v.set(a.x, a.y, a.z).applyMatrix4(m!); return { x: v.x, y: v.y, z: v.z }; }) };
   }
 
   private pick(now: number) {
@@ -502,7 +507,7 @@ export class ObjectEditor {
     (h.material as THREE.LineBasicNodeMaterial).color.setHex(this.held ? 0xffb347 : 0x5ef0ff);
     h.position.set(target.base.x, target.base.y, target.base.z);
     h.rotation.set(0, (target.yawDeg ?? 0) / DEG, 0);
-    h.scale.set(target.radius, target.height, target.radius);
+    h.scale.set(target.halfLength ?? target.radius, target.height, target.radius);
     h.updateMatrix(); h.updateMatrixWorld(true);
   }
 

@@ -3,14 +3,17 @@
 // and street-light posts of StreetLights (post records). Read-only: previews live in preview.ts.
 import * as THREE from 'three/webgpu';
 import type { Lamp } from '../../render/lights/lampField';
+import type { SignalHead } from '../../traffic/signals';
 
-export type EditCategory = 'prop' | 'tree' | 'lamp';
+export type EditCategory = 'prop' | 'tree' | 'lamp' | 'signal' | 'barrier';
 export interface V3 { x: number; y: number; z: number }
 
 /** A prop row inside a merged batch mesh: indices [start, start + count). */
 export interface PropRef { kind: 'prop'; mesh: THREE.Mesh; start: number; count: number; row: Record<string, unknown>; rowIndex: number }
 export interface TreeRef { kind: 'tree'; asset: string; matrix: THREE.Matrix4 }
 export interface LampRef { kind: 'lamp'; lamp: Lamp; index: number }
+export interface SignalRef { kind: 'signal'; head: SignalHead }
+export interface BarrierRef { kind: 'barrier'; barrier: string; index: number; length: number; thickness: number }
 
 export interface Editable {
   /** Stable across reloads and passes of the same generation: category, tile and source placement id. */
@@ -29,8 +32,11 @@ export interface Editable {
   radius: number;
   /** Original yaw (deg, three.js rotation.y) and where it came from. */
   yawDeg: number | null;
-  yawSource: 'record' | 'instance' | 'estimate-axis' | 'unknown';
-  ref: PropRef | TreeRef | LampRef;
+  yawSource: 'record' | 'instance' | 'estimate-axis' | 'approach' | 'unknown';
+  ref: PropRef | TreeRef | LampRef | SignalRef | BarrierRef;
+  /** Long things (barrier segments): pick points along them, and the half length the highlight spans. */
+  anchors?: V3[];
+  halfLength?: number;
 }
 
 const DEG = 180 / Math.PI;
@@ -118,7 +124,37 @@ export function lampEditable(tile: string, lamp: Lamp, index: number): Editable 
     yawDeg: Math.round(lamp.yaw * DEG * 10) / 10, yawSource: 'record', ref: { kind: 'lamp', lamp, index } };
 }
 
-export interface TreeSource {
+/** One traffic-signal head (traffic/signals.ts, from a roads.json stop event) as an editable: its pole base. */
+export function signalEditable(tile: string, head: SignalHead): Editable {
+  return { key: `signal:${tile}:${head.key}`, category: 'signal', type: head.left ? 'traffic_signal_left_turn' : 'traffic_signal', tile,
+    objectId: `signal:${head.key}`, base: { x: head.x, y: head.y, z: head.z }, height: 3.6, radius: 0.35,
+    yawDeg: Math.round(Math.atan2(-head.hx, -head.hz) * DEG * 10) / 10, yawSource: 'approach', ref: { kind: 'signal', head } };
+}
+export interface SignalSource { forEachHead(visit: (tile: string, head: SignalHead) => void): void }
+
+/** One barrier segment or post (VegetationLod.forEachBarrier: the generator's segment matrix, coarse/fences.py). */
+export function barrierEditable(b: { id: string; kind: string; matrix: THREE.Matrix4 }): Editable {
+  const t = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+  b.matrix.decompose(t, q, s);
+  const along = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+  const length = Math.max(0.05, s.x), height = Math.max(0.2, s.y), thickness = Math.max(0.05, s.z);
+  const [, tile, , index] = b.id.match(/^barrier:([^:]+):(.+):(\d+)$/)?.slice(0) ?? [];
+  // About every 0.6 m (twice the pick radius), at most 60 points.
+  const steps = Math.min(60, Math.max(1, Math.ceil(length / 0.6)));
+  const anchors = length > 2 ? Array.from({ length: steps + 1 }, (_, k) => {
+    const f = -length / 2 + length * k / steps;
+    return { x: t.x + along.x * f, y: t.y, z: t.z + along.z * f };
+  }) : undefined;
+  const tileId = tile ?? tileOf(t.x, t.z);
+  return { key: `barrier:${tileId}:${b.id}`, category: 'barrier', type: b.kind, tile: tileId, objectId: b.id,
+    base: { x: t.x, y: t.y, z: t.z }, height, radius: Math.min(1.5, Math.max(0.3, length > 2 ? thickness / 2 + 0.25 : length / 2 + 0.2)),
+    yawDeg: Math.round(Math.atan2(-along.z, along.x) * DEG * 10) / 10, yawSource: 'instance',
+    ref: { kind: 'barrier', barrier: b.kind, index: Number(index ?? -1), length, thickness },
+    anchors, halfLength: Math.max(length / 2, 0.3) };
+}
+export interface BarrierSource { forEachBarrier(visit: (b: { id: string; kind: string; matrix: THREE.Matrix4 }) => void, near?: { x: number; z: number; radius: number }): void }
+
+export interface TreeSource extends Partial<BarrierSource> {
   forEachTree(visit: (tree: { id: string; asset: string; matrix: THREE.Matrix4; height: number; radius: number }) => void,
     near?: { x: number; z: number; radius: number }): void;
 }
@@ -132,7 +168,8 @@ export class EditableCatalog {
   private refreshedAt = -Infinity;
   private at = { x: Infinity, z: Infinity };
 
-  constructor(private trees: () => TreeSource | null, private lamps: () => LampSource | null, readonly reach = 150) {}
+  constructor(private trees: () => TreeSource | null, private lamps: () => LampSource | null, readonly reach = 150,
+    private signals: () => SignalSource | null = () => null) {}
 
   /** Register a tile model (distant scenery models have no editables); `scan` indexes its props now and returns them. */
   addModel(model: THREE.Object3D, scan = false): Editable[] {
@@ -156,9 +193,17 @@ export class EditableCatalog {
       const dx = tree.matrix.elements[12] - x, dz = tree.matrix.elements[14] - z;
       if (dx * dx + dz * dz <= reach2) out.push(treeEditable(tree));
     }, { x, z, radius: this.reach + 30 });
+    this.trees()?.forEachBarrier?.(b => out.push(barrierEditable(b)), { x, z, radius: this.reach });
     this.lamps()?.forEachPost((tile, lamp, index) => {
       const dx = lamp.x - x, dz = lamp.z - z;
       if (dx * dx + dz * dz <= reach2) out.push(lampEditable(tile, lamp, index));
+    });
+    // A head on a seam is listed by both tiles' roads: the first tile (as TrafficSignals draws it) owns it.
+    const heads = new Set<string>();
+    this.signals()?.forEachHead((tile, head) => {
+      const dx = head.x - x, dz = head.z - z;
+      if (dx * dx + dz * dz > reach2 || heads.has(head.key)) return;
+      heads.add(head.key); out.push(signalEditable(tile, head));
     });
     this.dynamic = out;
   }

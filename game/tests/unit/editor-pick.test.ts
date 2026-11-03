@@ -144,3 +144,19 @@ test('restoring a tree or post preview needs no resident editable (session close
   previews.set('tree:t0_0_0:lidar:12.5:40.25', null);
   expect(trees.at(-1)).toEqual(['lidar:12.5:40.25', undefined]);
 });
+
+test('a barrier segment picks anywhere along it, highlights its length and resolves to its tile, kind and index', async () => {
+  const { barrierEditable } = await import('../../src/dev/editor/catalog');
+  // A 12 m fence along x centred at (20, 0, -10), 1.6 m high, 0.1 m thick.
+  const matrix = new THREE.Matrix4().compose(new THREE.Vector3(20, 0, -10), new THREE.Quaternion(), new THREE.Vector3(12, 1.6, 0.1));
+  const e = barrierEditable({ id: 'barrier:t0_0_-1:draft_fence:7', kind: 'fence', matrix });
+  expect(e).toMatchObject({ key: 'barrier:t0_0_-1:barrier:t0_0_-1:draft_fence:7', category: 'barrier', type: 'fence', tile: 't0_0_-1',
+    halfLength: 6, ref: { kind: 'barrier', index: 7 } });
+  expect(e.anchors!.length).toBeGreaterThan(8);
+  // Looking at its east end from the south: the centre is 5.5 m off the ray, an anchor is on it.
+  const hits = pickCandidates({ x: 25.5, y: 1.6, z: 0 }, { x: 0, y: 0, z: -1 }, [e]);
+  expect(hits.length).toBe(1); expect(hits[0].miss).toBe(0); expect(hits[0].t).toBeCloseTo(10, 0);
+  const post = barrierEditable({ id: 'barrier:t0_0_-1:draft_bollard:0', kind: 'bollard',
+    matrix: new THREE.Matrix4().compose(new THREE.Vector3(1, 0, 1), new THREE.Quaternion(), new THREE.Vector3(0.2, 0.9, 0.2)) });
+  expect(post.anchors).toBeUndefined(); expect(post.radius).toBeCloseTo(0.3);
+});

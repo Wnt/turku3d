@@ -2,7 +2,7 @@
 // so instanced trees, merged prop batches and client-drawn posts pick the same way, by their source placement.
 import type { V3 } from './catalog';
 
-export interface Pickable { key: string; base: V3; height: number; radius: number }
+export interface Pickable { key: string; base: V3; height: number; radius: number; /** Pick points along a long object. */ anchors?: V3[] }
 export interface Candidate<T extends Pickable> { item: T; /** Ray distance (m) to the closest approach. */ t: number;
   /** Angle (rad) by which the ray misses the cylinder; 0 when it passes through. */ miss: number }
 
@@ -38,7 +38,11 @@ export function pickCandidates<T extends Pickable>(o: V3, d: V3, items: Iterable
   far: number = PICK.far, slack: number = PICK.slack): Candidate<T>[] {
   const out: Candidate<T>[] = [];
   for (const item of items) {
-    const { t, distance } = rayToVertical(o, d, item.base, item.height);
+    let { t, distance } = rayToVertical(o, d, item.base, item.height);
+    for (const anchor of item.anchors ?? []) {
+      const hit = rayToVertical(o, d, anchor, item.height);
+      if (hit.distance / Math.max(hit.t, 0.05) < distance / Math.max(t, 0.05)) ({ t, distance } = hit);
+    }
     if (t <= 0.05 || t > far) continue;
     if (occluder !== null && t - item.radius > occluder + PICK.behind) continue;
     const miss = Math.max(0, distance - item.radius) / t;

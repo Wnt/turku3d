@@ -58,6 +58,8 @@ interface PropPreview { ref: PropRef; saved: ArrayLike<number>; copy: THREE.Mesh
 export interface PreviewHosts {
   vegetation: () => { setEdit(id: string, delta: THREE.Matrix4 | null | undefined): void } | null;
   lights: { setEdit(key: string, edit: LampEdit | null | undefined): void } | null;
+  /** Traffic-signal heads (traffic/signals.ts): drawn pose only, phases keep the roads' head. */
+  signals?: () => { setEdit(key: string, pose: { x: number; y: number; z: number; yaw: number } | null | undefined): void } | null;
 }
 
 export class Previews {
@@ -73,10 +75,13 @@ export class Previews {
     // Keys are `category:tile:objectId`: a restore needs no resident editable.
     const category = state?.category ?? previous?.category ?? key.split(':')[0];
     const objectId = state?.objectId ?? previous?.objectId ?? editable?.objectId ?? key.split(':').slice(2).join(':');
-    if (category === 'tree' && objectId) this.hosts.vegetation()?.setEdit(objectId, state ? (state.deleted ? null : previewMatrix(state)) : undefined);
+    if ((category === 'tree' || category === 'barrier') && objectId) this.hosts.vegetation()?.setEdit(objectId, state ? (state.deleted ? null : previewMatrix(state)) : undefined);
     else if (category === 'lamp') {
       const lampKey = (state?.objectId ?? objectId ?? '').replace(/^post:/, '');
       this.hosts.lights?.setEdit(lampKey, state ? (state.deleted ? null : { ...state.after, yaw: ((state.originalYawDeg ?? 0) + state.turnDeg) * Math.PI / 180 }) : undefined);
+    } else if (category === 'signal') {
+      const headKey = (state?.objectId ?? objectId ?? '').replace(/^signal:/, '');
+      this.hosts.signals?.()?.setEdit(headKey, state ? (state.deleted ? null : { ...state.after, yaw: ((state.originalYawDeg ?? 0) + state.turnDeg) * Math.PI / 180 }) : undefined);
     } else if (category === 'prop') {
       if (editable?.ref.kind === 'prop') this.applyProp(key, editable.ref);
       else if (!state) this.releaseProp(key);

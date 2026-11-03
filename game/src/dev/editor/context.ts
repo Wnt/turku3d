@@ -61,9 +61,13 @@ export function nearestRoads(graphs: readonly RoadGraphJson[], x: number, z: num
     const widthColumn = g.edgeAttrColumns?.indexOf('width') ?? -1, wayColumn = g.edgeAttrColumns?.indexOf('way') ?? -1;
     g.edges.forEach((row, i) => {
       const bits = row[2] ?? 0, foot = !!(bits & 1), car = !!(bits & 2);
+      // The row holds the interior points; its end points are the nodes a and b.
+      const a = row[0], b = row[1];
+      const line = [g.nodes[2 * a], g.nodes[2 * a + 1], ...row.slice(4), g.nodes[2 * b], g.nodes[2 * b + 1]];
+      if (line.some(v => !Number.isFinite(v))) return;
       let best = Infinity, bx = 0, bz = 0, sx = 0, sz = 0, cross = 0;
-      for (let k = 4; k + 3 < row.length; k += 2) {
-        const ax = row[k], az = row[k + 1], cx = row[k + 2], cz = row[k + 3];
+      for (let k = 0; k + 3 < line.length; k += 2) {
+        const ax = line[k], az = line[k + 1], cx = line[k + 2], cz = line[k + 3];
         const dx = cx - ax, dz = cz - az, l2 = dx * dx + dz * dz;
         const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)) : 0;
         const px = ax + dx * t, pz = az + dz * t, d = Math.hypot(x - px, z - pz);

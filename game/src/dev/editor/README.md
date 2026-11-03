@@ -1,7 +1,8 @@
 # Object editor (developer, localhost)
 
-Point the camera at a tree, sign, bench, bin, bike rack or street-light post, pick it and move, turn, lift or
-delete it with the gamepad. Every committed edit goes into an **edit session** for an agent to turn into generator
+Point the camera at a tree, sign, bench, bin, bike rack, bus stop, street-light post, traffic signal, fence, wall,
+hedge or bollard, pick it and move, turn, lift or delete it with the gamepad (parked cars are not editable:
+EDIT-FORMAT.md §10). Every committed edit goes into an **edit session** for an agent to turn into generator
 rules (format and incorporation contract: `~/turku3d/loops/editor/EDIT-FORMAT.md`; reader:
 `scripts/dev/edit_sessions.py list | effective | clusters`). Edits show at once as local
 **previews** only: no tile, collision, physics body, breakable-pole state or multiplayer message changes, so other
@@ -11,7 +12,7 @@ players never see them. On by default on localhost (`?editor=0` turns it off; `?
 |---|---|
 | `index.ts` | `ObjectEditor`: per-frame `handle(input)` (after `Input.update`) and `update(now)` (before render), wiring |
 | `state.ts` | `EditorMachine`: the input state machine (frame of editor actions in, commands out); the mapping |
-| `catalog.ts` | Editables of the drawn tiles resolved to source placements: prop rows of merged batches, tree instances, posts |
+| `catalog.ts` | Editables of the drawn tiles resolved to source placements: prop rows of merged batches, tree instances, posts, traffic-signal heads (`traffic/signals.ts`), barrier segments (`VegetationLod.forEachBarrier`) |
 | `pick.ts` | Centre-ray picking against vertical cylinders, candidate ordering and L1/R1 cycling |
 | `preview.ts` | Visual previews: prop index range degenerated in place + a detached copy; trees and posts via their owners |
 | `session.ts` | `EditSession`: rows, undo, localStorage restore and outbox, flush to the dev server |
@@ -61,7 +62,9 @@ Props: the row's index range in the merged batch becomes degenerate (other rows 
 light scans read the same ranges) and a compact copy of its vertices draws at the new transform with the batch's
 material. A model that leaves restores its batch, and the preview reapplies when it loads again. The tile's merged
 shadow batch still casts the old shadow, and collision and breakable-pole bodies stay at the generator's position.
-Trees: `VegetationLod.setEdit(id, delta)`; posts: `StreetLights.setEdit(key, {x, y, z, yaw})` (corona and pool follow).
+Trees and barrier segments: `VegetationLod.setEdit(id, delta)`; posts: `StreetLights.setEdit(key, {x, y, z, yaw})`
+(corona and pool follow); signal heads: `TrafficSignals.setEdit(key, pose)` (phases, stop lines and drivers keep the
+roads' head).
 
 ## Tests
 
