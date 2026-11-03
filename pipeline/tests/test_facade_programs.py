@@ -547,8 +547,8 @@ def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(m
     assert glazed["module"] // 6 == 5 and glazed["opening"][0] >= 0.97
     assert glazed["opening"][1] + glazed["opening"][2] >= 0.98 and abs(glazed["bay"] - 2.14) < 0.05
     # A panel-clad blank wall carries its joint grid in the opening slot.
-    p["walls"][0]["panel_grid"] = dict(value=[1.5, 1.4, 0.025], source="test", support=0.6)
-    assert compile_wall(p["walls"][0], 4)["opening"] == [1.5, 1.4, 0.025, -1.0]
+    p["walls"][0]["panel_grid"] = dict(value=[2.23, 1.22, 0.03], source="test", support=0.6)
+    assert compile_wall(p["walls"][0], 4)["opening"] == [2.23, 1.22, 0.03, -1.0]
 
 
 def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints():
@@ -565,9 +565,9 @@ def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints(
     facade_monolith.reviewed_wall(wall, reading, 2, True, m)
     ribbon = wall["render_sections"][1]
     assert ribbon["rhythm"] == "ribbon" and ribbon["count"] is None and ribbon["kind"] == "window"
-    assert ribbon["bounds"] == [0.0, 0.0, 1.0, 0.25]  # narrow strip at the base, full width
+    assert ribbon["bounds"] == [0.0, 0.0, 1.0, 1 / 3]  # narrow strip at the base, full width
     assert len(wall["render_sections"]) == 2  # doors and foreground structures are not glazing
-    assert wall["panel_grid"]["value"] == [1.5, 1.4, 0.025]
+    assert wall["panel_grid"]["value"] == [2.23, 1.22, 0.03]
 
 
 def test_monolith_channel_glass_reading_becomes_tinted_profiled_cladding():

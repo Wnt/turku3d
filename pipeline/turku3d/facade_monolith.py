@@ -150,6 +150,9 @@ GLAZING_STRIP = re.compile(r"\b(glazing|glazed|glass)\b.*\b(strip|band|ribbon)\b
 def reviewed_wall(wall, reading, floors, panels, m):
     """Uncounted glazing strips/bands of a reviewed monolith wall become one ribbon each.
 
+    "Narrow" strips keep at most a third of the extent at its named edge: the museum's
+    "narrow recessed" base glazing is measured at 0.4 of its wall under the cantilever.
+
     Blank volumes over recessed glazed bases are read as "lower/middle glazing strip";
     the adapter leaves uncounted openings to the prior, which is blank on a monolith.
     """
@@ -183,11 +186,11 @@ def reviewed_wall(wall, reading, floors, panels, m):
         if not extent:
             continue
         x, y, w, h = extent
-        if "narrow" in text and h > 0.25:
+        if "narrow" in text and h > 1 / 3:
             position = str(section.get("position", "")).lower()
-            y = y + h - 0.25 if re.search(r"upper|top", position) else (
-                y if re.search(r"lower|base|ground", position) else y + (h - 0.25) / 2)
-            h = 0.25
+            y = y + h - 1 / 3 if re.search(r"upper|top", position) else (
+                y if re.search(r"lower|base|ground", position) else y + (h - 1 / 3) / 2)
+            h = 1 / 3
         wall["render_sections"].append(dict(index=index, bounds=[x, y, w, h], material="glass",
                                             kind="window", count=None, rows=1, head="flat",
                                             surround="none", rhythm="ribbon"))

@@ -281,14 +281,15 @@ MASONRY = "massive_masonry"
 #   base course 2.1-2.3 m high at 0.80-0.87 of the render luminance;
 # - full-height frameless curtain walls: panes 2.10-2.14 m wide, thin dark joints, the
 #   glazing above a granite plinth 2.8-5.1 m high (mean 3.9 m) along a sloping street;
-# - pale stone/concrete cladding panels about 1.5 m x 1.4 m with thin dark joints.
+# - pale concrete cladding panels 2.21-2.26 m wide (mean 2.23 m over four spans) and 1.22 m
+#   high (three spans) with ~3 cm dark joints, rectified from a frontal view of the museum box.
 # Blank walls carry no sampled grid, cornice, string course, quoins or arches.
 MONOLITH = "public_monolith"
 MONOLITH_RENDER = "#d9d6cf"
 MONOLITH_GRANITE = "#b6b3ac"
 MONOLITH_BASE_COURSE_M = 2.2
 MONOLITH_CURTAIN = dict(pane_m=2.12, glass=0.975, sill=0.012, plinth_m=3.9, mullion="#3f4447")
-MONOLITH_PANEL = dict(width_m=1.5, height_m=1.4, joint_m=0.025, colour="#d3cabb")
+MONOLITH_PANEL = dict(width_m=2.23, height_m=1.22, joint_m=0.03, colour="#d3cabb")
 # Channel (U-profile) glass measured on the library's translucent panel from the issue camera's
 # Look Around pano: sunlit #bdd4dc, profile lines every 0.15-0.175 m (paired flanges of
 # 0.33 m profiles), one horizontal division per panel half.
