@@ -12,8 +12,10 @@ import time
 import xml.etree.ElementTree as ET
 from recipe import acquisition_recipe
 
+# derived/ (playgrounds) and landmark-descriptions/ are the farm's source overlay: AI facade
+# and landmark descriptions must survive into every city run.
 INPUTS=('raw','textures','facade-assets','facade-params','facade-approvals',
-        'facade-characterization','supplements','regional')
+        'facade-characterization','supplements','regional','derived','landmark-descriptions')
 
 
 def digest(path):
