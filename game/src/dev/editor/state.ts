@@ -1,7 +1,7 @@
 // The editor's input state machine, free of DOM and three.js: one frame of editor actions in, commands out.
 // Mapping (README.md, STATUS): touchpad / L3+R3 / F8 toggles the mode; holding it 1.5 s closes the session.
 //   aiming:  ✕ pick · ○ undo · L1/R1 cycle candidates · hold △ 1 s delete · D-pad picks a reason for 2 s after a commit
-//            · Create toggles the point cloud; hold Create + D-pad ↑↓ opacity, ←→ point size.
+//            · Create toggles the point cloud; hold Create + D-pad ↑↓ opacity, ←→ point size, L1/R1 colour mode.
 //   holding: left stick moves it on the ground (camera-relative) · L2/R2 turn smoothly · L1/R1 turn 15° · D-pad ↑↓
 //            height 5 cm (held: repeats), ←→ turn 1° · □ back onto the ground · ✕ drop (commit) · ○ cancel
 //            · hold △ 1 s delete.
@@ -26,7 +26,7 @@ export type Command =
   | { type: 'move'; right: number; forward: number }
   | { type: 'turn'; radians: number } | { type: 'height'; metres: number } | { type: 'ground' }
   | { type: 'reason'; index: number }
-  | { type: 'lidar'; toggle?: true; opacity?: number; size?: number };
+  | { type: 'lidar'; toggle?: true; opacity?: number; size?: number; colour?: number };
 
 export const EDITOR = {
   /** Hold the toggle this long (s) in the mode to close the session (previews cleared, session.json ended). */
@@ -108,7 +108,11 @@ export class EditorMachine {
     this.lidarHeld = this.lidarDown;
     if (this.lidarDown) {
       const opacity = (f.up ? 0.1 : 0) - (f.down ? 0.1 : 0), size = (f.right ? 1 : 0) - (f.left ? 1 : 0);
-      if (opacity || size) { this.lidarUsed = true; out.push({ type: 'lidar', ...(opacity ? { opacity } : {}), ...(size ? { size } : {}) }); }
+      const colour = (f.next ? 1 : 0) - (f.prev ? 1 : 0);
+      if (opacity || size || colour) {
+        this.lidarUsed = true;
+        out.push({ type: 'lidar', ...(opacity ? { opacity } : {}), ...(size ? { size } : {}), ...(colour ? { colour } : {}) });
+      }
       return out;
     }
 

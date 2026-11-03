@@ -21,7 +21,7 @@ import { STANDING, groundUnder, measureContext, type Raycast } from './context';
 import { provenanceOf } from './provenance';
 import { EditorHud } from './hud';
 import { FrameShots } from './shots';
-import { pointCloudOverlay } from './pointCloudHook';
+import { COLOR_MODES, pointCloudOverlay } from './pointCloudHook';
 import { MATERIALS } from '../../shared/col/materials';
 
 export interface EditorHosts {
@@ -401,7 +401,12 @@ export class ObjectEditor {
     if (c.toggle) cloud.setVisible(!cloud.isVisible());
     if (c.opacity) { if (!cloud.isVisible()) cloud.setVisible(true); cloud.setOpacity(Math.min(1, Math.max(0.05, cloud.getOpacity() + c.opacity))); }
     if (c.size) cloud.setPointSize(Math.min(12, Math.max(1, cloud.getPointSize() + c.size)));
-    this.hud?.notify(`LiDAR ${cloud.isVisible() ? 'on' : 'off'} · ${Math.round(cloud.getOpacity() * 100)} % · ${cloud.getPointSize()} px`, now, 900);
+    if (c.colour && cloud.setColorMode) {
+      const i = COLOR_MODES.indexOf((cloud.getColorMode?.() ?? 'rgb') as typeof COLOR_MODES[number]);
+      cloud.setColorMode(COLOR_MODES[((Math.max(0, i) + c.colour) % COLOR_MODES.length + COLOR_MODES.length) % COLOR_MODES.length]);
+    }
+    const mode = cloud.getColorMode?.();
+    this.hud?.notify(`LiDAR ${cloud.isVisible() ? 'on' : 'off'} · ${Math.round(cloud.getOpacity() * 100)} % · ${cloud.getPointSize()} px${mode ? ` · ${mode}` : ''}`, now, 900);
   }
 
   private restorePreviews() {
@@ -482,7 +487,7 @@ export class ObjectEditor {
       [g('editPick'), 'drop'], [g('editBack'), 'cancel'], [`hold ${g('editDelete')}`, 'delete'],
     ] : [
       [g('editPick'), 'pick'], [`${g('editPrev')}/${g('editNext')}`, 'cycle'], [`hold ${g('editDelete')}`, 'delete'], [g('editBack'), 'undo'],
-      [g('editLidar'), 'LiDAR (hold + ↑↓ ←→)'], [g('editToggle'), 'exit · hold: close session'],
+      [g('editLidar'), 'LiDAR (hold: ↑↓ opacity ←→ size L1/R1 colour)'], [g('editToggle'), 'exit · hold: close session'],
     ];
     const s = this.session;
     const cloud = pointCloudOverlay();

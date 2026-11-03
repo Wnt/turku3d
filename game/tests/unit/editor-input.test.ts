@@ -157,3 +157,17 @@ describe('editor state machine through a mocked Gamepad API', () => {
     input.dispose();
   });
 });
+
+test('holding Create adjusts the point cloud (D-pad, L1/R1) without toggling it; a plain press toggles', () => {
+  const machine = new EditorMachine();
+  machine.active = true;
+  const f = (over: Partial<EditorFrame>): EditorFrame => ({ dt: 1 / 60, toggle: false, pick: false, back: false, prev: false, next: false, delete: false,
+    ground: false, turnLeft: 0, turnRight: 0, up: false, down: false, left: false, right: false, lidar: false, moveX: 0, moveY: 0, ...over });
+  expect(machine.step(f({ lidar: true }))).toEqual([]);
+  expect(machine.step(f({ lidar: true, up: true }))).toEqual([{ type: 'lidar', opacity: 0.1 }]);
+  expect(machine.step(f({ lidar: true, next: true }))).toEqual([{ type: 'lidar', colour: 1 }]);
+  expect(machine.step(f({ lidar: true, prev: true }))).toEqual([{ type: 'lidar', colour: -1 }]); // not a candidate cycle
+  expect(machine.step(f({}))).toEqual([]);
+  machine.step(f({ lidar: true }));
+  expect(machine.step(f({}))).toEqual([{ type: 'lidar', toggle: true }]);
+});

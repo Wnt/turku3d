@@ -5,7 +5,6 @@
 export interface PointCloudEvidence {
   /** Points within the query radius, the highest above the ground and optional per-class counts (ASPRS codes). */
   count: number; maxHeightM: number; classes?: Record<string, number>;
-  [extra: string]: unknown;
 }
 
 export interface PointCloudOverlay {
@@ -19,16 +18,24 @@ export interface PointCloudOverlay {
   getPointSize(): number;
   /** Evidence near a ground position (engine metres: x east, z south) for an edit's context; null when unloaded there. */
   queryNear?(x: number, z: number, radiusM: number): PointCloudEvidence | null | Promise<PointCloudEvidence | null>;
+  /** Optional extras the editor binds when present (lidarpc's PointCloudOverlayApi has them). */
+  setColorMode?(mode: string): void;
+  getColorMode?(): string;
+  setOcclusion?(on: boolean): void;
 }
 
-declare global { interface Window { __turku3dPointCloud?: PointCloudOverlay } }
+/** Colour modes cycled with Create + L1/R1 when the overlay offers them. */
+export const COLOR_MODES = ['rgb', 'classification', 'elevation', 'intensity'] as const;
 
 let overlay: PointCloudOverlay | null = null;
 
 /** Called by the overlay when it is ready (or with null when it goes away). */
 export function registerPointCloudOverlay(next: PointCloudOverlay | null) { overlay = next; }
 
-/** The registered overlay, or one published on `window.__turku3dPointCloud`. */
+/** The registered overlay, or one published on `window.__turku3dPointCloud` (the overlay's module declares that global;
+ *  this side only reads it structurally, so the two declarations never clash). */
 export function pointCloudOverlay(): PointCloudOverlay | null {
-  return overlay ?? (typeof window !== 'undefined' ? window.__turku3dPointCloud ?? null : null);
+  if (overlay) return overlay;
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { __turku3dPointCloud?: PointCloudOverlay }).__turku3dPointCloud ?? null;
 }
