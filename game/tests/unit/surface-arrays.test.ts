@@ -43,7 +43,8 @@ function tile() {
   const asphalt = surfaceMaterial('asphalt', 1);
   root.add(surfaceMesh('draft_asphalt_worn', asphalt, 0), surfaceMesh('draft_asphalt_worn', asphalt, 2, [{ object_id: 'road:1', start: 0, count: 6 }]),
     surfaceMesh('draft_granite_curb', surfaceMaterial('granite', 4), 4), surfaceMesh('draft_concrete_slabs', surfaceMaterial('slabs', 7), 6),
-    surfaceMesh('draft_grass', surfaceMaterial('grass', 10), 8), surfaceMesh('draft_fieldstone', surfaceMaterial('fieldstone', 13, 64), 10));
+    surfaceMesh('draft_grass', surfaceMaterial('grass', 10), 8), surfaceMesh('draft_fieldstone', surfaceMaterial('fieldstone', 13, 64), 10),
+    surfaceMesh('draft_gravel', surfaceMaterial('gravel', 16), 12));
   return { model, root };
 }
 function world() {
@@ -61,8 +62,12 @@ test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arr
   const a = tile();
   styler.apply(a.model);
   const names = a.root.children.map(child => (child as THREE.Mesh).userData.material_key ?? child.name);
-  expect(names).toEqual(['draft_grass', 'draft_fieldstone', 'surface-array']); // grass: no wet film; fieldstone: other texture size
-  const merged = a.root.children.at(-1) as THREE.Mesh;
+  // Wet surfaces in one draw, grass and gravel (no wet film) in another; fieldstone has another texture size.
+  expect(names).toEqual(['draft_fieldstone', 'surface-array', 'surface-array-dry']);
+  const merged = a.root.children.find(child => child.name === 'surface-array') as THREE.Mesh;
+  const dry = a.root.children.find(child => child.name === 'surface-array-dry') as THREE.Mesh;
+  expect([...new Set(dry.geometry.getAttribute(SURFACE_LAYER).array as Float32Array)]).toEqual([3, 4]);
+  expect((dry.material as THREE.MeshStandardNodeMaterial).userData.weatherWetness).toBeUndefined();
   const layers = [...(merged.geometry.getAttribute(SURFACE_LAYER).array as Float32Array)];
   expect(layers).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]); // the two asphalt meshes share one layer
   expect([...merged.geometry.index!.array]).toEqual([0, 2, 1, 1, 2, 3, 4, 6, 5, 5, 6, 7, 8, 10, 9, 9, 10, 11, 12, 14, 13, 13, 14, 15]);
@@ -74,25 +79,25 @@ test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arr
   const albedo = (styler as unknown as { surfaces: { arrays: THREE.CompressedArrayTexture[] } }).surfaces.arrays[0];
   const slice = albedo.mipmaps[1].data as Uint8Array, level = 16 * 16;
   expect(slice[level * 1]).toBe((4 * 16 + 1) & 255); // layer 1 (granite), mip 1
-  expect(albedo.image.depth).toBe(4); expect(albedo.repeat.toArray()).toEqual([0.5, 0.5]);
+  expect(albedo.image.depth).toBe(8); expect(albedo.repeat.toArray()).toEqual([0.5, 0.5]); // 5 layers: capacity 8
 
   // A second tile with its own texture objects for the same assets adds no layer and shares the program.
   const b = tile();
   styler.apply(b.model);
-  const other = b.root.children.at(-1) as THREE.Mesh;
+  const other = b.root.children.find(child => child.name === 'surface-array') as THREE.Mesh;
   expect(other.material).toBe(material);
-  expect((styler as unknown as { surfaces: { layers: number } }).surfaces.layers).toBe(3);
+  expect((styler as unknown as { surfaces: { layers: number } }).surfaces.layers).toBe(5);
 
   styler.release(a.model);
   expect(a.root.children.map(child => (child as THREE.Mesh).userData.material_key).sort())
-    .toEqual(['draft_asphalt_worn', 'draft_asphalt_worn', 'draft_concrete_slabs', 'draft_fieldstone', 'draft_granite_curb', 'draft_grass']);
-  expect(a.root.children.some(child => child.name === 'surface-array')).toBe(false);
+    .toEqual(['draft_asphalt_worn', 'draft_asphalt_worn', 'draft_concrete_slabs', 'draft_fieldstone', 'draft_granite_curb', 'draft_grass', 'draft_gravel']);
+  expect(a.root.children.some(child => child.name.startsWith('surface-array'))).toBe(false);
 });
 
 test('the merged surface material builds a WebGPU program with r186\'s CPU builder', () => {
   const { renderer, scene, styler } = world();
   const a = tile(); styler.apply(a.model); scene.add(a.model);
-  const merged = a.root.children.at(-1) as THREE.Mesh, material = merged.material as THREE.NodeMaterial;
+  const merged = a.root.children.find(child => child.name === 'surface-array') as THREE.Mesh, material = merged.material as THREE.NodeMaterial;
   type Builder = NodeBuilder & { build(): void; fragmentShader: string };
   const nodes = new NodeManager(renderer, renderer.backend) as { _createNodeBuilder(draw: object, material: THREE.Material): Builder };
   const lightsNode = renderer.lighting.getNode(scene);
@@ -100,4 +105,8 @@ test('the merged surface material builds a WebGPU program with r186\'s CPU build
   builder.build();
   expect(builder.fragmentShader).toMatch(/texture_2d_array/);
   expect(builder.fragmentShader.length).toBeGreaterThan(1000);
+  const dry = a.root.children.find(child => child.name === 'surface-array-dry') as THREE.Mesh;
+  const dryBuilder = nodes._createNodeBuilder({ object: dry, material: dry.material, scene, camera: new THREE.PerspectiveCamera(), lightsNode, clippingContext: null }, dry.material as THREE.Material);
+  dryBuilder.build();
+  expect(dryBuilder.fragmentShader).toMatch(/texture_2d_array/);
 });

@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, float, int, mix, normalMap, positionWorld, select, texture, uniformArray, vec2, vec4 } from 'three/tsl';
+import { attribute, float, int, mix, normalMap, positionWorld, select, texture, uniformArray, vec2, vec3, vec4 } from 'three/tsl';
 import { QUALITY, type QualityTier } from './quality';
 import { wetSurface } from './weather/surfaces';
 
@@ -16,7 +16,7 @@ export const SURFACE_LAYER = '_surface_layer';
 const MAX_LAYERS = 64;
 
 type Compressed = THREE.CompressedTexture & { mipmaps: { data: ArrayBufferView; width: number; height: number }[] };
-export interface SurfaceSlice { key: string; maps: [Compressed, Compressed, Compressed]; grain: number;
+export interface SurfaceSlice { key: string; maps: [Compressed, Compressed, Compressed]; grain: number; wet: boolean; patches: number;
   color: THREE.Color; roughness: number; metalness: number; ao: number; normalScale: THREE.Vector2 }
 
 const ATTRIBUTES = ['color_1', 'normal', 'position', 'uv'];
@@ -31,12 +31,18 @@ const transform = (t: THREE.Texture) => [...t.offset.toArray(), ...t.repeat.toAr
 const layout = (t: Compressed) => JSON.stringify([t.format, t.type, t.colorSpace, t.wrapS, t.wrapT, t.magFilter, t.minFilter, t.flipY,
   t.mipmaps.map(m => [m.width, m.height, m.data.byteLength]), transform(t)]);
 
-/** The slice for a mesh whose material MaterialStyler would style as a wet library surface; null keeps it apart. */
+/** The slice for a mesh whose material MaterialStyler styles as a library surface; null keeps it apart.
+ * Wet: asphalt, granite and cobbles (grain) and wet standard surfaces; dry: grass (grain and colour patches,
+ * no wet film or ground lamp light) and plain standard surfaces such as gravel (MaterialStyler leaves them as is). */
 export function surfaceSlice(mesh: THREE.Mesh, kind: string, key: string): SurfaceSlice | null {
   const material = mesh.material as THREE.MeshStandardMaterial;
   if (Array.isArray(mesh.material) || !material.isMeshStandardMaterial || (material as unknown as THREE.NodeMaterial).isNodeMaterial) return null;
-  const grain = GRAIN[kind] ?? (kind === 'standard' && WET_STANDARD.test(key) ? 0 : -1);
-  if (grain < 0 || key.startsWith('night_') || key === 'draft_quay_stone_lit' || key === 'facade_kit') return null;
+  if (key.startsWith('night_') || key === 'draft_quay_stone_lit' || key === 'facade_kit') return null;
+  let grain = 0, wet = false, patches = 0;
+  if (GRAIN[kind] !== undefined) { grain = GRAIN[kind]; wet = true; }
+  else if (kind === 'grass') { grain = 1.4; patches = 1; }
+  else if (kind === 'standard') wet = WET_STANDARD.test(key);
+  else return null;
   if (material.transparent || material.alphaTest > 0 || material.side !== THREE.FrontSide || material.vertexColors
     || material.emissiveMap || material.lightMap || material.bumpMap || material.displacementMap || material.alphaMap
     || material.emissive.getHex() !== 0 || material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) return null;
@@ -49,7 +55,7 @@ export function surfaceSlice(mesh: THREE.Mesh, kind: string, key: string): Surfa
   if ((mesh as THREE.InstancedMesh).isInstancedMesh || mesh.children.length) return null;
   if (mesh.userData.prop_type || (mesh.userData.objects as Record<string, unknown>[] | undefined)?.some(row => row.prop_type)) return null;
   return { key: [material.map, material.normalMap, orm].map(t => t.userData.sharedAsset).join('|'), maps: [material.map, material.normalMap, orm],
-    grain, color: material.color.clone(), roughness: material.roughness, metalness: material.metalness,
+    grain, wet, patches, color: material.color.clone(), roughness: material.roughness, metalness: material.metalness,
     ao: material.aoMap ? material.aoMapIntensity : 0, normalScale: material.normalScale.clone() };
 }
 
@@ -62,10 +68,10 @@ export class SurfaceArrays {
   private nodes: ReturnType<typeof texture>[] = [];
   private factors = [Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()), Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()),
     Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4())];
-  private material: THREE.MeshStandardNodeMaterial | null = null;
+  private materials = new Map<boolean, THREE.MeshStandardNodeMaterial>();
   constructor(private tier: QualityTier, private detail: THREE.Texture) {}
 
-  owns(material: THREE.Material) { return material === this.material; }
+  owns(material: THREE.Material) { return [...this.materials.values()].includes(material as THREE.MeshStandardNodeMaterial); }
   get layers() { return this.slices.length; }
 
   /** The array layer of a slice, adding it (and growing the arrays) when new; null if its layout differs. */
@@ -80,7 +86,7 @@ export class SurfaceArrays {
     this.slices.push(slice); this.keys.set(slice.key, index);
     const [a, b, c] = this.factors;
     a[index].set(slice.color.r, slice.color.g, slice.color.b, slice.grain);
-    b[index].set(slice.roughness, slice.metalness, slice.ao, 0);
+    b[index].set(slice.roughness, slice.metalness, slice.ao, slice.patches);
     c[index].set(slice.normalScale.x, slice.normalScale.y, 0, 0);
     this.rebuild();
     return index;
@@ -121,10 +127,11 @@ export class SurfaceArrays {
     });
   }
 
-  /** One node material for every merged tile surface: MaterialStyler's library-surface styling per layer. */
-  surfaceMaterial(): THREE.MeshStandardNodeMaterial {
-    if (this.material) return this.material;
-    const material = new THREE.MeshStandardNodeMaterial({ name: 'surface-array' });
+  /** One node material per wet/dry family for every merged tile surface: MaterialStyler's styling per layer. */
+  surfaceMaterial(wet: boolean): THREE.MeshStandardNodeMaterial {
+    const existing = this.materials.get(wet);
+    if (existing) return existing;
+    const material = new THREE.MeshStandardNodeMaterial({ name: wet ? 'surface-array' : 'surface-array-dry' });
     const layer = int(attribute(SURFACE_LAYER, 'float').add(0.5));
     const [albedo, normal, orm] = this.nodes = this.arrays.map(array => texture(array));
     const [colours, pbr, scales] = this.factors.map(values => uniformArray(values, 'vec4'));
@@ -137,23 +144,26 @@ export class SurfaceArrays {
     const grainUv = positionWorld.xz.add(positionWorld.y.mul(0.37)).mul(frequency);
     const grains = frequency.greaterThan(0);
     const grain = texture(this.detail, grainUv).r.sub(0.5).mul(select(grains, float(q.detail), float(0)));
-    material.colorNode = albedo.depth(layer).rgb.mul(colour.xyz).mul(grain.add(1));
+    // Grass patches as MaterialStyler: a broad world-space tint mix, on the layers that carry it.
+    const patches = mix(vec3(0.92, 0.93, 0.83), vec3(1.04, 1.02, 0.97), texture(this.detail, positionWorld.xz.mul(0.035)).r);
+    material.colorNode = albedo.depth(layer).rgb.mul(colour.xyz).mul(grain.add(1)).mul(mix(vec3(1), patches, surface.w));
     const roughness = sampled.g.mul(surface.x);
     material.roughnessNode = select(grains, roughness.add(grain).clamp(0.45, 1), roughness);
     material.metalnessNode = sampled.b.mul(surface.y);
     material.aoNode = mix(float(1), sampled.r, surface.z);
     material.normalNode = normalMap(normal.depth(layer).rgb, vec2(scale.x, scale.y));
-    wetSurface(material);
-    return this.material = material;
+    if (wet) wetSurface(material);
+    this.materials.set(wet, material);
+    return material;
   }
 
-  dispose() { for (const array of this.arrays) array.dispose(); this.material?.dispose(); this.arrays = []; this.material = null; }
+  dispose() { for (const array of this.arrays) array.dispose(); for (const material of this.materials.values()) material.dispose(); this.arrays = []; this.materials.clear(); }
 }
 
 const position = new THREE.Vector3(), normal = new THREE.Vector3(), normalMatrix = new THREE.Matrix3();
 /** One mesh per parent for the merged slices; sources detach (restored by the returned function). */
 export function mergeSurfaces(model: THREE.Object3D, arrays: SurfaceArrays, kindOf: (mesh: THREE.Mesh) => { kind: string; key: string } | null) {
-  const groups = new Map<THREE.Object3D, { mesh: THREE.Mesh; layer: number }[]>();
+  const groups = new Map<string, { parent: THREE.Object3D; wet: boolean; sources: { mesh: THREE.Mesh; layer: number }[] }>();
   model.updateWorldMatrix(true, true);
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
@@ -164,11 +174,14 @@ export function mergeSurfaces(model: THREE.Object3D, arrays: SurfaceArrays, kind
     const style = kindOf(mesh);
     const slice = style && surfaceSlice(mesh, style.kind, style.key);
     const layer = slice && arrays.layer(slice);
-    if (layer === null || layer === undefined) return;
-    const list = groups.get(mesh.parent) ?? []; list.push({ mesh, layer }); groups.set(mesh.parent, list);
+    if (!slice || layer === null || layer === undefined) return;
+    const group = `${mesh.parent.uuid}:${slice.wet}`;
+    let entry = groups.get(group);
+    if (!entry) groups.set(group, entry = { parent: mesh.parent, wet: slice.wet, sources: [] });
+    entry.sources.push({ mesh, layer });
   });
   const merged: { mesh: THREE.Mesh; sources: THREE.Mesh[]; parent: THREE.Object3D }[] = [];
-  for (const [parent, sources] of groups) {
+  for (const { parent, wet, sources } of groups.values()) {
     if (sources.length < 2) continue;
     let vertices = 0, indices = 0;
     for (const { mesh } of sources) { vertices += mesh.geometry.attributes.position.count; indices += mesh.geometry.index!.count; }
@@ -203,8 +216,8 @@ export function mergeSurfaces(model: THREE.Object3D, arrays: SurfaceArrays, kind
     geometry.setAttribute(SURFACE_LAYER, new THREE.BufferAttribute(layers, 1));
     geometry.setIndex(new THREE.BufferAttribute(index, 1));
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial());
-    mesh.name = 'surface-array';
+    const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial(wet));
+    mesh.name = wet ? 'surface-array' : 'surface-array-dry';
     mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length };
     mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = true;
     mesh.layers.mask = sources[0].mesh.layers.mask; mesh.renderOrder = sources[0].mesh.renderOrder;
