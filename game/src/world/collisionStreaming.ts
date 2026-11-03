@@ -170,11 +170,11 @@ export class CollisionStreamer {
           if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
           this.prepared.set(id, { entry: e, buffer: buf });
           // Keep the validated original while its parent tile is resident. Rapier owns and detaches only the copy.
-          await this.physics.loadTile(id, buf.slice(0));
+          const stats = await this.physics.loadTile(id, buf.slice(0));
           if (!sameContent(this.manifest.collision[id], e)) { done('Superseded while collider built'); continue; }
           if (e.sha256) this.installed.set(id, e.sha256);
           this.retries.delete(id);
-          traced({ cached: !!cached && sameContent(cached.entry, e) });
+          traced({ cached: !!cached && sameContent(cached.entry, e), buildMs: stats?.buildMs, pieces: stats?.pieces, waitMs: stats?.waitMs });
           done('Rapier collider ready');
           return;
         } catch (err) {

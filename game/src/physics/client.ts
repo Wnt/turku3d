@@ -4,6 +4,7 @@ import type { PoleState, VehicleState } from './protocol';
 import { SharedMailbox } from './exchange';
 import type { LiveInput } from './protocol';
 import { loading, loadBytes } from '../core/loading';
+import { streamTrace } from '../telemetry/streamTrace';
 import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
 import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, TrafficConfig, TrafficTile, TrafficView, VehicleInput, VehicleSpec } from './protocol';
@@ -35,7 +36,15 @@ export class PhysicsClient {
     if (m) this.acceptState(m);
     return this.state;
   }
+  private lastStall = 0;
   private acceptState(m: StateMsg) {
+    // Worker stalls repeat until acknowledged: report each once to the capture trace.
+    for (const s of m.stalls ?? []) {
+      if (s.id <= this.lastStall) continue;
+      this.lastStall = s.id;
+      const { id: _id, revision: _revision, wall, ...fields } = s;
+      streamTrace.event('phys.stall', undefined, { ...fields, ago: performance.timeOrigin + performance.now() - wall });
+    }
     this.state = { ...m, vehicles: this.vehicles.apply(m.vehicles, m.removedVehicles, m.actorsDelta ?? false),
       poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false) };
     const now = performance.now() / 1000;

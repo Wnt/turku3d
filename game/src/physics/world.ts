@@ -1,10 +1,11 @@
 // Rapier world used by the physics worker (and directly by the Node unit tests).
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
-import { COLLISION_TILE, collisionTileAt, collisionTileId, type V3 } from '../core/origin';
+import { COLLISION_TILE, collisionTileAt, collisionTileId, distToCollisionTile, parseCollisionId, type V3 } from '../core/origin';
 import { collisionCovers, PlayerCoverageHold } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
-import { readCol, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
+import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
+import { InstallQueue, planCell, type CellPlan, type Piece } from './tileInstall';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
 import { CHARACTER, DT, MAX_SUBSTEPS, VEHICLES } from './constants';
@@ -18,6 +19,9 @@ import type { CharacterInput, CharacterState, PoleSpec, PoleState, Quat, RayFilt
 import { chassisForward, type TrafficPedestrian, type TrafficVehicle } from '../traffic/pedestrians';
 
 type R = typeof RAPIER_NS;
+/** Install priority of decode-only checks and unparseable ids (as if this many metres away). */
+const CHECK_PRIORITY = 150;
+const parseCellId = (id: string) => parseCollisionId(id);
 
 export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
 
@@ -30,6 +34,7 @@ interface LoadedTile { stats: TileStats; colliders: RAPIER_NS.Collider[]; cell: 
 export class PhysicsWorld {
   readonly world: RAPIER_NS.World;
   private tiles = new Map<string, LoadedTile>();
+  private installs = new InstallQueue();
   private residentCells = new Set<string>();
   private heldVehicles = new Map<string, { velocity: V3; angular: V3 }>();
   private loadingCells = new Set<string>();
@@ -147,19 +152,86 @@ export class PhysicsWorld {
   }
 
   // ------------------------------------------------------------------ tiles
+  /** Decodes and installs a cell at once (Node tests and tools). The worker queues cells instead (requestTile). */
   async loadTile(id: string, buffer: ArrayBuffer): Promise<TileStats> {
     const t0 = performance.now();
     const col = await readCol(buffer);
-    const colliders = this.buildTile(id, col);
-    const stats: TileStats = { id, tris: col.indices.length / 3, prims: col.prims.length, bytes: buffer.byteLength, buildMs: +(performance.now() - t0).toFixed(2), colliders: colliders.length, curbTris: colliders.reduce((n, c) => n + this.curbQueries.triangleCount(c.handle), 0) };
-    // Worker messages are serialized: build the replacement completely before retiring valid support.
-    if (this.tiles.has(id)) this.unloadTile(id);
-    this.tiles.set(id, { stats, colliders, cell: [col.tileI, col.tileJ] });
-    this.residentCells.add(collisionTileId(col.tileI, col.tileJ));
-    const [lo, hi] = heightRange(col);
-    this.edges.add(col.tileI, col.tileJ, lo, hi);
-    this.traffic?.collisionChanged(cellArea(col.tileI, col.tileJ));
-    return stats;
+    const plan = planCell(col);
+    const colliders: RAPIER_NS.Collider[] = [];
+    try { for (const piece of plan.pieces) this.buildPiece(id, col, piece, colliders); }
+    catch (error) { this.dropColliders(colliders); throw error; }
+    return this.commitTile(id, col, plan, colliders, buffer.byteLength, performance.now() - t0);
+  }
+
+  /** Queues a cell install (worker path): decode, then its pieces under the per-tick budget of pumpInstalls,
+   *  nearest the player first. The cell joins the world (and coverage) only when every piece exists; until then
+   *  its colliders are disabled and an older version of the cell stays in use. `done` gets the stats, or the
+   *  error (also when unloadTile cancels it). A newer request for the same id replaces this one silently. */
+  requestTile(id: string, buffer: ArrayBuffer, done: (result: TileStats | Error) => void) {
+    const t0 = performance.now(), ij = parseCellId(id);
+    let col: ColTile | null = null, plan: CellPlan | null = null, next = 0, work = 0;
+    const built: RAPIER_NS.Collider[] = [];
+    const step = (): boolean => {
+      if (!col) { col = readColSync(buffer); return false; }
+      if (!plan) { plan = planCell(col); return false; }
+      if (next < plan.pieces.length) {
+        const from = built.length;
+        this.buildPiece(id, col, plan.pieces[next++], built);
+        for (let k = from; k < built.length; k++) built[k].setEnabled(false);
+        if (next < plan.pieces.length) return false;
+      }
+      for (const c of built) c.setEnabled(true);
+      done(this.commitTile(id, col, plan, built, buffer.byteLength, work, performance.now() - t0));
+      return true;
+    };
+    this.installs.add({
+      key: id,
+      priority: () => this.installPriority(ij),
+      run: () => {
+        const w0 = performance.now();
+        try { const finished = step(); work += performance.now() - w0; return finished; }
+        catch (error) {
+          this.dropColliders(built);
+          done(error instanceof Error ? error : new Error(String(error)));
+          return true;
+        }
+      },
+      cancel: () => { this.dropColliders(built); done(Object.assign(new Error(`${id}: unloaded before its collider was built`), { cancelled: true })); },
+    });
+  }
+
+  /** Queues a decode-only check (draft tiles are drawn only after their collision passes it). */
+  requestCheck(key: string, buffer: ArrayBuffer, done: (result: { tris: number; prims: number } | Error) => void) {
+    this.installs.add({
+      key: `check:${key}`,
+      priority: () => CHECK_PRIORITY,
+      run: () => {
+        try {
+          const col = readColSync(buffer);
+          if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
+          done({ tris: col.indices.length / 3, prims: col.prims.length });
+        } catch (error) { done(error instanceof Error ? error : new Error(String(error))); }
+        return true;
+      },
+      cancel: () => {},
+    });
+  }
+
+  /** Runs queued installs for up to `budgetMs` (at least one piece). Returns the time used (ms). */
+  pumpInstalls(budgetMs: number): number { return this.installs.pump(budgetMs); }
+  /** Queued cell installs and checks, and the longest piece of the latest pump. */
+  get installState() { return { queued: this.installs.size, slowest: this.installs.slowest }; }
+
+  /** Cells under or nearest the player's actor (and any held vehicle) install first. */
+  private installPriority(ij: { i: number; j: number } | null): number {
+    if (!ij) return CHECK_PRIORITY;
+    const at = this.charCollider && this.charEnabled ? this.charCollider.translation() : this.vehicles.get(this.drivenId ?? '')?.body.translation();
+    let d = at ? distToCollisionTile(at.x, at.z, ij.i, ij.j) : CHECK_PRIORITY;
+    for (const id of this.heldVehicles.keys()) {
+      const p = this.vehicles.get(id)?.body.translation();
+      if (p) d = Math.min(d, distToCollisionTile(p.x, p.z, ij.i, ij.j));
+    }
+    return d;
   }
 
   /** Decodes a tile without adding it (draft tiles are drawn only after their collision passes this). */
@@ -169,50 +241,55 @@ export class PhysicsWorld {
     return { tris: col.indices.length / 3, prims: col.prims.length };
   }
 
-  private buildTile(id: string, col: ColTile): RAPIER_NS.Collider[] {
+  private commitTile(id: string, col: ColTile, plan: CellPlan, colliders: RAPIER_NS.Collider[], bytes: number, buildMs: number, waitMs?: number): TileStats {
+    const stats: TileStats = { id, tris: plan.tris, prims: col.prims.length, bytes, buildMs: +buildMs.toFixed(2), colliders: colliders.length,
+      curbTris: colliders.reduce((n, c) => n + this.curbQueries.triangleCount(c.handle), 0), pieces: plan.pieces.length,
+      ...(waitMs !== undefined ? { waitMs: +waitMs.toFixed(1) } : {}) };
+    // Build the replacement completely before retiring valid support.
+    if (this.tiles.has(id)) this.unloadCommitted(id);
+    this.tiles.set(id, { stats, colliders, cell: [col.tileI, col.tileJ] });
+    this.residentCells.add(collisionTileId(col.tileI, col.tileJ));
+    this.edges.add(col.tileI, col.tileJ, plan.lo, plan.hi);
+    this.traffic?.collisionChanged(cellArea(col.tileI, col.tileJ));
+    return stats;
+  }
+
+  private dropColliders(colliders: RAPIER_NS.Collider[]) {
+    for (const c of colliders) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
+    colliders.length = 0;
+  }
+
+  /** One install piece: a trimesh of one collision class (with its curb helper) or a batch of primitives. */
+  private buildPiece(id: string, col: ColTile, piece: Piece, out: RAPIER_NS.Collider[]) {
     const R = this.R;
-    const out: RAPIER_NS.Collider[] = [];
     const [ox, oy, oz] = col.origin;
-    const triCount = col.materials.length;
-    // split triangles by collision class -> one trimesh per class present
-    const byClass: Record<'solid' | 'query' | 'sensor', number[]> = { solid: [], query: [], sensor: [] };
-    for (let t = 0; t < triCount; t++) byClass[materialClass(col.materials[t])].push(t);
-    const fixEdges = (col.flags & COL_FLAG_FIX_INTERNAL_EDGES) !== 0;
-    try {
-      for (const cls of ['solid', 'query', 'sensor'] as const) {
-        const tris = byClass[cls];
-        if (!tris.length) continue;
-        const idx = new Uint32Array(tris.length * 3);
-        const triMat = new Uint8Array(tris.length);
-        tris.forEach((t, k) => { idx[3 * k] = col.indices[3 * t]; idx[3 * k + 1] = col.indices[3 * t + 1]; idx[3 * k + 2] = col.indices[3 * t + 2]; triMat[k] = col.materials[t]; });
-        const flags = cls === 'solid' && fixEdges ? R.TriMeshFlags.FIX_INTERNAL_EDGES : undefined;
-        const desc = R.ColliderDesc.trimesh(col.positions, idx, flags).setTranslation(ox, oy, oz);
-        this.applyClass(desc, cls, 0.85);
-        const c = this.world.createCollider(desc);
-        out.push(c);
-        this.colliderInfo.set(c.handle, { tile: id, triMat, mat: triMat[0], locator: new TriLocator(col.positions, idx, col.origin) });
-        const helper = addCurbMesh(R, this.curbQueries, c, col.positions, idx, triMat, col.origin);
-        if (helper) out.push(helper);
-      }
-      for (const p of col.prims) {
-        let desc: RAPIER_NS.ColliderDesc | null = null;
-        if (p.kind === 1) desc = R.ColliderDesc.cuboid(p.params[0], p.params[1], p.params[2]);
-        else if (p.kind === 2) desc = R.ColliderDesc.capsule(p.params[0], p.params[1]);
-        else if (p.kind === 3) desc = R.ColliderDesc.cylinder(p.params[0], p.params[1]);
-        if (!desc) { console.warn(`[physics] ${id}: unknown primitive kind ${p.kind}, skipped`); continue; }
-        desc.setTranslation(ox + p.center[0], oy + p.center[1], oz + p.center[2])
-          .setRotation({ x: p.rotation[0], y: p.rotation[1], z: p.rotation[2], w: p.rotation[3] });
-        this.applyClass(desc, materialClass(p.material), MATERIALS[p.material]?.friction ?? 0.8);
-        const c = this.world.createCollider(desc);
-        out.push(c);
-        this.colliderInfo.set(c.handle, { tile: id, triMat: null, mat: p.material, locator: null });
-        const helper = addCurbPrimitive(R, this.curbQueries, c, p.material);
-        if (helper) out.push(helper);
-      }
-      return out;
-    } catch (error) {
-      for (const c of out) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
-      throw error;
+    if (piece.kind === 'mesh') {
+      const { cls, positions, indices, materials: triMat } = piece;
+      const flags = cls === 'solid' && (col.flags & COL_FLAG_FIX_INTERNAL_EDGES) !== 0 ? R.TriMeshFlags.FIX_INTERNAL_EDGES : undefined;
+      const desc = R.ColliderDesc.trimesh(positions, indices, flags).setTranslation(ox, oy, oz);
+      this.applyClass(desc, cls, 0.85);
+      const c = this.world.createCollider(desc);
+      out.push(c);
+      this.colliderInfo.set(c.handle, { tile: id, triMat, mat: triMat[0], locator: new TriLocator(positions, indices, col.origin) });
+      const helper = addCurbMesh(R, this.curbQueries, c, positions, indices, triMat, col.origin);
+      if (helper) out.push(helper);
+      return;
+    }
+    for (let k = piece.from; k < piece.to; k++) {
+      const p = col.prims[k];
+      let desc: RAPIER_NS.ColliderDesc | null = null;
+      if (p.kind === 1) desc = R.ColliderDesc.cuboid(p.params[0], p.params[1], p.params[2]);
+      else if (p.kind === 2) desc = R.ColliderDesc.capsule(p.params[0], p.params[1]);
+      else if (p.kind === 3) desc = R.ColliderDesc.cylinder(p.params[0], p.params[1]);
+      if (!desc) { console.warn(`[physics] ${id}: unknown primitive kind ${p.kind}, skipped`); continue; }
+      desc.setTranslation(ox + p.center[0], oy + p.center[1], oz + p.center[2])
+        .setRotation({ x: p.rotation[0], y: p.rotation[1], z: p.rotation[2], w: p.rotation[3] });
+      this.applyClass(desc, materialClass(p.material), MATERIALS[p.material]?.friction ?? 0.8);
+      const c = this.world.createCollider(desc);
+      out.push(c);
+      this.colliderInfo.set(c.handle, { tile: id, triMat: null, mat: p.material, locator: null });
+      const helper = addCurbPrimitive(R, this.curbQueries, c, p.material);
+      if (helper) out.push(helper);
     }
   }
 
@@ -223,10 +300,16 @@ export class PhysicsWorld {
     else desc.setSensor(true).setCollisionGroups(groups(GROUP.STATIC_SENSOR, GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00));
   }
 
+  /** Removes a cell, and cancels its queued install (whose `done` then gets an error). */
   unloadTile(id: string): boolean {
+    const cancelled = this.installs.cancel(id);
+    return this.unloadCommitted(id) || cancelled;
+  }
+
+  private unloadCommitted(id: string): boolean {
     const t = this.tiles.get(id);
     if (!t) return false;
-    for (const c of t.colliders) { this.colliderInfo.delete(c.handle); this.curbQueries.remove(c.handle); this.world.removeCollider(c, false); }
+    this.dropColliders(t.colliders);
     this.tiles.delete(id);
     this.residentCells.delete(collisionTileId(...t.cell));
     this.edges.remove(...t.cell);
@@ -541,7 +624,7 @@ export class PhysicsWorld {
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null): number {
     this.jumpPending ||= character.jump;
     this.acc = Math.min(this.acc + Math.max(0, dt), MAX_SUBSTEPS * DT);
-    let n = 0;
+    let n = 0, trafficMs = 0;
     const substeps = Math.min(MAX_SUBSTEPS, Math.floor((this.acc + 1e-9) / DT));
     while (this.acc >= DT - 1e-9 && n < MAX_SUBSTEPS) {
       // This decision belongs to the worker, immediately before every fixed substep: main-thread
@@ -582,15 +665,22 @@ export class PhysicsWorld {
           this.vehicleSnapshots.delete(id);
         }
       }
+      const tt = performance.now();
       this.traffic?.beforeStep(this.trafficTime - (substeps - 1 - n) * DT);
+      trafficMs += performance.now() - tt;
       this.fixedStep(safeCharacter, vehicle);
+      const ta = performance.now();
       if (this.traffic) this.traffic.afterStep(this.poleEvents);
+      trafficMs += performance.now() - ta;
       this.jumpPending = false;
       this.acc -= DT;
       n++;
     }
+    this.lastTrafficMs = trafficMs;
     return n;
   }
+  /** Ambient traffic's share of the latest step() (ms). */
+  lastTrafficMs = 0;
 
   /** Low-level solver step, also used by standalone synthetic collider fixtures. Runtime uses step(). */
   fixedStep(character: CharacterInput | null, vehicle: VehicleInput | null) {
@@ -683,14 +773,6 @@ export class PhysicsWorld {
 }
 
 const cellArea = (i: number, j: number) => [i * COLLISION_TILE, j * COLLISION_TILE, (i + 1) * COLLISION_TILE, (j + 1) * COLLISION_TILE] as const;
-
-/** World heights spanned by a tile's triangles and primitives. */
-function heightRange(col: ColTile): [number, number] {
-  let lo = Infinity, hi = -Infinity;
-  for (let k = 1; k < col.positions.length; k += 3) { lo = Math.min(lo, col.positions[k]); hi = Math.max(hi, col.positions[k]); }
-  for (const p of col.prims) { lo = Math.min(lo, p.center[1]); hi = Math.max(hi, p.center[1]); }
-  return Number.isFinite(lo) ? [lo + col.origin[1], hi + col.origin[1]] : [col.origin[1], col.origin[1]];
-}
 
 /** A player's vehicle as ambient drivers see it: chassis centre, forward (+X of the chassis) and footprint. */
 function trafficVehicle(id: string, pos: V3, rot: Quat, vx: number, vz: number, half: V3): TrafficVehicle {
