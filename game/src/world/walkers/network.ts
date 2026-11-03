@@ -1,7 +1,8 @@
 // The walkable FOOT network of the resident draft tiles, built so that every client derives the same walkers from it:
 // nothing depends on tile load order or on mergeRoadGraphs' edge numbering. Positions are the pipeline's 0.1 m lattice;
 // nodes, pieces and turn candidates are keyed and ordered by quantised world coordinates.
-import { CAR, FOOT, type RoadGraphJson } from '../../gameplay/roadGraph';
+import { CAR, EVENT, FOOT, parseRoadGraph, type RoadGraphJson } from '../../gameplay/roadGraph';
+import { trafficRoads } from '../../traffic/roads';
 import { VISUAL_L0 } from '../../core/origin';
 
 /** Birth cells: a tenth of a 250 m tile, so no cell straddles a tile seam. */
@@ -38,7 +39,13 @@ export interface Chain {
   heights: Float64Array | null;
   /** Road-graph flags of its edges (chains never join edges with different flags). */
   flags: number;
+  /** Signalised road crossings along the chain, by arc length. */
+  gates: Gate[];
 }
+
+/** Where a chain crosses a carriageway at a signalised crossing: the road centre's arc length on the chain, half the
+ *  carriageway width, and the controller and approach axis the drivers' signal plan uses (traffic/controls.ts). */
+export interface Gate { s: number; half: number; signal: string; group: 0 | 1 }
 
 interface WalkNode {
   x: number; z: number;
@@ -189,12 +196,14 @@ export function buildWalkNetwork(parts: readonly RoadGraphJson[]): WalkNetwork {
     }
     const id = hash32(...seq);
     chains.push({ id, a: flip ? end : start, b: flip ? start : end, points, cumulative, length: cumulative[cumulative.length - 1],
-      heights: hs ? Float64Array.from(flip ? [...hs].reverse() : hs) : null, flags: edges[first].flags });
+      heights: hs ? Float64Array.from(flip ? [...hs].reverse() : hs) : null, flags: edges[first].flags, gates: [] });
   };
   nodes.forEach((_, k) => { if (!passThrough(k)) for (const e of incident[k]) if (!used[e]) add(k, e); });
   // Closed loops of pass-through nodes start at their smallest node.
   const order = nodes.map((_, k) => k).sort((p, q) => nodes[p].x - nodes[q].x || nodes[p].z - nodes[q].z);
   for (const k of order) for (const e of incident[k]) if (!used[e]) add(k, e);
+
+  addGates(chains, signalCrossings(parts));
 
   // Exits ordered by the direction of the first segment: unchanged when a chain is joined across a seam later.
   chains.forEach((chain, c) => {
@@ -272,4 +281,65 @@ export function pointAt(chain: Chain, s: number, out: { x: number; z: number; dx
   out.x = p[2 * lo] + dx * t; out.z = p[2 * lo + 1] + dz * t; out.dx = dx / len; out.dz = dz / len;
   out.y = chain.heights ? chain.heights[lo] + (chain.heights[hi] - chain.heights[lo]) * t : NaN;
   return out;
+}
+
+interface Crossing { x: number; z: number; hx: number; hz: number; half: number; signal: string; group: 0 | 1 }
+
+/** Signalised crossings on the resident tiles' car edges, with the controller id and approach axis the drivers on
+ *  that road use: the nearest signalised junction within 40 m (traffic/roads.ts), else this tile's node id, as
+ *  traffic/tileNetwork.ts names a lane's signal; the axis of the road at the crossing. Each tile's own file only. */
+function signalCrossings(parts: readonly RoadGraphJson[]): Crossing[] {
+  const out: Crossing[] = [];
+  for (const part of parts) {
+    let signals: ReadonlyMap<number, string>;
+    try { signals = trafficRoads(part).signals; } catch { continue; }
+    if (!signals.size) continue;
+    const graph = parseRoadGraph(part);
+    const tile = `t0_${Math.round(part.bbox[0] / VISUAL_L0)}_${Math.round(part.bbox[1] / VISUAL_L0)}`;
+    for (const edge of graph.edges) {
+      if (!(edge.flags & CAR)) continue;
+      for (const event of edge.events) {
+        if ((event.code & 15) !== EVENT.CROSSING || !(event.code & EVENT.SIGNALISED)) continue;
+        const c = edge.cumulative, p = edge.points;
+        let i = 1;
+        while (i < c.length - 1 && c[i] < event.s) i++;
+        const span = c[i] - c[i - 1] || 1, f = Math.max(0, Math.min(1, (event.s - c[i - 1]) / span));
+        const dx = (p[2 * i] - p[2 * i - 2]) / span, dz = (p[2 * i + 1] - p[2 * i - 1]) / span;
+        const x = p[2 * i - 2] + dx * span * f, z = p[2 * i - 1] + dz * span * f;
+        let best = -1, nearest = 40;
+        for (const node of [...signals.keys()].sort((a, b) => a - b)) {
+          const d = Math.hypot(graph.nodes[2 * node] - x, graph.nodes[2 * node + 1] - z);
+          if (d < nearest) { nearest = d; best = node; }
+        }
+        if (best < 0) continue;
+        out.push({ x, z, hx: dx, hz: dz, half: Math.max(1.5, edge.lanes.width / 2),
+          signal: signals.get(best) || `${tile}:${best}`, group: Math.abs(dx) >= Math.abs(dz) ? 0 : 1 });
+      }
+    }
+  }
+  return out;
+}
+
+/** A chain passing within 1.5 m of a crossing's road centre, across the road, waits there. */
+function addGates(chains: Chain[], crossings: readonly Crossing[]) {
+  if (!crossings.length) return;
+  for (const chain of chains) {
+    const p = chain.points, n = p.length / 2;
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+    for (let i = 0; i < n; i++) { x0 = Math.min(x0, p[2 * i]); x1 = Math.max(x1, p[2 * i]); z0 = Math.min(z0, p[2 * i + 1]); z1 = Math.max(z1, p[2 * i + 1]); }
+    for (const crossing of crossings) {
+      if (crossing.x < x0 - 1.5 || crossing.x > x1 + 1.5 || crossing.z < z0 - 1.5 || crossing.z > z1 + 1.5) continue;
+      let best = Infinity, at = 0, cos = 1;
+      for (let i = 0; i + 1 < n; i++) {
+        const ax = p[2 * i], az = p[2 * i + 1], bx = p[2 * i + 2], bz = p[2 * i + 3];
+        const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez;
+        if (l2 < 1e-6) continue;
+        const u = Math.max(0, Math.min(1, ((crossing.x - ax) * ex + (crossing.z - az) * ez) / l2));
+        const d = Math.hypot(ax + ex * u - crossing.x, az + ez * u - crossing.z);
+        if (d < best) { best = d; at = chain.cumulative[i] + Math.sqrt(l2) * u; cos = Math.abs(ex * crossing.hx + ez * crossing.hz) / Math.sqrt(l2); }
+      }
+      if (best < 1.5 && cos < 0.7) chain.gates.push({ s: at, half: crossing.half, signal: crossing.signal, group: crossing.group });
+    }
+    chain.gates.sort((a, b) => a.s - b.s);
+  }
 }

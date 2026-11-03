@@ -138,7 +138,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,
     birthHour: utc => multiplayerPlaying ? cycleHour(utc).hour : world.dayClock.hourAt(utc),
     raycast: (origin, dir, maxToi, filter) => physics.raycast(origin, dir, maxToi, filter), graphs: () => coarse?.roadGraphs() ?? [],
-    threats: () => walkerThreats });
+    threats: () => walkerThreats, trafficTime: () => traffic.clockTime() });
   // Players the walkers react to this frame (world/walkers/reactions.ts): the local character or driven vehicle, and
   // remote players. Filled after the physics state is read.
   const walkerThreats: WalkerThreat[] = [];

@@ -161,6 +161,8 @@ export class TrafficClient {
   debugCars() { return { time: this.time, cars: this.drawn.map(c => ({ handle: c.handle, x: c.x, z: c.z, vx: c.vx, vz: c.vz })) }; }
   /** Traffic time (s) of the latest worker state, moved on to this frame like the drawn poses. */
   private time = 0;
+  /** The traffic clock now (s since TRAFFIC.epochMs; 0 before the first worker state): signal phases run on it. */
+  clockTime(): number { return this.time; }
 
   private syncTiles() {
     if (!this.source) return;

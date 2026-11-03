@@ -15,6 +15,7 @@ import { WalkerMeshes, type WalkerInstance } from './visuals';
 import { humanAppearance } from './appearance';
 import { REACT, Reactions, type Threat } from './reactions';
 import { populationFocus } from '../populationFocus';
+import { CYCLE_EPOCH } from '../../core/dayCycle';
 
 export { walkersNear } from './population';
 export { buildWalkNetwork } from './network';
@@ -39,6 +40,9 @@ interface WalkerOptions {
   graphs: () => readonly RoadGraphJson[];
   /** Every player this client knows of (local and remote, on foot or driving): drawn walkers react to them. */
   threats?: () => readonly Threat[];
+  /** Traffic clock seconds now (the drivers' signal plan; 0 before the first worker state): walkers wait for the
+   *  walk phase on that clock. */
+  trafficTime?: () => number;
 }
 
 const systems: Set<Walkers> = import.meta.hot?.data.systems ?? new Set<Walkers>();
@@ -150,6 +154,8 @@ export class Walkers {
     const population = this.population;
     if (!population) { this.meshes.update([]); this.count = 0; return; }
     const utc = this.options.now();
+    const traffic = this.options.trafficTime?.() ?? 0;
+    if (traffic > 0) population.setSignalOffset(traffic - (utc - CYCLE_EPOCH) / 1000);
     camera.getWorldPosition(this.camera);
     camera.getWorldDirection(this.forward);
     const flat = Math.hypot(this.forward.x, this.forward.z) || 1;
