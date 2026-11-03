@@ -56,9 +56,11 @@ def test_a_measured_pool_is_one_mirror_reach_across_level_band_edges():
     tile = C.VisualTile(0, 0, 0)
     pool = shapely.box(-1, -1, 30, 3)
     levels = Levels([pool], (0.0, 0.0), (2, 2), np.full((1, 2, 2), np.nan), np.array([7.55]))
+    # A flat triangle on each side of 7.5 m, plus a steep shore sliver within the pool.
     p = np.array([[0, 7.45, 0], [0, 7.45, 2], [2, 7.45, 0],
-                  [10, 7.6, 0], [10, 7.6, 2], [12, 7.6, 0]], float)
-    ix = np.array([[0, 1, 2], [3, 4, 5]], dtype='uint32')
+                  [10, 7.6, 0], [10, 7.6, 2], [12, 7.6, 0],
+                  [20, 7.5, 0], [20, 7.5, 0.3], [20.3, 7.65, 0]], float)
+    ix = np.array([[0, 1, 2], [3, 4, 5], [6, 7, 8]], dtype='uint32')
     meshes = appearance.visuals(tile, SimpleNamespace(positions=p, indices=ix),
                                 [(pool, 'aura', None)], levels)
     assert [m.extras['water_band'] for m in meshes] == ['7.55+0']

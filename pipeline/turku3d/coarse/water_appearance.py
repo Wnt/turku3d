@@ -77,22 +77,26 @@ REACH_BAND = 1.0
 SLOPE = 0.02
 
 
-def reaches(centres, levels):
-    """A mirror key per flat triangle: None on the sea datum, else '<reach level><band>'."""
+def reaches(centres, levels, sloped):
+    """A mirror key per triangle: None on the sea datum, '<reach level><band>' inland, or
+    'slope' for a steep reach away from its pool level (shore slivers stay in the pool)."""
     from .water import LEVEL
 
     keys = np.full(len(centres), None, dtype=object)
     if levels is None or not levels.pieces:
         band = np.floor(centres[:, 1] / BAND + 1e-9).astype(int)
         keys[band != 0] = band[band != 0]
+        keys[sloped] = "slope"
         return keys
     reference = levels.fallback[levels.owner(centres[:, [0, 2]])]
+    sloped = sloped & ~(np.isfinite(reference) & (np.abs(centres[:, 1] - reference) <= REACH_BAND / 2))
     known = np.isfinite(reference)
     band = np.round((centres[:, 1] - np.where(known, reference, 0)) / REACH_BAND).astype(int)
     loose = np.floor(centres[:, 1] / BAND + 1e-9).astype(int)
     inland = (np.abs(centres[:, 1] - LEVEL) > 1e-6) | (known & (np.abs(reference - LEVEL) > 1e-6))
     for i in np.flatnonzero(inland):
         keys[i] = f"{reference[i]:.2f}{band[i]:+d}" if known[i] else str(loose[i])
+    keys[sloped] = "slope"
     return keys
 
 
@@ -104,8 +108,7 @@ def visuals(tile, water, records, levels=None):
         owner[shapely.intersects_xy(body, centres[:, 0], centres[:, 2])] = i
     normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
     sloped = np.hypot(normal[:, 0], normal[:, 2]) > SLOPE * np.abs(normal[:, 1])
-    band = reaches(centres, levels)
-    band[sloped] = "slope"
+    band = reaches(centres, levels, sloped)
     meshes = []
     labels = np.array([str(b) for b in band])
     for i, b in sorted({(int(i), str(b)) for i, b in zip(owner, labels)}):
