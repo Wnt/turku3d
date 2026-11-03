@@ -88,3 +88,12 @@ def test_clean_duplicate_and_zero_area_faces():
     m.material = np.ones(4, np.uint8)
     assert len(clean(m).indices) == 2
     assert len(boundary(clean(sheet(0, 4, 0)))[0]) == 4
+
+
+def test_audit_ignores_a_deck_edge_over_continuous_ground():
+    ground, deck = sheet(0, 4, 0), sheet(2, 4, 3)
+    visual = np.concatenate([ground.positions[ground.indices], deck.positions[deck.indices]])
+    g = np.arange(.25, 4, .5)
+    q = np.array([[x, z] for x in g for z in g])
+    expected = np.where(q[:, 0] < 2, 0., 3.)
+    assert audit(visual, visual, q, expected)['counts']['open_seams'] == 0

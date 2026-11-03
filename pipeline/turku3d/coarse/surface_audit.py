@@ -158,6 +158,16 @@ def open_seams(visual, query, height, step=.5, spacing=.5):
     i, j = np.concatenate(pairs).T
     ok = np.isfinite(height[i]) & np.isfinite(height[j]) & (abs(height[i] - height[j]) > step)
     i, j = i[ok], j[ok]
+    low = np.where(height[i] < height[j], i, j)
+    high = np.where(height[i] < height[j], j, i)
+    # Stacked sheets are not seams: the lower sheet continues under the higher
+    # one (a deck edge over a walkway), or the higher one continues over it.
+    rays = Rays(visual)
+    under = rays.cast(query[high], height[low], above=.3)
+    over = rays.cast(query[low], height[high], above=.3)
+    stacked = (np.isfinite(under) & (abs(under - height[low]) < .3)) | \
+              (np.isfinite(over) & (abs(over - height[high]) < .3))
+    i, j = i[~stacked], j[~stacked]
     mid = (height[i] + height[j]) / 2
     shut = crossed(visual, query[i], query[j], mid)
     i, j, mid = i[~shut], j[~shut], mid[~shut]
