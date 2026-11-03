@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { nightKey, nightEmission } from './scenery-night.mjs';
 import path from 'node:path';
-import { require, io, readComposed, world } from './scenery-source.mjs';
+import { require, io, readComposed, readSource, world } from './scenery-source.mjs';
 import { openingKind, openingAtlas, programFields, transformedUv, reduceFacade } from './scenery-openings.mjs';
 const { Document } = require('@gltf-transform/core');
 const { reorder, quantize } = require('@gltf-transform/functions');
@@ -14,7 +14,38 @@ io.registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 const [source, output, placements] = process.argv.slice(2);
 if (!source || !output || path.resolve(source) === path.resolve(output)) throw new Error('Distinct source and derivative output required');
 const started = performance.now(), raw = fs.readFileSync(source);
-const input = await readComposed(source, placements);
+// Spec: a list of HD placements (compose and simplify them), or {models, lods, shells, skipBuildings}: distant
+// buildings as LoD2 block parents. Farm block LODs pass through; survey shells take each building's wall colour
+// and glazing from its own HD facade program in this tile (objects rows of facade_kit draws).
+const spec = placements ? JSON.parse(fs.readFileSync(placements, 'utf8')) : null;
+const lodMode = spec && !Array.isArray(spec);
+const input = await readComposed(source, Array.isArray(spec) ? spec : spec?.models ?? []);
+const programs = new Map(), landmarks = new Set();
+if (lodMode) for (const node of input.getRoot().listNodes()) {
+  const extras = node.getExtras(), mesh = node.getMesh();
+  if (mesh && extras.material_key === 'landmark_procedural') {
+    // Landmarks keep their simplified authored form; their survey shell is not drawn twice.
+    const match = /^landmark_(.+)_\d+$/.exec(String(extras.object_id ?? ''));
+    if (match) landmarks.add(match[1]);
+    if (extras.building_id) landmarks.add(String(extras.building_id));
+  }
+  if (!mesh || extras.material_key !== 'facade_kit') continue;
+  let rows = extras.objects;
+  if (typeof rows === 'string') { try { rows = JSON.parse(rows.replaceAll("'", '"')); } catch { rows = []; } }
+  for (const primitive of mesh.listPrimitives()) {
+    const wall = primitive.getAttribute('_KIT_WALL'), indices = primitive.getIndices()?.getArray();
+    if (!wall || !indices) continue;
+    for (const row of rows ?? []) {
+      const id = String(row.object_id ?? '');
+      if (!id.startsWith('walls_')) continue;
+      const key = id.slice(6), sum = programs.get(key) ?? [0, 0, 0, 0];
+      for (let i = row.start; i < row.start + row.count && i < indices.length; i += 3) {
+        const c = wall.getElement(indices[i], []); sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2]; sum[3]++;
+      }
+      programs.set(key, sum);
+    }
+  }
+}
 const doc = new Document(), buffer = doc.createBuffer(), scene = doc.createScene('distant-scenery');
 const material = doc.createMaterial('scenery').setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(1).setMetallicFactor(0);
 const groups = new Map();
@@ -32,6 +63,7 @@ for (const node of input.getRoot().listNodes()) {
   const extras = node.getExtras(), layer = extras.layer;
   const vegetation = layer === 'vegetation', ground = layer === 'ground' || layer === 'basic';
   if (!['ground', 'basic', 'buildings', 'buildings_outer', 'landmarks', 'bridges', 'boats', 'vegetation', 'structures'].includes(layer)) continue;
+  if (lodMode && (layer === 'buildings' || layer === 'buildings_outer') && extras.material_key !== 'landmark_procedural') continue;
   // Generic structures stay near-only; their night emitters (quay LED bars) persist at distance.
   if (layer === 'structures' && !mesh.listPrimitives().some(p => nightKey(p, extras))) continue;
   if (vegetation && !String(extras.material_key).includes('foliage')) continue;
@@ -135,6 +167,40 @@ for (const node of input.getRoot().listNodes()) {
       if (mapped === undefined) { mapped = target.positions.length / 3; compact.set(index, mapped);
         target.positions.push(...positions.slice(index * 3, index * 3 + 3)); target.colours.push(...colours.slice(index * 3, index * 3 + 3)); }
       target.indices.push(mapped);
+    }
+  }
+}
+if (lodMode) {
+  // LoD2 parents are already coarse: copy them without simplification.
+  const append = (group, node, primitive, colourOf) => {
+    const position = primitive.getAttribute('POSITION'); if (!position) return;
+    const colour = primitive.getAttribute('COLOR_0'), matrix = node.getWorldMatrix(), target = bucket(group), base = target.positions.length / 3;
+    for (let i = 0; i < position.getCount(); i++) {
+      target.positions.push(...world(matrix, position.getElement(i, [])));
+      target.colours.push(...colourOf(colour?.getElement(i, []).slice(0, 3)));
+    }
+    const indices = primitive.getIndices()?.getArray() ?? Array.from({ length: position.getCount() }, (_, i) => i);
+    for (const i of indices) target.indices.push(base + i);
+    sourceTriangles += indices.length / 3;
+  };
+  for (const { path: file, position } of spec.lods ?? []) {
+    const doc = await readSource(file, false);
+    for (const node of doc.getRoot().listNodes()) {
+      const mesh = node.getMesh(); if (!mesh) continue;
+      node.setTranslation(node.getTranslation().map((v, k) => v + position[k]));
+      const group = node.getExtras().lod === 'walls-glazed' ? 'buildings-lod-glazed' : 'buildings';
+      for (const primitive of mesh.listPrimitives()) append(group, node, primitive, c => c ?? [.6, .58, .54]);
+    }
+  }
+  if (spec.shells && fs.statSync(spec.shells).size) {
+    const doc = await readSource(spec.shells, false);
+    for (const node of doc.getRoot().listNodes()) {
+      const mesh = node.getMesh(); if (!mesh) continue;
+      const { key, part, facade_key: facade } = node.getExtras(), program = programs.get(String(key));
+      if (landmarks.has(String(key)) || landmarks.has(String(facade))) continue;
+      const wall = program && program[3] ? program.slice(0, 3).map(v => v / program[3]) : [.55, .51, .43];
+      const group = program ? 'buildings-lod-glazed' : 'buildings';
+      for (const primitive of mesh.listPrimitives()) append(group, node, primitive, () => part === 'roof' ? [.20, .23, .22] : wall);
     }
   }
 }

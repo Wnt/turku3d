@@ -25,10 +25,10 @@ export const world=(m,p)=>[0,1,2].map(k=>m[k]*p[0]+m[k+4]*p[1]+m[k+8]*p[2]+m[k+1
 /** The tile visual plus its whole-building HD models translated to their placements (buildingPlacements). */
 export async function readComposed(source, placements, images=true) {
   const document=await readSource(source,images);
-  if(!placements)return document;
+  if(!placements?.length)return document;
   const { mergeDocuments }=require('@gltf-transform/functions');
   const scene=document.getRoot().getDefaultScene()??document.getRoot().listScenes()[0];
-  for(const {path:file,position} of JSON.parse(fs.readFileSync(placements,'utf8'))){
+  for(const {path:file,position} of placements){
     const model=await readSource(file,images);
     const map=mergeDocuments(document,model);
     for(const added of model.getRoot().listScenes()){
