@@ -87,38 +87,59 @@ class Worker:
             except subprocess.TimeoutExpired:
                 os.killpg(self.proc.pid, signal.SIGKILL)
                 self.proc.wait()
+        self._release()
 
     def close(self):
         if self.proc.poll() is None:
             self.proc.stdin.close()
             self.proc.wait()
+        self._release()
+
+    def _release(self):
+        for stream in (self.proc.stdin, self.proc.stdout):
+            if not stream.closed:
+                stream.close()
 
 
 class WarmWorkers:
     def __init__(self, farm, runner, *, max_builds=40, max_rss_gib=2.0, timeout=1800):
         self.farm, self.runner = farm, runner
         self.max_builds, self.max_rss, self.timeout = max_builds, max_rss_gib * GIB, timeout
-        self.idle, self.lock, self.started = [], threading.Lock(), 0
+        self.idle, self.lock, self.started, self.busy = [], threading.Lock(), 0, 0
 
     def _take(self, revision, root):
         key = (revision, str(root))
         with self.lock:
+            self.busy += 1
             for i, worker in enumerate(self.idle):
                 if worker.key == key and worker.proc.poll() is None:
                     return self.idle.pop(i)
             self.started += 1
             number = self.started
-        return Worker(self.farm, self.runner, revision, root, number)
+        try:
+            return Worker(self.farm, self.runner, revision, root, number)
+        except BaseException:
+            with self.lock:
+                self.busy -= 1
+            raise
 
     def _give(self, worker, healthy):
-        if (healthy and worker.proc.poll() is None and worker.builds < self.max_builds
-                and resident(worker.proc.pid) < self.max_rss):
-            with self.lock:
+        with self.lock:
+            self.busy -= 1
+            keep = (healthy and worker.proc.poll() is None and worker.builds < self.max_builds
+                    and resident(worker.proc.pid) < self.max_rss)
+            if keep:
                 self.idle.append(worker)
-        elif healthy:
-            worker.close()
-        else:
-            worker.stop()
+            # Idle workers keep their memory: never more workers than the farm admits builds.
+            surplus = max(0, self.busy + len(self.idle) - max(1, self.farm.workers))
+            retired, self.idle = self.idle[:surplus], self.idle[surplus:]
+        for idle in retired:
+            idle.close()
+        if not keep:
+            if healthy:
+                worker.close()
+            else:
+                worker.stop()
 
     def __call__(self, revision, tile, root):
         """``Farm.execute``: build ``tile`` of ``revision`` into ``root / tile`` on a warm worker."""
@@ -149,7 +170,8 @@ class WarmWorkers:
                     log.write(f'{message}\nworker log: {worker.log_path.name}\n')
                 raise RuntimeError(f'generator exit {result.get("code")}: {message}'[-1000:])
             healthy = True
-            return dict(returncode=0, worker=worker.proc.pid, worker_builds=worker.builds, cpu_seconds=cpu)
+            return dict(returncode=0, worker=worker.proc.pid, worker_builds=worker.builds, cpu_seconds=cpu,
+                        worker_rss_gib=round(resident(worker.proc.pid) / GIB, 3))
         finally:
             self._give(worker, healthy)
 

@@ -44,7 +44,7 @@ class WarmWorkersTest(unittest.TestCase):
         self.runner = base / "runner"
         self.runner.write_text(FAKE)
         self.runner.chmod(0o755)
-        self.farm = Farm(root=base, floor=0, queue_info={}, run_build=None)
+        self.farm = Farm(root=base, floor=0, queue_info={}, run_build=None, workers=4)
         self.out = base / "products" / "g1"
 
     def tearDown(self):
@@ -78,6 +78,17 @@ class WarmWorkersTest(unittest.TestCase):
         [t.join() for t in threads]
         pool("r2", "c", self.out)
         self.assertEqual(len({self.pid(t) for t in "abc"}), 3)
+        pool.close()
+
+    def test_idle_workers_never_exceed_the_admitted_builds(self):
+        pool = WarmWorkers(self.farm, self.runner)
+        threads = [threading.Thread(target=pool, args=("r1", t, self.out)) for t in ("a", "b", "c")]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(len(pool.idle), 3)
+        self.farm.workers = 1  # admission dropped (a dense front): extra idle workers exit
+        pool("r1", "d", self.out)
+        self.assertEqual(len(pool.idle), 1)
         pool.close()
 
     def test_timeout_stops_the_worker(self):
