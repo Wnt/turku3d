@@ -107,5 +107,19 @@ describe('walker reactions to players', () => {
     const r = reactions.apply(base, [{ x: 2, y: 0, z: 0, vx: 0, vz: 0, car: null }], DT, DT);
     expect(r.yaw).toBeCloseTo(Math.PI / 2, 5);
   });
+
+  test('a knock-down makes people nearby hurry away from it, then come back', () => {
+    const reactions = new Reactions();
+    const victim: Base = { id: 20, x: 0, y: 0, z: 0, yaw: 0, speed: 0 }, bystander: Base = { id: 21, x: 0, y: 0, z: 6, yaw: 0, speed: 0 };
+    let furthest = 0, last = { x: 0, z: 6 };
+    for (let i = 0; i < 12 / DT; i++) {
+      const t = i * DT, threats = [car(-2.5 + 14 * t, 14)].filter(() => t < 1);
+      reactions.apply(victim, threats, DT, t);
+      last = reactions.apply(bystander, threats, DT, t);
+      furthest = Math.max(furthest, last.z - 6);
+    }
+    expect(furthest).toBeGreaterThan(2);
+    expect(Math.abs(last.z - 6)).toBeLessThan(0.1);
+  });
 });
 
