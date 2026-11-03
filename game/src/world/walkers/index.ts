@@ -53,6 +53,12 @@ const SCAN_MS = 400, GRAPH_POLL_MS = 1000, RAYS_PER_FRAME = 24, YAW_RATE = 8, ID
 /** A birth closer than RING.popFree in view stays hidden until it is out of view; a drawn walker whose life ends in
  *  view keeps walking its continued route until it is out of view or this far (m). */
 const BIRTH_SEEN = 1, LINGER_UNTIL = 80;
+const NO_THREATS: readonly Threat[] = [];
+/** In view and closer than `reach`. */
+function sight(view: RingView, w: Walker, reach: number) {
+  const dx = w.x - view.x, dz = w.z - view.z;
+  return inView(view, w.x, w.z) && dx * dx + dz * dz < reach * reach;
+}
 /** Moving walkers keep this clearance from other drawn walkers (m, centre to centre) and look this far for them. */
 const CROWD_PERSONAL = 0.6, CROWD_REACH = 2.5;
 
@@ -69,8 +75,10 @@ export class Walkers {
   private ring = new Ring<Walker>();
   private reactions = new Reactions();
   private wide: Walker[] = [];
-  /** Births hidden from view, and drawn walkers past the end of their life (rendering only). */
-  private hidden = new Set<number>();
+  /** Births hidden from view (walker id → the last frame it was kept hidden), and drawn walkers past the end of their
+   *  life (rendering only). */
+  private hidden = new Map<number, number>();
+  private frame = 0;
   private lingering = new Map<number, Walker>();
   private lastScan = -Infinity;
   private lastGraphPoll = -Infinity;
@@ -86,6 +94,20 @@ export class Walkers {
   updateMs = 0;
   scanMs = 0;
   private poses: { id: number; x: number; y: number; z: number; phase: number; fade: number }[] = [];
+  /** Per-frame scratch, reused: the frame path allocates nothing per walker. */
+  private view: RingView = { x: 0, z: 0, fx: 0, fz: 1, cosHalf: 1 };
+  private candidates: Walker[] = [];
+  private instances: WalkerInstance[] = [];
+  private local: Threat[] = [];
+  private threatPool: Threat[] = [];
+  private base = { id: 0, x: 0, y: 0, z: 0, yaw: 0, speed: 0 };
+  private looks = new Map<number, ReturnType<typeof humanAppearance>>();
+  /** A walker's looks (a pure function of its id), cached. */
+  private look(id: number) {
+    let look = this.looks.get(id);
+    if (!look) { if (this.looks.size > 4096) this.looks.clear(); look = humanAppearance(id); this.looks.set(id, look); }
+    return look;
+  }
 
   constructor(parent: THREE.Object3D, private options: WalkerOptions) {
     this.group.name = 'walkers';
@@ -167,69 +189,56 @@ export class Walkers {
     if (traffic > 0) population.setSignalOffset(traffic - (utc - CYCLE_EPOCH) / 1000);
     camera.getWorldPosition(this.camera);
     camera.getWorldDirection(this.forward);
-    const flat = Math.hypot(this.forward.x, this.forward.z) || 1;
+    const flat = Math.sqrt(this.forward.x * this.forward.x + this.forward.z * this.forward.z) || 1;
     const halfH = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect);
     const focus = populationFocus(this.camera, this.forward, this.graphs);
-    const view: RingView = { ...focus, fx: this.forward.x / flat, fz: this.forward.z / flat,
-      cosHalf: Math.cos(Math.min(Math.PI, halfH + THREE.MathUtils.degToRad(12))) };
+    const view = this.view;
+    view.x = focus.x; view.z = focus.z; view.fx = this.forward.x / flat; view.fz = this.forward.z / flat;
+    view.cosHalf = Math.cos(Math.min(Math.PI, halfH + THREE.MathUtils.degToRad(12)));
     if (frameNow - this.lastScan >= SCAN_MS) {
       this.lastScan = frameNow;
       const scan = performance.now();
       this.wide = population.near(view.x, view.z, RING.inView + RING.keep + 15, utc);
       this.scanMs = performance.now() - scan;
     }
-    const candidates: Walker[] = [];
-    const sight = (w: Walker, reach: number) => inView(view, w.x, w.z) && Math.hypot(w.x - view.x, w.z - view.z) < reach;
-    for (const old of this.lingering.values()) if (!this.wide.includes(old)) this.wide.push(old);
-    const hidden = new Set<number>();
-    for (const old of this.wide) {
-      // A drawn walker never fades out in sight at the end of its life: it walks on, out of view, then goes.
-      const drawnNow = this.ring.has(old.id);
-      const walker = population.at(old, utc, drawnNow);
-      if (!walker) { this.lingering.delete(old.id); continue; }
-      if (walker.age >= walker.life) {
-        if (!drawnNow || !sight(walker, LINGER_UNTIL)) { this.lingering.delete(old.id); continue; }
-        this.lingering.set(old.id, old);
-      }
-      // A birth in plain sight is not drawn until the walker is out of view.
-      if ((walker.age < BIRTH_SEEN && !drawnNow && sight(walker, RING.popFree)) || this.hidden.has(walker.id) && sight(walker, RING.popFree + 10)) {
-        hidden.add(walker.id); continue;
-      }
-      if (!Number.isFinite(walker.y)) {
-        const chain = population.network.chains[walker.chain];
-        const y = this.heights.height(chain, walker.s);
-        if (y === null) { this.heights.request(chain, frameNow); continue; }
-        walker.y = y;
-      }
-      candidates.push(walker);
+    const candidates = this.candidates;
+    candidates.length = 0;
+    this.lingering.forEach(old => { if (!this.wide.includes(old)) this.wide.push(old); });
+    const frame = ++this.frame;
+    for (let o = 0; o < this.wide.length; o++) {
+      const walker = this.candidate(population, this.wide[o], utc, view, frame, frameNow);
+      if (walker) candidates.push(walker);
     }
-    this.hidden = hidden;
+    if (frame % 600 === 0) this.hidden.forEach((at, id) => { if (at < frame - 1) this.hidden.delete(id); });
     const drawn = this.ring.select(candidates, view, this.options.cap, dt);
-    const instances: WalkerInstance[] = [];
-    this.poses = [];
+    const instances = this.instances;
+    let count = 0, poses = 0;
     const turn = 1 - Math.exp(-dt * YAW_RATE);
-    const threats = this.options.threats?.() ?? [], seconds = frameNow / 1000;
-    // Other drawn walkers, by 2.5 m cell: a moving walker steps round people standing or coming the other way.
-    const crowd = new Map<string, Walker[]>();
-    for (const { walker } of drawn) {
-      const key = `${Math.floor(walker.x / CROWD_REACH)},${Math.floor(walker.z / CROWD_REACH)}`;
-      const list = crowd.get(key); if (list) list.push(walker); else crowd.set(key, [walker]);
-    }
-    const local: Threat[] = [];
-    for (const entry of drawn) {
-      const w = entry.walker, look = humanAppearance(w.id);
+    const threats = this.options.threats?.() ?? NO_THREATS, seconds = frameNow / 1000;
+    const local = this.local;
+    for (let d = 0; d < drawn.length; d++) {
+      const entry = drawn[d], w = entry.walker, look = this.look(w.id);
       const variant = this.asset.variants[look.variant];
       const scale = w.scale;
-      local.length = 0; local.push(...threats);
+      local.length = 0;
+      for (let i = 0; i < threats.length; i++) local.push(threats[i]);
+      // Other drawn walkers (at most the cap, so a direct pass): a moving walker steps round people standing or
+      // coming the other way.
       if (w.moving) {
-        const cx = Math.floor(w.x / CROWD_REACH), cz = Math.floor(w.z / CROWD_REACH);
-        for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const o of crowd.get(`${cx + i},${cz + j}`) ?? []) {
-          if (o.lifeId === w.lifeId || Math.abs(o.x - w.x) > CROWD_REACH || Math.abs(o.z - w.z) > CROWD_REACH) continue;
+        let used = 0;
+        for (let k = 0; k < drawn.length; k++) {
+          const o = drawn[k].walker, dx = o.x - w.x, dz = o.z - w.z;
+          if (dx > CROWD_REACH || dx < -CROWD_REACH || dz > CROWD_REACH || dz < -CROWD_REACH || o.lifeId === w.lifeId) continue;
           const v = o.moving ? o.speed : 0;
-          local.push({ x: o.x, y: o.y, z: o.z, vx: Math.sin(o.yaw) * v, vz: Math.cos(o.yaw) * v, car: null, personal: CROWD_PERSONAL });
+          const threat = this.threatPool[used] ??= { x: 0, y: 0, z: 0, vx: 0, vz: 0, car: null, personal: CROWD_PERSONAL };
+          used++;
+          threat.x = o.x; threat.y = o.y; threat.z = o.z; threat.vx = Math.sin(o.yaw) * v; threat.vz = Math.cos(o.yaw) * v;
+          local.push(threat);
         }
       }
-      const react = this.reactions.apply({ id: w.id, x: w.x, y: w.y, z: w.z, yaw: w.yaw, speed: w.moving ? w.speed : 0 }, local, dt, seconds);
+      const base = this.base;
+      base.id = w.id; base.x = w.x; base.y = w.y; base.z = w.z; base.yaw = w.yaw; base.speed = w.moving ? w.speed : 0;
+      const react = this.reactions.apply(base, local, dt, seconds);
       const yaw = react.yaw ?? w.yaw;
       if (entry.first || react.down) entry.yaw = yaw;
       else entry.yaw += Math.atan2(Math.sin(yaw - entry.yaw), Math.cos(yaw - entry.yaw)) * turn;
@@ -240,24 +249,53 @@ export class Walkers {
       const rowStart = variant.rowBase + clip.row;
       const previousPhase = entry.first || entry.clip !== rowStart ? phase : entry.phase;
       entry.phase = phase; entry.clip = rowStart; entry.first = false;
-      const distance = Math.hypot(react.x - view.x, react.z - view.z);
+      const ex = react.x - view.x, ez = react.z - view.z, distance = Math.sqrt(ex * ex + ez * ez);
       entry.lod = distance > (entry.lod === 1 ? 22 : 26) ? 1 : 0;
       const y = w.y + REACT.lift * react.tilt / REACT.lean;
-      instances.push({
-        variant: look.variant, x: react.x, y, z: react.z, yaw: entry.yaw, scale, tilt: react.tilt, tiltYaw: react.tiltYaw,
-        lod: entry.lod, shape: look.model.shape,
-        rowStart, frames: clip.frames, phase: phase % 1, previousPhase: previousPhase % 1,
-        skin: look.skin, top: look.top, bottom: look.bottom, hair: look.hair,
-        shoes: look.shoes, inner: look.inner, legwear: look.legwear,
-        fade: Math.max(0.001, entry.fade * w.fade),
-      });
-      this.poses.push({ id: w.id, x: react.x, y, z: react.z, phase, fade: entry.fade * w.fade });
+      const instance = instances[count] ??= {} as WalkerInstance;
+      count++;
+      instance.variant = look.variant; instance.x = react.x; instance.y = y; instance.z = react.z; instance.yaw = entry.yaw;
+      instance.scale = scale; instance.tilt = react.tilt; instance.tiltYaw = react.tiltYaw; instance.lod = entry.lod;
+      instance.shape = look.model.shape; instance.rowStart = rowStart; instance.frames = clip.frames;
+      instance.phase = phase % 1; instance.previousPhase = previousPhase % 1;
+      instance.skin = look.skin; instance.top = look.top; instance.bottom = look.bottom; instance.hair = look.hair;
+      instance.shoes = look.shoes; instance.inner = look.inner; instance.legwear = look.legwear;
+      instance.fade = Math.max(0.001, entry.fade * w.fade);
+      const pose = this.poses[poses] ??= { id: 0, x: 0, y: 0, z: 0, phase: 0, fade: 0 };
+      poses++;
+      pose.id = w.id; pose.x = react.x; pose.y = y; pose.z = react.z; pose.phase = phase; pose.fade = entry.fade * w.fade;
     }
+    instances.length = count; this.poses.length = poses;
     this.reactions.prune(seconds);
     this.meshes.update(instances);
-    this.count = instances.length;
+    this.count = count;
     this.heights.pump(RAYS_PER_FRAME, frameNow);
     this.updateMs = performance.now() - start;
+  }
+
+  /** One known life this frame, re-evaluated in place; null when it is not a draw candidate (gone, lingering out of
+   *  sight, a birth in plain sight, or ground not sampled yet). */
+  private candidate(population: Population, old: Walker, utc: number, view: RingView, frame: number, frameNow: number): Walker | null {
+    // A drawn walker never fades out in sight at the end of its life: it walks on, out of view, then goes.
+    const drawnNow = this.ring.has(old.id);
+    const walker = population.at(old, utc, drawnNow, old);
+    if (!walker) { this.lingering.delete(old.id); return null; }
+    if (walker.age >= walker.life) {
+      if (!drawnNow || !sight(view, walker, LINGER_UNTIL)) { this.lingering.delete(old.id); return null; }
+      this.lingering.set(old.id, old);
+    }
+    // A birth in plain sight is not drawn until the walker is out of view.
+    if ((walker.age < BIRTH_SEEN && !drawnNow && sight(view, walker, RING.popFree))
+      || this.hidden.get(walker.id) === frame - 1 && sight(view, walker, RING.popFree + 10)) {
+      this.hidden.set(walker.id, frame); return null;
+    }
+    if (!Number.isFinite(walker.y)) {
+      const chain = population.network.chains[walker.chain];
+      const y = this.heights.height(chain, walker.s);
+      if (y === null) { this.heights.request(chain, frameNow); return null; }
+      walker.y = y;
+    }
+    return walker;
   }
 
   /** Hot-swap only GPU meshes; the deterministic lives and ground cache survive. */
@@ -294,7 +332,7 @@ export class Walkers {
     for (const mesh of this.meshes.meshes) {
       for (let i = 0; i < mesh.count; i++) {
         const e = mesh.instanceMatrix.array;
-        if (Math.hypot(e[16 * i + 12] - this.camera.x, e[16 * i + 14] - this.camera.z) <= radius) n++;
+        if ((e[16 * i + 12] - this.camera.x) ** 2 + (e[16 * i + 14] - this.camera.z) ** 2 <= radius * radius) n++;
       }
     }
     return n;
@@ -304,7 +342,7 @@ export class Walkers {
     return { cap: this.options.cap, drawn: this.count, candidates: this.wide.length, chains: this.network?.chains.length ?? 0,
       cells: this.network?.cells.size ?? 0, graphs: this.graphs.length, heightsPending: this.heights.pending, rays: this.heights.rays,
       buildMs: Number(this.buildMs.toFixed(2)), updateMs: Number(this.updateMs.toFixed(3)), scanMs: Number(this.scanMs.toFixed(3)),
-      reacting: this.reactions.active, hidden: this.hidden.size, lingering: this.lingering.size, variants: this.meshes?.meshes.map(m => m.count) ?? [] };
+      reacting: this.reactions.active, hidden: [...this.hidden.values()].filter(at => at === this.frame).length, lingering: this.lingering.size, variants: this.meshes?.meshes.map(m => m.count) ?? [] };
   }
 
   debugPoses() { return this.poses; }

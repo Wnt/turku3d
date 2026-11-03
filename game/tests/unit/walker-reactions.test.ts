@@ -15,7 +15,7 @@ function run(base: Base, threats: Threat[], seconds: number, walk = 0) {
     const t = i * DT;
     const b = { ...base, z: base.z + walk * t, speed: walk };
     const moved = threats.map(th => ({ ...th, x: th.x + th.vx * t, z: th.z + th.vz * t }));
-    const r = reactions.apply(b, moved, DT, t);
+    const r = { ...reactions.apply(b, moved, DT, t) };
     frames.push(r);
     for (const th of moved) if (th.car && Math.hypot(th.vx, th.vz) >= REACT.hitSpeed && inside(th, r.x, r.z) && !r.down) {
       throw new Error(`walker inside a moving car at ${t.toFixed(2)} s`);

@@ -42,7 +42,7 @@ const ACTIVITY: [number, number][] = [[0, 0.12], [6, 0.15], [8, 0.55], [9, 0.75]
 export function activityAt(clockHour: number): number {
   const hour = Math.floor((((clockHour % 24) + 24) % 24) * 60) / 60;
   for (let i = 1; i < ACTIVITY.length; i++) {
-    const [h1, v1] = ACTIVITY[i], [h0, v0] = ACTIVITY[i - 1];
+    const h1 = ACTIVITY[i][0], v1 = ACTIVITY[i][1], h0 = ACTIVITY[i - 1][0], v0 = ACTIVITY[i - 1][1];
     if (hour <= h1) return v0 + (v1 - v0) * (hour - h0) / (h1 - h0);
   }
   return ACTIVITY[0][1];
@@ -180,14 +180,15 @@ export class Population {
     out.length = 0;
     this.generation++; this.activities.clear();
     const reach = radius + MAX_TRAVEL;
-    const t = (utcMs - CYCLE_EPOCH) / 1000;
+    const t = (utcMs - CYCLE_EPOCH) / 1000, r2 = radius * radius, filter = { x, z, radius };
+    const visit = (w: Walker) => { if ((w.x - x) ** 2 + (w.z - z) ** 2 <= r2) out.push(w); };
     for (let cx = Math.floor((x - reach) / CELL_M); cx <= Math.floor((x + reach) / CELL_M); cx++) {
       for (let cz = Math.floor((z - reach) / CELL_M); cz <= Math.floor((z + reach) / CELL_M); cz++) {
         const cell = this.network.cells.get(cellKey(cx, cz));
         if (!cell) continue;
         const dx = Math.max(cx * CELL_M - x, 0, x - (cx + 1) * CELL_M), dz = Math.max(cz * CELL_M - z, 0, z - (cz + 1) * CELL_M);
         if (dx * dx + dz * dz > reach * reach) continue;
-        this.cell(cell, t, w => { if ((w.x - x) ** 2 + (w.z - z) ** 2 <= radius * radius) out.push(w); }, { x, z, radius });
+        this.cell(cell, t, visit, filter);
       }
     }
     this.prune();
@@ -218,12 +219,12 @@ export class Population {
 
   /** The same life at another time; null once it ended (with `linger`, up to WALKER.linger later: rendering only) or its
    *  route is unknown here. */
-  at(walker: Walker, utcMs: number, linger = false): Walker | null {
-    return this.walker(walker.cell, walker.slot, walker.lifeId, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000, undefined, walker.member, linger);
+  at(walker: Walker, utcMs: number, linger = false, into?: Walker): Walker | null {
+    return this.walker(walker.cell, walker.slot, walker.lifeId, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000, undefined, walker.member, linger, into);
   }
 
   private walker(cell: Cell, slot: number, id: number, life: number, born: number, t: number,
-    near?: Near, member = 0, linger = false): Walker | null {
+    near?: Near, member = 0, linger = false, into?: Walker): Walker | null {
     const age = t - born;
     if (age < 0 || age >= (linger ? life + WALKER.linger : life)) return null;
     let entry = this.routes.get(id);
@@ -232,7 +233,7 @@ export class Population {
     const route = entry.route;
     if (age > route.known || !route.legs.length) return null;
     if (near) {
-      const [x0, z0, x1, z1] = route.box, r2 = near.radius * near.radius;
+      const box = route.box, x0 = box[0], z0 = box[1], x1 = box[2], z1 = box[3], r2 = near.radius * near.radius;
       if ('spots' in near) {
         let close = false;
         for (let i = 0; i < near.spots.length && !close; i += 2) {
@@ -265,13 +266,17 @@ export class Population {
       if (leg.taper0) side *= Math.min(1, walked / WALKER.taper);
       if (leg.taper1) side *= Math.min(1, (length - walked) / WALKER.taper);
     } else side = leg.side ?? 0;
-    const person = member ? hash32(id, 17, member) : id;
-    return {
-      id: person, lifeId: id, member, slot, variant: hash32(person, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(person, 8) % WALKER.variants].height,
-      x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz) + (member ? Math.PI : 0), chain: leg.chain, s,
-      moving: !leg.idle, speed: route.speed, distance: leg.d0 + walked, idleTime: leg.idle ? elapsed : 0,
-      fade: Math.max(0, Math.min(1, age / WALKER.fade, ((linger ? life + WALKER.linger : life) - age) / WALKER.fade)), age, cell, life, born,
-    };
+    const person = member ? hash32(id, 17, member) : id, variant = hash32(person, 8) % WALKER.variants;
+    // Re-evaluating a known life writes into the caller's object: the per-frame path allocates nothing.
+    const out = into ?? ({} as Walker);
+    out.id = person; out.lifeId = id; out.member = member; out.slot = slot; out.variant = variant;
+    out.scale = HUMAN_MODELS[variant].height;
+    out.x = tmp.x - fz * side; out.z = tmp.z + fx * side; out.y = tmp.y; out.yaw = Math.atan2(fx, fz) + (member ? Math.PI : 0);
+    out.chain = leg.chain; out.s = s; out.moving = !leg.idle; out.speed = route.speed; out.distance = leg.d0 + walked;
+    out.idleTime = leg.idle ? elapsed : 0;
+    out.fade = Math.max(0, Math.min(1, age / WALKER.fade, ((linger ? life + WALKER.linger : life) - age) / WALKER.fade));
+    out.age = age; out.cell = cell; out.life = life; out.born = born;
+    return out;
   }
 
   /** Birth on a hashed point of the cell's pieces (weighted), then hashed turns at junctions until the life ends or

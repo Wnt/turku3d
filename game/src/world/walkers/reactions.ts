@@ -67,14 +67,15 @@ export class Reactions {
   /** Recent knock-downs and dives (world position, frame time in s). */
   private alarms: { x: number; z: number; t: number }[] = [];
 
-  get active() { return this.states.size; }
+  /** Walkers displaced or knocked down right now. */
+  get active() { let n = 0; this.states.forEach(s => { if (s.knocked >= 0 || s.dx || s.dz || s.vx || s.vz) n++; }); return n; }
 
   /** The reaction of one drawn walker at frame time `now` (s); `dt` is the frame step. */
   apply(base: Base, threats: readonly Threat[], dt: number, now: number): Reaction {
     let s = this.states.get(base.id);
     const fx = Math.sin(base.yaw), fz = Math.cos(base.yaw);
     if (!s) {
-      if (!threats.some(t => near(t, base)) && !this.alarms.some(a => Math.hypot(a.x - base.x, a.z - base.z) < REACT.panicRadius)) return { x: base.x, z: base.z, yaw: null, extra: 0, moving: false, tilt: 0, tiltYaw: 0, down: false };
+      if (!this.anyNear(threats, base)) return this.result(base.x, base.z, null, 0, false, 0, 0, false);
       s = { dx: 0, dz: 0, vx: 0, vz: 0, extra: 0, knocked: -1, ax: 0, az: 0, tx: 0, tz: 0, fallYaw: 0, yaw: base.yaw, seen: now };
       this.states.set(base.id, s);
     }
@@ -85,7 +86,7 @@ export class Reactions {
     let targetX = 0, targetZ = 0, speed: number = REACT.back, threatened = false, urgency = Infinity;
     for (const t of threats) {
       if (!t.car) continue;
-      const travel = Math.hypot(t.vx, t.vz);
+      const travel = Math.sqrt((t.vx) ** 2 + (t.vz) ** 2);
       const rx = px - t.x, rz = pz - t.z;
       const along = rx * t.car.hx + rz * t.car.hz, across = -rx * t.car.hz + rz * t.car.hx;
       const inside = Math.abs(along) < t.car.length / 2 + 0.25 && Math.abs(across) < t.car.width / 2 + 0.3;
@@ -95,7 +96,7 @@ export class Reactions {
       }
       // The footprint swept along the car's motion relative to the walker: a car coming at it, a reversing car, or
       // a parked one the walker is about to walk into.
-      const rvx = t.vx - fx * base.speed, rvz = t.vz - fz * base.speed, closing = Math.hypot(rvx, rvz);
+      const rvx = t.vx - fx * base.speed, rvz = t.vz - fz * base.speed, closing = Math.sqrt((rvx) ** 2 + (rvz) ** 2);
       const ux = closing > 0.3 ? rvx / closing : t.car.hx, uz = closing > 0.3 ? rvz / closing : t.car.hz;
       const hu = Math.abs(t.car.hx * ux + t.car.hz * uz), hn = Math.abs(-t.car.hx * uz + t.car.hz * ux);
       const front = t.car.length / 2 * hu + t.car.width / 2 * hn, half = t.car.length / 2 * hn + t.car.width / 2 * hu;
@@ -113,7 +114,7 @@ export class Reactions {
     }
     // No car to dodge: hurry away from a recent knock-down or dive nearby.
     if (urgency === Infinity) for (const a of this.alarms) {
-      const rx = px - a.x, rz = pz - a.z, d = Math.hypot(rx, rz);
+      const rx = px - a.x, rz = pz - a.z, d = Math.sqrt((rx) ** 2 + (rz) ** 2);
       if (now - a.t > REACT.panic || d > REACT.panicRadius || d < 0.3) continue;
       threatened = true; urgency = now - a.t;
       targetX = s.dx + rx / d * REACT.flee; targetZ = s.dz + rz / d * REACT.flee; speed = REACT.hurry;
@@ -121,13 +122,13 @@ export class Reactions {
     }
     for (const t of threats) {
       if (t.car || Math.abs(t.y - base.y) > 2) continue;
-      const rx = px - t.x, rz = pz - t.z, d = Math.hypot(rx, rz);
+      const rx = px - t.x, rz = pz - t.z, d = Math.sqrt((rx) ** 2 + (rz) ** 2);
       if (d > 4) continue;
       // Closest approach of the player relative to the walker over the next `notice` seconds.
       const wx = fx * base.speed + s.vx, wz = fz * base.speed + s.vz;
       const vx = t.vx - wx, vz = t.vz - wz, v2 = vx * vx + vz * vz;
       const tc = v2 > 1e-4 ? Math.max(0, Math.min(REACT.notice, (rx * vx + rz * vz) / v2)) : 0;
-      const cx = rx - vx * tc, cz = rz - vz * tc, closest = Math.hypot(cx, cz);
+      const cx = rx - vx * tc, cz = rz - vz * tc, closest = Math.sqrt((cx) ** 2 + (cz) ** 2);
       const personal = t.personal ?? REACT.personal;
       if (closest >= personal && d >= personal) continue;
       threatened = true;
@@ -140,40 +141,58 @@ export class Reactions {
       speed = Math.max(speed, REACT.step);
     }
     if (!threatened) { targetX = 0; targetZ = 0; speed = REACT.back; }
-    const offset = Math.hypot(targetX, targetZ);
+    const offset = Math.sqrt((targetX) ** 2 + (targetZ) ** 2);
     if (offset > REACT.maxOffset) { targetX *= REACT.maxOffset / offset; targetZ *= REACT.maxOffset / offset; }
     // Move towards the target at up to `speed`, easing in over a fifth of a second.
-    const ex = targetX - s.dx, ez = targetZ - s.dz, e = Math.hypot(ex, ez);
+    const ex = targetX - s.dx, ez = targetZ - s.dz, e = Math.sqrt((ex) ** 2 + (ez) ** 2);
     const v = Math.min(speed, e / 0.2), k = Math.min(1, dt * 10);
     s.vx += ((e > 1e-4 ? ex / e * v : 0) - s.vx) * k; s.vz += ((e > 1e-4 ? ez / e * v : 0) - s.vz) * k;
-    const step = Math.hypot(s.vx, s.vz) * dt;
+    const step = Math.sqrt((s.vx) ** 2 + (s.vz) ** 2) * dt;
     if (step > e) { s.dx = targetX; s.dz = targetZ; } else { s.dx += s.vx * dt; s.dz += s.vz * dt; }
     s.extra += step;
-    const totalX = fx * base.speed + s.vx, totalZ = fz * base.speed + s.vz, total = Math.hypot(totalX, totalZ);
-    const reacting = Math.hypot(s.vx, s.vz) > 0.5;
+    const totalX = fx * base.speed + s.vx, totalZ = fz * base.speed + s.vz, total = Math.sqrt((totalX) ** 2 + (totalZ) ** 2);
+    const reacting = Math.sqrt((s.vx) ** 2 + (s.vz) ** 2) > 0.5;
     let yaw = reacting && total > 0.3 ? Math.atan2(totalX, totalZ) : null;
     // Standing still, a walker turns to look at the nearest player on foot who comes up close.
     if (!reacting && base.speed === 0) {
       let nearest: number = REACT.look;
       for (const t of threats) {
         if (t.car || t.personal !== undefined || Math.abs(t.y - base.y) > 2) continue;
-        const d = Math.hypot(t.x - px, t.z - pz);
+        const d = Math.sqrt((t.x - px) ** 2 + (t.z - pz) ** 2);
         if (d < nearest && d > 0.2) { nearest = d; yaw = Math.atan2(t.x - px, t.z - pz); }
       }
     }
-    const result: Reaction = { x: base.x + s.dx, z: base.z + s.dz, yaw, extra: s.extra, moving: reacting, tilt: 0, tiltYaw: 0, down: false };
-    if (!threatened && Math.hypot(s.dx, s.dz) < 0.01 && Math.hypot(s.vx, s.vz) < 0.05) this.states.delete(base.id);
+    const result = this.result(base.x + s.dx, base.z + s.dz, yaw, s.extra, reacting, 0, 0, false);
+    // A settled state stays (pruned once unseen): recreating it every frame for crowded walkers was pure churn.
+    if (!threatened && s.dx * s.dx + s.dz * s.dz < 1e-4 && s.vx * s.vx + s.vz * s.vz < 0.0025) { s.dx = s.dz = s.vx = s.vz = 0; }
     return result;
+  }
+
+  /** One result object, reused: callers read it before the next apply(). */
+  private out: Reaction = { x: 0, z: 0, yaw: null, extra: 0, moving: false, tilt: 0, tiltYaw: 0, down: false };
+  private result(x: number, z: number, yaw: number | null, extra: number, moving: boolean, tilt: number, tiltYaw: number, down: boolean) {
+    const o = this.out;
+    o.x = x; o.z = z; o.yaw = yaw; o.extra = extra; o.moving = moving; o.tilt = tilt; o.tiltYaw = tiltYaw; o.down = down;
+    return o;
+  }
+
+  private anyNear(threats: readonly Threat[], base: Base) {
+    for (let i = 0; i < threats.length; i++) if (near(threats[i], base)) return true;
+    for (const a of this.alarms) {
+      const dx = a.x - base.x, dz = a.z - base.z;
+      if (dx * dx + dz * dz < REACT.panicRadius * REACT.panicRadius) return true;
+    }
+    return false;
   }
 
   /** Drops the states of walkers no longer drawn. */
   prune(now: number) {
-    for (const [id, s] of this.states) if (now - s.seen > REACT.forget) this.states.delete(id);
-    this.alarms = this.alarms.filter(a => now - a.t <= REACT.panic && a.t <= now);
+    this.states.forEach((s, id) => { if (now - s.seen > REACT.forget) this.states.delete(id); });
+    if (this.alarms.length) this.alarms = this.alarms.filter(a => now - a.t <= REACT.panic && a.t <= now);
   }
 
   private alarm(x: number, z: number, now: number) {
-    if (!this.alarms.some(a => now - a.t < 1 && Math.hypot(a.x - x, a.z - z) < 5)) this.alarms.push({ x, z, t: now });
+    if (!this.alarms.some(a => now - a.t < 1 && Math.sqrt((a.x - x) ** 2 + (a.z - z) ** 2) < 5)) this.alarms.push({ x, z, t: now });
   }
 
   clear() { this.states.clear(); this.alarms = []; }
@@ -188,7 +207,7 @@ export class Reactions {
 
   private knockedDown(s: State, base: Base, dt: number): Reaction {
     s.knocked += dt;
-    const slide = Math.hypot(s.tx, s.tz);
+    const slide = Math.sqrt((s.tx) ** 2 + (s.tz) ** 2);
     if (slide > 0) {
       const slower = Math.max(0, slide - 7 * dt) / slide;
       s.ax += s.tx * dt; s.az += s.tz * dt; s.tx *= slower; s.tz *= slower;
@@ -197,11 +216,11 @@ export class Reactions {
     const k = s.knocked, up = REACT.fall + REACT.down;
     const lean = k < REACT.fall ? ease(k / REACT.fall) : k < up ? 1 : 1 - ease(Math.min(1, (k - up) / REACT.rise));
     if (k >= up + REACT.rise) s.knocked = -1;
-    return { x: s.ax, z: s.az, yaw: s.yaw, extra: s.extra, moving: false, tilt: lean * REACT.lean, tiltYaw: s.fallYaw, down: true };
+    return this.result(s.ax, s.az, s.yaw, s.extra, false, lean * REACT.lean, s.fallYaw, true);
   }
 }
 
 function near(t: Threat, base: Base): boolean {
-  const reach = t.car ? Math.hypot(t.vx, t.vz) * REACT.warn + t.car.length + REACT.clear + 2 : 4;
+  const reach = t.car ? Math.sqrt((t.vx) ** 2 + (t.vz) ** 2) * REACT.warn + t.car.length + REACT.clear + 2 : 4;
   return Math.abs(t.x - base.x) < reach && Math.abs(t.z - base.z) < reach;
 }

@@ -24,53 +24,65 @@ export function inView(view: RingView, x: number, z: number): boolean {
 
 /** Ring distance: true distance in view, scaled up out of view. */
 function ringScore(view: RingView, x: number, z: number): number {
-  const d = Math.hypot(x - view.x, z - view.z);
+  const dx = x - view.x, dz = z - view.z, d = Math.sqrt(dx * dx + dz * dz);
   return inView(view, x, z) ? d : d * RING.inView / RING.outOfView;
 }
 
 /** A drawn walker and this client's cosmetic state for it (ring fade, smoothed yaw, last animation phase/clip). */
 export interface Drawn<T extends Placed> { walker: T; fade: number; yaw: number; phase: number; clip: number; first: boolean; lod?: 0 | 1 }
+/** Frame stamps of a drawn entry: last frame it was a candidate (with that candidate) and was chosen. */
+interface Entry<T extends Placed> extends Drawn<T> { leaving: boolean; seen: number; chosen: number; candidate: T | null }
 
 export class Ring<T extends Placed> {
-  private entries = new Map<number, Drawn<T> & { leaving: boolean }>();
+  private entries = new Map<number, Entry<T>>();
+  private frame = 0;
 
   get size() { return this.entries.size; }
   /** This walker is drawn (or fading out). */
   has(id: number) { return this.entries.has(id); }
 
+  /** Per-call scratch, reused (the ring runs every frame). */
+  private scored: { walker: T; rank: number }[] = [];
+  private out: Entry<T>[] = [];
+
   /** The walkers to draw this frame; `walkers` are every candidate whose position (and ground) is known now. */
   select(walkers: readonly T[], view: RingView, cap: number, dt: number): Drawn<T>[] {
-    const scored = [];
-    for (const walker of walkers) {
-      const score = ringScore(view, walker.x, walker.z), drawn = this.entries.get(walker.id);
+    const scored = this.scored, frame = ++this.frame;
+    let n = 0;
+    for (let w = 0; w < walkers.length; w++) {
+      const walker = walkers[w], score = ringScore(view, walker.x, walker.z), drawn = this.entries.get(walker.id);
+      if (drawn) { drawn.seen = frame; drawn.candidate = walker; }
       if (score > RING.inView + (drawn && !drawn.leaving ? RING.keep : 0)) continue;
-      scored.push({ walker, rank: score - (drawn && !drawn.leaving ? RING.incumbent : 0) });
+      const slot = scored[n] ??= { walker, rank: 0 };
+      n++;
+      slot.walker = walker; slot.rank = score - (drawn && !drawn.leaving ? RING.incumbent : 0);
     }
+    scored.length = n;
     scored.sort((a, b) => a.rank - b.rank || a.walker.id - b.walker.id);
-    const chosen = new Set<number>();
-    for (const { walker } of scored.slice(0, Math.max(0, cap))) {
-      chosen.add(walker.id);
+    for (let i = 0; i < Math.min(n, Math.max(0, cap)); i++) {
+      const walker = scored[i].walker;
       const entry = this.entries.get(walker.id);
-      if (entry) { entry.walker = walker; entry.leaving = false; continue; }
-      const visible = inView(view, walker.x, walker.z) && Math.hypot(walker.x - view.x, walker.z - view.z) < RING.popFree;
-      this.entries.set(walker.id, { walker, fade: visible ? 0 : 1, yaw: 0, phase: 0, clip: -1, first: true, leaving: false });
+      if (entry) { entry.walker = walker; entry.leaving = false; entry.chosen = frame; continue; }
+      const visible = inView(view, walker.x, walker.z) && (walker.x - view.x) ** 2 + (walker.z - view.z) ** 2 < RING.popFree * RING.popFree;
+      this.entries.set(walker.id, { walker, fade: visible ? 0 : 1, yaw: 0, phase: 0, clip: -1, first: true, leaving: false,
+        seen: frame, chosen: frame, candidate: walker });
     }
-    const present = new Map(walkers.map(w => [w.id, w]));
-    for (const [id, entry] of this.entries) {
-      if (chosen.has(id)) continue;
-      const walker = present.get(id);
+    this.entries.forEach((entry, id) => {
+      if (entry.chosen === frame) return;
+      const walker = entry.seen === frame ? entry.candidate : null;
       // Gone from the shared model (end of life, unknown route): its lifecycle fade already ran.
-      if (!walker) { this.entries.delete(id); continue; }
-      const visible = inView(view, walker.x, walker.z) && Math.hypot(walker.x - view.x, walker.z - view.z) < RING.popFree;
-      if (!visible || entry.fade <= 0) { this.entries.delete(id); continue; }
+      if (!walker) { this.entries.delete(id); return; }
+      const visible = inView(view, walker.x, walker.z) && (walker.x - view.x) ** 2 + (walker.z - view.z) ** 2 < RING.popFree * RING.popFree;
+      if (!visible || entry.fade <= 0) { this.entries.delete(id); return; }
       entry.walker = walker; entry.leaving = true;
-    }
-    const step = dt / RING.fadeSeconds, out: (Drawn<T> & { leaving: boolean })[] = [];
-    for (const [id, entry] of this.entries) {
+    });
+    const step = dt / RING.fadeSeconds, out = this.out;
+    out.length = 0;
+    this.entries.forEach((entry, id) => {
       entry.fade = Math.min(1, Math.max(0, entry.fade + (entry.leaving ? -step : step)));
-      if (entry.leaving && entry.fade <= 0) { this.entries.delete(id); continue; }
+      if (entry.leaving && entry.fade <= 0) { this.entries.delete(id); return; }
       out.push(entry);
-    }
+    });
     // Leaving walkers may exceed the cap briefly, never the instance margin.
     return out.length > cap + RING.margin ? out.sort((a, b) => Number(a.leaving) - Number(b.leaving)).slice(0, cap + RING.margin) : out;
   }
