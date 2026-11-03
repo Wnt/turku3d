@@ -37,7 +37,7 @@ import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
 import { streamingAllowance, streamingBudget } from '../render/preparationBudget';
 import { TileArrays, drawnGeometries, rendererUploaded } from './releaseArrays';
-import { GpuMeter, modelGpuBytes } from './gpuBytes';
+import { GpuMeter, modelGpuBytes, rendererResidency } from './gpuBytes';
 import { renderTier, type QualityTier } from '../render/quality';
 
 const POLL_MS = 1000;
@@ -95,14 +95,22 @@ const HIGH_CAMERA_M = 40;
 const HD_3D_M = 250;
 /** How often committed tiles release the CPU copies of uploaded render-only arrays (ms). */
 const RELEASE_MS = 2000;
-/** GPU-byte residency budget per render tier (scene vertex/index buffers at 64 KiB placement, plus textures; world/
- *  gpuBytes.ts), for 4 GB cards (winperf: the 560X peaks at 3.96 of 4.1 GB). Medium and high are unbudgeted. Over
- *  90 % of it no lead or view tile starts a full install and the return cache keeps nothing; over it, hidden and far
- *  full tiles are dropped (never the current 3x3 window). Measured every GPU_MEASURE_MS, time-sliced. */
-const GPU_BUDGET_BYTES: Partial<Record<QualityTier, number>> = { reduced: 0.8 * 2 ** 30, low: 0.7 * 2 ** 30, mobile: 0.5 * 2 ** 30 };
-/** Apple GPUs share system memory (an 8 GB M1 Air detected as reduced): there the budget is relief for the swap,
- *  not a hard VRAM wall, so it binds later than on a 4 GB discrete card and the view keeps more full tiles. */
-const UNIFIED_GPU_BUDGET_BYTES = 1.0 * 2 ** 30;
+/** GPU-byte residency budget per render tier (uploaded scene vertex/index buffers, pooled ones at their slot, plus
+ *  textures; world/gpuBytes.ts), for 4 GB cards. Medium and high are unbudgeted. Reduced: winperf's 560X with the
+ *  geometry and uniform pools peaks at 2.5 GB in Chrome's GPU process with ~1.25 GB of the card free while the meter
+ *  reads 0.7-0.8 GiB, so 1.2 GiB. Over 90 % of it no lead or view tile starts a full install and the return cache
+ *  keeps nothing; over it, hidden and far full tiles are dropped (never the current 3x3 window). Measured every
+ *  GPU_MEASURE_MS, time-sliced. */
+const GPU_BUDGET_BYTES: Partial<Record<QualityTier, number>> = { reduced: 1.2 * 2 ** 30, low: 0.7 * 2 ** 30, mobile: 0.5 * 2 ** 30 };
+/** Apple GPUs share the machine's memory (an 8 GB M1 Air classed as reduced): no VRAM wall, but swap once the page
+ *  and the GPU process outgrow it (airperf: renderer 4.4 GB + GPU process 3.4 GB, 0.6-1.6 GB swap traffic per drive).
+ *  There the budget covers the page's JS heap (ArrayBuffers included) plus its GPU bytes: the GPU share is what
+ *  APPLE_MEMORY_BYTES leaves after the heap, within [APPLE_GPU_MIN, APPLE_GPU_MAX]. `?memBudget=GiB` sets the total. */
+const APPLE_MEMORY_BYTES = 3.0 * 2 ** 30, APPLE_GPU_MIN = 0.9 * 2 ** 30, APPLE_GPU_MAX = 1.5 * 2 ** 30;
+/** Chrome's JS heap including ArrayBuffer backing stores; undefined elsewhere. */
+function jsHeapBytes(): number | undefined {
+  return (globalThis.performance as unknown as { memory?: { usedJSHeapSize?: number } } | undefined)?.memory?.usedJSHeapSize;
+}
 const GPU_MEASURE_MS = 3000;
 /** A window tile still not loaded after this long (ms) shows as waiting in the tile status. */
 const WAITING_MS = 5000;
@@ -649,7 +657,8 @@ export class CoarseTiles {
     // Settling cameras also wait for the view wedge within START_VIEW_M (tiles the HD band admits), so a bench or QA
     // view never starts on scenery cells there.
     const view = this.startup ? null : this.screenshotScenery.cameraView;
-    if (!window || !view) return window;
+    // Over the GPU budget no view tile beyond the window installs: waiting for them would never end.
+    if (!window || !view || this.overGpu) return window;
     const wanted = this.wantedStarts(x, z);
     return viewWedgeTiles(view.x, view.z, view.dx, view.dz, START_VIEW_M, Math.min(view.halfAngle, Math.PI)).every(id => {
       if (wanted.includes(id)) return true;
@@ -1254,7 +1263,11 @@ export class CoarseTiles {
   private gpuLimit() {
     if (this.host.gpuBudget !== undefined) return this.host.gpuBudget > 0 ? this.host.gpuBudget : undefined;
     const tier = renderTier(), limit = tier ? GPU_BUDGET_BYTES[tier.tier] : undefined;
-    return limit !== undefined && tier?.gpu?.vendor?.toLowerCase() === 'apple' ? Math.max(limit, UNIFIED_GPU_BUDGET_BYTES) : limit;
+    if (limit === undefined || tier?.gpu?.vendor?.toLowerCase() !== 'apple') return limit;
+    const heap = jsHeapBytes();
+    if (heap === undefined) return limit;
+    const total = this.host.memoryBudget ?? APPLE_MEMORY_BYTES;
+    return Math.min(APPLE_GPU_MAX, Math.max(APPLE_GPU_MIN, total - heap));
   }
   private measureGpu(now: number) {
     const limit = this.gpuLimit();
@@ -1262,7 +1275,7 @@ export class CoarseTiles {
     this.gpu.measuring = true; this.gpu.next = now + GPU_MEASURE_MS;
     void (async () => {
       try {
-        const meter = new GpuMeter();
+        const meter = new GpuMeter(rendererResidency(this.host.renderer));
         let bytes = 0;
         const cached = [...this.entries.values()].flatMap(e => e.model && e.cachedAt !== undefined ? [e.model] : []);
         for (const root of [...this.host.scene.children, ...cached]) {
@@ -1277,10 +1290,12 @@ export class CoarseTiles {
   /** Over the limit: drop return-cache entries (oldest first), full tiles drawn as distant cells, full tiles off the
    *  lead, then lead and view tiles (farthest first) until the estimate fits; never the current window. */
   private applyGpuLimit(limit: number) {
+    // Startup installs are an explicit, bounded set the menu waits for: the budget neither stops nor evicts them.
+    if (this.startup) { this.overGpu = false; return; }
     this.overGpu = this.gpu.bytes > 0.9 * limit;
     let excess = this.gpu.bytes - limit;
     if (excess <= 0) return;
-    const at = this.at, wanted = new Set(this.lastWanted), lead = new Set(this.lead);
+    const at = this.at, wanted = new Set(this.lastWanted), lead = new Set(this.lead), residency = rendererResidency(this.host.renderer);
     const full = [...this.entries].filter(([id, e]) => e.model && !e.preview && !wanted.has(id));
     const far = (a: [string, Entry], b: [string, Entry]) => distToL0(b[0], at.x, at.z) - distToL0(a[0], at.x, at.z);
     const order = [
@@ -1291,14 +1306,18 @@ export class CoarseTiles {
     ];
     for (const [id, e] of order) {
       if (excess <= 0) break;
-      const freed = modelGpuBytes(e.model!);
+      const freed = modelGpuBytes(e.model!, residency);
       streamTrace.event('tile.evict', id, { mib: Math.round(freed / 2 ** 16) / 16, cached: e.cachedAt !== undefined });
       this.drop(e); this.entries.delete(id);
       excess -= freed; this.gpu.bytes -= freed;
     }
   }
   /** The latest GPU residency measurement (bytes; 0 where the tier has no budget) and its limit. */
-  gpuResidency() { return { bytes: this.gpu.bytes, limit: this.gpuLimit() ?? null, over: this.overGpu }; }
+  gpuResidency() {
+    const apple = this.host.gpuBudget === undefined && renderTier()?.gpu?.vendor?.toLowerCase() === 'apple' && jsHeapBytes() !== undefined;
+    return { bytes: this.gpu.bytes, limit: this.gpuLimit() ?? null, over: this.overGpu,
+      rule: this.host.gpuBudget !== undefined ? 'url' : apple && this.gpuLimit() !== undefined ? 'apple-memory' : 'tier' };
+  }
 
   /** CPU array bytes released so far (memory census). */
   get releasedBytes() { return this.arrays?.releasedBytes ?? 0; }

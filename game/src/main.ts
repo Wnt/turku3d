@@ -492,6 +492,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
     // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
     gpuBudget: gpuBudgetParam(new URLSearchParams(location.search).get('gpuBudget')),
+    // ?memBudget=GiB: the Apple reduced tier's heap + GPU total (default 2.5).
+    memoryBudget: gpuBudgetParam(new URLSearchParams(location.search).get('memBudget')),
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),

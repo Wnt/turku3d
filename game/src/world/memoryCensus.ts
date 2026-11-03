@@ -8,7 +8,7 @@ import { decodedTextures, textureRestores } from './loadingKtx';
 import { sharedBuffers, textureBytes, textureRelease } from './sharedAssets';
 import { staticBatchSources } from './staticBatch';
 import { vegetationOwner } from './vegetationLod';
-import { GpuMeter } from './gpuBytes';
+import { GpuMeter, rendererResidency } from './gpuBytes';
 
 export interface MemoryRow { bytes: number; count: number }
 export interface MemorySources {
@@ -155,8 +155,8 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
       browser = { totalMiB: mib(result.bytes), byScopeMiB: Object.fromEntries([...scopes].map(([k, v]) => [k, mib(v)])) };
     } catch (error) { browser = { error: String(error) }; }
   }
-  // GPU-resident bytes (vertex/index buffers at 64 KiB placement, textures), the residency budget's meter.
-  const meter = new GpuMeter(), gpu: Record<string, number> = {};
+  // GPU-resident bytes (uploaded buffers: pooled slots, others at 64 KiB placement; textures), the budget's meter.
+  const meter = new GpuMeter(rendererResidency(renderer)), gpu: Record<string, number> = {};
   const gpuAdd = (category: string, roots: readonly THREE.Object3D[]) => {
     let bytes = 0; for (const root of roots) bytes += meter.root(root); gpu[category] = mib(bytes);
   };
@@ -165,6 +165,12 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
   gpuAdd('scenery cells', rest.filter(child => { let scenery = false; child.traverse(o => { scenery ||= !!o.userData.scenery; }); return scenery; }));
   gpuAdd('other scene content', rest);
   gpu.total = Object.values(gpu).reduce((sum, value) => sum + value, 0);
+  // perf3's pools (render/geometryPool.ts, uniformPool.ts): pages are allocated GPU memory, slots what is in use.
+  type PoolStats = { pages: number; slots: number; free: number; bytes: number; slotBytes?: number; dedicated?: number };
+  const pools = (renderer ?? {}) as unknown as { geometryPool?: { stats: PoolStats } | null; uniformPool?: { stats: PoolStats } | null };
+  const pool = (stats: PoolStats | undefined) => stats ? { pagesMiB: mib(stats.bytes), pages: stats.pages, slots: stats.slots, free: stats.free,
+    ...(stats.slotBytes !== undefined ? { slotsMiB: mib(stats.slotBytes) } : {}), ...(stats.dedicated !== undefined ? { dedicated: stats.dedicated } : {}) } : null;
+  const gpuPools = { geometry: pool(pools.geometryPool?.stats), uniform: pool(pools.uniformPool?.stats) };
   const sorted = [...rows].sort((a, b) => b[1].bytes - a[1].bytes);
   return {
     totalMiB: mib(sorted.reduce((sum, [, row]) => sum + row.bytes, 0)),
@@ -173,7 +179,7 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
     texturesReleasedMiB: mib(textureRelease.bytes), textureReleases: textureRelease.count, textureRestores: textureRestores.count,
     rows: Object.fromEntries(sorted.map(([name, row]) => [name, { MiB: mib(row.bytes), count: row.count }])),
     heapMiB: heap ? { used: mib(heap.usedJSHeapSize), total: mib(heap.totalJSHeapSize) } : null,
-    gpuMiB: gpu, gpuResidency: parts?.gpuResidency ?? null,
+    gpuMiB: gpu, gpuPools, gpuResidency: parts?.gpuResidency ?? null,
     browser,
   };
 }

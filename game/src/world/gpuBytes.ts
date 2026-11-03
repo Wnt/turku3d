@@ -1,7 +1,9 @@
-// GPU-resident bytes of scene content, for the residency budget (CoarseTiles) and the memory census. Vertex and
-// index buffers count count x stride x element size (the CPU arrays may already be released, counts are fields),
-// each rounded up to 64 KiB as D3D12 places buffers; textures count their mip data. Shared buffers and texture
-// sources count once per measurement. three's info.memory is not used: it over-counts.
+// GPU-resident bytes of scene content, for the residency budget (CoarseTiles) and the memory census. With the
+// renderer's record (rendererResidency) only what is on the GPU counts: a pooled vertex/index buffer its slot
+// (render/geometryPool.ts, no placement padding), any other buffer its GPU size rounded up to 64 KiB as D3D12 places
+// it, a texture its mip data once it has a GPU texture; content not uploaded yet (hidden merge sources, LOD
+// children never drawn) counts nothing. Without it, count x stride x element size per buffer, rounded the same way.
+// Shared buffers and texture sources count once per measurement. three's info.memory is not used: it over-counts.
 import type * as THREE from 'three/webgpu';
 import { pooledGeometryBytes } from '../render/geometryPool';
 
@@ -9,6 +11,17 @@ const PLACEMENT = 64 * 1024;
 const placed = (bytes: number) => bytes > 0 ? Math.ceil(bytes / PLACEMENT) * PLACEMENT : 0;
 
 type Target = THREE.BufferAttribute | THREE.InterleavedBuffer;
+/** What the renderer holds on the GPU for a buffer target (bytes) and whether a texture has a GPU texture. */
+export interface GpuResidency { buffer(target: object): number; texture(texture: THREE.Texture): boolean }
+/** The r186 WebGPU backend's own records (never creating entries); undefined without a backend (tests, workers). */
+export function rendererResidency(renderer: unknown): GpuResidency | undefined {
+  const data = (renderer as { backend?: { data?: WeakMap<object, { buffer?: { size?: number }; texture?: unknown }> } } | null)?.backend?.data;
+  if (!data) return undefined;
+  return {
+    buffer: target => pooledGeometryBytes(target) ?? placed(data.get(target)?.buffer?.size ?? 0),
+    texture: texture => !!data.get(texture)?.texture,
+  };
+}
 function targetBytes(target: Target) {
   // Sub-allocated from a shared page (render/geometryPool.ts): its slot, not a 64 KiB placement. The slots of a page
   // add up to the page once.
@@ -36,13 +49,14 @@ function textureBytes(texture: THREE.Texture) {
 export class GpuMeter {
   private targets = new Set<object>();
   private textures = new Set<object>();
+  constructor(private residency?: GpuResidency) {}
   /** GPU bytes of one mesh not yet counted in this measurement. */
   mesh(mesh: THREE.Mesh) {
     let bytes = 0;
     const geometry = mesh.geometry;
     const add = (target: Target | null | undefined) => {
       if (!target || this.targets.has(target)) return;
-      this.targets.add(target); bytes += targetBytes(target);
+      this.targets.add(target); bytes += this.residency ? this.residency.buffer(target) : targetBytes(target);
     };
     if (geometry) {
       for (const attribute of Object.values(geometry.attributes)) {
@@ -59,7 +73,8 @@ export class GpuMeter {
         if (!texture?.isTexture) continue;
         const key = texture.source ?? texture;
         if (this.textures.has(key)) continue;
-        this.textures.add(key); bytes += textureBytes(texture);
+        this.textures.add(key);
+        if (!this.residency || this.residency.texture(texture)) bytes += textureBytes(texture);
       }
     }
     return bytes;
@@ -73,4 +88,4 @@ export class GpuMeter {
 }
 
 /** A model's GPU bytes on its own (shared buffers and textures it uses count fully). */
-export function modelGpuBytes(root: THREE.Object3D) { return new GpuMeter().root(root); }
+export function modelGpuBytes(root: THREE.Object3D, residency?: GpuResidency) { return new GpuMeter(residency).root(root); }

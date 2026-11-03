@@ -68,6 +68,8 @@ export interface CoarseHost {
   keepArrays?: boolean;
   /** GPU residency budget in bytes instead of the tier's (0: none); the `?gpuBudget=GiB` measurement override. */
   gpuBudget?: number;
+  /** Apple (unified memory) reduced tier: JS heap + GPU bytes budget in bytes; the `?memBudget=GiB` override. */
+  memoryBudget?: number;
   /** Compile and upload a collision preview outside the frame before it draws. */
   preparePreview?: (model: THREE.Object3D) => Promise<void>;
   /** After material styling and draft tint: register derived runtime geometry here. */
