@@ -1,4 +1,8 @@
-"""Read-only source LAZ -> immutable, memory-mapped collision tile point shards."""
+"""Read-only source LAZ -> immutable collision-tile point shards over the shared decode.
+
+A shard is a span of one per-source index (4 bytes per point) into the source-order decode,
+not a second copy of its 17-byte rows: the same rows in the same order, a quarter of the disk.
+"""
 
 from __future__ import annotations
 
@@ -85,7 +89,7 @@ class PointCloud:
 def _points(raw, scales, offsets):
     """Engine-metre records from stored integer shard rows (decoded.STORED).
 
-    Bit-identical to converting laspy's x/y/z; shards take 17 instead of 29 bytes/point.
+    Bit-identical to converting laspy's x/y/z from the 17-byte rows a shard indexes.
     """
     records = np.empty(len(raw), POINT_DTYPE)
     records["xyz"][:, 0] = (raw["X"] * scales[0] + offsets[0]) - C.ORIGIN_E
@@ -145,40 +149,32 @@ class TileStore:
                 return dest
             tmp = Path(tempfile.mkdtemp(prefix=".points-", dir=dest.parent))
             try:
-                counts = {}
                 decoded = decoded_source(source)
+                cells = np.empty((len(decoded), 2), np.int32)
                 for start in range(0, len(decoded), 1_000_000):
                     part = decoded[start:start + 1_000_000]
-                    records = part.data
                     xz = np.column_stack(
                         (part.scaled(0) - C.ORIGIN_E, C.ORIGIN_N - part.scaled(1))
                     )
-                    indices = np.floor(xz / C.COLLISION_TILE_SIZE).astype(int)
-                    # Lexicographic sort makes each tile write contiguous, not 64 scans/chunk.
-                    order = np.lexsort((indices[:, 0], indices[:, 1]))
-                    sorted_indices = indices[order]
-                    starts = np.r_[
-                        0, np.flatnonzero(np.any(np.diff(sorted_indices, axis=0), axis=1)) + 1
-                    ]
-                    for a, b in zip(starts, np.r_[starts[1:], len(order)], strict=True):
-                        if a == b:
-                            continue
-                        name = C.CollisionTile(*sorted_indices[a]).id
-                        with (tmp / f"{name}.bin").open("ab") as out:
-                            records[order[a:b]].tofile(out)
-                        counts[name] = counts.get(name, 0) + int(b - a)
-                for name, count in counts.items():
-                    raw = tmp / f"{name}.bin"
-                    data = np.memmap(raw, mode="r", dtype=SHARD_DTYPE, shape=(count,))
-                    np.save(tmp / f"{name}.npy", data, allow_pickle=False)
-                    del data
-                    raw.unlink()
+                    cells[start:start + len(part)] = np.floor(xz / C.COLLISION_TILE_SIZE)
+                # Stable: each collision tile's rows keep source order, as the copied shards did.
+                low = cells.min(axis=0) if len(cells) else np.zeros(2, np.int32)
+                width = int(cells[:, 0].max() - low[0] + 1) if len(cells) else 1
+                keys = (cells[:, 1] - low[1]) * width + (cells[:, 0] - low[0])
+                del cells
+                order = np.argsort(keys, kind="stable").astype(np.uint32)
+                values, starts, counts = np.unique(keys[order], return_index=True, return_counts=True)
+                spans = {
+                    C.CollisionTile(int(v % width + low[0]), int(v // width + low[1])).id: [int(a), int(n)]
+                    for v, a, n in zip(values, starts, counts, strict=True)
+                }
+                np.save(tmp / "index.npy", order, allow_pickle=False)
                 (tmp / "MANIFEST.json").write_text(
                     json.dumps(
                         {
                             "source": _identity(source),
                             "version": self.version,
-                            "counts": counts,
+                            "spans": spans,
                             "scales": [float(v) for v in decoded.scales],
                             "offsets": [float(v) for v in decoded.offsets],
                         },
@@ -194,9 +190,16 @@ class TileStore:
 
     @staticmethod
     @lru_cache(maxsize=256)
-    def _scale(directory):
+    def _manifest(directory):
         manifest = json.loads((directory / "MANIFEST.json").read_text())
-        return (np.asarray(manifest["scales"], np.float64), np.asarray(manifest["offsets"], np.float64))
+        scale = (np.asarray(manifest["scales"], np.float64), np.asarray(manifest["offsets"], np.float64))
+        return manifest["spans"], scale
+
+    @staticmethod
+    @lru_cache(maxsize=16)
+    def _rows(path, directory):
+        """Source-order rows and this source's shard index; an evicted decode is rebuilt."""
+        return decoded_source(path).data, np.load(directory / "index.npy", mmap_mode="r", allow_pickle=False)
 
     def _key(self, bbox):
         sources = C.laz_tiles_for_bbox(bbox)
@@ -214,16 +217,19 @@ class TileStore:
 
     def _read_tile(self, tile_id, buffer, sources, key):
         bbox = C.CollisionTile.parse(tile_id).bbox.buffered(buffer)
-        paths = [self._ensure_source(t) for t in sources]
-        shards = [
-            (p / f"{t.id}.npy", self._scale(p))
-            for p in paths
-            for t in C.collision_tiles_for_bbox(bbox)
-            if (p / f"{t.id}.npy").exists()
-        ]
+        shards = []
+        for source in sources:
+            path, directory = self._source(source)
+            self._ensure_source(source)
+            spans, scale = self._manifest(directory)
+            for t in C.collision_tiles_for_bbox(bbox):
+                if t.id in spans:
+                    shards.append((path, directory, spans[t.id], scale))
 
-        def load(path, scale):
-            return PointCloud(_points(np.load(path, mmap_mode="r", allow_pickle=False), *scale))
+        def load(path, directory, span, scale):
+            data, index = self._rows(path, directory)
+            start, count = span
+            return PointCloud(_points(data[index[start:start + count]], *scale))
 
         if buffer == 0 and len(shards) == 1:
             return load(*shards[0])
