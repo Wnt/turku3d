@@ -1084,3 +1084,67 @@ class MigratedRevisionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NavigationTests(unittest.TestCase):
+    setUp, tearDown, farm = FarmTests.setUp, FarmTests.tearDown, FarmTests.farm
+    NAVIGATION = dict(roads=dict(format='turku3d-roadgraph', nodes=2, edges=1),
+                      addresses=dict(format='turku3d-addresses', addresses=[dict(id='a'), dict(id='m', landmark=True)]))
+
+    def serve(self, farm):
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        self.addCleanup(lambda: (server.shutdown(), server.server_close(), thread.join()))
+        return f'http://127.0.0.1:{server.server_port}'
+
+    def get(self, url):
+        from urllib.error import HTTPError
+        try:
+            with urlopen(url) as reply:
+                return reply.status, reply.headers.get('Cache-Control'), reply.read()
+        except HTTPError as error:
+            with error:
+                return error.code, None, error.read()
+
+    def test_builds_once_per_source_revision_and_a_migrated_revision_serves_its_base(self):
+        calls, gate = [], threading.Event()
+        def navigate(revision, meta, output):
+            calls.append(revision)
+            gate.wait(3)
+            output.write_text(json.dumps(self.NAVIGATION))
+        register_migrated(self.root)
+        farm = self.farm(navigate=navigate)
+        farm.register(DREV, 'bulk+mffffffff')
+        base = self.serve(farm)
+        status, _, body = self.get(base + '/v/bulk+mffffffff/coarse/navigation.json')
+        self.assertEqual((status, json.loads(body)['state']), (404, 'building'))
+        self.assertEqual(self.get(base + f'/v/{REV}/coarse/navigation.json')[0], 404)  # Joins the running build.
+        gate.set()
+        deadline = time.monotonic() + 5
+        while not (self.root / 'navigation' / f'{REV}.json').exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        for url in ('/v/bulk+mffffffff/coarse/navigation.json', f'/v/{REV}/coarse/navigation.json'):
+            status, cache, body = self.get(base + url)
+            self.assertEqual((status, cache, json.loads(body)), (200, 'no-cache', self.NAVIGATION))
+        self.assertEqual(calls, [REV])
+        built = [json.loads(l) for l in (self.root / 'events.jsonl').read_text().splitlines()]
+        self.assertIn(dict(addresses=2, landmarks=1, nodes=2, edges=1),
+                      [{k: e[k] for k in ('addresses', 'landmarks', 'nodes', 'edges')} for e in built
+                       if e['event'] == 'navigation-built'])
+
+    def test_a_failed_build_is_not_retried_within_a_minute(self):
+        calls = []
+        def navigate(revision, meta, output):
+            calls.append(revision)
+            output.write_text('{"roads": {"format": "other"}, "addresses": {}}')
+        farm = self.farm(navigate=navigate)
+        base = self.serve(farm)
+        self.assertEqual(self.get(base + f'/v/{REV}/coarse/navigation.json')[0], 404)
+        deadline = time.monotonic() + 5
+        while not isinstance(farm.navigations.get(REV), dict) and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(self.get(base + f'/v/{REV}/coarse/navigation.json')[0], 404)
+        self.assertEqual(calls, [REV])
+        self.assertFalse((self.root / 'navigation' / f'{REV}.json').exists())
+        self.assertIn('unknown format', farm.navigations[REV]['error'])

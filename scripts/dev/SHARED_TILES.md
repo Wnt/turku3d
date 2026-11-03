@@ -130,6 +130,13 @@ hashes participate in the source version; workers mount these directories into t
 work root without modifying shared raw or another loop's work. For example the accepted
 Port Arthur survey uses `supplements/lidar-supplement/23458000_6704500.laz`.
 
+GET `/v/<revision-or-alias>/coarse/navigation.json` serves the city road graph and delivery address
+pool (`turku3d.coarse.navigation`, as the public coarse service serves it) from the revision's own
+source snapshot and data root; a migrated revision serves its base's, since navigation derives from
+OSM inputs rather than tile products. The first request starts one background build and answers 404
+(`state: building`), which the game treats as no navigation; later requests get `farm/navigation/<revision>.json`
+(`no-cache`). `events.jsonl` records `navigation-built` with address, landmark, node and edge counts.
+
 POST `/cancel` with `{"revision":"alias-or-id","tiles":["t0_0_0"]}` drops only queued jobs.
 It reports already-running tiles and lets those generators complete normally.
 

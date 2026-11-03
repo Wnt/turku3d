@@ -130,7 +130,7 @@ MIGRATION_WORKERS = 2
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
                  reserve_gib=2, grace_seconds=900, execute=None, free=None, stop=None,
-                 migrate=None):
+                 migrate=None, navigate=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers, self.queue_limit = workers, queue_limit
@@ -139,6 +139,9 @@ class Farm:
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
         self.migrate = migrate or self.run_migration
+        self.navigate = navigate or self.run_navigation
+        # Navigation builds by source revision: 'building', or the last failure row.
+        self.navigations = {}
         self.lock = threading.RLock()
         self.adoption_lock = threading.Lock()
         self.adopting = set()
@@ -797,6 +800,69 @@ class Farm:
             raise RuntimeError(f'migration exit {proc.returncode}; see logs/{revision}-{tile}.log')
         return dict(returncode=0)
 
+    def navigation(self, revision):
+        """The city road graph and delivery address pool of ``revision`` (turku3d.coarse.navigation, which the
+        public coarse service serves as /coarse/navigation.json), or None while it builds. It derives from OSM
+        inputs, not tile products, so a migrated revision serves its base's. Built once in the background."""
+        meta = self.revision(revision)
+        if meta.get('kind') == 'migrated':
+            revision = meta['base_revision']
+            meta = self.revision(revision)
+        target = self.root / 'navigation' / f'{revision}.json'
+        if target.is_file():
+            return target
+        with self.lock:
+            state = self.navigations.get(revision)
+            if state == 'building' or (state and time.time() - state['t'] < 60):
+                return None
+            self.navigations[revision] = 'building'
+        threading.Thread(target=self._navigation, args=(revision, meta, target), daemon=True,
+                         name='navigation').start()
+        return None
+
+    def _navigation(self, revision, meta, target):
+        started = time.monotonic()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')
+            self.navigate(revision, meta, temporary)
+            data = json.loads(temporary.read_bytes())
+            if (data['roads'].get('format') != 'turku3d-roadgraph'
+                    or data['addresses'].get('format') != 'turku3d-addresses'):
+                raise RuntimeError('navigation output has an unknown format')
+            temporary.replace(target)
+            addresses = data['addresses']['addresses']
+            with self.lock:
+                self.navigations.pop(revision, None)
+            self.event('navigation-built', revision=revision, seconds=round(time.monotonic() - started, 1),
+                       addresses=len(addresses), landmarks=sum(bool(a.get('landmark')) for a in addresses),
+                       nodes=data['roads'].get('nodes'), edges=data['roads'].get('edges'))
+        except Exception as error:
+            row = dict(t=time.time(), revision=revision, error=str(error)[-1000:])
+            with self.lock:
+                self.navigations[revision] = row
+            self.event('navigation-failed', **row)
+
+    def run_navigation(self, revision, meta, output):
+        """The revision's own source snapshot and data root build the navigation metadata into ``output``;
+        its content-keyed cache is shared by every revision with the same inputs."""
+        repo = self.root / 'revisions' / revision / 'repo'
+        work = self.root / 'work' / 'navigation'
+        work.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, REPO=str(repo), TURKU3D_WORK=str(work), TURKU3D_THREADS_PER_WORKER='1')
+        if meta.get('data_root'):
+            env['TURKU3D_DATA'] = meta['data_root']
+        code = ('import sys; from pathlib import Path; from turku3d.coarse.navigation import navigation; '
+                'Path(sys.argv[2]).write_bytes(navigation(Path(sys.argv[1])))')
+        logs = self.root / 'logs'
+        logs.mkdir(exist_ok=True)
+        with (logs / f'{revision}-navigation.log').open('a') as log:
+            proc = subprocess.run([str(self.runner), 'python', '-c', code, str(self.root / 'navigation' / 'content'),
+                                   str(output)], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                  timeout=1800, start_new_session=True)
+        if proc.returncode:
+            raise RuntimeError(f'navigation exit {proc.returncode}; see logs/{revision}-navigation.log')
+
     def base_fallback(self, meta, tile):
         """While a migrated tile is pending, its own finished base tile stands in for it."""
         if meta.get('kind') != 'migrated':
@@ -1340,6 +1406,14 @@ class Handler(BaseHTTPRequestHandler):
                 status, value = self.fragment(farm, revision, meta, rel[0], distance,
                                               query.get('client', [None])[0])
             return self.json(status, value)
+        if rel == ['navigation.json']:
+            path = farm.navigation(revision)
+            if path is None:
+                # The game falls back to its resident street tiles on a 404 (game/src/gameplay/index.ts).
+                return self.json(404, dict(error='navigation is being built', state='building'))
+            with path.open('rb') as source:
+                # Aliases move: never let the browser keep an earlier revision's graph.
+                return self.send(path, source, 'no-cache')
         return self.file(farm.output(meta['generation']), rel)
 
     def fragment(self, farm, revision, meta, tile, distance, player=None):
@@ -1386,14 +1460,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def file(self, root, rel):
         with self.server.farm.payload(root, rel) as (path, source):
-            self.send_response(200)
-            self.send_header('Content-Type', mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
-            self.send_header('Content-Length', str(os.fstat(source.fileno()).st_size))
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Cache-Control', 'public,max-age=31536000,immutable' if HASHED.search(path.name) else 'no-cache')
-            self.end_headers()
-            if self.command != 'HEAD':
-                shutil.copyfileobj(source, self.wfile)
+            self.send(path, source, 'public,max-age=31536000,immutable' if HASHED.search(path.name) else 'no-cache')
+
+    def send(self, path, source, cache):
+        self.send_response(200)
+        self.send_header('Content-Type', mimetypes.guess_type(path.name)[0] or 'application/octet-stream')
+        self.send_header('Content-Length', str(os.fstat(source.fileno()).st_size))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', cache)
+        self.end_headers()
+        if self.command != 'HEAD':
+            shutil.copyfileobj(source, self.wfile)
 
 
 def main():
