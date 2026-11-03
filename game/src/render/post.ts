@@ -1,11 +1,12 @@
 import { decodePrepassNormal } from './normalDecode';
+import { bakedAmbientContext } from './bakedVisibility';
 import { labelGpuPass } from './gpuPasses';
 import { PuddleReflections } from './weather/puddleReflections';
 import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { pass, mrt, output as sceneColor, sample, screenUV, materialReference, normalView, normalViewGeometry, negateOnBackSide, velocity, packNormalToRGB,
-  builtinAOContext, context, convertToTexture, float, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
+  context, convertToTexture, float, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
 import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
@@ -106,9 +107,10 @@ export class PostProcessing {
     }
     // Depth, velocity and normal/receiver source for TRAA, puddles and the light sprites.
     const geometry = pre ?? beauty, normals = pre ? pre.getTextureNode() : wet ? beauty.getTextureNode('normal') : null;
-    // Apply light GTAO to indirect light only: facade albedo already contains some occlusion.
-    this.beautyContext = ambient ? context({ ...flowContext(renderer.contextNode),
-      ...flowContext(builtinAOContext(mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength))) }) : this.baseContext;
+    // Indirect light only: baked static visibility everywhere, plus light GTAO where the tier keeps it
+    // (facade albedo already contains some occlusion).
+    const screenAO = ambient ? mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength) as THREE.Node<'float'> : null;
+    this.beautyContext = context({ ...flowContext(renderer.contextNode), ...flowContext(bakedAmbientContext(screenAO)) });
     const updateBeauty = beauty.updateBefore.bind(beauty);
     beauty.updateBefore = frame => {
       if (isPrecompiling(renderer)) return;
