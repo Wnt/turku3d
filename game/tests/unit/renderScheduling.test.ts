@@ -92,6 +92,8 @@ test('glTF publication waits for uploads with final map settings and deduplicate
     const done = queue.plugin().afterRoot!({ scene } as never)!.then(() => { published = true; });
     expect(initTexture).not.toHaveBeenCalled(); expect(published).toBe(false);
     callbacks.shift()!(0);
+    // The live draw's animation callbacks finish before upload tasks can run.
+    expect(initTexture).not.toHaveBeenCalled(); expect(published).toBe(false);
     await done;
     expect(published).toBe(true);
     await queue.enqueue(texture);
