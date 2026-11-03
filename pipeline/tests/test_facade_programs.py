@@ -445,3 +445,38 @@ def test_reviewed_paint_stays_inside_sloping_overlap_remainder():
     for points, uv, _ in wall_parts(vertices, wall, style):
         assert np.all(points[:, 1] >= 4 + points[:, 0] / 23.3 * 3 - 1e-9)
         np.testing.assert_allclose(uv[:, 0], points[:, 0])
+
+
+def test_classical_order_is_chosen_from_evidence_or_civic_historicist_data():
+    from turkutex.facade_archetypes import classical_order
+
+    civic = dict(construction_year=1903, material_class="brick", use="2120", footprint_m2=1200)
+    assert classical_order(civic)
+    assert classical_order(dict(civic, use="1000", monumental=True))
+    assert not classical_order(dict(civic, use="1000"))  # Ordinary historicist housing.
+    assert not classical_order(dict(civic, construction_year=1958))
+    assert not classical_order(dict(civic, material_class="wood"))
+    assert not classical_order(dict(civic, construction_year=1280))  # Massive masonry.
+    housing = dict(civic, use="1000", construction_year=1888)
+    assert classical_order(housing, "giant pale pilasters between red brick bays")
+    assert not classical_order(dict(housing, material_class="glass"), "pilasters")
+
+
+def test_classical_order_keeps_supported_readings_and_existing_pilaster_details():
+    from turku3d.facade_programs import classical
+    from turkutex.facade_archetypes import ORDER, sample
+    from turkutex.facade_program import value
+
+    attrs = dict(levels=2, construction_year=1903, material_class="brick", use="2120",
+                 footprint_m2=1200)
+    geometry = [dict(wall_id=str(i), width_m=12, height_m=12) for i in range(2)]
+    program = sample("keep", attrs, geometry)
+    first, second = program["walls"]
+    first["windows"]["frame_colour"] = value("#123456", "photo", 0.9)
+    second["appearance_details"] = dict(pilasters=value(True, "historicist style prior", 0.4))
+    classical(program, attrs, "")
+    assert program["classical_order"]
+    assert first["windows"]["frame_colour"]["value"] == "#123456"
+    assert first["windows"]["divisions"]["value"] == ORDER["panes"]
+    assert first["corners"]["quoins"]["value"] == 0
+    assert "order" not in second  # Its reviewed pilasters are painted elsewhere.

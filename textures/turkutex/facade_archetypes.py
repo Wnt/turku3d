@@ -301,6 +301,53 @@ def massive_masonry(attrs):
     return bool(tags & FORTIFICATION) or year is not None
 
 
+# Classical order of a historicist masonry facade, measured on local references of a 1903
+# red-brick civic building (two storeys of 3.84 m bays): giant rendered pilasters ~0.26 of a
+# bay with ~0.1 m projection and a capital band, a plain frieze ~1.1 m under a heavy cornice,
+# dentils ~0.16 x 0.20 m at 0.34 m pitch, a granite plinth ~1.2 m, white frames and
+# 3 x 4 small-pane windows. Metres except ``pilaster`` (fraction of the bay pitch).
+ORDER = dict(
+    pilaster=0.26,
+    pilaster_max_m=1.05,
+    pilaster_relief_m=0.10,
+    capital_m=0.45,
+    frieze_m=1.1,
+    architrave_m=0.22,
+    cornice_m=0.55,
+    cornice_relief_m=0.30,
+    dentil_m=(0.16, 0.20, 0.34),
+    plinth_m=1.2,
+    plinth_colour="#8d8a84",
+    trim="#e4dfd5",
+    frame="#ebe8e1",
+    panes=[3, 4],
+    surrounds_m=0.12,
+)
+ORDER_SOURCE = "reference-measured classical order"
+CLASSICAL_MATERIALS = {"brick", "plaster", "render", "stone"}
+
+
+def classical_order(attrs, evidence=""):
+    """Pilastered classical orders, from reviewed/vision evidence or civic historicist data.
+
+    Evidence text naming pilasters selects the order on any masonry building. Without
+    it, only monumental or civic masonry dated before 1920 qualifies; ordinary
+    historicist housing keeps its archetype bands. Massive masonry never gets an order.
+    """
+    material = attrs.get("material_class")
+    if attrs.get("blank") or (material and material not in CLASSICAL_MATERIALS):
+        return False
+    if massive_masonry(attrs):
+        return False
+    if re.search(r"pilaster", str(evidence), re.I):
+        return True
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    civic = attrs.get("monumental") or USE.get(str(attrs.get("use")), "") == "civic" or str(
+        attrs.get("osm_use") or ""
+    ).lower() in ("civic", "library", "museum", "theatre", "university", "school", "townhall")
+    return bool(civic and year and year < 1920 and (attrs.get("footprint_m2") or 0) >= 200)
+
+
 # Central cadastral districts I–IX. These are architectural priors, not measured dates.
 CENTRE_DISTRICTS = {f"853{i:03d}" for i in range(1, 10)}
 CENTRE_PERIODS = ((1830, 1), (1885, 2), (1910, 3), (1925, 2), (1938, 2),

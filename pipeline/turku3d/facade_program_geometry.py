@@ -38,7 +38,7 @@ def _paint_layers(vertices, wall, style):
 
     from turku3d.facade_relief import bands
 
-    yield from bands(vertices, style, quad)
+    yield from bands(vertices, style, quad, wall.get("order"))
     geometry = wall.get("measured_geometry")
     if not geometry:
         yield (

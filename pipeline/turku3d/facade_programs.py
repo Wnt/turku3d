@@ -204,6 +204,58 @@ def describe(program, description, source_width, *, blank_walls=frozenset()):
         w["balconies"] = v([])  # Existing generated balcony maps remain bound before this painter.
 
 
+def order_evidence(observed, description):
+    """Reviewed feature names/notes and vision description features, as one text."""
+    text = []
+    for wall in (observed or {}).get("walls", []):
+        if wall.get("observation", {}).get("needs_review", True):
+            continue
+        form = wall.get("structure", {})
+        text += [str(f.get("kind", "")) for f in form.get("features", []) if isinstance(f, dict)]
+        text += [str(form.get("occluded_parts", "")), str(wall["observation"].get("notes", ""))]
+    if description:
+        text += [str(f) for f in description.get("features", [])]
+    return " ".join(text)
+
+
+def classical(program, attrs, evidence):
+    """Give a selected building's walls the measured classical order.
+
+    Supported readings, descriptions and same-wall pilaster details keep priority:
+    only unsupported fields take the order's measured priors.
+    """
+    from turkutex.facade_archetypes import ORDER, ORDER_SOURCE, classical_order
+    from turkutex.facade_program import value
+
+    from turku3d.facade_inference import supported
+
+    if not classical_order(attrs, evidence):
+        return
+    program["classical_order"] = ORDER_SOURCE
+    v = lambda x: value(x, ORDER_SOURCE, 0.6)  # noqa: E731
+    for wall in program["walls"]:
+        if field(wall.get("appearance_details", {}), "pilasters", False):
+            continue  # facade_style_geometry already paints this wall's pilasters.
+        wall["order"] = copy.deepcopy(ORDER)
+        windows, trim = wall["windows"], wall["trim"]
+        for section, key, item in (
+            (windows, "divisions", ORDER["panes"]),
+            (windows, "frame_colour", ORDER["frame"]),
+            (trim, "colour", ORDER["trim"]),
+            (trim, "window_surrounds", ORDER["surrounds_m"]),
+            (trim, "cornice", ORDER["cornice_m"]),
+        ):
+            if not supported(section.get(key)):
+                section[key] = v(item)
+        if not supported(wall["corners"].get("quoins")):
+            wall["corners"]["quoins"] = v(0)  # Corner pilasters replace painted quoins.
+        # An ordered ground storey is windows over a plinth; a sampled door in every
+        # bay is no observation. Observed doors and shopfronts keep their variant.
+        base = wall["base"]
+        if not supported(base.get("variant")) and field(base, "variant") == "doors":
+            base["variant"] = v("windows")
+
+
 def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
     from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, sample
@@ -396,6 +448,7 @@ def resolve(building, vertices, eaves, *, layout_height=None):
                 ),
             )
         finish_material(wall, family, own, record, d, building.facade_key)
+    classical(program, attrs, order_evidence(observed, d))
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
     if reviewed:
         program["source"] = "reviewed-overlay"
