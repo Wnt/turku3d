@@ -11,6 +11,7 @@ import shutil
 from types import SimpleNamespace
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -205,6 +206,12 @@ else:
                 self.assertNotEqual(blocked.returncode,0)
                 self.assertIn('BlockingIOError',blocked.stderr)
                 self.assertFalse((state/'build.json').exists())
+            # A passed in-server TTL deadline admits nothing and exits resumably.
+            write(root/'ttl.json',dict(stop_admission_at=time.time()-1,poweroff_at=time.time()+60))
+            closed=subprocess.run(command+['--ttl-file',str(root/'ttl.json')],capture_output=True,text=True,timeout=30)
+            self.assertEqual(closed.returncode,75,closed.stderr)
+            report=json.loads(closed.stdout.splitlines()[-1])
+            self.assertTrue(report['ttl_closed']);self.assertEqual(report['metrics']['builds'],0)
             first=subprocess.run(command,capture_output=True,text=True,timeout=30)
             self.assertEqual(first.returncode,0,first.stderr)
             report=json.loads(first.stdout.splitlines()[-1]);self.assertEqual(report['metrics']['builds'],2)

@@ -1,0 +1,10 @@
+[Unit]
+Description=turku3d-bulk TTL watch (arms after a hot resize too)
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

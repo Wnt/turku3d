@@ -1,0 +1,10 @@
+[Unit]
+Description=turku3d-bulk TTL: power off a large plan 55 min after boot
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bulk-ttl
+
+[Install]
+WantedBy=multi-user.target

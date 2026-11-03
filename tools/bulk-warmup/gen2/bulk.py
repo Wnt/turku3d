@@ -40,6 +40,8 @@ def main():
     p.add_argument('--report-dir',type=Path,help='separate proof reports while an earlier generation is being pulled')
     p.add_argument('--control',type=Path,help='atomically replace JSON {workers:N} to adjust live admission')
     p.add_argument('--floor-gib',type=float,default=25)
+    p.add_argument('--ttl-file',type=Path,default=Path('/run/bulk-ttl'),help='in-server TTL deadline (bulk-ttl): stop admitting tiles at stop_admission_at')
+    p.add_argument('--results-mount',type=Path,default=Path('/srv/results'),help='products on this mount are refused while it is not mounted')
     p.add_argument('--warm-only',action='store_true',help='city runs: compile the one-time shared work (warm.py) and exit, e.g. on the small plan before the resize')
     p.add_argument('--keep-caches',action='store_true',help='city runs: keep per-tile stage/input caches and lidar units (default: delete when done)')
     a=p.parse_args();root=a.root.resolve();state=root/'state'
@@ -72,6 +74,10 @@ def main():
         planned=read(state/'walk.json')
         if hashlib.sha256((state/'walk.json').read_bytes()).hexdigest()!=sources['walk_sha256'] or not set(selected)<=set(planned):
             raise RuntimeError('selection is outside the frozen acquisition plan')
+        products=(root/'farm/products').resolve()
+        if products.is_relative_to(a.results_mount) and not os.path.ismount(a.results_mount):
+            # nofail mount: never let products fall onto the root disk under an empty mountpoint.
+            raise RuntimeError(f'{a.results_mount} is not mounted; products would land on the root disk')
         raw=root/'farm/cache/raw-derived'
         if raw.exists() and os.stat(raw).st_dev!=os.stat(root/'farm').st_dev:
             # Disk-pressure eviction measures the farm root: it would delete these
@@ -144,7 +150,11 @@ def main():
                 transient=Transient(root/'farm/cache',list(wanted),caches.units,caches.paths)
 
         started=time.monotonic();before=resource.getrusage(resource.RUSAGE_CHILDREN);swept=started
-        failed=[];already=[];pressure=False;memory_pressure=False
+        failed=[];already=[];pressure=False;memory_pressure=False;closed=False
+        def ttl_closed():
+            # The in-server TTL powers the 64-core plan off; let in-flight tiles finish first.
+            deadline=read(a.ttl_file,{}) if a.ttl_file else {}
+            return bool(deadline) and time.time()>=deadline.get('stop_admission_at',float('inf'))
         try:
             while wanted or farm.jobs:
                 changed.clear()
@@ -167,7 +177,9 @@ def main():
                 if transient and time.monotonic()-swept>60:
                     with farm.lock:inflight=[requested.get(tile,time.time()) for _,tile in farm.jobs]
                     transient.sweep(min(inflight,default=time.time()));swept=time.monotonic()
-                while wanted and fits():
+                if not closed and wanted and ttl_closed():
+                    closed=True;farm.event('ttl-admission-closed',remaining=len(wanted),active=count)
+                while wanted and fits() and not closed:
                     tile=wanted[0]
                     ack=read(root/'farm/exported'/generation/(tile+'.json'))
                     if ack and ack.get('generation')==generation and ack.get('verified'):
@@ -200,6 +212,7 @@ def main():
                     elif peaks:reserved+=need(tile);available-=need(tile)*2**30
                     with farm.lock:count=len(farm.jobs)
                 with farm.lock:active=len(farm.jobs)
+                if closed and not active:break  # Resumable: finished tiles persist, a rerun skips them.
                 if memory_stalled(cap,active,wanted):
                     memory_pressure=True;break
                 if pressure and not active:break  # Pull/acknowledge outputs, then resume.
@@ -219,9 +232,9 @@ def main():
                     transient=transient.metrics if transient else None,
                     remaining=list(wanted),outside_coverage=len(set(selected)&outside),failures=failed,
                     expected_exclusions=[row.get('tile') for row in excluded],
-                    disk_pressure=pressure,memory_pressure=memory_pressure,interrupted=stopping.is_set())
+                    disk_pressure=pressure,memory_pressure=memory_pressure,interrupted=stopping.is_set(),ttl_closed=closed)
         shared.atomic_json(reports/'bulk-result.json',report)
         print(json.dumps(report))
-        return 75 if pressure or memory_pressure or stopping.is_set() else 1 if failed else 0
+        return 75 if pressure or memory_pressure or stopping.is_set() or (closed and wanted) else 1 if failed else 0
 
 if __name__=='__main__':raise SystemExit(main())
