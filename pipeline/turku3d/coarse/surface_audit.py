@@ -172,3 +172,44 @@ if __name__ == '__main__':
     dest = args.report or args.output / 'surface-audit.json'
     dest.write_text(json.dumps(result, allow_nan=False) + '\n')
     print(json.dumps({k: v for k, v in result.items() if k != 'defects'}))
+
+
+def build_context(tile, inputs, reference, openings, structures=()):
+    """Persist source domain independently of the final mesh for later GLB audits."""
+    buildings = [b.footprint for b in [*inputs.buildings, *inputs.wall_context]]
+    excluded = shapely.union_all([*inputs.water, *buildings])
+    q, expected = sample_domain(tile.bbox.as_tuple(), excluded, reference)
+    # Preserve the lower mapped passage sheet. The source terrain can be the
+    # overburden above it; the generated clearance floors carry its surveyed grade.
+    if openings.floors:
+        floors = np.asarray(openings.floors)
+        floor_y = Rays(floors).cast(q, np.full(len(q), 10000.))
+        hit = np.isfinite(floor_y)
+        expected[hit] = floor_y[hit]
+    supported = [*buildings, *[g.buffer(.3) for g, *_ in inputs.retaining],
+                 *[g.buffer(.3) for g, *_ in inputs.barriers]]
+    supported += [line.buffer(float(tags.get('width', 2.5)) / 2 + .3)
+                  for _, line, tags in inputs.stairs[0]
+                  if str(tags.get('width', 2.5)).replace('.', '', 1).isdigit()]
+    # Water-boundary retaining faces have source support even without barrier tags.
+    supported.extend(g.boundary.buffer(.3) for g in inputs.water)
+    return dict(query=q, expected=expected, support=np.frombuffer(shapely.union_all(supported).wkb, np.uint8),
+                floors=np.asarray(openings.floors).reshape(-1,3,3), clearance=np.asarray(openings.heights))
+
+
+def gate(out, tile, inputs, reference, openings, visual_meshes, cols):
+    """Cheap advisory farm check; export counts and coordinates without rejecting a tile."""
+    try:
+        context = build_context(tile, inputs, reference, openings)
+        np.savez_compressed(out / 'surface-context.npz', **context)
+        visible = [triangles(m) for m in visual_meshes if getattr(m, 'visual', True)]
+        collision = [c.world_positions()[c.indices[c.materials != mat_id('water')]] for c in cols]
+        result = audit(np.concatenate(visible), np.concatenate(collision), context['query'], context['expected'],
+                       support=shapely.from_wkb(bytes(context['support'])), openings=openings)
+        result.update(tile=tile.id, source='export meshes + float32 COL', status='complete')
+        (out / 'surface-audit.json').write_text(json.dumps(result, allow_nan=False) + '\n')
+        return {k: v for k, v in result.items() if k != 'defects'}
+    except Exception as error:
+        # Advisory diagnostics must not take the tile service down. An error is
+        # explicit, never presented as zero defects or a successful audit.
+        return dict(status='error', error=f'{type(error).__name__}: {error}', advisory=True)
