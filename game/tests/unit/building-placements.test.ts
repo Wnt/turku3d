@@ -378,8 +378,11 @@ test('model reads start before the tile GLB, nearest tile first, and a prefetch 
   };
   const started: string[] = [], finish: (() => void)[] = [], shared = new SharedMaterials();
   const disposed = vi.fn();
+  // A frozen clock: the streaming window never closes, so reads and clones advance on promise turns alone (the
+  // session's real-time budget made the order depend on how fast the test host ran).
+  const budget = new PreparationBudget(() => 0, () => new Promise(() => {}));
   const cache = new BuildingModelCache(url => { started.push(url.slice(url.lastIndexOf('/') + 1, url.lastIndexOf('/') + 2));
-    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => { disposed(); disposeModelResources(root, shared); });
+    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => { disposed(); disposeModelResources(root, shared); }, budget);
   const far = cache.prefetch(models('f', 8), base, 400);
   expect(started).toHaveLength(cache.reads); // reads begin at once, before any attach
   const nearOwner = new THREE.Group(), near = cache.attach(nearOwner, models('e', 2), base, 20);
