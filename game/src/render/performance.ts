@@ -95,7 +95,7 @@ export class PerformanceMonitor {
     };
   }
 
-  /** Diagnostic-only percentiles: do not add nine extra sorts to each HUD refresh.
+  /** Diagnostic-only percentiles: do not add per-pass sorts to each HUD refresh.
    * Repeated passes (cascades/bloom levels) sum per frame; absent passes count as zero.
    * Copy/compute work and GPU idle gaps remain in whole-frame gpuMs, not these totals. */
   passSnapshot() {
