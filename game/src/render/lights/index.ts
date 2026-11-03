@@ -13,6 +13,7 @@ import { GroundLampField } from './groundField';
 import { FloodMasts, type FloodTile } from './floodlights';
 import { FloodArea, areaVenues } from './floodArea';
 import { FloodGlow, mistOf } from './glow';
+import { OverheadWires, type WireTile } from './wires';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
 const STEP_MS = 1.5;
@@ -48,6 +49,10 @@ export class StreetLights {
   readonly area = new FloodArea();
   /** The air over them: light domes and faint beams in the sprite overlay. */
   readonly glow: FloodGlow;
+  /** Overhead wires the survey sees over the streets, and the lamps hung on span wires. */
+  readonly wires: OverheadWires;
+  private overhead = new Map<string, WireTile>();
+  private wireCounts = { wires: 0, lamps: 0 };
   night = 0;
   private floodMasts = 0;
   private floodVenues = 0;
@@ -70,14 +75,16 @@ export class StreetLights {
     this.ground = new GroundLampField(() => this.footprints.values());
     // The masts share the posts' material (and its prebuilt pipeline): no new shader at night.
     this.masts = new FloodMasts(this.posts.mesh.material as THREE.Material);
-    scene.add(this.posts.mesh, this.masts.mesh);
+    this.wires = new OverheadWires(this.posts.mesh.material as THREE.Material);
+    scene.add(this.posts.mesh, this.masts.mesh, this.wires.mesh, this.wires.lamps);
     this.glow = new FloodGlow(this.sprites.scene, this.sprites.sceneDepth);
-    this.field.onTile = (id, lamps, footprint, flood) => {
+    this.field.onTile = (id, lamps, footprint, flood, wires) => {
       if (lamps) this.raw.set(id, lamps); else this.raw.delete(id);
       const drawn = lamps ? this.edited(lamps) : null;
       if (drawn) this.tiles.set(id, drawn); else this.tiles.delete(id);
       if (footprint) this.footprints.set(id, footprint); else this.footprints.delete(id);
       if (drawn && flood) this.flood.set(id, flood); else this.flood.delete(id);
+      if (drawn && wires) this.overhead.set(id, wires); else this.overhead.delete(id);
       this.sprites.setGroup(`tile:${id}`, drawn?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
       this.postsDirty = true;
     };
@@ -136,6 +143,7 @@ export class StreetLights {
       this.glow.setVenues(venues, masts);
       this.floodMasts = this.masts.setMasts(masts);
       this.floodVenues = flood.reduce((n, f) => n + f.venues.length, 0);
+      this.wireCounts = this.wires.setTiles([...this.overhead.values()]);
       if (this.pools.size) this.pools.setLamps(all.map(poolLamp).filter((l): l is PoolLamp => l !== null));
     }
     this.night = this.override ?? nightLevel(inputs);
@@ -147,6 +155,7 @@ export class StreetLights {
     camera.getWorldDirection(this.forward);
     this.pools.update(camera.position.x, camera.position.z, this.forward.x, this.forward.z, this.night, now);
     renderer.getDrawingBufferSize(this.size);
+    this.wires.update(camera, this.size);
     this.sprites.update(camera, this.size, this.night);
   }
 
@@ -156,11 +165,12 @@ export class StreetLights {
     return { tiles: this.tiles.size, pending: this.field.pending() || this.ground.pending, lamps, posts, postsDrawn: this.posts.drawn,
       sprites: this.sprites.count, spriteCapacity: this.sprites.capacity, spritesDropped: this.sprites.dropped, night: this.night,
       pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts, floodLit: this.area.snapshot(), floodDomes: this.glow.domeCount, floodBeams: this.glow.beamCount,
-      floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0) };
+      floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0),
+      wires: this.wireCounts.wires, wireLamps: this.wireCounts.lamps };
   }
 
   dispose() {
-    this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent();
-    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); this.area.dispose(); this.glow.dispose();
+    this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent(); this.wires.mesh.removeFromParent(); this.wires.lamps.removeFromParent();
+    this.masts.dispose(); this.wires.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); this.area.dispose(); this.glow.dispose();
   }
 }
