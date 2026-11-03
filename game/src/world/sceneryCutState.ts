@@ -19,13 +19,14 @@ export class SceneryCutState {
     if (!this.valid || wanted.length !== this.wanted.length || models.size !== this.models.size
       || nearby.size !== this.nearby.size) return true;
     for (let i=0;i<wanted.length;i++) if (wanted[i] !== this.wanted[i]) return true;
-    for (const [id, entry] of models) {
-      const old = this.models.get(id);
+    // Key iteration with get(): no [key, value] tuple per entry, as this check runs every frame.
+    for (const id of models.keys()) {
+      const entry = models.get(id)!, old = this.models.get(id);
       if (!old || old.model !== entry.model || old.visible !== entry.model?.visible
         || old.regional !== !!sources.get(id)?.regional) return true;
     }
-    for (const [id, entry] of nearby) {
-      const old = this.nearby.get(id);
+    for (const id of nearby.keys()) {
+      const entry = nearby.get(id)!, old = this.nearby.get(id);
       if (!old || old.model !== entry.model || old.visible !== entry.model?.visible
         || old.preview !== !!entry.preview || old.cached !== (entry.cachedAt !== undefined) || old.distant !== !!entry.distant) return true;
     }

@@ -14,6 +14,10 @@ import { streamTrace } from '../telemetry/streamTrace';
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
 
+/** Full tiles nearer than this (m, 3D) cannot leave the window soon (it is kept to 325 m) nor yield to their cell by
+ *  height, so their cells are released, not kept on standby: standby costs a decoded cell for each tile it covers. */
+export const STANDBY_MARGIN = 150;
+
 /** Bias tiers a cell of quadtree `level` can fade on: 250 m cells hand over and refine within ~1.8 km, 1 km nodes
  *  change at 0.7-4.5 km, 4 km nodes beyond (render/lodFade.ts LOD_FADE_BIAS). */
 export const dissolveTiers = (level: number) => level === 0 ? [0, 1] : level === 2 ? [1, 2] : [2];
@@ -138,6 +142,7 @@ export class ScreenshotScenery {
   }
 
   private release(id: string, e: Scenery) {
+    if (e.model) streamTrace.event('cell.release', id, { level: sceneryBounds(id).level });
     const nearby = this.nearby.get(id);
     if (nearby?.preview && nearby.model) nearby.model.visible = true;
     if (e.model) this.retireModel(e.model,id);
@@ -247,19 +252,31 @@ export class ScreenshotScenery {
         : source ? skylinePriority(source, this.view!) : -Infinity];
     }));
     this.footprint.sort((a, b) => priorities.get(b)! - priorities.get(a)!);
-    this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
+    this.fillWanted();
     this.refreshStandby();
+  }
+
+  /** The footprint minus unavailable and detailed squares, in place: this runs every frame. */
+  private fillWanted() {
+    const wanted = this.wanted;
+    wanted.length = 0;
+    for (const id of this.footprint) if (!this.unavailable.has(id) && !this.detailed(id)) wanted.push(id);
   }
 
   private refreshStandby() {
     this.standby.clear();
-    for (const id of this.footprint) if (sceneryBounds(id).level === 0 && !this.unavailable.has(id) && this.detailed(id)) this.standby.add(id);
+    const view = this.view;
+    // 3D, like the band distances: a high flier keeps the cells under it on standby for the height switch.
+    for (const id of this.footprint) if (sceneryBounds(id).level === 0 && !this.unavailable.has(id) && this.detailed(id)
+      && (!view || Math.hypot(sceneryDistance(id, view.x, view.z), Math.max(0, view.y - 30)) >= STANDBY_MARGIN)) this.standby.add(id);
   }
 
   private readMissingSources() {
     if (this.cataloguePending || this.clock < this.catalogueRetry) return;
     // Refresh both positive and negative metadata: source coverage can arrive without a camera reset.
     const refresh = this.clock >= this.catalogueExpires;
+    // Per frame: no array unless a footprint square still lacks source metadata.
+    if (!refresh && !this.footprint.some(id => !this.sources.has(id) && !this.unavailable.has(id))) return;
     const missing = refresh ? this.footprint : this.footprint.filter(id => !this.sources.has(id) && !this.unavailable.has(id));
     if (missing.length) void this.catalogue(this.selection, missing, refresh);
   }
@@ -339,7 +356,7 @@ export class ScreenshotScenery {
       .filter(id => !this.detailed(id))
       .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z));
     if (this.view) {
-      this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
+      this.fillWanted();
       this.refreshStandby();
       this.readMissingSources();
     }
@@ -348,25 +365,35 @@ export class ScreenshotScenery {
     this.batches.sync(this.batchModels);
     const concurrency = this.view ? 4 : 2;
     if (paused || this.active >= concurrency) return;
-    for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
-      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z),id) && !e.busy) e.next = 0;
-    const demand = new Set(this.demand());
+    this.entries.forEach((e, id) => { if (e.model && e.complete && e.next === Infinity
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z),id) && !e.busy) e.next = 0; });
+    const demand = this.view ? undefined : new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
     // The legacy full-detail view still rotates polling fairly across source generation.
-    const due = this.wanted.filter(id => !this.detailed(id)
-      && (this.view ? this.sources.has(id) : demand.has(id) || this.entries.get(id)?.complete))
-      .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
-    // Visible work first; standby cells fill the remaining slots.
-    for (const id of this.standby) if (this.sources.has(id) && !this.entries.get(id)?.model) due.push(id);
-    for (const id of due) {
-      if (this.active >= concurrency) break;
-      if (this.detailed(id) && !this.standby.has(id)) continue;
+    const start = (id: string) => {
+      if (this.detailed(id) && !this.standby.has(id)) return;
       let e = this.entries.get(id);
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
-      if (e.busy || now < e.next) continue;
+      if (e.busy || now < e.next) return;
       e.busy = true; this.active++;
       void this.poll(id, e, sceneryDistance(id, x, z), this.sources.get(id));
+    };
+    if (this.view) {
+      // Live views keep the skyline order of `wanted`; walked in place every frame, without a filtered copy.
+      for (const id of this.wanted) {
+        if (this.active >= concurrency) return;
+        if (this.sources.has(id) && !this.detailed(id)) start(id);
+      }
+    } else {
+      const due = this.wanted.filter(id => !this.detailed(id) && (demand!.has(id) || this.entries.get(id)?.complete))
+        .sort((a, b) => (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
+      for (const id of due) { if (this.active >= concurrency) return; start(id); }
+    }
+    // Visible work first; standby cells fill the remaining slots.
+    for (const id of this.standby) {
+      if (this.active >= concurrency) return;
+      if (this.sources.has(id) && !this.entries.get(id)?.model) start(id);
     }
   }
 

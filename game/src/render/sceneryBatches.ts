@@ -7,7 +7,7 @@ import { streamTrace } from '../telemetry/streamTrace';
 
 interface Source { mesh: THREE.Mesh; mask: number; revision?: number; owner?: THREE.Object3D }
 interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; releaseProgram?: () => void; queuedAt: number; readyAt: number; preparing?: boolean; cancelled?: boolean; finished?: Promise<void> }
-interface ModelSources { model: THREE.Object3D; visible: boolean; groups: Map<string, Source[]> }
+interface ModelSources { model: THREE.Object3D; visible: boolean; groups: Map<string, Source[]>; stamp: number }
 
 /** Main-thread milliseconds one frame spends merging a batch; a large 1 km batch spreads over several frames. */
 export const MERGE_BUDGET_MS = 3;
@@ -40,6 +40,7 @@ export class SceneryBatches {
   private invalid = new WeakSet<THREE.Object3D>();
   private waiting: Bucket[] = [];
   private revision = 0;
+  private stamp = 0;
   private preparing = new Set<Bucket>();
   /** The one batch being merged across frames (MERGE_BUDGET_MS each); its sources keep drawing meanwhile. */
   private merging?: { bucket: Bucket; steps: Generator<void, THREE.BufferGeometry, void>; ms: number; frames: number };
@@ -79,11 +80,11 @@ export class SceneryBatches {
     // Residency/visibility changes are cheap to detect; unchanged models never traverse
     // their descendants or reformat attribute layouts in the animation loop.
     let changed = false;
-    const seen = new Set<string>();
+    // A stamp per sync instead of a per-frame set of ids: this runs every frame.
+    const stamp = ++this.stamp;
     for (const [id, model] of models) {
-      seen.add(id);
       const previous = this.models.get(id);
-      if (previous?.model === model && previous.visible === model.visible && !this.invalid.has(model)) continue;
+      if (previous?.model === model && previous.visible === model.visible && !this.invalid.has(model)) { previous.stamp = stamp; continue; }
       changed = true;
       const revision = ++this.revision;
       const groups = new Map<string, Source[]>();
@@ -106,10 +107,10 @@ export class SceneryBatches {
           const group = groups.get(key) ?? []; group.push({mesh,mask,revision,owner:model}); groups.set(key,group);
         });
       }
-      this.models.set(id, {model, visible: model.visible, groups});
+      this.models.set(id, {model, visible: model.visible, groups, stamp});
       this.invalid.delete(model);
     }
-    for (const id of this.models.keys()) if (!seen.has(id)) { this.models.delete(id); changed = true; }
+    this.models.forEach((entry, id) => { if (entry.stamp !== stamp) { this.models.delete(id); changed = true; } });
     if (changed) this.reconcile(now);
     this.buildNext(now);
   }

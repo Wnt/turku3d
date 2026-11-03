@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { ScreenshotScenery, dissolveTiers } from '../../src/world/screenshotScenery';
+import { STANDBY_MARGIN, ScreenshotScenery, dissolveTiers } from '../../src/world/screenshotScenery';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
@@ -432,12 +432,10 @@ test('near-model replacement and caching invalidate a stable cut without changin
   scenery.update(125,125,1016,true); expect(commit).not.toHaveBeenCalled();
   entry.preview=undefined; near.visible=true;
   scenery.update(125,125,1032,true);
-  // Under the resident full tile the cell stays loaded but hidden (standby) ...
-  expect(far.parent).toBe(scene); expect(far.visible).toBe(false); expect(near.visible).toBe(true);
+  // Under the full tile the camera stands on (within STANDBY_MARGIN) the cell is released, not kept on standby.
+  expect(far.parent).toBeNull(); expect(near.visible).toBe(true);
   entry.cachedAt=1048; near.visible=false;
   scenery.update(125,125,1048,true);
-  // ... so when the tile leaves, the square is covered again in the same update, with no fetch in between.
-  expect(far.visible).toBe(true);
   expect(commit).toHaveBeenCalledTimes(2);
   expect(scenery.progress.total).toBe(1);
 });
@@ -446,12 +444,13 @@ test('the cell under a resident full tile is preloaded hidden and covers the squ
   const { scenery, request, load, nearby } = setup();
   const key = 'a'.repeat(64);
   request.mockImplementation(async url => new Response(JSON.stringify(url.includes('/scenery?')
-    ? { tiles: [{ tile: 't0_0_0', key, h: [0, 20], source_sha256: 'same' }], missing: [] }
-    : { coarse: true, tile: 't0_0_0', pass_kind: 'full', visual: { t0_0_0: { url: 'scene.glb', sha256: 'same' } } })));
+    ? { tiles: [{ tile: 't0_1_0', key, h: [0, 20], source_sha256: 'same' }], missing: [] }
+    : { coarse: true, tile: 't0_1_0', pass_kind: 'full', visual: { t0_1_0: { url: 'scene.glb', sha256: 'same' } } })));
   const full: Entry = { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() };
-  nearby.set('t0_0_0', full);
-  scenery.setRadius(4000, { x: 125, y: 5, z: 125, dx: 1, dz: 0, halfAngle: .5 }); await settle();
-  for (let now = 1000; now < 1010; now++) { scenery.update(125, 125, now); await settle(); }
+  // A full tile 190 m away (beyond STANDBY_MARGIN): it can leave the window soon, so its cell waits on standby.
+  nearby.set('t0_1_0', full);
+  scenery.setRadius(4000, { x: 60, y: 5, z: 125, dx: 1, dz: 0, halfAngle: .5 }); await settle();
+  for (let now = 1000; now < 1010; now++) { scenery.update(60, 125, now); await settle(); }
   expect(load).toHaveBeenCalledTimes(1);
   const cell = await load.mock.results[0].value as THREE.Group;
   expect(cell.parent).not.toBeNull(); expect(cell.visible).toBe(false);
@@ -459,7 +458,7 @@ test('the cell under a resident full tile is preloaded hidden and covers the squ
   // The full tile leaves: the prepared cell takes the square back without another request.
   const requests = request.mock.calls.length;
   full.model = undefined;
-  scenery.update(125, 125, 1100); await settle();
+  scenery.update(60, 125, 1100); await settle();
   expect(cell.visible).toBe(true);
   expect(request.mock.calls.filter(([url]) => !url.includes('/scenery?')).length)
     .toBe(request.mock.calls.slice(0, requests).filter(([url]) => !url.includes('/scenery?')).length);
@@ -482,4 +481,16 @@ test('a cell whose dissolve twins are not compiled swaps at once instead of fadi
   expect([left.visible, right.visible, parent.visible]).toEqual([true, true, false]);
   expect(lodFades.has(left) || lodFades.has(right)).toBe(false);
   expect(dissolveTiers(0)).toEqual([0, 1]); expect(dissolveTiers(2)).toEqual([1, 2]); expect(dissolveTiers(4)).toEqual([2]);
+});
+
+test('a full tile within STANDBY_MARGIN of the camera keeps no hidden cell: its square cannot leave the window soon', async () => {
+  const { scenery, request, load, nearby } = setup();
+  request.mockImplementation(async url => new Response(JSON.stringify(url.includes('/scenery?')
+    ? { tiles: [{ tile: 't0_0_0', key: 'b'.repeat(64), h: [0, 20], source_sha256: 'same' }], missing: [] }
+    : { coarse: true, tile: 't0_0_0', pass_kind: 'full', visual: { t0_0_0: { url: 'scene.glb', sha256: 'same' } } })));
+  nearby.set('t0_0_0', { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() });
+  scenery.setRadius(4000, { x: 125, y: 5, z: 125, dx: 1, dz: 0, halfAngle: .5 }); await settle();
+  for (let now = 1000; now < 1010; now++) { scenery.update(125, 125, now); await settle(); }
+  expect(load).not.toHaveBeenCalled();
+  expect(STANDBY_MARGIN).toBe(150);
 });
