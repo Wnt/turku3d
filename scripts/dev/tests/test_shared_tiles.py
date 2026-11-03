@@ -1042,5 +1042,45 @@ class MigratedRevisionTests(unittest.TestCase):
         self.assertFalse(farm.output(GEN2).exists())
 
 
+    def test_unchanged_payloads_keep_their_base_urls_after_a_switch(self):
+        body, edited = b'hashed mesh', b'edited cell'
+        visual, cell = f'vis.{hashlib.sha256(body).hexdigest()}.glb', f'c.{hashlib.sha256(edited).hexdigest()}.col'
+        def build(revision, tile, root):
+            fake_build(revision, tile, root)
+            (root / tile / visual).write_bytes(body)
+            manifest = farm_module.read_json(root / tile / 'manifest.json')
+            manifest['visual'][tile] = dict(url=visual, bytes=len(body), sha256=hashlib.sha256(body).hexdigest())
+            farm_module.atomic_json(root / tile / 'manifest.json', manifest)
+            return {'returncode': 0}
+        def migrate(revision, tile, meta):
+            fake_migrate(revision, tile, meta, farm)
+            target = farm.output(meta['generation']) / tile
+            os.link(farm.output(GEN) / tile / visual, target / visual)
+            (target / cell).write_bytes(edited)
+            manifest = farm_module.read_json(target / 'manifest.json')
+            manifest['visual'][tile] = dict(url=visual, bytes=len(body), sha256=hashlib.sha256(body).hexdigest())
+            manifest['collision']['c_0_0'] = dict(url=cell, bytes=len(edited), sha256=hashlib.sha256(edited).hexdigest())
+            farm_module.atomic_json(target / 'manifest.json', manifest)
+            return {'returncode': 0}
+        register_migrated(self.root)
+        farm = self.farm(execute=build, migrate=migrate)
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        farm.request(DREV, 't0_0_0'); self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            m = json.load(urlopen(base + f'/v/{DREV}/coarse/t0_0_0/manifest.json'))
+            self.assertFalse(m['stale'])
+            self.assertEqual(m['visual']['t0_0_0']['url'], f'/v/{REV}/coarse/t0_0_0/{visual}')
+            self.assertEqual(m['collision']['c_0_0']['url'], f'/v/{DREV}/coarse/t0_0_0/{cell}')
+            self.assertEqual(m['collision']['c_0_1']['url'], f'/v/{DREV}/coarse/t0_0_0/ground.col')
+            self.assertEqual(urlopen(base + m['visual']['t0_0_0']['url']).read(), body)
+            self.assertEqual(urlopen(base + m['collision']['c_0_0']['url']).read(), edited)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+
+
 if __name__ == '__main__':
     unittest.main()

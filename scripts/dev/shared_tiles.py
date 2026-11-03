@@ -1360,9 +1360,19 @@ class Handler(BaseHTTPRequestHandler):
         else:
             manifest = read_json(farm.output(meta['generation']) / tile / 'manifest.json')
         value = {k: manifest[k] for k in PUBLIC if k in manifest}
+        base_tile = base_prefix = None
+        if not stale and meta.get('kind') == 'migrated':
+            # A content-addressed payload the migration left unchanged keeps its base URL, so a
+            # client switching to the edits reloads only what they changed.
+            base_tile = farm.output(meta['base_generation']) / tile
+            base_prefix = f"/v/{meta['base_revision']}/coarse/{tile}/"
+        def located(v):
+            if base_tile and HASHED.search(v.rsplit('/', 1)[-1]) and (base_tile / v).is_file():
+                return base_prefix + v
+            return prefix + v
         def pin(obj):
             if isinstance(obj, dict):
-                return {k: (prefix + v if k in ('url', 'uri') and isinstance(v, str)
+                return {k: (located(v) if k in ('url', 'uri') and isinstance(v, str)
                             else pin(v)) for k, v in obj.items()}
             if isinstance(obj, list):
                 return [pin(v) for v in obj]
