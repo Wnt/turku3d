@@ -26,6 +26,8 @@ export class Vehicle {
   readonly controller: Rapier.DynamicRayCastVehicleController;
   readonly kind: VehicleKind;
   readonly tuning: VehicleTuning;
+  /** Chassis box half extents (+X forward). */
+  readonly halfExt: V3;
   private contacts = new Map<string, V3>();
   private strikeId = 0;
   private lastStrike: VehicleState['curbStrike'] = null;
@@ -53,7 +55,7 @@ export class Vehicle {
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));
-    const h = spec.halfExt ?? t.halfExt, mass = spec.mass ?? t.mass;
+    const h = this.halfExt = spec.halfExt ?? t.halfExt, mass = spec.mass ?? t.mass;
     const chassis = R.ColliderDesc.cuboid(h.x, h.y, h.z).setFriction(0.5);
     // A lowered centre of mass keeps the narrow outrigger layout upright; inertia stays the box's own.
     if (t.comDrop) {

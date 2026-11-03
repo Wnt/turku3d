@@ -34,7 +34,7 @@ export interface TrafficMultiplayer {
   sources: Iterable<string>;
 }
 
-interface Drawn { handle: number; model: number; paint: number; x: number; y: number; z: number; q: { x: number; y: number; z: number; w: number }; vx: number; vz: number }
+interface Drawn { handle: number; model: number; paint: number; x: number; y: number; z: number; q: { x: number; y: number; z: number; w: number }; vx: number; vz: number; horn: boolean }
 
 export class TrafficClient {
   private source: { entries: ReadonlyMap<string, Entry> } | null = null;
@@ -135,6 +135,12 @@ export class TrafficClient {
       centre: count ? { x: cx / count, y: at.y, z: cz / count } : null };
   }
 
+  /** Drivers honking at a player right now (the audio mix's horn voices), within 120 m of `at`. */
+  horns(at: V3): { id: string; kind: 'car'; position: V3 }[] {
+    return this.drawn.filter(c => c.horn && Math.hypot(c.x - at.x, c.z - at.z) < 120)
+      .map(c => ({ id: `traffic:${c.handle}`, kind: 'car' as const, position: { x: c.x, y: c.y, z: c.z } }));
+  }
+
   /** Claims a moving car for the player to enter; resolves with its vehicle id, or null if it is gone. */
   enter(handle: number): Promise<string | null> {
     return new Promise(resolve => {
@@ -207,13 +213,13 @@ export class TrafficClient {
     this.instances.length = 0;
     for (let i = 0; i < count; i++) {
       const o = i * STRIDE;
-      const car = this.drawn[i] ??= { handle: 0, model: 0, paint: 0, x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0 };
+      const car = this.drawn[i] ??= { handle: 0, model: 0, paint: 0, x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, horn: false };
       car.handle = flat[o]; car.model = flat[o + 1]; car.paint = flat[o + 2];
-      car.vx = flat[o + 10]; car.vz = flat[o + 11];
+      car.vx = flat[o + 10]; car.vz = flat[o + 11]; car.horn = (flat[o + 14] & 2) !== 0;
       car.x = flat[o + 3]; car.y = flat[o + 4]; car.z = flat[o + 5];
       car.q.x = flat[o + 6]; car.q.y = flat[o + 7]; car.q.z = flat[o + 8]; car.q.w = flat[o + 9];
       const instance: TrafficInstance & { seed: string; indicator: -1 | 0 | 1; braking: boolean; speed: number } = {
-        seed: String(flat[o + 12]), indicator: flat[o + 13] as -1 | 0 | 1, braking: flat[o + 14] === 1, speed: flat[o + 15],
+        seed: String(flat[o + 12]), indicator: flat[o + 13] as -1 | 0 | 1, braking: (flat[o + 14] & 1) === 1, speed: flat[o + 15],
         wheelY:flat.slice(o+16,o+20), model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q };
       this.instances.push(instance);
     }

@@ -314,7 +314,7 @@ describe('population ring', () => {
     const spawned: string[] = [];
     let driven: number | null = null;
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: (_p, _y, spec) => spawned.push(spec.id),
-      bodyKind: handle => handle === driven ? 'driven' : null, character: () => null, player: () => ({ x: 200, y: 0, z: 100 }),
+      bodyKind: handle => handle === driven ? 'driven' : null, character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }),
       pushCharacter: () => {} };
     const sim = new TrafficSim(R, world, host);
     const tiles = city();
@@ -562,7 +562,7 @@ describe('traffic density', () => {
   test('the drawn set thins without pops: a car whose slot goes empty stays until it is out of view', () => {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null,
-      character: () => null, player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {} };
+      character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {} };
     const sim = new TrafficSim(R, world, host);
     // Real traffic enters/exits the resident graph; closed conveyor matching cycles are not birth portals.
     const through = new Map<string, RoadGraphJson>();

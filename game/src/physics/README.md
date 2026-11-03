@@ -163,7 +163,11 @@ Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared 
   parked cars. The driven car's contact, a pedestrian in a car's braking path or the player entering a car
   (`trafficClaim`) claims it: the worker turns it into an ordinary dynamic vehicle `tr:<key>` with its speed.
   Automatic claims (pedestrians, pile-ups) are limited to six a minute; beyond that a car pushes the
-  character aside. `ClaimSet` follows each claimed slot across seams, so its continuation stays gone. A drawn
+  character aside. Drivers brake for every player this client knows of (`TrafficHost.players`: the local
+  character or driven car, remote players on foot or in vehicles, with velocity) by predicting their footprint
+  along the car's path (`traffic/pedestrians.ts vehicleStop`), so a player's car stopped in a lane holds a queue
+  instead of being rear-ended. A driver held up by a player honks (`traffic/lights.ts honking`, the horn bit of the
+  published lamp field; `TrafficClient.horns` feeds the existing horn voices). `ClaimSet` follows each claimed slot across seams, so its continuation stays gone. A drawn
   car whose slot stops carrying a car (a seam whose two chains anchor differently, a quieter street, a clock or
   density change) is `deferred`: it drives on until it is out of view, so density changes never pop a car in
   sight. The density clock is the shared cycle in multiplayer; in single player the clock the player sees

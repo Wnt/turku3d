@@ -586,6 +586,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     audio.emit({ type: 'horns', vehicles: [
       ...(vehicleSignals.horn && vs ? [{ id: 'local', kind: vs.kind ?? 'car' as const, position: vs.pos }] : []),
       ...(multiplayerPlaying ? remotePlayers.horns : []),
+      ...traffic.horns(camera.position),
     ] });
     tyreEffects.end(camera);
     audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
