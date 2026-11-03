@@ -13,8 +13,9 @@ export type Raycast = (origin: V3, dir: V3, far: number) => Promise<RayHit | nul
 
 /** Thin things standing on the ground: a downward probe looks through them for the surface. */
 export const STANDING = new Set(['street_furniture', 'pole', 'bollard', 'tree_trunk', 'vegetation_low']);
-const RINGS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
-const DIRECTIONS = 16;
+// 12 × 12 downward probes and 12 horizontal ones per position: one short batch in the physics worker per commit.
+const RINGS = [0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 4, 6, 8, 10];
+const DIRECTIONS = 12;
 const HORIZONTAL = 30;
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -31,9 +32,9 @@ export interface RoadNear {
 }
 export interface Context {
   surface: string | null; surface_y: number | null;
-  /** Nearest downward-probe hit of each surface material within 10 m. */
+  /** Nearest downward-probe hit of each surface material within 10 m (12 directions × 12 rings). */
   surfaces: Record<string, Near>;
-  /** Nearest horizontal-probe hit (1.2 m above the ground, 30 m) of each solid material. */
+  /** Nearest horizontal-probe hit (1.2 m above the ground, 12 directions, 30 m) of each solid material. */
   obstacles: Record<string, Near>;
   road: RoadNear | null; path: RoadNear | null;
   props: { type: string; object_id: string; distance_m: number; bearing_deg: number }[];

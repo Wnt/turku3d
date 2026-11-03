@@ -485,7 +485,9 @@ export class ObjectEditor {
       [g('editLidar'), 'LiDAR (hold + ↑↓ ←→)'], [g('editToggle'), 'exit · hold: close session'],
     ];
     const s = this.session;
-    const status = s ? `${s.id} · ${s.meta.counts.effective} edits${s.pending ? ` · ${s.pending} unsent` : ''}${s.error ? ` · ${s.error}` : ''}` : '';
+    const cloud = pointCloudOverlay();
+    const status = [s ? `${s.id} · ${s.meta.counts.effective} edits` : '', s?.pending ? `${s.pending} unsent` : '', s?.error ?? '',
+      cloud ? `LiDAR ${cloud.isVisible() ? `${Math.round(cloud.getOpacity() * 100)} %` : 'off'}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
     hud.render({ mode: this.held ? 'hold' : 'aim', label, hover: !!current, deleting: this.machine.deleteHeld > 0 ? this.machine.deleteHeld / EDITOR.deleteHold : null,
       reasonLeft: this.held ? 0 : this.machine.reasonLeft, reasonGlyphs: [g('editUp'), g('editRight'), g('editDown'), g('editLeft')], hints, status }, now);
   }
