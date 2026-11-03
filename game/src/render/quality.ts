@@ -1,4 +1,4 @@
-export type QualityTier = 'mobile' | 'low' | 'medium' | 'high';
+export type QualityTier = 'mobile' | 'low' | 'reduced' | 'medium' | 'high';
 
 // Permanent user quality settings, not alternative rendering implementations.
 // Vegetation caps full meshes and distant impostors across all tiles. Trees within the mesh range always retain
@@ -11,25 +11,43 @@ export type QualityTier = 'mobile' | 'low' | 'medium' | 'high';
 // Screen-space GTAO (`aoSamples` > 0) needs a separate normal/depth geometry prepass before beauty, about as many
 // triangles and draws again as beauty's opaque set. Only high keeps it; the other tiers take TRAA velocity and
 // puddle normals from beauty's MRT, and static geometry carries its occlusion in baked vertex visibility (COLOR_1).
+// `resolutionFloor` is the lowest scale AdaptiveResolution may reach on the play-mode pixel ratio.
+const MEDIUM = { parkedBodies: 60, vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
+  bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, detail: 0.055, saturation: 0.97,
+  lights: { point: 4 }, resolutionFloor: 0.5 } as const;
 export const QUALITY = {
   mobile: { parkedBodies: 24, vegetation: { near: 18, mid: 90, far: 350, nearInstances: 64, farInstances: 3000, barrierInstances: 400 }, grass: { density: 0, range: 0, instances: 0 }, shadowSize: 1024, splits: [90], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
     bloomScale: 0.25, bloomStrength: 0, temporalSubpixel: false, reflectionScale: 0, reflectionSlowFps: 8, detail: 0.025, saturation: 0.98,
-    lights: { point: 0 } },
+    lights: { point: 0 }, resolutionFloor: 0.5 },
   low: { parkedBodies: 40, vegetation: { near: 30, mid: 130, far: 450, nearInstances: 128, farInstances: 5000, barrierInstances: 1000 }, grass: { density: 1.5, range: 24, instances: 6000 }, shadowSize: 1024, splits: [50, 180], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
     bloomScale: 0.25, bloomStrength: 0.035, temporalSubpixel: false, reflectionScale: 0.25, reflectionSlowFps: 8, detail: 0.035, saturation: 0.98,
-    lights: { point: 0 } },
-  medium: { parkedBodies: 60, vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
-    bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, detail: 0.055, saturation: 0.97,
-    lights: { point: 4 } },
+    lights: { point: 0 }, resolutionFloor: 0.5 },
+  // Medium's look for lower-end GPUs (deviceQuality). On a Radeon Pro 560X (gcn-4) at 2880x1800 the beauty pass costs
+  // 3x the M1 Max's at the same pixel count, mostly the alpha-tested leaf overdraw of the reduced (mid) tree meshes.
+  // Trees hand over to impostors at 100 m instead of 180, the river reflection renders at a quarter of the view and
+  // refreshes at 8 FPS while the camera is still, and the adaptive resolution may go to 0.4 of the pixel ratio.
+  // Everything else, simulation included (parked bodies, traffic and walker caps), is medium's.
+  reduced: { ...MEDIUM, vegetation: { ...MEDIUM.vegetation, mid: 100 }, grass: { ...MEDIUM.grass }, splits: [...MEDIUM.splits], lights: { ...MEDIUM.lights },
+    reflectionScale: 0.25, reflectionSlowFps: 8, resolutionFloor: 0.4 },
+  medium: MEDIUM,
   high: { parkedBodies: 80, vegetation: { near: 70, mid: 260, far: 850, nearInstances: 600, farInstances: 16000, barrierInstances: 5000 }, grass: { density: 3.5, range: 48, instances: 24000 }, shadowSize: 2048, splits: [12, 32, 80, 240], aoScale: 0.75, aoSamples: 16, aoStrength: 0.3,
     bloomScale: 0.5, bloomStrength: 0.05, temporalSubpixel: true, reflectionScale: 0.75, reflectionSlowFps: 20, detail: 0.07, saturation: 0.97,
-    lights: { point: 8 } },
+    lights: { point: 8 }, resolutionFloor: 0.5 },
 } as const;
 
 export function parseQuality(value: string | null, fallback: QualityTier = 'medium'): QualityTier {
   if (value === null) return fallback;
-  if (value === 'mobile' || value === 'low' || value === 'medium' || value === 'high') return value;
-  throw new Error(`bad ?quality= (mobile|low|medium|high): ${value}`);
+  if (value === 'mobile' || value === 'low' || value === 'reduced' || value === 'medium' || value === 'high') return value;
+  throw new Error(`bad ?quality= (mobile|low|reduced|medium|high): ${value}`);
+}
+
+/** GPU classes whose default is `reduced` instead of `medium`, by WebGPU adapter info: AMD GCN (Polaris/Vega,
+ *  measured on the Radeon Pro 560X) and Intel's integrated `gen-*` graphics. Apple, NVIDIA and AMD RDNA keep medium. */
+export function deviceQuality(gpu: { vendor?: string; architecture?: string } | null | undefined, fallback: QualityTier): QualityTier {
+  if (fallback !== 'medium' || !gpu) return fallback;
+  const vendor = (gpu.vendor ?? '').toLowerCase(), architecture = (gpu.architecture ?? '').toLowerCase();
+  if ((vendor === 'amd' && architecture.startsWith('gcn')) || (vendor === 'intel' && architecture.startsWith('gen'))) return 'reduced';
+  return fallback;
 }
 
 /** Includes iPad desktop-mode browsers, without classifying touch laptops as phones. */

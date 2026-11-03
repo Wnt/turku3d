@@ -15,6 +15,12 @@ export async function defaultBackend(want: 'webgpu' | 'webgl', given: boolean): 
   try { return await navigator.gpu?.requestAdapter() ? 'webgpu' : 'webgl'; } catch { return 'webgl'; }
 }
 
+/** The WebGPU adapter's vendor and architecture before the renderer exists (render/quality.ts deviceQuality). */
+export async function adapterInfo(): Promise<{ vendor: string; architecture: string } | null> {
+  try { const info = (await navigator.gpu?.requestAdapter())?.info; return info ? { vendor: info.vendor, architecture: info.architecture } : null; }
+  catch { return null; }
+}
+
 interface RendererInfo { renderer: THREE.WebGPURenderer; backend: 'WebGPU' | 'WebGL2' }
 
 /** opts.qa: canvas 1:1 with the viewport (pixel ratio 1, qa/README.md §2); opts.idPass: no antialiasing. */

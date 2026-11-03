@@ -47,7 +47,7 @@ export class PostProcessing {
     overlay: PostOverlay | null = null) {
     installRigidVelocity();
     const q = QUALITY[tier];
-    const taa = aa === 'taa', wet = tier === 'medium' || tier === 'high';
+    const taa = aa === 'taa', wet = tier === 'reduced' || tier === 'medium' || tier === 'high';
     // GTAO darkens beauty's indirect light, so it needs depth and normals before beauty: a second geometry pass.
     // Without GTAO, TRAA depth/velocity and puddle normals come from beauty's own MRT: one geometry pass, not two.
     const pre = this.pre = q.aoSamples > 0 ? pass(scene, camera) : null;

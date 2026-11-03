@@ -7,7 +7,7 @@ export class AdaptiveResolution {
   private healthySince: number | null = null;
   private costs: number[] = [];
 
-  constructor(private targetFps = 60) {}
+  constructor(private targetFps = 60, private floor = 0.5) {}
 
   update(now: number, workMs?: number): number {
     const elapsed = this.previous === null ? 0 : now - this.previous;
@@ -28,7 +28,7 @@ export class AdaptiveResolution {
     this.intervals = [];
     this.costs = [];
     if (median > target * 1.14 || missed > 0.2 || (cost !== null && cost > target * 0.7)) {
-      this.scale = Math.max(0.5, this.scale - 0.1);
+      this.scale = Math.max(this.floor, this.scale - 0.1);
       this.changedAt = now;
       this.healthySince = null;
     } else if (median < target * 1.05 && missed < 0.05 && (cost === null || cost < target * 0.45)) {

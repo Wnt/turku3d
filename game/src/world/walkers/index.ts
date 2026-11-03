@@ -22,7 +22,7 @@ export { buildWalkNetwork } from './network';
 export type { Threat as WalkerThreat } from './reactions';
 
 /** Drawn walkers per quality tier (street-richness plan §7); `?walkers=N` overrides. Phones stay at zero. */
-export const WALKER_CAPS: Record<QualityTier, number> = { mobile: 0, low: 10, medium: 60, high: 100 };
+export const WALKER_CAPS: Record<QualityTier, number> = { mobile: 0, low: 10, reduced: 60, medium: 60, high: 100 };
 const MAX_WALKERS = 200;
 export function walkerCap(quality: QualityTier, override: number | null): number {
   return Math.max(0, Math.min(MAX_WALKERS, override ?? WALKER_CAPS[quality]));

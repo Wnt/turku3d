@@ -17,7 +17,7 @@ import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, headingToYaw } from './core/origin';
-import { createRenderer, defaultBackend } from './render/renderer';
+import { adapterInfo, createRenderer, defaultBackend } from './render/renderer';
 import { DayClock, type ClockMode } from './render/dayClock';
 import { Environment } from './render/environment';
 import { riverClock } from './render/riverWaves';
@@ -25,7 +25,7 @@ import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { QUALITY, renderPixelRatio } from './render/quality';
+import { QUALITY, deviceQuality, renderPixelRatio } from './render/quality';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
@@ -118,6 +118,13 @@ if (params.drive) {
       for (const key of recorded) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
     }
   } catch (e) { window.__qaError = String(e); Object.assign(window.__bench!, { phase: 'error', error: String(e) }); throw e; }
+}
+// Lower-end GPUs default to the reduced tier (render/quality.ts deviceQuality); ?quality= always wins. Play and
+// ?view=live replays only: QA, the bench lab and recorded replays keep their deterministic tier.
+if ((!params.qa || params.drive?.view === 'live') && !new URLSearchParams(location.search).has('quality')) {
+  const gpu = params.backend === 'webgpu' ? await adapterInfo() : null, tier = deviceQuality(gpu, params.quality);
+  if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}`);
+  params.quality = tier;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
 /** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
@@ -272,7 +279,7 @@ const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, a
   const tiers = model.userData.dissolveTiers as number[] | undefined;
   if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
 }, undefined, 'scenery');
-const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
+const resolution = new AdaptiveResolution(params.mobile ? 30 : 60, QUALITY[params.quality].resolutionFloor);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
