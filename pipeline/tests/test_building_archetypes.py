@@ -32,6 +32,7 @@ def fixture(tile):
 def test_partition_keeps_whole_shapes_and_component_metadata():
     tile = C.VisualTile(0, -3, 2)
     shells, meshes = fixture(tile)
+    meshes[1].baked_visibility = np.array([[.2,.5,1.]] * 4)
     meshes[1].extras['component_box'] = dict(center=[245,12,100], size=[20,1,20], tangent=[1,0,0])
     terrain, models = partition(tile, meshes, shells)
     assert terrain == [meshes[0]]
@@ -43,6 +44,7 @@ def test_partition_keeps_whole_shapes_and_component_metadata():
     crossing = next(model for model in models if model[0] == 'crossing')
     assert max(crossing[2][0].positions[:, 0] + crossing[1][0]) > tile.bbox.xmax
     assert crossing[2][0].extras['component_box']['center'] == [0,12,0]
+    np.testing.assert_array_equal(crossing[2][0].baked_visibility, meshes[1].baked_visibility)
     assert meshes[1].extras['component_box']['center'] == [245,12,100]
     assert view_distance([[-1,0,-1],[1,2,1]]) < view_distance([[-30,0,-30],[30,60,30]])
 
