@@ -1082,6 +1082,37 @@ class MigratedRevisionTests(unittest.TestCase):
             server.shutdown(); server.server_close(); thread.join()
 
 
+    def test_spot_rebuild_builds_the_fixed_tile_then_migrates(self):
+        builds, gate = [], threading.Event()
+        def build(revision, tile, root):
+            builds.append(revision)
+            if revision == REV2:
+                gate.wait(3)
+            return fake_build(revision, tile, root)
+        def migrate(revision, tile, meta):
+            if not (farm.output(GEN2) / tile / 'ready.json').exists():
+                raise farm_module.RebuildPending(REV2)
+            return fake_migrate(revision, tile, meta, farm)
+        register_migrated(self.root)
+        farm = self.farm(execute=build, migrate=migrate)
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        self.assertEqual(farm.request(DREV, 't0_0_0')[0], 202)
+        deadline = time.monotonic() + 2
+        while (DGEN, 't0_0_0') in farm.jobs and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertIn((GEN2, 't0_0_0'), farm.jobs)  # The fixed generator's build is queued.
+        status, value = farm.request(DREV, 't0_0_0')
+        self.assertEqual((status, value['state']), (202, 'rebuild-building'))
+        self.assertNotIn((DGEN, 't0_0_0'), farm.jobs)
+        gate.set()
+        self.wait(farm)
+        self.assertEqual(farm.request(DREV, 't0_0_0')[0], 202)
+        self.wait(farm)
+        self.assertEqual(farm.request(DREV, 't0_0_0')[0], 200)
+        self.assertEqual(builds, [REV, REV2])
+        self.assertFalse(farm.failures)
+
+
 if __name__ == '__main__':
     unittest.main()
 

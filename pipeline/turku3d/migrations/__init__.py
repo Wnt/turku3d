@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .core import Migration, Product, chain_generations, normalise, run, write_in_place
+from .core import (Migration, MissingRebuild, Product, Rebuild, chain_generations, normalise, run,
+                   write_in_place)
 
 
 def chain():
@@ -28,4 +29,5 @@ def apply_in_place(out: Path, manifest: dict) -> dict:
     return product.manifest
 
 
-__all__ = ["Migration", "Product", "apply_in_place", "chain", "chain_generations"]
+__all__ = ["Migration", "MissingRebuild", "Product", "Rebuild", "apply_in_place", "chain",
+           "chain_generations"]

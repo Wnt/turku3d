@@ -62,6 +62,13 @@ FINISH_SECONDS = 60    # a new pin lets the player's own tile finish when this c
 RING_METRES = 400      # a ring tile's latest reported distance (bbox, <= 354 m) confirms it
 
 
+class RebuildPending(RuntimeError):
+    """A spot-rebuild migration needs the fixed generator's build of this tile first."""
+    def __init__(self, revision):
+        super().__init__(f'rebuild {revision} pending')
+        self.revision = revision
+
+
 def tile_ij(tile):
     _, i, j = tile.split('_')
     return int(i), int(j)
@@ -148,6 +155,7 @@ class Farm:
         self.bundles = OrderedDict()
         self.pool = ThreadPoolExecutor(max_workers=MAX_WORKERS + MIGRATION_WORKERS, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
+        self.awaiting = {}  # migrated key -> the spot-rebuild build key it waits for
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
         # Live player positions: client -> {tile the player stands on (d=0): last time}.
@@ -417,6 +425,11 @@ class Farm:
                 return 409, dict(state='superseded', revision=revision, generation=generation,
                                  pin=self.pin.get('revision'))
             migrated = meta.get('kind') == 'migrated'
+            waiting = self.awaiting.get(key)
+            if waiting and waiting in self.jobs:
+                return 202, dict(state='rebuild-' + ('building' if waiting in self.active else 'queued'),
+                                 revision=revision, generation=generation)
+            self.awaiting.pop(key, None)
             if migrated and not (self.output(meta['base_generation']) / tile / 'ready.json').exists():
                 # Missing base tiles build at the base revision; the next request migrates them.
                 # No client address: base requests never move the game's pin.
@@ -755,7 +768,20 @@ class Farm:
         try:
             with self.lock:
                 self.active.add(key)
-            result = self.migrate(revision, tile, self.revision(revision))
+            try:
+                result = self.migrate(revision, tile, self.revision(revision))
+            except RebuildPending as pending:
+                # The fixed generator builds this tile first; the next request migrates it.
+                info = self.queue_info.get(key, {})
+                with self.lock:
+                    status, value = self.request(pending.revision, tile, info.get('distance') if not
+                                                 info.get('explicit') else None, None, None)
+                    rebuild = self.revision(pending.revision)['generation']
+                    if status == 202:
+                        self.awaiting[key] = (rebuild, tile)
+                self.event('rebuild-queued', revision=revision, tile=tile, rebuild=pending.revision,
+                           status=status, state=value.get('state'))
+                return
             ready = read_json(self.output(generation) / tile / 'ready.json', {})
             if ready.get('generation') != generation:
                 raise RuntimeError('migration did not produce a ready product')
@@ -794,8 +820,17 @@ class Farm:
         with (logs / f'{revision}-{tile}.log').open('a') as log:
             proc = subprocess.run([str(self.runner), 'python', 'scripts/dev/tile_migrate.py', 'apply',
                                    '--farm-root', str(self.root), '--revision', revision, tile],
-                                  cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                  cwd=repo, env=env, stdout=subprocess.PIPE, stderr=log, text=True,
                                   timeout=600, start_new_session=True)
+            log.write(proc.stdout)
+        if proc.returncode == 4:
+            for line in proc.stdout.splitlines()[::-1]:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get('state') == 'missing-rebuild' and REV.fullmatch(row.get('rebuild_revision', '')):
+                    raise RebuildPending(row['rebuild_revision'])
         if proc.returncode:
             raise RuntimeError(f'migration exit {proc.returncode}; see logs/{revision}-{tile}.log')
         return dict(returncode=0)
@@ -1170,6 +1205,8 @@ class Farm:
         for rev in list(revisions):
             meta = self.revision(rev)
             pinned.update(meta.get('parents', []))
+            pinned.update(step['rebuild_generation'] for step in meta.get('migrations', [])
+                          if isinstance(step, dict) and step.get('rebuild_generation'))
             for source in (meta.get('source_revision'), meta.get('base_revision'), meta.get('code_revision')):
                 if source:
                     revisions.add(source)

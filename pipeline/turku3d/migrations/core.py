@@ -21,6 +21,7 @@ import re
 import struct
 import sys
 from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -51,6 +52,11 @@ class Migration:
     def key(self) -> str:
         return f"{self.name}@{self.version}"
 
+    def apply(self, product: "Product") -> bool:
+        """Run the transform; True when the product is now a fresh build of the whole chain."""
+        self.transform(product)
+        return False
+
     def code_hash(self) -> str:
         """Source of the transform's module, this framework and every pipeline module they import."""
         module = self.transform.__module__
@@ -64,6 +70,43 @@ class Migration:
             digest.update(name.encode() + b"\0")
             digest.update(hashlib.sha256(path.read_bytes()).digest())
         return digest.hexdigest()
+
+
+class MissingRebuild(RuntimeError):
+    def __init__(self, name: str, tile: str, root: Path):
+        super().__init__(f"{tile} needs the {name} rebuild in {root.name}")
+        self.name, self.tile, self.root = name, tile, root
+
+
+def _keep(product: "Product") -> None:
+    del product
+
+
+@dataclass(frozen=True)
+class Rebuild(Migration):
+    """Spot rebuild: tiles whose manifest satisfies ``affected`` take the product of a normal
+    build by the generator of this commit (with the base's source version); every other tile is
+    unchanged. A generator fix whose effect is limited to a data-selected class of tiles thus
+    reaches the city without a regeneration, and parity holds because the fix is the generator.
+
+    In the generator itself the step is a no-op: the build already is that product."""
+
+    transform: Callable[["Product"], None] = _keep
+    affected: Callable[[dict], bool] = lambda manifest: False
+
+    def apply(self, product: "Product") -> bool:
+        if product.rebuilds is None or not self.affected(product.manifest):
+            return False
+        root = product.rebuilds[self.name]
+        directory = root / product.tile
+        if not (directory / "ready.json").exists():
+            raise MissingRebuild(self.name, product.tile, root)
+        product.adopt(directory, json.loads((directory / "manifest.json").read_bytes()))
+        return True
+
+    def code_hash(self) -> str:
+        """The predicate's module; the rebuilt products are identified by their generation."""
+        return Migration.code_hash(dataclass_replace(self, transform=self.affected))
 
 
 def module_file(parts: list[str]) -> Path:
@@ -123,16 +166,25 @@ def closure(roots: Iterable[Path]) -> list[Path]:
     return sorted(seen)
 
 
-def step_generation(parent: str, migration: Migration) -> str:
-    """Generation id after one migration: parent generation, name@version and code hash."""
+def step_generation(parent: str, migration: Migration, rebuild: str = "") -> str:
+    """Generation id after one migration: parent generation, name@version and code hash, and
+    for a spot rebuild the generation of the rebuilt products."""
     text = f"turku3d-tile-migration-v1\n{parent}\n{migration.key}\n{migration.code_hash()}"
+    if rebuild:
+        text += f"\nrebuild:{rebuild}"
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def chain_generations(base: str, chain: Iterable[Migration]) -> list[str]:
+def chain_generations(base: str, chain: Iterable[Migration], rebuilds: dict | None = None) -> list[str]:
+    """Step generation ids; ``rebuilds`` maps each Rebuild step's name to its product generation."""
     ids, parent = [], base
     for migration in chain:
-        parent = step_generation(parent, migration)
+        rebuild = ""
+        if isinstance(migration, Rebuild):
+            if rebuilds is None or migration.name not in rebuilds:
+                raise ValueError(f"{migration.key} needs the generation of its rebuilt products")
+            rebuild = rebuilds[migration.name]
+        parent = step_generation(parent, migration, rebuild)
         ids.append(parent)
     return ids
 
@@ -180,6 +232,13 @@ class Product:
         self.tile = manifest["tile"]
         self.written: dict[str, bytes] = {}  # normalised path relative to the tile directory
         self.replaced: set[str] = set()
+        # Farm path only: Rebuild step name -> generation root of its rebuilt products.
+        self.rebuilds: dict[str, Path] | None = None
+
+    def adopt(self, directory: Path, manifest: dict) -> None:
+        """Continue from another finished product of the same tile (a spot rebuild)."""
+        self.directory, self.manifest = Path(directory), manifest
+        self.written, self.replaced = {}, set()
 
     def read(self, url: str) -> bytes:
         path = _normal(url)
@@ -273,11 +332,20 @@ def normalise(manifest: dict) -> dict:
     return json.loads(manifest_bytes(manifest))
 
 
-def run(product: Product, chain: Iterable[Migration]) -> list[dict]:
-    """Apply ``chain`` and append it to the manifest's ``migrations`` record."""
+def run(product: Product, chain: Iterable[Migration], full: Iterable[Migration] = ()) -> list[dict]:
+    """Apply ``chain`` and append it to the manifest's ``migrations`` record.
+
+    A spot rebuild adopts a fresh build of its commit, whose generator already applied the whole
+    chain (``full``): the remaining steps are then recorded, not applied a second time."""
+    chain = list(chain)
     done = list(product.manifest.get("migrations", []))
     for migration in chain:
-        migration.transform(product)
+        if migration.apply(product):
+            record = [dict(name=m.name, version=m.version) for m in (full or chain)]
+            if product.manifest.get("migrations") != record:
+                raise RuntimeError(f"rebuilt product records {product.manifest.get('migrations')}, "
+                                   f"not the chain {record}")
+            return record
         done.append(dict(name=migration.name, version=migration.version))
     product.manifest["migrations"] = done
     return done
