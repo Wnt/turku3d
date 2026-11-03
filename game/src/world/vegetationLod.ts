@@ -115,6 +115,9 @@ export class VegetationLod {
    * per tile). Per-tile parts keep their selection, buffers and preparation but are not drawn themselves. */
   private poolRoot: THREE.Group | null = null;
   private pools = new Map<string, Pool>();
+  /** Developer object editor previews (dev/editor): a world matrix per placement id, null hides it. Visual only. */
+  private edits = new Map<string, THREE.Matrix4 | null>();
+  private editOriginals = new Map<string, { bucket: Bucket; index: number; matrix: Float32Array }>();
   private nextDraw = 0;
   private signature: number[] = [];
   private instance = new THREE.Matrix4();
@@ -244,6 +247,75 @@ export class VegetationLod {
       }
       yield* this.commit(data, mesh, mesh, byAsset, library, false);
     }
+    if (this.edits.size) for (const bucket of data.buckets) this.applyEdits(bucket);
+  }
+
+  /** Editable trees of the drawn tiles (dev/editor): world matrix, asset size and identity of every placement with an
+   *  id. Barrier modules have no ids and are skipped. Edited placements report the tile's own (original) matrix. */
+  forEachTree(visit: (tree: { id: string; asset: string; matrix: THREE.Matrix4; height: number; radius: number }) => void) {
+    const local = new THREE.Matrix4(), world = new THREE.Matrix4();
+    for (const [model, data] of this.models) {
+      if (this.activeTiles.get(model) !== true) continue;
+      for (const bucket of data.buckets) {
+        if (bucket.draw.barrier) continue;
+        const root = bucket.draw.root;
+        root.updateWorldMatrix(true, false);
+        const asset = this.library?.asset(bucket.draw.asset);
+        for (let i = 0; i < bucket.count; i++) {
+          const id = bucket.objectIds[i];
+          if (typeof id !== 'string') continue;
+          const original = this.editOriginals.get(id);
+          world.multiplyMatrices(root.matrixWorld, original?.bucket === bucket ? local.fromArray(original.matrix) : local.fromArray(bucket.matrices, i * 16));
+          const sy = Math.hypot(world.elements[4], world.elements[5], world.elements[6]);
+          const sx = Math.hypot(world.elements[0], world.elements[1], world.elements[2]);
+          visit({ id, asset: bucket.draw.asset, matrix: world, height: (asset?.height ?? 8) * sy, radius: (asset?.radius ?? 2) * sx });
+        }
+      }
+    }
+  }
+
+  /** Preview an edited placement: `delta` takes its original world matrix to the new one (new = delta × original),
+   *  null hides it, undefined restores the tile's own. Applied again whenever its tile loads. */
+  setEdit(id: string, delta: THREE.Matrix4 | null | undefined) {
+    if (delta === undefined) this.edits.delete(id); else this.edits.set(id, delta?.clone() ?? null);
+    for (const data of this.models.values()) for (const bucket of data.buckets) if (bucket.objectIds.includes(id)) this.applyEdits(bucket, id);
+  }
+
+  private applyEdits(bucket: Bucket, only?: string) {
+    const root = bucket.draw.root, inverse = new THREE.Matrix4(), m = new THREE.Matrix4(), p = new THREE.Vector3();
+    let changed = false;
+    for (let i = 0; i < bucket.count; i++) {
+      const id = bucket.objectIds[i];
+      if (typeof id !== 'string' || (only !== undefined && id !== only)) continue;
+      const original = this.editOriginals.get(id);
+      if (!this.edits.has(id) && (!original || original.bucket !== bucket)) continue;
+      if (!original || original.bucket !== bucket) this.editOriginals.set(id, { bucket, index: i, matrix: bucket.matrices.slice(i * 16, i * 16 + 16) });
+      const edit = this.edits.get(id);
+      root.updateWorldMatrix(true, false);
+      if (edit === undefined) {
+        bucket.matrices.set(this.editOriginals.get(id)!.matrix, i * 16);
+        this.editOriginals.delete(id);
+      } else if (edit === null) {
+        m.fromArray(this.editOriginals.get(id)!.matrix);
+        p.setFromMatrixPosition(m);
+        m.makeScale(0, 0, 0).setPosition(p).toArray(bucket.matrices, i * 16);
+      } else {
+        // local' = root⁻¹ · delta · root · local (the original local matrix, not an earlier preview).
+        m.fromArray(this.editOriginals.get(id)!.matrix).premultiply(root.matrixWorld).premultiply(edit)
+          .premultiply(inverse.copy(root.matrixWorld).invert()).toArray(bucket.matrices, i * 16);
+      }
+      changed = true;
+    }
+    if (!changed) return;
+    // Recompute the bucket's world positions and bounds; force its draw to repack (selections compare indices only).
+    bucket.world = undefined;
+    const local = new THREE.Sphere().makeEmpty(), asset = this.library?.asset(bucket.draw.asset);
+    const sphere = asset ? assetSphere(asset) : new THREE.Sphere(new THREE.Vector3(), 3);
+    for (let i = 0; i < bucket.count; i++) local.union(sphere.clone().applyMatrix4(m.fromArray(bucket.matrices, i * 16)));
+    bucket.bounds = local;
+    for (const level of bucket.draw.levels) for (const part of level) part.boundingSphere?.union(local);
+    for (const previous of bucket.draw.previous) previous.length = 0;
+    this.dirty = true;
   }
 
   /** One draw per asset part and LOD for this source's placements, bucketed into 50 m cells. */

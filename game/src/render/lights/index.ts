@@ -22,6 +22,18 @@ function* drawnTiles(entries: ReadonlyMap<string, Entry>): Generator<LampSource>
   for (const [id, e] of entries) if (e.state === 'draft' && e.model && !e.preview) yield { id, model: e.model, lights: e.lights ?? null };
 }
 
+/** A previewed post: new base (world metres) and yaw (rad, three.js rotation.y). */
+export interface LampEdit { x: number; y: number; z: number; yaw: number }
+
+/** The lamp moved to a new base and yaw; its light head follows rigidly. The slot key stays, so the post keeps its slot. */
+export function moveLamp(lamp: Lamp, edit: LampEdit): Lamp {
+  const turn = edit.yaw - lamp.yaw, c = Math.cos(turn), s = Math.sin(turn);
+  const dx = lamp.light.x - lamp.x, dz = lamp.light.z - lamp.z;
+  // three.js rotation.y: x' = x cos + z sin, z' = -x sin + z cos.
+  const light = { ...lamp.light, x: edit.x + dx * c + dz * s, y: lamp.light.y + edit.y - lamp.y, z: edit.z - dx * s + dz * c };
+  return { ...lamp, x: edit.x, y: edit.y, z: edit.z, yaw: edit.yaw, light };
+}
+
 export class StreetLights {
   readonly sprites: LightSprites;
   readonly posts = new LampPosts();
@@ -37,6 +49,9 @@ export class StreetLights {
   private floodMasts = 0;
   private floodVenues = 0;
   private tiles = new Map<string, readonly Lamp[]>();
+  /** The tiles' own lamps before developer editor previews (dev/editor), and those previews by lamp key. */
+  private raw = new Map<string, readonly Lamp[]>();
+  private edits = new Map<string, LampEdit | null>();
   private footprints = new Map<string, Footprint>();
   private flood = new Map<string, FloodTile>();
   private source: { entries: ReadonlyMap<string, Entry> } | null = null;
@@ -54,12 +69,48 @@ export class StreetLights {
     this.masts = new FloodMasts(this.posts.mesh.material as THREE.Material);
     scene.add(this.posts.mesh, this.masts.mesh);
     this.field.onTile = (id, lamps, footprint, flood) => {
-      if (lamps) this.tiles.set(id, lamps); else this.tiles.delete(id);
+      if (lamps) this.raw.set(id, lamps); else this.raw.delete(id);
+      const drawn = lamps ? this.edited(lamps) : null;
+      if (drawn) this.tiles.set(id, drawn); else this.tiles.delete(id);
       if (footprint) this.footprints.set(id, footprint); else this.footprints.delete(id);
-      if (lamps && flood) this.flood.set(id, flood); else this.flood.delete(id);
-      this.sprites.setGroup(`tile:${id}`, lamps?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
+      if (drawn && flood) this.flood.set(id, flood); else this.flood.delete(id);
+      this.sprites.setGroup(`tile:${id}`, drawn?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
       this.postsDirty = true;
     };
+  }
+
+  /** Street-light posts of the drawn tiles with their tile (dev/editor picking): the tiles' own, unedited posts. */
+  forEachPost(visit: (tile: string, lamp: Lamp, index: number) => void) {
+    for (const [tile, lamps] of this.raw) lamps.forEach((lamp, i) => { if (lamp.post) visit(tile, lamp, i); });
+  }
+
+  /** The tile's own (unedited) lamp with this key. */
+  originalLamp(key: string): { tile: string; lamp: Lamp; index: number } | null {
+    for (const [tile, lamps] of this.raw) { const index = lamps.findIndex(l => l.key === key); if (index >= 0) return { tile, lamp: lamps[index], index }; }
+    return null;
+  }
+
+  /** Preview an edited post (visual only): its new base and yaw, null removes the lamp, undefined restores it. */
+  setEdit(key: string, edit: LampEdit | null | undefined) {
+    if (edit === undefined) this.edits.delete(key); else this.edits.set(key, edit);
+    for (const [tile, lamps] of this.raw) {
+      if (!lamps.some(l => l.key === key)) continue;
+      const edited = this.edited(lamps);
+      this.tiles.set(tile, edited);
+      this.sprites.setGroup(`tile:${tile}`, edited.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light));
+      this.postsDirty = true;
+    }
+  }
+
+  private edited(lamps: readonly Lamp[]): readonly Lamp[] {
+    if (!this.edits.size) return lamps;
+    const out: Lamp[] = [];
+    for (const lamp of lamps) {
+      const edit = this.edits.get(lamp.key);
+      if (edit === null) continue;
+      out.push(edit === undefined ? lamp : moveLamp(lamp, edit));
+    }
+    return out;
   }
 
   /** Follow a draft tile source (CoarseTiles). */

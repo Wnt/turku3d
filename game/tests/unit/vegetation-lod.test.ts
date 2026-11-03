@@ -523,3 +523,40 @@ it('cross-fades cost a few per cent of vegetation triangles at the riverside fli
     expect(faded.draws).toBeLessThanOrEqual(instant.draws * 1.1);
   }
 });
+
+describe('object editor previews', () => {
+  it('lists trees by id at their original matrix, moves, hides and restores one through a delta, also after a reload', () => {
+    const { model } = tile(3, 'tree_detailed_fall', i => new THREE.Vector3(i * 10, 0, -30));
+    const scene = new THREE.Scene(); scene.add(model);
+    const camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
+    const lod = new VegetationLod('medium', library); lod.add(model); lod.update(camera);
+    const trees = () => { const out = new Map<string, THREE.Vector3>(); lod.forEachTree(t => out.set(t.id, new THREE.Vector3().setFromMatrixPosition(t.matrix))); return out; };
+    expect([...trees().keys()].sort()).toEqual(['osm:0', 'osm:1', 'osm:2']); // grouped by species asset
+    const drawnAt = () => {
+      const out: THREE.Vector3[] = [];
+      model.traverse(o => {
+        const m = o as THREE.InstancedMesh;
+        if (!m.isInstancedMesh || !m.visible || !m.userData.vegetationLod) return;
+        for (let i = 0; i < m.count; i++) {
+          const w = new THREE.Matrix4(); m.getMatrixAt(i, w); w.premultiply(m.matrixWorld);
+          if (w.elements[0] !== 0 || w.elements[5] !== 0) out.push(new THREE.Vector3().setFromMatrixPosition(w));
+        }
+      });
+      return out;
+    };
+    lod.setEdit('osm:1', new THREE.Matrix4().makeTranslation(3, 0, 0));
+    lod.update(camera);
+    expect(drawnAt().some(p => Math.abs(p.x - 13) < 1e-3)).toBe(true);
+    expect(drawnAt().some(p => Math.abs(p.x - 10) < 1e-3)).toBe(false);
+    expect(trees().get('osm:1')!.x).toBeCloseTo(10); // picking sees the original; the editor applies its preview
+    lod.setEdit('osm:2', null); lod.update(camera);
+    expect(drawnAt().some(p => Math.abs(p.x - 20) < 1e-3)).toBe(false);
+    lod.setEdit('osm:2', undefined); lod.update(camera);
+    expect(drawnAt().some(p => Math.abs(p.x - 20) < 1e-3)).toBe(true);
+    // The tile reloads: the open preview applies to the new buckets.
+    lod.remove(model); lod.add(model); lod.update(camera);
+    expect(drawnAt().some(p => Math.abs(p.x - 13) < 1e-3)).toBe(true);
+    lod.setEdit('osm:1', undefined); lod.update(camera);
+    expect(drawnAt().some(p => Math.abs(p.x - 10) < 1e-3)).toBe(true);
+  });
+});

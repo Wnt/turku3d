@@ -1317,6 +1317,9 @@ export class CoarseTiles {
     return [...this.entries].filter(([, e]) => e.model).map(([id]) => id);
   }
 
+  /** The tile manifest URL the client polls (developer object editor: an edit's generation pin). */
+  manifestUrl(id: string): string { return new URL(`${this.root}${id}/manifest.json`, this.page).href; }
+
   /** Street graphs of the drafts in the scene, for the map and the router (gameplay/index.ts StreetMap). */
   roadGraphs(): RoadGraphJson[] {
     return [...this.entries.values()].flatMap(e => e.state === 'draft' && e.roads ? [e.roads] : []);
