@@ -5,7 +5,7 @@ import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
 import { PreparationBudget, streamingBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
-import { lodFades, type LodFades } from '../render/lodFade';
+import { lodFades, stableMaterial, type LodFades } from '../render/lodFade';
 import { StaticGroup } from './frozenTransforms';
 import { streamTrace } from '../telemetry/streamTrace';
 
@@ -274,7 +274,8 @@ function mergeBlockLods(owner: THREE.Object3D, wrappers: THREE.Object3D[]) {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh || Array.isArray(mesh.material)) return;
     const geometry = mesh.geometry.clone().applyMatrix4(inverse.clone().multiply(mesh.matrixWorld));
-    groups.set(mesh.material, [...groups.get(mesh.material) ?? [], geometry]);
+    const material = stableMaterial(mesh.material);
+    groups.set(material, [...groups.get(material) ?? [], geometry]);
   });
   const merged: THREE.Mesh[] = [];
   for (const [material, geometries] of groups) {

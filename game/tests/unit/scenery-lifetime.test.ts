@@ -3,7 +3,7 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { ScreenshotScenery } from '../../src/world/screenshotScenery';
-import { lodFades, precompileDissolve } from '../../src/render/lodFade';
+import { isDissolveTwin, lodFades, precompileDissolve } from '../../src/render/lodFade';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 
@@ -123,6 +123,12 @@ test('a 12 km scenery drive keeps cells, geometries and merged batches bounded a
     previous = used;
   }
   process.stderr.write(JSON.stringify({ steadyBytesPerFrame: Math.round(allocated / frames) }) + '\n');
+  // Settled: no dissolve runs and no draw anywhere in the scene keeps a twin (no dither left in a still frame).
+  for (let i = 0; i < 60; i++) { now += 16; scenery.update(12000, 0, now); lodFades.update(now); await settle(); }
+  expect(lodFades.size).toBe(0);
+  const twins: string[] = [];
+  scene.traverse(o => { const m = (o as THREE.Mesh).material; if ((o as THREE.Mesh).isMesh && m && isDissolveTwin(m as THREE.Material)) twins.push(o.name); });
+  expect(twins).toEqual([]);
   expect(Math.max(...samples.map(s => s.batches))).toBeGreaterThan(0);
   // Every merged batch still alive is one drawn in the scene: replaced batches released their copies.
   for (const s of samples) expect(s.batchGeometries).toBe(s.batches);

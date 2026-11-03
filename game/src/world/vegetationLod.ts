@@ -8,6 +8,7 @@ import { VEGETATION_FADE, leafVariant } from './nature/materials';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
 import { shareInstanceProgram } from '../render/instancePrograms';
+import { stableMaterial } from '../render/lodFade';
 
 export function vegetationLevel(distance: number, range: { near:number; mid:number }) {
   return distance < range.near ? 0 : distance < range.mid ? 1 : 2;
@@ -125,6 +126,10 @@ export class VegetationLod {
   /** Near and far boundaries with the instance budgets folded in: a budget that runs out moves its boundary closer
    *  (a few metres per update) instead of dropping trees, so the cross-fade carries the change. */
   private bands: [number, number, number] = [NaN, NaN, NaN];
+  /** When the camera stopped moving (ms), and the band sharpness it ramps (NatureMaterials.lodSharpness). */
+  private stillSince: number | null = null;
+  private sharpness = 0;
+  private sharpAt = NaN;
   /** With a scene, tile grass surfaces also grow instanced grass near the camera (world-space draws under it). */
   constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, scene?: THREE.Object3D) {
     const loaded = (lib: NatureLibrary) => {
@@ -403,6 +408,7 @@ export class VegetationLod {
     camera.updateMatrixWorld();
     this.grass?.update(camera);
     const still = this.still(camera);
+    this.settle(still, performance.now());
     let changed = this.dirty;
     for (const [model] of this.models) {
       let active = true;
@@ -517,6 +523,17 @@ export class VegetationLod {
     if (this.poolRoot) this.updatePools();
   }
 
+  /** Bands cross-fade while the camera moves; 0.25 s after it stops they narrow to a step over 0.5 s (no dither left in
+   *  a settled frame), and widen again over 0.25 s when it moves. */
+  private settle(still: boolean, now: number) {
+    if (still) this.stillSince ??= now; else this.stillSince = null;
+    const dt = Number.isFinite(this.sharpAt) ? Math.min(100, Math.max(0, now - this.sharpAt)) : 0;
+    this.sharpAt = now;
+    const target = this.stillSince !== null && now - this.stillSince >= 250 ? 1 : 0;
+    this.sharpness = target > this.sharpness ? Math.min(target, this.sharpness + dt / 500) : Math.max(target, this.sharpness - dt / 250);
+    if (this.library) this.library.materials.lodSharpness.value = this.sharpness;
+  }
+
   /** A bucket's world bounds and instance positions, once: tile roots never move after their install. */
   private place(bucket: Bucket) {
     const root = bucket.draw.root;
@@ -578,9 +595,9 @@ export class VegetationLod {
     pool.matrices = new THREE.InstancedBufferAttribute(new Float32Array(pool.capacity * 16), 16);
     pool.colors = new THREE.InstancedBufferAttribute(new Float32Array(pool.capacity * 3), 3);
     pool.meshes = parts.map(part => {
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, pool.capacity);
+      const mesh = new THREE.InstancedMesh(part.geometry, stableMaterial(part.material as THREE.Material), pool.capacity);
       mesh.instanceMatrix = pool.matrices!; mesh.instanceColor = pool.colors;
-      const { pooledVegetation: _, ...userData } = part.userData;
+      const { pooledVegetation: _, lodCoverage: __, ...userData } = part.userData;
       mesh.userData = { ...userData, instance_object_ids: pool.objectIds };
       shareInstanceProgram(mesh, true); // the tile draws' prepared programs, also after the pool grows
       mesh.name = `vegetation-pool:${part.userData.nature}:${part.userData.level}`;

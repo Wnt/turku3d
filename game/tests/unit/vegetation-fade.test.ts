@@ -1,6 +1,8 @@
 // Tree LOD cross-fades (world/vegetationLod.ts, world/nature/materials.ts): continuity without flipping (hysteresis),
 // per-tree stagger, and the impostor atlas keeping its alpha-test coverage through the mips it is drawn at.
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three/webgpu';
+import { LodFades, dissolveTwin, drawnCoverage, isDissolveTwin, precompileDissolve, stableMaterial } from '../../src/render/lodFade';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -101,4 +103,56 @@ describe('impostor alpha coverage', () => {
     // The previous boost (1 + 0.3 per mip, from the chain-link fence) made crowns visibly denser from mip 2 on.
     expect(coverage(mips[2], 1 + 0.3 * 2) / base).toBeGreaterThan(1.15);
   }, 30000);
+});
+
+describe('settled frames keep no dither', () => {
+  it('every dissolve reaches its end state within its duration: base materials, no coverage, shadows back', async () => {
+    const fades = new LodFades();
+    const roots = Array.from({ length: 6 }, (_, i) => {
+      const root = new THREE.Group();
+      for (let k = 0; k < 3; k++) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial({ name: `m${i}-${k}`, alphaTest: k ? 0.5 : 0 }));
+        mesh.castShadow = k !== 1; root.add(mesh);
+      }
+      return root;
+    });
+    await precompileDissolve(roots, [0], () => {});
+    // A random schedule of starts, reversals, cancels and updates over 3 s, as cuts, blocks and tiles issue them.
+    let now = 0, seed = 7;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    let lastStart = 0;
+    for (let step = 0; step < 300; step++) {
+      now += 10;
+      const root = roots[Math.floor(random() * roots.length)], action = random();
+      if (action < 0.25) { fades.start(root, random() < 0.5 ? 0 : 1, random() < 0.5 ? 0 : 1, undefined, now, 0.6); lastStart = now; }
+      else if (action < 0.3) fades.cancel(root);
+      fades.update(now);
+    }
+    // No new starts: by the last start plus its 0.6 s, every dissolve has ended.
+    fades.update(lastStart + 600);
+    expect(fades.size).toBe(0);
+    for (const root of roots) for (const mesh of root.children as THREE.Mesh[]) {
+      expect(isDissolveTwin(mesh.material as THREE.Material)).toBe(false);
+      expect(mesh.userData.lodCoverage).toBeUndefined();
+      expect(drawnCoverage(mesh)).toBe(1);
+    }
+    expect(roots.flatMap(r => r.children as THREE.Mesh[]).map(m => m.castShadow)).toEqual(roots.flatMap(() => [true, false, true]));
+  });
+
+  it('a copy of a fading mesh (pool, batch, clone) draws whole: only a running dissolve has partial coverage', async () => {
+    const base = new THREE.MeshStandardNodeMaterial({ name: 'leafy', alphaTest: 0.5 });
+    const root = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry(), base); root.add(mesh);
+    await precompileDissolve([root], [0], () => {});
+    const fades = new LodFades();
+    fades.start(root, 0, 1, undefined, 0, 0.6); fades.update(300);
+    expect(drawnCoverage(mesh)).toBeCloseTo(0.5, 5);
+    // What a pool or batch did mid-fade: copied the twin and the userData.
+    const copy = mesh.clone();
+    expect(copy.material).toBe(dissolveTwin(base));
+    expect(copy.userData.lodCoverage).toBeCloseTo(0.5, 5);
+    expect(drawnCoverage(copy)).toBe(1);
+    expect(stableMaterial(copy.material as THREE.Material)).toBe(base);
+    fades.update(600);
+    expect([mesh.material, drawnCoverage(mesh)]).toEqual([base, 1]);
+  });
 });

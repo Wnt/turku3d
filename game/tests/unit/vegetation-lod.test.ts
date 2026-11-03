@@ -560,3 +560,51 @@ describe('object editor previews', () => {
     expect(drawnAt().some(p => Math.abs(p.x - 10) < 1e-3)).toBe(true);
   });
 });
+
+it('pools never keep a dissolve twin or a coverage: pooled draws sit out tile dissolves, growth takes the stable material', async () => {
+  const { LodFades, dissolveTwin, isDissolveTwin, precompileDissolve } = await import('../../src/render/lodFade');
+  const scene = new THREE.Scene();
+  const a = tile(10, 'tree_detailed_fall', i => new THREE.Vector3(i * 6 - 30, 0, -100));
+  scene.add(a.model);
+  const camera = new THREE.PerspectiveCamera(65, 1, .1, 2000); camera.updateMatrixWorld();
+  const lod = new VegetationLod('medium', library, scene); lod.add(a.model); lod.update(camera);
+  const pooled = generated(a.model, a.mesh);
+  expect(pooled.every(d => d.userData.pooledVegetation)).toBe(true);
+  // A full-tile dissolve of the tile leaves its pooled (hidden) draws alone: the pools draw those trees.
+  await precompileDissolve([a.model], [0], () => {});
+  const fades = new LodFades();
+  fades.start(a.model, 0, 1, undefined, 0, 0.6);
+  expect(pooled.some(d => isDissolveTwin(d.material as THREE.Material))).toBe(false);
+  fades.cancel(a.model);
+  // Even if a draw held its twin mid-fade when its pool grew, the pool takes the stable material and no coverage.
+  const draw = pooled.find(d => d.visible)!;
+  const real = draw.material as THREE.Material;
+  draw.material = dissolveTwin(real); draw.userData.lodCoverage = 0.4;
+  const b = tile(400, 'tree_detailed_fall', i => new THREE.Vector3((i % 20) * 6 - 60, 0, -100 - Math.floor(i / 20) * 6));
+  scene.add(b.model); lod.add(b.model); camera.position.x += 1; camera.updateMatrixWorld(); lod.update(camera);
+  const pools = scene.getObjectByName('vegetation-pools')!.children as THREE.InstancedMesh[];
+  expect(pools.length).toBeGreaterThan(0);
+  expect(pools.some(p => isDissolveTwin(p.material as THREE.Material))).toBe(false);
+  expect(pools.every(p => p.userData.lodCoverage === undefined)).toBe(true);
+  draw.material = real; delete draw.userData.lodCoverage;
+  lod.dispose();
+});
+
+it('a still camera settles the tree bands to a step (no dither), and they widen again when it moves', () => {
+  let time = 1000;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => time);
+  try {
+    const { model } = tile(), scene = new THREE.Scene(); scene.add(model);
+    const lod = new VegetationLod('medium', library), camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
+    lod.add(model);
+    const sharp = () => library.materials.lodSharpness.value as number;
+    const frames = (n: number, move: boolean) => { for (let i = 0; i < n; i++) {
+      time += 16; if (move) { camera.position.x += 0.5; camera.updateMatrixWorld(); } lod.update(camera);
+    } };
+    frames(30, true); expect(sharp()).toBe(0);
+    frames(10, false); expect(sharp()).toBe(0); // the first 0.25 s of standing still change nothing
+    frames(40, false); expect(sharp()).toBe(1); // then 0.5 s to a step
+    frames(4, true); expect(sharp()).toBeGreaterThan(0); frames(16, true); expect(sharp()).toBe(0); // 0.25 s back
+    lod.dispose();
+  } finally { now.mockRestore(); }
+});

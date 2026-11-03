@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import { mergeScenerySteps } from './mergeSceneryGeometry';
 import { shareSceneryProgram } from './shareSceneryProgram';
 import { disposeDraw } from './sharedMaterials';
+import { stableMaterial } from './lodFade';
 import { sceneryBounds } from '../world/sceneryView';
 import { streamTrace } from '../telemetry/streamTrace';
 
@@ -173,7 +174,7 @@ export class SceneryBatches {
 
   /** A merged batch replaces its sources once its draw is prepared off the live path. */
   private install(bucket: Bucket, geometry: THREE.BufferGeometry) {
-    const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
+    const mesh = new THREE.Mesh(geometry,stableMaterial(bucket.sources[0].mesh.material as THREE.Material));
     mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
     mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;
     bucket.mesh = mesh;

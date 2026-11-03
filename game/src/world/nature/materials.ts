@@ -58,6 +58,9 @@ export class NatureMaterials {
   /** LOD boundaries (m, 3D): full mesh -> reduced mesh, reduced -> impostor (or the end of a two-level asset),
    *  impostor -> nothing. VegetationLod sets them each update, with budgets folded in (world/vegetationLod.ts). */
   readonly lodBands = uniform(new THREE.Vector3(50, 180, 650)).setGroup(renderGroup);
+  /** 0 while the camera moves (gradual cross-fades), ramping to 1 once it stands still: every band narrows to its
+   *  per-tree boundary, so a settled frame keeps no dither (VegetationLod.update drives it). */
+  readonly lodSharpness = uniform(0).setGroup(renderGroup);
   private variants = new Map<THREE.Material, THREE.MeshStandardNodeMaterial[]>();
   private bases = new WeakMap<THREE.Material, THREE.MeshStandardNodeMaterial>();
   /** Grass clumps fade out between these camera distances (m); GrassField sets them from the quality tier. */
@@ -126,8 +129,10 @@ export class NatureMaterials {
       normalMap: imp.normalMap, normalScale: imp.normalScale.clone() });
     // Crossed planes fade out edge-on through a screen door that changes every frame, so temporal AA resolves it
     // into a blend (a screen-fixed pattern crawled over the crowns as the camera moved: the speckle flicker).
+    // It narrows to a step as the camera settles (lodSharpness), so a settled frame keeps no dither here either.
     const facing = abs(dot(normalViewGeometry, normalize(positionView.negate())));
-    const visible = select(smoothstep(0.2, 0.55, facing).greaterThan(ditherThreshold()), float(1), float(0));
+    const edge = max(float(1).sub(this.lodSharpness), float(1e-4)).mul(0.175);
+    const visible = select(smoothstep(float(0.375).sub(edge), float(0.375).add(edge), facing).greaterThan(ditherThreshold()), float(1), float(0));
     // The impostor atlas keeps its alpha-test coverage through mip 4 (work/trees/coverage.mjs: 0.95-1.03 of mip 0);
     // the chain-link boost (1 + 0.3 per mip) made distant crowns 8-61 % denser than the meshes they replace. Only
     // mips 5 and finer-than-pixel need the 1.3x that restores mip-0 coverage.
@@ -171,11 +176,13 @@ export class NatureMaterials {
     variant.name = `${base.name}@L${level}`;
     const distance = positionWorld.sub(cameraPosition).length();
     const seed = fract(sin(dot(instanceColor, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
-    // 0 -> 1 between end - 2 * width and end, where end = boundary * (1 - stagger * seed) <= boundary.
+    // 0 -> 1 between end - 2 * width and end, where end = boundary * (1 - stagger * seed) <= boundary; the width
+    // shrinks to a step as the camera settles (lodSharpness).
+    const softness = max(float(1).sub(this.lodSharpness), float(1e-4));
     const fade = (j: number) => {
       const band = [this.lodBands.x, this.lodBands.y, this.lodBands.z][j];
       const end = band.mul(seed.mul(-VEGETATION_FADE.stagger[j]).add(1));
-      return smoothstep(end.sub(band.mul(2 * VEGETATION_FADE.width[j])), end, distance);
+      return smoothstep(end.sub(band.mul(2 * VEGETATION_FADE.width[j]).mul(softness)), end, distance);
     };
     const threshold = ditherThreshold();
     let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(fade(level));

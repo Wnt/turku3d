@@ -27,8 +27,13 @@ const LOD_FADE_SLOPE = -2;
 /** Bias tier of a model `distance` metres from the camera. */
 export const fadeTier = (distance: number) => LOD_FADE_BIAS.findIndex(tier => distance < tier.until);
 
-/** Per-draw coverage; meshes outside a fade never carry the twin, so its value is 1 for them. */
-const coverage = uniform(1).onObjectUpdate(({ object }) => (object?.userData.lodCoverage as number | undefined) ?? 1);
+/** Meshes inside a running dissolve. Only they draw a partial coverage: a copy of a fading mesh (a vegetation pool,
+ *  a merged batch, a clone) that took its twin or userData along still draws whole, so no dither can outlive a fade. */
+const fading = new WeakSet<THREE.Object3D>();
+/** The coverage a twin draws `object` with: its running dissolve's value, 1 for everything else. */
+export const drawnCoverage = (object: THREE.Object3D | null | undefined) =>
+  object && fading.has(object) ? (object.userData.lodCoverage as number | undefined) ?? 1 : 1;
+const coverage = uniform(1).onObjectUpdate(({ object }) => drawnCoverage(object));
 
 /** 4x4 ordered dither in [0, 1): 16 distinct thresholds, every 2x2 quad covered evenly. */
 function bayer2(a: THREE.Node<'vec2'>) {
@@ -49,6 +54,10 @@ const WHOLE = bool(true);
 
 const twins = new WeakMap<THREE.Material, THREE.Material[]>();
 const twinSet = new WeakSet<THREE.Material>();
+const twinBase = new WeakMap<THREE.Material, THREE.Material>();
+/** The material a mesh keeps outside dissolves: the base of a dissolve twin, else itself. Code that copies a mesh's
+ *  material into a long-lived draw (pools, merged batches) takes this, never a twin caught mid-fade. */
+export const stableMaterial = <T extends THREE.Material>(material: T): T => (twinBase.get(material) as T | undefined) ?? material;
 /** Twins compiled during preparation (precompileDissolve) for at least one draw layout. */
 const ready = new WeakSet<THREE.Material>();
 /** Compiled draws by keeper key: a twin's programs and pipelines for one geometry layout and object kind.
@@ -96,7 +105,7 @@ export function dissolveTwin(material: THREE.Material, tier = 0): THREE.Material
       twins.delete(material);
     });
   }
-  list[tier] = node; twinSet.add(node);
+  list[tier] = node; twinSet.add(node); twinBase.set(node, material);
   return node;
 }
 
@@ -119,7 +128,8 @@ function dissolvingMeshes(root: THREE.Object3D) {
   const meshes: THREE.Mesh[] = [];
   root.traverse(object => {
     const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh || mesh.userData.shadowBatch || mesh.userData.shadowProxy) return;
+    // Pooled vegetation draws are hidden (the city-wide pool draws their instances): nothing to dissolve.
+    if (!mesh.isMesh || mesh.userData.shadowBatch || mesh.userData.shadowProxy || mesh.userData.pooledVegetation) return;
     if ((mesh as THREE.InstancedMesh).isInstancedMesh && !sharedStill(mesh)) return;
     if (materialsOf(mesh).some(nodeMaterial)) meshes.push(mesh);
   });
@@ -304,7 +314,7 @@ export class LodFades {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => dissolveTwin(m, tier)) : dissolveTwin(mesh.material, tier);
       // A dissolving draw casts nothing: its shadow program is not among the compiled keepers.
       mesh.castShadow = false;
-      mesh.userData.lodCoverage = from;
+      mesh.userData.lodCoverage = from; fading.add(mesh);
     }
     this.fades.set(root, { from, to, start: this.clock, seconds, meshes, done, tier });
     return true;
@@ -349,7 +359,9 @@ export class LodFades {
   }
 
   private restore(root: THREE.Object3D, fade: Fade) {
-    for (const { mesh, material, castShadow } of fade.meshes) { mesh.material = material; mesh.castShadow = castShadow; delete mesh.userData.lodCoverage; }
+    for (const { mesh, material, castShadow } of fade.meshes) {
+      mesh.material = material; mesh.castShadow = castShadow; delete mesh.userData.lodCoverage; fading.delete(mesh);
+    }
     this.fades.delete(root);
   }
 }
