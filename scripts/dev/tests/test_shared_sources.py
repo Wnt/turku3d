@@ -47,6 +47,20 @@ class OverlayTests(unittest.TestCase):
             self.assertEqual((output / source.relative_to(owned)).read_bytes(), b'survey')
             self.assertFalse((base / 'supplements').exists())
 
+    def test_derived_dataset_joins_the_overlay_outside_raw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, owned = root / 'base', root / 'owned'
+            (base / 'raw/laz').mkdir(parents=True)
+            (base / 'raw/laz/old.laz').write_bytes(b'old')
+            source = owned / 'derived/playgrounds/playgrounds.json'
+            source.parent.mkdir(parents=True)
+            source.write_text('{}')
+            output = module.publish(base, root / 'overlay', [owned])
+            self.assertEqual((output / 'derived/playgrounds/playgrounds.json').read_text(), '{}')
+            self.assertEqual((output / 'raw/laz/old.laz').read_bytes(), b'old')
+            self.assertFalse((base / 'derived').exists())
+
 
 if __name__ == '__main__':
     unittest.main()
