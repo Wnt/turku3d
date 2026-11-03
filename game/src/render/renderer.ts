@@ -28,6 +28,8 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   opts: { qa?: boolean; idPass?: boolean; mobile?: boolean; quality?: QualityTier } = {}): Promise<RendererInfo> {
   // TRAA handles color antialiasing; MSAA must be off for its depth/velocity history.
   const renderer = new GameRenderer({ antialias: false, forceWebGL: want === 'webgl', trackTimestamp: true });
+  // ?uniformPool=0: one GPU buffer per uniform binding, as r186 does (the A/B of render/uniformPool.ts).
+  renderer.poolUniforms = new URLSearchParams(location.search).get('uniformPool') !== '0';
   // Installed once, before any compile: the tier's light slots exist for the whole session.
   renderer.lighting = new GameLighting(QUALITY[opts.quality ?? 'medium'].lights);
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa, opts.mobile, QUALITY[opts.quality ?? 'medium'].maxPixels));
