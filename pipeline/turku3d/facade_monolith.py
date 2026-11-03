@@ -168,8 +168,9 @@ def reviewed_wall(wall, reading, floors, panels, m):
         source = sections[part["index"]] if part["index"] < len(sections) else {}
         text = " ".join([str(source.get(k, "")) for k in ("kind", "material")]).lower()
         if CHANNEL_GLASS.search(text):
-            # Translucent U-profile glass is an opaque-looking cladding plane, not a window.
-            part.update(kind="blank", material="glass", count=1, rows=1,
+            # Translucent U-profile glass is a light, diffuse cladding plane, not a window: the
+            # atlas's dark reflective glass cell would invert its measured milky pigment.
+            part.update(kind="blank", material="render", count=1, rows=1,
                         colour=CHANNEL["colour"],
                         panel_grid=[CHANNEL["profile_m"], 1000.0, CHANNEL["joint_m"]])
     used = {s["index"] for s in wall["render_sections"]}
