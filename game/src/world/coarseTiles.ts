@@ -159,6 +159,11 @@ export class CoarseTiles {
     this.startup = { points, radius };
     return () => { this.startup = null; this.nextCheck = 0; };
   }
+  /** Distance the tile farm schedules by: while the boot screen preloads the starting ground,
+   *  each starting point counts as the player, so its tile and ring build first. */
+  private demandDistance(id: string, x: number, z: number) {
+    return Math.min(distToL0(id, x, z), ...(this.startup?.points ?? []).map(p => distToL0(id, p.x, p.z)));
+  }
   private wantedStarts(x: number, z: number) {
     if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
@@ -264,15 +269,15 @@ export class CoarseTiles {
       && (now >= e.nextPoll || (!e.retries && e.state !== 'built' && (e.version ?? this.version) < this.version));
     for (const id of wanted) {
       const e = this.entry(id);
-      if (due(e)) void this.poll(id, e, distToL0(id, x, z), true);
+      if (due(e)) void this.poll(id, e, this.demandDistance(id, x, z), true);
       else if (e.state === 'draft' && !e.preview && !e.refreshing && (now >= e.nextPoll
         || (!e.retries && (e.pass !== 'full' || e.stale) && (e.version ?? -1) < this.version)))
-        void this.refreshDraft(id, e, distToL0(id, x, z));
+        void this.refreshDraft(id, e, this.demandDistance(id, x, z));
     }
     // Core requests always start first. This separate slot limits speculative preparation only.
     for (const id of lookahead) {
       if (this.preparing.size >= 4 || this.preparing.has(id)) continue;
-      const e = this.entry(id), distance = distToL0(id, x, z);
+      const e = this.entry(id), distance = this.demandDistance(id, x, z);
       const task = due(e) ? this.poll(id, e, distance, true) : null;
       if (task) {
         this.preparing.add(id);
@@ -292,7 +297,7 @@ export class CoarseTiles {
     for (const id of ahead) {
       if (lookahead.includes(id)) continue;
       const e = this.entry(id);
-      if (due(e) && e.state !== 'built') void this.poll(id, e, distToL0(id, x, z), false);
+      if (due(e) && e.state !== 'built') void this.poll(id, e, this.demandDistance(id, x, z), false);
     }
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
     const building = this.remote ? [...this.entries.values()].filter(e => e.state === 'pending' || e.state === 'loading').length : this.building;
