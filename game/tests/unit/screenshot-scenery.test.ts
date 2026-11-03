@@ -353,8 +353,13 @@ test('old children remain visible while a coarser replacement is loading', async
   state.entries.set('t0_0_0', entry(child));
   scenery.update(2000, 100, 10000, true);
   expect(child.visible).toBe(true); expect(child.parent).toBe(scene);
+  parent.visible = false; // as poll() installs a live-view model, until the cut commits it
   state.entries.set('t2_0_0', entry(parent));
   scenery.update(2000, 100, 10016, true);
+  // Coarsening dissolves too: the parent fades in over the child, which stays opaque until it lands.
+  expect([parent.visible, lodFades.has(parent), child.visible]).toEqual([true, true, true]);
+  lodFades.update(10016 + LOD_FADE_SECONDS * 1000);
+  scenery.update(2000, 100, 10016 + LOD_FADE_SECONDS * 1000, true);
   expect(parent.visible).toBe(true); expect(child.visible).toBe(false);
 });
 
