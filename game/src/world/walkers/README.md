@@ -34,6 +34,9 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
   with a 0.35–0.7 m keep-right offset that tapers to zero at junctions and dead ends. At a junction the exit is
   `hash(walker, node, step) % exits`, exits ordered by departure direction; 12% of junctions add a 2–6 s pause;
   dead ends turn round. Turn decisions use integers only, so float rounding cannot fork two clients.
+- **Standing.** 16% of lives stand at their birth point all life, 0.5–1 m off the way's centre (never on a zebra),
+  playing the idle clip: GTA's dense stand/phone/chat scenarios. 55% of those are a pair of different people
+  0.85 m apart along the way, facing each other (`Walker.lifeId`/`member`; the first member keeps the life's id).
 - **Signalised crossings.** A chain passing within 1.5 m of a signalised crossing on a car edge, across it, carries a
   gate: the controller and approach axis the drivers on that road use (nearest signalised node within 40 m, named as
   `traffic/tileNetwork.ts` names a lane's signal). A walker stops 0.5–1.7 m before the carriageway, keeping its
@@ -62,6 +65,8 @@ Yaw is smoothed per drawn walker. None of this changes where a walker is.
   path is walked round;
 - a vehicle at 2.5 m/s or more that still reaches the walker knocks it down: thrown along the car's motion, it
   falls (0.45 s), lies (4 s), gets up (0.9 s) and walks back to its route.
+- a moving walker keeps 0.6 m from other drawn walkers (standing people, someone coming the other way or slower
+  ahead); standing and waiting walkers hold still.
 The walk cycle advances by the reaction's own metres, facing follows the combined motion, and the knock-down leans
 the instance about its feet. Threats are every player the client knows of (`play.ts walkerThreats`: the local
 character or driven vehicle, `RemotePlayers.threats`), so multiplayer clients see nearly the same reactions. Births,

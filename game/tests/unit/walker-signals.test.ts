@@ -80,3 +80,36 @@ describe('walkers at signalised crossings', () => {
     expect(compared).toBeGreaterThan(5000);
   });
 });
+
+describe('standing walkers', () => {
+  test('some lives stand all life, often as a face-to-face pair of different people', () => {
+    const population = new Population(buildWalkNetwork([junction()]), () => 13);
+    const lives = new Map<number, { members: Map<number, { x: number; z: number; yaw: number; id: number }>; moved: boolean }>();
+    for (let second = 0; second < 1800; second += 5) {
+      for (const w of population.near(100, 125, 60, CYCLE_EPOCH + second * 1000)) {
+        const life = lives.get(w.lifeId) ?? { members: new Map(), moved: false };
+        lives.set(w.lifeId, life);
+        const old = life.members.get(w.member);
+        if (old && Math.hypot(old.x - w.x, old.z - w.z) > 1e-6) life.moved = true;
+        life.members.set(w.member, { x: w.x, z: w.z, yaw: w.yaw, id: w.id });
+        // Re-evaluating the same person gives the same pose.
+        const again = population.at(w, CYCLE_EPOCH + second * 1000)!;
+        expect([again.id, again.x, again.z]).toEqual([w.id, w.x, w.z]);
+      }
+    }
+    const standing = [...lives.values()].filter(l => !l.moved);
+    const pairs = standing.filter(l => l.members.size === 2);
+    expect(standing.length / lives.size).toBeGreaterThan(WALKER.stand / 2);
+    expect(pairs.length).toBeGreaterThan(0);
+    for (const pair of pairs) {
+      const [a, b] = [pair.members.get(0)!, pair.members.get(1)!];
+      expect(a.id).not.toBe(b.id);
+      expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeCloseTo(WALKER.spacing, 1);
+      // Facing each other.
+      expect(Math.cos(a.yaw - b.yaw)).toBeLessThan(-0.95);
+      expect(Math.sin(a.yaw) * (b.x - a.x) + Math.cos(a.yaw) * (b.z - a.z)).toBeGreaterThan(0.5);
+    }
+    // Nobody stands on the zebra.
+    for (const life of standing) for (const m of life.members.values()) expect(Math.abs(m.x - 115) < 1 && Math.abs(m.z - 125) < 3.5).toBe(false);
+  });
+});
