@@ -23,19 +23,25 @@ class Runtime(unittest.TestCase):
                 self.assertEqual(target,80);self.assertTrue(error)
             path.write_text('{"workers":88}')
             self.assertEqual(target_workers(path,80,96),(88,None))
-    def test_hilbert_order_keeps_each_lidar_unit_together(self):
+    def test_city_run_starts_at_the_centre_and_spirals_out_by_unit(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'progress.jsonl'
             path.write_text(json.dumps(dict(event='built',tile='t0_9_9',seconds=300))+'\n')
-            tiles=[f't0_{i}_{j}' for i in range(-4,4) for j in range(-4,4)]
+            tiles=[f't0_{i}_{j}' for i in range(-40,30) for j in range(-60,26)]
             result,timings=ordered(tiles,path)
             self.assertEqual(sorted(result),sorted(tiles))
             self.assertEqual(timings,{'t0_9_9':300})
-            units=[(int(t.split('_')[1])//2,int(t.split('_')[2])//2) for t in result]
-            # Each unit's four tiles are consecutive, and consecutive units are neighbours.
-            groups=[units[k] for k in range(0,len(units),4)]
+            self.assertIn('t0_0_0',result[:4])
+            ij=[tuple(int(v) for v in t.split('_')[1:]) for t in result]
+            # The first 200 tiles lie within about 2 km (9 tiles, 2.25 km) of t0_0_0.
+            self.assertTrue(all(max(abs(i),abs(j))<=9 for i,j in ij[:200]))
+            units=[(i//2,j//2) for i,j in ij]
             self.assertTrue(all(len(set(units[k:k+4]))==1 for k in range(0,len(units),4)))
-            self.assertTrue(all(abs(a[0]-b[0])+abs(a[1]-b[1])==1 for a,b in zip(groups,groups[1:])))
+            groups=units[::4];rings=[max(abs(u),abs(v)) for u,v in groups]
+            self.assertEqual(rings,sorted(rings))
+            # Within the full rings around the centre, consecutive units are neighbours.
+            full=[g for g in groups if max(abs(g[0]),abs(g[1]))<=12]
+            self.assertTrue(all(max(abs(a[0]-b[0]),abs(a[1]-b[1]))==1 for a,b in zip(full,full[1:])))
     def test_memory_aware_admission_uses_predicted_peaks(self):
         total=256*GIB
         # Light suburb builds fit beyond the flat 3.2 GiB cap of 77 ...

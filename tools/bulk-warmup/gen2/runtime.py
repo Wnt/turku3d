@@ -67,16 +67,29 @@ def hilbert(x,y,order):
     return d
 
 
-def ordered(tiles,progress,classes=None,class_seconds=None):
-    """Hilbert curve over the 500 m lidar units; the 2x2 tiles of a unit run together.
+def spiral(du,dv):
+    """(ring, position) of a 500 m unit on a continuous square spiral around the centre unit.
 
-    Tiles sharing a unit, and the neighbouring units their halos read, build close in
-    time, so each unit is decoded about once within the disk-bounded raw cache. A
-    simulated 64-vCPU city run with the 70 live units that fit at 17 bytes/point
-    decoded 2,126 units (0.75 h); a centre-out spiral 3,275 (0.81 h), and the earlier
-    class-then-distance order 5,283 (0.90 h). Measured durations are reported only.
-    Pre-decoded runs keep this order too: longest-first reads twice as many units from
-    disk (3,533 against 1,788 with a 150-unit page cache) for the same packing.
+    Rings grow outwards by Chebyshev distance; each ring is walked once around its perimeter
+    (right, top, left, bottom edge), and the last cell of ring r touches the first of r + 1.
+    """
+    r=max(abs(du),abs(dv))
+    if r==0:return 0,0
+    if du==r and dv>-r:k=dv+r-1
+    elif dv==r and du<r:k=2*r+(r-1-du)
+    elif du==-r and dv<r:k=4*r+(r-1-dv)
+    else:k=6*r+(du+r-1)
+    return r,k
+
+
+def ordered(tiles,progress,classes=None,class_seconds=None):
+    """Centre-out spiral over the 500 m lidar units; the 2x2 tiles of a unit run together.
+
+    The run starts at the unit containing t0_0_0 and grows outwards ring by ring, so the most
+    important tiles are built first even if the 55-minute deadline cuts the run. Each ring is
+    walked continuously, so neighbouring units stay adjacent in time and a unit is decoded
+    about once within the disk-bounded raw cache (simulated with the 21 B/pt index-shard
+    cache: see model.md). Measured durations are reported only.
     """
     timings={}
     if progress.exists():
@@ -85,14 +98,9 @@ def ordered(tiles,progress,classes=None,class_seconds=None):
             except ValueError:continue
             if row.get('event')=='built':timings[row['tile']]=row['seconds']
     cells={tile:tuple(int(v) for v in tile.split('_')[1:]) for tile in tiles}
-    if not cells:return [],timings
-    units={tile:(i//2,j//2) for tile,(i,j) in cells.items()}
-    u0=min(u for u,_ in units.values());v0=min(v for _,v in units.values())
-    span=max(max(u for u,_ in units.values())-u0,max(v for _,v in units.values())-v0)+1
-    order=max(1,(span-1).bit_length())
     def key(tile):
-        u,v=units[tile];i,j=cells[tile]
-        return (hilbert(u-u0,v-v0,order),j,i)
+        i,j=cells[tile]
+        return (*spiral(i//2,j//2),j,i)
     return sorted(tiles,key=key),timings
 
 
