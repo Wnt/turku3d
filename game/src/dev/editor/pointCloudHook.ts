@@ -39,3 +39,10 @@ export function pointCloudOverlay(): PointCloudOverlay | null {
   if (typeof window === 'undefined') return null;
   return (window as unknown as { __turku3dPointCloud?: PointCloudOverlay }).__turku3dPointCloud ?? null;
 }
+
+/** The overlay's visibility the editor enforces: in the mode the last choice there; outside it hidden, unless the
+ *  page pinned it (`?pointcloud=1`), which the editor then leaves alone (null). */
+export function lidarVisibility(active: boolean, wanted: boolean, pinned: boolean): boolean | null {
+  if (!active) return pinned ? null : false;
+  return wanted;
+}

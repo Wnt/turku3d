@@ -171,3 +171,12 @@ test('holding Create adjusts the point cloud (D-pad, L1/R1) without toggling it;
   machine.step(f({ lidar: true }));
   expect(machine.step(f({}))).toEqual([{ type: 'lidar', toggle: true }]);
 });
+
+test('the point cloud shows only in the editor mode, as last chosen there, unless the URL pinned it', async () => {
+  const { lidarVisibility } = await import('../../src/dev/editor/pointCloudHook');
+  expect(lidarVisibility(false, true, false)).toBe(false); // leaving the mode hides it
+  expect(lidarVisibility(true, true, false)).toBe(true);   // entering restores the last choice
+  expect(lidarVisibility(true, false, false)).toBe(false);
+  expect(lidarVisibility(false, false, true)).toBeNull();  // ?pointcloud=1: left alone outside the mode
+  expect(lidarVisibility(true, true, true)).toBe(true);
+});

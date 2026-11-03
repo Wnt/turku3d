@@ -41,7 +41,7 @@ and L3 becomes the fast-flight modifier in place of ✕.
 | hold △ [Y] 1 s | delete the highlighted object |
 | ○ [B] | undo the last edit |
 | D-pad within 2 s of a commit | reason: ↑ on road or path · → wrong facing · ↓ doesn't exist · ← misaligned with LiDAR (skip: ignore) |
-| Create [View] | point cloud on/off; hold Create + ↑↓ opacity ±10 %, ←→ point size ∓1 px, L1/R1 colour mode (rgb, classification, elevation, intensity) |
+| Create [View] (keyboard L) | point cloud on/off; hold Create + ↑↓ opacity ±10 %, ←→ point size ∓1 px, L1/R1 colour mode (the label lists them while held). The cloud shows only in the mode: leaving hides it, entering restores the last choice (opacity and filters stay with the overlay); `?pointcloud=1` keeps it on outside the mode |
 
 | Holding | |
 |---|---|

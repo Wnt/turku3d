@@ -21,7 +21,7 @@ import { STANDING, groundUnder, measureContext, type Raycast } from './context';
 import { provenanceOf } from './provenance';
 import { EditorHud } from './hud';
 import { FrameShots } from './shots';
-import { COLOR_MODES, pointCloudOverlay } from './pointCloudHook';
+import { COLOR_MODES, lidarVisibility, pointCloudOverlay } from './pointCloudHook';
 import { MATERIALS } from '../../shared/col/materials';
 
 export interface EditorHosts {
@@ -42,6 +42,7 @@ export const editorAllowed = (loc: { hostname: string; search: string } = locati
   import.meta.env?.VITE_PUBLIC_RELEASE !== '1' && localFeature(loc, 'editor');
 
 const DEG = 180 / Math.PI;
+const LIDAR_KEY = 'turku3d.editor.lidar';
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 const norm180 = (deg: number) => ((deg % 360) + 540) % 360 - 180;
 
@@ -93,6 +94,10 @@ export class ObjectEditor {
   private raycast: Raycast;
   private input: Input | null = null;
   private unsavedBadge: HTMLElement | null = null;
+  /** The point cloud's visibility in the mode (kept across exits and reloads); outside the mode it is hidden unless
+   *  the page asked for it (`?pointcloud=1` or a colour mode). Opacity and filters stay with the overlay. */
+  private readonly lidarPinned = (() => { const v = new URLSearchParams(location.search).get('pointcloud'); return v !== null && v !== '0'; })();
+  private lidarWanted = this.lidarPinned || (() => { try { return localStorage.getItem(LIDAR_KEY) === 'on'; } catch { return false; } })();
   private unsentSince: number | null = null;
   /** Props are indexed when the editor needs them; a model loading under open prop previews is indexed at once. */
   private onLoad = (e: { scene: THREE.Object3D }) => {
@@ -400,8 +405,8 @@ export class ObjectEditor {
   private lidar(c: Extract<Command, { type: 'lidar' }>, now: number) {
     const cloud = pointCloudOverlay();
     if (!cloud) { this.hud?.notify('No point cloud loaded', now, 1000); return; }
-    if (c.toggle) cloud.setVisible(!cloud.isVisible());
-    if (c.opacity) { if (!cloud.isVisible()) cloud.setVisible(true); cloud.setOpacity(Math.min(1, Math.max(0.05, cloud.getOpacity() + c.opacity))); }
+    if (c.toggle) this.setLidarWanted(!cloud.isVisible());
+    if (c.opacity) { this.setLidarWanted(true); cloud.setOpacity(Math.min(1, Math.max(0.05, cloud.getOpacity() + c.opacity))); }
     if (c.size) cloud.setPointSize(Math.min(12, Math.max(1, cloud.getPointSize() + c.size)));
     if (c.colour && cloud.setColorMode) {
       const i = COLOR_MODES.indexOf((cloud.getColorMode?.() ?? 'rgb') as typeof COLOR_MODES[number]);
@@ -409,6 +414,18 @@ export class ObjectEditor {
     }
     const mode = cloud.getColorMode?.();
     this.hud?.notify(`LiDAR ${cloud.isVisible() ? 'on' : 'off'} · ${Math.round(cloud.getOpacity() * 100)} % · ${cloud.getPointSize()} px${mode ? ` · ${mode}` : ''}`, now, 900);
+  }
+
+  private setLidarWanted(on: boolean) {
+    this.lidarWanted = on;
+    try { localStorage.setItem(LIDAR_KEY, on ? 'on' : 'off'); } catch { /* session only */ }
+    this.syncLidar();
+  }
+
+  /** In the mode the overlay shows what was last chosen there; outside it, it hides (unless the URL pinned it). */
+  private syncLidar() {
+    const cloud = pointCloudOverlay(), want = lidarVisibility(this.machine.active, this.lidarWanted, this.lidarPinned);
+    if (cloud && want !== null && cloud.isVisible() !== want) cloud.setVisible(want);
   }
 
   private restorePreviews() {
@@ -419,6 +436,7 @@ export class ObjectEditor {
   update(now: number) {
     if (!this.enabled) return;
     this.previews.update();
+    this.syncLidar();
     if (this.session && now >= this.flushAt) { this.flushAt = now + 2000; if (this.session.pending) void this.session.flush(); }
     this.showUnsaved(now);
     if (!this.machine.active) return;
@@ -501,18 +519,24 @@ export class ObjectEditor {
       label = `${e.type} · ${e.objectId.length > 42 ? e.objectId.slice(0, 40) + '…' : e.objectId} · ${current.t.toFixed(1)} m${list.length > 1 ? ` · ${this.cycle.index + 1}/${list.length}` : ''}`;
     }
     const g = (action: Action) => input?.prompt(action) ?? action;
+    const cloud = pointCloudOverlay();
+    const lidarState = !cloud ? '' : cloud.isVisible()
+      ? `on ${Math.round(cloud.getOpacity() * 100)} %${cloud.getColorMode ? ` ${cloud.getColorMode()}` : ''}` : 'off';
+    // While Create is held the D-pad and L1/R1 adjust the cloud: say so where the label is.
+    if (this.machine.lidarHeld) label = !cloud ? 'No point cloud loaded'
+      : `LiDAR ${lidarState} · ${g('editUp')}${g('editDown')} opacity · ${g('editLeft')}${g('editRight')} size ${cloud.getPointSize()} px`
+        + `${cloud.setColorMode ? ` · ${g('editPrev')}/${g('editNext')} colour` : ''} · just tap: ${cloud.isVisible() ? 'hide' : 'show'}`;
     const hints: [string, string][] = this.held ? [
       ['Ⓛ', 'move'], [`${g('editTurnLeft')}/${g('editTurnRight')}`, 'turn'], [`${g('editPrev')}/${g('editNext')}`, '15°'],
       [`${g('editUp')}${g('editDown')}`, 'height'], [`${g('editLeft')}${g('editRight')}`, '1°'], [g('editGround'), 'ground'],
       [g('editPick'), 'drop'], [g('editBack'), 'cancel'], [`hold ${g('editDelete')}`, 'delete'],
     ] : [
       [g('editPick'), 'pick'], [`${g('editPrev')}/${g('editNext')}`, 'cycle'], [`hold ${g('editDelete')}`, 'delete'], [g('editBack'), 'undo'],
-      [g('editLidar'), 'LiDAR (hold: ↑↓ opacity ←→ size L1/R1 colour)'], [g('editToggle'), 'exit · hold: close session'],
+      [g('editLidar'), lidarState ? `LiDAR ${lidarState} (hold for settings)` : 'LiDAR: none loaded'], [g('editToggle'), 'exit · hold: close session'],
     ];
     const s = this.session;
-    const cloud = pointCloudOverlay();
     const status = [s ? `${s.id} · ${s.meta.counts.effective} edits` : '', s?.unsent ? `${s.unsent} unsaved` : '', s?.error ?? '',
-      cloud ? `LiDAR ${cloud.isVisible() ? `${Math.round(cloud.getOpacity() * 100)} %` : 'off'}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
+      cloud ? `LiDAR ${lidarState}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
     hud.render({ mode: this.held ? 'hold' : 'aim', label, hover: !!current, deleting: this.machine.deleteHeld > 0 ? this.machine.deleteHeld / EDITOR.deleteHold : null,
       reasonLeft: this.held ? 0 : this.machine.reasonLeft, reasonGlyphs: [g('editUp'), g('editRight'), g('editDown'), g('editLeft')], hints, status }, now);
   }
