@@ -13,7 +13,7 @@ from pathlib import Path
 
 from turku3d import profiling
 
-from .decoded import chunks as decoded_chunks
+from .decoded import STORED as SHARD_DTYPE, source as decoded_source
 import numpy as np
 from scipy.spatial import cKDTree
 from shapely import intersects_xy
@@ -82,6 +82,20 @@ class PointCloud:
         return PointCloud(self.records[keep])
 
 
+def _points(raw, scales, offsets):
+    """Engine-metre records from stored integer shard rows (decoded.STORED).
+
+    Bit-identical to converting laspy's x/y/z; shards take 17 instead of 29 bytes/point.
+    """
+    records = np.empty(len(raw), POINT_DTYPE)
+    records["xyz"][:, 0] = (raw["X"] * scales[0] + offsets[0]) - C.ORIGIN_E
+    records["xyz"][:, 1] = (raw["Z"] * scales[2] + offsets[2]) - C.ORIGIN_H
+    records["xyz"][:, 2] = C.ORIGIN_N - (raw["Y"] * scales[1] + offsets[1])
+    for name in POINT_DTYPE.names[1:]:
+        records[name] = raw[name]
+    return records
+
+
 def _identity(path):
     from turku3d.tile_layer import identities
 
@@ -108,7 +122,7 @@ class TileStore:
         self.version = hashlib.sha256(
             Path(__file__).read_bytes()
             + Path(__file__).with_name("decoded.py").read_bytes()
-            + repr((C.ORIGIN, C.COLLISION_TILE_SIZE, POINT_DTYPE.descr)).encode()
+            + repr((C.ORIGIN, C.COLLISION_TILE_SIZE, POINT_DTYPE.descr, SHARD_DTYPE.descr)).encode()
         ).hexdigest()
 
     def _source(self, tile):
@@ -132,16 +146,14 @@ class TileStore:
             tmp = Path(tempfile.mkdtemp(prefix=".points-", dir=dest.parent))
             try:
                 counts = {}
-                for chunk in decoded_chunks(source):
-                    records = np.empty(len(chunk), POINT_DTYPE)
-                    records["xyz"][:, 0] = np.asarray(chunk.x) - C.ORIGIN_E
-                    records["xyz"][:, 1] = np.asarray(chunk.z) - C.ORIGIN_H
-                    records["xyz"][:, 2] = C.ORIGIN_N - np.asarray(chunk.y)
-                    for name in POINT_DTYPE.names[1:]:
-                        records[name] = np.asarray(getattr(chunk, name))
-                    indices = np.floor(
-                        records["xyz"][:, [0, 2]] / C.COLLISION_TILE_SIZE
-                    ).astype(int)
+                decoded = decoded_source(source)
+                for start in range(0, len(decoded), 1_000_000):
+                    part = decoded[start:start + 1_000_000]
+                    records = part.data
+                    xz = np.column_stack(
+                        (part.scaled(0) - C.ORIGIN_E, C.ORIGIN_N - part.scaled(1))
+                    )
+                    indices = np.floor(xz / C.COLLISION_TILE_SIZE).astype(int)
                     # Lexicographic sort makes each tile write contiguous, not 64 scans/chunk.
                     order = np.lexsort((indices[:, 0], indices[:, 1]))
                     sorted_indices = indices[order]
@@ -157,7 +169,7 @@ class TileStore:
                         counts[name] = counts.get(name, 0) + int(b - a)
                 for name, count in counts.items():
                     raw = tmp / f"{name}.bin"
-                    data = np.memmap(raw, mode="r", dtype=POINT_DTYPE, shape=(count,))
+                    data = np.memmap(raw, mode="r", dtype=SHARD_DTYPE, shape=(count,))
                     np.save(tmp / f"{name}.npy", data, allow_pickle=False)
                     del data
                     raw.unlink()
@@ -167,6 +179,8 @@ class TileStore:
                             "source": _identity(source),
                             "version": self.version,
                             "counts": counts,
+                            "scales": [float(v) for v in decoded.scales],
+                            "offsets": [float(v) for v in decoded.offsets],
                         },
                         indent=2,
                     )
@@ -177,6 +191,12 @@ class TileStore:
                 if tmp.exists():
                     shutil.rmtree(tmp)
         return dest
+
+    @staticmethod
+    @lru_cache(maxsize=256)
+    def _scale(directory):
+        manifest = json.loads((directory / "MANIFEST.json").read_text())
+        return (np.asarray(manifest["scales"], np.float64), np.asarray(manifest["offsets"], np.float64))
 
     def _key(self, bbox):
         sources = C.laz_tiles_for_bbox(bbox)
@@ -196,20 +216,21 @@ class TileStore:
         bbox = C.CollisionTile.parse(tile_id).bbox.buffered(buffer)
         paths = [self._ensure_source(t) for t in sources]
         shards = [
-            p / f"{t.id}.npy"
+            (p / f"{t.id}.npy", self._scale(p))
             for p in paths
             for t in C.collision_tiles_for_bbox(bbox)
             if (p / f"{t.id}.npy").exists()
         ]
+
+        def load(path, scale):
+            return PointCloud(_points(np.load(path, mmap_mode="r", allow_pickle=False), *scale))
+
         if buffer == 0 and len(shards) == 1:
-            return PointCloud(np.load(shards[0], mmap_mode="r", allow_pickle=False))
+            return load(*shards[0])
         dest = self.cache_dir / "crops" / f"{key}.npy"
         if not dest.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
-            parts = [
-                PointCloud(np.load(p, mmap_mode="r", allow_pickle=False)).query(bbox=bbox).records
-                for p in shards
-            ]
+            parts = [load(*shard).query(bbox=bbox).records for shard in shards]
             data = np.concatenate(parts) if parts else np.empty(0, POINT_DTYPE)
             fd, name = tempfile.mkstemp(dir=dest.parent, suffix=".npy")
             try:

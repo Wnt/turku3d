@@ -61,8 +61,14 @@ def test_tile_cache_mmap_buffer_invalidation(tmp_path, monkeypatch):
     write_laz(path, points)
     store = TileStore(raw, cache)
     tile = store.tile("c_1_1")
-    assert isinstance(tile.records, np.memmap)
     assert len(tile) == 2
+    with laspy.open(path) as reader:
+        direct = reader.read()
+    x, z = np.asarray(direct.x) - C.ORIGIN_E, C.ORIGIN_N - np.asarray(direct.y)
+    inside = (x >= 62.5) & (x < 125) & (z >= 62.5) & (z < 125)
+    assert np.array_equal(tile.points[:, 0], np.asarray(direct.x)[inside] - C.ORIGIN_E)
+    assert np.array_equal(tile.points[:, 2], C.ORIGIN_N - np.asarray(direct.y)[inside])
+    assert np.array_equal(tile.points[:, 1], np.asarray(direct.z)[inside] - C.ORIGIN_H)
     assert store.tile("c_1_1") is tile
     assert len(store.tile("c_1_1", buffer=50)) == 4
 
@@ -292,3 +298,19 @@ def test_wall_points_reads_laz_colour(tmp_path):
 def test_missing_source_tile_is_an_error(tmp_path):
     with pytest.raises(FileNotFoundError):
         walls_mod.wall_points([wall()], source_dir=tmp_path)
+
+
+def test_decoded_integer_coordinates_reproduce_laspy_bits(tmp_path, monkeypatch):
+    from turku3d.lidar.decoded import chunks, columns, source
+
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'shared'))
+    path = tmp_path / '23459500_6704500.laz'
+    write_laz(path, np.array([[61.123, 4.567, 63.891], [63.0, 4.1, 63.0], [126.25, 5.0, 63.5]]))
+    with laspy.open(path) as reader:
+        direct = reader.read()
+    decoded = columns(source(path))
+    for axis in 'xyz':
+        assert np.array_equal(np.asarray(getattr(decoded, axis)).view(np.uint64),
+                              np.asarray(getattr(direct, axis)).view(np.uint64))
+    assert np.array_equal(decoded.classification, np.asarray(direct.classification))
+    assert [len(c) for c in chunks(path, size=2)] == [2, 1]
