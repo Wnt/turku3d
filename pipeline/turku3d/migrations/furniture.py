@@ -31,7 +31,7 @@ from turku3d import config as C
 from .core import Migration, Product, glb_chunks, glb_pack
 
 FIT_ITERATIONS = 3
-MATCH = 0.02  # m: a drawn vertex this close to the posed model is the model's
+MATCH = 0.05  # m: drawn rows fit the posed model within ~3.5 cm (float32 batch, packager rounding); a wrong pose is decimetres off
 
 
 def _buffer(document, binary, product, glb_url, index):
