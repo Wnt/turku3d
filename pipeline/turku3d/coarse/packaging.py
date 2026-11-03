@@ -243,17 +243,39 @@ def _package_visual(
     return (stage / "out" / "tile.glb").read_bytes(), stats
 
 
-def package_visual(tile, layer_files, stage, work, library, *, first_pass=False, cache_unit=None):
-    """Reuse a packed visual when emitted geometry, material files and packaging code match."""
+def shared_package_inputs(library, work, *, first_pass=False):
+    """Material library identities and facade kit shared by every package of one build.
+
+    Whole-building models package dozens of times per tile; walking and fingerprinting
+    the library and preparing the kit once keeps that cost per tile, not per model.
+    """
+    from turku3d.tile_layer import identities
+
+    files = {}
+    for directory, _, names in os.walk(library, followlinks=True):
+        for name in sorted(names):
+            path = Path(directory) / name
+            files["library/" + str(path.relative_to(library))] = path
+    kit = None if first_pass else ensure_kit(work / "shared")
+    if kit:
+        for slot, path in kit["maps"].items():
+            files["kit/" + slot] = Path(path)
+        kit = {k: v for k, v in kit.items() if k != "maps"}
+    return identities(files), kit
+
+
+def package_visual(tile, layer_files, stage, work, library, *, first_pass=False, cache_unit=None,
+                   shared=None):
+    """Reuse a packed visual when emitted geometry, material files and packaging code match.
+
+    `shared` is `shared_package_inputs(library, work, first_pass=first_pass)` computed once by
+    the caller; the cache key is identical either way.
+    """
     from turku3d.tile_layer import identities
 
     from .build import _write
 
     files = {f"input/{i}": p for i, p in enumerate(layer_files)}
-    for directory, _, names in os.walk(library, followlinks=True):
-        for name in sorted(names):
-            path = Path(directory) / name
-            files["library/" + str(path.relative_to(library))] = path
     building_keys = set().union(*(glb_buildings(p.read_bytes()) for p in layer_files))
     stored = stored_request(building_keys)
     for identity in stored["facadeBindings"]:
@@ -263,11 +285,8 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False,
         files["facades/" + identity] = sidecar
         for name in json.loads(sidecar.read_text())["files"].values():
             files[f"facades/{building}/{name}"] = directory / name
-    kit = None if first_pass else ensure_kit(work / "shared")
-    if kit:
-        for slot, path in kit["maps"].items():
-            files["kit/" + slot] = Path(path)
-        kit = {k: v for k, v in kit.items() if k != "maps"}
+    shared_ids, kit = shared or shared_package_inputs(library, work, first_pass=first_pass)
+    file_ids = {**identities(files), **shared_ids}
     cache = StageCache(work / ".stages" / (cache_unit or tile.id), retain=True)
 
     def package():
@@ -294,7 +313,7 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False,
             C.REPO_ROOT / "pipeline/env/package-lock.json",
             _package_visual,
         ),
-        [tile.id, first_pass, identities(files), kit, parameter_hash(building_keys)],
+        [tile.id, first_pass, dict(sorted(file_ids.items())), kit, parameter_hash(building_keys)],
         package,
     )
     for name, data in assets.items():
