@@ -4,7 +4,7 @@ import { PuddleReflections } from './weather/puddleReflections';
 import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
-import { pass, mrt, sample, screenUV, materialReference, normalView, velocity, packNormalToRGB,
+import { pass, mrt, output as sceneColor, sample, screenUV, materialReference, normalView, normalViewGeometry, negateOnBackSide, velocity, packNormalToRGB,
   builtinAOContext, context, convertToTexture, float, mix, vec3, vec4, dot, renderOutput, smoothstep, uniform } from 'three/tsl';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { traa } from 'three/addons/tsl/display/TRAANode.js';
@@ -44,8 +44,12 @@ export class PostProcessing {
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
     const q = QUALITY[tier];
-    const pre = this.pre = q.aoSamples > 0 || aa === 'taa' ? pass(scene, camera) : null;
+    const taa = aa === 'taa', wet = tier === 'medium' || tier === 'high';
+    // GTAO darkens beauty's indirect light, so it needs depth and normals before beauty: a second geometry pass.
+    // Without GTAO, TRAA depth/velocity and puddle normals come from beauty's own MRT: one geometry pass, not two.
+    const pre = this.pre = q.aoSamples > 0 ? pass(scene, camera) : null;
     this.baseContext = renderer.contextNode;
+    const receiver = materialReference('userData.weatherReceiver', 'float') as unknown as THREE.Node<'float'>;
     if (pre) {
       labelGpuPass(pre.renderTarget, 'prepass');
       pre.transparent = false;
@@ -57,12 +61,12 @@ export class PostProcessing {
         const previous = renderer.contextNode; renderer.contextNode = this.baseContext;
         try { updatePre(frame); } finally { renderer.contextNode = previous; }
       };
-      const normalAndReceiver = vec4(packNormalToRGB(normalView), materialReference('userData.weatherReceiver', 'float') as unknown as THREE.Node<'float'>);
-      pre.setMRT(mrt(aa === 'taa' ? { output: normalAndReceiver, velocity } : { output: normalAndReceiver }));
+      const normalAndReceiver = vec4(packNormalToRGB(normalView), receiver);
+      pre.setMRT(mrt(taa ? { output: normalAndReceiver, velocity } : { output: normalAndReceiver }));
       pre.getTexture('output').type = THREE.UnsignedByteType;
       // PassNode lazily clones the output texture for new MRT attachments. Normals fit in
       // UNORM8; NDC motion needs signed subpixel precision or TRAA leaves old car/wheel edges.
-      if (aa === 'taa') pre.getTexture('velocity').type = THREE.HalfFloatType;
+      if (taa) pre.getTexture('velocity').type = THREE.HalfFloatType;
     }
     let ambient: ReturnType<typeof ao> | null = null;
     if (q.aoSamples > 0 && pre) {
@@ -88,6 +92,20 @@ export class PostProcessing {
     }
     const beauty = this.beauty = pass(scene, camera);
     labelGpuPass(beauty.renderTarget, 'beauty');
+    if (!pre && (taa || wet)) {
+      // Geometric normals as in the prepass: puddle rays must not follow paving normal maps. Like the opaque-only
+      // prepass, a blended surface (river, decals, car glass) must keep the opaque normal and motion beneath it:
+      // with material blending these alpha-0 outputs leave the destination; opaque draws still overwrite.
+      const normal = vec4(packNormalToRGB(negateOnBackSide(normalViewGeometry)), receiver);
+      const motion = vec4(velocity as unknown as THREE.Node<'vec2'>, 0, 0);
+      const outputs = mrt({ output: sceneColor, ...(wet ? { normal } : {}), ...(taa ? { velocity: motion } : {}) });
+      for (const name of ['normal', 'velocity']) outputs.setBlendMode(name, new THREE.BlendMode(THREE.MaterialBlending));
+      beauty.setMRT(outputs);
+      if (wet) beauty.getTexture('normal').type = THREE.UnsignedByteType;
+      if (taa) beauty.getTexture('velocity').type = THREE.HalfFloatType;
+    }
+    // Depth, velocity and normal/receiver source for TRAA, puddles and the light sprites.
+    const geometry = pre ?? beauty, normals = pre ? pre.getTextureNode() : wet ? beauty.getTextureNode('normal') : null;
     // Apply light GTAO to indirect light only: facade albedo already contains some occlusion.
     this.beautyContext = ambient ? context({ ...flowContext(renderer.contextNode),
       ...flowContext(builtinAOContext(mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength))) }) : this.baseContext;
@@ -99,16 +117,16 @@ export class PostProcessing {
       renderer.contextNode = this.beautyContext;
       try { updateBeauty(frame); } finally { renderer.contextNode = previous; }
     };
-    const puddles = this.puddles = pre && (tier === 'medium' || tier === 'high')
-      ? new PuddleReflections(renderer, beauty.getTextureNode(), pre.getTextureNode('depth'),
-        coord => decodePrepassNormal(pre.getTextureNode().sample(coord).level(float(0))),
-        coord => pre.getTextureNode().sample(coord).level(float(0)).a, camera, this.baseContext) : null;
-    const puddleLight = puddles && pre ? puddles.reconstruct(pre.getTextureNode('depth'),
-      coord => decodePrepassNormal(pre.getTextureNode().sample(coord).level(float(0))),
-      coord => pre.getTextureNode().sample(coord).level(float(0)).a) : null;
+    const puddles = this.puddles = wet && normals
+      ? new PuddleReflections(renderer, beauty.getTextureNode(), geometry.getTextureNode('depth'),
+        coord => decodePrepassNormal(normals.sample(coord).level(float(0))),
+        coord => normals.sample(coord).level(float(0)).a, camera, this.baseContext) : null;
+    const puddleLight = puddles && normals ? puddles.reconstruct(geometry.getTextureNode('depth'),
+      coord => decodePrepassNormal(normals.sample(coord).level(float(0))),
+      coord => normals.sample(coord).level(float(0)).a) : null;
     const reflected = puddleLight ? convertToTexture(vec4(beauty.rgb.mul(float(1).sub(puddleLight.a))
       .add(puddleLight.rgb), beauty.a), null, null, { depthBuffer: false }) : null;
-    const temporal = aa === 'taa' && pre ? traa(reflected ?? beauty, pre.getTextureNode('depth'), pre.getTextureNode('velocity'), camera) : null;
+    const temporal = taa ? traa(reflected ?? beauty, geometry.getTextureNode('depth'), geometry.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
     const color = temporal ?? reflected ?? beauty;
     const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
@@ -116,7 +134,7 @@ export class PostProcessing {
     glow?.setResolutionScale(q.bloomScale);
     const bloomed = glow ? color.rgb.add(glow.rgb) : color.rgb;
     // Light sprites (render/lights) join after TRAA and bloom: no jitter, no history smear.
-    const lights = overlay?.overlay(renderer, camera, (pre ?? beauty).getTexture('depth'));
+    const lights = overlay?.overlay(renderer, camera, geometry.getTexture('depth'));
     const hdr = lights ? bloomed.add(lights.color) : bloomed;
     const luminance = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
     // Night vision loses colour in dim light while lamps, windows and their pools keep theirs: below the mesopic

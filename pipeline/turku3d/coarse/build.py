@@ -334,7 +334,7 @@ def build(
     if inputs.retaining:
         # Props and vegetation must sample the same reconstructed apron as collision.
         surface_sample = street_profiles.sampler(surface_sample, street_profiles.ProfiledSurface(
-            dry, shapely.union_all([g.buffer(2.5) for g, _, _ in inputs.retaining])
+            dry, shapely.union_all([g.buffer(4.5) for g, _, _ in inputs.retaining])
         ))
     dry_surface, solid_surface = cache.run(
         "street_profiles",
