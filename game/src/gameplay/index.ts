@@ -5,6 +5,7 @@ import type { CoarseTiles } from '../world/coarseTiles';
 import type { Manifest } from '../world/manifest';
 import { draftsUrl } from '../net/config';
 import { parseAddressPool, type AddressJson, loadAddressPool } from './content/addresses';
+import { withLandmarks } from './content/landmarks';
 import { Minimap } from './minimap';
 import { loadRoadGraphJson, type RoadGraphJson } from './roadGraph';
 import { mergeRoadGraphsAsync } from './roadGraphAsync';
@@ -69,16 +70,21 @@ class StreetMap {
 }
 
 /** Loads `manifest.roads` and `manifest.addresses`; an empty graph (no streets, every route null) and an empty pool
- *  (the scripted deliveries repeat) when the build has none. The playable area is the union of the manifest's
+ *  (the scripted deliveries repeat) when the build has none. A pool without landmarks gets the curated landmarks'
+ *  fallback entries, so long jobs never depend on resident tiles. The playable area is the union of the manifest's
  *  collision tiles. */
 export async function createGameplay(manifest: GameplayManifest, parent: HTMLElement) {
   const endpoint = draftsUrl();
   const navigation = endpoint ? await fetch(new URL('navigation.json', new URL(endpoint, location.href))).then(async res => {
-    if (res.status === 404 && isLocalHost(location.hostname)) return null; // Synthetic dev service.
+    if (res.status === 404 && isLocalHost(location.hostname)) {
+      // Synthetic dev service or the shared local tile farm: resident street tiles only.
+      console.warn('[gameplay] no /coarse/navigation.json: resident street graph, landmark fallbacks for long jobs');
+      return null;
+    }
     if (!res.ok) throw new Error(`navigation: HTTP ${res.status}`);
     return readStreamingJson<{ roads: RoadGraphJson; addresses: AddressJson }>(res);
   }) : null;
-  const [published, addresses] = navigation
+  const [published, pool] = navigation
     ? [navigation.roads, parseAddressPool(navigation.addresses, () => true)]
     : await Promise.all([loadRoadGraphJson(manifest), loadAddressPool(manifest)]);
   const graph = await mergeRoadGraphsAsync(published ? [published] : []);
@@ -86,5 +92,5 @@ export async function createGameplay(manifest: GameplayManifest, parent: HTMLEle
   const area = new PlayableArea(manifest.collision);
   const minimap = new Minimap(parent, graph, router);
   minimap.setArea(area);
-  return { router, minimap, area, addresses, streets: new StreetMap(manifest, published, router, minimap, navigation !== null) };
+  return { router, minimap, area, addresses: withLandmarks(pool), streets: new StreetMap(manifest, published, router, minimap, navigation !== null) };
 }

@@ -2,17 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { MissionSystem, type MissionFrame, type PaidDropoff } from '../../src/gameplay/missions/missions';
 import { freshSave, parseSave } from '../../src/gameplay/missions/save';
 import { drawLongOrder } from '../../src/gameplay/missions/orders';
-import { basePay, parSeconds, tip, deliveryDeadline } from '../../src/gameplay/economy';
+import { basePay, parSeconds, tip, deliveryDeadline, LONG_MAX_METRES } from '../../src/gameplay/economy';
 import { PIZZERIA } from '../../src/gameplay/content/locations';
-import type { PoolAddress } from '../../src/gameplay/content/addresses';
+import { addressSlug, type PoolAddress } from '../../src/gameplay/content/addresses';
+import { LANDMARKS, withLandmarks } from '../../src/gameplay/content/landmarks';
+import type { Router, WorldPoint } from '../../src/gameplay/contract';
 import { lRouter } from './missionHarness';
 
 const pool: PoolAddress[] = [100, 3000, 5000].map((m, i) => ({ id: `district-${i}`, address: `District ${i}`,
   tile: `t0_${i}_0`, point: { x: m, z: 0 }, street: { x: m, z: 1 }, foot: m, car: m, landmark: i > 0 }));
 const frame = (extra: Partial<MissionFrame> = {}): MissionFrame => ({ position: PIZZERIA.point,
   interact: false, vehicleId: 'player', input: 'keyboard', ...extra });
-function game(shortDeliveries = 3) {
-  const m = new MissionSystem({ router: lRouter, addresses: pool, seed: 1 });
+function game(shortDeliveries = 3, addresses: readonly PoolAddress[] = pool, router: Router = lRouter) {
+  const m = new MissionSystem({ router, addresses, seed: 1 });
   m.restore(JSON.stringify({ ...freshSave(1), phase: 'at_pizzeria', permit: 20, vehicle: 'car',
     delivery: shortDeliveries, shortDeliveries, money: 100 }));
   return m;
@@ -105,5 +107,62 @@ describe('long-range deliveries', () => {
     expect(tip(1.3 * long, long)).toBe(0);
     // A clean scooter run at its 45 km/h top speed can still earn a full tip.
     expect(tip(6000 / 12.5 + 10, parSeconds(6000, 'scooter', 'long'))).toBe(8);
+  });
+
+  // The shared local tile farm serves no /coarse/navigation.json: the pool is empty and the street graph is only the
+  // resident tiles around the player.
+  const LOCAL_M = 400;
+  const local = (p: WorldPoint) => Math.hypot(p.x - PIZZERIA.point.x, p.z - PIZZERIA.point.z) <= LOCAL_M;
+  const localRouter: Router = { route: (a, b) => local(a) && local(b) ? lRouter.route(a, b) : null, distance: lRouter.distance };
+  const nearby: PoolAddress[] = [{ id: 'near-1', address: 'Near 1', tile: 't0_0_0', point: { x: 177, z: 187 },
+    street: { x: 177, z: 190 }, foot: 120, car: 130 }];
+
+  it('quotes a city-wide long job from the landmark fallbacks with only a small local street graph', () => {
+    for (const served of [[], nearby]) {
+      const paid: PaidDropoff[] = [];
+      const m = new MissionSystem({ router: localRouter, addresses: withLandmarks(served), onPaid: drop => paid.push(drop) });
+      m.restore(game(4).serialize());
+      m.update(0, frame({ interact: true }));
+      const long = m.shop!.options.find(o => o.id === 'take_long_order')!;
+      expect(long.reason).toBeNull();
+      const target = LANDMARKS.find(l => l.name === long.quote!.address)!;
+      expect(long.quote).toMatchObject({ metres: target.fallback!.car, stops: 1, pay: basePay(target.fallback!.car, 'long'),
+        par: parSeconds(target.fallback!.car, 'car', 'long') });
+      m.update(0, frame({ choose: 'take_long_order' }));
+      expect(m.phase).toBe('carrying');
+      expect(localRouter.route(PIZZERIA.point, m.currentStop.point)).toBeNull();
+      finish(m);
+      // The multiplayer server accepts a long payout of 24 + ceil(12/km) for 60 < routeMeters <= 7000.
+      expect(paid[0]).toMatchObject({ job: 'long', routeMeters: long.quote!.metres, payout: long.quote!.pay });
+      expect(paid[0].routeMeters).toBeGreaterThan(60);
+      expect(paid[0].routeMeters).toBeLessThanOrEqual(LONG_MAX_METRES);
+    }
+  });
+
+  it('keeps a served pool with landmarks authoritative and every fallback drivable from the pizzeria', () => {
+    expect(withLandmarks(pool)).toEqual(pool);
+    const fallbacks = withLandmarks([]);
+    expect(fallbacks.map(a => a.id)).toEqual(LANDMARKS.map(l => addressSlug(l.name)));
+    for (const a of fallbacks) {
+      // A route is never shorter than the straight line: a moved pizzeria would need refreshed fallbacks.
+      expect(a.car!).toBeGreaterThanOrEqual(Math.hypot(a.point.x - PIZZERIA.point.x, a.point.z - PIZZERIA.point.z));
+      expect(a.car!).toBeLessThanOrEqual(LONG_MAX_METRES);
+    }
+  });
+
+  it('announces the unlock only once a long job can be offered', () => {
+    const m = game(3, [], localRouter);
+    pickup(m);
+    finish(m);
+    m.update(100, frame({ position: { x: -500, z: -500 } }));
+    expect(m.longUnlocked).toBe(true);
+    expect(m.snapshot()).toMatchObject({ longAnnounced: false });
+    expect(m.snapshot().dialogue).not.toContain('long_unlocked');
+    m.update(0, frame({ interact: true }));
+    expect(m.shop!.options.find(o => o.id === 'take_long_order')!.reason).toBe('No drivable long-range destination is available.');
+    const later = new MissionSystem({ router: localRouter, addresses: withLandmarks([]) });
+    later.restore(m.serialize());
+    later.update(0, frame({ position: { x: -500, z: -500 } }));
+    expect(later.snapshot().hud.message).toContain('Long-range deliveries are now available');
   });
 });
