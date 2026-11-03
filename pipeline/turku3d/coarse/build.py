@@ -487,10 +487,11 @@ def build(
     closure_structures = [*stair_meshes, *kerb_meshes,
                           *[m for m in tunnels.meshes if m.object_id != "tunnel:ground-edge"]]
     closure_decks = [m for deck in osm_decks for m in deck.meshes]
-    dry, solid, closure_report = surface_closure.stage(
-        cache, source_ground, dry, solid, closure_structures, closure_decks,
+    seam_meshes, closure_report = surface_closure.stage(
+        cache, tile, dry, closure_structures, closure_decks, bank,
         tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
     )
+    stair_meshes = [*stair_meshes, *seam_meshes]
     seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
     from . import footings
 
@@ -567,7 +568,7 @@ def build(
 
     surface_report = surface_audit.gate(
         out, tile, inputs, source_ground, tunnels.openings,
-        [dry, bank, *closure_structures, *closure_decks], navigation_cells
+        [dry, bank, *closure_structures, *seam_meshes, *closure_decks], navigation_cells
     )
     seconds["surface_audit"] = surface_report.get("seconds", 0.)
 

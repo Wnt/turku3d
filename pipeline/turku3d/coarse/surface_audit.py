@@ -35,10 +35,10 @@ class Rays:
         self.t = t[np.abs(normals(t)[:, 1]) > 1e-10]
         self.tree = shapely.STRtree(shapely.polygons(self.t[:, :, [0, 2]]))
 
-    def cast(self, query, expected):
+    def cast(self, query, expected, above=1.5):
         out = np.full(len(query), np.nan)
         # Nearest source floor handles a lower passage below a bridge. Ignore
-        # overburden more than 1.5m above the requested walkable sheet.
+        # overburden more than `above` metres over the requested walkable sheet.
         for start in range(0, len(query), 16384):
             q = query[start:start + 16384]
             target = expected[start:start + len(q)]
@@ -50,7 +50,7 @@ class Rays:
             u = (d[:, 0] * c[:, 2] - d[:, 1] * c[:, 0]) / det
             v = (b[:, 0] * d[:, 1] - b[:, 2] * d[:, 0]) / det
             y = a[:, 1] + u * b[:, 1] + v * c[:, 1]
-            valid = y <= target[qi] + 1.5
+            valid = y <= target[qi] + above
             qi, y = qi[valid], y[valid]
             order = np.argsort(abs(y - target[qi]), kind='stable')
             _, first = np.unique(qi[order], return_index=True)
@@ -96,6 +96,7 @@ def audit(visual, collision, query, expected, *, support=None, openings=None):
     defects = {}
     for name, mask in [('visual_holes', vh), ('collision_holes', ch), ('mismatch', mismatch)]:
         defects[name] = records(points[mask], visual_y=vy[mask], collision_y=cy[mask])
+    defects['open_seams'] = open_seams(visual, query, vy)
     normal = normals(visual)
     twice_area = np.linalg.norm(normal, axis=1)
     edges = visual - np.roll(visual, 1, axis=1)
@@ -133,6 +134,29 @@ def audit(visual, collision, query, expected, *, support=None, openings=None):
     return dict(schema=1, spacing_m=.5, samples=len(query),
                 counts={k: len(v) for k, v in defects.items()}, defects=defects,
                 seconds=round(time.perf_counter() - started, 4), advisory=True)
+
+
+def open_seams(visual, query, height, step=.5, spacing=.5):
+    """Adjacent samples over `step` apart in height with no face crossing between them.
+
+    From the side such a seam shows the void under the higher sheet's edge.
+    """
+    from .surface_closure import crossed
+
+    key = np.floor(query / spacing).astype(np.int64)
+    index = {tuple(k): i for i, k in enumerate(key)}
+    pairs = [(i, index[(k[0] + dx, k[1] + dz)]) for i, k in enumerate(key)
+             for dx, dz in ((1, 0), (0, 1)) if (k[0] + dx, k[1] + dz) in index]
+    if not pairs:
+        return []
+    i, j = np.asarray(pairs).T
+    ok = np.isfinite(height[i]) & np.isfinite(height[j]) & (abs(height[i] - height[j]) > step)
+    i, j = i[ok], j[ok]
+    mid = (height[i] + height[j]) / 2
+    shut = crossed(visual, query[i], query[j], mid)
+    i, j, mid = i[~shut], j[~shut], mid[~shut]
+    centre = (query[i] + query[j]) / 2
+    return records(np.c_[centre[:, 0], mid, centre[:, 1]], step_m=abs(height[i] - height[j]))
 
 
 def decode_visual(path):
