@@ -43,7 +43,7 @@ import { draftManifest } from './world/manifest';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
 import { memoryCensus } from './world/memoryCensus';
-import { readCol } from './physics/colTile';
+import { readCol, readColSync } from './physics/colTile';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -498,7 +498,8 @@ async function runQa() {
     checkCollision: async buffer => {
       const col = await readCol(buffer);
       if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
-      ground.add(col);
+      // Validated now; indexed on the first ground query of the cell (actors stand on few of them).
+      ground.addLazy(col.id, buffer, bytes => readColSync(bytes, { checkCrc: false }));
     },
   });
   censusSources.coarse = coarse; censusSources.ground = ground;
@@ -682,7 +683,8 @@ async function runLab() {
     checkCollision: async buffer => {
       const col = await readCol(buffer);
       if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
-      ground.add(col);
+      // Validated now; indexed on the first ground query of the cell (actors stand on few of them).
+      ground.addLazy(col.id, buffer, bytes => readColSync(bytes, { checkCrc: false }));
     },
   });
   const population = !idPass && (params.traffic !== 0 || params.walkers !== 0)

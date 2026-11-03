@@ -23,19 +23,47 @@ interface Cell {
 
 export class GroundIndex {
   private cells = new Map<string, Cell>();
+  /** Validated cells not indexed yet: their raw .col bytes, decoded and indexed on the first query that needs them
+   *  (replays validate every cell of the tiles ahead and in view; actors stand on few of them). */
+  private raw = new Map<string, { buffer: ArrayBuffer; decode: (buffer: ArrayBuffer) => ColTile; version: number }>();
   /** Changes whenever a cell is added, replaced or removed (callers key caches by it). */
   generation = 0;
 
-  get size() { return this.cells.size; }
-  /** Retained bytes and cells (memory census). */
+  get size() { return this.cells.size + this.raw.size; }
+  /** Retained bytes and cells (memory census): indexed cells plus raw bytes still waiting for a query. */
   retainedBytes() {
     let bytes = 0;
     for (const cell of this.cells.values()) bytes += cell.start.byteLength + cell.tris.byteLength + cell.v.byteLength;
-    return { bytes, count: this.cells.size };
+    for (const { buffer } of this.raw.values()) bytes += buffer.byteLength;
+    return { bytes, count: this.size };
+  }
+
+  /** Keep a validated cell's raw bytes; `decode` runs on the first query of the cell (synchronous .col decoder). */
+  addLazy(id: string, buffer: ArrayBuffer, decode: (buffer: ArrayBuffer) => ColTile) {
+    this.cells.delete(id);
+    this.generation++;
+    this.raw.set(id, { buffer, decode, version: this.generation });
+  }
+
+  private cell(id: string): Cell | undefined {
+    const cell = this.cells.get(id);
+    if (cell) return cell;
+    const raw = this.raw.get(id);
+    if (!raw) return undefined;
+    this.raw.delete(id);
+    if (!raw.buffer.byteLength) return undefined; // transferred away since: no ground rather than a throw
+    // The content is the one validated at addLazy: index it under that version, so cached heights stay valid.
+    const generation = this.generation;
+    this.add(raw.decode(raw.buffer));
+    this.generation = generation;
+    const indexed = this.cells.get(id);
+    if (indexed) indexed.version = raw.version;
+    return indexed;
   }
 
   /** Index one decoded collision cell (replaces an earlier one with the same id). */
   add(col: ColTile) {
+    this.raw.delete(col.id);
     const p = col.positions, idx = col.indices, [ox, oy, oz] = col.origin;
     const kept: number[] = [];
     for (let t = 0; t < idx.length / 3; t++) {
@@ -77,23 +105,24 @@ export class GroundIndex {
   /** Version of the collision cell under (x, z), or -1 when none is resident: a cached height is valid while it holds. */
   version(x: number, z: number): number {
     const { i, j } = collisionTileAt(x, z);
-    return this.cells.get(collisionTileId(i, j))?.version ?? -1;
+    const id = collisionTileId(i, j);
+    return this.cells.get(id)?.version ?? this.raw.get(id)?.version ?? -1;
   }
 
-  remove(id: string) { if (this.cells.delete(id)) this.generation++; }
+  remove(id: string) { const removed = this.cells.delete(id); if (this.raw.delete(id) || removed) this.generation++; }
 
-  clear() { if (this.cells.size) { this.cells.clear(); this.generation++; } }
+  clear() { if (this.cells.size || this.raw.size) { this.cells.clear(); this.raw.clear(); this.generation++; } }
 
   /** The highest ground surface at (x, z) between `top` and `top - depth`, as a downward ray would find it; null
    *  when there is none or the collision there is not resident. */
   ground(x: number, top: number, z: number, depth: number): number | null {
     const { i, j } = collisionTileAt(x, z);
-    let best = this.cellGround(this.cells.get(collisionTileId(i, j)), x, top, z, depth);
+    let best = this.cellGround(this.cell(collisionTileId(i, j)), x, top, z, depth);
     // A triangle on a cell seam may live in the neighbour only.
     const fx = x / COLLISION_TILE - i, fz = z / COLLISION_TILE - j, near = 0.5 / COLLISION_TILE;
     for (const [di, dj] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
       if (di < 0 && fx > near || di > 0 && fx < 1 - near || dj < 0 && fz > near || dj > 0 && fz < 1 - near) continue;
-      const y = this.cellGround(this.cells.get(collisionTileId(i + di, j + dj)), x, top, z, depth);
+      const y = this.cellGround(this.cell(collisionTileId(i + di, j + dj)), x, top, z, depth);
       if (y !== null && (best === null || y > best)) best = y;
     }
     return best;

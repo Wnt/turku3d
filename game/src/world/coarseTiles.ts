@@ -1038,7 +1038,11 @@ export class CoarseTiles {
       streamTrace.event('tile.preview', id, this.depth());
       // Collision is published at once; the preview draws once its program and buffers are prepared outside a frame
       // (a first draw would upload its several MB of vertices inside the frame).
-      const show = () => { if (e.model === model && this.entries.get(id) === e) this.host.scene.add(model); };
+      const show = () => {
+        if (e.model !== model || this.entries.get(id) !== e) return;
+        this.host.scene.add(model);
+        this.arrays?.preview(model);
+      };
       if (!this.host.preparePreview) { show(); return; }
       await this.host.preparePreview(model).then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
       return;

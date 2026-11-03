@@ -155,6 +155,23 @@ export class TileArrays {
     return bytes;
   }
 
+  /** A shown collision preview: nothing reads its arrays on the CPU (HUD raycasts and light scans use full tiles),
+   *  so every array goes once uploaded. */
+  preview(model: THREE.Object3D) {
+    const waiting: { geometry: THREE.BufferGeometry; targets: Target[] }[] = [];
+    let bytes = 0;
+    model.traverse(object => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const targets: Target[] = [];
+      bytes += settle(renderTargets(mesh.geometry, true), this.uploaded, mesh.geometry, targets);
+      if (targets.length) waiting.push({ geometry: mesh.geometry, targets });
+    });
+    if (waiting.length) this.pending.set(model, waiting);
+    this.count(bytes);
+    return bytes;
+  }
+
   /** Release queued targets whose upload has happened since (only the queue is visited). */
   check() {
     let bytes = 0;

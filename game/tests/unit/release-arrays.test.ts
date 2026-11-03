@@ -92,3 +92,15 @@ test('templates release once every holder committed: drawn geometry keeps positi
   expect(geometry.attributes.position.array.length).toBe(0);
   expect(geometry.index!.array.length).toBe(0);
 });
+
+test('a shown collision preview releases every array once uploaded', () => {
+  const model = new THREE.Group(), mesh = new THREE.Mesh(facade(), new THREE.MeshStandardMaterial()); model.add(mesh);
+  let uploaded = false;
+  const arrays = new TileArrays(() => uploaded);
+  expect(arrays.preview(model)).toBe(0); // queued until uploaded
+  uploaded = true;
+  expect(arrays.check()).toBeGreaterThan(0);
+  expect(mesh.geometry.attributes.position.array.length).toBe(0);
+  expect(mesh.geometry.index!.array.length).toBe(0);
+  expect(mesh.geometry.attributes.position.count).toBeGreaterThan(0);
+});
