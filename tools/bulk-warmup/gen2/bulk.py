@@ -40,6 +40,7 @@ def main():
     p.add_argument('--report-dir',type=Path,help='separate proof reports while an earlier generation is being pulled')
     p.add_argument('--control',type=Path,help='atomically replace JSON {workers:N} to adjust live admission')
     p.add_argument('--floor-gib',type=float,default=25)
+    p.add_argument('--warm-only',action='store_true',help='city runs: compile the one-time shared work (warm.py) and exit, e.g. on the small plan before the resize')
     p.add_argument('--keep-caches',action='store_true',help='city runs: keep per-tile stage/input caches and lidar units (default: delete when done)')
     a=p.parse_args();root=a.root.resolve();state=root/'state'
     reports=a.report_dir or state;reports.mkdir(parents=True,exist_ok=True)
@@ -127,7 +128,11 @@ def main():
                      TURKU3D_WORK=str(root/'farm/products'/generation/'work'),
                      TURKU3D_SHARED_CACHE=str(root/'farm/cache'))
             farm.mount_supplements(Path(env['TURKU3D_DATA']),Path(env['TURKU3D_WORK']))
-            subprocess.run([str(root/'run.sh'),'python',str(warm),str(root/'farm/products'/generation)],env=env,check=True)
+            if not (root/'farm/products'/generation/'warm.json').exists():
+                subprocess.run([str(root/'run.sh'),'python',str(warm),str(root/'farm/products'/generation)],env=env,check=True)
+            if a.warm_only:
+                print(json.dumps(dict(warm=str(root/'farm/products'/generation/'warm.json'))),flush=True)
+                farm.close();pool.close();return 0
             if not a.keep_caches:
                 # A fresh city run computes each tile once: finished tiles and lidar units
                 # leave no caches behind, so the run fits the staging disk (transient.py).
