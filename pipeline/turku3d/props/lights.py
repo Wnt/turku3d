@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import numpy as np
 import shapely
 from shapely.strtree import STRtree
+from turku3d.night_lighting import rules, lamp_kind, lamp_height
 
 FORMAT = "turku3d-lights"
 VERSION = 1
@@ -43,18 +44,13 @@ POST_SHAPE = {"height": 8.0, "arm": 1.6, "light": 7.58}
 POST_RADIUS = 0.11  # base radius of the client post (collision)
 # Post scale by the class of the street it lights (roads.json class 1..3); paths and parks get
 # the small post.
-STREET_SCALE = (0.6, 0.75, 1.0, 1.15)
-PATH_SCALE = 0.6
+STREET_SCALE = rules()["lamps"]["roadScales"]
+PATH_SCALE = rules()["lamps"]["pathHeight"] / POST_SHAPE["height"]
 STREET_REACH = 15.0  # m: a lamp this close to a car street lights it
 PATH_REACH = 10.0
 HUNG_HEIGHT = 7.0  # m above the street for a lamp hung over the carriageway
 # Linear colour and intensity per light type.
-TYPES = {
-    "led": ((1.0, 0.86, 0.68), 5.0),
-    "sodium": ((1.0, 0.62, 0.28), 4.6),
-    "path": ((1.0, 0.88, 0.74), 3.6),
-    "wall": ((1.0, 0.74, 0.46), 1.8),
-}
+TYPES = {key: (row["color"], row["intensity"]) for key, row in rules()["lamps"]["types"].items()}
 SODIUM_SHARE = 0.2  # share of street lamps drawn as older sodium heads, by position hash
 # Facade lights: a search outward from the kerb at stations along every car street finds the
 # first building; most such facades carry a light just in front of it.
@@ -109,7 +105,7 @@ def _flags():
     return CAR, CLASS_SHIFT, FOOT, ONEWAY
 
 
-def post_light(x, y, z, edges, car_tree, path_tree):
+def post_light(x, y, z, edges, car_tree, path_tree, tags=None):
     """A street-light post at (x, y, z): its arm reaches toward the street (or path) it lights."""
     car, shift, _, _ = _flags()
     point = shapely.Point(x, z)
@@ -120,10 +116,14 @@ def post_light(x, y, z, edges, car_tree, path_tree):
         if line.distance(point) <= STREET_REACH:
             target = line.interpolate(line.project(point))
             scale, category = STREET_SCALE[min(3, flags >> shift)], "street"
-    if target is None and path_tree is not None:
-        line = edges["path"][path_tree.nearest(point)][0]
-        if line.distance(point) <= PATH_REACH:
-            target = line.interpolate(line.project(point))
+    if path_tree is not None:
+        path = edges["path"][path_tree.nearest(point)][0]
+        # A quay footway can lie inside the upper road's 15 m reach. Its own
+        # nearby poles must not become 8 m carriageway lights.
+        if path.distance(point) <= PATH_REACH and (target is None or path.distance(point) + 1 < target.distance(point)):
+            target = path.interpolate(path.project(point))
+            scale, category = PATH_SCALE, "path"
+    scale = lamp_height(tags, POST_SHAPE["height"] * scale) / POST_SHAPE["height"]
     h = position_hash(x, z)
     if target is not None and math.hypot(target.x - x, target.y - z) > 0.05:
         ax, az = target.x - x, target.y - z
@@ -135,6 +135,7 @@ def post_light(x, y, z, edges, car_tree, path_tree):
     yaw = math.atan2(-az, ax)
     arm, height = POST_SHAPE["arm"] * scale, POST_SHAPE["light"] * scale
     kind = "path" if category == "path" else ("sodium" if h < SODIUM_SHARE else "led")
+    kind = lamp_kind(tags, kind)
     return Light(
         x + ax * arm,
         y + height,

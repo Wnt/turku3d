@@ -114,6 +114,8 @@ def producer_paths():
             props / "__init__.py",
             props / "models.py",
             props / "lights.py",
+            Path(__file__).parents[1] / "night_lighting.py",
+            Path(__file__).parents[1] / "night_lighting.json",
             props / "orientation.py",
             Path(C.__file__),
             *landmark_sources(),

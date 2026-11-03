@@ -16,6 +16,7 @@ from shapely.strtree import STRtree
 
 from turku3d import config as C
 from turku3d import tile_layer
+from turku3d.night_lighting import rules
 from turku3d.layers import PRIMITIVE_DTYPE, CollisionLayer, write_collision
 from turku3d.package.gltf import build_glb, read_glb
 from turku3d.package.manifest import _atomic_write
@@ -73,6 +74,7 @@ OSM_FURNITURE = {
     ("amenity", "bicycle_parking"): "bike_rack",
     ("vending", "parking_tickets"): "parking_meter",
     ("highway", "street_lamp"): "lamp",
+    ("man_made", "street_lamp"): "lamp",
 }
 
 
@@ -90,6 +92,7 @@ class Prop:
     orientation: str = "nearest_road"
     variant: str = ""  # model variant of a non-sign kind (bin colour, bike-rack length)
     rank: int = 0  # source quality among duplicates; lower wins
+    light_tags: dict | None = None  # mapped fixture metadata; position still comes from register
 
     @property
     def prototype(self):
@@ -184,7 +187,7 @@ LIT_STREETS = {
     "pedestrian",
     "service",
 }
-LAMP_SPACING = 30.0
+LAMP_SPACING = rules()["lamps"]["fallbackSpacing"]
 LAMP_REACH = 20.0  # a station with any lamp this close is lit already
 
 
@@ -241,13 +244,22 @@ def osm_props(frame, bbox, register, carriageway, skipped):
             continue
         if g.geom_type != "Point" or not reach.contains(g.x, g.y):
             continue
+        matched = set()
         for (key, value), kind in OSM_FURNITURE.items():
-            if tags.get(key) != value:
+            if tags.get(key) != value or kind in matched:
                 continue
+            matched.add(kind)
             if _near(registered.get(kind), g.x, g.y, OSM_DUPLICATE):
+                if kind == "lamp":
+                    nearby = [q for q in register if q.kind == "lamp"
+                              and math.hypot(q.x - g.x, q.z - g.y) <= OSM_DUPLICATE]
+                    if nearby:
+                        nearest = min(nearby, key=lambda q: math.hypot(q.x - g.x, q.z - g.y))
+                        nearest.light_tags = {**(nearest.light_tags or {}), **tags}
                 skipped[f"osm_{kind}_in_register"] += 1
                 continue
-            result.append(Prop(oid, kind, g.x, 0, g.y, source="osm", rank=10))
+            result.append(Prop(oid, kind, g.x, 0, g.y, source="osm", rank=10,
+                               light_tags=tags if kind == "lamp" else None))
         for code in sign_codes(tags):
             if any(
                 q.kind == "sign"

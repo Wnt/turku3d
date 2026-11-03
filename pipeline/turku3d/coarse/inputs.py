@@ -110,6 +110,8 @@ DEPENDENCIES = {
     "appearance": ("register.py", "../spatial.py"),
     "register": ("register.py",),
     "poles": (
+        "../night_lighting.py",
+        "../night_lighting.json",
         "../props/__init__.py",
         "../props/models.py",
         "../props/orientation.py",

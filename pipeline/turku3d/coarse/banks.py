@@ -22,8 +22,12 @@ def surveyed_crest(points, ground, water, masonry):
         return points
     result = points.copy()
     xy = shapely.points(points[:, [0, 2]])
-    distance = shapely.distance(xy, water)
-    eligible = (distance < 2.5) & (shapely.distance(xy, masonry) < 1e-7)
+    candidates = np.flatnonzero(shapely.distance(xy, masonry) < 1e-7)
+    distance = np.full(len(points), np.inf)
+    distance[candidates] = shapely.distance(xy[candidates], water)
+    eligible = distance < 2.5
+    if not eligible.any():
+        return result
     support = ground[~shapely.intersects_xy(water, ground[:, 0], ground[:, 2])]
     if len(support) < 4 or not eligible.any():
         return result
@@ -54,12 +58,15 @@ def quay_crest(points, walks, water, masonry):
 
     result = points.copy()
     xy = shapely.points(points[:, [0, 2]])
-    shore = shapely.distance(xy, water)
-    eligible = (shore < 3) & (shapely.distance(xy, masonry) < 1e-7)
+    candidates = np.flatnonzero(shapely.distance(xy, masonry) < 1e-7)
+    shore = np.full(len(points), np.inf)
+    shore[candidates] = shapely.distance(xy[candidates], water)
+    candidates = candidates[shore[candidates] < 3]
     best = np.full(len(points), np.inf)
     for patch in walks:
-        distance = shapely.distance(xy, patch["line"])
-        ids = np.flatnonzero(eligible & (distance < patch["width"] / 2 + 2.5) & (distance < best))
+        distance = shapely.distance(xy[candidates], patch["line"])
+        selected = (distance < patch["width"] / 2 + 2.5) & (distance < best[candidates])
+        ids = candidates[selected]
         if not len(ids):
             continue
         station, lateral = coordinates(patch["line"], points[ids][:, [0, 2]])
@@ -77,7 +84,7 @@ def quay_crest(points, walks, water, masonry):
         use = ids[valid]
         weight = np.clip(1 - shore[use] / 3, 0, 1)
         result[use, 1] = target[valid] * weight + points[use, 1] * (1 - weight)
-        best[use] = distance[use]
+        best[use] = distance[selected][valid]
     return result
 
 

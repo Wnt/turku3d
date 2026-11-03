@@ -48,6 +48,8 @@ def sources():
         base / "props/__init__.py",
         base / "props/models.py",
         base / "props/lights.py",
+        base / "night_lighting.py",
+        base / "night_lighting.json",
         base / "props/orientation.py",
         base / "package/gltf.py",
         base / "roads/__init__.py",
@@ -93,6 +95,7 @@ def _outside(polygon, point, clearance=CLEARANCE):
 def produce(tile, poles, height_at, footprints, water, roads, carried):
     from turku3d.props import visual_bytes
     from turku3d.props.lights import Light, encode, post_light, street_edges, wall_lights
+    from turku3d.night_lighting import lamp_kind, lamp_height
 
     stats = Counter()
     buildings = STRtree(footprints) if footprints else None
@@ -141,7 +144,7 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
         p.y = height_at(p.x, p.z)
         if p.kind == "lamp":
             if p.variant == "hung":
-                lights.append(Light(p.x, p.y + 7.0, p.z, "hung", "led", True))
+                lights.append(Light(p.x, p.y + lamp_height(p.light_tags, 7.0), p.z, "hung", lamp_kind(p.light_tags, "led"), True))
                 stats["lamp_hung"] += 1
                 continue
             placed.append(p)
@@ -150,7 +153,7 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
     edges, trees = street_edges(roads)
     lamps = [p for p in placed if p.kind == "lamp"]
     furniture = [p for p in placed if p.kind != "lamp"]
-    posts = [post_light(p.x, p.y, p.z, edges, trees["car"], trees["path"]) for p in lamps]
+    posts = [post_light(p.x, p.y, p.z, edges, trees["car"], trees["path"], p.light_tags) for p in lamps]
     lights = posts + lights
     blocked = shapely.union_all([*water, *([carried] if blocked_deck is not None else [])])
     heads = STRtree([shapely.Point(light.x, light.z) for light in lights]) if lights else None

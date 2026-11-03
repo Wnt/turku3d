@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
+import { PreparationBudget } from '../render/preparationBudget';
 
 type Vec3 = [number, number, number];
 export interface BuildingModel {
@@ -42,7 +43,7 @@ export class BuildingModelCache {
   private active = 0;
   private queue: (() => void)[] = [];
   constructor(private load: (url: string) => Promise<THREE.Object3D>,
-    private dispose: (root: THREE.Object3D) => void) {}
+    private dispose: (root: THREE.Object3D) => void, private budget = new PreparationBudget()) {}
 
   private async read(url: string) {
     if (this.active >= 4) await new Promise<void>(resolve => this.queue.push(resolve));
@@ -89,6 +90,10 @@ export class BuildingModelCache {
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Map<THREE.Material, THREE.Material>(), textures = new Map<THREE.Texture, THREE.Texture>();
     for (const placement of data.placements) {
+      // Network admission does not bound the clone burst after all model promises resolve.
+      let pause = this.budget.checkpoint();
+      // Other tile attachments can spend this shared budget when the same yield resolves.
+      while (pause) { await pause; pause = this.budget.checkpoint(); }
       const descriptor = descriptors.get(placement.model)!;
       const root = templates.get(placement.model)!.clone(true);
       root.traverse(o => {

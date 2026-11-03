@@ -16,6 +16,21 @@ def test_key_tracks_content_and_type_not_mapping_order_or_array_strides():
     assert content_key(1) != content_key(1.0)
 
 
+def test_existing_key_bytes_survive_hash_optimization():
+    # Golden digests from the pre-optimization writer, including empty and
+    # strided arrays. Existing farm entries must remain addressable.
+    fixtures = [
+        (np.empty((0, 3)), '37d613cc47f16db8534b81bfabbb36aab232f6049c2ed880b48faf259367f55b'),
+        (np.array(5.), '9c2d41210ef4858ae1a1bb637e7c7da1912f4c25fe683e8af4f01be31b3e4ed0'),
+        (np.arange(60).reshape(10, 6)[:, ::2],
+         '7141ef17b65d735908e27fd468d048235886699a11f7026d0676c62d812883c4'),
+        ({'x': np.arange(12), 'nested': [{'same': i, 'key': b'abc'} for i in range(4)],
+          2: (True, 3.4)}, '165ee0f4ab8a79ce97ac51bd2a74cc2011e6e57d20c05404b98e1ac808fb3116'),
+    ]
+    for value, expected in fixtures:
+        assert content_key(value) == expected
+
+
 def test_stage_dag_stops_invalidation_when_upstream_output_is_identical(tmp_path):
     cache = StageCache(tmp_path)
     calls = []

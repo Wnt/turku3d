@@ -279,3 +279,32 @@ def test_register_trees_keep_their_verges_where_mapped_trees_give_way():
     ]
     trees, _ = produce(TILE, inputs, lambda x, z: 0.0, mapped)
     assert sorted(t.object_id for t in trees) == ["puut:a", "puut:b"]
+
+
+def test_mapped_fixture_metadata_enriches_register_without_duplicate_posts():
+    register = [Prop('register:lamp', 'lamp', 10, 0, 10)]
+    tags = {'highway': 'street_lamp', 'man_made': 'street_lamp', 'height': '4 m',
+            'light:method': 'LED', 'light:colour_temperature': '2700 K'}
+    result = osm_props(osm([(tags, Point(11, 10)), (tags, Point(80, 10))]),
+                       TILE.bbox, register, shapely.Polygon(), Counter())
+    assert len(result) == 1
+    assert register[0].x == 10 and register[0].light_tags == tags
+    assert result[0].light_tags == tags
+    edges, trees = street_edges(graph([(0, 20, 200, 20, CAR | FOOT | 2 << CLASS_SHIFT)]))
+    light = post_light(10, 0, 10, edges, trees['car'], trees['path'], register[0].light_tags)
+    assert light.post[4] == .5 and light.kind == 'warm_led'
+    decoded, posts = decode(encode([light]))
+    assert posts[0]['scale'] == .5
+    assert decoded[0]['rgb'][1] < decoded[0]['rgb'][0]
+
+
+def test_nearer_quay_footway_owns_short_lamp_even_with_road_within_reach():
+    edges, trees = street_edges(graph([(0, 20, 200, 20, CAR | FOOT | 2 << CLASS_SHIFT),
+                                      (0, 5, 200, 5, FOOT)]))
+    light = post_light(100, 1, 7, edges, trees['car'], trees['path'])
+    assert light.category == 'path' and light.post[4] == .6
+    assert light.z < 7
+    # Explicit survey height and source technology win over class defaults.
+    light = post_light(100, 1, 7, edges, trees['car'], trees['path'],
+                       {'height': '6', 'lamp_type': 'sodium'})
+    assert light.post[4] == .75 and light.kind == 'sodium'
