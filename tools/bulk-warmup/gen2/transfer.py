@@ -145,6 +145,29 @@ def prune(root,generation,tile):
         shutil.rmtree(product)
 
 
+VALIDATOR=None  # shared_tiles.Farm of the producing revision; set before the pool forks
+
+
+def adopt(batch,final,generation,tile):
+    """Validate one pulled tile in a batch root and move it into the farm (pool worker)."""
+    try:
+        manifest=json.loads((batch/tile/'manifest.json').read_text())
+        VALIDATOR.validate(batch,tile,manifest)
+        if manifest.get('pass_kind')!='full':raise ValueError('not a full-pass product')
+        target=final/tile
+        ack=verified_ack(batch/tile,generation,tile,target)
+        with locked(final.parent.parent/'locks'/(generation+'-'+tile+'.lock')):
+            if target.exists():
+                VALIDATOR.validate(final,tile,json.loads((target/'manifest.json').read_text()))
+                if digest(target/'manifest.json')!=ack['manifest_sha256']:
+                    raise ValueError('existing farm product differs; refusing to replace '+tile)
+                shutil.rmtree(batch/tile)
+            else:(batch/tile).rename(target)
+        return ack,None
+    except Exception as error:
+        return None,f'{tile}: {type(error).__name__}: {error}'[:500]
+
+
 class Pull:
     def __init__(self,args):self.a=args
     def remote(self,code,*args,input=None):
@@ -253,53 +276,80 @@ class Pull:
         # Import the validator from exactly the producing revision.
         sys.path.insert(0,str(base/'repo/scripts/dev'))
         from shared_tiles import Farm
-        if self.a.tiles:tiles=self.a.tiles
-        else:
-            tiles=json.loads(self.remote('import json,sys;from pathlib import Path;print(json.dumps([p.parent.name for p in Path(sys.argv[1]).glob("t0_*/ready.json")]))',self.a.remote_root+'/farm/products/'+generation))
         final=self.a.root/'products'/generation;final.mkdir(parents=True,exist_ok=True)
-        with locked(self.a.root/'locks'/('bulk-pull-'+generation+'.lock')):
-            for tile in tiles:
-                if not TILE.fullmatch(tile):raise ValueError('invalid tile')
-                temporary=self.a.root/'imports'/generation/tile
-                target=final/tile
-                source=self.a.remote_root+'/farm/products/'+generation+'/'+tile
-                # Ask the producing tool for the exact reachable payload graph.
-                code="import json,sys;sys.path.insert(0,sys.argv[1]);from transfer import publication;print(json.dumps(publication(sys.argv[2],sys.argv[3])))"
-                files=json.loads(self.remote(code,self.a.remote_root+'/ops',
-                                             self.a.remote_root+'/farm/products/'+generation,tile))
-                self.room(sum(files.values()))
-                shared_files={name.removeprefix('shared/'):size for name,size in files.items() if name.startswith('shared/')}
-                tile_files={name.removeprefix(tile+'/'):size for name,size in files.items() if name.startswith(tile+'/')}
-                self.selected_sync(self.a.remote_root+'/farm/products/'+generation+'/shared/',final/'shared',shared_files)
-                self.selected_sync(source+'/',temporary/tile,tile_files)
-                if (temporary/'shared').exists():shutil.rmtree(temporary/'shared')
-                for name in shared_files:
-                    link=temporary/'shared'/name;link.parent.mkdir(parents=True,exist_ok=True)
-                    os.link(final/'shared'/name,link)
-                manifest=json.loads((temporary/tile/'manifest.json').read_text())
-                Farm.validate(temporary,tile,manifest)
-                if manifest.get('pass_kind')!='full':raise ValueError('not a full-pass product')
-                ack=verified_ack(temporary/tile,generation,tile,target)
-                with locked(self.a.root/'locks'/(generation+'-'+tile+'.lock')):
-                    if target.exists():
-                        Farm.validate(final,tile,json.loads((target/'manifest.json').read_text()))
-                        if digest(target/'manifest.json')!=ack['manifest_sha256']:
-                            raise ValueError('existing farm product differs; refusing to replace '+tile)
-                    else:(temporary/tile).rename(target)
-                shutil.rmtree(temporary)
-                # Record the receiver's verified payload identity on the producer.
-                code='''import json,sys,os
+        global VALIDATOR
+        VALIDATOR=Farm
+        # One batched pass at a time; per-tile locks guard each adoption.
+        with locked(self.a.root/'locks'/('bulk-pull-batch-'+generation+'.lock')):
+            while True:
+                batch=self.plan(generation)
+                if not batch:break
+                self.pull_batch(generation,final,batch)
+                if self.a.tiles:break
+
+    def plan(self,generation):
+        """One remote call: the reachable payload graph of up to --batch unacknowledged tiles."""
+        code='''import json,sys
 from pathlib import Path
-root=Path(sys.argv[1]);row=json.load(sys.stdin)
-p=root/'farm/exported'/row['generation']/(row['tile']+'.json')
-p.parent.mkdir(parents=True,exist_ok=True)
-t=p.with_suffix('.tmp');t.write_text(json.dumps(row)+'\\n');t.replace(p)
+sys.path.insert(0,sys.argv[1]);from transfer import publication
+root=Path(sys.argv[2]);done={p.stem for p in Path(sys.argv[3]).glob('*.json')}
+wanted=json.loads(sys.argv[5]) if sys.argv[5]!='-' else None
+ready=sorted(p.parent.name for p in root.glob('t0_*/ready.json'))
+todo=[t for t in (wanted if wanted is not None else ready) if (root/t/'ready.json').exists() and (wanted is not None or t not in done)][:int(sys.argv[4])]
+print(json.dumps(dict(ready=len(ready),done=len(done),batch={t:publication(root,t) for t in todo})))
 '''
-                self.remote(code,self.a.remote_root,input=json.dumps(ack).encode())
-                if self.a.prune:
-                    command=shlex.join(['python3',self.a.remote_root+'/ops/transfer.py','prune',self.a.remote_root,generation,tile])
-                    subprocess.run(['ssh',self.a.host,command],check=True)
-                print(json.dumps(ack),flush=True)
+        products=self.a.remote_root+'/farm/products/'+generation
+        result=json.loads(self.remote(code,self.a.remote_root+'/ops',products,
+                                      self.a.remote_root+'/farm/exported/'+generation,self.a.batch,
+                                      json.dumps(self.a.tiles) if self.a.tiles else '-'))
+        print(json.dumps(dict(event='plan',ready=result['ready'],acknowledged=result['done'],batch=len(result['batch']))),flush=True)
+        return result['batch']
+
+    def pull_batch(self,generation,final,batch):
+        import concurrent.futures
+        started=time.monotonic()
+        self.room(sum(size for files in batch.values() for size in files.values()))
+        products=self.a.remote_root+'/farm/products/'+generation
+        shared=sorted({n.removeprefix('shared/') for files in batch.values() for n in files if n.startswith('shared/')})
+        tiles=sorted(batch)
+        root=self.a.root/'imports'/generation/('batch-'+str(os.getpid()))
+        if root.exists():shutil.rmtree(root)
+        root.mkdir(parents=True)
+        listing=[[n for n in files if not n.startswith('shared/')] for files in batch.values()]
+        chunks=[[] for _ in range(self.a.streams)]
+        for k,names in enumerate(listing):chunks[k%self.a.streams].extend(names)
+        jobs=[(products+'/shared/',final/'shared',shared)]+[(products+'/',root,c) for c in chunks if c]
+        with concurrent.futures.ThreadPoolExecutor(len(jobs)) as pool:
+            for done in [pool.submit(self.selected_sync,*job) for job in jobs]:done.result()
+        for name in shared:
+            link=root/'shared'/name;link.parent.mkdir(parents=True,exist_ok=True)
+            os.link(final/'shared'/name,link)
+        transferred=time.monotonic()
+        acks,errors=[],[]
+        import multiprocessing
+        with concurrent.futures.ProcessPoolExecutor(self.a.validators,mp_context=multiprocessing.get_context('fork')) as pool:
+            for ack,error in pool.map(adopt,[root]*len(tiles),[final]*len(tiles),[generation]*len(tiles),tiles):
+                (acks if ack else errors).append(ack or error)
+        shutil.rmtree(root)
+        # Record the receiver's verified payload identities on the producer, in one call.
+        code='''import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+for row in json.load(sys.stdin):
+    p=root/'farm/exported'/row['generation']/(row['tile']+'.json')
+    p.parent.mkdir(parents=True,exist_ok=True)
+    t=p.with_suffix('.tmp');t.write_text(json.dumps(row)+'\\n');t.replace(p)
+'''
+        if acks:self.remote(code,self.a.remote_root,input=json.dumps(acks).encode())
+        if self.a.prune:
+            for ack in acks:
+                command=shlex.join(['python3',self.a.remote_root+'/ops/transfer.py','prune',self.a.remote_root,generation,ack['tile']])
+                subprocess.run(['ssh',self.a.host,command],check=True)
+        seconds=time.monotonic()-started
+        print(json.dumps(dict(event='batch',tiles=len(tiles),verified=len(acks),failed=len(errors),errors=errors[:5],
+                              bytes=sum(size for files in batch.values() for size in files.values()),
+                              transfer_s=round(transferred-started,1),seconds=round(seconds,1),
+                              tiles_per_min=round(len(acks)/seconds*60,1))),flush=True)
 
 
 def main():
@@ -316,6 +366,9 @@ def main():
     p.add_argument('--build-file',type=Path,help='saved immutable build descriptor; safe across host revision changes')
     p.add_argument('--tiles',nargs='+')
     p.add_argument('--prune',action='store_true',help='remove host tile only after verified publication and acknowledgement')
+    p.add_argument('--batch',type=int,default=200,help='tiles per remote publication call and rsync batch')
+    p.add_argument('--streams',type=int,default=3,help='parallel rsync streams per batch')
+    p.add_argument('--validators',type=int,default=4,help='local validation processes')
     a=p.parse_args();a.root=a.root.resolve();a.root.mkdir(parents=True,exist_ok=True)
     pull=Pull(a)
     if a.sources:pull.sources(a.sources)
