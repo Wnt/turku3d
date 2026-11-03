@@ -43,6 +43,8 @@ export const REACT = {
   /** Knock-down timeline (s): falling, lying, getting up. Largest lean (rad) and the lift that keeps a lying body
    *  above the ground (m). */
   fall: 0.45, down: 4, rise: 0.9, lean: 1.42, lift: 0.12,
+  /** Panic: a knock-down or a dive makes walkers within `panicRadius` m hurry `flee` m away from it for `panic` s. */
+  panic: 3, panicRadius: 12, flee: 3,
   /** A standing walker turns to look at a player on foot this close (m). */
   look: 2.5,
   /** A state unseen this long is dropped (s). */
@@ -62,6 +64,8 @@ const ease = (u: number) => u * u * (3 - 2 * u);
 
 export class Reactions {
   private states = new Map<number, State>();
+  /** Recent knock-downs and dives (world position, frame time in s). */
+  private alarms: { x: number; z: number; t: number }[] = [];
 
   get active() { return this.states.size; }
 
@@ -70,7 +74,7 @@ export class Reactions {
     let s = this.states.get(base.id);
     const fx = Math.sin(base.yaw), fz = Math.cos(base.yaw);
     if (!s) {
-      if (!threats.some(t => near(t, base))) return { x: base.x, z: base.z, yaw: null, extra: 0, moving: false, tilt: 0, tiltYaw: 0, down: false };
+      if (!threats.some(t => near(t, base)) && !this.alarms.some(a => Math.hypot(a.x - base.x, a.z - base.z) < REACT.panicRadius)) return { x: base.x, z: base.z, yaw: null, extra: 0, moving: false, tilt: 0, tiltYaw: 0, down: false };
       s = { dx: 0, dz: 0, vx: 0, vz: 0, extra: 0, knocked: -1, ax: 0, az: 0, tx: 0, tz: 0, fallYaw: 0, yaw: base.yaw, seen: now };
       this.states.set(base.id, s);
     }
@@ -105,6 +109,15 @@ export class Reactions {
       const need = side * (half + REACT.clear) - c;
       targetX = s.dx - uz * need; targetZ = s.dz + ux * need;
       speed = travel < 1 ? REACT.step : arrive < REACT.diveWithin ? REACT.dive : REACT.hurry;
+      if (speed === REACT.dive) this.alarm(px, pz, now);
+    }
+    // No car to dodge: hurry away from a recent knock-down or dive nearby.
+    if (urgency === Infinity) for (const a of this.alarms) {
+      const rx = px - a.x, rz = pz - a.z, d = Math.hypot(rx, rz);
+      if (now - a.t > REACT.panic || d > REACT.panicRadius || d < 0.3) continue;
+      threatened = true; urgency = now - a.t;
+      targetX = s.dx + rx / d * REACT.flee; targetZ = s.dz + rz / d * REACT.flee; speed = REACT.hurry;
+      break;
     }
     for (const t of threats) {
       if (t.car || Math.abs(t.y - base.y) > 2) continue;
@@ -156,15 +169,21 @@ export class Reactions {
   /** Drops the states of walkers no longer drawn. */
   prune(now: number) {
     for (const [id, s] of this.states) if (now - s.seen > REACT.forget) this.states.delete(id);
+    this.alarms = this.alarms.filter(a => now - a.t <= REACT.panic && a.t <= now);
   }
 
-  clear() { this.states.clear(); }
+  private alarm(x: number, z: number, now: number) {
+    if (!this.alarms.some(a => now - a.t < 1 && Math.hypot(a.x - x, a.z - z) < 5)) this.alarms.push({ x, z, t: now });
+  }
+
+  clear() { this.states.clear(); this.alarms = []; }
 
   private knock(s: State, x: number, z: number, t: Threat, side: number, yaw: number) {
     const car = t.car!;
     // Thrown along the car's motion and away from its centreline.
     s.tx = t.vx * 0.55 - car.hz * side * 1.5; s.tz = t.vz * 0.55 + car.hx * side * 1.5;
     s.ax = x; s.az = z; s.knocked = 0; s.fallYaw = Math.atan2(s.tx, s.tz); s.yaw = yaw; s.vx = s.vz = 0;
+    this.alarm(x, z, s.seen);
   }
 
   private knockedDown(s: State, base: Base, dt: number): Reaction {
