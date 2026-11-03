@@ -162,6 +162,11 @@ const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
   { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
+// A page kept in the back-forward cache holds its whole WebGPU device. On a 4 GB GPU the next game page then pages
+// VRAM every frame (Radeon Pro 560X: ~20 ms of GPU idle per frame; 22 -> 58 FPS once the working set fit), so leaving
+// releases the device and coming back from the cache reloads.
+addEventListener('pagehide', event => { if (event.persisted) (renderer.backend as { device?: GPUDevice }).device?.destroy(); });
+addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
 // Startup GPU throughput probe: recorded in renderTier() and captures to calibrate tiering across machines whose
 // adapter info is identical (M1 Air and M1 Max both report apple/metal-3); it chooses nothing yet.
 const probeDevice = (renderer.backend as { device?: GPUDevice }).device;
