@@ -137,3 +137,31 @@ def test_survey_code_invalidates_visual_and_collision_content(monkeypatch):
     monkeypatch.setattr(Path, "read_bytes", lambda p: read(p)+b"\n# change\n" if p==path else read(p))
     assert packaging.code_hash() != before[0]
     assert collision_key.code_hash() != before[1]
+
+
+def test_surveyed_ledge_edge_is_straight_and_parallel_while_lidar_sets_levels():
+    """Per-section lidar choices must not zig-zag a straight quay ledge (issue 024)."""
+    rng = np.random.default_rng(7)
+    x, z = np.meshgrid(np.arange(-4, 45, 0.2), np.arange(-4, 4.01, 0.2))
+    x, z = x.ravel(), z.ravel()
+    # A straight 1.7 m quay step 0.25 m off the digitised line, a 1 % ramp, lidar noise
+    # and seated people along the cap.
+    height = 1.1 + 0.01 * x + np.where(z > 0.25, 1.7, 0) + rng.normal(0, 0.02, len(x))
+    people = (np.abs(x % 7 - 3) < 0.3) & (z > 0.3) & (z < 0.9)
+    height[people] += 1.0
+    points = np.c_[x, height, z]
+    # Digitised vertices every metre with +-6 cm noise across the line.
+    xs = np.arange(0, 41, 1.0)
+    line = shapely.LineString(np.c_[xs, rng.uniform(-0.06, 0.06, len(xs))])
+    result = retaining_survey.measure(line, points)
+    assert result
+    for _, profile in result:
+        centres = np.asarray(profile["centres"])
+        # One straight edge parallel to the survey: no per-section lateral jumps.
+        assert np.ptp(centres[:, 1]) < 0.16
+        assert np.abs(np.diff(centres[:, 1], 2)).max() < 0.05
+        heights = np.asarray(profile["heights"])
+        np.testing.assert_allclose(np.diff(heights, axis=1), 1.7, atol=0.12)
+        # Levels follow the ramp smoothly; people never lift single sections.
+        assert np.abs(np.diff(heights, 2, axis=0)).max() < 0.05
+        np.testing.assert_allclose(heights[:, 0], 1.1 + 0.01 * centres[:, 0], atol=0.08)

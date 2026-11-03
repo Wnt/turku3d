@@ -74,7 +74,7 @@ test('production styling reuses the recipe without pooling different source mate
   for (const mesh of meshes) { styler.release(mesh.parent!); mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); }
 });
 
-test('authored textures, base expressions, mineral masks and facades keep independent graphs', () => {
+test('distinct textures, base expressions, mineral masks and facades keep independent graphs', () => {
   const common = wetSurface(new THREE.MeshStandardNodeMaterial());
   const variants = [
     () => new THREE.MeshStandardNodeMaterial({ map: new THREE.Texture() }),
@@ -90,6 +90,41 @@ test('authored textures, base expressions, mineral masks and facades keep indepe
   }
   expect(wetSurface(new THREE.MeshStandardNodeMaterial(), true).colorNode).not.toBe(common.colorNode);
   expect(wetSurface(new THREE.MeshStandardNodeMaterial(), false, float(.5)).colorNode).not.toBe(common.colorNode);
+});
+
+test('same canonical bridge texture with roughness .95/.92 shares one built graph and per-draw map references', () => {
+  const { nodes, draw } = fixture(), create = vi.spyOn(nodes, '_createNodeBuilder');
+  const map = new THREE.DataTexture(new Uint8Array([190, 170, 145, 255]), 1, 1);
+  const materials = [.95, .92].map(roughness => wetSurface(new THREE.MeshStandardNodeMaterial({ map, roughness })));
+  expect(materials[0]).not.toBe(materials[1]); expect(materials[0].colorNode).toBe(materials[1].colorNode);
+  const draws = materials.map(draw), states = draws.map(value => nodes.getForRender(value));
+  expect(states[0]).toBe(states[1]); expect(create).toHaveBeenCalledOnce();
+  const reference = states[0].updateNodes.find((node: any) => node.isMaterialReferenceNode && node.property === 'map');
+  expect(reference).toBeDefined();
+  for (const material of materials) {
+    reference.updateReference({ material }); reference.update({ material }); expect(reference.node.value).toBe(map);
+  }
+  materials[0].dispose(); expect(states[0].usedTimes).toBe(1);
+  expect(nodes.getForRender(draws[1])).toBe(states[0]); materials[1].dispose(); expect(states[0].usedTimes).toBe(0);
+  map.dispose();
+});
+
+test('texture role, secondary maps and UV/sampler variants remain distinct recipe identities', () => {
+  const map = new THREE.Texture(), normal = new THREE.Texture(), light = new THREE.Texture();
+  const base = () => wetSurface(new THREE.MeshStandardNodeMaterial({ map, normalMap: normal }));
+  const common = base(); expect(base().colorNode).toBe(common.colorNode);
+  const uv = map.clone(); uv.channel = 1; uv.offset.set(.3, .6); uv.repeat.set(2, 3);
+  const sampler = map.clone(); sampler.magFilter = THREE.NearestFilter;
+  for (const variant of [
+    new THREE.MeshStandardNodeMaterial({ map, normalMap: new THREE.Texture() }),
+    new THREE.MeshStandardNodeMaterial({ map: normal, normalMap: map }),
+    new THREE.MeshStandardNodeMaterial({ map: uv, normalMap: normal }),
+    new THREE.MeshStandardNodeMaterial({ map: sampler, normalMap: normal }),
+    new THREE.MeshStandardNodeMaterial({ map, normalMap: normal, lightMap: light }),
+  ]) expect(wetSurface(variant).colorNode).not.toBe(common.colorNode);
+  const a = wetSurface(new THREE.MeshStandardNodeMaterial({ map, normalMap: normal, lightMap: light }));
+  const b = wetSurface(new THREE.MeshStandardNodeMaterial({ map, normalMap: normal, lightMap: light }));
+  expect(a.colorNode).toBe(b.colorNode); expect(a.setupLightMap).toBe(b.setupLightMap);
 });
 
 test('shared graph survives another material disposal, while idempotent application preserves the recipe', () => {

@@ -54,3 +54,15 @@ def test_invalid_measured_rhythm_falls_back_to_spread_columns_and_square_default
     meshes, _ = geometry(v, plan(v, w), "test", np.zeros(3))
     assert all(m.extras["material_key"] != "component_column" for m in meshes)
     assert any(m.extras.get("component_box") for m in meshes)
+
+
+def test_reading_names_round_order_but_unnamed_or_square_columns_stay_boxes():
+    from turku3d.facade_components import components
+
+    def shape(kind):
+        form = dict(facade_observations=dict(sections=[dict(position="ground", kind=kind)]))
+        return components(form, 3)[0][0].get("column_shape")
+
+    assert shape("recessed glazed frontage behind round columns") == "round"
+    assert shape("deep recessed glazing behind square columns") == "square"
+    assert shape("recessed entrance/glazing behind columns") is None

@@ -84,3 +84,30 @@ def test_one_building_edit_reuses_other_models_and_preserves_terrain(tmp_path, m
     assert second['inside']['package']['package']['cached'] is True
     assert second['crossing']['package']['package']['cached'] is False
     print(json.dumps({'first': first, 'one_building_edit': second}, sort_keys=True))
+
+
+def test_shared_package_inputs_are_prepared_once_per_tile_with_unchanged_keys(tmp_path, monkeypatch):
+    from turku3d.coarse import archetypes, packaging
+    monkeypatch.setenv('TURKU3D_WORK', str(tmp_path / 'work'))
+    tile = C.VisualTile(0, -3, 2)
+    shells, meshes = fixture(tile)
+    work = tmp_path / 'products'; stage = work / tile.id / '.stage'
+    stage.mkdir(parents=True)
+    source = stage / 'architecture.vis.glb'
+    write_visual(source, meshes, root_translation=tile.origin)
+    library = tmp_path / 'library'; library.mkdir()
+    (library / 'plaster.json').write_text('{"roughness": 0.9}')
+    calls = []
+    original = packaging.shared_package_inputs
+    counted = lambda *a, **k: calls.append(1) or original(*a, **k)
+    monkeypatch.setattr(archetypes, 'shared_package_inputs', counted)
+    monkeypatch.setattr(packaging, 'shared_package_inputs', counted)
+    _, manifest, metrics = publish(tile, [source], shells, stage, work, library)
+    assert len(manifest['models']) == 2 and len(calls) == 1
+    # Packaging the same model without the precomputed inputs hits the same cache entry.
+    identity = sorted(p.name for p in (stage / 'archetypes').iterdir() if len(p.name) == 64)[0]
+    directory = stage / 'archetypes' / identity
+    packaging.package_visual(C.VisualTile(0, 0, 0), [directory / 'model.vis.glb'], directory, work, library,
+                             cache_unit=f'archetypes/{identity}')
+    assert len(calls) == 2
+    assert json.loads((directory / 'package-times.json').read_text())['package']['cached'] is True

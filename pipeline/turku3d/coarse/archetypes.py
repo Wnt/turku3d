@@ -17,7 +17,7 @@ import shapely
 from turku3d import config as C
 from turku3d.layers import write_visual
 from turku3d.wall_surfaces import instanced_layer, layer_meshes
-from .packaging import package_visual
+from .packaging import package_visual, shared_package_inputs
 
 
 def partition(tile, meshes, shells):
@@ -46,10 +46,11 @@ def partition(tile, meshes, shells):
         for mesh in parts:
             placed = copy.copy(mesh)
             placed.positions = np.asarray(mesh.positions, dtype=np.float64) + delta
-            placed.extras = copy.deepcopy(mesh.extras)
+            # Only the component box changes frame; large per-object extras stay shared.
+            placed.extras = dict(mesh.extras)
             box = placed.extras.get("component_box")
             if box:
-                box["center"] = (np.asarray(box["center"]) + delta).tolist()
+                placed.extras["component_box"] = {**box, "center": (np.asarray(box["center"]) + delta).tolist()}
             local.append(placed)
         models.append((key, origin, local, buildings))
     return terrain, models
@@ -80,6 +81,7 @@ def publish(tile, layer_files, shells, stage, work, library):
         if len(mesh.positions):
             all_bounds.extend([np.asarray(mesh.positions).min(axis=0) + tile.origin,
                                np.asarray(mesh.positions).max(axis=0) + tile.origin])
+    shared = shared_package_inputs(library, work) if models else None
     for key, origin, meshes, buildings in models:
         identity = hashlib.sha256(key.encode()).hexdigest()
         directory = stage / "archetypes" / identity
@@ -87,7 +89,7 @@ def publish(tile, layer_files, shells, stage, work, library):
         source = directory / "model.vis.glb"
         write_visual(source, meshes, root_translation=(0., 0., 0.))
         payload, stats = package_visual(C.VisualTile(0, 0, 0), [source], directory, work, library,
-                                        cache_unit=f"archetypes/{identity}")
+                                        cache_unit=f"archetypes/{identity}", shared=shared)
         digest = hashlib.sha256(payload).hexdigest()
         destination = work / "shared" / f"{digest}.glb"
         if not destination.exists():
