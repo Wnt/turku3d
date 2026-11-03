@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, If, cameraFar, cameraNear, cameraPosition, cameraViewMatrix, dot, exp, float, floor, fract, length, luminance, max,
+import { Fn, If, cameraFar, cameraNear, cameraPosition, cameraViewMatrix, cross, dFdx, dFdy, dot, exp, float, floor, fract, length, luminance, max,
   mix, normalize, perspectiveDepthToViewZ, positionView, positionWorld, pow, reflect, reflector, screenUV, smoothstep, texture,
   uniform, vec2, vec3, vec4, velocity, pmremTexture } from 'three/tsl';
 import type { Environment } from './environment';
@@ -29,6 +29,12 @@ export const RIVER_DEPTH = { visibility: 0.45 };
  *  the reflection dulls towards grey, and drops ring the surface: per world cell one ring a second expands to `radius`
  *  and fades, on two offset grids, within `range` metres of the camera (beyond it they are sub-pixel). */
 export const RIVER_RAIN = { roughness: 0.8, dull: 0.5, dim: 0.3, cells: [0.55, 0.8], radius: 0.22, width: 0.035, slope: 0.35, range: [12, 35] };
+
+/** W4: sloped reaches flow downhill at `speed` + `speedPerSlope` * gradient m/s (at most `maxSpeed`), over a
+ *  `period`-second two-phase cycle, rougher with the gradient; from `foam[0]` to `foam[1]` gradient they break white
+ *  (weirs and rapids; the served streams are mostly 2-7 %, weir faces 20-30 %). */
+export const RIVER_FLOW = { speed: 0.35, speedPerSlope: 6, maxSpeed: 2.5, period: 2, roughPerSlope: 4, foam: [0.08, 0.25],
+  foamColour: [0.62, 0.64, 0.6] as const };
 
 /** Two-component hash of a cell index without trigonometry (large world cells keep their precision). */
 const hash22 = Fn(([cell]: [THREE.Node<'vec2'>]) => {
@@ -67,7 +73,7 @@ function waveTexture() {
 /** Build just the surface graph so local water iterations can hot-replace it without reloading tiles. */
 export function riverSurface(material: THREE.NodeMaterial, env: Environment, deterministic: boolean,
   reflection: ReturnType<typeof reflector> | null, bodyColour = new THREE.Color(0.075, 0.062, 0.035),
-  history: WaterHistory | null = null, screenReflection = false): () => void {
+  history: WaterHistory | null = null, screenReflection = false, sloped = false): () => void {
   const waves = waveTexture();
   const baseUV = reflection?.uvNode;
   let disposeSurface = () => waves.dispose();
@@ -79,7 +85,28 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   });
   const uv = positionWorld.xz;
   const swell = texture(waves, uv.mul(0.19).add(flow.xy)).rg.sub(0.5).mul(0.32);
-  const ripple = texture(waves, uv.yx.mul(0.6).add(flow.zw)).rg.sub(0.5).mul(0.24);
+  let ripple = texture(waves, uv.yx.mul(0.6).add(flow.zw)).rg.sub(0.5).mul(0.24);
+  // W4 on sloped reaches (streams, weirs, rapids): their ripples run downhill. The generator stores flat normals, so
+  // the slope comes from the triangle itself; two half-period phases of the same field cross-fade (Valve's flow maps).
+  let whitewater: THREE.Node<'float'> = float(0);
+  if (sloped) {
+    const f = RIVER_FLOW;
+    let face = normalize(cross(dFdx(positionWorld), dFdy(positionWorld)));
+    face = face.mul(face.y.sign().max(0).mul(2).sub(1)); // upward
+    const gradient = length(face.xz).div(face.y.abs().max(0.05));
+    const downhill = face.xz.div(length(face.xz).max(0.0001));
+    const speed = gradient.mul(f.speedPerSlope).add(f.speed).min(f.maxSpeed);
+    const phase = uniform(0).onRenderUpdate(() => (deterministic ? 0 : riverClock.seconds) / f.period % 1);
+    const travel = downhill.mul(speed.mul(f.period));
+    const second = phase.add(0.5).fract(), blend = phase.sub(0.5).abs().mul(2);
+    const stream = (shift: THREE.Node<'float'>) => texture(waves, uv.sub(travel.mul(shift)).yx.mul(0.6)).rg.sub(0.5);
+    const a = stream(phase), b = stream(second);
+    const flowing = mix(a, b, blend);
+    ripple = flowing.mul(0.24).mul(gradient.mul(f.roughPerSlope).add(1).min(2.5));
+    // Steep reaches break white: streaks where the flowing field's slope is large, moving with it.
+    const churn = length(flowing).mul(2.5);
+    whitewater = smoothstep(f.foam[0], f.foam[1], gradient).mul(smoothstep(0.25, 0.75, churn));
+  }
   // W8: rougher waves and drop rings while it rains (weatherUniforms.rain is a render-group uniform, 0 when dry).
   const rain = weatherUniforms.rain;
   const near = float(1).sub(smoothstep(RIVER_RAIN.range[0], RIVER_RAIN.range[1], length(cameraPosition.sub(positionWorld))));
@@ -92,7 +119,7 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   const normal = normalize(vec3(slope.x, 1, slope.y));
   const view = normalize(cameraPosition.sub(positionWorld));
   const grazing = float(1).sub(max(dot(view, normal), 0));
-  const fresnel = float(0.02).add(pow(grazing, 5).mul(0.98));
+  const fresnel = float(0.02).add(pow(grazing, 5).mul(0.98)).mul(float(1).sub(whitewater.mul(0.85)));
   if (reflection) reflection.uvNode = reflection.uvNode!.add(cameraViewMatrix.mul(vec4(normal.x, 0, normal.z, 0)).xy.mul(vec2(-1, 1)).mul(mix(0.012, 0.021, grazing)));
   const daylight = float(1).sub(nightUniforms.night.mul(0.9));
   const sky = env.environmentMap
@@ -110,6 +137,8 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   const alignment = max(dot(reflect(sunDir.negate(), normal), view), 0);
   // Each body carries its measured water colour beneath the dynamic sky reflection.
   let sediment = uniform(bodyColour).mul(daylight);
+  // Whitewater is a bright, rough body that mirrors little.
+  if (sloped) sediment = mix(sediment, vec3(...RIVER_FLOW.foamColour).mul(daylight), whitewater);
   let specular;
   if (WATER_SWITCHES.tightSun) {
     const s = RIVER_SUN;
@@ -159,7 +188,7 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   if (import.meta.hot) material.userData.setRiverSurface = (factory: typeof riverSurface) => {
     disposeSurface();
     if (reflection) reflection.uvNode = baseUV!;
-    disposeSurface = factory(material, env, deterministic, reflection, bodyColour, history, screenReflection);
+    disposeSurface = factory(material, env, deterministic, reflection, bodyColour, history, screenReflection, sloped);
     material.needsUpdate = true;
   };
   return () => { delete material.userData.setRiverSurface; disposeSurface(); };

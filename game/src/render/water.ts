@@ -57,6 +57,8 @@ export class RiverMaterial {
   /** The previous frame TRAA keeps, for the bank fade (W3); null keeps an opaque, depth-writing river. */
   private history: WaterHistory | null;
   private mode: RiverReflection;
+  /** A sloped reach (stream, weir, rapids): its ripples flow downhill and steep parts foam (W4). */
+  private sloped: boolean;
 
   constructor(mesh: THREE.Mesh, private env: Environment, tier: QualityTier, private deterministic: boolean, renderer: THREE.WebGPURenderer) {
     const rgb = waterColour(mesh.userData);
@@ -65,7 +67,8 @@ export class RiverMaterial {
     // level down, is soft and low-resolution like it.
     const quarter = WATER_SWITCHES.quarter;
     const scale = quarter ? Math.min(QUALITY[tier].reflectionScale, 0.25) : QUALITY[tier].reflectionScale;
-    this.mode = riverReflection(tier, mesh.userData.water_slope === true);
+    this.sloped = mesh.userData.water_slope === true;
+    this.mode = riverReflection(tier, this.sloped);
     const reflection = this.reflection = this.mode === 'planar' ? reflector({ bounces: false, samples: 0, generateMipmaps: quarter }) : null;
     if (reflection && quarter) reflection.levelNode = float(RIVER_REFLECTION_BLUR);
     this.reflectionUV = reflection?.uvNode ?? null;
@@ -122,7 +125,7 @@ export class RiverMaterial {
     this.disposeSurface();
     if (this.reflection) this.reflection.uvNode = this.reflectionUV;
     this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection, this.bodyColour, this.history,
-      this.mode === 'ssr');
+      this.mode === 'ssr', this.sloped);
     this.material.needsUpdate = true;
   }
 

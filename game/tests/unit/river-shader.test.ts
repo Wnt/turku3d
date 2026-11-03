@@ -14,7 +14,7 @@ const defaults = { ...WATER_SWITCHES }, history = { ...WATER_HISTORY };
 afterEach(() => { Object.assign(WATER_SWITCHES, defaults); Object.assign(WATER_HISTORY, history); vi.unstubAllGlobals(); });
 
 /** The river's WGSL as the game builds it for one tier and switch set, with a PMREM-shaped sky in place. */
-function riverShader(tier: QualityTier, water: string | null, traa = false) {
+function riverShader(tier: QualityTier, water: string | null, traa = false, sloped = false) {
   vi.stubGlobal('requestAnimationFrame', () => 1);
   Object.assign(WATER_SWITCHES, parseWaterSwitches(water));
   const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
@@ -32,6 +32,7 @@ function riverShader(tier: QualityTier, water: string | null, traa = false) {
   ['output', 'normal', 'velocity'].forEach((name, i) => { target.textures[i].name = name; });
   if (traa) { renderer.setRenderTarget(target); renderer.setMRT(mrt({ output, normal: vec4(0), velocity: vec4(0) })); }
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2));
+  if (sloped) mesh.userData.water_slope = true;
   const river = new RiverMaterial(mesh, env, tier, false, renderer);
   mesh.material = river.material;
   const backend = renderer.backend as typeof renderer.backend & { createNodeBuilder(object: THREE.Object3D, renderer: THREE.WebGPURenderer): Builder };
@@ -101,4 +102,11 @@ test('?water=quarter renders the planar reflection at 0.25 with mipmaps and read
   const { fragment } = riverShader('medium', 'quarter', true);
   expect(fragment).toMatch(/textureSampleLevel\( \w+, \w+_sampler, [^;]*, 1\.0 \)/);
   expect(riverShader('medium', null, true).fragment).not.toMatch(/textureSampleLevel\( \w+, \w+_sampler, [^;]*, 1\.0 \)/);
+});
+
+test('sloped reaches flow downhill from their own triangles and break white where steep; flat reaches do not', () => {
+  const sloped = riverShader('medium', null, true, true), flat = riverShader('medium', null, true);
+  expect(sloped.name).toBe('river-sky');
+  expect(sloped.fragment).toMatch(/dpdx/);
+  expect(flat.fragment).not.toMatch(/dpdx/);
 });
