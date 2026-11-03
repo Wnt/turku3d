@@ -43,6 +43,7 @@ PRODUCERS = (
     "quay_lighting",
     "water",
     "water_appearance",
+    "water_levels",
     "garden_finishes",
     "hedges",
     "parked",
