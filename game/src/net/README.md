@@ -1,6 +1,6 @@
 # Multiplayer client
 
-`config.ts` chooses the local server at `ws://127.0.0.1:7700/` for a `localhost` page and the public server for other hosts. `?mp=ws://localhost:<port>/` overrides the endpoint for isolated tests. The server only accepts pages with the allowed origins in [PROTOCOL.md](../../../server/PROTOCOL.md).
+`config.ts` chooses the local server at `ws://127.0.0.1:7700/` for a `localhost` page, the page's own origin on a share host (`VITE_SHARE_HOSTS`, `core/localOnly.ts`; its server proxies the socket and scores, tools/share/deploy.sh) and the public server for other hosts. `?mp=ws://localhost:<port>/` overrides the endpoint for isolated tests. The server only accepts pages with the allowed origins in [PROTOCOL.md](../../../server/PROTOCOL.md).
 
 `MultiplayerClient` owns the WebSocket, session token in `sessionStorage`, reconnect backoff, roster and score snapshots. `sendPose` limits traffic to less than 20 messages per second and emits a one-second stationary heartbeat. Vehicle seat commands, deliveries and pole/fine events all replace poses in one shared 55 ms send queue. Play sessions construct it when Multiplayer is selected and dispose it when the session ends.
 

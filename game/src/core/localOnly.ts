@@ -11,6 +11,19 @@ export function isLocalHost(hostname: string): boolean {
     TEST_HOSTS.some(suffix => host === suffix || host.endsWith(`.${suffix}`));
 }
 
+/** A public share of a local build (city.lab.madekivi.fi on osgallery-dev, tools/share/deploy.sh): its own origin serves
+ *  the game services like a local one, but it is public like Pages, so none of the local-only features run there.
+ *  Build it with VITE_SHARE_HOSTS=city.lab.madekivi.fi (comma-separated exact hostnames); other builds leave it unset. */
+export function isShareHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return String(import.meta.env?.VITE_SHARE_HOSTS ?? '').split(',').some(h => h.trim().toLowerCase() === host && host !== '');
+}
+
+/** Whether the page's own origin serves the tiles (/coarse/), the point cloud (./pointcloud/) and multiplayer. */
+export function sameOriginServices(hostname: string): boolean {
+  return isLocalHost(hostname) || isShareHost(hostname);
+}
+
 /** Whether the local-only feature behind the query parameter `param` runs at `location`. */
 export function localFeature(location: { hostname: string; search: string }, param: string): boolean {
   const host = location.hostname.toLowerCase();

@@ -11,6 +11,7 @@ import * as THREE from 'three/webgpu';
 import { Discard, Fn, If, attribute, cameraFar, cameraNear, clamp, dot, float, int, max, modelViewMatrix, modelWorldMatrix,
   pass, perspectiveDepthToViewZ, pow, positionGeometry, screenUV, select, texture, uniform, uniformArray, varying, vec3, vec4 } from 'three/tsl';
 import { isPrecompiling } from '../compileModel';
+import { pointCloudSources } from './sources';
 import type { QualityTier } from '../quality';
 import { nodeBounds, surveyToEngine, nodeAnchor, childKeys, type CopcHeader, type CopcNode, type DecodedPoints } from './copc';
 import type { WorkerRequest } from './copc.worker';
@@ -64,9 +65,6 @@ export interface PointCloudOverlayApi extends HookOverlay {
 
 // This module owns the global; dev/editor/pointCloudHook.ts reads it structurally.
 declare global { interface Window { __turku3dPointCloud?: PointCloudOverlayApi } }
-
-/** The COPC product: same-origin through the dev server's proxy (vite.config.ts), else osgallery-dev's server. */
-export const SOURCES = ['./pointcloud/', 'http://192.168.1.114:7960/'] as const;
 
 /** Hard point budgets per tier (drawn points; 24 B each on the GPU). Desktop medium is the M1 Max target. */
 export const BUDGET: Record<QualityTier, number> = { mobile: 300_000, low: 600_000, reduced: 1_000_000, medium: 1_500_000, high: 3_000_000 };
@@ -221,7 +219,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
    *  (tools/pointcloud/serve.py sends CORS headers), e.g. on a dev server started before the proxy existed. */
   private base: string | null = null;
 
-  constructor(tier: QualityTier, private readonly bases: readonly string[] = SOURCES) {
+  constructor(tier: QualityTier, private readonly bases: readonly string[] = pointCloudSources(location.hostname)) {
     this.budget = BUDGET[tier];
     for (let c = 0; c < 32; c++) {
       const [r, g, b] = CLASS_COLORS[c] ?? [0.7, 0.7, 0.7];
