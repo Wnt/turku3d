@@ -74,6 +74,8 @@ export class CoarseTiles {
   private root: string;
   private remote: boolean;
   private client = `draft-${globalThis.crypto.randomUUID()}`;
+  /** A named tile client (`?tileClient=canary`) reports itself, so the farm never takes it for a player. */
+  private named = false;
   private demandBusy = false;
   private demandNext = 0;
   private demandRetries = 0;
@@ -130,6 +132,8 @@ export class CoarseTiles {
     const page = new URL(this.page);
     this.root = draftsUrl(page) ?? '/coarse/';
     this.remote = !isLocalHost(page.hostname);
+    const named = page.searchParams.get('tileClient');
+    if (named && /^[a-z0-9-]{1,32}$/.test(named)) { this.client = named; this.named = true; }
     this.comparison = new VisualPassComparison(host, this.entries, url => this.request(url), url => this.load(url),
       model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page, (id, fragment) => this.loadFragment(id, fragment));
     // Optional distant derivatives must not put collision/nearby streaming into outage backoff.
@@ -154,15 +158,20 @@ export class CoarseTiles {
 
   retainedStarts: readonly { x: number; z: number }[] = [];
   private startup: { points: readonly { x: number; z: number }[]; radius: number } | null = null;
-  /** Preload actual starting ground; distant draft expansion joins ordinary streaming after placement. */
-  preload(points: readonly { x: number; z: number }[], radius: number): () => void {
+  /** Where this client boots: the farm schedules its tile and ring as the player's until placement. */
+  private bootAt: { x: number; z: number } | null = null;
+  /** Preload actual starting ground; distant draft expansion joins ordinary streaming after placement.
+   *  `boot` marks the position the client actually starts at (not every menu choice). */
+  preload(points: readonly { x: number; z: number }[], radius: number, boot = false): () => void {
     this.startup = { points, radius };
-    return () => { this.startup = null; this.nextCheck = 0; };
+    if (boot) this.bootAt = points[0] ?? null;
+    return () => { this.startup = null; this.nextCheck = 0; this.bootAt = null; };
   }
-  /** Distance the tile farm schedules by: while the boot screen preloads the starting ground,
-   *  each starting point counts as the player, so its tile and ring build first. */
+  /** Distance the tile farm schedules by: while the client boots, its boot position counts as the
+   *  player, so that tile and its ring build first. */
   private demandDistance(id: string, x: number, z: number) {
-    return Math.min(distToL0(id, x, z), ...(this.startup?.points ?? []).map(p => distToL0(id, p.x, p.z)));
+    const boot = this.startup ? this.bootAt : null;  // Only until the client is placed.
+    return boot ? Math.min(distToL0(id, x, z), distToL0(id, boot.x, boot.z)) : distToL0(id, x, z);
   }
   private wantedStarts(x: number, z: number) {
     if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
@@ -466,7 +475,7 @@ export class CoarseTiles {
   private async refreshDraft(id: string, e: Entry, d: number) {
     e.refreshing = true; e.version = this.version; e.nextPoll = this.clock + 2000;
     try {
-      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`);
+      const res = await this.request(`${this.root}${id}/manifest.json?d=${Math.round(d)}${this.remote || this.named ? `&client=${this.client}` : ''}`);
       if (res.status === 429) {
         e.nextPoll = this.clock + Math.max(retryAfter(res), backoff(e.retries = (e.retries ?? 0) + 1));
         return;
@@ -604,7 +613,7 @@ export class CoarseTiles {
     e.state = 'loading';
     e.version = this.version;
     try {
-      const query = `?d=${Math.round(d)}${this.remote ? `&client=${this.client}` : ''}`;
+      const query = `?d=${Math.round(d)}${this.remote || this.named ? `&client=${this.client}` : ''}`;
       let res = await this.request(`${this.root}${id}/collision.json${query}`);
       // Older producers remain usable while a source deployment is switching.
       if (res.status === 404) res = await this.request(`${this.root}${id}/manifest.json${query}`);

@@ -530,7 +530,7 @@ async function runPlay() {
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
   streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
-  coarse.preload([requested], streamer.radius);
+  coarse.preload([requested], streamer.radius, true);
   const tWait = performance.now();
   let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
   while (!placed) {
