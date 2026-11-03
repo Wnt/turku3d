@@ -33,6 +33,9 @@ interface Bucket {
 interface Selection { bucket: Bucket; offset: number; count: number }
 interface Draw {
   barrier: boolean;
+  /** Library asset name and a stable identity, for the city-wide pools. */
+  asset: string;
+  id: number;
   root: THREE.Group;
   /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer. */
   levels: THREE.InstancedMesh[][];
@@ -45,6 +48,9 @@ interface Model {
   buckets: Bucket[];
 }
 interface Placement { matrix: THREE.Matrix4; tint: [number, number, number]; id: unknown }
+/** One asset LOD across every resident tile: shared world-space instances for all of the level's parts. */
+interface Pool { meshes: THREE.InstancedMesh[]; matrices: THREE.InstancedBufferAttribute | null; colors: THREE.InstancedBufferAttribute | null;
+  capacity: number; signature: number[]; objectIds: unknown[] }
 /** Placements by library asset, then by 50 m cell. */
 type Placements = Map<string, Map<string, Placement[]>>;
 function place(placements: Placements, name: string, matrix: THREE.Matrix4, tint: [number, number, number], id: unknown) {
@@ -77,12 +83,21 @@ export class VegetationLod {
   private readonly ready: Promise<void>;
   private disposed = false;
   private pending = new Map<THREE.Object3D, { cancelled: boolean; promise: Promise<void> }>();
+  /** With a scene, each asset LOD draws once for the whole city (census at spawn: 97 tree draws, one per species
+   * per tile). Per-tile parts keep their selection, buffers and preparation but are not drawn themselves. */
+  private poolRoot: THREE.Group | null = null;
+  private pools = new Map<string, Pool>();
+  private nextDraw = 0;
+  private signature: number[] = [];
+  private instance = new THREE.Matrix4();
+  private poolSphere = new THREE.Sphere();
   /** With a scene, tile grass surfaces also grow instanced grass near the camera (world-space draws under it). */
   constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, scene?: THREE.Object3D) {
     const loaded = (lib: NatureLibrary) => {
       if (this.disposed) return;
       this.library = lib;
       if (scene && QUALITY[tier].grass.density > 0) { this.grass = new GrassField(lib, tier); scene.add(this.grass.root); }
+      if (scene) { this.poolRoot = new THREE.Group(); this.poolRoot.name = 'vegetation-pools'; scene.add(this.poolRoot); }
     };
     if (library instanceof Promise) this.ready = library.then(loaded);
     else { loaded(library); this.ready = Promise.resolve(); }
@@ -96,6 +111,8 @@ export class VegetationLod {
     this.disposed = true;
     for (const model of this.loadedModels()) this.remove(model);
     this.grass?.dispose();
+    for (const pool of this.pools.values()) for (const mesh of pool.meshes) { mesh.removeFromParent(); mesh.dispose(); }
+    this.pools.clear(); this.poolRoot?.removeFromParent();
   }
 
   add(model: THREE.Object3D) {
@@ -238,7 +255,8 @@ export class VegetationLod {
         // Library materials are object-agnostic: every tile's draws of this part reuse one built program per pass.
         shareInstanceProgram(mesh);
         // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
-        mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds };
+        mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds,
+          ...(this.poolRoot ? { pooledVegetation: true } : {}) };
         mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
         if (shadowProxy) mesh.layers.set(TILE_SHADOW_LAYER);
         mesh.visible = false; mesh.count = 0;
@@ -252,7 +270,7 @@ export class VegetationLod {
       return parts;
     });
     source.parent!.add(root);
-    return { barrier: !shadows, root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
+    return { barrier: !shadows, asset: asset.name, id: this.nextDraw++, root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
   }
 
   update(camera: THREE.PerspectiveCamera) {
@@ -348,6 +366,70 @@ export class VegetationLod {
         }
       }
     }
+    if (this.poolRoot) this.updatePools();
+  }
+
+  /** Repack an asset LOD's city-wide instances only when a contributing tile's selection changed. Tile roots are
+   * static, so their instances go to world space once per change; stationary views write nothing. */
+  private updatePools() {
+    const live = new Map<string, { parts: THREE.InstancedMesh[]; level: number; draws: Draw[] }>();
+    for (const data of this.models.values()) for (const draw of data.draws) {
+      for (let level = 0; level < draw.levels.length; level++) {
+        const parts = draw.levels[level];
+        if (!parts[0].visible || parts[0].count === 0) continue;
+        const key = `${draw.asset}|${level}|${parts.length}`; // with or without shadow proxies
+        let entry = live.get(key);
+        if (!entry) live.set(key, entry = { parts, level, draws: [] });
+        entry.draws.push(draw);
+      }
+    }
+    for (const [key, pool] of this.pools) if (!live.has(key)) { for (const mesh of pool.meshes) mesh.visible = false; pool.signature.length = 0; }
+    for (const [key, { parts, level, draws }] of live) {
+      let pool = this.pools.get(key);
+      if (!pool) this.pools.set(key, pool = { meshes: [], matrices: null, colors: null, capacity: 0, signature: [], objectIds: [] });
+      const signature = this.signature; signature.length = 0;
+      let total = 0;
+      for (const draw of draws) { const first = draw.levels[level][0]; total += first.count; signature.push(draw.id, first.count, first.instanceMatrix.version); }
+      const same = signature.length === pool.signature.length && signature.every((value, i) => value === pool!.signature[i]);
+      if (same) { for (const mesh of pool.meshes) mesh.visible = mesh.count > 0; continue; }
+      pool.signature = signature.slice();
+      if (total > pool.capacity) this.growPool(pool, parts, total);
+      const matrices = pool.matrices!.array as Float32Array, colors = pool.colors!.array as Float32Array;
+      const bounds = this.poolSphere.makeEmpty(), sphere = this.sphere;
+      let offset = 0; pool.objectIds.length = 0;
+      for (const draw of draws) {
+        const first = draw.levels[level][0], count = first.count, world = draw.root.matrixWorld;
+        const source = first.instanceMatrix.array as Float32Array;
+        for (let i = 0; i < count; i++) this.instance.fromArray(source, i * 16).premultiply(world).toArray(matrices, (offset + i) * 16);
+        colors.set((first.instanceColor!.array as Float32Array).subarray(0, count * 3), offset * 3);
+        for (const id of first.userData.instance_object_ids as unknown[]) pool.objectIds.push(id);
+        if (first.boundingSphere) bounds.union(sphere.copy(first.boundingSphere).applyMatrix4(world));
+        offset += count;
+      }
+      for (const [attribute, width] of [[pool.matrices!, 16], [pool.colors!, 3]] as const) {
+        attribute.clearUpdateRanges(); attribute.addUpdateRange(0, offset * width); attribute.needsUpdate = true;
+      }
+      for (const mesh of pool.meshes) { mesh.count = offset; mesh.visible = offset > 0; mesh.boundingSphere = bounds.clone(); }
+    }
+  }
+
+  private growPool(pool: Pool, parts: THREE.InstancedMesh[], total: number) {
+    for (const mesh of pool.meshes) { mesh.removeFromParent(); mesh.dispose(); }
+    pool.capacity = Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(1, total))));
+    pool.matrices = new THREE.InstancedBufferAttribute(new Float32Array(pool.capacity * 16), 16);
+    pool.colors = new THREE.InstancedBufferAttribute(new Float32Array(pool.capacity * 3), 3);
+    pool.meshes = parts.map(part => {
+      const mesh = new THREE.InstancedMesh(part.geometry, part.material, pool.capacity);
+      mesh.instanceMatrix = pool.matrices!; mesh.instanceColor = pool.colors;
+      shareInstanceProgram(mesh);
+      const { pooledVegetation: _, ...userData } = part.userData;
+      mesh.userData = { ...userData, instance_object_ids: pool.objectIds };
+      mesh.name = `vegetation-pool:${part.userData.nature}:${part.userData.level}`;
+      mesh.receiveShadow = part.receiveShadow; mesh.castShadow = part.castShadow; mesh.layers.mask = part.layers.mask;
+      mesh.count = 0; mesh.visible = false;
+      this.poolRoot!.add(mesh);
+      return mesh;
+    });
   }
 
   remove(model: THREE.Object3D) {
