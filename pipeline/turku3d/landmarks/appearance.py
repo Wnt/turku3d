@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 
-from turku3d.package.gltf import GlbMesh
+from turku3d.package.gltf import GlbMesh, vertex_normals
 
 from .atlas import batch, merge
 from .descriptions import resolve
@@ -190,7 +190,7 @@ def wall_meshes(building, walls, origin, description=None):
                 ),
             )
         )
-    return batch(result)
+    return night_wash(batch(result), building, origin, d)
 
 
 def roof_mesh(building, roof, indices, origin, description=None):
@@ -232,3 +232,67 @@ def roof_mesh(building, roof, indices, origin, description=None):
             landmark_description=d["content_hash"],
         ),
     )
+
+
+def split_night_levels(mesh, levels):
+    """Split only triangles crossing lighting boundaries, interpolating authored attributes."""
+    fields = ['positions', 'normals', 'uvs', 'colors', 'baked_visibility']
+    fields = [name for name in fields if getattr(mesh, name) is not None]
+    output = {name: list(getattr(mesh, name)) for name in fields}
+    triangles = []
+    for indices in mesh.indices:
+        points = mesh.positions[indices]
+        cuts = [y for y in levels if points[:, 1].min() < y < points[:, 1].max()]
+        if not cuts:
+            triangles.append(indices)
+            continue
+        polygons = [list(np.eye(3))]
+        for y in cuts:
+            next_polygons = []
+            for polygon in polygons:
+                for side in (-1, 1):
+                    clipped = []
+                    for a, b in zip(polygon, polygon[1:] + polygon[:1]):
+                        da, db = a @ points[:, 1] - y, b @ points[:, 1] - y
+                        if side * da >= 0:
+                            clipped.append(a)
+                        if da * db < 0:
+                            clipped.append(a + (b-a) * da/(da-db))
+                    if len(clipped) >= 3:
+                        next_polygons.append(clipped)
+            polygons = next_polygons
+        for polygon in polygons:
+            offset = len(output['positions'])
+            weights = np.asarray(polygon)
+            for name in fields:
+                output[name].extend(weights @ getattr(mesh, name)[indices])
+            triangles.extend([offset, offset+i, offset+i+1] for i in range(1, len(polygon)-1))
+    used, remap = np.unique(np.asarray(triangles).ravel(), return_inverse=True)
+    for name in fields:
+        setattr(mesh, name, np.asarray(output[name])[used])
+    mesh.indices = remap.reshape(-1, 3).astype(np.uint32)
+
+
+def night_wash(meshes, building, origin, description):
+    """Bake a reviewed landmark's diffuse wall contribution; copper and roofs stay unlit."""
+    profile = description.get('night_lighting')
+    if not profile:
+        return meshes
+    tower = description.get('tower', {})
+    start, end = profile.get('tower_ramp_m', [12, 28])
+    copper = tower.get('copper_start_m', float('inf'))
+    fade = profile.get('copper_fade_m', 3)
+    for mesh in meshes:
+        split_night_levels(mesh, [h + building.base - origin[1]
+                                 for h in (start, end, copper-fade, copper) if np.isfinite(h)])
+        height = mesh.positions[:, 1] + origin[1] - building.base
+        normals = vertex_normals(mesh.positions, mesh.indices)
+        facing = np.maximum.reduce([np.maximum(0, normals[:, [0, 2]] @ np.asarray(d))
+                                    for d in profile['directions_xz']])
+        # Survey geometry carries height; the description owns the masonry/copper transition.
+        upper = np.clip((height - start) / (end-start), 0, 1)
+        energy = profile['body_intensity'] * (1-upper) + profile['tower_intensity'] * upper
+        energy *= np.clip((copper-height)/fade, 0, 1) * (.2+.8*facing)
+        mesh.night_irradiance = energy[:, None] * np.asarray(profile['color_linear'])
+        mesh.extras['material_key'] = 'night_landmark_wall'
+    return meshes

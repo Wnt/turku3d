@@ -39,6 +39,7 @@ class GlbMesh:
     normal_image: bytes | None = None
     orm_image: bytes | None = None
     colors: np.ndarray | None = None  # (N,3) linear RGB multiplying ``color`` (COLOR_0)
+    night_irradiance: np.ndarray | None = None  # (N,3) authored diffuse lighting at full night
     baked_visibility: np.ndarray | None = None  # (N,3) local AO visibility, sky visibility, coverage (COLOR_1)
 
 
@@ -133,6 +134,11 @@ def build_glb(
                 "VEC3",
                 ARRAY_BUFFER,
             )
+        if m.night_irradiance is not None:
+            night = np.asarray(m.night_irradiance)
+            if night.shape != pos.shape or not np.isfinite(night).all() or np.any(night < 0):
+                raise ValueError(f"{m.name}: invalid night irradiance")
+            attrs["_NIGHT_IRRADIANCE"] = accessor(np.ascontiguousarray(night, np.float32), FLOAT, "VEC3", ARRAY_BUFFER)
         if m.baked_visibility is not None:
             visibility = np.asarray(m.baked_visibility)
             if (visibility.shape != pos.shape or not np.isfinite(visibility).all()

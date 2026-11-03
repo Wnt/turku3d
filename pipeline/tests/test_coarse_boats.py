@@ -86,7 +86,7 @@ def test_boat_deck_is_complete_across_visual_seam_with_bounded_solid_geometry(
                 )
         visuals = boats.visuals(tile, meshes)
         assert all(
-            m.extras["layer"] == "boats" and m.extras["material_key"].startswith("boat_")
+            m.extras["layer"] == "boats" and m.extras["material_key"].startswith(("boat_", "night_boat_"))
             for m in visuals
         )
         assert all(m.image and m.uvs is not None for m in visuals)

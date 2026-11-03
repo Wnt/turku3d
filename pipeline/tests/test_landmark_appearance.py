@@ -31,7 +31,8 @@ def test_cathedral_glb_has_physical_maps_and_height_aligned_uv():
     meshes = wall_meshes(b, wall, np.zeros(3))
     m = meshes[0]
     assert m.extras["landmark_tower"]
-    assert np.allclose(m.uvs, [[0, 1], [1, 1], [1, 0], [0, 0]])
+    assert np.allclose(m.uvs[:, 0], m.positions[:, 0] / 15)
+    assert np.allclose(m.uvs[:, 1], 1 - (m.positions[:, 1] - 12) / 63)
     data = build_glb(meshes)
     size = struct.unpack_from("<I", data, 12)[0]
     doc = json.loads(data[20 : 20 + size])

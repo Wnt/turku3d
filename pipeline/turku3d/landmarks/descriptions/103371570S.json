@@ -30,7 +30,8 @@
     "Colours estimate neutral material albedo rather than shaded pixel values. Material-colour confidence is approximately 0.7; masonry unit sizes and seam spacing have lower confidence.",
     "Tower minimum_height_m and maximum_width_m are approximate classification thresholds, not measurements of total tower height.",
     "LOD2 Building_1156587 calibration: base 13.538m N2000, masonry tower top 64.51-64.56m, copper belfry top 78.26m, finial 102.528m. Heights in program are metres above base. Clock and bands scaled to masonry stage.",
-    "West entrance portal estimated 2.1m wide by4.3m tall above terrace; retain separate from nave windows."
+    "West entrance portal estimated 2.1m wide by4.3m tall above terrace; retain separate from nave windows.",
+    "Night reference previews 223488, 509853, 321744 and 554993: warm selective masonry illumination, pale upper details bright, copper spire dark; do not floodlight the entire nave uniformly."
   ],
   "brick": {
     "colour": [
@@ -152,5 +153,39 @@
     "height_m": 4.3,
     "sill_m": 0.35,
     "facade": "west"
+  },
+  "night_lighting": {
+    "evidence_ids": [
+      223488,
+      509853,
+      321744,
+      554993
+    ],
+    "observation": "Selective warm illumination on brick tower and pale upper masonry; nave dimmer; copper roof and spire remain dark.",
+    "confidence": 0.65,
+    "measurement": "Uncalibrated photo prior. Lamp locations and flux not measured.",
+    "color_linear": [
+      1,
+      0.74,
+      0.46
+    ],
+    "tower_intensity": 0.65,
+    "body_intensity": 0.18,
+    "directions_xz": [
+      [
+        -1,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "direction_note": "West and south visible faces; broad directional prior, not fixture coordinates.",
+    "tower_ramp_m": [
+      12,
+      28
+    ],
+    "copper_fade_m": 3
   }
 }

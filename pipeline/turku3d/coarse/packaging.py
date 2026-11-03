@@ -59,6 +59,7 @@ PRODUCERS = (
     "bridge_kit",
     "bridge_join",
     "bridge_survey",
+    "night_accents",
     "kerbs",
     "stairs",
     "stair_survey",

@@ -6,18 +6,25 @@ from pathlib import Path
 RULES_PATH = Path(__file__).with_suffix('.json')
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
+def _rules(content):
+    return json.loads(content)
+
+
 def rules():
-    return json.loads(RULES_PATH.read_text())
+    return _rules(RULES_PATH.read_text())
 
 
 def use_class(attributes):
     """Conservative building-use class; unknown uses retain residential occupancy."""
     a = attributes or {}
-    value = ' '.join(str(a.get(k) or '') for k in ('use', 'building', 'amenity', 'office')).casefold()
-    if any(k in value for k in ('restaurant', 'ravintola', 'hotel', 'hotelli', 'cafe', 'pub', 'nightclub', 'bar')):
+    generic = ('', 'yes', 'unknown', 'none', 'building')
+    value = next((str(a[k]).casefold() for k in ('osm_use', 'use', 'amenity', 'building')
+                  if str(a.get(k) or '').casefold() not in generic), '')
+    if value in ('restaurant', 'hotel', 'cafe', 'pub', 'nightclub', 'bar') or value.startswith(('ravintola', 'hotelli')):
         return 2
-    if any(k in value for k in ('office', 'toimisto', 'school', 'koulu', 'education', 'opetus', 'university', 'college')):
+    if value in ('office', 'school', 'education', 'university', 'college', 'administrative',
+                 '1120', '1130', '1140', '1970') or value.startswith(('toimisto', 'koulu', 'opetus')):
         return 1
     return 0
 

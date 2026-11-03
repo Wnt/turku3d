@@ -342,3 +342,21 @@ def test_batched_assembly_preserves_partial_walls_across_both_axes_and_chunk_edg
     area = np.linalg.norm(np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0]), axis=1).sum() / 2
     assert area == pytest.approx(50)
     assert validate_meshes(result, 'fixture')['violations'] == 0
+
+
+def test_night_irradiance_survives_layer_decode_wall_cut_and_repack(tmp_path):
+    from turku3d.wall_assembly import assemble_structures
+    from turku3d.wall_surfaces import layer_meshes
+    from turku3d.package.gltf import build_glb
+
+    original = mesh(np.concatenate([quad(x1=6), quad(x0=10, x1=16)]))
+    original.indices = np.concatenate([original.indices, original.indices + 4])
+    original.night_irradiance = original.positions * [.02, .04, 0] + [.1, .2, .3]
+    original.extras['material_key'] = 'night_landmark_wall'
+    path = tmp_path / 'night.glb'; path.write_bytes(build_glb([original]))
+    loaded = layer_meshes([path])[0]
+    np.testing.assert_allclose(loaded.night_irradiance, original.night_irradiance)
+    cut = assemble_structures([loaded], [mesh(quad(x1=2))])[0]
+    np.testing.assert_allclose(cut.night_irradiance, cut.positions * [.02,.04,0] + [.1,.2,.3], atol=1e-7)
+    path.write_bytes(build_glb([cut])); restored = layer_meshes([path])[0]
+    np.testing.assert_allclose(restored.night_irradiance, cut.night_irradiance, atol=1e-7)

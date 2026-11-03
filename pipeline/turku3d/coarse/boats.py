@@ -23,6 +23,8 @@ COLOURS = {
     "blue": (30, 64, 108),
     "white": (216, 217, 205),
     "glass": (33, 51, 58),
+    "night_cabin": (33, 51, 58),
+    "night_bulb": (240, 226, 194),
     "canvas": (225, 225, 210),
 }
 
@@ -286,7 +288,12 @@ def produce(tile, records):
 
         parts.extend(produce_rigging(key, boat))
         if boat["tags"].get("amenity") in ("restaurant", "bar", "cafe", "pub", "nightclub"):
+            from .night_accents import restaurant_bulbs
             parts.extend(furniture(key, boat, outline.difference(cabins.buffer(0.6))))
+            parts.extend(restaurant_bulbs(key, boat))
+            for part in parts:
+                if part.metadata.get("surface") == "glass":
+                    part.metadata["surface"] = "night_cabin"
         for part in combine(parts, key):
             clipped = clip_mesh(part, tile.bbox)
             if clipped is not None:
@@ -295,6 +302,8 @@ def produce(tile, records):
 
 
 def visuals(tile, meshes):
+    from turku3d.night_lighting import rules
+    night = rules()["boats"]
     return [
         GlbMesh(
             m.object_id,
@@ -304,11 +313,13 @@ def visuals(tile, meshes):
             image=texture(m.metadata["surface"]),
             repeat=True,
             color=(1, 1, 1, 1),
-            roughness=0.25 if m.metadata["surface"] == "glass" else 0.8,
+            roughness=0.25 if m.metadata["surface"] in ("glass", "night_cabin") else 0.8,
+            emissive=tuple(night["cabinColor"]) if m.metadata["surface"].startswith("night_") else (0, 0, 0),
             extras=dict(
                 layer="structures" if m.object_id.startswith(("pier:", "harbour:")) else "boats",
                 object_id=m.object_id,
-                material_key=("pier_" if m.object_id.startswith("pier:") else "boat_") + m.metadata["surface"]
+                material_key="night_boat_" + m.metadata["surface"].removeprefix("night_")
+                if m.metadata["surface"].startswith("night_") else ("pier_" if m.object_id.startswith("pier:") else "boat_") + m.metadata["surface"]
             ),
         )
         for m in meshes
@@ -359,6 +370,9 @@ def stage(cache, tile, records):
             Path(__file__).with_name("gardens.py"),
             Path(__file__).with_name("harbour.py"),
             Path(__file__).with_name("rigging.py"),
+            Path(__file__).with_name("night_accents.py"),
+            Path(__file__).parents[1] / "night_lighting.py",
+            Path(__file__).parents[1] / "night_lighting.json",
             Path(C.__file__),
             Path(__file__).parents[1] / "structures/geometry.py",
         ),
