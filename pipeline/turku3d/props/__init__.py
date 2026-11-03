@@ -571,6 +571,10 @@ def visual_bytes(props, tile):
                     ),
                     "sign_code": p.code,
                     "texture_uv": "normalized",
+                    # The placement rule's result, so edits and migrations match exactly.
+                    "yaw_deg": round(math.degrees(p.yaw), 2),
+                    "orientation": p.orientation,
+                    **({"adjusted": p.adjusted} if p.adjusted else {}),
                 },
             }
         )

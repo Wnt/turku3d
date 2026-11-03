@@ -51,6 +51,7 @@ def sources():
         base / "night_lighting.py",
         base / "night_lighting.json",
         base / "props/orientation.py",
+        base / "props/seating.py",
         base / "package/gltf.py",
         base / "roads/__init__.py",
     ]
@@ -62,13 +63,20 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
 
     from .build import grid_height
 
+    from turku3d.ground.inputs import laz_paths
+    from turku3d.props.seating import WINDOW
+    from turku3d.tile_layer import identities
+
     footprints = [b.footprint for b in (*inputs.buildings, *inputs.wall_context)]
     water = list(inputs.water)
     roads = inputs.roads["json"] if inputs.roads else None
+    barriers = list(inputs.barriers or ())
+    laz = laz_paths(tile.bbox.buffered(WINDOW))
     return cache.run(
         "furniture",
         source_key(*sources(), grid_height, *common),
-        [tile, list(inputs.poles), grid_pos, footprints, water, roads, carried],
+        [tile, list(inputs.poles), grid_pos, footprints, water, roads, carried, barriers,
+         identities({str(p): p for p in laz})],
         lambda: produce(
             tile,
             inputs.poles,
@@ -77,6 +85,8 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
             water,
             roads,
             carried,
+            barriers,
+            laz,
         ),
     )
 
@@ -92,8 +102,8 @@ def _outside(polygon, point, clearance=CLEARANCE):
     return edge.distance(point), edge.x + dx / length * clearance, edge.y + dz / length * clearance
 
 
-def produce(tile, poles, height_at, footprints, water, roads, carried):
-    from turku3d.props import visual_bytes
+def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=()):
+    from turku3d.props import seating, visual_bytes
     from turku3d.props.lights import Light, encode, post_light, street_edges, wall_lights
     from turku3d.night_lighting import lamp_kind, lamp_height
 
@@ -101,7 +111,7 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
     buildings = STRtree(footprints) if footprints else None
     wet = STRtree(water) if water else None
     blocked_deck = carried if carried is not None and not carried.is_empty else None
-    placed, lights = [], []
+    placed, lights, benches = [], [], []
     for source in poles:
         p = copy.copy(source)
         if p.kind == "post":
@@ -138,6 +148,9 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
             else:
                 stats[f"dropped_in_building:{p.kind}"] += 1
                 continue
+        if p.kind == "bench":
+            benches.append(p)  # placed against the survey and barriers below (props.seating)
+            continue
         if not tile.bbox.contains(p.x, p.z):
             stats[f"left_tile:{p.kind}"] += 1
             continue
@@ -150,6 +163,14 @@ def produce(tile, poles, height_at, footprints, water, roads, carried):
             placed.append(p)
             continue
         placed.append(p)
+    if benches:
+        cloud = seating.survey_cloud(tile.bbox, benches, list(laz))
+        for p in seating.place(benches, cloud, barriers, footprints, water, stats):
+            if not tile.bbox.contains(p.x, p.z):
+                stats["left_tile:bench"] += 1
+                continue
+            p.y = height_at(p.x, p.z)
+            placed.append(p)
     edges, trees = street_edges(roads)
     lamps = [p for p in placed if p.kind == "lamp"]
     furniture = [p for p in placed if p.kind != "lamp"]
