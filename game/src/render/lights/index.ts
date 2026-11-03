@@ -10,6 +10,7 @@ import { LampPools, footprintSight, poolLamp, type PoolLamp } from './pools';
 import type { Footprint } from './tileScan';
 import { nightLevel, type NightInputs } from './night';
 import { GroundLampField } from './groundField';
+import { FloodMasts, type FloodTile } from './floodlights';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
 const STEP_MS = 1.5;
@@ -27,9 +28,14 @@ export class StreetLights {
   /** Real light pools of the nearest lamps in the fixed point slots (none on mobile and low). */
   readonly pools: LampPools;
   readonly ground: GroundLampField;
+  /** Poles of the floodlight masts the city does not draw already. */
+  readonly masts: FloodMasts;
   night = 0;
+  private floodMasts = 0;
+  private floodVenues = 0;
   private tiles = new Map<string, readonly Lamp[]>();
   private footprints = new Map<string, Footprint>();
+  private flood = new Map<string, FloodTile>();
   private source: { entries: ReadonlyMap<string, Entry> } | null = null;
   private nextSync = 0;
   private postsDirty = false;
@@ -41,10 +47,13 @@ export class StreetLights {
     this.sprites = new LightSprites(tier);
     this.pools = new LampPools(slots, footprintSight(() => this.footprints.values()));
     this.ground = new GroundLampField(() => this.footprints.values());
-    scene.add(this.posts.mesh);
-    this.field.onTile = (id, lamps, footprint) => {
+    // The masts share the posts' material (and its prebuilt pipeline): no new shader at night.
+    this.masts = new FloodMasts(this.posts.mesh.material as THREE.Material);
+    scene.add(this.posts.mesh, this.masts.mesh);
+    this.field.onTile = (id, lamps, footprint, flood) => {
       if (lamps) this.tiles.set(id, lamps); else this.tiles.delete(id);
       if (footprint) this.footprints.set(id, footprint); else this.footprints.delete(id);
+      if (lamps && flood) this.flood.set(id, flood); else this.flood.delete(id);
       this.sprites.setGroup(`tile:${id}`, lamps?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
       this.postsDirty = true;
     };
@@ -62,6 +71,10 @@ export class StreetLights {
       const all = [...this.tiles.values()].flat();
       this.posts.setLamps(all.filter(l => l.post));
       this.ground.setLamps(all);
+      const flood = [...this.flood.values()];
+      this.ground.setVenues(flood.flatMap(f => f.venues));
+      this.floodMasts = this.masts.setMasts(flood.flatMap(f => f.masts));
+      this.floodVenues = flood.reduce((n, f) => n + f.venues.length, 0);
       if (this.pools.size) this.pools.setLamps(all.map(poolLamp).filter((l): l is PoolLamp => l !== null));
     }
     this.night = this.override ?? nightLevel(inputs);
@@ -79,8 +92,12 @@ export class StreetLights {
     for (const list of this.tiles.values()) { lamps += list.length; posts += list.filter(l => l.post).length; }
     return { tiles: this.tiles.size, pending: this.field.pending() || this.ground.pending, lamps, posts, postsDrawn: this.posts.drawn,
       sprites: this.sprites.count, spriteCapacity: this.sprites.capacity, spritesDropped: this.sprites.dropped, night: this.night,
-      pools: this.pools.snapshot() };
+      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts,
+      floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0) };
   }
 
-  dispose() { this.posts.mesh.removeFromParent(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); }
+  dispose() {
+    this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent();
+    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose();
+  }
 }

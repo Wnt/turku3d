@@ -12,6 +12,8 @@ import type { QualityTier } from '../quality';
 export const SPRITE = {
   /** Output-pixel diameter clamp: distant lights never vanish, near ones bound additive overdraw. */
   minPx: 2, maxPx: 48,
+  /** Pixel cap of a floodlight head's glare at 1080p. */
+  glarePx: 80,
   /** Near fade (metres): close lamps are their emissive heads, not coronas. */
   nearStart: 3, nearEnd: 10,
   /** Corona is pulled this far toward the camera before the depth test, clearing its own lamp head. */
@@ -36,8 +38,10 @@ export function spriteLevel(night: number, day: number, distance: number, age: n
   return Math.max(night, day) * smooth(SPRITE.nearStart, SPRITE.nearEnd, distance) * Math.min(1, Math.max(0, age / SPRITE.fadeIn));
 }
 
-/** Outdoor lamp heads need a compact corona; other sprite sources retain their original response. */
-export function coronaProfile(headRadius?: number): readonly number[] {
+/** Outdoor lamp heads need a compact corona and floodlight heads a wide glare; other sprite sources retain their
+ *  original response. Profile: [pixel cap at 1080p, halo weight, pull toward the camera (m), cap follows viewport]. */
+export function coronaProfile(headRadius?: number, glare?: number): readonly number[] {
+  if (glare) return [SPRITE.glarePx, 0.45 * glare, 1.2, 1];
   return headRadius === undefined ? [SPRITE.maxPx, 0.18, SPRITE.pull, 0] : [24, 0.06, Math.min(0.25, Math.max(0.06, headRadius * 1.5)), 1];
 }
 
@@ -174,7 +178,7 @@ export class LightSprites {
       c.set([light.x, light.y, light.z, light.radius], i * 4);
       k.set([light.r, light.g, light.b, light.day], i * 4);
       b[i] = born;
-      (this.profiles.array as Float32Array).set(coronaProfile(light.headRadius), i * 4);
+      (this.profiles.array as Float32Array).set(coronaProfile(light.headRadius, light.glare), i * 4);
     });
     if (!all.length) { c.fill(0, 0, 4); k.fill(0, 0, 4); }
     this.count = all.length;
