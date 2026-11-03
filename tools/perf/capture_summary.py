@@ -90,6 +90,25 @@ def js_functions(traces, start, end):
     return own, inclusive, total_samples
 
 
+def gpu_pass_summary(stats, start, end):
+    values, seen = defaultdict(list), set()
+    for row in sorted(stats, key=lambda row: row['t']):
+        if not start <= row['t'] <= end:
+            continue
+        frame, passes = row.get('gpuPassFrame'), row.get('gpuPassMs')
+        if not isinstance(frame, int) or isinstance(frame, bool) or frame < 0 or frame in seen or not isinstance(passes, dict):
+            continue
+        valid = {name: value for name, value in passes.items() if isinstance(value, (int, float))
+                 and not isinstance(value, bool) and math.isfinite(value) and value >= 0}
+        if not valid:
+            continue
+        seen.add(frame)
+        for name, value in valid.items():
+            values[name].append(value)
+    return {name: dict(samples=len(samples), p50=percentile(samples, .5), p95=percentile(samples, .95))
+            for name, samples in values.items()}, len(seen)
+
+
 def render_settings(meta, stats, start, end):
     stats = sorted(stats, key=lambda row: row['t'])
     preceding = [row for row in stats if row['t'] <= start]
@@ -116,7 +135,9 @@ def analyse(directory, segment=None):
         if not 1 <= segment <= len(spans):
             raise ValueError(f'{directory}: segment {segment} missing; {len(spans)} available')
         start, end = spans[segment - 1]
-    settings, resolution_changed = render_settings(meta, rows(directory, 'stats'), start, end)
+    stats = rows(directory, 'stats')
+    settings, resolution_changed = render_settings(meta, stats, start, end)
+    gpu_passes, gpu_pass_frames = gpu_pass_summary(stats, start, end)
     frames = [f for f in frames if start <= f[0] <= end]
     intervals = [(b[0], b[0] - a[0]) for a, b in zip(frames, frames[1:]) if b[0] > a[0]]
     gpu, seen = [], set()
@@ -161,7 +182,7 @@ def analyse(directory, segment=None):
             scripts[key][2] += script.get('forced', 0)
     network = [r for r in rows(directory, 'network') if start <= r['t'] <= end]
     own, inclusive, sample_count = js_functions(rows(directory, 'js'), start, end)
-    return dict(directory=str(directory), meta=meta, settings=settings, resolution_changed=resolution_changed, start=start, end=end, segments=spans, frames=len(frames), gpu_samples=len(gpu), metrics=metrics,
+    return dict(directory=str(directory), meta=meta, settings=settings, resolution_changed=resolution_changed, start=start, end=end, segments=spans, frames=len(frames), gpu_samples=len(gpu), gpu_passes=gpu_passes, gpu_pass_frames=gpu_pass_frames, metrics=metrics,
                 worst=worst, loaf=loaf, scripts=scripts, network=network, own=own, inclusive=inclusive, sample_count=sample_count)
 
 
@@ -176,6 +197,13 @@ def show(result):
     print(f"FPS {number(m['fps'])}; interval ms p50/p95/p99 {number(m['interval_p50'])} / {number(m['interval_p95'])} / {number(m['interval_p99'])}")
     print(f"CPU ms p50/p95 {number(m['cpu_p50'])} / {number(m['cpu_p95'])}; GPU ms p50/p95 {number(m['gpu_p50'])} / {number(m['gpu_p95'])} ({result['gpu_samples']} unique readbacks)")
     print(f"Draws p50/p95 {number(m['draws_p50'])} / {number(m['draws_p95'])}; tris p50/p95 {number(m['tris_p50'])} / {number(m['tris_p95'])}")
+    if result['gpu_pass_frames']:
+        print(f"GPU render passes (1 Hz stats, {result['gpu_pass_frames']} unique owning frames; sampled p50/p95 ms):")
+        for name, timing in sorted(result['gpu_passes'].items(), key=lambda item: -item[1]['p95']):
+            print(f"  {name:<14} {timing['samples']:5} samples  {number(timing['p50']):>9} / {number(timing['p95']):>9}")
+    else:
+        print('GPU render passes: unavailable (no complete frame-owned pass results in stats)')
+
     print('Worst 1-second windows (non-overlapping, ranked by FPS):')
     for w in result['worst']:
         print(f"  t={w['t']:.1f} fps={w['fps']} max={w['max_ms']:.1f} ms p95={number(w['p95_ms'])} position={w.get('position')}")
@@ -209,6 +237,13 @@ def compare(a, b):
         print(f'{key:<19} {number(value):>14} {number(other):>14} {change:>12}')
     print(f"{'LoAF >100ms':<19} {sum(e['d'] > 100 for e in a['loaf']):>14} {sum(e['d'] > 100 for e in b['loaf']):>14}")
     print(f"{'resource responses':<19} {len(a['network']):>14} {len(b['network']):>14}")
+    names = set(a['gpu_passes']) | set(b['gpu_passes'])
+    if names:
+        print('GPU render pass p50/p95 ms (1 Hz sampled stats, not every rendered frame):')
+        for name in sorted(names):
+            left, right = a['gpu_passes'].get(name, {}), b['gpu_passes'].get(name, {})
+            print(f"  {name:<14} {number(left.get('p50')):>9}/{number(left.get('p95')):<9} -> {number(right.get('p50')):>9}/{number(right.get('p95')):<9}")
+
     for key in ['quality', 'pixelRatio', 'viewport', 'backend', 'commit']:
         print(f"  {key}: {a['settings'][key]} -> {b['settings'][key]}")
     changed = [key for key in ['quality', 'pixelRatio', 'viewport', 'backend'] if a['settings'][key] != b['settings'][key]]
