@@ -46,3 +46,23 @@ def test_mapped_play_equipment_stays_inside_area_and_uses_shared_solid_meshes():
         assert np.isfinite(m.positions).all()
     assert yard_cover.playgrounds(tile,[('small',shapely.box(0,0,2,2))],lambda x,z:0,[])==[]
     assert yard_cover.playgrounds(tile,[('blocked',area)],lambda x,z:0,[area])==[]
+
+
+def test_bright_courtyard_paving_keeps_explicit_road_and_grass_priority():
+    assert not yard_cover.paving_mask(np.full((1,1,3),255,np.uint8)).any()
+    tile = C.VisualTile(0, 0, 0)
+    rgb = np.full((250, 250, 3), [75, 77, 78], np.uint8)
+    rgb[10:20, 10:20] = [176, 174, 164]
+    rgb[12:15, 12:15] = [100, 136, 77]
+    rgb[20:25, 20:25] = [163, 97, 82]  # Coloured play surfacing is not neutral stone.
+    regions = yard_cover.regions(tile, rgb, shapely.box(0, 0, 50, 50), [])
+    paving = shapely.union_all([g for g,m in regions if m == mat_id('paving_slab')])
+    grass = shapely.union_all([g for g,m in regions if m == mat_id('grass')])
+    assert abs(paving.area - 91) < 1e-8 and abs(grass.area - 9) < 1e-8
+    assert paving.intersection(grass).area == 0
+    assert not paving.covers(shapely.Point(22, 22))
+    p = np.array([[0,2,0],[50,2,0],[0,2,50]],float)
+    _, _, ids, _ = split_boundaries(p, np.array([[0,2,1]],np.uint32),
+        np.array([mat_id('road')],np.uint8),np.array([True]),
+        [*regions,(shapely.box(0,0,50,50),mat_id('road'))])
+    assert np.all(ids == mat_id('road'))
