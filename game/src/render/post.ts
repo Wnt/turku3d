@@ -185,7 +185,10 @@ export class PostProcessing {
     this.scene.updateMatrixWorld();
     const autoUpdate = this.scene.matrixWorldAutoUpdate;
     this.scene.matrixWorldAutoUpdate = false;
-    try { this.pipeline.render(); } finally { this.scene.matrixWorldAutoUpdate = autoUpdate; }
+    // First-use draws of the live frame compile their pipelines asynchronously (render/asyncPipelines.ts).
+    const live = this.renderer instanceof GameRenderer ? this.renderer : null;
+    if (live) live.liveFrame = true;
+    try { this.pipeline.render(); } finally { this.scene.matrixWorldAutoUpdate = autoUpdate; if (live) live.liveFrame = false; }
   }
   dispose() { for (const resource of this.resources) resource.dispose(); }
 }
