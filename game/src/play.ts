@@ -517,11 +517,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       if (drivenId && seatExit) leaveCar(seatExit);
       remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
-    physics.updateInput(charIn, carIn, !paused && (!multiplayerPlaying || !!multiplayer?.state.connected));
+    const simulating = !paused && (!multiplayerPlaying || !!multiplayer?.state.connected);
+    physics.updateInput(charIn, carIn, simulating);
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;
-    const renderVehicle = physics.vehicleRender.sample(now / 1000);
+    const renderVehicle = physics.vehicleRender.sample(now / 1000, simulating);
     if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
@@ -578,7 +579,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       if (vehicle) tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt, vehicle.speed);
     }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
-    const renderCharacter = physics.characterRender.sample(now / 1000);
+    const renderCharacter = physics.characterRender.sample(now / 1000, simulating);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
     }
