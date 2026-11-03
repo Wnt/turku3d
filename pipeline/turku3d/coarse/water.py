@@ -1,6 +1,8 @@
 """Continuous open water, with surveyed outer banks and a shared N2000 surface."""
 
 import json
+from functools import lru_cache
+from pathlib import Path
 
 import shapely
 
@@ -30,6 +32,29 @@ def flowing_areas(path):
     return result
 
 
+@lru_cache(maxsize=4)
+def _bodies(identities):
+    """Dissolved survey water and inset mapped interior of whole source files.
+
+    ``identities`` are (path, size, mtime) of the survey and the OSM source (or None), so a
+    persistent worker dissolves an area once for all of its tiles.
+    """
+    (survey, osm) = (path and Path(path[0]) for path in identities)
+    surveyed = []
+    if survey:
+        for geometry in frame(survey).geometry_local:
+            surveyed.extend(parts(shapely.make_valid(shapely.force_2d(geometry)), ("Polygon",)))
+    interior = shapely.union_all(flowing_areas(osm)).buffer(-INTERIOR_MARGIN)
+    return tuple(parts(shapely.union_all([*surveyed, interior]), ("Polygon",)))
+
+
+def _identity(path):
+    if not path:
+        return None
+    stat = Path(path).stat()
+    return str(path), stat.st_size, stat.st_mtime_ns
+
+
 def prepare(tile, survey, osm):
     """Dissolve before tile selection and fill survey breaks in mapped open water.
 
@@ -39,11 +64,5 @@ def prepare(tile, survey, osm):
     Mapped islands remain holes in the inset; isolated ponds are unchanged.
     Keep complete components so the tile window never becomes a shoreline.
     """
-    surveyed = []
-    if survey:
-        for geometry in frame(survey).geometry_local:
-            surveyed.extend(parts(shapely.make_valid(shapely.force_2d(geometry)), ("Polygon",)))
-    interior = shapely.union_all(flowing_areas(osm)).buffer(-INTERIOR_MARGIN)
-    body = shapely.union_all([*surveyed, interior])
     window = shapely.box(*tile.bbox.as_tuple()).buffer(INTERIOR_MARGIN)
-    return [g for g in parts(body, ("Polygon",)) if g.intersects(window)]
+    return [g for g in _bodies((_identity(survey), _identity(osm))) if g.intersects(window)]
