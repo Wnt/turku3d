@@ -48,7 +48,8 @@ Story, locations, economy and the state machine are specified in
 | `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; `serialize()` / `restore(text \| null)` for the save slots (`core/save.ts` stores the text; format in `missions/save.ts`) |
 | `saveGame.ts` | `SaveGameController`: captures the running game into a save slot, places a loaded or new game (missions, clock, own car, player on the ground), autosave triggers, the pause menu's frame handling (`game/src/ui/README.md`, "Main menu, pause menu and save slots") |
 | `economy.ts` | Prices, permit rental, payouts, base pay, tip formula, par time, deadline |
-| `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
+| `content/locations.ts` | Pizzeria, black market and dealer targets, the bought-vehicle kerb spot and the pizzeria's kerb spot |
+| `kerbSpots.ts` | Kerb-side parking poses along drivable streets near a point (both kerbs, facing each side's traffic, clear of junctions) and the "Bring my vehicle here" ranking (off screen first) |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
 | `zones.ts` | `ZoneMarkers`: glowing ring, light wall and floating label at every HUD target, coloured like the minimap (`KIND_COLOURS`) |
 | `content/deliveries.ts` | The scripted opening: four deliveries by address, each with a fallback sidewalk point for a pool that lacks it; each game plays them in its own seeded order (`openingOrder`), repeated only without an address pool |
@@ -67,6 +68,11 @@ while paused or on the start screen), asks `missions.mayDrive(id)` before enteri
 run and sprint speed by `missions.runFactor` (the kidney), and parks a bought vehicle at the dealer kerb
 when `missions.vehicle` changes: the scooter or the trophy truck (physics ids `SCOOTER_ID` / `TRUCK_ID`,
 spawned then, `SPAWN_HEIGHT` in `saveGame.ts`) or the player's car (`OWN_VEHICLE_ID`). `ownedVehicleId(missions.vehicle)` is the physics id deliveries accept.
+The frame also passes `rideAt`, where `missions.rideId` stands; `update` returns `park: true` when the
+pizzeria's "Bring my vehicle" asks for it at `PIZZERIA_VEHICLE_SPOT`, and the pause menu's "Bring my
+vehicle here" (`missions.bringHereReason()`, `broughtHere()`, `bringFailed()`) parks it at the first
+`kerbSpots` candidate that passes `vehicleGround` (`vehicleSave.ts`). Both reuse `play.ts` `parkRide`,
+the dealer kerb's path: the car is reset, the scooter and the truck are spawned (moved).
 The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,

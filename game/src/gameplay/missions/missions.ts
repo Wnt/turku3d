@@ -38,6 +38,10 @@ export const TRUCK_ID = 'truck';
 const OWNED_IDS: Record<VehicleOwnership, string | null> = { none: null, scooter: SCOOTER_ID, car: OWN_VEHICLE_ID, truck: TRUCK_ID };
 /** The physics vehicle that a vehicle ownership class drives. */
 export const ownedVehicleId = (vehicle: VehicleOwnership) => OWNED_IDS[vehicle];
+/** "Bring my vehicle" at the pizzeria is greyed out while the vehicle already stands this close (m) to the pizzeria. */
+export const BRING_NEAR_M = 30;
+/** Seconds of play between two uses of the pause menu's "Bring my vehicle here". */
+export const BRING_COOLDOWN_SECONDS = 60;
 /** The dealer's purchase options and the vehicle each one sells. */
 const SOLD: Partial<Record<OptionId, BoughtVehicle>> = { buy_scooter: 'scooter', buy_car: 'car', buy_truck: 'truck' };
 
@@ -54,6 +58,8 @@ export interface MissionFrame {
   choose?: OptionId | null;
   /** The player closed the open shop this frame. */
   leave?: boolean;
+  /** Where the player's vehicle (`MissionSystem.rideId`) stands; null or missing when it is not in the world. */
+  rideAt?: WorldPoint | null;
 }
 
 interface MissionOptions {
@@ -114,6 +120,10 @@ export class MissionSystem implements MissionHudSource {
   private limitedQuoteCache: { key: string; quote: OrderQuote } | null = null;
   private readonly stops: Stops;
   private hintCache: { key: string; said: Said } | null = null;
+  /** Seconds until "Bring my vehicle here" works again (not saved). */
+  private bringCooldown = 0;
+  /** This frame asked for the player's vehicle at the pizzeria kerb (returned by update). */
+  private parkAtPizzeria = false;
   private phrase(kind: PhraseKind): string { return nextPhrase(kind, this.s.phrases ??= {}, this.s.seed); }
 
   constructor(private readonly options: MissionOptions) {
@@ -145,6 +155,7 @@ export class MissionSystem implements MissionHudSource {
     this.longQuoteCache = this.limitedQuoteCache = null;
     if (this.s.limited.stops.some(id => !this.stops.resolve(id))) this.s.limited = { ...this.s.limited, stops: [], left: 0 };
     this.checkpoint = null;
+    this.bringCooldown = 0;
     this.emit();
   }
 
@@ -155,6 +166,8 @@ export class MissionSystem implements MissionHudSource {
   get longUnlocked(): boolean { return this.s.shortDeliveries >= LONG_UNLOCK_DELIVERIES; }
   get permit(): number { return this.s.permit; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
+  /** The physics vehicle the player delivers with: the owned one (the start car while owning none). */
+  get rideId(): string { return ownedVehicleId(this.s.vehicle) ?? OWN_VEHICLE_ID; }
   get plates(): boolean { return this.s.plates; }
   get kidney(): boolean { return this.s.kidney; }
   /** Pizzas handed over. */
@@ -213,8 +226,12 @@ export class MissionSystem implements MissionHudSource {
   }
 
   /** Advances timers and dialogue by dt seconds (0 while paused), handles the interaction button and the menu. */
-  update(dt: number, frame: MissionFrame): { bought: BoughtVehicle | null; opened: boolean; checkpoint: Checkpoint | null } {
+  update(dt: number, frame: MissionFrame): { bought: BoughtVehicle | null; opened: boolean; checkpoint: Checkpoint | null;
+    /** Park the player's vehicle (`rideId`) at the pizzeria kerb (content/locations.ts PIZZERIA_VEHICLE_SPOT). */
+    park: boolean; } {
     this.frame = frame;
+    this.parkAtPizzeria = false;
+    this.bringCooldown = Math.max(0, this.bringCooldown - dt);
     let bought: BoughtVehicle | null = null;
     const wasOpen = this.open !== null;
     this.advanceDialogue(dt);
@@ -248,7 +265,32 @@ export class MissionSystem implements MissionHudSource {
     this.emit();
     const checkpoint = this.checkpoint;
     this.checkpoint = null;
-    return { bought, opened: !wasOpen && this.open !== null, checkpoint };
+    return { bought, opened: !wasOpen && this.open !== null, checkpoint, park: this.parkAtPizzeria };
+  }
+
+  /** Why the pause menu's "Bring my vehicle here" is unavailable now (a dialogue line id), or null. */
+  bringHereReason(): string | null { return this.bringReason(false); }
+  /** Seconds until "Bring my vehicle here" is available again. */
+  get bringCooldownLeft(): number { return this.bringCooldown; }
+  /** The pause menu parked the vehicle beside the player: the notice, and the cooldown starts. */
+  broughtHere() {
+    this.bringCooldown = BRING_COOLDOWN_SECONDS;
+    this.say('notice_vehicle_brought');
+    this.emit();
+  }
+  /** No drivable street with room for the vehicle was found near the player; the cooldown does not start. */
+  bringFailed() {
+    this.say('notice_no_street_nearby');
+    this.emit();
+  }
+
+  /** Why the player's vehicle cannot be brought to the pizzeria kerb (`pizzeria`) or beside the player now. */
+  private bringReason(pizzeria: boolean): string | null {
+    if (this.s.vehicle === 'none') return 'reason_no_own_vehicle';
+    if (this.frame?.vehicleId === this.rideId) return 'reason_riding_it';
+    if (!pizzeria) return this.bringCooldown > 0 ? 'reason_bring_cooldown' : null;
+    const at = this.frame?.rideAt;
+    return at && distance(at, PIZZERIA.point) <= BRING_NEAR_M ? 'reason_vehicle_outside' : null;
   }
 
   // ----------------------------------------------------------------------------------------------- actions
@@ -381,6 +423,7 @@ export class MissionSystem implements MissionHudSource {
       }
       case 'slice': return money(SLICE_PRICE);
       case 'tip_rules': return { price: null, reason: null };
+      case 'bring_vehicle': return { price: null, reason: this.bringReason(true) };
       case 'buy_scooter':
       case 'buy_car':
       case 'buy_truck': {
@@ -424,6 +467,7 @@ export class MissionSystem implements MissionHudSource {
       case 'take_order': this.s.job = 'short'; this.pickUp(); this.open = null; break;
       case 'slice': this.energy = SLICE_SECONDS; this.reply('pizzeria_slice'); break;
       case 'tip_rules': this.reply('pizzeria_tip_rules'); break;
+      case 'bring_vehicle': this.parkAtPizzeria = true; this.reply('pizzeria_bring_vehicle'); break;
       case 'buy_scooter':
       case 'buy_car':
       case 'buy_truck':

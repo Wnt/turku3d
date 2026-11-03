@@ -10,3 +10,8 @@ export const DEALER: RouteTarget = { id: 'dealer', kind: 'shop', label: 'Rantaka
   point: { x: 101.5, z: 290.5 } };
 /** Where a bought vehicle waits: the player's car is moved to this kerb on Läntinen Rantakatu. */
 export const DEALER_VEHICLE_SPOT = { x: 119, z: 286.5, yaw: 0.473 };
+/** The pizzeria's kerb on Linnankatu, where "Bring my vehicle" parks the player's vehicle and the loaner scooter
+ *  waits: the nearest `kerbSpots` pose (gameplay/kerbSpots.ts, half width 1 m: every vehicle fits) to PIZZERIA on the
+ *  published road graph (navigation.json of bulk generation 2e6515f4), on the pizzeria's side of the two-lane street,
+ *  facing the traffic of that side. */
+export const PIZZERIA_VEHICLE_SPOT = { x: 81.04, z: 190.96, yaw: -2.556 };

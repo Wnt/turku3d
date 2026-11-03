@@ -43,7 +43,7 @@ export function roadSpots(graph: RoadGraph, near: V3): VehicleSpot[] {
 
 /** Tests static support, water, enclosing buildings and chassis clearance without colliding with other saved cars. */
 export async function vehicleGround(physics: Pick<PhysicsClient, 'raycast' | 'cameraCast'>,
-  at: VehicleSpot, saved: SavedVehicle, spawnHeight: number, fallback: boolean): Promise<number | null> {
+  at: VehicleSpot, saved: Pick<SavedVehicle, 'kind' | 'appearance'>, spawnHeight: number, fallback: boolean): Promise<number | null> {
   const down = { x: 0, y: -1, z: 0 };
   const top = { x: at.x, y: at.y + 2, z: at.z };
   const hit = await physics.raycast(top, down, fallback ? 60 : 8)

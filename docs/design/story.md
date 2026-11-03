@@ -63,7 +63,9 @@ ground with no building above it.
 | `dealer` | `shop` | Rantakadun Kulkine, a used-vehicle dealer | Corner of Kristiinankatu and Läntinen Rantakatu at the riverbank | 101.5, 290.5 | 23459601.5, 6704209.5 | sidewalk, H 3.45 |
 
 A bought vehicle waits at the kerb next to the dealer, x 119, z 286.5, facing along Läntinen
-Rantakatu (`DEALER_VEHICLE_SPOT`).
+Rantakatu (`DEALER_VEHICLE_SPOT`). The pizzeria's kerb, x 81.04, z 190.96, is on Linnankatu in front of
+the pizzeria (`PIZZERIA_VEHICLE_SPOT`): the nearest kerb-side pose to the pizzeria on the published road
+graph (`gameplay/kerbSpots.ts`), on the pizzeria's side of the two-lane street, facing that side's traffic.
 
 ## Economy
 
@@ -96,6 +98,17 @@ their own vehicle: entering any other car is refused with the notice `notice_own
 the pizzeria greys out the order in a borrowed car (`reason_own_vehicle_only`). Forged plates lift
 both limits. Free roam outside a delivery is unchanged, so every car stays drivable then. Faster vehicles do not raise the tip (the par is fair
 for each vehicle); they raise the earnings rate, because more deliveries fit in the same time.
+
+**Getting un-stuck.** A courier never has to run for cash: every state keeps a vehicle delivery or a
+permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and plays out of it).
+
+- *Bring my vehicle* (pizzeria, free): the own scooter, car or truck is parked at the pizzeria's kerb
+  (`PIZZERIA_VEHICLE_SPOT`), wherever it was left or stuck. Greyed without an own vehicle, while riding
+  it, or when it already stands within 30 m of the pizzeria (`BRING_NEAR_M`).
+- *Bring my vehicle here* (pause menu): parks it at the nearest ground-checked kerb beside the player
+  (`gameplay/kerbSpots.ts`; within 40 m a spot outside the camera view comes first, then up to 150 m
+  nearest first), so a vehicle wrecked or stuck mid-delivery is back in seconds. Not while riding it;
+  then 60 s of play before the next use (`BRING_COOLDOWN_SECONDS`).
 
 The dealer sells nothing before the first permit is rented (the start money would otherwise fall
 short of the permit and no income would be possible). The player owns at most one vehicle: buying
@@ -310,7 +323,7 @@ selecting one the player cannot afford makes the shopkeeper refuse (`*_no_money`
 | Shop | Greeting | Options (menu order) |
 |---|---|---|
 | Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Leave |
-| Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
+| Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), Long-range delivery, Bring my vehicle here (free, `pizzeria_bring_vehicle`: the own vehicle to the kerb outside), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
 | Rantakadun Kulkine (dealer) | `dealer_greet`; `dealer_no_permit` before the first permit, with every option greyed | Scooter (60 €), Car (350 €) (both end the visit; the vehicle waits at the kerb), Sell your vehicle back (+half), Leave |
 
 The drop-off has no menu: the button hands over the pizza, the customer's line and the pay line

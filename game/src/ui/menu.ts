@@ -221,6 +221,8 @@ export interface GameHooks {
   quit(): void;
   /** Puts the player back at the start; money, missions and a running order stay. */
   respawn(): void;
+  /** "Bring my vehicle here": why it is unavailable now (null: available), and the action, which resumes play. */
+  bringVehicle?: { reason(): string | null; run(): void };
 }
 
 /** A slot row: its name and label, and the details line, or "Empty". */
@@ -268,6 +270,7 @@ export class SaveMenuFlow {
       { id: 'resume', label: 'Resume', detail: null, enabled: true, run: () => this.game.resume() },
       { id: 'respawn', label: 'Respawn at the start', detail: null, enabled: true,
         run: () => this.host.show(this.confirmRespawn()) },
+      ...(this.game.bringVehicle ? [this.bringItem(this.game.bringVehicle)] : []),
       ...(this.multiplayerActive() && this.timedRounds ? [{ id: 'timed-rounds', label: 'Timed round / Past rounds', detail: 'Start, agree or view results', enabled: true, run: this.timedRounds }] : []),
       ...(this.scoreboard ? [{ id: 'scores', label: 'Scoreboard', detail: null, enabled: true, run: this.scoreboard }] : []),
       ...(!this.multiplayerActive() ? [{ id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
@@ -306,6 +309,12 @@ export class SaveMenuFlow {
   }
 
   /** The escape from a stuck spot (inside a building, under the map): asks first. */
+  private bringItem(bring: NonNullable<GameHooks['bringVehicle']>): MenuItem {
+    const reason = bring.reason();
+    return { id: 'bring-vehicle', label: 'Bring my vehicle here', detail: reason ?? 'Parks it on the nearest street',
+      enabled: reason === null, run: () => bring.run() };
+  }
+
   private confirmRespawn(): MenuPage {
     return { id: 'confirm-respawn', title: 'Respawn', text: 'Respawn? You keep your money and order.',
       back: () => this.host.show(this.pause()), items: [

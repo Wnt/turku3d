@@ -48,8 +48,11 @@ import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { MissionSystem, OWN_VEHICLE_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
-import { DEALER_VEHICLE_SPOT } from './gameplay/content/locations';
+import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
+import { DEALER_VEHICLE_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
+import { lineText } from './gameplay/content/dialogue';
+import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
+import { vehicleGround } from './gameplay/vehicleSave';
 import { createGameplay, compassDeg } from './gameplay';
 import { recoveryVehicle } from './gameplay/flippedCar';
 import { SafeReset } from './gameplay/safeReset';
@@ -59,7 +62,7 @@ import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
 import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
-import { DT, VEHICLES } from './physics/constants';
+import { DT, VEHICLES, type VehicleKind } from './physics/constants';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
@@ -78,6 +81,11 @@ import { QUALITY } from './render/quality';
 import { Walkers, walkerCap, type WalkerThreat } from './world/walkers';
 import { chassisForward } from './traffic/pedestrians';
 import { CROWD_RADIUS } from './audio/mix';
+
+/** "Bring my vehicle here" looks for a kerb within this many metres of the player, off screen first, then up to
+ *  BRING_FAR_M nearest first, ground-checking at most BRING_CHECKS candidates. */
+const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
+const rideKind = (id: string): VehicleKind => (id === SCOOTER_ID ? 'scooter' : id === TRUCK_ID ? 'truck' : 'car');
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
@@ -250,8 +258,42 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
   }, () => saveGame.pausePage()) : null;
+  /** Parks the player's vehicle `id` at `spot`, settled onto the ground `y` (default: the ground under the spot, seen
+   *  from the sky): the car is reset there, the scooter and the truck are spawned (or moved) there. */
+  const parkRide = async (id: string, spot: { x: number; z: number; yaw: number }, y?: number) => {
+    const kind = rideKind(id);
+    const at = { x: spot.x, y: (y ?? await groundAt(spot.x, spot.z)) + SPAWN_HEIGHT[kind], z: spot.z };
+    if (id === OWN_VEHICLE_ID) physics.resetVehicle(at, spot.yaw, id);
+    else physics.spawnVehicle(at, spot.yaw, { id, kind });
+  };
+  /** Pause menu "Bring my vehicle here": the nearest ground-checked kerb by the player, off screen when one is near. */
+  const bringHere = async () => {
+    const id = missions.rideId, kind = rideKind(id);
+    const forward = camera.getWorldDirection(new THREE.Vector3());
+    const halfFov = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect);
+    const spots = kerbSpots(router.graph, feet, VEHICLES[kind].halfExt.z, BRING_FAR_M);
+    const close = spots.filter(s => Math.hypot(s.x - feet.x, s.z - feet.z) <= BRING_NEAR_SEARCH_M);
+    const candidates = [...bringSpots(close, feet, { camera: camera.position, forward, halfFov }),
+      ...spots.slice(close.length)].slice(0, BRING_CHECKS);
+    for (const spot of candidates) {
+      const y = await vehicleGround(physics, spot, { kind }, SPAWN_HEIGHT[kind], true);
+      if (y === null) continue;
+      await parkRide(id, spot, y);
+      missions.broughtHere();
+      return;
+    }
+    missions.bringFailed();
+  };
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     clock: world.clockTime, router,
+    bringVehicle: {
+      reason: () => {
+        const reason = missions.bringHereReason();
+        return reason === 'reason_bring_cooldown' ? `Ready again in ${Math.ceil(missions.bringCooldownLeft)} s`
+          : reason && lineText(reason);
+      },
+      run: () => { void bringHere().catch(fail); },
+    },
     enterVehicle: id => { enterVehicle(id); snapChase = true; },
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
@@ -477,10 +519,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
+    const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
+      rideAt: ride ? { x: ride.pos.x, y: ride.pos.y, z: ride.pos.z } : null,
     });
+    if (mission.park) void parkRide(missions.rideId, PIZZERIA_VEHICLE_SPOT).catch(fail);
     const carrying = missions.phase === 'carrying';
     if (wasCarrying && !carrying && missions.phase === 'delivered') audio.resolveDelivery();
     else if (wasCarrying && !carrying) audio.setMusicDeadline(0);
@@ -501,11 +546,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (saveGame.loading) owned = missions.vehicle;
     else if (missions.vehicle !== owned) {
       owned = missions.vehicle;
-      const spot = DEALER_VEHICLE_SPOT;
-      if ((owned === 'scooter' || owned === 'truck') && drivenId !== ownedVehicleId(owned)) void seated.park(owned, { ...spot, y: 0 });
-      if (owned === 'car' && drivenId !== OWN_VEHICLE_ID) {
-        void groundAt(spot.x, spot.z).then(y => physics.resetVehicle({ x: spot.x, y: y + SPAWN_HEIGHT.car, z: spot.z }, spot.yaw, OWN_VEHICLE_ID));
-      }
+      const id = ownedVehicleId(owned);
+      if (id && drivenId !== id) void parkRide(id, DEALER_VEHICLE_SPOT).catch(fail);
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);

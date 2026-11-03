@@ -5,7 +5,8 @@ import { DEALER, MARKET, PIZZERIA } from './locations';
 
 export type ShopId = 'market' | 'pizzeria' | 'dealer';
 export type OptionId = 'rent_permit' | 'forged_plates' | 'sell_kidney' | 'expiry_warning' | 'take_order' | 'slice'
-  | 'take_long_order' | 'take_limited_order' | 'tip_rules' | 'buy_scooter' | 'buy_car' | 'buy_truck' | 'sell_vehicle' | 'leave';
+  | 'take_long_order' | 'take_limited_order' | 'tip_rules' | 'bring_vehicle' | 'buy_scooter' | 'buy_car' | 'buy_truck' | 'sell_vehicle'
+  | 'leave';
 
 export interface ShopOption {
   id: OptionId;
@@ -29,7 +30,8 @@ export const SHOPS: Record<ShopId, Shop> = {
     option('expiry_warning', 'icon_warning'), option('leave', null)] },
   pizzeria: { id: 'pizzeria', target: PIZZERIA, background: 'bg_pizzeria', options: [
     option('take_order', 'icon_pizza_box'), option('take_long_order', 'icon_pizza_box'),
-    option('take_limited_order', 'icon_pizza_box'), option('slice', 'icon_slice'), option('tip_rules', 'icon_coins'),
+    option('take_limited_order', 'icon_pizza_box'), option('bring_vehicle', 'icon_scooter'), option('slice', 'icon_slice'),
+    option('tip_rules', 'icon_coins'),
     option('leave', null)] },
   dealer: { id: 'dealer', target: DEALER, background: 'bg_dealer', options: [
     option('buy_scooter', 'icon_scooter'), option('buy_car', 'icon_car'), option('buy_truck', 'icon_truck'),
