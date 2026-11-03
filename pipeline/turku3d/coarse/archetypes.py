@@ -17,6 +17,7 @@ import shapely
 from turku3d import config as C
 from turku3d.layers import write_visual
 from turku3d.wall_surfaces import instanced_layer, layer_meshes
+from .occluders import building_occluders
 from .packaging import package_visual, shared_package_inputs
 
 
@@ -98,6 +99,9 @@ def publish(tile, layer_files, shells, stage, work, library):
         descriptor = dict(id=digest, uri=f"../shared/{digest}.glb", bytes=len(payload),
                           tris=stats["tris"], draws=stats["draws"],
                           bounds=dict(min=bounds[0], max=bounds[1]))
+        occluders = building_occluders(buildings, meshes, origin)
+        if occluders["boxes"]:
+            descriptor["occluders"] = occluders
         descriptors.append(descriptor)
         placements.append(dict(id=key, model=digest, position=origin.tolist(),
                                viewDistance=view_distance(bounds)))

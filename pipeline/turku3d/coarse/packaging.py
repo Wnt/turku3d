@@ -31,6 +31,7 @@ PRODUCERS = (
     "garden_inputs",
     "build",
     "archetypes",
+    "occluders",
     "basic",
     "area",
     "collision",
