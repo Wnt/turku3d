@@ -23,6 +23,7 @@ from turku3d.spatial import frame
 from . import extrusion, forests, inputs
 from .sources import NoCoverage, Sources
 from .horizon_identity import source_key
+from .far_ground import skirt, survey_colours
 
 
 @lru_cache(maxsize=2048)
@@ -52,6 +53,7 @@ class SurveyScenery:
             index.MAX_AGE = float('inf')
         root = Path(__file__).parent
         dependencies = ["horizon.py", "horizon_nodes.py", "horizon_identity.py", "horizon_regional.py", "horizon_pack.mjs", "inputs.py", "extrusion.py", "roofs.py", "forests.py",
+                        "far_ground.py", "../../../game/src/render/farGroundPalette.json",
                         "sources.py", "../spatial.py", "../config.py", "../package/gltf.py",
                         "../buildings/source_surfaces.py"]
         from turku3d.facade_assets import root as facade_root
@@ -190,12 +192,13 @@ def terrain(tile, points, water, streets, woods):
             a = z * 17 + x
             faces.extend(((a, a + 17, a + 1), (a + 1, a + 17, a + 18)))
     # Split colour boundaries per triangle so rivers cannot bleed into green banks.
-    p = vertices[np.asarray(faces)].reshape(-1, 3)
+    p = np.concatenate([vertices[np.asarray(faces)].reshape(-1, 3), skirt(vertices, 16, 3.0).reshape(-1, 3)])
     centres = p.reshape(-1, 3, 3).mean(axis=1)
-    colours = np.tile((.24, .29, .16), (len(faces), 1))
-    colours[shapely.contains_xy(woods, centres[:, 0], centres[:, 2])] = (.12, .19, .08)
-    colours[shapely.contains_xy(streets, centres[:, 0], centres[:, 2])] = (.19, .20, .20)
-    colours[shapely.contains_xy(water, centres[:, 0], centres[:, 2])] = (.10, .19, .24)
+    palette = survey_colours()
+    colours = np.tile(palette['land'], (len(centres), 1))
+    colours[shapely.contains_xy(woods, centres[:, 0], centres[:, 2])] = palette['woods']
+    colours[shapely.contains_xy(streets, centres[:, 0], centres[:, 2])] = palette['street']
+    colours[shapely.contains_xy(water, centres[:, 0], centres[:, 2])] = palette['water']
     mesh = layer_mesh("ground", p, np.arange(len(p)).reshape(-1, 3),
                       np.repeat(colours, 3, axis=0), np.asarray(tile.origin))
     from scipy.interpolate import RegularGridInterpolator

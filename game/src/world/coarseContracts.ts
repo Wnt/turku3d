@@ -37,6 +37,10 @@ export interface Entry extends DraftFreshness {
   /** Recently detached GPU-ready full visual, retained briefly for reversals. */
   cachedAt?: number;
   preview?: CoarseFragment;
+  /** The full visual stays resident (collision too) but the camera is too far in 3D: distant scenery draws it. */
+  distant?: boolean;
+  /** Height range (m) of the drawn visual, for 3D band distances. */
+  h?: [number, number];
 }
 
 export interface CoarseHost {

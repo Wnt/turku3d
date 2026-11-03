@@ -13,6 +13,22 @@ export const isPrecompiling = (renderer: THREE.WebGPURenderer) =>
 
 const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 
+/** r186 compileAsync(object, camera, scene) walks the whole world with traverseVisible for its lights on every call,
+ * and streaming preparation calls it once per mesh, material and pass. The light set is fixed at startup
+ * (environment.ts, vehicle beams), so one walk per rendered frame yields the same list for every compile. */
+const lightWalks = new WeakMap<THREE.Object3D, { frame: number; lights: THREE.Object3D[] }>();
+export function visibleLights(renderer: THREE.WebGPURenderer, scene: THREE.Object3D): readonly THREE.Object3D[] {
+  const frame = renderer.info.frame;
+  let walk = lightWalks.get(scene);
+  if (!walk || walk.frame !== frame) {
+    const lights: THREE.Object3D[] = [];
+    scene.traverseVisible(object => { if ((object as THREE.Light).isLight) lights.push(object); });
+    walk = { frame, lights };
+    lightWalks.set(scene, walk);
+  }
+  return walk.lights;
+}
+
 /** Compile hidden draws with stable pass state across r186's asynchronous shader stages. */
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
   camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
@@ -55,8 +71,11 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       // r186 compileAsync selects depth zero. Nested post/reflection draws use other contexts,
       // whose IDs are part of shader keys; use the depth observed by the actual pass.
       const getContext = contexts.get;
+      // compileAsync reads the target scene's lights synchronously; serve this frame's walk instead of a new one.
+      const lights = visibleLights(renderer, scene), walk = Object.getOwnPropertyDescriptor(scene, 'traverseVisible');
       let compiled: Promise<void>;
       try {
+        scene.traverseVisible = callback => { for (const light of lights) callback(light); };
         contexts.get = function (target, mrt, depth = passDepth) { return getContext.call(this, target, mrt, depth); };
         renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context;
         scene.overrideMaterial = override;
@@ -66,6 +85,8 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         renderer.debug.onNodeBuilderCreated = previousBuilder;
         throw error;
       } finally {
+        if (walk) Object.defineProperty(scene, 'traverseVisible', walk);
+        else delete (scene as { traverseVisible?: unknown }).traverseVisible;
         contexts.get = getContext;
         scene.overrideMaterial = previousOverride;
         renderer.setRenderTarget(oldTarget); renderer.setMRT(oldMrt); renderer.contextNode = oldContext;

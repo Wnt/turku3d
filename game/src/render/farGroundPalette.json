@@ -1,27 +1,102 @@
 {
-  "about": "Linear mean albedo of the near ground library textures (8 px mip of each draft_* KTX2, sRGB-decoded), measured 2026-11-03 from generation 2e6515f4 tiles. The far ground pigment must equal the near material's distant colour. `near` is keyed by the material key without its draft_ prefix; the longest contained key wins. `legacy` translates the pigments of scenery derivatives built before this table (old fixed palette, unmatched keys white); remove it once the scenery cache has been rebuilt with tools/remote-drafts/scenery.mjs from this commit.",
+  "about": "Linear mean albedo of the near ground library textures (8 px mip of each draft_* KTX2, sRGB-decoded), measured 2026-11-03 from generation 2e6515f4 tiles. The far ground pigment must equal the near material's distant colour. `near` is keyed by the material key without its draft_ prefix; the longest contained key wins. `survey` holds the survey/L2 ground classes: `land` and `street` are the area-weighted means of the authored far ground (this table's `near` pigments) over t0_0_0, t0_1_0, t0_-1_1, t0_2_-1 and t0_1_1 (land = every class but asphalt and water); `built` is the regional built-up class, the combined land+street mean.",
   "near": {
-    "asphalt_worn": [0.205, 0.205, 0.205],
-    "asphalt_red": [0.197, 0.053, 0.03],
-    "asphalt": [0.205, 0.205, 0.205],
-    "granite_curb": [0.296, 0.262, 0.23],
-    "granite_rock": [0.365, 0.289, 0.255],
-    "cobblestone": [0.23, 0.23, 0.23],
-    "concrete": [0.424, 0.424, 0.382],
-    "grass": [0.107, 0.17, 0.04],
-    "gravel": [0.305, 0.27, 0.27],
-    "quay_stone": [0.26, 0.236, 0.228],
-    "fieldstone": [0.222, 0.222, 0.187],
-    "brick_paving": [0.34, 0.237, 0.204],
-    "stone": [0.24, 0.23, 0.215],
-    "water": [0.10, 0.19, 0.24]
+    "asphalt_worn": [
+      0.205,
+      0.205,
+      0.205
+    ],
+    "asphalt_red": [
+      0.197,
+      0.053,
+      0.03
+    ],
+    "asphalt": [
+      0.205,
+      0.205,
+      0.205
+    ],
+    "granite_curb": [
+      0.296,
+      0.262,
+      0.23
+    ],
+    "granite_rock": [
+      0.365,
+      0.289,
+      0.255
+    ],
+    "cobblestone": [
+      0.23,
+      0.23,
+      0.23
+    ],
+    "concrete": [
+      0.424,
+      0.424,
+      0.382
+    ],
+    "grass": [
+      0.107,
+      0.17,
+      0.04
+    ],
+    "gravel": [
+      0.305,
+      0.27,
+      0.27
+    ],
+    "quay_stone": [
+      0.26,
+      0.236,
+      0.228
+    ],
+    "fieldstone": [
+      0.222,
+      0.222,
+      0.187
+    ],
+    "brick_paving": [
+      0.34,
+      0.237,
+      0.204
+    ],
+    "stone": [
+      0.24,
+      0.23,
+      0.215
+    ],
+    "water": [
+      0.1,
+      0.19,
+      0.24
+    ]
   },
-  "legacy": [
-    [[0.16, 0.17, 0.18], [0.205, 0.205, 0.205]],
-    [[0.22, 0.29, 0.12], [0.107, 0.17, 0.04]],
-    [[0.36, 0.32, 0.25], [0.305, 0.27, 0.27]],
-    [[0.43, 0.43, 0.40], [0.424, 0.424, 0.382]],
-    [[0.35, 0.34, 0.32], [0.24, 0.23, 0.215]],
-    [[1, 1, 1], [0.296, 0.262, 0.23]]
-  ]
+  "survey": {
+    "land": [
+      0.235,
+      0.262,
+      0.188
+    ],
+    "street": [
+      0.204,
+      0.202,
+      0.202
+    ],
+    "woods": [
+      0.12,
+      0.19,
+      0.08
+    ],
+    "water": [
+      0.1,
+      0.19,
+      0.24
+    ],
+    "built": [
+      0.218,
+      0.229,
+      0.196
+    ]
+  }
 }

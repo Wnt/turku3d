@@ -8,7 +8,7 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
-import { lodFades } from '../render/lodFade';
+import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
@@ -38,7 +38,7 @@ export class ScreenshotScenery {
   }
   private detailed(id: string) {
     const entry = this.nearby.get(id);
-    return !!entry?.model && !entry.preview && entry.cachedAt === undefined;
+    return !!entry?.model && !entry.preview && entry.cachedAt === undefined && !entry.distant;
   }
 
   /** Apply ownership synchronously when a near visual or prepared scenery model becomes resident. */
@@ -48,17 +48,43 @@ export class ScreenshotScenery {
     this.updateCoverage();
   }
 
+  /** Full visuals that no longer own their square but still draw while the cell dissolves in over them. */
+  private held = new Set<string>();
+  /** Scenery models kept drawn (opaque) under incoming dissolves until this time. */
+  private outgoing = new Map<string, number>();
+
+  /** A full tile is leaving its square (window exit, return cache or a distant camera): keep drawing it until
+   *  `mayRelease` says the scenery cell covers the square. */
+  holdDetail(id: string) { this.held.add(id); }
+  /** False while the cell is wanted here and not yet fully drawn; a square no camera footprint needs never waits. */
+  mayRelease(id: string) {
+    const model = this.entries.get(id)?.model;
+    if (!this.radius || !this.wanted.includes(id)) return true;
+    return !!model?.visible && !model.userData.lodFading;
+  }
+  releaseDetail(id: string) { this.held.delete(id); }
+  /** A resident full tile may yield to its cell only once that cell is loaded (standby or drawn). */
+  canTakeOver(id: string) { return this.radius > 0 && !!this.entries.get(id)?.model && this.sources.has(id); }
+
   /** A detailed tile took over this cell: a drawn cell dissolves away on top of it instead of vanishing.
-   *  It leaves its merged batch so that its own meshes carry the dissolve; the next cut releases it. */
+   *  It leaves its merged batch so that its own meshes carry the dissolve; the next cut hides it. */
   private handOver(model: THREE.Object3D) {
-    if (model.userData.lodHandover) return;
-    if (!model.visible) return;
-    model.userData.lodHandover = true;
+    if (!model.visible || (model.userData.lodFading && model.userData.lodFading !== 'in')) return;
+    this.fade(model, 'out');
+  }
+
+  /** Dissolve a scenery model in over what already draws there, or out over what replaces it. A reversal
+   *  continues from the current coverage. Fading models draw their own meshes, outside merged batches. */
+  private fade(model: THREE.Object3D, direction: 'in' | 'out') {
+    const from = model.userData.lodFading ? lodFades.coverage(model) : direction === 'in' ? 0 : 1;
+    model.userData.lodFading = direction;
+    model.visible = true;
     this.batches.invalidate(model);
-    lodFades.start(model, 1, 0, () => {
-      model.userData.lodHandover = false;
-      model.visible = false;
+    lodFades.start(model, from, direction === 'in' ? 1 : 0, () => {
+      model.userData.lodFading = undefined;
+      model.visible = direction === 'in';
       this.batches.invalidate(model);
+      this.cutState.clear(); // the landed model's cut visibility is decided again on the next update
     }, this.clock);
   }
 
@@ -81,7 +107,7 @@ export class ScreenshotScenery {
 
   private retireModel(model: THREE.Object3D, id: string) {
     lodFades.cancel(model);
-    model.userData.lodHandover = false;
+    model.userData.lodFading = undefined;
     model.removeFromParent();
     this.batches.retireModel(model, () => this.dispose(model, id));
   }
@@ -134,7 +160,8 @@ export class ScreenshotScenery {
   }
 
   setRadius(radius: number, view?: SceneryView) {
-    for (const e of this.entries.values()) if (e.model?.userData.lodHandover) { lodFades.cancel(e.model); e.model.userData.lodHandover = false; }
+    for (const e of this.entries.values()) if (e.model?.userData.lodFading) { lodFades.cancel(e.model); e.model.userData.lodFading = undefined; }
+    this.outgoing.clear();
     this.radius = Number.isFinite(radius) ? Math.max(0, Math.min(15000, radius)) : 0;
     ++this.selection;
     this.batches.clear(); this.cutState.clear(); this.committed.clear(); this.nextCutExpiry = Infinity; this.batchModels = [];
@@ -302,11 +329,28 @@ export class ScreenshotScenery {
     for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id) && !this.detailed(id)
       && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
         && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
+    // Target visibility of the new cut. A newly shown model dissolves in over whatever drew there (the coarser or
+    // finer models it replaces, or a held full tile), which stays opaque underneath until the dissolve lands.
+    const parents = [...fallback];
+    const target = new Map<string, boolean>();
+    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading)
+      target.set(id, !parents.some(parent => sceneryContains(parent, id) && parent !== id) && (keep.has(id) || fallback.has(id)));
+    const hiding = [...target].filter(([id, show]) => !show && this.entries.get(id)!.model!.visible).map(([id]) => id);
+    const until = now + LOD_FADE_SECONDS * 1000;
+    for (const [id, show] of target) {
+      const model = this.entries.get(id)!.model!;
+      if (!show || model.visible) continue;
+      const under = hiding.filter(other => sceneryContains(other, id) || sceneryContains(id, other));
+      if (!under.length && !this.held.has(id)) continue;
+      this.fade(model, 'in');
+      for (const other of under) this.outgoing.set(other, Math.max(this.outgoing.get(other) ?? 0, until));
+    }
+    for (const [id, end] of this.outgoing) if (end <= now || !this.entries.get(id)?.model) this.outgoing.delete(id);
     for (const [id, e] of this.entries) {
       // Stable cuts no longer touch seen every frame. Preserve the last frame
       // that still owned this tile, including long suspended-tab time gaps.
       if (this.committed.has(id)) e.seen = previousUpdate;
-      if (keep.has(id) || fallback.has(id) || this.standby.has(id) || e.model?.userData.lodHandover) e.seen = now;
+      if (keep.has(id) || fallback.has(id) || this.standby.has(id) || this.outgoing.has(id) || e.model?.userData.lodFading) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { this.release(id,e); this.entries.delete(id); }
     }
@@ -317,11 +361,9 @@ export class ScreenshotScenery {
       this.entries.delete(id);
     }
     for (const [, e] of outside.slice(0,128)) this.nextCutExpiry = Math.min(this.nextCutExpiry, e.seen + 5000);
-    const parents = [...fallback];
-    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodHandover) {
-      const hiddenByParent = parents.some(parent => sceneryContains(parent, id) && parent !== id);
-      e.model.visible = !hiddenByParent && (keep.has(id) || fallback.has(id));
-    }
+    for (const end of this.outgoing.values()) this.nextCutExpiry = Math.min(this.nextCutExpiry, end);
+    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading)
+      e.model.visible = (target.get(id) ?? false) || this.outgoing.has(id);
     this.committed = new Set([...keep, ...fallback]);
     this.updateCoverage();
     this.batchModels = [];

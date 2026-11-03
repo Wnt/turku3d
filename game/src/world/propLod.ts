@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 
 /** Street furniture (the generator's `props_palette` batch, one per tile) switches off beyond `hide` metres from the
  *  camera and back on within `show`: a hard switch per tile batch (plan §3.10), with no discard or vertex fade, so
- *  no material program changes and the prepass keeps its cheap path. Distance is horizontal, to the batch's box.
+ *  no material program changes and the prepass keeps its cheap path. Distance is 3D, to the batch's box.
  *  Sign and bus-stop poles stay: they are breakable and keep their own batch. Shadows stay in the tile shadow batch. */
 export const PROP_LOD = { hide: 125, show: 115 } as const;
 
@@ -44,9 +44,10 @@ export class PropLod {
   remove(model: THREE.Object3D) { this.models.delete(model); }
 
   update(camera: THREE.Camera) {
-    const { x, z } = camera.position;
+    const { x, y, z } = camera.position;
     for (const draws of this.models.values()) for (const { mesh, box } of draws) {
-      const d = footprintDistance(box, x, z);
+      // 3D: a camera high above a tile is as far from its furniture as one standing beside it at that distance.
+      const d = Math.hypot(footprintDistance(box, x, z), Math.max(0, y - box.max.y, box.min.y - y));
       mesh.visible = d < (mesh.visible ? PROP_LOD.hide : PROP_LOD.show);
     }
   }

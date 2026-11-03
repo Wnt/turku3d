@@ -202,7 +202,9 @@ function mergeBlockLods(owner: THREE.Object3D, wrappers: THREE.Object3D[]) {
 
 /** Cull complete placements against their own expanded bounds, never their container square. */
 export function updateBuildingDistances(root: THREE.Object3D, x: number, z: number,
-  visibility: PlacementVisibility = placementVisibility, fades: LodFades = lodFades) {
+  visibility: PlacementVisibility = placementVisibility, fades: LodFades = lodFades, y = NaN) {
+  // Swap distances are 3D when the camera height is known, so a high flier sees block shells under it.
+  const lift = (min: number, max: number) => Number.isFinite(y) ? Math.max(0, y - max, min - y) : 0;
   // Only a model that is actually in the scene may occlude or be culled by the visibility worker.
   const shown = root.visible && root.parent !== null;
   // GTA-style parent swap per block: every child of a block switches together, with hysteresis. The LOD shell
@@ -212,7 +214,7 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
     let merged = true;
     for (const state of blocks.values()) {
       const { min, max } = state.bounds;
-      const d = Math.hypot(Math.max(min[0] - x, 0, x - max[0]), Math.max(min[2] - z, 0, z - max[2]));
+      const d = Math.hypot(Math.max(min[0] - x, 0, x - max[0]), Math.max(min[2] - z, 0, z - max[2]), lift(min[1], max[1]));
       const near = d <= state.hdDistance + (state.near ? SWAP_BAND : -SWAP_BAND);
       if (!state.settled) { state.settled = true; state.near = state.hd = near; }
       else if (near !== state.near) {

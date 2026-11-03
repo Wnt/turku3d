@@ -303,3 +303,25 @@ test('dissolve twins keep their base program, add a dithered mask and a depth bi
   expect(disposed).toHaveBeenCalledOnce();
   expect(dissolveTwin(new THREE.MeshBasicMaterial()).name).not.toContain('dissolve');
 });
+
+test('block swap distance is 3D: a camera high above a near block sees its shell', async () => {
+  const lodId = 'b'.repeat(64);
+  const roots: Record<string, THREE.Object3D> = { [id]: prototype().root,
+    [lodId]: (() => { const r = new THREE.Group(); r.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial())); return r; })() };
+  const cache = new BuildingModelCache(async (url: string) => roots[url.includes(lodId) ? lodId : id], () => {});
+  const input = data();
+  input.models.push({ id: lodId, uri: `../shared/${lodId}.glb`, bounds: { min: [-30, 0, -20], max: [30, 30, 20] } });
+  input.placements[0].block = 'b1';
+  input.blocks = [{ id: 'b1', position: [260, 0, 120], bounds: { min: [240, 0, 100], max: [280, 30, 140] }, hdDistance: 280,
+    children: ['building'], lod: lodId }];
+  const owner = new THREE.Group(); await cache.attach(owner, input, base);
+  const fades = new LodFades(), slots = { setActive: () => {} } as unknown as Parameters<typeof updateBuildingDistances>[3];
+  const house = owner.children.find(o => o.userData.archetype)!;
+  updateBuildingDistances(owner, 260, 300, slots, fades, 10); // 160 m away on the ground: HD
+  expect(house.visible).toBe(true);
+  const lone = new THREE.Group(); await cache.attach(lone, input, base);
+  updateBuildingDistances(lone, 260, 300, slots, fades, 400); // same spot, 370 m above the roofs: shell
+  expect(lone.children.find(o => o.userData.archetype)!.visible).toBe(false);
+  updateBuildingDistances(lone, 260, 300, slots, fades); // unknown height keeps the horizontal rule: 160 m is HD
+  expect(lone.children.find(o => o.userData.archetype)!.visible).toBe(true);
+});

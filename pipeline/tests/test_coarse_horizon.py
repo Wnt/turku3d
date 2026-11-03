@@ -32,7 +32,12 @@ def test_terrain_boundaries_share_heights_and_faces_point_up():
     q = right.positions + np.array([250, 0, 0])
     assert np.allclose(np.unique(p[p[:, 0] == 250], axis=0), np.unique(q[q[:, 0] == 250], axis=0))
     faces = p[left.indices]
-    assert np.all(np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])[:, 1] > 0)
+    up = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])[:, 1]
+    # Surface faces point up; the only other faces are the vertical border skirts (far_ground.skirt).
+    skirts = np.isclose(up, 0)
+    assert np.all(up[~skirts] > 0) and skirts.any()
+    xz = faces[skirts][..., [0, 2]]
+    assert np.any(np.isclose(xz, 0) | np.isclose(xz, 250), axis=-1).all()
 
 
 def test_woodland_canopy_does_not_fill_open_park_or_blocked_water():

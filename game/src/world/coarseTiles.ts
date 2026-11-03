@@ -7,6 +7,7 @@ import { lodFades } from '../render/lodFade';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
+import { TILE_DETAIL } from './sceneryView';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
@@ -33,6 +34,8 @@ import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, readStreamingJson } from './streamingJson';
 
 const POLL_MS = 1000;
+/** A leaving full visual draws at most this long (ms) while its scenery cell loads and dissolves in over it. */
+const HOLD_MAX_MS = 4000;
 const RETURN_CACHE_TILES = 16;
 const RETURN_CACHE_MS = 30_000;
 /** Ahead-only build acknowledgements own no model or collision resources. Keep them across quick turns. */
@@ -83,6 +86,10 @@ export class CoarseTiles {
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
   private preparing = new Set<string>();
+  /** Camera height (engine y) for 3D band distances; NaN keeps them horizontal. */
+  private viewY = NaN;
+  /** Full visuals that left their square but draw until the scenery cell covers it. */
+  private leaving = new Map<THREE.Object3D, { id: string; since: number; finish: () => void }>();
   private builtUntil = new Map<string, number>();
   private details = 0;
   private materials = new SharedMaterials();
@@ -196,38 +203,104 @@ export class CoarseTiles {
     }
   }
 
-  private cacheFull(e: Entry) {
+  private cacheFull(id: string, e: Entry) {
     if (this.host.detailRadius !== undefined || !e.model || e.preview || e.pass !== 'full' || !e.visualHash) return false;
-    e.cachedAt ??= this.clock;
+    if (e.cachedAt !== undefined) return true;
+    e.cachedAt = this.clock;
+    const model = e.model, shown = model.visible && !!model.parent;
     this.comparison.clear(e);
-    e.model.visible = false;
-    e.model.removeFromParent();
+    model.visible = shown;
+    this.holdVisual(id, model, () => {
+      if (e.model !== model || e.cachedAt === undefined) return;
+      model.visible = false;
+      model.removeFromParent();
+    });
     return true;
+  }
+
+  /** Keep a leaving full visual drawn until its scenery cell has dissolved in over it, then `finish`. */
+  private holdVisual(id: string, model: THREE.Object3D, finish: () => void) {
+    if (!this.screenshotScenery.radius || !model.parent || !model.visible) { finish(); return; }
+    this.leaving.set(model, { id, since: this.clock, finish });
+    this.screenshotScenery.holdDetail(id);
+  }
+
+  /** Run after the scenery update, which decides whether the cell is wanted and drawn. */
+  private settleLeaving(now: number) {
+    for (const [model, leaving] of [...this.leaving]) {
+      if (now - leaving.since < HOLD_MAX_MS && !this.screenshotScenery.mayRelease(leaving.id)) continue;
+      this.endLeaving(model, true);
+    }
+  }
+
+  private endLeaving(model: THREE.Object3D, finish: boolean) {
+    const leaving = this.leaving.get(model);
+    if (!leaving) return;
+    this.leaving.delete(model);
+    if (![...this.leaving.values()].some(other => other.id === leaving.id)) this.screenshotScenery.releaseDetail(leaving.id);
+    if (finish) leaving.finish();
+  }
+
+  /** A new visual for the square ends any older one still drawing there. */
+  private finishLeaving(id: string) {
+    for (const [model, leaving] of [...this.leaving]) if (leaving.id === id) this.endLeaving(model, true);
+  }
+
+  private shown(e: Entry) {
+    return e.cachedAt === undefined && !e.distant && (this.visualPass === 'auto' || e.pass === this.visualPass);
   }
 
   private restoreCached(x: number, z: number) {
     for (const id of this.wantedStarts(x,z)) {
       const e = this.entries.get(id);
       if (!e?.model || e.cachedAt === undefined) continue;
+      this.endLeaving(e.model, false);
       e.cachedAt = undefined;
-      e.model.visible = this.visualPass === 'auto' || e.pass === this.visualPass;
+      e.model.visible = this.shown(e);
       this.screenshotScenery.nearbyChanged(id);
       this.host.scene.add(e.model);
     }
   }
 
+  /** GTA-style height-aware detail: a resident full tile far from the camera in 3D (a high flier) draws as its
+   *  prepared scenery cell, which dissolves in over it; collision and residency are unchanged. */
+  private updateDistant(x: number, z: number) {
+    const y = this.viewY;
+    for (const [id, e] of this.entries) {
+      if (!e.model || e.preview || e.cachedAt !== undefined) continue;
+      const dy = Number.isFinite(y) && e.h ? Math.max(0, y - e.h[1], e.h[0] - y) : 0;
+      const d = Math.hypot(distToL0(id, x, z), dy);
+      const near = d <= TILE_DETAIL.distance + (e.distant ? -TILE_DETAIL.band : TILE_DETAIL.band);
+      if (near === !e.distant) continue;
+      const model = e.model;
+      if (near) {
+        e.distant = false;
+        this.endLeaving(model, false);
+        model.visible = this.shown(e);
+        this.screenshotScenery.nearbyChanged(id);
+      } else if (this.screenshotScenery.canTakeOver(id)) {
+        e.distant = true;
+        this.screenshotScenery.nearbyChanged(id);
+        this.holdVisual(id, model, () => { if (e.model === model && e.distant) model.visible = false; });
+      }
+    }
+  }
+
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
-  update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true) {
+  update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true, y = NaN) {
     this.clock = now;
+    this.viewY = y;
     lodFades.update(now);
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
     this.restoreCached(x,z);
+    if (scenery) this.updateDistant(x, z);
     for (const entry of this.entries.values()) {
-      if (entry.model) updateBuildingDistances(entry.model, x, z);
-      if (entry.comparison) updateBuildingDistances(entry.comparison, x, z);
+      if (entry.model) updateBuildingDistances(entry.model, x, z, undefined, undefined, y);
+      if (entry.comparison) updateBuildingDistances(entry.comparison, x, z, undefined, undefined, y);
     }
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
     if (scenery) this.screenshotScenery.update(x, z, now);
+    this.settleLeaving(now);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };
@@ -254,7 +327,7 @@ export class CoarseTiles {
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
       if (e.state === 'built' && now < (this.builtUntil.get(id) ?? 0)) continue;
       this.builtUntil.delete(id);
-      if (this.cacheFull(e)) continue;
+      if (this.cacheFull(id, e)) continue;
       this.drop(e); this.entries.delete(id);
     }
     const cached = [...this.entries].filter(([,e]) => e.cachedAt !== undefined)
@@ -567,6 +640,7 @@ export class CoarseTiles {
       catch (error) { this.dispose(model); throw error; }
       if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
+      this.finishLeaving(id);
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
       this.screenshotScenery.nearbyChanged(id);
       recordFreshness(e, fragment); this.host.scene.add(model);
@@ -599,9 +673,12 @@ export class CoarseTiles {
     const old = e.model;
     old?.removeFromParent();
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
+    if (old) this.endLeaving(old, false);
+    this.finishLeaving(id);
     if (e.cachedAt === undefined) this.host.scene.add(model);
     this.comparison.clear(e); e.pass = fragment.pass_kind;
-    e.model = model; model.visible = e.cachedAt === undefined && (this.visualPass === 'auto' || e.pass === this.visualPass); e.visualHash = fragment.visual[id].sha256; e.placementsKey = placementsKey;
+    e.h = fragment.visual[id].h as [number, number] | undefined;
+    e.model = model; model.visible = this.shown(e); e.visualHash = fragment.visual[id].sha256; e.placementsKey = placementsKey;
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
@@ -711,8 +788,14 @@ export class CoarseTiles {
     e.vehicles = undefined;
     if (e.model) {
       const id = [...this.entries].find(([, entry]) => entry === e)?.[0];
-      this.dispose(e.model, id); e.model = undefined;
+      const model = e.model, pending = this.leaving.get(model);
+      // A full visual draws on until the scenery cell covers its square; collision leaves now.
+      if (pending && id) pending.finish = () => this.dispose(model, id);
+      else if (id && !e.preview && e.cachedAt === undefined && !e.distant) this.holdVisual(id, model, () => this.dispose(model, id));
+      else this.dispose(model, id);
+      e.model = undefined;
     }
+    e.distant = undefined;
     for (const [cid, entry] of e.collision) {
       // An asynchronous replacement may already own the cell.
       if (this.host.manifest.collision[cid] !== entry) continue;

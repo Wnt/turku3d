@@ -1,6 +1,7 @@
 // Draft (coarse) tiles: which cells are wanted, the published-parent swap rule and the game hook against a fake service.
 import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
+import { lodFades } from '../../src/render/lodFade';
 import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
 import { arrivalToL0 } from '../../src/world/coarseRegion';
 import { isLocalHost } from '../../src/core/localOnly';
@@ -667,4 +668,67 @@ test('developer pass comparison swaps only visuals and cancels stale loads', asy
   expect(scene.children).toContain(first); expect(base.visible).toBe(false);
   expect(refreshCollision).not.toHaveBeenCalled(); expect(checkCollision).not.toHaveBeenCalled();
   coarse.setVisualPass('auto'); expect(scene.children).toEqual([base]);
+});
+
+test('a high camera draws a resident full tile as its scenery cell, which dissolves in first; low again restores HD', async () => {
+  const scene = new THREE.Scene();
+  const fetch = vi.fn(async () => new Response('{}', { status: 404 })) as unknown as typeof globalThis.fetch;
+  const coarse = new CoarseTiles({ scene, manifest: { collision: {} } as Manifest, pageUrl: 'http://localhost/', fetch,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2,
+    renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() });
+  const hd = new THREE.Group(); scene.add(hd);
+  coarse.entries.set('t0_0_0', { state: 'draft', model: hd, pass: 'full', h: [0, 30], nextPoll: Infinity, collision: new Map(), resident: true });
+  const scenery = coarse.screenshotScenery;
+  scenery.setRadius(4000, { x: 125, y: 560, z: 125, dx: 1, dz: 0, halfAngle: Math.PI });
+  // The cell is prepared (standby) under the resident tile.
+  const internal = scenery as unknown as { entries: Map<string, object>; sources: Map<string, object>; footprint: string[] };
+  expect(internal.footprint).toContain('t0_0_0');
+  const cell = new THREE.Group(); cell.visible = false; scene.add(cell);
+  internal.sources.set('t0_0_0', { tile: 't0_0_0', key: 'k', h: [0, 30], source_sha256: 's' });
+  internal.entries.set('t0_0_0', { model: cell, next: Infinity, seen: 0, complete: true });
+  let now = 1000;
+  const step = (y: number, ms = 16) => { now += ms; coarse.update(125, 125, now, undefined, true, y); };
+  step(20); // on the ground: HD
+  expect([coarse.entries.get('t0_0_0')!.distant, hd.visible, cell.visible]).toEqual([undefined, true, false]);
+  step(560); // 530 m above the tile: the cell dissolves in on top while HD keeps drawing
+  step(560);
+  expect(coarse.entries.get('t0_0_0')!.distant).toBe(true);
+  expect([hd.visible, cell.visible, lodFades.has(cell)]).toEqual([true, true, true]);
+  for (let i = 0; i < 50; i++) step(560, 20);
+  expect([hd.visible, cell.visible, lodFades.has(cell)]).toEqual([false, true, false]);
+  expect(hd.parent).toBe(scene); // still resident: collision and residency never depended on the view height
+  step(400); // 370 m: back inside the band, HD returns and the cell dissolves away over it
+  expect([coarse.entries.get('t0_0_0')!.distant, hd.visible, lodFades.has(cell)]).toEqual([false, true, true]);
+  for (let i = 0; i < 50; i++) step(400, 20);
+  expect([hd.visible, cell.visible]).toEqual([true, false]);
+  scenery.setRadius(0);
+});
+
+test('a full tile leaving the window draws until its cell has dissolved in over it', async () => {
+  const scene = new THREE.Scene();
+  const fetch = vi.fn(async () => new Response('{}', { status: 404 })) as unknown as typeof globalThis.fetch;
+  const disposed: THREE.Object3D[] = [];
+  const coarse = new CoarseTiles({ scene, manifest: { collision: {} } as Manifest, pageUrl: 'http://localhost/', fetch,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2, detailRadius: undefined,
+    renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group(), untrackModel: m => disposed.push(m) });
+  const hd = new THREE.Group(); scene.add(hd);
+  // A tile just behind a moving player: not wanted, not retained; no return cache without a visual hash.
+  coarse.entries.set('t0_3_0', { state: 'draft', model: hd, pass: 'full', h: [0, 30], nextPoll: Infinity, collision: new Map(), resident: true });
+  const scenery = coarse.screenshotScenery;
+  scenery.setRadius(4000, { x: 125, y: 20, z: 125, dx: 1, dz: 0, halfAngle: Math.PI });
+  const internal = scenery as unknown as { entries: Map<string, object>; sources: Map<string, object>; footprint: string[] };
+  expect(internal.footprint).toContain('t0_3_0');
+  const cell = new THREE.Group(); cell.visible = false; scene.add(cell);
+  internal.sources.set('t0_3_0', { tile: 't0_3_0', key: 'k', h: [0, 30], source_sha256: 's' });
+  internal.entries.set('t0_3_0', { model: cell, next: Infinity, seen: 0, complete: true });
+  let now = 1000;
+  const step = (ms = 16) => { now += ms; coarse.update(125, 125, now, undefined, true, 20); };
+  step(); step();
+  expect(coarse.entries.has('t0_3_0')).toBe(false);
+  expect([hd.parent === scene, hd.visible, cell.visible, lodFades.has(cell)]).toEqual([true, true, true, true]);
+  expect(disposed).not.toContain(hd);
+  for (let i = 0; i < 50; i++) step(20);
+  expect([hd.parent, cell.visible]).toEqual([null, true]);
+  expect(disposed).toContain(hd);
+  scenery.setRadius(0);
 });

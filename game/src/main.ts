@@ -485,7 +485,7 @@ async function runQa() {
     const now = performance.now();
     clock.tick(now);
     perf.begin();
-    coarse.update(camera.position.x, camera.position.z);
+    coarse.update(camera.position.x, camera.position.z, now, undefined, true, camera.position.y);
     population?.update(clock.simSeconds);
     renderFrame();
     perf.end();

@@ -15,6 +15,7 @@ from turku3d.spatial import frame
 from . import forests, inputs
 from .sources import NoCoverage, block_of
 from .horizon_identity import source_key
+from .far_ground import skirt, survey_colours
 
 
 def describe(service, tile):
@@ -169,16 +170,17 @@ def block_ground(block, paths, far, buildings):
         for x in range(count):
             a = z * (count + 1) + x
             ix.extend([[a, a + count + 1, a + 1], [a + 1, a + count + 1, a + count + 2]])
-    p = p[np.asarray(ix)].reshape(-1, 3)
+    p = np.concatenate([p[np.asarray(ix)].reshape(-1, 3), skirt(p, count, 12.0 if far else 6.0).reshape(-1, 3)])
     centres = p.reshape(-1, 3, 3).mean(axis=1)
     water = shapely.union_all([polygons(path, block) for path in paths['water']])
     streets = shapely.union_all([polygons(path, block) for path in paths['streets']])
     areas = [area for path in paths['osm'] for area in forests.read_areas(block, Path(path))]
     woods = shapely.union_all([g for _, g, kind, _ in areas if kind in ('wood', 'forest', 'scrub')])
-    colour = np.tile((.24, .29, .16), (len(centres), 1))
-    colour[shapely.contains_xy(woods, centres[:, 0], centres[:, 2])] = (.12, .19, .08)
-    colour[shapely.contains_xy(streets, centres[:, 0], centres[:, 2])] = (.19, .20, .20)
-    colour[shapely.contains_xy(water, centres[:, 0], centres[:, 2])] = (.10, .19, .24)
+    palette = survey_colours()
+    colour = np.tile(palette['land'], (len(centres), 1))
+    colour[shapely.contains_xy(woods, centres[:, 0], centres[:, 2])] = palette['woods']
+    colour[shapely.contains_xy(streets, centres[:, 0], centres[:, 2])] = palette['street']
+    colour[shapely.contains_xy(water, centres[:, 0], centres[:, 2])] = palette['water']
     mesh = layer_mesh('ground', p, np.arange(len(p)).reshape(-1, 3), np.repeat(colour, 3, axis=0), np.zeros(3))
     from scipy.interpolate import RegularGridInterpolator
     interpolate = RegularGridInterpolator((zs, xs), heights)
