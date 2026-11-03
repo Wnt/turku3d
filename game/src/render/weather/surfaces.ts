@@ -7,6 +7,9 @@ import { mappedGroundLight } from '../lights/groundField';
 import { materialLightMap } from 'three/tsl';
 export { weatherUniforms } from './surfaceState';
 let detail: THREE.DataTexture | undefined;
+const allMineral = float(1);
+type WetGraph = Pick<THREE.MeshStandardNodeMaterial, 'colorNode' | 'roughnessNode' | 'setupLightMap'>;
+let plainWetGraph: WetGraph | undefined;
 export function weatherNoise() {
   if (detail) return detail;
   const size = 64, data = new Uint8Array(size * size * 4);
@@ -49,9 +52,15 @@ export function puddleMask(position: THREE.Node<'vec3'>, wet: THREE.Node<'float'
   return smoothstep(float(.83).sub(wet.mul(.5)), float(.98).sub(wet.mul(.5)), noise.mul(.7).add(grain.mul(.3)).add(field.y.mul(3)))
     .mul(up).mul(field.x).mul(smoothstep(.35, .95, wet));
 }
-export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = false, mineral: THREE.Node<'float'> = float(1)) {
+export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = false, mineral: THREE.Node<'float'> = allMineral) {
   if (material.userData.weatherWetness) return material;
   material.userData.weatherWetness = true;
+  // These expressions read materialColor/materialRoughness at draw time. Reuse the graph,
+  // while each material keeps its own uniforms and each object keeps its own bindings.
+  // Authored maps/graphs and terrain masks may affect shader layout; leave those independent.
+  const plain = !facade && mineral === allMineral &&
+    !Object.values(material).some(value => value?.isTexture || value?.isNode);
+  if (plain && plainWetGraph) { Object.assign(material, plainWetGraph); return material; }
   if (!facade) {
     // Streaming precompiles and beauty/reflection builders must see the same graph.
     const irradiance = new THREE.IrradianceNode(material.lightMap
@@ -79,5 +88,6 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   })();
   material.colorNode = surface.rgb;
   material.roughnessNode = surface.a;
+  if (plain) plainWetGraph = { colorNode: material.colorNode, roughnessNode: material.roughnessNode, setupLightMap: material.setupLightMap };
   return material;
 }
