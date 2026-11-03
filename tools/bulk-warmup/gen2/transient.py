@@ -1,7 +1,7 @@
 """City bulk runs keep no persistent per-tile or per-unit caches on the 300 GB staging disk.
 
-A fresh city run computes each tile once. When a tile finishes, its stage and prepared-input
-entries go. When no remaining tile needs a classified 500 m lidar unit (tile + MARGIN), its
+A fresh city run computes each tile once. Builds write no stage entries at all
+(TURKU3D_STAGE_CACHE=transient), and when a tile finishes its prepared-input entries go. When no remaining tile needs a classified 500 m lidar unit (tile + MARGIN), its
 decode, shard index and reductions go too. Per-model archetype packages, which no other tile of
 the generation reuses, go once they are older than every build still in flight. Shared
 neighbour context (building attachments, area caches) stays: it is small and bounded.

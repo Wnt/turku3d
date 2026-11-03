@@ -134,6 +134,7 @@ def main():
                 from transient import Transient,UnitCaches
                 _,build_env=farm.build_environment(revision,root/'farm/products'/generation)
                 os.environ.update({k:build_env[k] for k in ('TURKU3D_SHARED_CACHE','TURKU3D_WORK','TURKU3D_DATA') if k in build_env})
+                os.environ['TURKU3D_STAGE_CACHE']='transient'  # builds inherit it: no stage entries are written
                 caches=UnitCaches(root/'repo',root/'farm/cache')
                 transient=Transient(root/'farm/cache',list(wanted),caches.units,caches.paths)
 
