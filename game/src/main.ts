@@ -201,12 +201,13 @@ const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unkn
   return graphics.enqueue(model, prepare, signal, false, priority);
 };
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
-// builds a shader or pipeline inside a frame: block LOD shells of a tile, the level's bias tiers of a scenery cell.
+// builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
+// draws, and holds its block LOD shells), other models' block shells, the level's bias tiers of a scenery cell.
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
   queueGraphics(model, async () => {
     await materials?.prepare(model, scene, camera, signal);
-    const shells = blockLodRoots(model);
-    if (shells.length && post) await precompileDissolve(shells, [0], root => post!.prepare(root));
+    const roots = model.userData.dissolveIn ? [model] : blockLodRoots(model);
+    if (roots.length && post) await precompileDissolve(roots, [0], root => post!.prepare(root));
   }, signal);
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
 const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {

@@ -46,8 +46,14 @@ const WHOLE = bool(true);
 
 const twins = new WeakMap<THREE.Material, THREE.Material[]>();
 const twinSet = new WeakSet<THREE.Material>();
-/** Twins whose programs and pipelines were compiled during preparation (precompileDissolve). */
+/** Twins compiled during preparation (precompileDissolve) for at least one draw layout. */
 const ready = new WeakSet<THREE.Material>();
+/** Compiled draws by keeper key: a twin's programs and pipelines for one geometry layout and object kind.
+ *  r186 frees a build once no render object uses it (NodeManager/Pipelines usedTimes), so a compiled twin keeps one
+ *  detached keeper mesh with a few-vertex stand-in geometry of the same layout: the first live dissolve then finds its
+ *  program and pipeline cached instead of building them inside a frame. Keepers go with their base material. */
+const keepers = new Map<string, THREE.Mesh>();
+const keepersOf = new WeakMap<THREE.Material, Set<string>>();
 /** Twins belong to their base material, never to a model that happens to hold one while it fades. */
 export const isDissolveTwin = (material: THREE.Material) => twinSet.has(material);
 
@@ -67,7 +73,16 @@ export function dissolveTwin(material: THREE.Material, tier = 0): THREE.Material
   node.polygonOffsetUnits = LOD_FADE_BIAS[tier].units; node.polygonOffsetFactor = LOD_FADE_SLOPE;
   if (!list) {
     list = []; twins.set(material, list);
-    material.addEventListener('dispose', () => { for (const twin of list!) twin?.dispose(); twins.delete(material); });
+    material.addEventListener('dispose', () => {
+      for (const key of keepersOf.get(material) ?? []) {
+        const keeper = keepers.get(key);
+        keepers.delete(key);
+        if (keeper) { keeper.dispatchEvent({ type: 'dispose' } as never); keeper.geometry.dispose(); }
+      }
+      keepersOf.delete(material);
+      for (const twin of list!) twin?.dispose();
+      twins.delete(material);
+    });
   }
   list[tier] = node; twinSet.add(node);
   return node;
@@ -80,15 +95,114 @@ export function dissolveReady(material: THREE.Material, tier = 0) {
 }
 
 /** Meshes a dissolve of `root` would swap (everything but instanced vegetation). */
+const materialsOf = (mesh: THREE.Mesh) => Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+const nodeMaterial = (material: THREE.Material) => (material as THREE.NodeMaterial).isNodeMaterial === true;
+/** Instanced draws that share one program across meshes in every pass (render/instancePrograms.ts, still instances):
+ *  a keeper can hold their twin builds. Other InstancedMeshes key builds by their own uuid and never dissolve. */
+const sharedStill = (mesh: THREE.Mesh) => mesh.userData.sharedInstanceProgram === true && mesh.userData.staticInstances === true;
+
+/** Meshes of `root` that swap to twins while it dissolves: main-view draws with a node material. Shadow-only batches
+ *  and non-node materials keep drawing as they are. */
 function dissolvingMeshes(root: THREE.Object3D) {
   const meshes: THREE.Mesh[] = [];
   root.traverse(object => {
     const mesh = object as THREE.Mesh;
-    if (mesh.isMesh && !(mesh as THREE.InstancedMesh).isInstancedMesh) meshes.push(mesh);
+    if (!mesh.isMesh || mesh.userData.shadowBatch || mesh.userData.shadowProxy) return;
+    if ((mesh as THREE.InstancedMesh).isInstancedMesh && !sharedStill(mesh)) return;
+    if (materialsOf(mesh).some(nodeMaterial)) meshes.push(mesh);
   });
   return meshes;
 }
-const materialsOf = (mesh: THREE.Mesh) => Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+
+type Attribute = THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+/** The parts of a draw that r186 keys builds and pipelines by besides the material (RenderObject.getCacheKey and the
+ *  vertex buffer layout): attribute names, array types, item sizes, normalisation, interleaving, instancing. */
+function layoutKey(mesh: THREE.Mesh) {
+  const geometry = mesh.geometry, buffers: unknown[] = [];
+  let key = '';
+  for (const name of Object.keys(geometry.attributes).sort()) {
+    const a = geometry.attributes[name] as Attribute & { gpuType?: number; meshPerAttribute?: number };
+    const array = (a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute ? (a as THREE.InterleavedBufferAttribute).data.array : a.array;
+    key += `${name}:${array.constructor.name}:${a.itemSize}:${a.normalized ? 'n' : ''}:${a.gpuType ?? ''}:${a.meshPerAttribute ?? ''}`;
+    if ((a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) {
+      const data = (a as THREE.InterleavedBufferAttribute).data;
+      if (!buffers.includes(data)) buffers.push(data);
+      key += `@${buffers.indexOf(data)}/${data.stride}/${(a as THREE.InterleavedBufferAttribute).offset}`;
+    }
+    key += ';';
+  }
+  if (Object.keys(geometry.morphAttributes).length) key += `morph:${mesh.uuid};`;
+  const instanced = mesh as unknown as THREE.InstancedMesh;
+  if (instanced.isInstancedMesh) key += `inst:${instanced.instanceMatrix.usage}:${instanced.instanceColor?.usage ?? '-'};`;
+  return `${key}|${mesh.receiveShadow}|${mesh.layers.mask}|${geometry.index ? 'i' : ''}`;
+}
+const keeperKey = (twin: THREE.Material, mesh: THREE.Mesh) => `${twin.uuid}|${layoutKey(mesh)}`;
+
+/** A geometry of three vertices with exactly `source`'s attribute layout (types, item sizes, interleaving). */
+function standIn(source: THREE.BufferGeometry) {
+  const geometry = new THREE.BufferGeometry(), buffers = new Map<THREE.InterleavedBuffer, THREE.InterleavedBuffer>();
+  const typed = (array: ArrayLike<number>, length: number) =>
+    new (array.constructor as new (n: number) => THREE.TypedArray)(length);
+  for (const [name, value] of Object.entries(source.attributes)) {
+    const a = value as Attribute & { gpuType?: number };
+    let copy: Attribute;
+    if ((a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) {
+      const ia = a as THREE.InterleavedBufferAttribute, data = ia.data;
+      let buffer = buffers.get(data);
+      if (!buffer) {
+        const instancedData = data as THREE.InstancedInterleavedBuffer & { isInstancedInterleavedBuffer?: boolean };
+        buffer = instancedData.isInstancedInterleavedBuffer
+          ? new THREE.InstancedInterleavedBuffer(typed(data.array, data.stride * 3), data.stride, instancedData.meshPerAttribute)
+          : new THREE.InterleavedBuffer(typed(data.array, data.stride * 3), data.stride);
+        buffer.setUsage(data.usage);
+        buffers.set(data, buffer);
+      }
+      copy = new THREE.InterleavedBufferAttribute(buffer, ia.itemSize, ia.offset, ia.normalized);
+    } else {
+      const ba = a as THREE.BufferAttribute & { meshPerAttribute?: number; isInstancedBufferAttribute?: boolean };
+      copy = ba.isInstancedBufferAttribute
+        ? new THREE.InstancedBufferAttribute(typed(ba.array, ba.itemSize * 3), ba.itemSize, ba.normalized, ba.meshPerAttribute)
+        : new THREE.BufferAttribute(typed(ba.array, ba.itemSize * 3), ba.itemSize, ba.normalized);
+      (copy as THREE.BufferAttribute).setUsage(ba.usage);
+      if (ba.gpuType !== undefined) (copy as THREE.BufferAttribute & { gpuType?: number }).gpuType = ba.gpuType;
+    }
+    geometry.setAttribute(name, copy);
+  }
+  if (source.index) geometry.setIndex(new THREE.BufferAttribute(typed(source.index.array, 3), 1));
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  geometry.boundingBox = new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+  return geometry;
+}
+
+/** The keeper draw of `twin` for `mesh`'s layout: a detached mesh (or shared still InstancedMesh) on its layers. */
+function keeperFor(mesh: THREE.Mesh, twin: THREE.Material | THREE.Material[]) {
+  const geometry = standIn(mesh.geometry);
+  const source = mesh as unknown as THREE.InstancedMesh;
+  let keeper: THREE.Mesh;
+  if (source.isInstancedMesh) {
+    const instanced = new THREE.InstancedMesh(geometry, twin, 1);
+    instanced.instanceMatrix.setUsage(source.instanceMatrix.usage);
+    if (source.instanceColor) {
+      instanced.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(3), 3);
+      instanced.instanceColor.setUsage(source.instanceColor.usage);
+    }
+    instanced.userData = { sharedInstanceProgram: true, staticInstances: true };
+    keeper = instanced;
+  } else keeper = new THREE.Mesh(geometry, twin);
+  keeper.name = `${mesh.name}:dissolve-keeper`;
+  for (const [key, value] of Object.entries(mesh.userData)) if (typeof value !== 'object' || value === null) keeper.userData[key] = value;
+  keeper.layers.mask = mesh.layers.mask;
+  // receiveShadow is part of r186's render-object cache key: match the live mesh, which casts nothing while it fades.
+  keeper.receiveShadow = mesh.receiveShadow; keeper.castShadow = false;
+  keeper.matrixAutoUpdate = false; keeper.frustumCulled = false;
+  return keeper;
+}
+
+/** Whether every dissolving draw of `mesh` has a compiled keeper for `tier`. */
+function meshReady(mesh: THREE.Mesh, tier: number) {
+  const list = materialsOf(mesh);
+  return list.every(material => !nodeMaterial(material) || keepers.has(keeperKey(dissolveTwin(material, tier), mesh)));
+}
 
 /** Compile the dissolve twins of every mesh under `roots` for `tiers` through `compile` (the game's own preparation
  *  path: post.prepare). The twins go onto detached proxy meshes sharing each mesh's geometry, layers and world
@@ -98,22 +212,35 @@ const materialsOf = (mesh: THREE.Mesh) => Array.isArray(mesh.material) ? mesh.ma
 export async function precompileDissolve(roots: readonly THREE.Object3D[], tiers: readonly number[],
   compile: (root: THREE.Object3D) => void | Promise<unknown>) {
   for (const tier of tiers) for (const root of roots) {
-    const proxies = new THREE.Group(), compiled: THREE.Material[] = [];
-    root.updateWorldMatrix(true, true);
+    const batch = new THREE.Group(), pending: { mesh: THREE.Mesh; keeper: THREE.Mesh; bases: THREE.Material[]; twins: THREE.Material[] }[] = [];
+    const seen = new Set<string>();
     for (const mesh of dissolvingMeshes(root)) {
+      const bases = materialsOf(mesh).filter(nodeMaterial);
       const list = materialsOf(mesh).map(material => dissolveTwin(material, tier));
-      if (list.every(twin => !isDissolveTwin(twin) || ready.has(twin))) continue;
-      const proxy = new THREE.Mesh(mesh.geometry, Array.isArray(mesh.material) ? list : list[0]);
-      proxy.name = mesh.name; proxy.layers.mask = mesh.layers.mask; proxy.userData = mesh.userData;
-      // receiveShadow is part of r186's render-object cache key: match the live mesh, which casts nothing while it fades.
-      proxy.receiveShadow = mesh.receiveShadow; proxy.castShadow = false;
-      proxy.matrix.copy(mesh.matrixWorld); proxy.matrixAutoUpdate = false; proxy.frustumCulled = false;
-      proxies.add(proxy);
-      compiled.push(...list.filter(isDissolveTwin));
+      const key = list.map(twin => twin.uuid).join(',') + '|' + layoutKey(mesh);
+      if (seen.has(key) || bases.every(base => keepers.has(keeperKey(dissolveTwin(base, tier), mesh)))) continue;
+      seen.add(key);
+      const keeper = keeperFor(mesh, Array.isArray(mesh.material) ? list : list[0]);
+      batch.add(keeper);
+      pending.push({ mesh, keeper, bases, twins: list.filter(isDissolveTwin) });
     }
-    if (!proxies.children.length) continue;
-    try { await compile(proxies); for (const twin of compiled) ready.add(twin); }
-    finally { for (const proxy of proxies.children) proxy.dispatchEvent({ type: 'dispose' } as never); proxies.clear(); }
+    if (!pending.length) continue;
+    try {
+      await compile(batch);
+    } catch (error) {
+      for (const { keeper } of pending) { keeper.dispatchEvent({ type: 'dispose' } as never); keeper.geometry.dispose(); }
+      throw error;
+    } finally { batch.clear(); }
+    for (const { mesh, keeper, bases, twins: compiled } of pending) {
+      for (const base of bases) {
+        const own = keeperKey(dissolveTwin(base, tier), mesh);
+        keepers.set(own, keeper);
+        let set = keepersOf.get(base);
+        if (!set) keepersOf.set(base, set = new Set());
+        set.add(own);
+      }
+      for (const twin of compiled) ready.add(twin);
+    }
   }
 }
 
@@ -140,7 +267,7 @@ export class LodFades {
 
   /** Whether `root` can dissolve on `tier` now: every mesh's twin compiled during preparation. */
   canStart(root: THREE.Object3D, tier = 0) {
-    return dissolvingMeshes(root).every(mesh => materialsOf(mesh).every(material => dissolveReady(material, tier)));
+    return dissolvingMeshes(root).every(mesh => meshReady(mesh, tier));
   }
 
   /** Start (or reverse from its current coverage) a dissolve of `root` towards `to`; `done` runs once it lands.
@@ -161,6 +288,7 @@ export class LodFades {
     for (const mesh of dissolvingMeshes(root)) {
       meshes.push({ mesh, material: mesh.material, castShadow: mesh.castShadow });
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => dissolveTwin(m, tier)) : dissolveTwin(mesh.material, tier);
+      // A dissolving draw casts nothing: its shadow program is not among the compiled keepers.
       mesh.castShadow = false;
       mesh.userData.lodCoverage = from;
     }

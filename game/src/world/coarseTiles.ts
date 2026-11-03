@@ -3,8 +3,8 @@
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { styleBlockLod } from '../render/sceneryMaterial';
-import { lodFades } from '../render/lodFade';
-import { streamTrace } from '../telemetry/streamTrace';
+import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
+import { streamTrace, tileDistance } from '../telemetry/streamTrace';
 import { ownedGeometryBytes } from './modelGeometry';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
@@ -36,8 +36,9 @@ import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
 
 const POLL_MS = 1000;
-/** A leaving full visual draws at most this long (ms) while its scenery cell loads and dissolves in over it. */
-const HOLD_MAX_MS = 4000;
+/** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
+ *  is it let go uncovered: a stalled cover never keeps a model alive across the city. */
+const HOLD_FAR_M = 1500;
 const RETURN_CACHE_TILES = 16;
 /** Cached visuals keep their decoded arrays in the JS heap (8-14 MiB of accessors per full tile GLB, plus facades and
  *  merged block shells): the newest cached tiles within this many owned bytes stay, older ones are released. */
@@ -123,6 +124,8 @@ export class CoarseTiles {
   private preparing = new Set<string>();
   /** Camera height (engine y) for 3D band distances; NaN keeps them horizontal. */
   private viewY = NaN;
+  /** Collision previews still drawn under a full model dissolving in over them, released when it lands. */
+  private underFade = new Map<THREE.Object3D, { id: string; under: THREE.Object3D }>();
   /** Full visuals that left their square but draw until the scenery cell covers it. */
   private leaving = new Map<THREE.Object3D, { id: string; since: number; finish: () => void }>();
   private builtUntil = new Map<string, number>();
@@ -276,10 +279,10 @@ export class CoarseTiles {
   }
 
   /** Run after the scenery update, which decides whether the cell is wanted and drawn. */
-  private settleLeaving(now: number) {
+  private settleLeaving() {
     if (!this.leaving.size) return; // every frame: no copy while nothing is leaving
     for (const [model, leaving] of [...this.leaving]) {
-      if (now - leaving.since < HOLD_MAX_MS && !this.screenshotScenery.mayRelease(leaving.id)) continue;
+      if (!this.screenshotScenery.mayRelease(leaving.id) && (tileDistance(leaving.id, this.at.x, this.at.z) ?? 0) < HOLD_FAR_M) continue;
       this.endLeaving(model, true);
     }
   }
@@ -339,9 +342,26 @@ export class CoarseTiles {
       e.cachedAt = undefined;
       streamTrace.event('tile.restore', id);
       e.model.visible = this.shown(e);
+      const own = this.screenshotScenery.cellState(id);
       this.screenshotScenery.nearbyChanged(id);
       this.host.scene.add(e.model);
+      this.dissolveIn(id, e.model, own);
     }
+  }
+
+  /** A full model whose square shows no cell of its own (a collision preview, a coarser 1 km node or nothing draws
+   *  there) dissolves in over it, like every other band; where its own cell draws, the cell dissolves out over the
+   *  model instead (ScreenshotScenery.handOver). A visible preview keeps drawing underneath until the model lands.
+   *  The twins were compiled with the model's preparation; without them the model shows at once (band.swap). */
+  private dissolveIn(id: string, model: THREE.Object3D, own: string | undefined, under?: THREE.Object3D) {
+    if (own === 'C' || own === 'c' || !model.visible || !model.parent) { if (under) this.dispose(under, id); return; }
+    lodFades.cancelWithin(model);
+    const started = lodFades.start(model, 0, 1, () => streamTrace.event('band.fadeEnd', id, { dir: 'in', band: 'full' }),
+      this.clock, LOD_FADE_SECONDS, 0);
+    streamTrace.event(started ? 'band.fade' : 'band.swap', id, { dir: 'in', band: 'full',
+      over: under ? 'preview' : own === 'U' ? 'coarser' : 'nothing' });
+    if (started && under) this.underFade.set(model, { id, under });
+    else if (under) this.dispose(under, id);
   }
 
   /** GTA-style height-aware detail: a resident full tile far from the camera in 3D (a high flier) draws as its
@@ -377,16 +397,19 @@ export class CoarseTiles {
     this.at.x = x; this.at.z = z;
     this.viewY = y;
     lodFades.update(now);
+    if (this.underFade.size) for (const [model, { id, under }] of this.underFade)
+      if (!lodFades.has(model)) { this.underFade.delete(model); this.dispose(under, id); }
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
     this.restoreCached(x,z);
     if (scenery) this.updateDistant(x, z);
     for (const entry of this.entries.values()) {
-      if (entry.model) updateBuildingDistances(entry.model, x, z, undefined, undefined, y);
+      // A tile dissolving in as a whole keeps its block bands until it lands (no nested block dissolves).
+      if (entry.model && !lodFades.has(entry.model)) updateBuildingDistances(entry.model, x, z, undefined, undefined, y);
       if (entry.comparison) updateBuildingDistances(entry.comparison, x, z, undefined, undefined, y);
     }
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
     if (scenery) this.screenshotScenery.update(x, z, now);
-    this.settleLeaving(now);
+    this.settleLeaving();
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };
@@ -874,11 +897,15 @@ export class CoarseTiles {
       return;
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
+    // Full models dissolve in where no cell of their own draws: their preparation compiles the twins (main.ts).
+    model.userData.dissolveIn = true;
     if (!await this.prepareModel(id, e, model, fragment.vegetation)) return;
     recordFreshness(e, fragment);
-    // Detach before attaching: scene hooks must never observe both passes.
-    const old = e.model;
-    old?.removeFromParent();
+    // Detach before attaching (scene hooks must never observe both passes), except a drawn collision preview, which
+    // stays under the full model while that dissolves in over it.
+    const old = e.model, own = this.screenshotScenery.cellState(id);
+    const under = old && e.preview && old.visible && old.parent && own !== 'C' && own !== 'c' ? old : undefined;
+    if (old !== under) old?.removeFromParent();
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     const installing = streamTrace.on ? performance.now() : 0, wasPreview = !!e.preview;
     if (old) this.endLeaving(old, false);
@@ -890,9 +917,11 @@ export class CoarseTiles {
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
-    if (old) this.dispose(old, id);
+    if (old && old !== under) this.dispose(old, id);
     if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
+    // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
+    if (!old || wasPreview) this.dissolveIn(id, model, own, under);
     if (installing) {
       streamTrace.slice('install', performance.now() - installing);
       streamTrace.event('tile.full', id, { pass: e.pass, replaced: old ? (wasPreview ? 'preview' : 'model') : null,

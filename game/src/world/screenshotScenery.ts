@@ -65,11 +65,27 @@ export class ScreenshotScenery {
   /** A full tile is leaving its square (window exit, return cache or a distant camera): keep drawing it until
    *  `mayRelease` says the scenery cell covers the square. */
   holdDetail(id: string) { this.held.add(id); }
-  /** False while the cell is wanted here and not yet fully drawn; a square no camera footprint needs never waits. */
+  /** True once scenery fully draws over the square (its own cell or a coarser node, landed), or when nothing ever
+   *  will: no footprint node covers it, or none that covers it can load. A leaving full tile draws until then. */
   mayRelease(id: string) {
-    const model = this.entries.get(id)?.model;
-    if (!this.radius || !this.wanted.includes(id)) return true;
-    return !!model?.visible && !model.userData.lodFading;
+    if (!this.radius || this.drawnOver(id)) return true;
+    return !this.coverPending(id);
+  }
+
+  /** Scenery that draws opaque over L0 square `id`: its own cell or a coarser city node, visible and not dissolving. */
+  private drawnOver(id: string) {
+    const own = this.entries.get(id)?.model;
+    if (own?.visible && !own.userData.lodFading) return true;
+    for (const [node, e] of this.entries) if (node !== id && e.model?.visible && !e.model.userData.lodFading
+      && !this.sources.get(node)?.regional && sceneryContains(node, id)) return true;
+    return false;
+  }
+
+  /** Whether a cover for square `id` is on its way: a footprint node over it that is loaded, or loadable. */
+  private coverPending(id: string) {
+    const own = !!this.entries.get(id)?.model;
+    return this.wanted.some(node => (node === id || sceneryContains(node, id)) && !this.sources.get(node)?.regional
+      && (own || !!this.entries.get(node)?.model || (this.sources.has(node) && !this.entries.get(node)?.error)));
   }
   releaseDetail(id: string) { this.held.delete(id); }
   private coarser: string[] = [];
@@ -431,11 +447,17 @@ export class ScreenshotScenery {
       for (const other of under) this.outgoing.set(other, Math.max(this.outgoing.get(other) ?? 0, until));
     }
     for (const [id, end] of this.outgoing) if (end <= now || !this.entries.get(id)?.model) this.outgoing.delete(id);
+    // A cell under a resident full tile stays loaded (hidden) while the coarser footprint node over its square does
+    // not draw yet: when the tile leaves, the cell covers the square (as a fallback) until that node lands.
+    const underTile = (id: string, e: Scenery) => !!e.model && this.detailed(id) && sceneryBounds(id).level === 0
+      && this.wanted.some(node => node !== id && sceneryContains(node, id) && !this.sources.get(node)?.regional
+        && !(this.entries.get(node)?.model?.visible && !this.entries.get(node)!.model!.userData.lodFading));
     for (const [id, e] of this.entries) {
       // Stable cuts no longer touch seen every frame. Preserve the last frame
       // that still owned this tile, including long suspended-tab time gaps.
       if (this.committed.has(id)) e.seen = previousUpdate;
-      if (keep.has(id) || fallback.has(id) || this.standby.has(id) || this.outgoing.has(id) || e.model?.userData.lodFading) e.seen = now;
+      if (keep.has(id) || fallback.has(id) || this.standby.has(id) || this.outgoing.has(id) || e.model?.userData.lodFading
+        || underTile(id, e)) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { this.release(id,e); this.entries.delete(id); }
     }
