@@ -46,7 +46,8 @@ export class PostProcessing {
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
-    installRigidVelocity();
+    // ?taafix=0: r186's build-time velocity projection, for the A/B of render/rigidVelocity.ts.
+    installRigidVelocity(new URLSearchParams(globalThis.location?.search ?? '').get('taafix') === '0');
     const q = QUALITY[tier];
     const taa = aa === 'taa', wet = tier === 'reduced' || tier === 'medium' || tier === 'high';
     // GTAO darkens beauty's indirect light, so it needs depth and normals before beauty: a second geometry pass.

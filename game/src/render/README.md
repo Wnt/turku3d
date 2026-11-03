@@ -86,6 +86,11 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,
 bloom and grading. `pass=id` continues to bypass post-processing entirely.
 
+TRAA motion vectors read one render-group projection (`velocityProjection`, render/rigidVelocity.ts), filled each
+frame with TRAA's unjittered matrix. r186 chose the projection when a program was built, and streaming preparation
+builds outside the post pipeline, so prepared terrain and trees carried the jitter as motion and wandered by up to a
+pixel while the camera stood still. `?taafix=0` restores r186's choice for the A/B.
+
 These are permanent user quality settings (`?quality=mobile|low|medium|high`). Phones and tablets default to
 **mobile**, including when using a controller; desktops and fixed-camera QA default to **medium**.
 Explicit quality/AA choices override the defaults. Mobile quality uses one 1024² shadow cascade covering 90 m,
