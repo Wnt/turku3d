@@ -66,11 +66,11 @@ export class StreetRouter implements Router {
     return best;
   }
 
-  route(from: WorldPoint, to: WorldPoint): WorldPoint[] | null {
-    const start = this.snap(from), goal = this.snap(to);
+  route(from: WorldPoint, to: WorldPoint, mode: TravelMode = this.mode): WorldPoint[] | null {
+    const start = this.snap(from, mode), goal = this.snap(to, mode);
     if (!start || !goal) return null;
     const { edges, adjacency, nodes } = this.graph;
-    const bit = modeBit(this.mode);
+    const bit = modeBit(mode);
     const forwardOnly = (edge: RoadEdge) => bit === CAR && !!(edge.flags & ONEWAY);
     const n = nodes.length / 2, S = n, T = n + 1;
     const g = new Float64Array(n + 2).fill(Infinity);

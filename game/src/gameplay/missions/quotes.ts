@@ -15,9 +15,13 @@ export interface OrderQuote {
   par: number;
   stops: number;
   pay?: number;
+  /** Whole seconds left of a LIMITED TIME offer. */
+  expires?: number;
 }
 
 type StreetMetres = (from: WorldPoint, to: WorldPoint) => number;
+/** Route metres from one drop-off to the next. */
+export type StopLeg = (from: OrderStop, to: OrderStop) => number;
 
 /** Pool ids of the next long job: one landmark, or two for a long double (missions/orders.ts drawLongOrder). */
 export function longOrder(pool: readonly PoolAddress[], save: MissionSave,
@@ -27,19 +31,22 @@ export function longOrder(pool: readonly PoolAddress[], save: MissionSave,
 
 /** Published route metres for pool addresses; scripted stops use the street router. */
 export function metresFromPizzeria(stop: OrderStop, vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres): number {
-  if (stop.pool) return vehicle === 'none' && job !== 'long' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
+  if (stop.pool) return vehicle === 'none' && job === 'short' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
   return streetMetres(PIZZERIA.point, stop.point);
 }
 
-/** Route metres of each paid leg: pizzeria to the first drop-off, then drop-off to drop-off. */
-export function legMetres(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres): number[] {
-  return stops.map((stop, i) => i === 0 ? metresFromPizzeria(stop, vehicle, job, streetMetres) : streetMetres(stops[i - 1].point, stop.point));
+/** Route metres of each paid leg: pizzeria to the first drop-off, then drop-off to drop-off (`leg`, by default the
+ *  street router between the two points). */
+export function legMetres(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres,
+  leg: StopLeg = (a, b) => streetMetres(a.point, b.point)): number[] {
+  return stops.map((stop, i) => i === 0 ? metresFromPizzeria(stop, vehicle, job, streetMetres) : leg(stops[i - 1], stop));
 }
 
 /** Par, metres and base pay of any order, short or long, single or double: par adds each leg's par, and each pizza
  *  pays its own leg's base pay (the double bonus and tips come on top). */
-export function orderQuote(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres) {
-  const legs = legMetres(stops, vehicle, job, streetMetres);
+export function orderQuote(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres,
+  leg?: StopLeg) {
+  const legs = legMetres(stops, vehicle, job, streetMetres, leg);
   const pars = legs.map(m => parSeconds(m, vehicle, job));
   const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
   return { firstPar: stops.length > 1 ? pars[0] : 0,

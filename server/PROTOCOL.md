@@ -208,6 +208,8 @@ scooter=7, car=9, truck=10.5 m/s). Tip rounds a clamped linear fall from 8 at 0.
 1.3×par; failure is at 2×par. Long jobs add optional `job: "long"`; omitted means `"short"`. Their base payout is
 `24 + ceil(routeMeters * 0.012)` with 60 < routeMeters <= 7000. Every third long job is a double: its second
 drop-off reports the leg between the two landmarks as `routeMeters` and adds the same double bonus of 4 when its tip is >0.
+`job: "limited"` marks the pizzeria's LIMITED TIME job (a run of 3 km or more in all): the same rules at twice the long
+base payout, `2 * (24 + ceil(routeMeters * 0.012))`.
 Long-job par speed is 1.4 times the short speed (1.2 for scooters); the same tip and failure fractions apply. The server checks
 the possible euro envelope; this message cannot prove timing, ownership, route,
 address existence, second-stop status, or that a delivery actually happened.

@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { MissionSystem, type MissionFrame, type PaidDropoff } from '../../src/gameplay/missions/missions';
 import { freshSave, parseSave } from '../../src/gameplay/missions/save';
-import { DOUBLE_EVERY, LONG_LEG_MAX_M, LONG_LEG_MIN_M, drawLongOrder } from '../../src/gameplay/missions/orders';
-import { basePay, parSeconds, tip, deliveryDeadline, DOUBLE_BONUS, LONG_MAX_METRES, MAX_TIP } from '../../src/gameplay/economy';
+import { DOUBLE_EVERY, LONG_LEG_MAX_M, LONG_LEG_MIN_M, drawLimitedOrder, drawLongOrder } from '../../src/gameplay/missions/orders';
+import {
+  basePay, parSeconds, tip, deliveryDeadline, DOUBLE_BONUS, LIMITED_COOLDOWN_SECONDS, LIMITED_MIN_METRES,
+  LIMITED_OFFER_SECONDS, LIMITED_PAY_FACTOR, LONG_MAX_METRES, MAX_TIP,
+} from '../../src/gameplay/economy';
 import { PIZZERIA } from '../../src/gameplay/content/locations';
 import { addressSlug, type PoolAddress } from '../../src/gameplay/content/addresses';
 import { LANDMARKS, withLandmarks } from '../../src/gameplay/content/landmarks';
 import type { Router, WorldPoint } from '../../src/gameplay/contract';
 import { lRouter } from './missionHarness';
+import { PHRASES, addressSentence } from '../../src/gameplay/content/announcements';
+import { lineText } from '../../src/gameplay/content/dialogue';
 
-const pool: PoolAddress[] = [100, 3000, 5000].map((m, i) => ({ id: `district-${i}`, address: `District ${i}`,
+const pool: PoolAddress[] = [100, 2600, 2900].map((m, i) => ({ id: `district-${i}`, address: `District ${i}`,
   tile: `t0_${i}_0`, point: { x: m, z: 0 }, street: { x: m, z: 1 }, foot: m, car: m, landmark: i > 0 }));
 const frame = (extra: Partial<MissionFrame> = {}): MissionFrame => ({ position: PIZZERIA.point,
   interact: false, vehicleId: 'player', input: 'keyboard', ...extra });
@@ -173,33 +178,38 @@ describe('long-range deliveries', () => {
     expect(later.snapshot().hud.message).toContain('Long-range deliveries are now available');
   });
 
-  // Landmarks around x 2000 (L-shaped routes): a–b 1000 m and b–c 800 m are real drives, a–c (200 m) is next door and
-  // d is across town from all of them.
+  // Landmarks on one street at x 2000 (L-shaped routes): a–b 1000 m and b–c 800 m are real drives, a–c (200 m) is next
+  // door, d is across town from all of them. f (2600 m out) reaches 3 km with any partner but via b; e is 3.5 km out:
+  // a LIMITED TIME destination only.
   const lm = (id: string, x: number, z: number, car: number): PoolAddress => ({ id, address: `Landmark ${id}`,
     tile: 't0_5_0', point: { x, z }, street: { x, z: z + 2 }, foot: car, car, landmark: true });
-  const ring = [lm('a', 2000, 0, 2200), lm('b', 2000, 1000, 3300), lm('c', 2000, 200, 2400), lm('d', -4000, 0, 4500)];
+  const ring = [lm('a', 2000, 0, 1000), lm('b', 2000, 1000, 1200), lm('c', 2000, 200, 1100), lm('d', -4000, 0, 2500),
+    lm('f', 2000, 2600, 2600), lm('e', 2000, 1800, 3500)];
   const lLeg = (a: PoolAddress, b: PoolAddress) => lRouter.distance(lRouter.route(a.point, b.point)!);
 
-  it('makes every third long job a double whose second landmark is a real drive from the first', () => {
+  it('makes every third long job a double whose second landmark is a real drive away, all below 3 km', () => {
     const seconds = new Set<string>();
     for (let seed = 0; seed < 60; seed++) {
       for (let n = 0; n < 9; n++) {
         const stops = drawLongOrder(ring, n, seed, new Set(), lLeg)!;
         if (n % DOUBLE_EVERY !== DOUBLE_EVERY - 1) { expect(stops).toHaveLength(1); continue; }
-        // Only d has no landmark within reach: it stays a single job.
-        expect(stops).toHaveLength(stops[0].id === 'd' ? 1 : 2);
+        // d has no landmark within reach and f none within 3 km in all: they stay single.
+        expect(stops[0].id).not.toBe('e');
+        expect(stops).toHaveLength(['d', 'f'].includes(stops[0].id) ? 1 : 2);
         if (stops.length < 2) continue;
         const leg = lLeg(stops[0], stops[1]);
         expect(leg).toBeGreaterThanOrEqual(LONG_LEG_MIN_M);
         expect(leg).toBeLessThanOrEqual(LONG_LEG_MAX_M);
+        expect(stops[0].car! + leg).toBeLessThan(LIMITED_MIN_METRES);
         seconds.add(`${stops[0].id}>${stops[1].id}`);
       }
     }
-    expect([...seconds].sort()).toEqual(['a>b', 'b>a', 'b>c', 'c>b']);
+    expect([...seconds].sort()).toEqual(['a>b', 'b>a', 'b>c', 'b>f', 'c>b']);
     // The second is an unused landmark when one is in reach.
     for (let seed = 0; seed < 20; seed++) {
       const stops = drawLongOrder(ring, 2, seed, new Set(['a']), lLeg)!;
-      if (stops[0].id === 'b') expect(stops[1].id).toBe('c');
+      if (stops[0].id === 'c') expect(stops[1].id).toBe('b');
+      if (stops[0].id === 'b') expect(['c', 'f']).toContain(stops[1].id);
     }
     expect(drawLongOrder(ring.slice(0, 1), 2, 1, new Set(), lLeg)).toHaveLength(1);
   });
@@ -243,7 +253,99 @@ describe('long-range deliveries', () => {
     expect(m.order.map(o => o.id)).toEqual(['b']);
     const money = m.money;
     finish(m);
-    expect(m.money - money).toBe(basePay(3300, 'long') + MAX_TIP);
+    expect(m.money - money).toBe(basePay(1200, 'long') + MAX_TIP);
     expect(m.snapshot()).toMatchObject({ longDeliveries: 3, job: 'short', order: [] });
+  });
+
+  it('draws LIMITED TIME runs of 3 km or more: far singles, and every third offer a double that reaches it', () => {
+    const doubles = new Set<string>();
+    for (let seed = 0; seed < 60; seed++) {
+      for (let n = 0; n < 9; n++) {
+        const stops = drawLimitedOrder(ring, n, seed, new Set(), lLeg)!;
+        const total = stops[0].car! + (stops[1] ? lLeg(stops[0], stops[1]) : 0);
+        expect(total).toBeGreaterThanOrEqual(LIMITED_MIN_METRES);
+        if (n % DOUBLE_EVERY !== DOUBLE_EVERY - 1) { expect(stops.map(a => a.id)).toEqual(['e']); continue; }
+        expect(stops).toHaveLength(2);
+        expect(lLeg(stops[0], stops[1])).toBeGreaterThanOrEqual(LONG_LEG_MIN_M);
+        expect(lLeg(stops[0], stops[1])).toBeLessThanOrEqual(LONG_LEG_MAX_M);
+        doubles.add(`${stops[0].id}>${stops[1].id}`);
+      }
+    }
+    // Every pair within reach whose whole route reaches 3 km, and no other.
+    expect([...doubles].sort()).toEqual(['c>f', 'e>a', 'e>b', 'e>c', 'e>f', 'f>b', 'f>c', 'f>e']);
+    expect(drawLimitedOrder(ring.slice(0, 3), 0, 1, new Set(), lLeg)).toBeNull();
+    expect(drawLimitedOrder(ring.slice(0, 3), 2, 1, new Set(), lLeg)).toBeNull();
+  });
+
+  it('offers a LIMITED TIME job on a game clock: announced, declined by letting it run out, then a new one', () => {
+    const m = game(40, ring, lRouter, { longAnnounced: true });
+    m.update(0.1, frame({ position: { x: -500, z: -500 } }));
+    const first = m.snapshot().limited;
+    expect(first).toMatchObject({ n: 1, left: LIMITED_OFFER_SECONDS });
+    expect(m.snapshot().dialogue).toEqual(['limited_offer']);
+    const named = first.stops.map(id => ring.find(a => a.id === id)!.address);
+    expect(PHRASES.limited.some(p => m.snapshot().hud.message === addressSentence(p, named[0], named[1]))).toBe(true);
+    m.update(100, frame());
+    m.update(0, frame({ interact: true }));
+    const option = () => m.shop!.options.find(o => o.id === 'take_limited_order')!;
+    expect(option()).toMatchObject({ enabled: true, reason: null });
+    expect(option().quote).toMatchObject({ stops: 1, metres: 3500, pay: LIMITED_PAY_FACTOR * basePay(3500, 'long'),
+      par: parSeconds(3500, 'car', 'long'), expires: LIMITED_OFFER_SECONDS - 100 });
+    expect(option().detail).toContain('three kilometres');
+    // A reload keeps the offer and its clock.
+    m.restore(m.serialize());
+    expect(m.snapshot().limited).toEqual({ ...first, left: LIMITED_OFFER_SECONDS - 100 });
+    m.update(LIMITED_OFFER_SECONDS - 100, frame());
+    m.update(0, frame({ interact: true }));
+    expect(option()).toMatchObject({ enabled: false, reason: lineText('reason_no_limited'), quote: null });
+    expect(m.snapshot().limited).toMatchObject({ stops: [], left: LIMITED_COOLDOWN_SECONDS });
+    m.update(0, frame({ leave: true }));
+    m.update(LIMITED_COOLDOWN_SECONDS - 1, frame({ position: { x: -500, z: -500 } }));
+    expect(m.snapshot().limited).toMatchObject({ n: 1, stops: [], left: 1 });
+    m.update(1, frame({ position: { x: -500, z: -500 } }));
+    expect(m.snapshot().limited).toMatchObject({ n: 2, left: LIMITED_OFFER_SECONDS });
+    expect(m.snapshot().dialogue).toEqual(['limited_offer']);
+  });
+
+  it('pays a taken LIMITED TIME double twice the long pay per leg, and starts the cooldown', () => {
+    const paid: PaidDropoff[] = [];
+    const m = new MissionSystem({ router: lRouter, addresses: ring, onPaid: drop => paid.push(drop) });
+    m.restore(game(40, ring, lRouter, { longAnnounced: true, limited: { n: 2, stops: [], left: 0 } }).serialize());
+    m.update(0.1, frame({ position: { x: -500, z: -500 } }));
+    m.update(30, frame());
+    m.update(0, frame({ interact: true }));
+    const quote = m.shop!.options.find(o => o.id === 'take_limited_order')!.quote!;
+    m.update(0, frame({ choose: 'take_limited_order' }));
+    const [first, second] = m.order;
+    const leg = lLeg(first.pool!, second.pool!);
+    expect(m.snapshot()).toMatchObject({ phase: 'carrying', job: 'limited', limited: { n: 3, stops: [], left: LIMITED_COOLDOWN_SECONDS } });
+    expect(quote).toMatchObject({ address: `${first.address} + ${second.address}`, metres: first.pool!.car! + leg, stops: 2,
+      pay: basePay(first.pool!.car!, 'limited') + basePay(leg, 'limited') });
+    expect(quote.metres).toBeGreaterThanOrEqual(LIMITED_MIN_METRES);
+    const money = m.money;
+    finish(m);
+    expect(m.money - money).toBe(quote.pay! + 2 * MAX_TIP + DOUBLE_BONUS);
+    expect(m.snapshot()).toMatchObject({ phase: 'delivered', job: 'short', longDeliveries: 0 });
+    expect(m.snapshot().dialogue).toEqual(['customer_fast', 'paid_limited', 'paid_double_bonus']);
+    expect(paid).toMatchObject([
+      { job: 'limited', routeMeters: first.pool!.car, payout: 2 * basePay(first.pool!.car!, 'long') },
+      { job: 'limited', routeMeters: leg, payout: 2 * basePay(leg, 'long') + DOUBLE_BONUS },
+    ]);
+  });
+
+  it('keeps LIMITED TIME runs out of the normal long job and needs a vehicle like it', () => {
+    const m = game(40, ring, lRouter, { longAnnounced: true, vehicle: 'none' });
+    m.update(0.1, frame({ position: { x: -500, z: -500 }, vehicleId: null }));
+    m.update(0, frame({ interact: true, vehicleId: null }));
+    const limited = m.shop!.options.find(o => o.id === 'take_limited_order')!;
+    expect(limited).toMatchObject({ enabled: false, reason: lineText('reason_long_vehicle') });
+    for (let n = 0; n < 12; n++) {
+      const g = game(40, ring, lRouter, { longDeliveries: n });
+      g.update(0, frame({ interact: true }));
+      expect(g.shop!.options.find(o => o.id === 'take_long_order')!.quote!.metres).toBeLessThan(LIMITED_MIN_METRES);
+    }
+    const locked = game(3, ring);
+    locked.update(500, frame({ position: { x: -500, z: -500 } }));
+    expect(locked.snapshot().limited).toMatchObject({ n: 0, stops: [] });
   });
 });

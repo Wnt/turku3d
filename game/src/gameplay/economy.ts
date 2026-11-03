@@ -38,16 +38,26 @@ const TIP_NONE_FROM = 1.3;
 /** A delivery fails (the customer cancels) after this multiple of the par time. */
 const FAIL_AFTER_PAR = 2;
 
-export type DeliveryJob = 'short' | 'long';
+/** A short order, a long-range job, or the pizzeria's LIMITED TIME job (a long-range run of LIMITED_MIN_METRES+). */
+export type DeliveryJob = 'short' | 'long' | 'limited';
 /** Finished short deliveries (delivered or failed) that unlock long-range jobs. */
 export const LONG_UNLOCK_DELIVERIES = 4;
 export const LONG_MAX_METRES = 7000;
-/** A long run pays 24 euros plus 12 per road kilometre, even when its tip is gone. */
+/** Orders whose car route totals this much or more (both legs of a double) are offered only as the LIMITED TIME job;
+ *  normal long jobs stay below it. */
+export const LIMITED_MIN_METRES = 3000;
+/** A LIMITED TIME offer stays in the pizzeria menu this many seconds of game time; declining is letting it run out. */
+export const LIMITED_OFFER_SECONDS = 240;
+/** The next LIMITED TIME offer appears this many game seconds after the last one was taken or ran out. */
+export const LIMITED_COOLDOWN_SECONDS = 180;
+/** A LIMITED TIME job pays this multiple of the long base pay; tips and the double bonus are unchanged. */
+export const LIMITED_PAY_FACTOR = 2;
+/** A long run pays 24 euros plus 12 per road kilometre, even when its tip is gone; a LIMITED TIME run pays double. */
 export const basePay = (metres: number, job: DeliveryJob = 'short') =>
-  job === 'long' ? 24 + Math.ceil(metres * 0.012) : BASE_PAY;
+  job === 'short' ? BASE_PAY : (job === 'limited' ? LIMITED_PAY_FACTOR : 1) * (24 + Math.ceil(metres * 0.012));
 
 export function parSeconds(routeMetres: number, vehicle: VehicleOwnership, job: DeliveryJob = 'short'): number {
-  const boost = job === 'long' ? (vehicle === 'scooter' ? 1.2 : 1.4) : 1;
+  const boost = job !== 'short' ? (vehicle === 'scooter' ? 1.2 : 1.4) : 1;
   return routeMetres / (PAR_SPEED[vehicle] * boost) + PAR_HANDLING_SECONDS;
 }
 

@@ -216,6 +216,24 @@ each pizza pays its own leg's long pay plus its tip, the second adds the 4 € d
 earns no tip, and after the first hand-over the dispatcher announces the second landmark
 (`second_address`). A single long job carried in an older save stays single.
 
+Normal long jobs, singles and doubles, stay below 3 km of car route in all (`LIMITED_MIN_METRES`):
+a double that would reach it takes a closer second landmark or stays single. Runs of 3 km or more
+(Ruissalon telakka, Jaanin paloasema, and doubles that add up to it) are the pizzeria's third
+option, the **LIMITED TIME delivery**, so the player can turn them down:
+
+- The offer clock runs in game time once long jobs are unlocked. An offer is drawn when it is due
+  and nothing is being said or open, the dispatcher announces it (a 12-phrase `limited` pool plus
+  the address), and it stays on the menu for 240 s (`LIMITED_OFFER_SECONDS`) with its seconds left
+  in the quote line. Declining is letting it run out. 180 s (`LIMITED_COOLDOWN_SECONDS`) after it is
+  taken or runs out the next one is drawn.
+- Every third offer is a double when some landmark pair within 0.6–2.5 km of each other reaches
+  3 km in all; otherwise, and for the other offers, one landmark 3 km or more away. Draws are seeded
+  per game, prefer landmarks not yet served, and the offer (draw count, stops, seconds left) is
+  saved per player in the mission save (`limited`).
+- It pays `LIMITED_PAY_FACTOR` (2) times the long base pay per leg, plus the tip and, on a double,
+  the double bonus; par and the vehicle requirement are those of a long job. It does not count as a
+  finished long job.
+
 ## Mission state machine
 
 `game/src/gameplay/missions/missions.ts`, `MissionSystem`. It is deterministic: it changes only in

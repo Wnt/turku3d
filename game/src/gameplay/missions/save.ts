@@ -1,6 +1,6 @@
 // The mission save text (format 4) inside a save slot (core/save.ts keeps it opaque) and migrations of formats
 // 1–3 (docs/design/story.md, "Mission state machine").
-import type { VehicleOwnership } from '../economy';
+import type { DeliveryJob, VehicleOwnership } from '../economy';
 import { PERMIT_DELIVERIES, START_MONEY } from '../economy';
 import { DELIVERIES } from '../content/deliveries';
 import { PHRASES, type PhraseCounts } from '../content/announcements';
@@ -13,9 +13,19 @@ export function missionSummary(text: string | null) {
   return { deliveries: s.delivery, money: s.money, devMoney: s.devMoney, lastAddress: s.lastAddress };
 }
 
+/** The pizzeria's LIMITED TIME offer clock (game seconds; missions/orders.ts drawLimitedOrder). */
+export interface LimitedOffer {
+  /** Offers drawn so far: the next draw's number. */
+  n: number;
+  /** Pool ids of the offer on the menu; [] during the cooldown. */
+  stops: string[];
+  /** Seconds left of the offer on the menu, or of the cooldown before the next draw (0: draw when due). */
+  left: number;
+}
+
 export interface MissionSave {
   version: 4;
-  job: 'short' | 'long';
+  job: DeliveryJob;
   /** Completed short orders, including cancellations; ten finish one rented round. */
   shortDeliveries: number;
   longDeliveries: number;
@@ -58,6 +68,8 @@ export interface MissionSave {
   devMoney: number;
   /** Number of draws from each spoken phrase pool. */
   phrases?: PhraseCounts;
+  /** Missing in saves from before LIMITED TIME offers: the first offer is due once long jobs are unlocked. */
+  limited: LimitedOffer;
 }
 
 /** The save format of main e323e39 (four looping deliveries, no address pool). */
@@ -92,10 +104,12 @@ const VALID_VEHICLES: readonly VehicleOwnership[] = ['none', 'scooter', 'car', '
 
 export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
+const freshOffer = (): LimitedOffer => ({ n: 0, stops: [], left: 0 });
+
 export function freshSave(seed: number): MissionSave {
   return { version: 4, job: 'short', shortDeliveries: 0, longDeliveries: 0, longAnnounced: false, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
     vehicle: 'none', delivery: 0, opening: [], pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
-    par: 0, firstPar: 0, devMoney: 0, phrases: {} };
+    par: 0, firstPar: 0, devMoney: 0, phrases: {}, limited: freshOffer() };
 }
 
 /** The opening served by a save from before the seeded opening order: DELIVERIES in list order. */
@@ -133,7 +147,8 @@ function migrateV2(s: MissionSaveV2, seed: number): MissionSave {
   const delivery = Math.floor(s.delivery);
   return { ...s, version: 4, job: 'short', shortDeliveries: delivery, longDeliveries: 0, longAnnounced: false, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0, devMoney: 0,
     order: s.phase === 'carrying' ? [DELIVERIES[delivery % DELIVERIES.length].id] : [], opening: listOpening(delivery),
-    lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null, phrases: {} };
+    lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null, phrases: {},
+    limited: freshOffer() };
 }
 
 function validV3(s: Partial<MissionSave>): MissionSave | null {
@@ -158,10 +173,13 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
     if (!save) return freshSave(seed);
     if (parsed.version !== 4) Object.assign(save, { version: 4, job: 'short', shortDeliveries: save.delivery,
       longDeliveries: 0, longAnnounced: false });
-    if (!['short', 'long'].includes(save.job) || !num(save.shortDeliveries) || !num(save.longDeliveries)
+    if (!['short', 'long', 'limited'].includes(save.job) || !num(save.shortDeliveries) || !num(save.longDeliveries)
       || !bool(save.longAnnounced)) return freshSave(seed);
     save.opening = ids(save.opening) ? [...new Set(save.opening.filter(id => SCRIPTED_STOPS.has(id)))]
       : listOpening(Math.floor(save.shortDeliveries));
+    const offer = save.limited as Partial<LimitedOffer> | undefined;
+    save.limited = offer && num(offer.n) && ids(offer.stops) && num(offer.left)
+      ? { n: Math.floor(offer.n), stops: offer.stops, left: offer.left } : freshOffer();
     // A finished delivery's result line is not replayed after a reload: the next step is the pizzeria.
     if (save.phase === 'delivered' || save.phase === 'failed' || (save.phase === 'carrying' && save.par <= 0)) {
       save.phase = save.permit > 0 ? 'at_pizzeria' : 'permit_needed';

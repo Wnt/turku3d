@@ -22,7 +22,10 @@ entry is kept (fresh metres) only when it is curated, and a curated landmark the
 navigation metadata, gets its fallback entry, so long jobs never depend on resident street tiles.
 The unlock notice waits until a long job can actually be drawn.
 `audio/voice/long-addresses.json` lists the voiced landmark names; `make voice-build` includes them in the common spoken inventory.
-Long pay is €24 + ceil(€12/km) per leg, plus the existing tip; the second pizza of a long double adds the double bonus. Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
+Long pay is €24 + ceil(€12/km) per leg, plus the existing tip; the second pizza of a long double adds the double bonus.
+Normal long jobs stay below 3 km of car route in all. Longer runs are the pizzeria's LIMITED TIME option
+(`drawLimitedOrder`, `MissionSystem.limitedClock`): an announced, saved offer that stays 240 s of game time, pays twice
+the long base pay per leg and is followed by another 180 s after it is taken or runs out (constants in `economy.ts`). Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
 `play.ts` sends the remaining minimap polyline through `CoarseTiles.setRouteHint`; the streaming
 scheduler owns its bounded 30-second look-ahead and request ordering.
 

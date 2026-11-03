@@ -87,6 +87,9 @@
     {"id": "detail_take_long_order", "speaker": "narrator", "text": "Deliver to Turku landmarks and museums. Higher distance pay; a fast, clean drive earns the full tip.", "voiced": false},
     {"id": "reason_long_locked", "speaker": "narrator", "text": "Complete four short deliveries to unlock.", "voiced": false},
     {"id": "reason_no_long_route", "speaker": "narrator", "text": "No drivable long-range destination is available.", "voiced": false},
-    {"id": "reason_long_vehicle", "speaker": "narrator", "text": "Buy a delivery vehicle or use forged plates first.", "voiced": false}
+    {"id": "reason_long_vehicle", "speaker": "narrator", "text": "Buy a delivery vehicle or use forged plates first.", "voiced": false},
+    {"id": "option_take_limited_order", "speaker": "narrator", "text": "LIMITED TIME delivery", "voiced": false},
+    {"id": "detail_take_limited_order", "speaker": "narrator", "text": "A run of three kilometres or more at double long-range pay. Gone when its clock runs out; leave it to decline.", "voiced": false},
+    {"id": "reason_no_limited", "speaker": "narrator", "text": "No limited-time job right now. Another one comes in a few minutes.", "voiced": false}
   ]
 }

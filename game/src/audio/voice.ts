@@ -9,7 +9,7 @@ export interface VoiceManifest { version: number; lines: VoiceClip[] }
 /** Resolve an address announcement to clips in speaking order, using only committed manifest entries. */
 export function sentenceClips(message: string, clips: readonly VoiceClip[]): string[] {
   const phrases = clips.filter(c => c.id.startsWith('phrase_') &&
-    /^(phrase_order_|phrase_double_|phrase_second_|phrase_hint_carry_)/.test(c.id));
+    /^(phrase_order_|phrase_double_|phrase_second_|phrase_hint_carry_|phrase_limited_)/.test(c.id));
   const addresses = clips.filter(c => c.id.startsWith('address_') && c.id !== 'address_then')
     .sort((a, b) => b.text.length - a.text.length);
   const then = clips.find(c => c.id === 'address_then');

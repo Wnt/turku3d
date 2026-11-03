@@ -1,9 +1,10 @@
 // Delivery orders (docs/design/story.md, "Deliveries"): the scripted opening in a seeded order, then draws from the
 // published address pool without repeats until it is exhausted, on a distance ladder that grows with the orders
 // served, with an occasional short hop and every third order a double (two pizzas, two addresses, one run). Long
-// jobs go to curated landmarks, every third one a double with a second landmark a real drive away. Pure and seeded:
+// jobs go to curated landmarks, every third one a double with a second landmark a real drive away, below
+// LIMITED_MIN_METRES in all; runs of that length or more are the pizzeria's LIMITED TIME offers. Pure and seeded:
 // the same seed, order number and delivered set always give the same order.
-import { LONG_MAX_METRES } from '../economy';
+import { LIMITED_MIN_METRES, LONG_MAX_METRES } from '../economy';
 import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES, type Delivery } from '../content/deliveries';
 
@@ -103,24 +104,60 @@ export function drawOrder(pool: readonly PoolAddress[], n: number, seed: number,
 
 /** Straight metres between two drop-offs: the leg measure when no street router is given. */
 const straightLeg = (a: PoolAddress, b: PoolAddress) => Math.hypot(a.point.x - b.point.x, a.point.z - b.point.z);
+type Leg = (from: PoolAddress, to: PoolAddress) => number;
+
+/** Curated landmarks with a car route from the pizzeria, in id order. */
+const drivableLandmarks = (pool: readonly PoolAddress[]) => pool
+  .filter(a => a.landmark && a.car !== null && a.car > 60 && a.car <= LONG_MAX_METRES)
+  .sort((a, b) => a.id.localeCompare(b.id));
+const withinReach = (leg: number) => leg >= LONG_LEG_MIN_M && leg <= LONG_LEG_MAX_M;
 
 /**
  * Draws long job `n` (counted by finished long jobs): one curated landmark, or for every third job two, the second an
- * unused landmark whose `leg` (route metres from the first drop-off) is LONG_LEG_MIN_M–LONG_LEG_MAX_M; a single job
- * when none is. Long jobs never fall back to a nearby or undrivable address. Null when no landmark is drivable.
+ * unused landmark whose `leg` (route metres from the first drop-off) is LONG_LEG_MIN_M–LONG_LEG_MAX_M. The whole car
+ * route stays below LIMITED_MIN_METRES (longer runs are the LIMITED TIME job): a double that would reach it takes a
+ * closer second landmark or stays single. Long jobs never fall back to a nearby or undrivable address. Null when no
+ * landmark qualifies.
  */
 export function drawLongOrder(pool: readonly PoolAddress[], n: number, seed: number, delivered: ReadonlySet<string>,
-  leg: (from: PoolAddress, to: PoolAddress) => number = straightLeg): PoolAddress[] | null {
-  const eligible = pool.filter(a => a.landmark && a.car !== null && a.car > 60 && a.car <= LONG_MAX_METRES)
-    .sort((a, b) => a.id.localeCompare(b.id));
+  leg: Leg = straightLeg): PoolAddress[] | null {
+  const eligible = drivableLandmarks(pool).filter(a => a.car! < LIMITED_MIN_METRES);
   const unused = eligible.filter(a => !delivered.has(a.id));
   const choices = unused.length ? unused : eligible;
   if (!choices.length) return null;
   const random = orderRandom(seed, n);
   const first = choices[Math.floor(random() * choices.length)];
   if (!isDouble(n)) return [first];
-  const reach = (list: PoolAddress[]) => list.filter(a => a !== first && leg(first, a) >= LONG_LEG_MIN_M && leg(first, a) <= LONG_LEG_MAX_M);
+  const reach = (list: PoolAddress[]) => list.filter(a => a !== first && withinReach(leg(first, a))
+    && first.car! + leg(first, a) < LIMITED_MIN_METRES);
   const unusedSeconds = reach(unused);
   const seconds = unusedSeconds.length ? unusedSeconds : reach(eligible);
   return seconds.length ? [first, seconds[Math.floor(random() * seconds.length)]] : [first];
+}
+
+/**
+ * Draws LIMITED TIME offer `n` (counted by offers made): a run whose whole car route is LIMITED_MIN_METRES or more.
+ * Every third offer is a double when some landmark pair reaches it (the second LONG_LEG_MIN_M–LONG_LEG_MAX_M from the
+ * first); otherwise, and for the other offers, one landmark that far from the pizzeria. Landmarks in `used` (served,
+ * or in the order being carried) are left out while others qualify. Null when nothing qualifies.
+ */
+export function drawLimitedOrder(pool: readonly PoolAddress[], n: number, seed: number, used: ReadonlySet<string>,
+  leg: Leg = straightLeg): PoolAddress[] | null {
+  const eligible = drivableLandmarks(pool);
+  const random = rng((seed ^ Math.imul(n + 1, 0x85ebca6b) ^ 0x1b873593) >>> 0);
+  const prefer = (list: PoolAddress[]) => {
+    const unused = list.filter(a => !used.has(a.id));
+    return unused.length ? unused : list;
+  };
+  if (isDouble(n)) {
+    // Firsts in a seeded order; the first one with a far enough partner makes the double.
+    const firsts = prefer(eligible).map(a => ({ a, key: random() })).sort((x, y) => x.key - y.key).map(x => x.a);
+    for (const first of firsts) {
+      const seconds = prefer(eligible.filter(a => a !== first && withinReach(leg(first, a))
+        && first.car! + leg(first, a) >= LIMITED_MIN_METRES));
+      if (seconds.length) return [first, seconds[Math.floor(random() * seconds.length)]];
+    }
+  }
+  const singles = prefer(eligible.filter(a => a.car! >= LIMITED_MIN_METRES));
+  return singles.length ? [singles[Math.floor(random() * singles.length)]] : null;
 }

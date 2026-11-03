@@ -41,6 +41,20 @@
     "Second customer, same cold city. Head for ",
     "One down. Do not celebrate yet. Next: "
   ],
+  "limited": [
+    "Limited time at the pizzeria: double pay for a run to ",
+    "A rush order just came in, big money, a few minutes only. It goes to ",
+    "Special order on the counter, double pay if you take it soon. Destination: ",
+    "Limited time job: a long drive and a fat envelope. It goes to ",
+    "The boss pays double for one far delivery. Come quickly. It goes to ",
+    "A high-value order is waiting, but not for long. Destination: ",
+    "Double pay, limited time. Somebody far away is very hungry: ",
+    "One premium order, first courier takes it. It goes to ",
+    "Limited time offer. The pay is double, the tip is yours. Destination: ",
+    "A long run just came in at double pay. It expires soon. It goes to ",
+    "Big order, short window. Pick it up at the pizzeria for ",
+    "The pizzeria has a limited time delivery at double pay for "
+  ],
   "hint_permit": [
     "Need a courier permit? Try the market under Auransilta.",
     "The permit seller is under Auransilta. Cash helps.",

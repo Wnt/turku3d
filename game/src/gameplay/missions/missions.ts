@@ -3,7 +3,7 @@
 // replay it exactly. Static messages use dialogue ids; rotating announcements carry their selected text.
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
-  basePay, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
+  basePay, LIMITED_COOLDOWN_SECONDS, LIMITED_OFFER_SECONDS, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
   PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
@@ -13,10 +13,10 @@ import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
-import { drawOrder, openingOrder } from './orders';
+import { drawLimitedOrder, drawOrder, openingOrder } from './orders';
 import type { ShopView } from './shopView';
 export type { ShopView, ShopOptionView } from './shopView';
-import { legMetres, longOrder, orderQuote, type OrderQuote } from './quotes';
+import { legMetres, longOrder, orderQuote, type OrderQuote, type StopLeg } from './quotes';
 export type { OrderQuote } from './quotes';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
@@ -111,6 +111,7 @@ export class MissionSystem implements MissionHudSource {
   private view: ShopView | null = null;
   private quoteCache: { key: string; quote: OrderQuote; firstPar: number } | null = null;
   private longQuoteCache: { key: string; quote: OrderQuote } | null = null;
+  private limitedQuoteCache: { key: string; quote: OrderQuote } | null = null;
   private readonly stops: Stops;
   private hintCache: { key: string; said: Said } | null = null;
   private phrase(kind: PhraseKind): string { return nextPhrase(kind, this.s.phrases ??= {}, this.s.seed); }
@@ -141,7 +142,8 @@ export class MissionSystem implements MissionHudSource {
     this.open = null;
     this.view = null;
     this.quoteCache = null;
-    this.longQuoteCache = null;
+    this.longQuoteCache = this.limitedQuoteCache = null;
+    if (this.s.limited.stops.some(id => !this.stops.resolve(id))) this.s.limited = { ...this.s.limited, stops: [], left: 0 };
     this.checkpoint = null;
     this.emit();
   }
@@ -223,6 +225,7 @@ export class MissionSystem implements MissionHudSource {
       this.say('long_unlocked');
       this.checkpoint = 'delivery';
     }
+    this.limitedClock(dt, frame);
     this.energy = Math.max(0, this.energy - dt);
     if ((this.s.phase === 'delivered' || this.s.phase === 'failed') && this.queue.length === 0) {
       this.s.phase = this.restPhase();
@@ -262,14 +265,40 @@ export class MissionSystem implements MissionHudSource {
    *  candidate (`Stops.relocate`); null when every candidate was rejected. */
   relocateDropoff(id: string, point: WorldPoint): WorldPoint | null {
     const next = this.stops.relocate(id, point);
-    this.quoteCache = this.longQuoteCache = null;
+    this.quoteCache = this.longQuoteCache = this.limitedQuoteCache = null;
     this.emit();
     return next;
+  }
+
+  /** Runs the LIMITED TIME offer clock in game seconds once long jobs are unlocked: an offer stays on the menu for
+   *  LIMITED_OFFER_SECONDS (declining is letting it run out); LIMITED_COOLDOWN_SECONDS after it is taken or runs out
+   *  the next one is drawn, when nothing is being said and no menu is open, and announced. */
+  private limitedClock(dt: number, frame: MissionFrame) {
+    const offer = this.s.limited;
+    if (!this.longUnlocked || this.s.phase === 'idle') return;
+    offer.left = Math.max(0, offer.left - dt);
+    if (offer.left > 0) return;
+    if (offer.stops.length) {
+      offer.stops = [];
+      offer.left = LIMITED_COOLDOWN_SECONDS;
+      this.limitedQuoteCache = null;
+      return;
+    }
+    if (this.queue.length || this.open || frame.interact || frame.choose) return;
+    const used = new Set([...this.s.delivered, ...this.s.order]);
+    const stops = drawLimitedOrder(this.stops.pool, offer.n, this.s.seed, used, (a, b) => this.landmarkLeg(a, b));
+    offer.n += 1;
+    if (!stops) { offer.left = LIMITED_COOLDOWN_SECONDS; return; }
+    offer.stops = stops.map(a => a.id);
+    offer.left = LIMITED_OFFER_SECONDS;
+    this.say({ id: 'limited_offer', text: addressSentence(this.phrase('limited'), stops[0].address, stops[1]?.address) });
+    this.checkpoint = 'delivery';
   }
 
   /** The current order's stops; draws the next order when none is quoted yet. */
   private ensureOrder(): OrderStop[] {
     if (this.s.order.length === 0) {
+      if (this.s.job === 'limited') this.s.job = 'short'; // only ever taken with its stops
       if (this.s.job === 'long') {
         const next = this.longOrder();
         if (next) { this.s.order = next; this.s.stop = 0; return next.map(id => this.stops.resolve(id)!); }
@@ -339,11 +368,13 @@ export class MissionSystem implements MissionHudSource {
       case 'sell_kidney': return { price: -KIDNEY_PAYOUT, reason: s.kidney ? 'reason_kidney_sold' : null };
       case 'expiry_warning': return s.warning ? { price: WARNING_PRICE, reason: 'reason_warning_owned' } : money(WARNING_PRICE);
       case 'take_long_order':
+      case 'take_limited_order':
       case 'take_order': {
-        const long = id === 'take_long_order';
-        const quote = long ? this.longQuote() : this.quote();
+        const long = id !== 'take_order';
+        const quote = id === 'take_long_order' ? this.longQuote() : id === 'take_limited_order' ? this.limitedQuote() : this.quote();
         const reason = long && !this.longUnlocked ? 'reason_long_locked'
-          : long && !quote ? 'reason_no_long_route' : long && this.parVehicle() === 'none' ? 'reason_long_vehicle'
+          : long && !quote ? (id === 'take_long_order' ? 'reason_no_long_route' : 'reason_no_limited')
+          : long && this.parVehicle() === 'none' ? 'reason_long_vehicle'
           : s.phase === 'carrying' ? 'reason_carrying' : s.permit === 0 ? 'reason_no_permit'
           : !this.mayDeliverWith(this.frame?.vehicleId ?? null) ? 'reason_own_vehicle_only' : null;
         return { price: null, reason, quote: quote ?? undefined };
@@ -386,6 +417,10 @@ export class MissionSystem implements MissionHudSource {
       case 'take_long_order':
         this.s.job = 'long'; this.s.order = this.longOrder()!; this.quoteCache = null;
         this.pickUp(); this.open = null; break;
+      case 'take_limited_order':
+        this.s.job = 'limited'; this.s.order = [...this.s.limited.stops]; this.quoteCache = this.limitedQuoteCache = null;
+        this.s.limited = { ...this.s.limited, stops: [], left: LIMITED_COOLDOWN_SECONDS };
+        this.pickUp(); this.open = null; break;
       case 'take_order': this.s.job = 'short'; this.pickUp(); this.open = null; break;
       case 'slice': this.energy = SLICE_SECONDS; this.reply('pizzeria_slice'); break;
       case 'tip_rules': this.reply('pizzeria_tip_rules'); break;
@@ -408,16 +443,22 @@ export class MissionSystem implements MissionHudSource {
     this.say({ id, text });
   }
 
-  /** Route metres between two landmarks' drop-offs, kept for the session so a quoted long double stays the one taken. */
+  /** Car-route metres between two pool drop-offs, kept for the session so a quoted double is priced and paid alike. */
   private readonly landmarkLegs = new Map<string, number>();
-  private longOrder() {
-    return longOrder(this.stops.pool, this.s, (a, b) => {
-      const key = `${a.id}>${b.id}`;
-      let metres = this.landmarkLegs.get(key);
-      if (metres === undefined) this.landmarkLegs.set(key, metres = this.streetMetres(a.point, b.point));
-      return metres;
-    });
+  private landmarkLeg(a: PoolAddress, b: PoolAddress): number {
+    const key = `${a.id}>${b.id}`;
+    let metres = this.landmarkLegs.get(key);
+    if (metres === undefined) this.landmarkLegs.set(key, metres = this.streetMetres(a.point, b.point, 'car'));
+    return metres;
   }
+
+  /** The leg between two drop-offs of the current job: a long-range leg is always driven. */
+  private stopLeg(job: DeliveryJob): StopLeg | undefined {
+    return job === 'short' ? undefined
+      : (a, b) => a.pool && b.pool ? this.landmarkLeg(a.pool, b.pool) : this.streetMetres(a.point, b.point, 'car');
+  }
+
+  private longOrder() { return longOrder(this.stops.pool, this.s, (a, b) => this.landmarkLeg(a, b)); }
 
   /** The next long job's quote, single or double, priced like any order (missions/quotes.ts orderQuote). */
   private longQuote(): OrderQuote | null {
@@ -427,9 +468,24 @@ export class MissionSystem implements MissionHudSource {
     const key = `${ids.join(',')}|${vehicle}`;
     if (this.longQuoteCache?.key !== key) {
       const stops = ids.map(id => this.stops.resolve(id)!);
-      this.longQuoteCache = { key, quote: orderQuote(stops, vehicle, 'long', (a, b) => this.streetMetres(a, b)).quote };
+      this.longQuoteCache = { key, quote: orderQuote(stops, vehicle, 'long', (a, b) => this.streetMetres(a, b),
+        this.stopLeg('long')).quote };
     }
     return this.longQuoteCache.quote;
+  }
+
+  /** The LIMITED TIME offer on the menu with its seconds left, or null between offers. */
+  private limitedQuote(): OrderQuote | null {
+    const { stops: ids, left } = this.s.limited;
+    if (!ids.length) return null;
+    const vehicle = this.parVehicle();
+    const key = `${ids.join(',')}|${vehicle}`;
+    if (this.limitedQuoteCache?.key !== key) {
+      const stops = ids.map(id => this.stops.resolve(id)!);
+      this.limitedQuoteCache = { key, quote: orderQuote(stops, vehicle, 'limited', (a, b) => this.streetMetres(a, b),
+        this.stopLeg('limited')).quote };
+    }
+    return { ...this.limitedQuoteCache.quote, expires: Math.ceil(left) };
   }
 
   private quote(): OrderQuote {
@@ -437,19 +493,20 @@ export class MissionSystem implements MissionHudSource {
     const vehicle = this.parVehicle();
     const key = `${this.s.job}|${this.s.order.join(',')}|${vehicle}`;
     if (this.quoteCache?.key !== key) {
-      this.quoteCache = { key, ...orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b)) };
+      this.quoteCache = { key, ...orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b), this.stopLeg(this.s.job)) };
     }
     return this.quoteCache.quote;
   }
 
   /** Route metres of the current order's legs (pizzeria to the first drop-off, then drop-off to drop-off). */
   private legMetres(stops: OrderStop[]): number[] {
-    return legMetres(stops, this.parVehicle(), this.s.job, (a, b) => this.streetMetres(a, b));
+    return legMetres(stops, this.parVehicle(), this.s.job, (a, b) => this.streetMetres(a, b), this.stopLeg(this.s.job));
   }
 
-  /** Street-route metres between two points, or the straight line when either end is off the graph. */
-  private streetMetres(from: WorldPoint, to: WorldPoint): number {
-    const path = this.options.router.route(from, to);
+  /** Street-route metres between two points (in the player's travel mode unless `mode` is given), or the straight
+   *  line when either end is off the graph. */
+  private streetMetres(from: WorldPoint, to: WorldPoint, mode?: 'foot' | 'car'): number {
+    const path = this.options.router.route(from, to, mode);
     return path ? this.options.router.distance(path) : distance(from, to);
   }
 
@@ -488,7 +545,8 @@ export class MissionSystem implements MissionHudSource {
     if (!stop.scripted) this.s.delivered.push(stop.id);
     const band: TipBand = t >= 5 ? 'fast' : t >= 1 ? 'ok' : 'slow';
     const customer: Said = { id: `customer_${band}`, text: this.phrase(`customer_${band}`) };
-    const lines: (string | Said)[] = [customer, ...(this.s.job === 'long' ? [{ id: 'paid_long', text: `Long delivery: ${pay} € + tip ${t} €` }] : [`paid_tip_${t}`]), ...(bonus ? ['paid_double_bonus'] : [])];
+    const lines: (string | Said)[] = [customer, ...(this.s.job === 'long' ? [{ id: 'paid_long', text: `Long delivery: ${pay} € + tip ${t} €` }]
+      : this.s.job === 'limited' ? [{ id: 'paid_limited', text: `Limited-time delivery: ${pay} € + tip ${t} €` }] : [`paid_tip_${t}`]), ...(bonus ? ['paid_double_bonus'] : [])];
     if (!last) {
       this.s.stop += 1; // the second pizza of a double: the timer keeps running
       this.say(...lines, { id: 'second_address',
@@ -514,7 +572,7 @@ export class MissionSystem implements MissionHudSource {
     this.s.phase = result;
     this.s.delivery += 1;
     if (this.s.job === 'short') this.s.shortDeliveries += 1;
-    else this.s.longDeliveries += 1;
+    else if (this.s.job === 'long') this.s.longDeliveries += 1;
     this.s.job = 'short';
     this.s.order = [];
     this.s.stop = 0;
