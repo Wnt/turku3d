@@ -6,6 +6,8 @@ export interface LodNode {
   key: string;
   depth: number;
   pointCount: number;
+  /** Share of the points the class filter draws (1 until known; the overlay sets it when the node loads). */
+  weight?: number;
   /** Engine-frame AABB: min x, y, z, max x, y, z. */
   box: readonly number[];
   /** Mean point spacing (m) of this node's own points. */
@@ -88,10 +90,12 @@ class Heap {
   }
 }
 
-/** Points of a node worth drawing at a projected spacing: all of them up to `thinPx`, then by screen area. */
+/** Points of a node worth drawing at a projected spacing: all it draws (after the class filter) up to `thinPx`, then by
+ *  screen area. A node whose classes are all filtered away costs nothing but still refines into its children. */
 export function drawnPoints(node: LodNode, px: number, thinPx: number): number {
   const fraction = Math.min(1, (px / thinPx) ** 2);
-  return Math.max(1, Math.ceil(node.pointCount * fraction));
+  const shown = node.pointCount * (node.weight ?? 1);
+  return shown > 0 ? Math.max(1, Math.ceil(shown * fraction)) : 0;
 }
 
 /** Select the nodes to draw or load: largest projected spacing first, until the budget is spent. A node that does not

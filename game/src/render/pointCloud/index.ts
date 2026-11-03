@@ -53,6 +53,9 @@ export interface PointCloudOverlayApi extends HookOverlay {
   /** Hide points behind the game's geometry (default) or draw them through it. */
   setOcclusion(on: boolean): void;
   setClassVisible(classification: number, on: boolean): void;
+  /** Which classes draw: 'vegetation' (default: 3-5 and wires, 14), 'all' (everything but noise 7/18) or a class list. */
+  setClassFilter(filter: ClassFilter): void;
+  getClassFilter(): ClassFilter;
   setPointBudget(points: number): void;
   queryNear(x: number, z: number, radiusM: number): PointCloudEvidence | null;
   nearest(x: number, y: number, z: number, radiusM: number): PointCloudPoint | null;
@@ -91,7 +94,11 @@ const CLASS_COLORS: Record<number, [number, number, number]> = {
   10: [0.6, 0.32, 0.64], 11: [0.36, 0.36, 0.42], 12: [0.86, 0.86, 0.62], 13: [1, 0.9, 0.4], 14: [1, 0.75, 0.2],
   15: [0.85, 0.65, 0.3], 16: [0.9, 0.8, 0.5], 17: [0.95, 0.6, 0.2], 18: [1, 0, 1],
 };
-const HIDDEN_BY_DEFAULT = new Set([7, 18]);
+/** Survey noise: hidden in every preset. */
+const NOISE = new Set([7, 18]);
+/** Low, medium and high vegetation, and wire conductors (ASPRS 14: the derived wire layer, tools/pointcloud/build_wires.py). */
+export const VEGETATION_CLASSES = [3, 4, 5, 14] as const;
+export type ClassFilter = 'vegetation' | 'all' | readonly number[];
 
 interface PcTile {
   name: string;
@@ -112,6 +119,8 @@ interface PcNode extends LodNode {
   anchor: [number, number, number];
   state: 'idle' | 'loading' | 'decoded' | 'ready' | 'failed';
   points: DecodedPoints | null;
+  /** Points of this node the class filter draws (the mesh's instance capacity). */
+  kept: number;
   mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.NodeMaterial> | null;
   used: number;
 }
@@ -206,6 +215,9 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
   private attachQueue: PcNode[] = [];
   private loadedPoints = 0;
   private errors: string[] = [];
+  /** Classes drawn (1) per LAS class; meshes hold only these points, so filtered classes cost no GPU work. */
+  private readonly classMask = new Uint8Array(32);
+  private classFilter: ClassFilter = 'vegetation';
 
   /** Where the product answered: the dev server's same-origin /pointcloud proxy, else the COPC server directly
    *  (tools/pointcloud/serve.py sends CORS headers), e.g. on a dev server started before the proxy existed. */
@@ -215,9 +227,10 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     this.budget = BUDGET[tier];
     for (let c = 0; c < 32; c++) {
       const [r, g, b] = CLASS_COLORS[c] ?? [0.7, 0.7, 0.7];
-      this.paletteValues.push(new THREE.Vector4(r, g, b, HIDDEN_BY_DEFAULT.has(c) ? 0 : 1));
+      this.paletteValues.push(new THREE.Vector4(r, g, b, 1));
     }
     this.palette = uniformArray(this.paletteValues, 'vec4');
+    this.applyFilter('vegetation');
     this.material = this.createMaterial();
     registerPointCloudOverlay(this);
     window.__turku3dPointCloud = this;
@@ -295,8 +308,30 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
   getColorMode() { return this.colorMode; }
   setOcclusion(on: boolean) { this.occlude.value = on ? 1 : 0; }
   setClassVisible(classification: number, on: boolean) {
-    const entry = this.paletteValues[classification];
-    if (entry) { entry.w = on ? 1 : 0; this.palette.array = this.paletteValues; }
+    if (classification < 0 || classification >= 32) return;
+    const classes = [...this.classMask.keys()].filter(c => this.classMask[c] && c !== classification);
+    if (on) classes.push(classification);
+    this.applyFilter(classes.sort((a, b) => a - b));
+  }
+  setClassFilter(filter: ClassFilter) { this.applyFilter(filter); }
+  getClassFilter() { return this.classFilter; }
+
+  /** New mask: the palette hides at once, and every attached node re-attaches with only the drawn classes. */
+  private applyFilter(filter: ClassFilter) {
+    // Presets never draw survey noise; an explicit list is drawn as given.
+    const classes = filter === 'vegetation' ? VEGETATION_CLASSES : filter === 'all' ? [...Array(32).keys()].filter(c => !NOISE.has(c)) : filter;
+    this.classMask.fill(0);
+    for (const c of classes) if (c >= 0 && c < 32) this.classMask[c] = 1;
+    this.classFilter = typeof filter === 'string' ? filter : [...filter];
+    this.paletteValues.forEach((entry, c) => { entry.w = this.classMask[c]; });
+    this.palette.array = this.paletteValues;
+    for (const tile of this.tiles.values()) if (tile.nodes) for (const node of tile.nodes.values()) {
+      if (!node.points || node.state !== 'ready') continue;
+      if (node.mesh) { node.mesh.removeFromParent(); node.mesh.geometry.dispose(); node.mesh = null; }
+      node.state = 'decoded'; node.loaded = false;
+      this.attachQueue.push(node);
+    }
+    this.lastSelect = 0;
   }
   setPointBudget(points: number) { this.budget = Math.max(10_000, Math.round(points)); this.lastSelect = 0; }
 
@@ -335,11 +370,11 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
         if (!/json/.test(reply.headers.get('content-type') ?? '')) throw new Error('not JSON');
         const index = await reply.json() as { tiles: IndexTile[] };
         this.base = base;
-        for (const t of index.tiles) {
-          if (this.tiles.has(t.name)) continue;
-          const a = surveyToEngine(t.min[0], t.max[1], 0), b = surveyToEngine(t.max[0], t.min[1], 0);
-          this.tiles.set(t.name, { name: t.name, url: new URL(t.file, base).href, footprint: [a[0], a[2], b[0], b[2]], state: 'idle' });
-        }
+        this.addTiles(index.tiles, base, '');
+        // The derived wire layer (class 14, tools/pointcloud/build_wires.py) is optional and grows with its build.
+        const wires = await fetch(new URL('wires/index.json', base), { cache: 'no-store' }).catch(() => null);
+        if (wires?.ok && /json/.test(wires.headers.get('content-type') ?? ''))
+          this.addTiles((await wires.json() as { tiles: IndexTile[] }).tiles, new URL('wires/', base).href, 'wires:');
         this.indexState = 'ready';
         return;
       } catch (error) {
@@ -348,6 +383,15 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     }
     this.indexState = 'failed';
     this.note(`index unavailable (${failures.join('; ')})`);
+  }
+
+  private addTiles(tiles: readonly IndexTile[], base: string, prefix: string) {
+    for (const t of tiles) {
+      const name = prefix + t.name;
+      if (this.tiles.has(name)) continue;
+      const a = surveyToEngine(t.min[0], t.max[1], 0), b = surveyToEngine(t.max[0], t.min[1], 0);
+      this.tiles.set(name, { name, url: new URL(t.file, base).href, footprint: [a[0], a[2], b[0], b[2]], state: 'idle' });
+    }
   }
 
   private discoverTiles(at: THREE.Vector3) {
@@ -373,7 +417,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
       const a = surveyToEngine(e0, n1, lo), b = surveyToEngine(e1, n0, hi);
       map.set(copc.key, { key: copc.key, depth: copc.depth, pointCount: copc.pointCount, box: [a[0], a[1], a[2], b[0], Math.max(b[1], a[1]), b[2]],
         spacing: header.spacing / 2 ** copc.depth, children: [], loaded: false, tile, copc, parent: null,
-        anchor: nodeAnchor(header, copc), state: 'idle', points: null, mesh: null, used: 0 });
+        anchor: nodeAnchor(header, copc), state: 'idle', points: null, kept: 0, mesh: null, used: 0 });
     }
     for (const node of map.values()) for (const key of childKeys(node.copc)) {
       const child = map.get(key);
@@ -402,7 +446,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
       const count = selection.drawn.get(node)!;
       const refined = node.children.some(c => chosen.has(c) && c.mesh);
       // Spacing of what is drawn here: halved where children add points, widened where only a prefix draws.
-      node.mesh.userData.pcSpacing = node.spacing / (refined ? 2 : 1) / Math.sqrt(count / node.pointCount);
+      node.mesh.userData.pcSpacing = node.spacing / (refined ? 2 : 1) / Math.sqrt(Math.min(1, count / Math.max(1, node.kept)));
       node.mesh.geometry.instanceCount = count;
       node.mesh.visible = true;
     }
@@ -422,12 +466,20 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     for (let n = 0; n < LOD.attachPerFrame && this.attachQueue.length; n++) {
       const node = this.attachQueue.shift()!;
       if (node.state !== 'decoded' || !node.points) continue;
+      const kept = keepClasses(node.points, this.classMask);
+      node.kept = kept.count;
+      node.weight = kept.count / Math.max(1, node.points.count);
+      // Not-yet-loaded children start from their parent's share, so the budget plans with the filter.
+      for (const child of node.children) if (!child.points) child.weight = node.weight;
+      node.state = 'ready'; node.loaded = true;
+      this.lastSelect = 0;
+      if (!kept.count) continue;
       const geometry = new THREE.InstancedBufferGeometry();
       geometry.setAttribute('position', this.corners);
-      geometry.setAttribute('pcPosition', new THREE.InstancedBufferAttribute(node.points.positions, 3));
-      geometry.setAttribute('pcColor', new THREE.InstancedBufferAttribute(node.points.colors, 4, true));
-      geometry.setAttribute('pcExtra', new THREE.InstancedBufferAttribute(node.points.extra, 4, true));
-      geometry.setAttribute('pcSurvey', new THREE.InstancedBufferAttribute(node.points.survey, 4, true));
+      geometry.setAttribute('pcPosition', new THREE.InstancedBufferAttribute(kept.positions, 3));
+      geometry.setAttribute('pcColor', new THREE.InstancedBufferAttribute(kept.colors, 4, true));
+      geometry.setAttribute('pcExtra', new THREE.InstancedBufferAttribute(kept.extra, 4, true));
+      geometry.setAttribute('pcSurvey', new THREE.InstancedBufferAttribute(kept.survey, 4, true));
       geometry.instanceCount = 0;
       const mesh = new THREE.Mesh(geometry, this.material);
       mesh.name = `point-cloud ${node.tile.name} ${node.key}`;
@@ -436,8 +488,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
       mesh.userData.pcSpacing = node.spacing;
       mesh.visible = false;
       this.scene.add(mesh);
-      node.mesh = mesh; node.state = 'ready'; node.loaded = true;
-      this.lastSelect = 0;
+      node.mesh = mesh;
     }
   }
 
@@ -460,7 +511,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     for (const child of node.children) if (child.points) this.unload(child);
     if (node.mesh) { node.mesh.removeFromParent(); node.mesh.geometry.dispose(); node.mesh = null; }
     if (node.points) this.loadedPoints -= node.points.count;
-    node.points = null; node.loaded = false; node.state = 'idle';
+    node.points = null; node.loaded = false; node.state = 'idle'; node.kept = 0;
   }
 
   private note(message: string) {
@@ -530,7 +581,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     for (const tile of this.tiles.values()) if (tile.nodes) for (const node of tile.nodes.values())
       if (node.mesh) { ready++; if (node.mesh.visible) drawn += node.mesh.geometry.instanceCount; }
     return {
-      visible: this.visible, source: this.base, opacity: this.opacity.value, pointSize: this.pointSize, colorMode: this.colorMode, budget: this.budget,
+      visible: this.visible, source: this.base, classFilter: this.classFilter, opacity: this.opacity.value, pointSize: this.pointSize, colorMode: this.colorMode, budget: this.budget,
       index: this.indexState, tiles: this.tiles.size, tilesReady: [...this.tiles.values()].filter(t => t.state === 'ready').length,
       selected: this.selection?.selected.length ?? 0, selectedPoints: this.selection?.points ?? 0, drawnPoints: drawn,
       nodesReady: ready, loadedPoints: this.loadedPoints, inFlight: this.inFlight, attachQueue: this.attachQueue.length,
@@ -544,6 +595,24 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     registerPointCloudOverlay(null);
     if (window.__turku3dPointCloud === this) delete window.__turku3dPointCloud;
   }
+}
+
+/** The points of the drawn classes, in their shuffled order (so any prefix stays a uniform subsample). */
+export function keepClasses(points: DecodedPoints, mask: Uint8Array) {
+  const { positions, colors, survey, extra, count } = points;
+  let n = 0;
+  for (let i = 0; i < count; i++) if (mask[colors[i * 4 + 3]]) n++;
+  if (n === count) return { count, positions, colors, survey, extra };
+  const p = new Float32Array(n * 3), c = new Uint8Array(n * 4), v = new Uint8Array(n * 4), e = new Uint8Array(n * 4);
+  for (let i = 0, j = 0; i < count; i++) {
+    if (!mask[colors[i * 4 + 3]]) continue;
+    p.set(positions.subarray(i * 3, i * 3 + 3), j * 3);
+    c.set(colors.subarray(i * 4, i * 4 + 4), j * 4);
+    v.set(survey.subarray(i * 4, i * 4 + 4), j * 4);
+    e.set(extra.subarray(i * 4, i * 4 + 4), j * 4);
+    j++;
+  }
+  return { count: n, positions: p, colors: c, survey: v, extra: e };
 }
 
 function boxNear(box: readonly number[], x: number, z: number, radius: number) {

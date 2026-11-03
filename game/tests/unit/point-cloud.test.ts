@@ -154,6 +154,17 @@ describe('point-cloud LOD', () => {
     expect(selectNodes([tile(0, 0)], { ...view(100, 100), visible: () => false }, options).selected).toEqual([]);
   });
 
+  it('plans the budget with the class filter: a filtered-away node costs nothing and still refines', () => {
+    const t = tile(0, 0);
+    t.weight = 0;
+    for (const c of t.children) c.weight = 0.25;
+    const s = selectNodes([t], view(100, 100), options);
+    expect(s.drawn.get(t)).toBe(0);
+    expect(s.selected).toContain(t.children[0]);
+    expect(s.drawn.get(t.children[0])).toBe(Math.ceil(170_000 * 0.25));
+    expect(s.points).toBe(4 * Math.ceil(170_000 * 0.25));
+  });
+
   it('thins by screen area below the thinning spacing', () => {
     const node = tile(0, 0);
     expect(drawnPoints(node, 2, 1.25)).toBe(67_000);
@@ -168,5 +179,27 @@ describe('point-cloud URL switch', () => {
     expect(pointCloudParam('?pointcloud=1')).toEqual({ build: true, show: true, mode: 'rgb' });
     expect(pointCloudParam('?pointcloud=classification')).toEqual({ build: true, show: true, mode: 'classification' });
     expect(pointCloudParam('?pointcloud=0')).toEqual({ build: false, show: false, mode: 'rgb' });
+  });
+});
+
+describe('point-cloud class filter', () => {
+  it('keeps only the drawn classes, in their shuffled order, with every column', async () => {
+    const { keepClasses, VEGETATION_CLASSES } = await import('../../src/render/pointCloud');
+    const count = 10, classes = [2, 5, 6, 3, 14, 1, 4, 12, 5, 9];
+    const points = { count, positions: new Float32Array(count * 3), colors: new Uint8Array(count * 4), survey: new Uint8Array(count * 4),
+      extra: new Uint8Array(count * 4), anchor: [0, 0, 0] as [number, number, number], minY: 0, maxY: 0 };
+    classes.forEach((c, i) => { points.positions[i * 3] = i; points.colors[i * 4 + 3] = c; points.survey[i * 4] = i; points.extra[i * 4] = i; });
+    const mask = new Uint8Array(32);
+    for (const c of VEGETATION_CLASSES) mask[c] = 1;
+    const kept = keepClasses(points, mask);
+    // Indices 1 (5), 3 (3), 4 (14), 6 (4) and 8 (5) pass; order is kept, so a prefix is still a uniform subsample.
+    const order = [1, 3, 4, 6, 8];
+    expect(kept.count).toBe(5);
+    expect(Array.from({ length: 5 }, (_, i) => kept.positions[i * 3])).toEqual(order);
+    expect(Array.from({ length: 5 }, (_, i) => kept.survey[i * 4])).toEqual(order);
+    expect(Array.from({ length: 5 }, (_, i) => kept.extra[i * 4])).toEqual(order);
+    expect(Array.from({ length: 5 }, (_, i) => kept.colors[i * 4 + 3])).toEqual([5, 3, 14, 4, 5]);
+    mask.fill(1);
+    expect(keepClasses(points, mask).positions).toBe(points.positions);
   });
 });
