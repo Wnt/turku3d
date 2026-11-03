@@ -1088,7 +1088,8 @@ if __name__ == '__main__':
 
 class NavigationTests(unittest.TestCase):
     setUp, tearDown, farm = FarmTests.setUp, FarmTests.tearDown, FarmTests.farm
-    NAVIGATION = dict(roads=dict(format='turku3d-roadgraph', nodes=2, edges=1),
+    # Flat [x, z] node coordinates and edge rows, as turku3d-roadgraph v1 stores them.
+    NAVIGATION = dict(roads=dict(format='turku3d-roadgraph', nodes=[0, 0, 5, 0], edges=[[0, 1, 3]]),
                       addresses=dict(format='turku3d-addresses', addresses=[dict(id='a'), dict(id='m', landmark=True)]))
 
     def serve(self, farm):
@@ -1129,7 +1130,7 @@ class NavigationTests(unittest.TestCase):
             self.assertEqual((status, cache, json.loads(body)), (200, 'no-cache', self.NAVIGATION))
         self.assertEqual(calls, [REV])
         built = [json.loads(l) for l in (self.root / 'events.jsonl').read_text().splitlines()]
-        self.assertIn(dict(addresses=2, landmarks=1, nodes=2, edges=1),
+        self.assertIn(dict(addresses=2, landmarks=1, nodes=2, edges=1),  # Counts, never the graph itself.
                       [{k: e[k] for k in ('addresses', 'landmarks', 'nodes', 'edges')} for e in built
                        if e['event'] == 'navigation-built'])
 

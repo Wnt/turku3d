@@ -836,7 +836,7 @@ class Farm:
                 self.navigations.pop(revision, None)
             self.event('navigation-built', revision=revision, seconds=round(time.monotonic() - started, 1),
                        addresses=len(addresses), landmarks=sum(bool(a.get('landmark')) for a in addresses),
-                       nodes=data['roads'].get('nodes'), edges=data['roads'].get('edges'))
+                       nodes=len(data['roads'].get('nodes', [])) // 2, edges=len(data['roads'].get('edges', [])))
         except Exception as error:
             row = dict(t=time.time(), revision=revision, error=str(error)[-1000:])
             with self.lock:
