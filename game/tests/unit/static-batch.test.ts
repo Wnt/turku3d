@@ -49,3 +49,30 @@ test('normal prepass reuses sided opaque variants and preserves authored silhoue
   b.alphaTest = 0; b.displacementMap = new THREE.Texture(); expect(pre.select(b)).toBeNull();
   pre.dispose();
 });
+
+test('placed models merge compatible draws across owners while preserving restoration and conservative visibility', async () => {
+  const { staticBatchPlacements, updateStaticBatchVisibility } = await import('../../src/world/staticBatch');
+  const model = new THREE.Group(), material = new THREE.MeshStandardMaterial();
+  const placements = [10, 30].map((x, i) => {
+    const owner = new THREE.Group(); owner.position.set(x, 0, 15);
+    owner.userData = { archetype: `hash-${i}`, placementId: `building-${i}` };
+    const inner = new THREE.Group(); inner.position.y = 3; owner.add(inner); model.add(owner);
+    const geometry = new THREE.BoxGeometry(4, 6, 4); geometry.clearGroups();
+    geometry.setAttribute('color_1', new THREE.Float32BufferAttribute(new Float32Array(24 * 3).fill(.5 + i * .1), 3));
+    const mesh = new THREE.Mesh(geometry, material); mesh.userData = { layer: 'buildings', object_id: `wall-${i}` };
+    inner.add(mesh); return { owner, inner, mesh };
+  });
+  batch(model);
+  const merged = model.getObjectByName('static-placement-batch') as THREE.Mesh;
+  expect(merged).toBeDefined();
+  expect(staticBatchPlacements(merged)).toEqual(placements.map(p => p.owner));
+  expect(merged.geometry.boundingBox!.min.toArray()).toEqual([8, 0, 13]);
+  expect(merged.geometry.boundingBox!.max.toArray()).toEqual([32, 6, 17]);
+  expect(merged.geometry.getAttribute('color_1').getX(24)).toBeCloseTo(.6);
+  placements[0].owner.visible = false; updateStaticBatchVisibility(model); expect(merged.visible).toBe(true);
+  placements[1].owner.visible = false; updateStaticBatchVisibility(model); expect(merged.visible).toBe(false);
+  placements[0].owner.visible = true; updateStaticBatchVisibility(model); expect(merged.visible).toBe(true);
+  releaseStaticBatches(model);
+  for (const { mesh, inner } of placements) expect(mesh.parent).toBe(inner);
+  expect(staticBatchPlacements(merged)).toBeUndefined();
+});

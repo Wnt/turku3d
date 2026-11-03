@@ -280,6 +280,7 @@ def build(
     )
     from . import stairs
 
+    source_ground = dry
     dry, river, bank, solid, stair_meshes, boat_meshes, structure_seconds = structures_stage(
         cache,
         tile,
@@ -481,6 +482,16 @@ def build(
         barrier_stage,
     )
     seconds["fences"] = cache.metrics["fences"]["seconds"]
+    from . import surface_closure
+
+    closure_structures = [*stair_meshes, *kerb_meshes,
+                          *[m for m in tunnels.meshes if m.object_id != "tunnel:ground-edge"]]
+    closure_decks = [m for deck in osm_decks for m in deck.meshes]
+    dry, solid, closure_report = surface_closure.stage(
+        cache, source_ground, dry, solid, closure_structures, closure_decks,
+        tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
+    )
+    seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
     # Street furniture and lights (G1): before collision, which merges their static primitives.
     from . import furniture
 
@@ -539,6 +550,13 @@ def build(
             flags=col.computed_flags(),
         )
     seconds["collision"] = time.perf_counter() - t
+    from . import surface_audit
+
+    surface_report = surface_audit.gate(
+        out, tile, inputs, source_ground, tunnels.openings,
+        [dry, bank, *closure_structures, *closure_decks], navigation_cells
+    )
+    seconds["surface_audit"] = surface_report.get("seconds", 0.)
 
     for cid, data in cols.items():
         url = f"col/{cid}.{hashlib.sha256(data).hexdigest()}.col"
@@ -804,6 +822,8 @@ def build(
             sections=len(inputs.street_profiles),
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
+        surface_closure=closure_report,
+        surface_audit=surface_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),
         attachments=attachments.stats(tile, inputs.attachments),
         walkable=walkable.stats(tile, inputs.walkable),

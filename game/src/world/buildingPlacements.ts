@@ -1,3 +1,4 @@
+import { updateStaticBatchVisibility } from './staticBatch';
 import * as THREE from 'three/webgpu';
 import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
@@ -138,4 +139,5 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
     const dz = Math.max(child.position.z + bounds.min[2] - z, 0, z - child.position.z - bounds.max[2]);
     child.visible = dx * dx + dz * dz <= child.userData.viewDistance ** 2;
   }
+  updateStaticBatchVisibility(root);
 }
