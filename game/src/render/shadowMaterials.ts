@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { NormalPrepass } from './normalPrepass';
+import { placementVisibility } from '../world/placementVisibility';
 import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
 
@@ -59,6 +60,11 @@ export class GameRenderer extends THREE.WebGPURenderer {
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
     const original = scene.overrideMaterial;
+    // Worker occlusion skips the primary camera's beauty and normal-prepass draws together; shadows, reflections
+    // and shader preparation keep their own visibility.
+    if ((original === null || original.userData.normalPrepass === true)
+      && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling
+      && placementVisibility.occluded(object, camera)) return;
     const context = this.contextNode;
     // Puddles read this per-draw receiver flag from the prepass, or from beauty's MRT when there is no prepass.
     if (!original) material.userData.weatherReceiver = material.userData.weatherWetness ? 1 : 0;

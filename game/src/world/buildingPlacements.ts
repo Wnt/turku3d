@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
 import { PreparationBudget } from '../render/preparationBudget';
+import { placementVisibility, type PlacementVisibility } from './placementVisibility';
 
 type Vec3 = [number, number, number];
 export interface BuildingModel {
@@ -44,7 +45,8 @@ export class BuildingModelCache {
   private active = 0;
   private queue: (() => void)[] = [];
   constructor(private load: (url: string) => Promise<THREE.Object3D>,
-    private dispose: (root: THREE.Object3D) => void, private budget = new PreparationBudget()) {}
+    private dispose: (root: THREE.Object3D) => void, private budget = new PreparationBudget(),
+    private visibility: PlacementVisibility = placementVisibility) {}
 
   private async read(url: string) {
     if (this.active >= 4) await new Promise<void>(resolve => this.queue.push(resolve));
@@ -90,6 +92,7 @@ export class BuildingModelCache {
     const templates = new Map(needed.map((id, i) => [id, leases[i].root]));
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Map<THREE.Material, THREE.Material>(), textures = new Map<THREE.Texture, THREE.Texture>();
+    const slots: number[] = [];
     for (const placement of data.placements) {
       // Network admission does not bound the clone burst after all model promises resolve.
       let pause = this.budget.checkpoint();
@@ -122,22 +125,30 @@ export class BuildingModelCache {
       wrapper.userData = { archetype: placement.model, placementId: placement.id,
         viewDistance: placement.viewDistance, modelBounds: descriptor.bounds, occluders: descriptor.occluders };
       wrapper.add(root); owner.add(wrapper);
+      slots.push(this.visibility.register(wrapper, descriptor.bounds, placement.viewDistance, descriptor.occluders));
     }
     for (const geometry of geometries) retainGeometry(geometry);
     // Each unstyled material owner enters the existing styling cache independently.
     shareModelTextures(owner);
-    return () => { for (const lease of leases) lease.release(); };
+    return () => {
+      for (const slot of slots.splice(0)) this.visibility.unregister(slot);
+      for (const lease of leases) lease.release();
+    };
   }
 }
 
 /** Cull complete placements against their own expanded bounds, never their container square. */
-export function updateBuildingDistances(root: THREE.Object3D, x: number, z: number) {
+export function updateBuildingDistances(root: THREE.Object3D, x: number, z: number,
+  visibility: PlacementVisibility = placementVisibility) {
+  // Only a model that is actually in the scene may occlude or be culled by the visibility worker.
+  const shown = root.visible && root.parent !== null;
   for (const child of root.children) {
     if (!child.userData.archetype) continue;
     const bounds = child.userData.modelBounds as BuildingModel['bounds'];
     const dx = Math.max(child.position.x + bounds.min[0] - x, 0, x - child.position.x - bounds.max[0]);
     const dz = Math.max(child.position.z + bounds.min[2] - z, 0, z - child.position.z - bounds.max[2]);
     child.visible = dx * dx + dz * dz <= child.userData.viewDistance ** 2;
+    visibility.setActive(child.userData.visibilitySlot as number | undefined, shown && child.visible);
   }
   updateStaticBatchVisibility(root);
 }
