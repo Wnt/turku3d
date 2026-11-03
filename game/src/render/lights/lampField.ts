@@ -5,6 +5,7 @@
 import type * as THREE from 'three/webgpu';
 import { decodeTileLights, lampKey, lightsSignature, owns, tileBounds, type TileLightsField } from './tileLights';
 import { scanTile, type Footprint, type LightPoint } from './tileScan';
+import { decodeFloodlights, floodLamps, type FloodTile } from './floodlights';
 
 /** One light: a corona sprite, and for street-light posts the post below it. */
 export interface Lamp {
@@ -13,15 +14,17 @@ export interface Lamp {
   /** Post base (posts) or the light point itself. */
   x: number; y: number; z: number;
   yaw: number; scale: number; post: boolean;
-  /** Street light (post or hung over the street), generator bridge or tunnel lamp, or a facade light. */
+  /** Street light (post or hung over the street), generator bridge or tunnel lamp, a facade light or a venue floodlight head. */
   kind: LampKind;
   light: SpriteLight;
 }
 
-export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall';
+export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall' | 'flood';
 
 /** Corona record. Colour is linear HDR. `day` 1 keeps a light on in daylight (tunnels), 0 follows the night level. */
-export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number; headRadius?: number }
+export interface SpriteLight { x: number; y: number; z: number; radius: number; r: number; g: number; b: number; day: number; headRadius?: number;
+  /** Wide glare of a high-power floodlight head (sprites.ts coronaProfile). */
+  glare?: number }
 
 /** Lights the generator builds as geometry rather than listing them. */
 const LIGHT_TYPES = {
@@ -37,7 +40,7 @@ function sprite(p: LightPoint, type: keyof typeof LIGHT_TYPES, day: number): Spr
 
 export interface LampSource { id: string; model: THREE.Object3D; lights: TileLightsField | null }
 
-interface TileLights { lamps: Lamp[]; footprint: Footprint | null }
+interface TileLights { lamps: Lamp[]; footprint: Footprint | null; flood: FloodTile | null }
 interface TileJob { model: THREE.Object3D; signature: string; job: Generator<void, TileLights> | null; lamps: Lamp[] | null }
 
 /** Building footprints are kept this far around a tile (metres), so a building reaching over a seam still blocks. */
@@ -46,6 +49,7 @@ const FOOTPRINT_MARGIN = 16;
 function* tileLamps(source: LampSource): Generator<void, TileLights> {
   const bounds = tileBounds(source.id);
   const listed = decodeTileLights(source.lights);
+  const flood = decodeFloodlights(source.lights?.floodlights, bounds);
   const m = FOOTPRINT_MARGIN;
   const scan = yield* scanTile(source.model, undefined,
     bounds ? [bounds[0] - m, bounds[1] - m, bounds[2] + m, bounds[3] + m] : undefined);
@@ -54,14 +58,14 @@ function* tileLamps(source: LampSource): Generator<void, TileLights> {
     built.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'tunnel', light: sprite(p, 'tunnel', 1) });
   for (const p of scan.bridge) if (!bounds || owns(bounds, p.x, p.z))
     built.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'bridge', light: sprite(p, 'led', 0) });
-  return { lamps: [...listed, ...built], footprint: scan.footprint ?? null };
+  return { lamps: [...listed, ...floodLamps(flood), ...built], footprint: scan.footprint ?? null, flood };
 }
 
 /** Resident tiles' lamps. `sync` follows the drawn drafts; `step` advances pending tiles within a time budget. */
 export class LampField {
   private tiles = new Map<string, TileJob>();
-  /** Called when a tile's lamps (and its building footprints) are ready, or with null when it left. */
-  onTile: (id: string, lamps: Lamp[] | null, footprint?: Footprint | null) => void = () => {};
+  /** Called when a tile's lamps (its building footprints and floodlit venues) are ready, or with null when it left. */
+  onTile: (id: string, lamps: Lamp[] | null, footprint?: Footprint | null, flood?: FloodTile | null) => void = () => {};
 
   sync(sources: Iterable<LampSource>) {
     const seen = new Set<string>();
@@ -82,7 +86,7 @@ export class LampField {
     for (const [id, tile] of this.tiles) {
       while (tile.job) {
         const next = tile.job.next();
-        if (next.done) { tile.job = null; tile.lamps = next.value.lamps; this.onTile(id, next.value.lamps, next.value.footprint); }
+        if (next.done) { tile.job = null; tile.lamps = next.value.lamps; this.onTile(id, next.value.lamps, next.value.footprint, next.value.flood); }
         if (now() >= until) return this.pending();
       }
     }
