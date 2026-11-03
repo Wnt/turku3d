@@ -93,7 +93,7 @@ def crossed(tris, start, end, height):
     return hit
 
 
-def seams(dry, surfaces, walls, excluded, bounds):
+def seams(dry, surfaces, walls, excluded, bounds, portals=None):
     """Open seams of dry: arrays a, b (edge ends), ha, hb (heights across), length."""
     a, b, n, length = boundary(dry)
     x0, z0, x1, z1 = bounds
@@ -101,6 +101,12 @@ def seams(dry, surfaces, walls, excluded, bounds):
     inside = (mid[:, 0] > x0) & (mid[:, 0] < x1) & (mid[:, 1] > z0) & (mid[:, 1] < z1)
     if excluded is not None and not excluded.is_empty:
         inside &= ~shapely.intersects_xy(excluded, mid[:, 0], mid[:, 1])
+    if portals is not None and not portals.is_empty:
+        # Passage clearance is authoritative: a face on a portal footprint edge
+        # lies on the clearance prism's side and would close the portal mouth.
+        edge = (a + b)[:, [0, 2]] / 2
+        inside &= ~shapely.intersects_xy(portals, edge[:, 0], edge[:, 1])
+        inside &= ~shapely.intersects_xy(portals, mid[:, 0], mid[:, 1])
     a, b, n, length, mid = a[inside], b[inside], n[inside], length[inside], mid[inside]
     rays = Rays(surfaces)
     own = (a[:, 1] + b[:, 1]) / 2
@@ -159,7 +165,11 @@ def resolve(dry, solid, structures, decks, bank, openings, excluded, bounds, til
     surfaces = np.concatenate([triangles(dry), *floors, triangles(bank)]) if floors else \
         np.concatenate([triangles(dry), triangles(bank)])
     walls = np.concatenate([surfaces, *[triangles(m) for m in structures if m.visual]])
-    a, b, ha, hb, length, hole_length = seams(dry, surfaces, walls, excluded, bounds)
+    portals = None
+    if openings.floors:
+        floors = np.asarray(openings.floors)
+        portals = shapely.union_all(shapely.polygons(floors[:, :, [0, 2]])).buffer(.05)
+    a, b, ha, hb, length, hole_length = seams(dry, surfaces, walls, excluded, bounds, portals)
     meshes = openings.structures(faces(a, b, ha, hb, tile_id))
     span = np.abs((a[:, 1] + b[:, 1]) / 2 - (ha + hb) / 2)
     return dry, solid, meshes, dict(sealed_seams=int(len(a)), sealed_length_m=round(float(length.sum()), 3),

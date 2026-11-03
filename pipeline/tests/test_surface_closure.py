@@ -68,8 +68,11 @@ def test_water_edges_and_portal_clearance_stay_open():
     high = Mesh(np.array([[2, 1, 0], [2.01, 1, 4], [4, 1, 4], [4, 1, 0]], float),
                 np.array([[0, 1, 2], [0, 2, 3]], np.uint32), np.ones(2, np.uint8))
     meshes, report = run(join(low, high), openings=opening)
-    # Nothing of the face stays inside the walking clearance above the floor.
-    assert report['sealed_seams'] == 1 and all(m.positions[m.indices][..., 1].max() <= .04 + 1e-6 for m in meshes)
+    # A seam on a passage footprint is left to the portal: no face may close it.
+    assert report['sealed_seams'] == 0 and meshes == []
+    away = Openings()
+    away.add(floor(3.5, 4, 1), 2.5)
+    assert run(join(low, high), openings=away)[1]['sealed_seams'] == 1
 
 
 def test_audit_counts_open_seams_between_samples():
