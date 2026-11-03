@@ -38,7 +38,7 @@ class TileHTTPServer(ThreadingHTTPServer):
 
 REV = re.compile(r"[a-f0-9]{40,64}\Z")
 TILE = re.compile(r"t0_-?\d{1,5}_-?\d{1,5}\Z")
-ALIAS = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+ALIAS = re.compile(r"[a-z][a-z0-9+-]{0,63}\Z")  # base+m<id> names a migrated generation
 HASHED = re.compile(r"[a-f0-9]{64}")
 BUNDLE_SOURCE = hashlib.sha256(b'turku3d-shared-collision-delivery-v1').hexdigest()
 RAW_CACHES = {
@@ -52,7 +52,8 @@ RAW_PRODUCERS = {
     'buildings/inputs.py': ('read_points',),
 }
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
-          'lights', 'vehicle_models', 'buildingPlacements', 'generation')
+          'lights', 'vehicle_models', 'buildingPlacements', 'generation',
+          'migrations', 'migration_base')
 GIB = 2**30
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
 DEMAND_SECONDS = 120   # game demand without a request for this long has been left behind
@@ -122,11 +123,14 @@ def worker_elapsed(info):
 
 # osgallery-dev has 16 threads and 48 GB; a build uses about one core and 1.1 GB.
 MAX_WORKERS = 12
+# Migrating a finished base tile is light I/O; it runs beside the build workers.
+MIGRATION_WORKERS = 2
 
 
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
-                 reserve_gib=2, grace_seconds=900, execute=None, free=None, stop=None):
+                 reserve_gib=2, grace_seconds=900, execute=None, free=None, stop=None,
+                 migrate=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers, self.queue_limit = workers, queue_limit
@@ -134,11 +138,12 @@ class Farm:
         self.grace_seconds = grace_seconds
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
+        self.migrate = migrate or self.run_migration
         self.lock = threading.RLock()
         self.adoption_lock = threading.Lock()
         self.adopting = set()
         self.bundles = OrderedDict()
-        self.pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix='tile')
+        self.pool = ThreadPoolExecutor(max_workers=MAX_WORKERS + MIGRATION_WORKERS, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
@@ -149,7 +154,8 @@ class Farm:
         self.pin = read_json(self.root / 'pin.json', {})
         self.stop = stop or self.stop_worker
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
-                            stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
+                            stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0,
+                            migrations=0)
         self.version = time.time_ns() // 1000000
         self.started = time.time()
         self.aliases = read_json(self.root / 'aliases.json', {})
@@ -180,15 +186,18 @@ class Farm:
             raise ValueError('invalid alias')
         # Advancing a branch must not silently discard its surveyed source profile.
         previous = self.aliases.get(alias)
-        if source_version is None:
+        if meta.get('kind') == 'migrated':
+            if source_version is not None:
+                raise ValueError('a migrated revision inherits its base source version')
+        elif source_version is None:
             source_version = meta.get('source_version')
             if source_version is None and previous:
                 source_version = self.revision(previous).get('source_version')
-        if meta.get('source_revision'):
+        if meta.get('source_revision') and meta.get('kind') != 'migrated':
             source_version = source_version or meta.get('source_version')
             revision = meta['source_revision']
             meta = self.revision(revision)
-        if source_version is not None:
+        if source_version is not None and meta.get('kind') != 'migrated':
             if not re.fullmatch(r"[a-f0-9]{64}", source_version):
                 raise ValueError('invalid source version')
             data = self.root / 'sources' / 'versions' / source_version
@@ -404,6 +413,15 @@ class Farm:
             if self.older(generation):
                 return 409, dict(state='superseded', revision=revision, generation=generation,
                                  pin=self.pin.get('revision'))
+            migrated = meta.get('kind') == 'migrated'
+            if migrated and not (self.output(meta['base_generation']) / tile / 'ready.json').exists():
+                # Missing base tiles build at the base revision; the next request migrates them.
+                # No client address: base requests never move the game's pin.
+                status, value = self.request(meta['base_revision'], tile, distance, None, player)
+                if status != 200:
+                    return status if status >= 400 else 202, dict(
+                        value, state=value.get('state') if status >= 400 else 'base-' + value['state'],
+                        revision=revision, generation=generation)
             if len(self.jobs) >= self.queue_limit:
                 return 429, dict(state='queue-full')
             # Reservation covers concurrent builders as well as the hard free-space floor.
@@ -412,7 +430,7 @@ class Farm:
             self.jobs[key] = revision
             self.queue_info[key] = dict(revision=revision, generation=generation, tile=tile,
                                        requested=time.time(), seen=time.time(), distance=distance or 0,
-                                       explicit=distance is None)
+                                       explicit=distance is None, **({'migrated': True} if migrated else {}))
             self.save_queue(force=True)
             self.pump()
             self.event('queued', revision=revision, tile=tile, generation=generation)
@@ -426,11 +444,19 @@ class Farm:
     def registered(self, generation):
         """Latest registration of any revision that produces this generation."""
         if time.monotonic() - self.registrations_scanned > 10:
-            times = {}
+            times, derived = {}, {}
             for path in (self.root / 'revisions').glob('*/revision.json'):
-                produced = read_json(path, {}).get('generation')
-                if produced:
+                meta = read_json(path, {})
+                produced = meta.get('generation')
+                if produced and meta.get('kind') == 'migrated':
+                    derived[produced] = meta.get('base_generation')
+                elif produced:
                     times[produced] = max(times.get(produced, 0), path.stat().st_mtime)
+            # Edits of existing tiles are as old as their base: switching the game to them
+            # supersedes nothing the base would not, and the base keeps building under them.
+            for produced, base in derived.items():
+                if base in times:
+                    times[produced] = times[base]
             self.registrations, self.registrations_scanned = times, time.monotonic()
         return self.registrations.get(generation)
 
@@ -578,11 +604,15 @@ class Farm:
         return min(max(abs(i - a), abs(j - b)) for a, b in here) > FAR_TILES
 
     def demand(self, revision, client, tiles, urgent, visible, address=None):
-        generation = self.revision(revision)['generation']
+        meta = self.revision(revision)
+        generation = meta['generation']
         with self.lock:
             self.observe(revision, generation, address)
-            self.demands[(generation, client[:128])] = dict(seen=time.time(),
-                tiles={tile: -1 if tile in urgent else 0 if tile in visible else 2 for tile in tiles})
+            row = dict(seen=time.time(),
+                       tiles={tile: -1 if tile in urgent else 0 if tile in visible else 2 for tile in tiles})
+            self.demands[(generation, client[:128])] = row
+            if meta.get('kind') == 'migrated':
+                self.demands[(meta['base_generation'], client[:128])] = row
             self.demands = {k:v for k,v in self.demands.items() if time.time() - v['seen'] < 120}
             self.pump()
         return self.status()
@@ -601,8 +631,13 @@ class Farm:
                 self.event('dropped', revision=self.jobs[key], tile=key[1], reason='player left this demand')
                 self.jobs.pop(key)
                 self.queue_info.pop(key)
-        while len(self.dispatched) < self.workers:
+        while True:
             pending = set(self.jobs) - self.dispatched
+            light = {k for k in self.dispatched if self.queue_info[k].get('migrated')}
+            if len(self.dispatched) - len(light) >= self.workers:
+                pending = {k for k in pending if self.queue_info[k].get('migrated')}
+            if len(light) >= MIGRATION_WORKERS:
+                pending = {k for k in pending if not self.queue_info[k].get('migrated')}
             if not pending:
                 break
             key = min(pending, key=self.priority)
@@ -639,6 +674,8 @@ class Farm:
         self.pool.shutdown(wait=True)
 
     def build(self, revision, tile, generation):
+        if self.queue_info.get((generation, tile), {}).get('migrated'):
+            return self.build_migrated(revision, tile, generation)
         key = (generation, tile)
         started = time.monotonic()
         try:
@@ -707,6 +744,71 @@ class Farm:
                 self.queue_info.pop(key, None)
                 self.dispatched.discard(key)
                 self.pump()
+
+    def build_migrated(self, revision, tile, generation):
+        """Apply a migrated revision's chain to its finished base tile (tile_migrate.py)."""
+        key = (generation, tile)
+        started = time.monotonic()
+        try:
+            with self.lock:
+                self.active.add(key)
+            result = self.migrate(revision, tile, self.revision(revision))
+            ready = read_json(self.output(generation) / tile / 'ready.json', {})
+            if ready.get('generation') != generation:
+                raise RuntimeError('migration did not produce a ready product')
+            seconds = round(time.monotonic() - started, 3)
+            with self.lock:
+                self.metrics['migrations'] += 1
+                self.failures.pop(key, None)
+                self.version += 1
+            self.event('migrated', revision=revision, generation=generation, tile=tile, seconds=seconds,
+                       applied=ready.get('applied'), written=ready.get('written'), result=result)
+        except Exception as error:
+            row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
+            with self.lock:
+                self.failures[key] = row
+                self.metrics['failed'] += 1
+            self.event('failed', **row)
+        finally:
+            with self.lock:
+                self.active.discard(key)
+                self.jobs.pop(key, None)
+                self.queue_info.pop(key, None)
+                self.dispatched.discard(key)
+                self.pump()
+
+    def run_migration(self, revision, tile, meta):
+        """The derived revision's own source snapshot migrates the tile, nice'd like builds."""
+        repo = self.root / 'revisions' / revision / 'repo'
+        work = self.root / 'work' / 'migrate'
+        work.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ, REPO=str(repo), TURKU3D_WORK=str(work), TURKU3D_THREADS_PER_WORKER='1')
+        data_root = self.revision(meta['base_revision']).get('data_root')
+        if data_root:
+            env['TURKU3D_DATA'] = data_root
+        logs = self.root / 'logs'
+        logs.mkdir(exist_ok=True)
+        with (logs / f'{revision}-{tile}.log').open('a') as log:
+            proc = subprocess.run([str(self.runner), 'python', 'scripts/dev/tile_migrate.py', 'apply',
+                                   '--farm-root', str(self.root), '--revision', revision, tile],
+                                  cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT,
+                                  timeout=600, start_new_session=True)
+        if proc.returncode:
+            raise RuntimeError(f'migration exit {proc.returncode}; see logs/{revision}-{tile}.log')
+        return dict(returncode=0)
+
+    def base_fallback(self, meta, tile):
+        """While a migrated tile is pending, its own finished base tile stands in for it."""
+        if meta.get('kind') != 'migrated':
+            return None
+        root = self.output(meta['base_generation'])
+        ready = read_json(root / tile / 'ready.json')
+        manifest = read_json(root / tile / 'manifest.json')
+        if not ready or not manifest:
+            return None
+        os.utime(root, None)
+        return manifest, f"/v/{meta['base_revision']}/coarse/{tile}/", dict(
+            revision=meta['base_revision'], generation=meta['base_generation'], source_kind='base'), root
 
     @staticmethod
     def validate(root, tile, manifest):
@@ -1000,6 +1102,12 @@ class Farm:
         revisions = set(self.aliases.values()) | set(self.jobs.values())
         pinned.update(self.revision(rev)['generation'] for rev in revisions)
         for rev in list(revisions):
+            meta = self.revision(rev)
+            pinned.update(meta.get('parents', []))
+            for source in (meta.get('source_revision'), meta.get('base_revision'), meta.get('code_revision')):
+                if source:
+                    revisions.add(source)
+        for rev in list(revisions):  # The base of a migrated revision has its own source snapshot.
             source = self.revision(rev).get('source_revision')
             if source:
                 revisions.add(source)
@@ -1245,7 +1353,7 @@ class Handler(BaseHTTPRequestHandler):
         prefix = f'/v/{revision}/coarse/{tile}/'
         source_root = farm.output(meta['generation'])
         if stale:
-            retained = farm.retained(tile)
+            retained = farm.base_fallback(meta, tile) or farm.retained(tile)
             if retained is None:
                 return status, value
             manifest, prefix, provenance, source_root = retained
