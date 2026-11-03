@@ -13,7 +13,7 @@ import { TILE_DETAIL } from './sceneryView';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploads } from '../render/textureUploads';
-import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, preparationTiles, retainDraftTile, retainPreparedTile, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, inViewWedge, preparationTiles, retainDraftTile, retainPreparedTile, startupDraftTiles, viewWedgeTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -89,6 +89,10 @@ const VIEW_KEEP_M = 75;
  *  rest. Lower cameras keep the ground rules (3x3 window, path and view wedge). */
 const HIGH_CAMERA_M = 40;
 const HD_3D_M = 250;
+/** At load and spawn the start's view wedge within this distance (m) installs full detail with the ground under it,
+ *  so the player never starts looking at scenery cells. Half angle of that wedge (rad). */
+const START_VIEW_M = 300;
+const START_VIEW_HALF = 0.75;
 /** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
 const ABANDON_AFTER_MS = 2000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
@@ -107,6 +111,9 @@ class DraftRejected extends Error {}
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
+
+/** Where a start looks from (engine metres) and its horizontal view direction. */
+export interface StartView { x: number; z: number; dx: number; dz: number }
 
 export class CoarseTiles {
   readonly entries = new Map<string, Entry>();
@@ -238,13 +245,13 @@ export class CoarseTiles {
   }
 
   retainedStarts: readonly { x: number; z: number }[] = [];
-  private startup: { points: readonly { x: number; z: number }[]; radius: number } | null = null;
+  private startup: { points: readonly { x: number; z: number }[]; radius: number; view?: StartView } | null = null;
   /** Where this client boots: the farm schedules its tile and ring as the player's until placement. */
   private bootAt: { x: number; z: number } | null = null;
   /** Preload actual starting ground; distant draft expansion joins ordinary streaming after placement.
    *  `boot` marks the position the client actually starts at (not every menu choice). */
-  preload(points: readonly { x: number; z: number }[], radius: number, boot = false): () => void {
-    this.startup = { points, radius };
+  preload(points: readonly { x: number; z: number }[], radius: number, boot = false, view?: StartView): () => void {
+    this.startup = { points, radius, view };
     if (boot) this.bootAt = points[0] ?? null;
     return () => { this.startup = null; this.nextCheck = 0; this.bootAt = null; };
   }
@@ -255,7 +262,12 @@ export class CoarseTiles {
     return boot ? Math.min(distToL0(id, x, z), distToL0(id, boot.x, boot.z)) : distToL0(id, x, z);
   }
   private wantedStarts(x: number, z: number) {
-    if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
+    if (this.startup) {
+      const ground = startupDraftTiles(this.startup.points, this.startup.radius), view = this.startup.view;
+      if (!view) return ground;
+      const length = Math.hypot(view.dx, view.dz) || 1;
+      return [...new Set([...ground, ...viewWedgeTiles(view.x, view.z, view.dx / length, view.dz / length, START_VIEW_M, START_VIEW_HALF)])];
+    }
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }
   private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, vegetation?: CoarseFragment['vegetation']) {
@@ -601,7 +613,19 @@ export class CoarseTiles {
   /** True when every drawn tile around (x, z) carries its full visual model, not a collision preview. Play may
    *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
   detailedAt(x: number, z: number) {
-    return this.wantedStarts(x, z).every(id => { const e = this.entries.get(id); return e?.state !== 'draft' || !e.preview; });
+    const window = this.wantedStarts(x, z).every(id => { const e = this.entries.get(id); return e?.state !== 'draft' || !e.preview; });
+    // Settling cameras also wait for the view wedge within START_VIEW_M (tiles the HD band admits), so a bench or QA
+    // view never starts on scenery cells there.
+    const view = this.startup ? null : this.screenshotScenery.cameraView;
+    if (!window || !view) return window;
+    const wanted = this.wantedStarts(x, z);
+    return viewWedgeTiles(view.x, view.z, view.dx, view.dz, START_VIEW_M, Math.min(view.halfAngle, Math.PI)).every(id => {
+      if (wanted.includes(id)) return true;
+      const e = this.entries.get(id);
+      if (e?.state === 'failed') return true;
+      if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) return true;
+      return e?.state === 'draft' && !e.preview && !!e.model;
+    });
   }
   /** Strict render coverage for tools and diagnostics; unlike startup, failed tiles are never skipped. */
   viewStatus(x: number, z: number) {
@@ -720,19 +744,8 @@ export class CoarseTiles {
     const ahead = speed >= 3 && speed <= DETAIL_LEAD_MAX_SPEED ? Math.min(VIEW_LEAD_S * speed, VIEW_LEAD_MAX_M) : 0;
     const origins: [number, number][] = [[x, z]];
     if (ahead) origins.push([x + this.velocity.x / speed * ahead, z + this.velocity.z / speed * ahead]);
-    const inWedge = (i: number, j: number, ox: number, oz: number, range: number, angle: number) => {
-      const id = `t0_${i}_${j}`;
-      if (distToL0(id, ox, oz) > range) return false;
-      const cos = Math.cos(Math.min(Math.PI, angle));
-      // The nearest footprint point, the corners and the centre: any of them inside the wedge.
-      const x0 = i * VISUAL_L0, z0 = j * VISUAL_L0, x1 = x0 + VISUAL_L0, z1 = z0 + VISUAL_L0;
-      const points: [number, number][] = [[Math.min(Math.max(ox, x0), x1), Math.min(Math.max(oz, z0), z1)],
-        [x0, z0], [x1, z0], [x0, z1], [x1, z1], [(x0 + x1) / 2, (z0 + z1) / 2]];
-      return points.some(([px, pz]) => {
-        const vx = px - ox, vz = pz - oz, length = Math.hypot(vx, vz);
-        return length < 1e-6 || (vx * dx + vz * dz) / length >= cos;
-      });
-    };
+    const inWedge = (i: number, j: number, ox: number, oz: number, range: number, angle: number) =>
+      inViewWedge(i, j, ox, oz, dx, dz, range, angle);
     const reach = VIEW_DETAIL_M + VIEW_KEEP_M + ahead, out: { id: string; d: number }[] = [];
     for (let i = Math.floor((x - reach) / VISUAL_L0); i <= Math.floor((x + reach) / VISUAL_L0); i++) {
       for (let j = Math.floor((z - reach) / VISUAL_L0); j <= Math.floor((z + reach) / VISUAL_L0); j++) {
@@ -989,8 +1002,13 @@ export class CoarseTiles {
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
       model.userData.traceId = id;
       this.screenshotScenery.nearbyChanged(id);
-      recordFreshness(e, fragment); this.host.scene.add(model);
+      recordFreshness(e, fragment);
       streamTrace.event('tile.preview', id, this.depth());
+      // Collision is published at once; the preview draws once its program and buffers are prepared outside a frame
+      // (a first draw would upload its several MB of vertices inside the frame).
+      const show = () => { if (e.model === model && this.entries.get(id) === e) this.host.scene.add(model); };
+      if (!this.host.preparePreview) { show(); return; }
+      await this.host.preparePreview(model).then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
       return;
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.

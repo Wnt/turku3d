@@ -1015,3 +1015,18 @@ test('a high camera installs full tiles only within 250 m of 3D distance; on the
   expect((await run(5)).sort()).toEqual(wantedTiles(125, 125).sort()); // on the ground: the 3x3 window
   expect(await run(250)).toEqual(['t0_0_0']); // 230 m above the tile tops: only the tile under the camera
 });
+
+test('startup loads the start view wedge within 300 m with its ground', () => {
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async () => new Response(null, { status: 202 })) as unknown as typeof fetch });
+  coarse.preload([{ x: 125, z: 125 }], 80, true);
+  const ground = coarse.progressAt(125, 125).total;
+  coarse.preload([{ x: 125, z: 125 }], 80, true, { x: 125, z: 125, dx: 1, dz: 0 });
+  const viewed = (coarse as unknown as { wantedStarts(x: number, z: number): string[] }).wantedStarts(125, 125);
+  expect(viewed).toContain('t0_1_0'); // ahead, 125 m east
+  expect(viewed).not.toContain('t0_2_0'); // 375 m: beyond 300 m
+  expect(viewed).not.toContain('t0_-1_0'); // behind
+  expect(coarse.progressAt(125, 125).total).toBeGreaterThan(ground);
+});

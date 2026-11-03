@@ -377,7 +377,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     detailRadius: params.mobile ? 80 : undefined,
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
     prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
-    previewCollision: collisionPreview,
+    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m),
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),
@@ -676,7 +676,9 @@ async function runPlay() {
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
   streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
-  coarse.preload([requested], streamer.radius, true);
+  // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
+  const startYaw = headingToYaw(params.spawn.headingDeg);
+  coarse.preload([requested], streamer.radius, true, { x: requested.x, z: requested.z, dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) });
   const tWait = performance.now();
   let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
   while (!placed) {

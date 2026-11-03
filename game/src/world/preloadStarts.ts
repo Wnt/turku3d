@@ -12,7 +12,10 @@ export async function preloadStarts(world: PlayWorld, feet: { x: number; z: numb
   const starts = startPoints(world.spawn, world.car, games, multiplayer);
   streamer.retainedStarts = starts;
   if (coarse) coarse.retainedStarts = starts;
-  const releaseDrafts = coarse?.preload(starts, streamer.radius);
+  // The spawn's view wedge loads full detail with the start ground (CoarseTiles.preload).
+  const yaw = world.spawn.yaw;
+  const releaseDrafts = coarse?.preload(starts, streamer.radius, false,
+    { x: world.spawn.x, z: world.spawn.z, dx: -Math.sin(yaw), dz: -Math.cos(yaw) });
   await Promise.all([preloadWorld(world, feet, async () => {
     for (const game of [null, ...games.filter(g => g !== null)]) await saves.prepare(game);
     if (multiplayer) await saves.prepare(null, multiplayer);

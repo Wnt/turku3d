@@ -174,3 +174,26 @@ export function routeAheadTiles(points: readonly { x: number; z: number }[], x: 
   }
   return path.size ? { tiles: [...tiles], urgent: [...path] } : null;
 }
+
+/** Whether L0 tile (i, j) lies within `range` of (ox, oz) with some footprint point (nearest point, corners or
+ *  centre) inside the horizontal wedge of half angle `angle` around the unit direction (dx, dz). */
+export function inViewWedge(i: number, j: number, ox: number, oz: number, dx: number, dz: number, range: number, angle: number) {
+  if (distToL0(l0(i, j), ox, oz) > range) return false;
+  const cos = Math.cos(Math.min(Math.PI, angle));
+  const x0 = i * VISUAL_L0, z0 = j * VISUAL_L0, x1 = x0 + VISUAL_L0, z1 = z0 + VISUAL_L0;
+  const points: [number, number][] = [[Math.min(Math.max(ox, x0), x1), Math.min(Math.max(oz, z0), z1)],
+    [x0, z0], [x1, z0], [x0, z1], [x1, z1], [(x0 + x1) / 2, (z0 + z1) / 2]];
+  return points.some(([px, pz]) => {
+    const vx = px - ox, vz = pz - oz, length = Math.hypot(vx, vz);
+    return length < 1e-6 || (vx * dx + vz * dz) / length >= cos;
+  });
+}
+
+/** The L0 tiles of a view wedge (see inViewWedge). */
+export function viewWedgeTiles(ox: number, oz: number, dx: number, dz: number, range: number, angle: number) {
+  const out: string[] = [];
+  for (let i = Math.floor((ox - range) / VISUAL_L0); i <= Math.floor((ox + range) / VISUAL_L0); i++)
+    for (let j = Math.floor((oz - range) / VISUAL_L0); j <= Math.floor((oz + range) / VISUAL_L0); j++)
+      if (inViewWedge(i, j, ox, oz, dx, dz, range, angle)) out.push(l0(i, j));
+  return out;
+}
