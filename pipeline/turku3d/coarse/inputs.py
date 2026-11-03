@@ -63,6 +63,7 @@ DEPENDENCIES = {
     ),
     "roads": (
         "bridges.py",
+        "bridge_join.py",
         "bridge_survey.py",
         "bridge_access.py",
         "tunnels.py",

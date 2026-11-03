@@ -26,7 +26,6 @@ from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
 from turku3d.facade_kit import candidates, palette_sources, parameter_hash
 from turku3d.layers import write_visual
-from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 from turku3d.wall_surfaces import paint_partition, trapezoids
 
@@ -221,6 +220,11 @@ def build(
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
     grid_pos, grid_idx, materials, wet, level = cached_terrain(cache, tile, inputs, common)
+    # Retain the pre-bridge TIN so the later constrained apron uses the same
+    # absolute target as the initial grid repair, without compounding its blend.
+    from turku3d.ground.mesh import Mesh
+
+    bridge_base = Mesh(grid_pos.copy(), grid_idx, materials)
     from .bridge_access import cached_stage
 
     grid_pos, osm_decks, decks, bridge_roads = cached_stage(
@@ -260,7 +264,6 @@ def build(
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    origin = np.asarray(tile.origin)
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
@@ -342,7 +345,19 @@ def build(
                  street_profiles.constrain(solid, inputs.street_profiles)),
     )
     dry, solid = dry_surface.mesh, solid_surface.mesh
-    surface_sample = attachments.sampler(street_profiles.sampler(surface_sample, dry_surface), inputs.attachments)
+    from . import bridge_join
+
+    aprons = [patch for deck in osm_decks for patch in deck.aprons]
+    dry, solid = cache.run(
+        "bridge_aprons", source_key(Path(bridge_join.__file__), surfaces.split_boundaries,
+                                    Path(street_profiles.__file__), base / "ground/mesh.py"),
+        [dry, solid, aprons, bridge_base],
+        lambda: (bridge_join.constrain(dry, aprons, bridge_base),
+                 bridge_join.constrain(solid, aprons, bridge_base)),
+    )
+    surface_sample = street_profiles.sampler(surface_sample, dry_surface)
+    surface_sample = bridge_join.sampler(surface_sample, dry, aprons)
+    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
     seconds["street_profiles_geometry"] = cache.metrics["street_profiles"]["seconds"]
     # The measured connected terrain replaces legacy raised strips in its area.
     kerb_lines = inputs.kerbs
@@ -440,7 +455,7 @@ def build(
     def barrier_stage(directory):
         files = []
         value = fences.produce(
-            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z), measured_barriers
+            tile, inputs, directory, files, surface_sample, measured_barriers
         )
         return value
 
@@ -450,13 +465,15 @@ def build(
             barrier_stage,
             Path(fences.__file__),
             Path(__file__).with_name("tunnels.py"),
-            grid_height,
+            Path(bridge_join.__file__),
+            street_profiles.sampler,
+            attachments.sampler,
             base / "structures/geometry.py",
             base / "package/gltf.py",
             *common,
         ),
-        [tile, measured_barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
-         inputs.retaining, inputs.vegetation_roads],
+        [tile, measured_barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, dry,
+         inputs.retaining, inputs.vegetation_roads, inputs.attachments],
         stage,
         barrier_stage,
     )
