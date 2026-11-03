@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { weldGeometry, weldGeometryAsync } from '../../world/weldGeometry';
 import {splitEmbeddedFleetWheels,splitNamedFleetWheels,type AuthoredFleetParts} from './authoredWheelParts';
 import {fleetWheelLayout} from './wheelLayouts';
 import { AUTHORED_BY_ID } from './registry';
@@ -12,8 +13,23 @@ export const ESTATE_WHEELS=Object.entries(fleetWheelLayout(AUTHORED_ESTATE)!.piv
 interface FleetAsset {body:THREE.BufferGeometry;glass:THREE.BufferGeometry|null;parts:AuthoredFleetParts}
 const pending = new Map<string, Promise<FleetAsset>>();
 
+type Part = 'all'|'body'|'glass';
 /** Bake authored transforms and material roles into shared body or glazing geometry. */
-export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all', exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
+export function flattenFleetAsset(root: THREE.Object3D, part: Part = 'all', exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
+  const joined = joinFleetAsset(root, part, exclude);
+  return bounded(weldGeometry(joined), joined);
+}
+/** The same bake, with the vertex weld in a worker (the joined copy's buffers are transferred). */
+export async function flattenFleetAssetAsync(root: THREE.Object3D, part: Part = 'all', exclude?:ReadonlySet<THREE.Object3D>) {
+  const joined = joinFleetAsset(root, part, exclude);
+  return bounded(await weldGeometryAsync(joined), joined);
+}
+function bounded(geometry: THREE.BufferGeometry, joined: THREE.BufferGeometry) {
+  joined.dispose();
+  geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+  return geometry;
+}
+function joinFleetAsset(root: THREE.Object3D, part: Part, exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   root.updateMatrixWorld(true);
   root.traverse(object => {
@@ -51,10 +67,8 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
   });
   if (!parts.length) throw Error('Empty authored fleet asset');
   const joined = mergeGeometries(parts, false)!;
-  const geometry = mergeVertices(joined);
-  joined.dispose(); for (const part of parts) part.dispose();
-  geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-  return geometry;
+  for (const part of parts) part.dispose();
+  return joined;
 }
 
 async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
@@ -65,14 +79,14 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
   if (!request) {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const url = entry ? `${entry.assetBase}/lod${lod}.glb` : `/assets/cars/aava-estate/estate_lod${lod}.glb`;
-    request = loader.loadAsync(url).then(gltf => {
+    request = loader.loadAsync(url).then(async gltf => {
       // Named hubs already bake every opaque triangle. Repeating the whole-car bake here
       // expands and welds all of them a second time, even when callers only need split parts.
       gltf.scene.updateMatrixWorld(true);
       const transform = gltf.scene.matrixWorld.clone();
       let body: THREE.BufferGeometry | undefined;
-      const parts=splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAsset(root,'body',exclude))
-        ??(model===AUTHORED_ESTATE?splitEmbeddedFleetWheels(body=flattenFleetAsset(gltf.scene,'body'),ESTATE_WHEELS):null);
+      const parts=await splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAssetAsync(root,'body',exclude))
+        ??(model===AUTHORED_ESTATE?await splitEmbeddedFleetWheels(body=await flattenFleetAssetAsync(gltf.scene,'body'),ESTATE_WHEELS):null);
       if(!parts)throw Error(`Authored fleet lacks named wheel hubs: ${model}`);
       const layout=fleetWheelLayout(model)!;
       for(const wheel of parts.wheels){wheel.radius=layout.radius;wheel.width=layout.width;}
@@ -82,7 +96,7 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
         const m = object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
         if (m.isMesh && !Array.isArray(m.material) && m.material.name === 'fleet_glass' && m.material.opacity < 1) hasGlass = true;
       });
-      const glass = hasGlass ? flattenFleetAsset(gltf.scene, 'glass') : null;
+      const glass = hasGlass ? await flattenFleetAssetAsync(gltf.scene, 'glass') : null;
       gltf.scene.traverse(object => {
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) { mesh.geometry.dispose(); for (const material of [mesh.material].flat()) material.dispose(); }
