@@ -17,7 +17,7 @@ import subprocess
 from urllib.request import Request, urlopen
 
 from shared_tile_identity import generation as generator_identity
-from shared_tile_snapshot import upload
+from shared_tile_snapshot import toplevel, upload
 
 
 def command(*args):
@@ -71,7 +71,7 @@ def main():
     args = parser.parse_args()
     if args.action == 'register':
         args.code = command('git', 'rev-parse', args.ref + '^{commit}')
-        upload(args.code, dict(revision=args.code, generation=generator_identity(args.code),
+        upload(args.code, dict(revision=args.code, generation=generator_identity(args.code, cwd=toplevel()),
                                branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'),
                                purpose='tile-migration code'), host=args.host, root=args.root)
         base = resolve(args, args.base)
