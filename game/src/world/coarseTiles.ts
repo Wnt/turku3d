@@ -34,8 +34,10 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
-import { streamingAllowance } from '../render/preparationBudget';
+import { streamingAllowance, streamingBudget } from '../render/preparationBudget';
 import { TileArrays, drawnGeometries, rendererUploaded } from './releaseArrays';
+import { GpuMeter, modelGpuBytes } from './gpuBytes';
+import { renderTier, type QualityTier } from '../render/quality';
 
 const POLL_MS = 1000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
@@ -92,6 +94,12 @@ const HIGH_CAMERA_M = 40;
 const HD_3D_M = 250;
 /** How often committed tiles release the CPU copies of uploaded render-only arrays (ms). */
 const RELEASE_MS = 2000;
+/** GPU-byte residency budget per render tier (scene vertex/index buffers at 64 KiB placement, plus textures; world/
+ *  gpuBytes.ts), for 4 GB cards (winperf: the 560X peaks at 3.96 of 4.1 GB). Medium and high are unbudgeted. Over
+ *  90 % of it no lead or view tile starts a full install and the return cache keeps nothing; over it, hidden and far
+ *  full tiles are dropped (never the current 3x3 window). Measured every GPU_MEASURE_MS, time-sliced. */
+const GPU_BUDGET_BYTES: Partial<Record<QualityTier, number>> = { reduced: 0.8 * 2 ** 30, low: 0.7 * 2 ** 30, mobile: 0.5 * 2 ** 30 };
+const GPU_MEASURE_MS = 3000;
 /** A window tile still not loaded after this long (ms) shows as waiting in the tile status. */
 const WAITING_MS = 5000;
 /** At load and spawn the start's view wedge within this distance (m) installs full detail with the ground under it,
@@ -512,7 +520,7 @@ export class CoarseTiles {
       if (e.resident && (e.preview || !e.model) && (this.leadUntil.get(id) ?? 0) >= now) continue;
       if (e.state === 'built' && now < (this.builtUntil.get(id) ?? 0)) continue;
       this.builtUntil.delete(id);
-      if (this.cacheFull(id, e)) continue;
+      if (!this.overGpu && this.cacheFull(id, e)) continue;
       this.drop(e); this.entries.delete(id);
     }
     let anyCached = false;
@@ -536,6 +544,8 @@ export class CoarseTiles {
     }
     for (const [id, e] of this.entries) void this.compare(id, e);
     this.releaseUploadedArrays(now);
+    this.lastWanted = wanted;
+    this.measureGpu(now);
     void this.want(x, z, now);
     if (this.remote) {
       const demand = draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
@@ -566,7 +576,7 @@ export class CoarseTiles {
     for (const id of [...wanted, ...nextWindow]) {
       const e = this.entries.get(id);
       const inWindow = wanted.includes(id), slots = inWindow ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
-      if (!inWindow && !this.leadReady(id, now)) continue;
+      if (!inWindow && (!this.leadReady(id, now) || this.overGpu)) continue;
       if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) continue;
       if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
         e.refreshing = true; e.abandoned = false; this.details++;
@@ -1225,6 +1235,57 @@ export class CoarseTiles {
     const bytes = this.arrays.check();
     if (bytes) streamTrace.event('mem.release', undefined, { mib: Math.round(bytes / 2 ** 16) / 16 });
   }
+  /** GPU residency (GPU_BUDGET_BYTES): the latest measurement and whether new non-window installs must wait. */
+  private gpu = { bytes: 0, measuring: false, next: 0 };
+  private overGpu = false;
+  private lastWanted: string[] = [];
+  private gpuBudget = streamingBudget();
+  /** The budget of the session's tier; undefined (none) on medium and high. */
+  private gpuLimit() { const tier = renderTier()?.tier; return tier ? GPU_BUDGET_BYTES[tier] : undefined; }
+  private measureGpu(now: number) {
+    const limit = this.gpuLimit();
+    if (limit === undefined || this.gpu.measuring || now < this.gpu.next) return;
+    this.gpu.measuring = true; this.gpu.next = now + GPU_MEASURE_MS;
+    void (async () => {
+      try {
+        const meter = new GpuMeter();
+        let bytes = 0;
+        const cached = [...this.entries.values()].flatMap(e => e.model && e.cachedAt !== undefined ? [e.model] : []);
+        for (const root of [...this.host.scene.children, ...cached]) {
+          bytes += meter.root(root);
+          const pause = this.gpuBudget.checkpoint(); if (pause) await pause;
+        }
+        this.gpu.bytes = bytes;
+        this.applyGpuLimit(limit);
+      } finally { this.gpu.measuring = false; }
+    })();
+  }
+  /** Over the limit: drop return-cache entries (oldest first), full tiles drawn as distant cells, full tiles off the
+   *  lead, then lead and view tiles (farthest first) until the estimate fits; never the current window. */
+  private applyGpuLimit(limit: number) {
+    this.overGpu = this.gpu.bytes > 0.9 * limit;
+    let excess = this.gpu.bytes - limit;
+    if (excess <= 0) return;
+    const at = this.at, wanted = new Set(this.lastWanted), lead = new Set(this.lead);
+    const full = [...this.entries].filter(([id, e]) => e.model && !e.preview && !wanted.has(id));
+    const far = (a: [string, Entry], b: [string, Entry]) => distToL0(b[0], at.x, at.z) - distToL0(a[0], at.x, at.z);
+    const order = [
+      ...full.filter(([, e]) => e.cachedAt !== undefined).sort((a, b) => a[1].cachedAt! - b[1].cachedAt!),
+      ...full.filter(([, e]) => e.cachedAt === undefined && e.distant).sort(far),
+      ...full.filter(([id, e]) => e.cachedAt === undefined && !e.distant && !lead.has(id)).sort(far),
+      ...full.filter(([id, e]) => e.cachedAt === undefined && !e.distant && lead.has(id)).sort(far),
+    ];
+    for (const [id, e] of order) {
+      if (excess <= 0) break;
+      const freed = modelGpuBytes(e.model!);
+      streamTrace.event('tile.evict', id, { mib: Math.round(freed / 2 ** 16) / 16, cached: e.cachedAt !== undefined });
+      this.drop(e); this.entries.delete(id);
+      excess -= freed; this.gpu.bytes -= freed;
+    }
+  }
+  /** The latest GPU residency measurement (bytes; 0 where the tier has no budget) and its limit. */
+  gpuResidency() { return { bytes: this.gpu.bytes, limit: this.gpuLimit() ?? null, over: this.overGpu }; }
+
   /** CPU array bytes released so far (memory census). */
   get releasedBytes() { return this.arrays?.releasedBytes ?? 0; }
 
@@ -1243,7 +1304,9 @@ export class CoarseTiles {
       for (const e of this.entries.values()) { const value = pick(e); if (value) bytes += 2 * JSON.stringify(value).length; }
       return bytes;
     };
+    const residency = this.gpuResidency();
     return { full, cached, previews, previewFragments, roads, releasedBytes: this.releasedBytes, releases: this.arrays?.releases ?? 0,
+      gpuResidency: { measuredMiB: Math.round(residency.bytes / 2 ** 20), limitMiB: residency.limit === null ? null : Math.round(residency.limit / 2 ** 20), over: residency.over },
       previewJsonBytes: json(e => e.preview), roadsJsonBytes: json(e => e.roads),
       fragmentCache: { bytes: this.fragmentBytes, count: this.fragments.size },
       buildingTemplates: () => this.buildingModels.templates() };

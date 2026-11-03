@@ -8,6 +8,7 @@ import { decodedTextures } from './loadingKtx';
 import { sharedBuffers, textureBytes } from './sharedAssets';
 import { staticBatchSources } from './staticBatch';
 import { vegetationOwner } from './vegetationLod';
+import { GpuMeter } from './gpuBytes';
 
 export interface MemoryRow { bytes: number; count: number }
 export interface MemorySources {
@@ -154,6 +155,16 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
       browser = { totalMiB: mib(result.bytes), byScopeMiB: Object.fromEntries([...scopes].map(([k, v]) => [k, mib(v)])) };
     } catch (error) { browser = { error: String(error) }; }
   }
+  // GPU-resident bytes (vertex/index buffers at 64 KiB placement, textures), the residency budget's meter.
+  const meter = new GpuMeter(), gpu: Record<string, number> = {};
+  const gpuAdd = (category: string, roots: readonly THREE.Object3D[]) => {
+    let bytes = 0; for (const root of roots) bytes += meter.root(root); gpu[category] = mib(bytes);
+  };
+  gpuAdd('full tiles', parts?.full ?? []); gpuAdd('collision previews', parts?.previews ?? []); gpuAdd('return cache', parts?.cached ?? []);
+  const rest = scene.children.filter(child => !full.has(child) && !previews.has(child));
+  gpuAdd('scenery cells', rest.filter(child => { let scenery = false; child.traverse(o => { scenery ||= !!o.userData.scenery; }); return scenery; }));
+  gpuAdd('other scene content', rest);
+  gpu.total = Object.values(gpu).reduce((sum, value) => sum + value, 0);
   const sorted = [...rows].sort((a, b) => b[1].bytes - a[1].bytes);
   return {
     totalMiB: mib(sorted.reduce((sum, [, row]) => sum + row.bytes, 0)),
@@ -161,6 +172,7 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
     releasedMiB: parts ? mib(parts.releasedBytes) : 0, releases: parts?.releases ?? 0,
     rows: Object.fromEntries(sorted.map(([name, row]) => [name, { MiB: mib(row.bytes), count: row.count }])),
     heapMiB: heap ? { used: mib(heap.usedJSHeapSize), total: mib(heap.totalJSHeapSize) } : null,
+    gpuMiB: gpu, gpuResidency: parts?.gpuResidency ?? null,
     browser,
   };
 }
