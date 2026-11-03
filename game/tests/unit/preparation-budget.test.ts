@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { PreparationBudget } from '../../src/render/preparationBudget';
+import { PreparationBudget, StreamingAllowance } from '../../src/render/preparationBudget';
 import { afterRender } from '../../src/render/afterRender';
 
 test('preparation resumes after animation callbacks rather than inside the frame being drawn', async () => {
@@ -46,4 +46,30 @@ test('a streaming budget resumes a stale window after one task hop, not a drawn 
   const plain = new PreparationBudget(() => now, frame);
   await plain.checkpoint(); now = 300; await plain.checkpoint();
   expect([frames, tasks]).toEqual([2, 1]); // frame-aligned budgets (shader compiles) keep waiting for a frame
+});
+
+test('streaming spends the frame headroom against a 40 fps target, more for the current window, little after long frames', async () => {
+  let now = 0;
+  const account = new StreamingAllowance(() => now);
+  for (let i = 0; i < 30; i++) account.frame(10, 16.7); // a light 10 ms frame callback
+  expect(account.limit).toBe(3); // prefetch-only installs: capped
+  account.urgent = true;
+  expect(account.limit).toBe(8); // the 3x3 window waits: most of the 13 ms slack
+  for (let i = 0; i < 30; i++) account.frame(21, 22);
+  expect(account.limit).toBeCloseTo(1.6, 0); // little slack left
+  account.frame(21, 45);
+  expect(account.limit).toBe(StreamingAllowance.MIN_MS); // an overlong frame: back off
+  now = 500; expect(account.limit).toBe(2); // no frame reports: the old fixed window
+  // Budgets share one account: what one stage spent this frame is gone for the others.
+  now = 0; account.urgent = true; for (let i = 0; i < 30; i++) account.frame(15, 20);
+  let frames = 0;
+  const frame = () => { frames++; return Promise.resolve(); };
+  const a = new PreparationBudget(() => now, frame, null, account), b = new PreparationBudget(() => now, frame, null, account);
+  const limit = account.limit;
+  a.checkpoint(); b.checkpoint();
+  now = limit - 0.5; expect(a.checkpoint()).toBeUndefined();
+  now = limit + 0.1; await a.checkpoint(); // a spent the frame's allowance
+  expect(frames).toBe(1);
+  await b.checkpoint(); // b's own window is short, but the account is spent
+  expect(frames).toBe(2);
 });

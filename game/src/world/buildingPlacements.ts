@@ -77,14 +77,16 @@ export class BuildingModelCache {
     private visibility: PlacementVisibility = placementVisibility,
     private styleLod: (root: THREE.Object3D, owner: THREE.Object3D) => void = () => {}) {}
 
-  private async read(url: string, priority: number, trace?: ReadTrace) {
-    const queued = trace ? performance.now() : 0;
-    if (this.active >= this.reads) await new Promise<void>(start => {
+  private async read(url: string, priority: number, trace: ReadTrace | undefined, wanted: () => boolean) {
+    const queued = trace ? performance.now() : 0, waits = this.active >= this.reads;
+    if (waits) await new Promise<void>(start => {
       const at = this.queue.findIndex(waiting => waiting.priority > priority);
       this.queue.splice(at < 0 ? this.queue.length : at, 0, { priority, start });
     });
     else this.active++;
     try {
+      // Every lease was released while the read queued (a cancelled install): skip the fetch and decode.
+      if (waits && !wanted()) throw new Error('building model read cancelled');
       const loading = trace ? performance.now() : 0;
       if (trace) trace.queueMs = loading - queued;
       const root = await this.load(url);
@@ -109,7 +111,9 @@ export class BuildingModelCache {
     let entry = this.entries.get(key);
     if (!entry) {
       const trace = streamTrace.on ? { queueMs: 0, loadMs: 0, textureMs: 0, textures: 0 } : undefined;
-      entry = { users: 0, promise: this.read(url.href, priority, trace), trace }; this.entries.set(key, entry);
+      const created: Resident = { users: 0, promise: Promise.resolve(null as unknown as THREE.Object3D), trace };
+      created.promise = this.read(url.href, priority, trace, () => created.users > 0 && this.entries.get(key) === created);
+      entry = created; this.entries.set(key, entry);
     }
     entry.users++;
     let released = false;

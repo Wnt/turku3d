@@ -900,3 +900,49 @@ test('a driving player gets full visuals for the next 3x3 window before entering
   expect(loaded).not.toContain('t0_5_0'); // only the windows within the detail lead, not the whole prefetch corridor
   expect(maxAcks).toBeLessThanOrEqual(4 + 6 + 9); // ack slots + preview slots + the window itself
 });
+
+test('lead tiles install only after a steady heading, and an install for a tile that leaves the path is abandoned', async () => {
+  const loads: { id: string; finish: () => void }[] = [];
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, previewCollision: async () => new THREE.Group(), retainCollision: () => {},
+    // The current window installs at once; lead installs wait until the test finishes them.
+    loadModel: url => new Promise(resolve => {
+      const id = /vis\.(t0_[^.]+)\.glb/.exec(url)![1];
+      if (wantedTiles(125, 125).includes(id)) resolve(new THREE.Group());
+      else loads.push({ id, finish: () => resolve(new THREE.Group()) });
+    }),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  const window = (x: number, z: number) => wantedTiles(x, z);
+  // Heading flips between east and north every second: the lead never holds a tile for the dwell.
+  let t = 0;
+  for (let k = 0; k < 12; k++, t += 500) {
+    const east = Math.floor(k / 2) % 2 === 0;
+    coarse.update(125, 125, t, east ? { x: 20, z: 0 } : { x: 0, z: 20 }); await settle();
+  }
+  expect(loads).toEqual([]);
+  // A steady heading east: lead tiles start installing after the dwell.
+  for (let k = 0; k < 8; k++, t += 500) { coarse.update(125, 125, t, { x: 20, z: 0 }); await settle(); }
+  const lead = [...loads];
+  expect(lead.length).toBeGreaterThan(0);
+  expect(lead.every(l => !window(125, 125).includes(l.id))).toBe(true);
+  // Turning back west drops them from the path: their installs are abandoned, the previews stay.
+  for (let k = 0; k < 2; k++, t += 500) { coarse.update(125, 125, t, { x: -20, z: 0 }); await settle(); }
+  for (const l of lead) l.finish();
+  await settle();
+  for (const l of lead) {
+    const e = coarse.entries.get(l.id);
+    if (!e) continue;
+    expect(e.preview).toBeDefined();
+  }
+});

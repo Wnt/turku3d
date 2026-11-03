@@ -34,6 +34,7 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
+import { streamingAllowance } from '../render/preparationBudget';
 
 const POLL_MS = 1000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
@@ -69,6 +70,10 @@ const PREVIEW_SLOTS = 6;
 /** A preview or load started for the lead stays this long after the lead last covered it: reversals and heading
  *  jitter must not drop and rebuild it. Full visuals leave through the heap-budgeted return cache instead. */
 const LEAD_KEEP_MS = 30_000;
+/** A lead tile starts its full install only after the lead has covered it this long without a break (heading
+ *  jitter), and only when the window is predicted to hold it at least LEAD_MIN_RESIDENCE_S (not a corner clip). */
+const LEAD_DWELL_MS = 1500;
+const LEAD_MIN_RESIDENCE_S = 4;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -134,6 +139,9 @@ export class CoarseTiles {
   private leadUntil = new Map<string, number>();
   /** The latest scan's lead tiles (nextWindow). */
   private lead: string[] = [];
+  /** When each lead tile entered the lead (continuously since), and its predicted window residence. */
+  private leadSince = new Map<string, number>();
+  private leadInfo = new Map<string, { residence: number; continuing: boolean }>();
   /** The player position of the latest update, for install priority. */
   private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
@@ -235,14 +243,15 @@ export class CoarseTiles {
     try {
       let stage = streamTrace.begin('tile.style', id);
       await this.host.style?.(model); stage();
-      if (this.entries.get(id) !== entry || entry.state !== state) return false;
+      if (this.entries.get(id) !== entry || entry.state !== state || entry.abandoned) return false;
       stage = streamTrace.begin('tile.facades', id);
       await prepareFacadeModules(model); stage();
-      if (this.entries.get(id) !== entry || entry.state !== state) return false;
+      if (this.entries.get(id) !== entry || entry.state !== state || entry.abandoned) return false;
       streamTrace.time('install', () => tintDraft(model, this.host.renderer, this.materials));
       stage = streamTrace.begin('tile.vegetation', id);
       if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
       stage();
+      if (entry.abandoned) return false;
       // Static batches, shadow batches, vegetation draws and shader/pipeline preparation of the whole model.
       stage = streamTrace.begin('tile.prepare', id);
       await this.host.styled?.(model); stage();
@@ -424,6 +433,12 @@ export class CoarseTiles {
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     const lookahead = this.startup ? [] : preparationTiles(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
     const nextWindow = this.lead = this.nextWindow(x, z, wanted);
+    for (const id of [...this.leadSince.keys()]) if (!this.leadInfo.has(id)) this.leadSince.delete(id);
+    for (const id of nextWindow) if (!this.leadSince.has(id)) this.leadSince.set(id, now);
+    // Streaming may spend more of the frame's headroom while the current window still waits for full detail.
+    streamingAllowance.urgent = wanted.some(id => { const e = this.entries.get(id); return !!e?.preview || (!!e?.refreshing && !!e.model); });
+    // An install for a tile that left both the window and the lead stops at its next stage.
+    for (const [id, e] of this.entries) if (e.refreshing && e.preview && !wanted.includes(id) && !nextWindow.includes(id)) e.abandoned = true;
     for (const [id, until] of this.leadUntil) if (until < now) this.leadUntil.delete(id);
     for (const id of nextWindow) this.leadUntil.set(id, now + LEAD_KEEP_MS);
     const retain = (id: string) => this.host.detailRadius === undefined
@@ -495,11 +510,12 @@ export class CoarseTiles {
     // The current window strictly first; then the windows ahead in arrival order, leaving one slot for the current one.
     for (const id of [...wanted, ...nextWindow]) {
       const e = this.entries.get(id);
-      const slots = wanted.includes(id) ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
+      const inWindow = wanted.includes(id), slots = inWindow ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
+      if (!inWindow && !this.leadReady(id, now)) continue;
       if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
-        e.refreshing = true; this.details++;
+        e.refreshing = true; e.abandoned = false; this.details++;
         void this.applyFragment(id, e, e.preview).catch(error => this.warn(`[coarse] ${id} detail: ${error}`))
-          .finally(() => { e.refreshing = false; e.nextPoll = this.clock + 2000; this.details--; });
+          .finally(() => { e.refreshing = false; e.abandoned = false; e.nextPoll = this.clock + 2000; this.details--; });
       }
     }
     // All other ahead tiles request builds without loading model or collision resources.
@@ -634,17 +650,32 @@ export class CoarseTiles {
   }
 
   /** Tiles the 3x3 window of a driving player reaches along its heading within the detail lead, minus the current
-   *  window, in the order the window reaches them (nearest arrival first). */
+   *  window, in the order the window reaches them (nearest arrival first). Also records each one's predicted window
+   *  residence along that path (`leadInfo`). */
   private nextWindow(x: number, z: number, wanted: string[]) {
+    this.leadInfo.clear();
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.startup || this.host.detailRadius !== undefined || speed < 3 || speed > DETAIL_LEAD_MAX_SPEED) return [];
     const reach = Math.min(Math.max(DETAIL_LEAD_S * speed, DETAIL_LEAD_M), DETAIL_LEAD_MAX_M), step = VISUAL_L0 / 5;
-    const seen = new Set(wanted), order: string[] = [];
+    const seen = new Set(wanted), order: string[] = [], first = new Map<string, number>(), last = new Map<string, number>();
+    let end = 0;
     for (let s = step; s < reach + step; s += step) {
       const at = Math.min(s, reach), px = x + this.velocity.x / speed * at, pz = z + this.velocity.z / speed * at;
-      for (const id of wantedTiles(px, pz)) if (!seen.has(id)) { seen.add(id); order.push(id); }
+      end = at;
+      for (const id of wantedTiles(px, pz)) {
+        if (!seen.has(id)) { seen.add(id); order.push(id); first.set(id, at); }
+        if (first.has(id)) last.set(id, at);
+      }
     }
+    for (const id of order) this.leadInfo.set(id, { residence: (last.get(id)! - first.get(id)! + step) / speed, continuing: last.get(id) === end });
     return order;
+  }
+
+  /** A lead tile is worth a full install: covered for LEAD_DWELL_MS and held by the window long enough. */
+  private leadReady(id: string, now: number) {
+    const info = this.leadInfo.get(id), since = this.leadSince.get(id);
+    return !!info && since !== undefined && now - since >= LEAD_DWELL_MS
+      && (info.continuing || info.residence >= LEAD_MIN_RESIDENCE_S);
   }
 
   /** A full, non-stale fragment of the service's current generation never changes: no refresh polls or refetches. */
@@ -796,7 +827,7 @@ export class CoarseTiles {
     return head;
   }
 
-  private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>) {
+  private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>, abandoned = () => false) {
     const base = new URL(`${this.root}${id}/`, this.page);
     // Building models read while the tile GLB loads, nearest tile first.
     const priority = Number.isFinite(this.at.x) ? distToL0(id, this.at.x, this.at.z) : Infinity;
@@ -808,7 +839,8 @@ export class CoarseTiles {
     glb();
     root.userData.traceId = id;
     try {
-      if (fragment.buildingPlacements) {
+      // A cancelled install does not clone its buildings; the caller sees the abandoned entry and returns.
+      if (fragment.buildingPlacements && !abandoned()) {
         // Tile GLBs carry a translated root node. Placements are siblings in world-local coordinates.
         const buildings = streamTrace.begin('tile.buildings', id, { models: fragment.buildingPlacements.models.length,
           placements: fragment.buildingPlacements.placements.length, blocks: fragment.buildingPlacements.blocks?.length ?? 0 });
@@ -878,7 +910,7 @@ export class CoarseTiles {
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
     const [validation, geometry, streets] = await Promise.allSettled([
-      validate(), visualChanged ? this.loadFragment(id, fragment) : Promise.resolve(null),
+      validate(), visualChanged ? this.loadFragment(id, fragment, () => !!e.abandoned) : Promise.resolve(null),
       roadsChanged && roadsUrl ? this.request(roadsUrl)
         .then(r => { if (!r.ok) throw new DraftRejected(`roads: HTTP ${r.status}`); return readStreamingJson<RoadGraphJson>(r); })
         : Promise.resolve(e.roads ?? null),
@@ -886,7 +918,11 @@ export class CoarseTiles {
     const model = geometry.status === 'fulfilled' ? geometry.value : null;
     const failure = [validation, geometry, streets].find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') { if (model) this.dispose(model); throw failure.reason; }
-    if (this.entries.get(id) !== e || e.state !== state) { if (model) this.dispose(model); return; }
+    if (this.entries.get(id) !== e || e.state !== state || e.abandoned) {
+      if (model) this.dispose(model);
+      if (e.abandoned) streamTrace.event('tile.abandon', id);
+      return;
+    }
     const roads = streets.status === 'fulfilled' ? streets.value : null;
     if (!visualChanged) {
       recordFreshness(e, fragment);
