@@ -137,6 +137,8 @@ export function rectangularOpenings(geometry: THREE.BufferGeometry) {
 }
 
 const prepared=new WeakSet<THREE.Object3D>(), budget=new PreparationBudget();
+/** Bench lab ablation (`?bench=...&off=facades`, qa/lab/ablate.ts): false builds no facade modules. */
+export const facadeModuleSwitch = { on: true };
 
 /** The +Z cap faces into the opaque wall/glazing behind every kit member. */
 export function facadeModuleGeometry() {
@@ -247,14 +249,14 @@ function recordPreparation(model: THREE.Object3D, cpuMs: number, maxSliceMs: num
 }
 
 export function addFacadeModules(model: THREE.Object3D) {
-  if(prepared.has(model)||model.userData.scenery)return;
+  if(!facadeModuleSwitch.on||prepared.has(model)||model.userData.scenery)return;
   const start=performance.now();for(const _ of moduleSteps(model))void _;
   const elapsed=performance.now()-start;recordPreparation(model,elapsed,elapsed,elapsed);
 }
 
 /** Streaming paths yield between bounded parser/construction slices while hidden. */
 export async function prepareFacadeModules(model: THREE.Object3D) {
-  if(prepared.has(model)||model.userData.scenery)return;
+  if(!facadeModuleSwitch.on||prepared.has(model)||model.userData.scenery)return;
   const start=performance.now(),steps=moduleSteps(model);let cpuMs=0,maxSliceMs=0;
   while(true){
     const before=performance.now(),result=steps.next(),elapsed=performance.now()-before;

@@ -374,7 +374,7 @@ export class CoarseTiles {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };
     }
-    if (now < this.nextCheck) return;
+    if (!this.scheduling || now < this.nextCheck) return;
     this.nextCheck = now + Math.min(POLL_MS, VISUAL_L0 / Math.max(1, Math.hypot(this.velocity.x, this.velocity.z)) * 250);
     if (!motion) this.track(x, z, now);
     const byArrival = (a: string, b: string) => arrivalToL0(a, x, z, this.velocity.x, this.velocity.z)
@@ -959,6 +959,23 @@ export class CoarseTiles {
     e.manifestHash = hash;
     e.retries = 0; this.outageFailures = 0;
     e.nextPoll = this.clock + 2000;
+  }
+
+  /** Bench lab (qa/lab): false keeps update()'s per-frame work (fades, distances, scenery, holds) but requests and drops
+   *  no tiles; `benchInstall` then streams the tiles a scenario chooses. */
+  scheduling = true;
+
+  /** Bench lab: stream one tile as update() does. 'preview' polls its fragment and installs the collision preview;
+   *  'full' then installs the full visual of the same fragment through the detail path. Resolves when committed. */
+  async benchInstall(id: string, stage: 'preview' | 'full', x: number, z: number) {
+    const e = this.entry(id);
+    if (stage === 'preview' && e.state !== 'draft' && e.state !== 'loading') await this.poll(id, e, this.demandDistance(id, x, z), true);
+    else if (stage === 'full' && e.preview && !e.refreshing) {
+      e.refreshing = true; this.details++;
+      try { await this.applyFragment(id, e, e.preview); } finally { e.refreshing = false; this.details--; }
+    }
+    return { state: e.state, preview: !!e.preview, full: !!e.model && !e.preview, pass: e.pass ?? null, error: e.error ?? null,
+      retryInMs: e.state === 'draft' ? 0 : Math.max(0, e.nextPoll - this.clock) };
   }
 
   /** Draft L0 tiles currently drawn. */

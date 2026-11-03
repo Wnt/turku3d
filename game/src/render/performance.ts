@@ -62,6 +62,9 @@ export class PerformanceMonitor {
     this.timer.end();
   }
 
+  /** One frame's sample while it is in the window: the bench lab (qa/lab) reads GPU times as their readbacks land. */
+  sample(frame: number): Readonly<FrameSample> | undefined { return this.samples.get(frame); }
+
   async flush() {
     await this.timer.flush();
   }
