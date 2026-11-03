@@ -268,9 +268,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (id === OWN_VEHICLE_ID) physics.resetVehicle(at, spot.yaw, id);
     else physics.spawnVehicle(at, spot.yaw, { id, kind });
   };
+  /** In multiplayer another player holds the vehicle (its local body is gone): it cannot be fetched. */
+  const heldElsewhere = (id: string) => multiplayerPlaying && !physics.latest?.vehicles.some(v => v.id === id)
+    && !!sharedVehicles?.record(id);
   /** Pause menu "Bring my vehicle here": the nearest ground-checked kerb by the player, off screen when one is near. */
   const bringHere = async () => {
     const id = missions.rideId, kind = rideKind(id);
+    if (heldElsewhere(id)) { missions.bringFailed(); return; }
     const forward = camera.getWorldDirection(new THREE.Vector3());
     const halfFov = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * camera.aspect);
     const spots = kerbSpots(router.graph, feet, VEHICLES[kind].halfExt.z, BRING_FAR_M);
@@ -529,7 +533,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
       rideAt: ride ? { x: ride.pos.x, y: ride.pos.y, z: ride.pos.z } : null,
     });
-    if (mission.park) void parkRide(missions.rideId, PIZZERIA_VEHICLE_SPOT).catch(fail);
+    if (mission.park && !heldElsewhere(missions.rideId)) void parkRide(missions.rideId, PIZZERIA_VEHICLE_SPOT).catch(fail);
     const carrying = missions.phase === 'carrying';
     if (wasCarrying && !carrying && missions.phase === 'delivered') audio.resolveDelivery();
     else if (wasCarrying && !carrying) audio.setMusicDeadline(0);
