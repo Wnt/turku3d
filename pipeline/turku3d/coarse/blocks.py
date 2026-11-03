@@ -1,6 +1,6 @@
 """City blocks of nearby whole buildings: they batch, cull and swap detail together (GTA-style LOD parents).
 
-A block joins buildings whose footprints lie within CONNECT metres (courtyards, alleys, party walls) and splits
+A block joins buildings whose footprints lie within CONNECT metres (courtyards, lanes, party walls) and splits
 blocks wider than MAX_EXTENT on a SPLIT grid of building centroids, so frustum and occlusion culling skip real
 blocks. Each block's LOD parent is its buildings' LoD2 shells (roofs and walls, no floors), 7-19x fewer triangles
 than the HD models, coloured with each building's own facade-program wall colour. Walls of buildings whose facade
@@ -18,9 +18,12 @@ import shapely
 
 from turku3d.package.gltf import GlbMesh
 
-CONNECT = 15.0
-MAX_EXTENT = 96.0
-SPLIT = 64.0
+# Two real tiles, 512 street poses + capture end, against 250 m batches: 15 m / 96 m blocks cut street-level building
+# triangles 62 % but tripled draws; 25 m / 160 m blocks cut 43 % (capture end 72 % with LOD) for +50 % draws, the
+# better CPU + GPU trade at about 0.035 ms per draw and 0.004 ms per thousand triangles (capture 234938).
+CONNECT = 25.0
+MAX_EXTENT = 160.0
+SPLIT = 125.0
 # A 1.2 m window spans about 4 px at 1080p / 60 degrees at this distance (measured GTA HD band 112-299 m).
 HD_DISTANCE = 280.0
 ROOF = (0.20, 0.23, 0.22)

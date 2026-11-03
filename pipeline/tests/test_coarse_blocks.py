@@ -24,7 +24,7 @@ def model(key, x0, z0, x1, z1, top=12, glazed=True):
 
 def test_nearby_buildings_share_a_block_and_wide_blocks_split():
     tile = C.VisualTile(0, 0, 0)
-    models = [model('a', 0, 0, 20, 20), model('b', 30, 0, 50, 20), model('c', 120, 0, 140, 20)]
+    models = [model('a', 0, 0, 20, 20), model('b', 40, 0, 60, 20), model('c', 120, 0, 140, 20)]
     ids = blocks.assign(tile, models)
     assert ids[0] == ids[1] != ids[2]
     row = [model(f'r{i}', i * 22, 100, i * 22 + 20, 120) for i in range(8)]  # 174 m terrace
