@@ -7,6 +7,7 @@ import { asyncFirstUsePipelines } from './asyncPipelines';
 import { BuildLog } from './census';
 import type { WaterReflection } from './reflections';
 import { executeBundles, renderBundle, type BundleDrawHook } from './bundleReplay';
+import { altitudeShadows } from './shadowAltitude';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -141,6 +142,8 @@ export class GameRenderer extends THREE.WebGPURenderer {
         this.shadowPasses.set(original!, { override: original!, camera, target, mrt: this.getMRT(),
           depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
       }
+      // Above about 100 m small casters leave the sun's cascades (render/shadowAltitude.ts); preparation compiles all.
+      if (!precompiling && !recording && altitudeShadows.skips(object)) { this.contextNode = context; return; }
     }
     scene.overrideMaterial = original?.userData.normalPrepass
       ? this.normalPrepass.select(material) : this.shadowMaterials.select(material, original);

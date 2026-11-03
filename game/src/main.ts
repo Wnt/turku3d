@@ -55,6 +55,7 @@ import { GroundIndex } from './world/groundIndex';
 import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
+import { altitudeShadows } from './render/shadowAltitude';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
 import { BenchLab } from './qa/lab/lab';
@@ -192,6 +193,11 @@ const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 // Owner perf3; removed unless the per-cell variant wins its A/B. WebGPU only.
 const bundlesWanted = new URLSearchParams(location.search).get('bundles') === '1';
 const bundles = idPass || backend !== 'WebGPU' || !bundlesWanted ? null : new StaticBundles(scene);
+// GTA V's altitude rule: small casters leave the sun's cascades above about 100 m (render/shadowAltitude.ts).
+// ?altitudeShadows=0 keeps them, for the bench=fly A/B (owner perf3; the losing path goes after it).
+altitudeShadows.enabled = new URLSearchParams(location.search).get('altitudeShadows') !== '0';
+/** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
+let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.add(model));
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.remove(model));
@@ -287,6 +293,8 @@ const renderFrame = () => {
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
+  const ground = groundBelow(camera.position.x, camera.position.z);
+  altitudeShadows.update(camera.position.y - (Number.isFinite(ground) ? ground : 0));
   if (post) post.render(); else renderer.render(scene, camera);
   // Models prepared before the first shadow pass compile their casters now, in the paced preparation queue.
   if (post) for (const model of post.takeShadowless())
@@ -377,6 +385,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
+  groundBelow = (x, z) => coarse.groundBelow(x, z);
   lights?.attach(coarse);
   if (!idPass) {
     distantCity = coarse.screenshotScenery;

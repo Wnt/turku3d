@@ -340,6 +340,12 @@ export class CoarseTiles {
     return { pending, loading, preparing: this.preparing.size, details: this.details, leaving: this.leaving.size };
   }
 
+  /** The lowest content height (engine y) of the resident tile under (x, z), or NaN when none is known. */
+  groundBelow(x: number, z: number) {
+    const h = this.entries.get(`t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`)?.h;
+    return h ? h[0] : NaN;
+  }
+
   /** Which band draws each 250 m cell of a (2r+1)^2 grid around (x, z), one character per cell, rows by z:
    *  F full HD, h held HD (leaving or going distant), P collision preview, C scenery cell, c cell dissolving,
    *  U a coarser scenery node, D double (HD and a settled cell both drawn), . nothing (a hole). */
