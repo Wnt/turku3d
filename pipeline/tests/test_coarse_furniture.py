@@ -271,6 +271,9 @@ def test_register_trees_keep_their_verges_where_mapped_trees_give_way():
         vegetation_roads=[],
         forests=[],
         canopy=(),
+        barriers=[],
+        retaining=[],
+        attachments=[],
     )
     mapped = [
         Tree("puut:a", 50, 10, "osm", height=8),

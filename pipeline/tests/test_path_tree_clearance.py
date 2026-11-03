@@ -229,3 +229,40 @@ def test_structures_allow_low_wall_overhang_and_ground_below_balcony():
     assert clears_structure(tree, mask)  # wide roots/crown can cross a low wall
     assert clears_structure(replace(tree, z=10), mask)  # balcony does not occupy soil
     assert not clears_structure(replace(tree, z=0.4), mask)  # trunk intersects wall
+
+
+def _street(width, flags=0, survey=(), cls=3):
+    """A car street along z=0 with the graph's carriageway width attribute."""
+    car = cls << 3 | 2  # road class, car bit
+    graph = {
+        "nodes": [0, 0, 250, 0], "edges": [[0, 1, car, 250]],
+        "edgeAttrColumns": ["width", "flags"], "edgeAttrs": [[width, flags]],
+    }
+    return replace(inputs(), roads={"json": json.dumps(graph)}, vegetation_roads=list(survey))
+
+
+def test_trees_clear_the_rendered_carriageway_of_an_unsurveyed_street():
+    from turku3d.roads.attributes import EDGE_FLAGS
+
+    def mapped():
+        return [Tree(f"t{z}", x, z, "osm", crown_radius=3) for x, z in ((70, 3.5), (100, 5.5), (130, 9.0))]
+
+    tile = C.VisualTile(0, 0, 0)
+    # 13 m carriageway, no city survey: lanes reach 6.5 m from the centreline.
+    trees, _ = produce(tile, _street(13.0), lambda x, z: 0, mapped())
+    assert sorted(t.z for t in trees) == [9.0]
+    # Surveyed kerbs own the street; a real median hole keeps its tree.
+    trees, _ = produce(tile, _street(13.0, survey=[shapely.box(-10, -6.5, 260, 6.5)]),
+                       lambda x, z: 0, mapped())
+    assert [t.z for t in trees] == [9.0]
+    median = shapely.box(-10, -6.5, 260, 6.5).difference(shapely.box(50, 3.0, 150, 8.0))
+    trees, _ = produce(tile, _street(13.0, survey=[median]), lambda x, z: 0, mapped())
+    assert 5.5 in [t.z for t in trees] and 3.5 not in [t.z for t in trees]
+    # A road tunnel does not occupy the park above it.
+    trees, _ = produce(tile, _street(13.0, EDGE_FLAGS["TUNNEL"]), lambda x, z: 0, mapped())
+    assert sorted(t.z for t in trees) == [3.5, 5.5, 9.0]
+    # An untagged service drive is drawn narrower than its two default lanes.
+    trees, _ = produce(tile, _street(5.0, cls=1), lambda x, z: 0, mapped())
+    assert sorted(t.z for t in trees) == [3.5, 5.5, 9.0]
+    tagged = _street(13.0, EDGE_FLAGS["WIDTH_TAGGED"], cls=1)
+    assert sorted(t.z for t in produce(tile, tagged, lambda x, z: 0, mapped())[0]) == [9.0]
