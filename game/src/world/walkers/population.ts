@@ -234,6 +234,8 @@ export class Population {
     const towardsLarger = (hash32(id, 5) & 1) === 1;
     let dir: 1 | -1 = towardsLarger === forward ? 1 : -1;
     let c = piece.chain, t = 0, d = 0, step = 0, taper0 = true;
+    // A cell can outlive the network it was cut from (tiles streamed in or out): no walker on a vanished chain.
+    if (!chains[c]) return { legs, known: 0, speed, life, offset, box: [0, 0, 0, 0], group: 1 };
     // A stander keeps its birth point for the whole life, a little further from the way's centre; never on a zebra.
     if (!chains[c].gates.length && unit(hash32(id, 16)) < WALKER.stand) {
       const group = unit(hash32(id, 19)) < WALKER.pair ? 2 : 1, reach = (group - 1) * WALKER.spacing;
@@ -248,6 +250,7 @@ export class Population {
     pause(WALKER.birthIdle * unit(hash32(id, 10)));
     const horizon = life + WALKER.linger;
     for (let guard = 0; t < horizon && guard < 256; guard++) {
+      if (!chains[c]) break;
       // Signalised crossings ahead on this chain: walk to the kerb, wait for the walk phase, then cross.
       const gates = chains[c].gates;
       for (let g = dir > 0 ? 0 : gates.length - 1; g >= 0 && g < gates.length && t < horizon; g += dir) {
