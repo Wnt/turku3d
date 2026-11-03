@@ -259,6 +259,7 @@ addEventListener('resize', () => {
 // Test clock: rendered frames and simulated seconds (60 Hz physics steps in play mode, frame time clamped like the
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
+if (import.meta.env.DEV) void import('./dev/buildNotice').then(m => m.startBuildNotice());
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
   lights, vegetation };
 
