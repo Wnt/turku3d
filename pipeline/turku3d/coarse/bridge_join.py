@@ -62,8 +62,72 @@ def connected_approaches(members, ways):
     ]
 
 
-def approach_patches(way, line, ramps, height_at, sample, blocked, feather):
-    """Canonical landward tapers at the axis and every mapped member end."""
+# A mapped walk or flight this far below an apron's top is a separate level:
+# a quay path beside an abutment, or the foot of the stair down to it.
+LEVEL_GAP = 1.0
+
+
+def walk_levels(walkable=(), stairs=()):
+    """Mapped walk and flight centrelines with their own measured surface heights."""
+
+    def number(value, default):
+        try:
+            n = float(str(value).removesuffix(" m"))
+        except (TypeError, ValueError):
+            return default
+        return n if np.isfinite(n) else default
+
+    levels = []
+    for walk in walkable:
+        centre = np.asarray(walk["heights"])[:, int(np.argmin(np.abs(walk["cross"])))]
+        known = np.isfinite(centre)
+        if known.any():
+            # The margin keeps the abutment face clear of the walk's paving edge.
+            levels.append(
+                (walk["line"], walk["width"] / 2 + 0.3, np.asarray(walk["knots"])[known],
+                 centre[known])
+            )
+    for _, line, tags in stairs:
+        profile = tags.get("_profile") or {}
+        heights = np.asarray(profile.get("heights", ()), dtype=float)
+        if len(heights) and np.isfinite(heights).all():
+            # Same width as the flight cut. Its side stays flush with the raised
+            # land; the round end keeps the landing in front of the lower step.
+            width = np.clip(number(tags.get("width"), 2.5), 0.5, 30)
+            levels.append((line, width / 2, np.asarray(profile["stations"], float), heights))
+    return levels
+
+
+def lower_levels(path, knots, heights, reach, levels):
+    """Parts of other mapped walks inside an apron's reach, a level below its top."""
+    import shapely
+    from shapely.ops import substring
+
+    parts = []
+    shapely.prepare(reach)
+    for line, half, stations, values in levels:
+        if line.length < 0.05 or line.distance(reach) > half:
+            continue
+        s = np.unique(np.r_[np.arange(0, line.length, 0.5), line.length])
+        points = shapely.line_interpolate_point(line, s)
+        top = np.interp(shapely.line_locate_point(path, points), knots, heights)
+        low = shapely.distance(reach, points) <= half
+        low &= np.interp(s, stations, values) < top - LEVEL_GAP
+        runs = np.flatnonzero(low)
+        for run in np.split(runs, np.flatnonzero(np.diff(runs) > 1) + 1):
+            if not len(run):
+                continue
+            piece = substring(line, max(0.0, s[run[0]] - 0.5), min(line.length, s[run[-1]] + 0.5))
+            parts.append(piece.buffer(half, join_style="mitre"))
+    return shapely.union_all(parts) if parts else shapely.Polygon()
+
+
+def approach_patches(way, line, ramps, height_at, sample, blocked, feather, levels=()):
+    """Canonical landward tapers at the axis and every mapped member end.
+
+    Lower mapped walks and flights (`walk_levels`) are protected like the
+    crossed corridors in `blocked`: the taper stops at a vertical abutment face.
+    """
     import shapely
     from shapely.ops import substring
 
@@ -81,7 +145,12 @@ def approach_patches(way, line, ramps, height_at, sample, blocked, feather):
         previous = np.asarray(path.coords[-2])
         direction = (last - previous) / np.linalg.norm(last - previous)
         area_line = shapely.LineString([*path.coords, last + direction * feather])
-        area = area_line.buffer(width / 2 + lateral, cap_style="flat").difference(blocked)
+        reach = area_line.buffer(width / 2 + lateral, cap_style="flat")
+        lower = lower_levels(path, knots, values, reach, levels).difference(
+            path.buffer(width / 2, cap_style="flat")
+        )
+        guard = blocked if lower.is_empty else shapely.union_all([blocked, lower])
+        area = reach.difference(guard)
         if not area.is_empty:
             patches.append(
                 dict(
@@ -91,7 +160,7 @@ def approach_patches(way, line, ramps, height_at, sample, blocked, feather):
                     width=width,
                     lateral=lateral,
                     feather=feather,
-                    blocked=blocked,
+                    blocked=guard,
                     area=area,
                 )
             )
@@ -141,8 +210,13 @@ def approach_patches(way, line, ramps, height_at, sample, blocked, feather):
     return patches
 
 
-def grade(positions, patches, base_heights=None):
-    """Raise land to the same end surface in grid, final terrain and collision."""
+def grade(positions, patches, base_heights=None, edges=False):
+    """Raise land to the same end surface in grid, final terrain and collision.
+
+    With `edges`, land vertices on a protected boundary rise too. Only the land
+    side's own copies use them, so the drop closes as one vertical face rather
+    than a wedge sloping across the last triangle to the lower corridor.
+    """
     import shapely
     from .walkable import coordinates
 
@@ -152,10 +226,11 @@ def grade(positions, patches, base_heights=None):
     # Every taper evaluates the original surface. Overlapping lanes must not
     # compound their weights or depend on source order.
     for patch in patches:
+        blocked = patch["blocked"].buffer(-1e-6) if edges else patch["blocked"]
         ids = np.flatnonzero(
             (
                 shapely.intersects_xy(patch["area"].buffer(1e-7), positions[:, 0], positions[:, 2])
-                & ~shapely.intersects_xy(patch["blocked"], positions[:, 0], positions[:, 2])
+                & ~shapely.intersects_xy(blocked, positions[:, 0], positions[:, 2])
             )
         )
         if not len(ids):
@@ -209,7 +284,7 @@ def constrain(mesh, patches, base=None):
     baseline = None if base is None else HeightQuery(base)(p[:, [0, 2]])
     if baseline is not None:
         baseline = np.where(np.isfinite(baseline), baseline, p[:, 1])
-    raised = grade(p, patches, baseline)
+    raised = grade(p, patches, baseline, edges=True)
     centres = p[ix].mean(axis=1)
     area = shapely.union_all([patch["area"] for patch in patches])
     active = shapely.contains_xy(area, centres[:, 0], centres[:, 2])
