@@ -269,11 +269,13 @@ export class CoarseTiles {
    *  U a coarser scenery node, D double (HD and a settled cell both drawn), . nothing (a hole). */
   coverageSnapshot(x: number, z: number, r = 4) {
     const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0);
+    const leaving = new Set<string>();
+    for (const l of this.leaving.values()) leaving.add(l.id);
     let cells = '';
     for (let j = cj - r; j <= cj + r; j++) for (let i = ci - r; i <= ci + r; i++) {
       const id = `t0_${i}_${j}`, e = this.entries.get(id), model = e?.model;
       const hd = !!model && !e!.preview && model.visible && !!model.parent;
-      const held = [...this.leaving.values()].some(l => l.id === id);
+      const held = leaving.has(id);
       const cell = this.screenshotScenery.cellState(id);
       cells += hd && cell === 'C' ? 'D' : hd ? (held ? 'h' : 'F') : held ? 'h'
         : e?.preview && model?.visible ? 'P' : cell ?? '.';

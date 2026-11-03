@@ -64,7 +64,7 @@ export class ScreenshotScenery {
     return !!model?.visible && !model.userData.lodFading;
   }
   releaseDetail(id: string) { this.held.delete(id); }
-  private coarser: { id: string; at: number }[] = [];
+  private coarser: string[] = [];
   private coarserAt = -1;
   /** Trace coverage of one L0 square: C its own cell drawn, c dissolving, U a coarser node drawn over it. */
   cellState(id: string): 'C' | 'c' | 'U' | undefined {
@@ -72,10 +72,11 @@ export class ScreenshotScenery {
     if (model?.visible) return model.userData.lodFading ? 'c' : 'C';
     if (this.coarserAt !== this.clock) {
       this.coarserAt = this.clock;
-      this.coarser = [...this.entries].filter(([other, e]) => e.model?.visible && sceneryBounds(other).level > 0
-        && !this.sources.get(other)?.regional).map(([other]) => ({ id: other, at: 0 }));
+      this.coarser = [];
+      for (const [other, e] of this.entries)
+        if (e.model?.visible && sceneryBounds(other).level > 0 && !this.sources.get(other)?.regional) this.coarser.push(other);
     }
-    return this.coarser.some(node => sceneryContains(node.id, id)) ? 'U' : undefined;
+    return this.coarser.some(node => sceneryContains(node, id)) ? 'U' : undefined;
   }
 
   /** A resident full tile may yield to its cell only once that cell is loaded (standby or drawn). */
@@ -133,12 +134,22 @@ export class ScreenshotScenery {
     this.batches.retireModel(model, () => this.dispose(model, id));
   }
 
-  private needsTrees(e: Scenery, distance: number) {
-    return !!this.host.prepareVegetation && !e.treesReady && distance < (this.host.vegetationDistance ?? 0);
+  /** Standby cells (hidden under a resident full tile) prepare no trees: the HD tile draws its own, and the cell's
+   *  trees follow once it is wanted again. */
+  private needsTrees(e: Scenery, distance: number, id?: string) {
+    return !!this.host.prepareVegetation && !e.treesReady && distance < (this.host.vegetationDistance ?? 0)
+      && !(id && this.standby.has(id));
   }
 
   private async prepareTrees(id: string, e: Scenery, model: THREE.Object3D, distance: number, source: ScenerySource) {
-    if (!this.needsTrees(e,distance)) return;
+    if (!this.needsTrees(e,distance,id)) {
+      // A standby cell within tree range still never exposes skyline cones up close once it is shown.
+      if (this.standby.has(id) && distance < (this.host.vegetationDistance ?? 0)) {
+        for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
+        this.batches.invalidate(model);
+      }
+      return;
+    }
     // A camera approaching a cached far tile must never expose its skyline cones up close.
     for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
     this.batches.invalidate(model);
@@ -322,7 +333,7 @@ export class ScreenshotScenery {
     const concurrency = this.view ? 4 : 2;
     if (paused || this.active >= concurrency) return;
     for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
-      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z)) && !e.busy) e.next = 0;
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z),id) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.

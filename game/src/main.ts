@@ -30,7 +30,7 @@ import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
-import { GraphicsPreparation } from './render/graphicsPreparation';
+import { GraphicsPreparation, type PreparationPriority } from './render/graphicsPreparation';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
@@ -169,19 +169,20 @@ tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE
   rain?.exposure.remove(model);
   graphics.retire(() => { vegetation?.remove(model); materials?.release(model); });
 });
-const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal) => {
+const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal,
+  priority: PreparationPriority = 'tile') => {
   // The menu warms its initial view only. Backfill other resident programs after it becomes ready.
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') {
     graphics.defer(model, prepare, signal);
     return Promise.resolve();
   }
-  return graphics.enqueue(model, prepare, signal);
+  return graphics.enqueue(model, prepare, signal, false, priority);
 };
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
   queueGraphics(model, () => materials?.prepare(model, scene, camera, signal), signal);
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
 const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model,
-  () => Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map))));
+  () => Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map))), undefined, 'scenery');
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
