@@ -80,3 +80,85 @@ def test_bake_skips_unlit_and_instanced_surfaces_and_ships_unorm8():
     attribute = js["meshes"][0]["primitives"][0]["attributes"]["COLOR_1"]
     assert js["accessors"][attribute]["componentType"] == 5121
     np.testing.assert_allclose(accessor_array(js, binary, attribute)[:, :3], street.baked_visibility, atol=.5 / 255)
+
+
+def reference_march(field, positions, normals):
+    """The per-vertex march this bake replaced (31de046e): the R/G contract of COLOR_1."""
+    theta = (np.linspace(-np.pi / 2, np.pi / 2, V.ELEVATIONS + 1)[:-1] + np.linspace(-np.pi / 2, np.pi / 2, V.ELEVATIONS + 1)[1:]) / 2
+    phi = (np.arange(V.AZIMUTHS) + .5) * 2 * np.pi / V.AZIMUTHS
+    directions = np.stack([np.cos(phi), np.sin(phi)], axis=1)
+    p, n = np.asarray(positions, float), np.asarray(normals, float)
+    length = np.linalg.norm(n, axis=1, keepdims=True)
+    n = np.where(length > 1e-6, n / np.maximum(length, 1e-9), [0.0, 1.0, 0.0])
+    flat = np.hypot(n[:, 0], n[:, 2])
+    lateral = np.where(flat[:, None] > 1e-3, n[:, [0, 2]] / np.maximum(flat, 1e-9)[:, None], 0)
+    start = p[:, [0, 2]] + lateral * (V.WALL_OFFSET * flat)[:, None]
+    ground = field.sample(field.terrain, start[:, 0], start[:, 1])
+    height = np.maximum(p[:, 1] + .1 * np.maximum(n[:, 1], 0), ground + V.GROUND_CLEARANCE)
+    x = start[:, 0, None, None] + directions[None, :, 0, None] * V.STEPS[None, None, :]
+    z = start[:, 1, None, None] + directions[None, :, 1, None] * V.STEPS[None, None, :]
+    elevation = np.arctan2(field.sample(field.heights, x, z) - height[:, None, None], V.STEPS[None, None, :])
+    near, far = elevation[:, :, :V.STEPS_LOCAL].max(axis=2), elevation.max(axis=2)
+    weight = (lateral @ directions.T * flat[:, None])[:, :, None] * np.cos(theta) + n[:, 1, None, None] * np.sin(theta)
+    bins = np.maximum(weight, 0) * np.cos(theta) * (np.pi / V.ELEVATIONS)
+
+    def above(horizon):
+        return np.where(theta > horizon[:, :, None], bins, 0).sum(axis=(1, 2))
+
+    whole, local, open_sky, sky = bins.sum(axis=(1, 2)), above(near), above(0 * far), above(np.maximum(far, 0))
+    return np.clip(np.stack([np.where(whole > 1e-6, local / np.maximum(whole, 1e-9), 1),
+                             np.where(open_sky > 1e-6, sky / np.maximum(open_sky, 1e-9), 1)], axis=1), 0, 1)
+
+
+def test_bake_matches_the_reference_march_within_tolerance():
+    """Deduplicated marches, padded lookups and prefix-sum bins stay within ±0.02 of the march.
+
+    Covers sloped terrain, pitched roofs, walls, ground, downward and degenerate normals,
+    repeated rows, shared start points and points beyond the padded margin."""
+    rng = np.random.default_rng(7)
+    g = np.arange(129) * (TILE.size / 128)
+    terrain = 0.03 * g[None, :] + 2 * np.sin(g[:, None] / 17.0)
+    ox, oz = TILE.origin[0], TILE.origin[2]
+    city = [block(100, 100, 130, 140, 18), block(20, 200, 60, 230, 9), block(-30, 40, -5, 90, 22),
+            block(150, -20, 180, 30, 14), block(200, 150, 240, 260, 30)]
+    pitched = shapely.box(60 + ox, 60 + oz, 90 + ox, 80 + oz)
+    city.append(SimpleNamespace(footprint=pitched, base=0.0, top=16.0,
+                                roof_parts=[(pitched, np.array([0.4, 0.0, 10 - 0.4 * (60 + ox)]))]))
+    field = V.height_field(TILE, city, terrain)
+    count = 6000
+    points = rng.uniform([-70, 0, -70], [320, 32, 320], (count, 3))
+    normals = rng.normal(size=(count, 3))
+    axes = np.array([UP, EAST, WEST, [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 0, 0], [1e-4, 1, 0]], float)
+    normals[: 8 * 200] = np.repeat(axes, 200, axis=0)
+    points[1000:1400, [0, 2]] = points[1400:1800, [0, 2]]  # wall columns: one start, many heights
+    points, normals = np.concatenate([points, points[:500]]), np.concatenate([normals, normals[:500]])
+    got = V.sample(field, points, normals)
+    expected = reference_march(field, points, normals)
+    error = np.abs(got[:, :2] - expected)
+    assert error.max() <= .02 and error.mean() < 1e-4
+    assert np.all(got[:, 2] == 1) and got.dtype == np.float32
+
+
+def test_stage_caches_only_the_bake_and_matches_bake(tmp_path):
+    from turku3d.stage_cache import StageCache
+
+    tri = np.array([[10, 0, 10], [12, 0, 10], [10, 3, 10]], np.float32)
+    meshes = [
+        GlbMesh("wall", tri, np.array([[0, 2, 1]], np.uint32), extras={"layer": "buildings"}),
+        GlbMesh("tunnel", tri, np.array([[0, 2, 1]], np.uint32), extras={"layer": "tunnels"}),
+        GlbMesh("ground", tri + [5, 0, 5], np.array([[0, 2, 1]], np.uint32),
+                normals=np.tile(np.float32([0, 1, 0]), (3, 1)), extras={"layer": "ground"}),
+    ]
+    city = [block(14, 5, 30, 20, 12)]
+    expected = V.bake(meshes, V.height_field(TILE, city, FLAT))
+    cache = StageCache(tmp_path / ".stages" / TILE.id)
+    for cached in (False, True):
+        baked = V.stage(cache, TILE, meshes, city, FLAT)
+        assert cache.metrics["visibility"]["cached"] is cached
+        for a, b in zip(baked, expected, strict=True):
+            assert (a.baked_visibility is None) == (b.baked_visibility is None)
+            if a.baked_visibility is not None:
+                np.testing.assert_array_equal(a.baked_visibility, b.baked_visibility)
+    assert baked[1].baked_visibility is None and baked[0].positions is meshes[0].positions
+    empty = V.stage(cache, TILE, meshes[1:2], city, FLAT)
+    assert empty[0].baked_visibility is None and "visibility" in cache.metrics
