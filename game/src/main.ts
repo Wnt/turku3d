@@ -596,7 +596,7 @@ async function runLab() {
       lights: lights ? [lights, 'update'] : undefined, visibility: [placementVisibility, 'update'],
       render: post ? [post, 'render'] : [renderer, 'render'] },
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
-    record: meta => lab.record ? startLabRecording(game, meta) : null,
+    record: meta => startLabRecording(game, meta),
     saveResult: (id, result) => saveLabResult(id, result),
     info: () => ({ backend, three: THREE.REVISION, commit: import.meta.env.VITE_COMMIT ?? null,
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio,

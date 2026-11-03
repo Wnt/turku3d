@@ -163,6 +163,78 @@ describe('bench lab capture result', () => {
   });
 });
 
+function fakeHost(query: string) {
+  let now = 1000;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  vi.stubGlobal('location', { search: `?${query}` });
+  const calls: string[] = [];
+  const coarse = {
+    scheduling: true, schedulingSeen: [] as boolean[],
+    update: vi.fn(),
+    async benchInstall(id: string, stage: 'preview' | 'full') {
+      calls.push(`${stage}:${id}`);
+      const end = streamTrace.begin(stage === 'preview' ? 'tile.manifest' : 'tile.glb', id);
+      now += 5; end();
+      return { state: 'draft', preview: stage === 'preview', full: stage === 'full', error: null, retryInMs: 0 };
+    },
+  };
+  const perf = { lastCpu: 3, calls: 10, triangles: 20, sample: () => ({ gpu: 4, passes: { beauty: 3, shadows: 1 } }), flush: async () => {}, reset: vi.fn() };
+  const saved: Record<string, unknown>[] = [];
+  const resets = vi.fn(async () => {});
+  const host: LabHost = {
+    lab: parseLab(query)!, quality: 'medium', aa: 'taa',
+    camera: new THREE.PerspectiveCamera(), coarse, renderer: { info: { frame: 0 } }, perf,
+    inFrameBuilds: () => 0, signature: () => 'stable', busy: () => false, resetWorld: resets,
+    subsystems: { streaming: [coarse, 'update'] }, pause: () => {},
+    record: () => ({ id: 'cap-1', stop: async () => {} }), saveResult: async (_id, result) => { saved.push(result); },
+    info: () => ({ backend: 'test' }),
+  };
+  const lab = new BenchLab(host);
+  let frameNo = 0;
+  const step = () => {
+    now += 16; host.renderer.info.frame = ++frameNo; lab.before(now);
+    coarse.schedulingSeen.push(coarse.scheduling); coarse.update();
+    if (frameNo % 7 === 0) streamTrace.event('band.tile', 't0_0_0', { to: 'cell' });
+    lab.after();
+  };
+  const run = async () => {
+    const pump = setInterval(step, 0);
+    try { return await lab.run(); } finally { clearInterval(pump); }
+  };
+  return { host, lab, coarse, calls, saved, resets, run };
+}
+
+describe('bench lab static and fly scenarios', () => {
+  it('static loads every tile preview-first, settles, warms and measures exactly N frames', async () => {
+    const f = fakeHost('bench=static&tiles=t0_0_0,t0_1_0,t0_0_1&settle=0&frames=40&warm=5');
+    const status = await f.run();
+    expect(status.error).toBeNull();
+    expect(f.calls.slice(0, 3).every(c => c.startsWith('preview:'))).toBe(true);
+    expect(f.calls.slice(3).every(c => c.startsWith('full:'))).toBe(true);
+    expect(f.resets).toHaveBeenCalledOnce();
+    const result = status.result as Record<string, any>;
+    expect(result.summary.frames).toBe(40);
+    expect(result.summary.cpuMs.p50).toBe(3);
+    expect(result.passes.gpuMs.beauty.p50).toBe(3);
+    expect(result.split.callback).toHaveProperty('streaming');
+    expect(result.label).toBe('static/medium');
+    expect(f.saved).toHaveLength(1);
+  });
+
+  it('fly follows the path for its duration with the scheduler paused and counts band switches', async () => {
+    const f = fakeHost('bench=fly&tiles=t0_0_0&settle=0&seconds=5&warm=0&record=0');
+    const status = await f.run();
+    expect(status.error).toBeNull();
+    const result = status.result as Record<string, any>;
+    expect(result.capture).toBeNull();
+    expect(result.summary.frames).toBeGreaterThan(250);
+    expect(result.bands.events['band.tile']).toBeGreaterThan(30);
+    expect(result.bands.framesWithSwaps).toBeGreaterThan(30);
+    expect(f.coarse.schedulingSeen.every(s => s === false)).toBe(true);
+    expect(f.host.camera.position.y).toBeGreaterThanOrEqual(40);
+  });
+});
+
 describe('bench lab install scenario', () => {
   it('installs each tile preview then full, timing stages and frames per tile', async () => {
     let now = 1000;

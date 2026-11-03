@@ -32,7 +32,7 @@ export interface LabHost {
   /** Entry points timed per frame: [object, method] for each subsystem present. */
   subsystems: Partial<Record<Subsystem, [object, string]>>;
   pause: (paused: boolean) => void;
-  /** Start a capture recording (telemetry/capture.ts) carrying `meta`; null when recording is off or unavailable. */
+  /** Start a capture recording (telemetry/capture.ts) carrying `meta`; null when recording is unavailable. */
   record: (meta: Record<string, unknown>) => LabRecorder | null;
   /** Append the result to the saved capture's meta.json. */
   saveResult: (id: string, result: Record<string, unknown>) => Promise<void>;
@@ -249,7 +249,7 @@ export class BenchLab {
   }
 
   private startRecording(meta: Record<string, unknown>) {
-    this.recorder = this.host.record({ bench: { mode: this.host.lab.mode, label: this.label(), ...meta } });
+    this.recorder = this.host.lab.record ? this.host.record({ bench: { mode: this.host.lab.mode, label: this.label(), ...meta } }) : null;
     this.status.capture = this.recorder?.id ?? null;
   }
 
