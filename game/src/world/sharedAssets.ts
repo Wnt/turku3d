@@ -2,7 +2,11 @@ import type * as THREE from 'three/webgpu';
 
 /** Content identities survive differing relative paths; mutable URLs never enter these caches. */
 export function sharedAssetKey(url: string): string | undefined {
-  return /\/coarse\/(?:_v\/[^/]+\/)?shared\/([a-f0-9]{64}\.(?:ktx2|bin))(?:[?#].*)?$/.exec(url)?.[1];
+  let parsed: URL;
+  try { parsed = new URL(url, 'https://turku3d.invalid/'); } catch { return; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+  // GLTFLoader concatenates resourcePath + ../shared; match the path the browser actually fetches.
+  return /\/coarse\/(?:_v\/[^/]+\/)?shared\/([a-f0-9]{64}\.(?:ktx2|bin))$/.exec(parsed.pathname)?.[1];
 }
 
 /** Bounded session reuse and in-flight deduplication. Rejected loads are retryable. */
