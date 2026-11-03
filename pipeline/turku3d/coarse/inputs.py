@@ -484,7 +484,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "barriers": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
-        "vegetation_roads": [wfs[1][1]] if wfs[1][0] else [],
+        # An empty street-area layer (found, no parquet) has no carriageways.
+        "vegetation_roads": [wfs[1][1]] if wfs[1][0] and wfs[1][1] else [],
         "quay_lighting": [] if first_pass else quay_light_sources(osm),
         "tunnels": [osm] if osm else None,
         "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,

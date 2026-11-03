@@ -119,7 +119,9 @@ def enrich(tile, records, osm, paths):
     known = shapely.union_all([g for g, t, _ in records if t["barrier"] != "gate"])
     buildings = shapely.union_all([polygon(g) for g,t in source if t.get("building") not in (None,"no")])
     gates = shapely.union_all([g.buffer(2) for g,t in source if t.get("barrier") == "gate"])
-    gaps = private.boundary.difference(known.buffer(0.5)).difference(buildings.buffer(0.4)).difference(gates)
+    # Without private areas there is no enclosure to complete (an empty collection has no boundary).
+    gaps = shapely.GeometryCollection() if private.is_empty else (
+        private.boundary.difference(known.buffer(0.5)).difference(buildings.buffer(0.4)).difference(gates))
     pending = list(records)
     donors = [(g,t) for g,t,_ in records if t["barrier"] in ("fence","wall","city_wall","railing")]
     for gap in shapely.get_parts(gaps):
