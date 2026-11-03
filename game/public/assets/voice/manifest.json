@@ -71,6 +71,16 @@
    "fileSha256": "ba35b668a98755f69d93a1be29f71778d7bb58e96102389d59159f5e1c006411"
   },
   {
+   "id": "market_sold_credit",
+   "speaker": "market",
+   "file": "market_sold_credit.ogg",
+   "seconds": 5.027,
+   "text": "Ten deliveries on credit. I take your base pay until we are even. Keep the tips.",
+   "textSha256": "634c39f7f5467ae203254c48ca6c8867acbb531666e45c0a93cccd056aa14d3d",
+   "key": "566817de476bdcf9b94b3c5b6d05df6b0226e528eb586bb2285bfd6b2e45919e",
+   "fileSha256": "c7217a587cb76a589aeeb1088086ec1bf3a78805c2d572321090209d25554702"
+  },
+  {
    "id": "pizzeria_first",
    "speaker": "pizzeria",
    "file": "pizzeria_first.ogg",
@@ -79,6 +89,26 @@
    "textSha256": "7c8aa90e36be8f0efe3321f8a67a2a80c6767aaef7b14538ffe6d58cc1af4189",
    "key": "9c6505eba25e6ee881ed03cb02cdd6e54c92d81659be3f5f863fd846d40e24a9",
    "fileSha256": "9485a36ee99c1e557d782f2c738c55c09f957db857d03b31dbd3f46c8de19e68"
+  },
+  {
+   "id": "pizzeria_bring_vehicle",
+   "speaker": "pizzeria",
+   "file": "pizzeria_bring_vehicle.ogg",
+   "seconds": 3.63,
+   "text": "My nephew fetched it. It is at the kerb outside, keys in.",
+   "textSha256": "4d979ca2d2ea718beb054bb46ae8ef416175b215aa9193b801007314473fef59",
+   "key": "c4f66a5481b00d60c785fd5c08886caa65a9e6ac538b5d830cac9706227988c5",
+   "fileSha256": "36ad3d0d4d7088b6d8000b2536b31caf9f8faac2d0ae00d6ead8f9b4ff73660c"
+  },
+  {
+   "id": "pizzeria_loaner",
+   "speaker": "pizzeria",
+   "file": "pizzeria_loaner.ogg",
+   "seconds": 4.79,
+   "text": "No wheels? Take my scooter at the kerb. Two euros a run, if you ride it.",
+   "textSha256": "dbf6d29e843181ba4abbbb84803b77a5554495408b7255c2f3fa799212385e03",
+   "key": "bc5daa7b0647eb4683e35279ad1667a427bdc7815c7b0c43a165d590d0d2b1f7",
+   "fileSha256": "fb9faeae573919de1641f1c0684a03185fcf0c824d1a62952a0b0b122ede949d"
   },
   {
    "id": "pole_fine_01",
