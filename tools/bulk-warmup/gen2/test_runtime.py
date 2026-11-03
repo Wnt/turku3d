@@ -23,14 +23,12 @@ class Runtime(unittest.TestCase):
                 self.assertEqual(target,80);self.assertTrue(error)
             path.write_text('{"workers":88}')
             self.assertEqual(target_workers(path,80,96),(88,None))
-    def test_longest_first_uses_measurements_before_density_prior(self):
+    def test_centre_out_spiral_keeps_neighbouring_tiles_together(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'progress.jsonl'
             path.write_text(json.dumps(dict(event='built',tile='t0_50_50',seconds=300))+'\n')
-            result,_=ordered(['t0_30_30','t0_0_0','t0_50_50'],path)
-            self.assertEqual(result,['t0_50_50','t0_0_0','t0_30_30'])
-            classes={'t0_30_30':{'kind':'dense'},'t0_0_0':{'kind':'empty'}}
-            result,_=ordered(['t0_0_0','t0_30_30'],Path(tmp)/'absent',classes,{'dense':140,'empty':9})
-            self.assertEqual(result,['t0_30_30','t0_0_0'])
+            result,timings=ordered(['t0_30_30','t0_0_1','t0_50_50','t0_-1_0','t0_0_0'],path)
+            self.assertEqual(result,['t0_-1_0','t0_0_0','t0_0_1','t0_30_30','t0_50_50'])
+            self.assertEqual(timings,{'t0_50_50':300})
 
 if __name__=='__main__':unittest.main()
