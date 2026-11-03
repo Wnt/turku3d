@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three/webgpu';
-import { VegetationLod, fadeReach, vegetationLevels } from '../../src/world/vegetationLod';
+import { VegetationLod, fadeReach, leanTree, vegetationLevels } from '../../src/world/vegetationLod';
 import { VEGETATION_FADE, scaleVegetationFade } from '../../src/world/nature/materials';
 import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
@@ -607,4 +607,33 @@ it('a still camera settles the tree bands to a step (no dither), and they widen 
     frames(4, true); expect(sharp()).toBeGreaterThan(0); frames(16, true); expect(sharp()).toBe(0); // 0.25 s back
     lod.dispose();
   } finally { now.mockRestore(); }
+});
+
+it('draws trees-lidar crowns: the lidar height and radius instead of the instance scale, leaning on a fixed base', () => {
+  const { model, mesh } = tile(2, 'tree_detailed_fall', i => new THREE.Vector3(i * 20, 2, -30));
+  mesh.userData.instance_object_ids = ['puut:a', 'area:b'];
+  mesh.userData.instance_species = ['Tilia cordata', 'Tilia cordata'];
+  mesh.userData.instance_crowns = [null, [21, 6.5, 0.05, -0.02]];
+  const scene = new THREE.Scene(); scene.add(model);
+  const lod = new VegetationLod('medium', library);
+  lod.add(model);
+  const trees = new Map<string, { matrix: THREE.Matrix4; asset: string }>();
+  lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
+  lod.forEachTree(tree => trees.set(tree.id, { matrix: tree.matrix.clone(), asset: tree.asset }));
+  const asset = library.asset(trees.get('area:b')!.asset);
+  const expected = natureScale(21, 6.5, asset.height, asset.radius);
+  const leaning = trees.get('area:b')!.matrix.elements, upright = trees.get('puut:a')!.matrix.elements;
+  // The base stays on the trunk; the y axis carries the lidar height and the lean; x/z keep the lidar radius.
+  expect([leaning[12], leaning[13], leaning[14]]).toEqual([20, 2, -30]);
+  expect(leaning[5]).toBeCloseTo(expected.y, 6);
+  expect(leaning[4] / leaning[5]).toBeCloseTo(0.05, 6); expect(leaning[6] / leaning[5]).toBeCloseTo(-0.02, 6);
+  expect(Math.hypot(leaning[0], leaning[2])).toBeCloseTo(expected.xz, 3);
+  // Without a crown the instance scale is drawn, upright.
+  const own = library.asset(trees.get('puut:a')!.asset);
+  expect(upright[5]).toBeCloseTo(natureScale(15, 4, own.height, own.radius).y, 6);
+  expect([upright[4], upright[6]]).toEqual([0, 0]);
+  // leanTree shears every basis vector by its height component.
+  const m = leanTree(new THREE.Matrix4().makeRotationZ(0.3), 0.1, 0.2).elements;
+  expect(m[0]).toBeCloseTo(Math.cos(0.3) + 0.1 * Math.sin(0.3), 6); expect(m[2]).toBeCloseTo(0.2 * Math.sin(0.3), 6);
+  lod.remove(model);
 });
