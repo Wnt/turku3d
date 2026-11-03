@@ -111,6 +111,91 @@ def low_profile(line, cloud):
     return dict(height=round(top-base, 2), base=base, low=True)
 
 
+# A retaining step is measured from planes within 1.3 m of the mapped line
+# (retaining_survey.measure); lidar beyond that reach never decides it.
+STEP_REACH = 1.5
+
+
+def step_cloud(store, line, available, buildings):
+    """Raw returns around a wall line from the tiles on hand, if they cover its reach."""
+    reach = C.BBoxLocal(*line.buffer(STEP_REACH).bounds)
+    if not all(b.name in available for b in C.laz_tiles_for_bbox(reach)):
+        return None
+    bounds = C.BBoxLocal(*line.buffer(2).bounds)
+    parts = [store.tile(t).query(bbox=bounds).records for t in C.collision_tiles_for_bbox(bounds)
+             if all(b.name in available for b in C.laz_tiles_for_bbox(t.bbox))]
+    if not parts:
+        return None
+    cloud = PointCloud(np.concatenate(parts))
+    if not buildings.is_empty:
+        cloud = PointCloud(cloud.records[~shapely.intersects_xy(
+            buildings.buffer(0.2), cloud.points[:, 0], cloud.points[:, 2])])
+    return cloud
+
+
+def retaining_steps(geometry, tags, on_road, store, available, buildings):
+    """Mapped retaining walls take their two levels from the raw step, like WFS walls.
+
+    Without it the wall top came from the smoothed ground 2.5 m away: at a hill foot
+    that is far up the slope, a 4 m street wall where the real one is 1.5 m with a
+    hedge slope above. Unmeasured parts keep the mapped line and the fallback.
+    """
+    from .retaining_survey import ground_points, measure
+
+    out = []
+    for line in shapely.get_parts(geometry):
+        if line.geom_type != "LineString" or line.length < 1.5:
+            out.append((line, tags, on_road))
+            continue
+        cloud = step_cloud(store, line, available, buildings)
+        runs = (measure(line, ground_points(cloud.query(classes=[2, 12], last_return=True)))
+                if cloud is not None else [])
+        out.extend((edge, {**tags, "_survey": profile}, on_road) for edge, profile in runs)
+        covered = shapely.union_all([edge.buffer(0.5) for edge, _ in runs])
+        rest = line.difference(covered) if runs else line
+        for part in shapely.get_parts(rest):
+            if part.geom_type != "LineString" or part.length < 1.0:
+                continue
+            carried = carry_levels(part, runs)
+            out.append((part, {**tags, "_survey": carried} if carried else tags, on_road))
+    return out
+
+
+CARRY = 4.0  # a shorter unmeasured end of a measured wall keeps the measured step
+
+
+def carry_levels(part, runs):
+    """Levels for a short unmeasured end beside a measured run, from that run's end.
+
+    Lidar often has no ground within a metre of the wall where it meets a building
+    or a hedge; its smoothed grid there is the roof or slope above, metres too high.
+    """
+    from .retaining import sections
+
+    if part.length > CARRY:
+        return None
+    ends = shapely.points(np.asarray(part.coords)[[0, -1]])
+    best = None
+    for edge, profile in runs:
+        centres = np.asarray(profile["centres"])
+        gap = shapely.distance(ends[:, None], shapely.points(centres[[0, -1]])[None]).min()
+        if gap < 1.0 and (best is None or gap < best[0]):
+            nearest = int(np.argmin(np.linalg.norm(
+                centres - np.asarray(part.interpolate(0.5, normalized=True).coords[0]), axis=1)))
+            best = gap, np.asarray(profile["heights"])[nearest], edge
+    section = sections(part)
+    if best is None or section is None:
+        return None
+    _, level, edge = best
+    centres, left, right = section
+    # Keep the measured sides: the run's left side is the part's left side when
+    # both follow the mapped line's direction.
+    run = np.diff(np.asarray(edge.coords)[[0, -1]], axis=0)[0]
+    own = np.diff(np.asarray(part.coords)[[0, -1]], axis=0)[0]
+    level = level if run @ own >= 0 else level[::-1]
+    return dict(centres=centres, left=left, right=right, heights=np.tile(level, (len(centres), 1)))
+
+
 def enrich(tile, records, osm, paths):
     """Complete mapped enclosures only where raw lidar confirms an above-ground barrier."""
     source = [(r["geometry_local"], json.loads(r["tags"] or "{}"))
@@ -136,6 +221,9 @@ def enrich(tile, records, osm, paths):
     available = {p.stem for p in paths}
     result = []
     for geometry, tags, on_road in pending:
+        if tags["barrier"] == "retaining_wall":
+            result.extend(retaining_steps(geometry, tags, on_road, store, available, buildings))
+            continue
         if tags["barrier"] not in ("fence","wall","city_wall","railing") or "height" in tags:
             result.append((geometry,tags,on_road))
             continue

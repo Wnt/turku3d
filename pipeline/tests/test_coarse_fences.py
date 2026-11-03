@@ -167,3 +167,48 @@ def test_tunnel_mouth_excludes_walls_panels_and_explicit_road_barriers():
         axis = shapely.LineString([np.array([s.x, s.z]) - half, np.array([s.x, s.z]) + half])
         assert not axis.buffer(0.15).intersects(opening)
     assert len([p for ct in tile.collision_tiles() for p in collision(batch, ct)]) == len(batch)
+
+
+def test_mapped_retaining_wall_takes_its_measured_step_and_keeps_unmeasured_parts():
+    import shapely
+    from turku3d import config as C
+    from turku3d.coarse import fence_survey
+    from turku3d.lidar import PointCloud
+    from turku3d.lidar.cache import POINT_DTYPE
+
+    # A 1.5 m street wall at a hill foot: the upper ground keeps rising behind it.
+    x, z = np.meshgrid(np.arange(2, 30, 0.2), np.arange(-4, 4.01, 0.2))
+    x, z = x.ravel(), z.ravel()
+    h = np.where(z > 0, 1.5 + 0.7 * z, 0.0) + np.where(x > 14, np.nan, 0)
+    keep = np.isfinite(h)  # no returns along the far part of the wall
+    records = np.zeros(int(keep.sum()), POINT_DTYPE)
+    records["xyz"] = np.c_[x[keep], h[keep], z[keep]]
+    records["classification"] = 2
+    records["return_number"] = records["number_of_returns"] = 1
+
+    class Store:
+        def tile(self, t):
+            return PointCloud(records)
+
+    tile = C.VisualTile(0, 0, 0)
+    available = {b.name for b in C.laz_tiles_for_bbox(tile.bbox.buffered(30))}
+    line = shapely.LineString([(4, 0), (28, 0)])
+    out = fence_survey.retaining_steps(line, {"barrier": "retaining_wall"}, False, Store(),
+                                       available, shapely.GeometryCollection())
+    surveyed = [(g, t) for g, t, _ in out if "_survey" in t]
+    assert surveyed
+    for g, t in surveyed:
+        levels = np.asarray(t["_survey"]["heights"])
+        np.testing.assert_allclose(np.abs(np.diff(levels, axis=1)), 1.5, atol=0.15)
+    # The unmeasured far part keeps the mapped line for the fallback emitter.
+    rest = [g for g, t, _ in out if "_survey" not in t]
+    assert rest and max(g.bounds[2] for g in rest) == 28
+    # A short unmeasured end (no ground returns beside a building) keeps the measured step.
+    short = shapely.LineString([(4, 0), (16, 0)])
+    out = fence_survey.retaining_steps(short, {"barrier": "retaining_wall"}, False, Store(),
+                                       available, shapely.GeometryCollection())
+    assert all("_survey" in t for _, t, _ in out)
+    end = [t for g, t, _ in out if g.bounds[2] == 16]
+    assert end
+    np.testing.assert_allclose(np.abs(np.diff(end[0]["_survey"]["heights"], axis=1)), 1.5,
+                               atol=0.15)
