@@ -241,6 +241,46 @@
    "fileSha256": "7cc4be46adc9c380ec29ac795ce45aa4a57e646d186d27f4551971eaf52e3c92"
   },
   {
+   "id": "heist_briefing",
+   "speaker": "market",
+   "file": "heist_briefing.ogg",
+   "seconds": 11.167,
+   "text": "A trophy truck is parked in the inner yard of Rettigin palatsi, by Itäinen Rantakatu. Take it to the road under Aninkaistensilta, leave it there, and the plates are yours.",
+   "textSha256": "5c9bcc755419d31d1334a8788a632f8dfd9161b422e44b055a2bb287ca41d438",
+   "key": "ecd9651c1ae8b4bffb61da6fe1614d05c1439e10aa3cfd205e25d5d88db9e71f",
+   "fileSha256": "33977ffb750c5fae300e1d15cffd7cbdac0ef1150adc055c4607f35f86293ce0"
+  },
+  {
+   "id": "heist_in_truck",
+   "speaker": "market",
+   "file": "heist_in_truck.ogg",
+   "seconds": 5.241,
+   "text": "Nice wheels. Now under Aninkaistensilta, on the road below the bridge, not on it.",
+   "textSha256": "ac66f745a7ee7464b0767e2d05e0ee796cec4ba54ece15d736d9d624445776e1",
+   "key": "89e7d567e6e7e412af0908fafafcfefcec31ac0ad630197618a2e98c02ebfe2c",
+   "fileSha256": "6c9722dc362ea8adbabf9d0526b855f1a5932fbad41368f1148115af9538653d"
+  },
+  {
+   "id": "heist_done",
+   "speaker": "market",
+   "file": "heist_done.ogg",
+   "seconds": 4.986,
+   "text": "The truck is gone and the plates are yours. There is a car parked by the road. Use it.",
+   "textSha256": "50498e5943c7cc892910677dbddc25fc976a488daf65b94b94b1f3b0d5356fc7",
+   "key": "68bfc181b4dfa7c235e77d6b168eafaf6b4e714e891f13c22f69019706054ac2",
+   "fileSha256": "194ced53f35bc71bfe6ca4f57dce529ca93fcac7b9ede83b88d0845250347b50"
+  },
+  {
+   "id": "heist_abandoned",
+   "speaker": "market",
+   "file": "heist_abandoned.ogg",
+   "seconds": 4.045,
+   "text": "Fine. The truck stays in its yard. Come back when you have the nerve.",
+   "textSha256": "725f710d368923048fc89873a82543f76ab2ae9a5c847f4e05e6abd8e85ccd27",
+   "key": "90b54ad3cf122d1130a0361255f85c345f35e58c3cefde5cce9baa9a873baf51",
+   "fileSha256": "158d0000fa5f5c9e3192ab8834b3f88c00ef517c4296d3f67078e997ac1d8543"
+  },
+  {
    "id": "phrase_order_1",
    "speaker": "pizzeria",
    "file": "phrase_order_1.ogg",
