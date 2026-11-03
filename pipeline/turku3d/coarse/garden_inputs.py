@@ -32,6 +32,7 @@ def features(tile, path):
             tags.get("leisure") == "swimming_pool"
             or tags.get("water") in ("reflecting_pool", "basin", "pool")
             or tags.get("man_made") == "basin"
+            or tags.get("amenity") == "fountain"
         )
         if tags.get("indoor") == "yes" or tags.get("layer", "0") not in ("0", ""):
             continue

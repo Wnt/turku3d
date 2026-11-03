@@ -365,9 +365,9 @@ export class VegetationLod {
 const WATER_CELL = 4, WATER_REACH = 14;
 const waterCell = (x: number, z: number) => `${Math.floor(x / WATER_CELL)},${Math.floor(z / WATER_CELL)}`;
 
-/** Model-space 4 m cells within 14 m of the tile's water surfaces (their edges are the banks). */
-function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
-  const cells = new Set<string>();
+/** Model-space 4 m sample-cell neighborhoods around all water-triangle edges. */
+export function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
+  const cells = new Set<string>(), sampled = new Set<string>();
   model.updateWorldMatrix(true, true);
   const inverse = model.matrixWorld.clone().invert(), toModel = new THREE.Matrix4();
   const meshes: THREE.Mesh[] = [];
@@ -391,6 +391,10 @@ function* waterCells(model: THREE.Object3D): Generator<void, Set<string>> {
       const steps = Math.max(1, Math.ceil(a.distanceTo(b) / WATER_CELL));
       for (let k = 0; k <= steps; k++) {
         const x = Math.floor((a.x + (b.x - a.x) * k / steps) / WATER_CELL), z = Math.floor((a.z + (b.z - a.z) * k / steps) / WATER_CELL);
+        // Shared edges and sub-cell triangles repeat centres with exactly the same bank band.
+        const cell = `${x},${z}`;
+        if (sampled.has(cell)) continue;
+        sampled.add(cell);
         for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) cells.add(`${x + dx},${z + dz}`);
       }
     }

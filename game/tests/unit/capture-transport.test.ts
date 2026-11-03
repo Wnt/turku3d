@@ -136,3 +136,36 @@ test('viewport stats follow renderer resize while start metadata retains its ori
   expect(batches.find(batch => batch.meta).meta.viewport).toEqual([800, 600]);
   expect(batches.flatMap(batch => batch.stats ?? [])[0].viewport).toEqual([1600, 900]);
 });
+
+test.each([false, true])('capture reports JS sampling support=%s while frame/pose capture still saves', async supported => {
+  const { captureControl } = await import('../../src/telemetry/capture');
+  class Observer { static supportedEntryTypes: string[] = []; }
+  class Profiler { addEventListener() {} async stop() { return { resources: [], frames: [], stacks: [], samples: [] }; } }
+  const render = { afterFrame: undefined as (() => void) | undefined,
+    renderer: { info: { frame: 1, memory: {} }, getPixelRatio: () => 1, backend: {} }, perf: {},
+    camera: { position: { toArray: () => [0, 2, 3] }, quaternion: { toArray: () => [0, 0, 0, 1] }, fov: 60 } };
+  vi.stubGlobal('window', { __render: render, Profiler: supported ? Profiler : undefined }); vi.stubGlobal('PerformanceObserver', Observer);
+  vi.stubGlobal('location', { href: 'http://localhost/' }); vi.stubGlobal('navigator', { userAgent: 'test' });
+  vi.stubGlobal('innerWidth', 800); vi.stubGlobal('innerHeight', 600);
+  vi.stubGlobal('addEventListener', vi.fn()); vi.stubGlobal('removeEventListener', vi.fn());
+  vi.stubGlobal('sessionStorage', { getItem: vi.fn(), setItem: vi.fn() });
+  const marker = { style: { cssText: '', color: '' }, setAttribute: vi.fn(), remove: vi.fn(), hidden: false, textContent: '', title: '', id: '' };
+  vi.stubGlobal('document', { createElement: () => marker });
+  const fetch = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', fetch);
+  const control = captureControl({ state: () => ({ paused: true, feet: [0, 0, 0], vel: [0, 0, 0] }) }, { append: vi.fn() } as unknown as HTMLElement);
+  try {
+    control.toggle(); const id = control.recorder!.id;
+    expect(control.on).toBe(true); expect(control.recorder!.jsSamplingAvailable).toBe(supported);
+    expect(marker.textContent).toBe(supported ? '● REC' : '● REC · NO JS SAMPLES');
+    expect(marker.style.color).toBe(supported ? '#ff6868' : '#ffd27a');
+    if (supported) expect(control.detail).not.toContain('unavailable');
+    else { expect(control.detail).toContain('JS sampling unavailable'); expect(marker.title).toContain('telemetry are still recording'); }
+    render.afterFrame!(); control.toggle();
+    await vi.waitFor(() => expect(control.detail).toBe(`Saved as ${id}`));
+    expect(marker.hidden).toBe(true);
+    const batches = fetch.mock.calls.map(([, options]) => JSON.parse(options.body));
+    expect(batches.find(batch => batch.meta).meta.jsProfiler.available).toBe(supported);
+    expect(batches.flatMap(batch => batch.frames ?? [])).toHaveLength(1);
+    expect(batches.flatMap(batch => batch.poses ?? [])).toHaveLength(1);
+  } finally { control.dispose(); }
+});

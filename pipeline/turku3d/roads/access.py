@@ -4,7 +4,7 @@ import shapely
 from shapely.ops import nearest_points
 
 ENCLOSURE_GAP = 8.0  # routing closure only; never creates player collision
-ENCLOSURES = {"fence", "wall", "city_wall", "retaining_wall", "hedge"}
+ENCLOSURES = {"fence", "wall", "city_wall", "retaining_wall", "hedge", "railing"}
 RESIDENTIAL = {"house", "apartments", "residential", "detached", "terrace", "semidetached_house"}
 
 

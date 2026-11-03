@@ -434,10 +434,13 @@ def build(
     )
     seconds["vegetation_scatter"] = time.perf_counter() - vegetation_start
 
+    from . import hedges
+    measured_barriers = inputs.barriers if first_pass else hedges.prepare(cache, tile, inputs, ground_sources)
+
     def barrier_stage(directory):
         files = []
         value = fences.produce(
-            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z)
+            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z), measured_barriers
         )
         return value
 
@@ -452,7 +455,7 @@ def build(
             base / "package/gltf.py",
             *common,
         ),
-        [tile, inputs.barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
+        [tile, measured_barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
          inputs.retaining, inputs.vegetation_roads],
         stage,
         barrier_stage,
@@ -471,6 +474,7 @@ def build(
     collision = {}
     cols = {}
     basic_cells = []
+    navigation_cells = []
     for ct, (pos, idx, mat) in collision_tiles(
         tile,
         grid_pos,
@@ -489,6 +493,7 @@ def build(
         primitives = trunks(trees, ct) + barrier_cols[ct] + street["collision"].get(ct.id, [])
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         compact_collision(col)
+        navigation_cells.append(col)
         if first_pass:
             basic_cells.append((ct, col))
         data = cache.run(
@@ -521,18 +526,20 @@ def build(
         collision[cid]["url"] = url
         _write(out / "col" / f"{cid}.col", data)
     seconds["collision_ready"] = time.perf_counter() - started
-    if first_pass:
-        from turku3d.roads.tile_graph import with_heights
+    from .route_surface import bake as navigation_heights
 
+    t_heights = time.perf_counter()
+    roads = navigation_heights(tunnels.roads(bridge_roads), navigation_cells, surface_sample)
+    seconds["road_heights"] = time.perf_counter() - t_heights
+    if first_pass:
         from .basic import publish
 
-        first_roads = tunnels.roads(bridge_roads)
         return publish(
             tile,
             out,
             basic_cells,
             collision,
-            with_heights(first_roads, surface_sample) if first_roads is not None else None,
+            roads,
             producer_code,
             inputs.key,
             len(blds),
@@ -561,6 +568,16 @@ def build(
         [tile, inputs.ortho, yard_parcels, yard_blocked],
         lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
     )
+    from . import garden_finishes, garden_inputs
+    osm = ground_sources.osm_source(tile)
+    garden_areas = garden_inputs.features(tile, osm)[0] if osm else []
+    from turku3d.tile_layer import identities
+    paving_sources = identities({"osm": osm}) if osm else {}
+    paving_finishes = cache.run(
+        "garden_finishes", source_key(Path(garden_finishes.__file__), Path(garden_inputs.__file__)),
+        [tile, inputs.ortho, inputs.surfaces, garden_areas, paving_sources],
+        lambda: garden_finishes.regions(tile, inputs.ortho, inputs.surfaces, garden_areas, osm),
+    )
     visual_regions = [*lawn_regions, *inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
@@ -568,7 +585,7 @@ def build(
         visual_materials,
         dry_keep,
         [*visual_regions, *inputs.streets, *inputs.street_finishes,
-         *street_profiles.material_regions(dry)],
+         *street_profiles.material_regions(dry), *paving_finishes],
         fallback_materials,
     )
     surface_pos, surface_idx, surface_ids, surface_normals = cache.run(
@@ -639,17 +656,10 @@ def build(
         )
     )
     if len(river.indices):
-        ground_meshes.append(
-            GlbMesh(
-                f"water_{tile.id}",
-                river.positions - origin,
-                river.indices,
-                uvs=river.positions[:, [0, 2]] * [1, -1],
-                extras=dict(
-                    layer="ground", object_id=f"water_{tile.id}", material_key="water", sensor=True
-                ),
-            )
-        )
+        from . import water_appearance
+
+        water_colours = water_appearance.prepare(cache, inputs, ground_sources)
+        ground_meshes.extend(water_appearance.visuals(tile, river, water_colours))
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
     if (stage / "fences.vis.glb").exists():
@@ -729,14 +739,6 @@ def build(
     cars = parked.stage(cache, tile, inputs, grid_pos, trees, poles, osm_decks, carried_mask)
     vehicle_models = parked.publish_models(cars, out.parent)
     seconds["parked"] = time.perf_counter() - t
-    roads = tunnels.roads(bridge_roads)
-    if roads is not None:
-        from turku3d.roads.tile_graph import with_heights
-
-        t_heights = time.perf_counter()
-        roads = with_heights(roads, surface_sample)
-        seconds["road_heights"] = time.perf_counter() - t_heights
-
     _write(out / "facade-candidates.json", json.dumps(candidates(blds)).encode())
     visual_url = f"vis.{hashlib.sha256(vis).hexdigest()}.glb"
     _write(out / visual_url, vis)

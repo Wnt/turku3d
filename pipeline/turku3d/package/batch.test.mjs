@@ -32,3 +32,21 @@ test('river reflection eligibility survives material deduplication and GLB batch
     assert.equal(node.getMesh().listPrimitives()[0].getAttribute('POSITION').getCount(), 6);
   }
 });
+
+test('coplanar water body colours survive batching and a GLB round trip', async () => {
+  const doc = new Document(), buffer = doc.createBuffer(), scene = doc.createScene();
+  const material = doc.createMaterial();
+  for (const body of ['pool', 'pool', 'river']) {
+    const positions = doc.createAccessor().setBuffer(buffer).setType('VEC3')
+      .setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 0, 1]));
+    const prim = doc.createPrimitive().setAttribute('POSITION', positions).setMaterial(material);
+    scene.addChild(doc.createNode().setExtras({layer: 'ground', material_key: 'water',
+      water_body: body, water_color: body === 'pool' ? [.6, .8, .9] : [.3, .2, .1]})
+      .setMesh(doc.createMesh().addPrimitive(prim)));
+  }
+  await batchVisual(doc, scene, 't0_0_0', functions);
+  const io = new NodeIO(), decoded = await io.readBinary(await io.writeBinary(doc));
+  const nodes = decoded.getRoot().listNodes().filter(node => node.getMesh());
+  assert.equal(nodes.length, 2);
+  assert.deepEqual(nodes.map(node => node.getExtras().water_color), [[.6,.8,.9],[.3,.2,.1]]);
+});

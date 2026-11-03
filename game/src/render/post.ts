@@ -1,4 +1,5 @@
 import { decodePrepassNormal } from './normalDecode';
+import { labelGpuPass } from './gpuPasses';
 import { PuddleReflections } from './weather/puddleReflections';
 import { GameRenderer } from './shadowMaterials';
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
@@ -46,6 +47,7 @@ export class PostProcessing {
     const pre = this.pre = q.aoSamples > 0 || aa === 'taa' ? pass(scene, camera) : null;
     this.baseContext = renderer.contextNode;
     if (pre) {
+      labelGpuPass(pre.renderTarget, 'prepass');
       pre.transparent = false;
       if (renderer instanceof GameRenderer) pre.overrideMaterial = renderer.normalPrepass.marker;
       const updatePre = pre.updateBefore.bind(pre);
@@ -85,6 +87,7 @@ export class PostProcessing {
       ambient.useTemporalFiltering = aa === 'taa';
     }
     const beauty = this.beauty = pass(scene, camera);
+    labelGpuPass(beauty.renderTarget, 'beauty');
     // Apply light GTAO to indirect light only: facade albedo already contains some occlusion.
     this.beautyContext = ambient ? context({ ...flowContext(renderer.contextNode),
       ...flowContext(builtinAOContext(mix(1, ambient.getTextureNode().sample(screenUV).r, q.aoStrength))) }) : this.baseContext;

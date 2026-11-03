@@ -5,6 +5,7 @@ import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence } from './reflec
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 import { riverSurface } from './riverSurface';
+import { waterColour } from './waterAppearance';
 
 const liveRivers = new Set<RiverMaterial>();
 let activeSurface = riverSurface;
@@ -15,10 +16,13 @@ export class RiverMaterial {
   private reflectionUV: ReturnType<typeof reflector>['uvNode'];
   private context: THREE.WebGPURenderer['contextNode'];
   private prepared = false;
+  private bodyColour: THREE.Color;
   private reflectionDepth = 3;
   private reflection: ReturnType<typeof reflector> | null;
 
   constructor(mesh: THREE.Mesh, private env: Environment, tier: QualityTier, private deterministic: boolean, renderer: THREE.WebGPURenderer) {
+    const rgb = waterColour(mesh.userData);
+    this.bodyColour = rgb ? new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace) : new THREE.Color(0.075, 0.062, 0.035);
     const scale = QUALITY[tier].reflectionScale;
     const reflection = this.reflection = scale > 0 ? reflector({ bounces: false, samples: 0 }) : null;
     this.reflectionUV = reflection?.uvNode ?? null;
@@ -59,7 +63,7 @@ export class RiverMaterial {
   setSurface(factory: typeof riverSurface) {
     this.disposeSurface();
     if (this.reflection) this.reflection.uvNode = this.reflectionUV;
-    this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection);
+    this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection, this.bodyColour);
     this.material.needsUpdate = true;
   }
 

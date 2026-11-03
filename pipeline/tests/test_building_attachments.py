@@ -144,3 +144,18 @@ def test_float32_height_at_rounded_histogram_boundary_keeps_nonnegative_bins():
     ground, labels = points(14.2, 18, 1, 9, 0.1)
     result = inventory((deck.astype(np.float32), classes), (ground.astype(np.float32), labels))
     assert any(abs(r["height"] - 1.8) < 1e-5 and r["region"].area > 18 for r in result)
+
+
+def test_support_boundary_tracing_preserves_rotated_grid_area_and_holes():
+    from turku3d.coarse.attachments import CELL, support_region
+
+    mask = np.ones((20, 12), bool)
+    mask[4:8, 3:7] = False
+    mask[12:, 8:] = False
+    angle = 0.63
+    along = np.array([np.cos(angle), np.sin(angle)])
+    outward = np.array([along[1], -along[0]])
+    region = support_region(mask, np.array([1234.125, 4567.875]), along, outward)
+    assert region.is_valid
+    assert abs(region.area - mask.sum() * CELL**2) < 1e-9
+    assert len(region.interiors) == 1
