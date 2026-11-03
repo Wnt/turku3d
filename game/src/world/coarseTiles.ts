@@ -33,6 +33,9 @@ import { parseStreamingJson, readStreamingJson } from './streamingJson';
 const POLL_MS = 1000;
 const RETURN_CACHE_TILES = 16;
 const RETURN_CACHE_MS = 30_000;
+/** Ahead-only build acknowledgements own no model or collision resources. Keep them across quick turns. */
+const BUILT_CACHE_TILES = 128;
+const BUILT_CACHE_MS = 30_000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -76,6 +79,7 @@ export class CoarseTiles {
   private demandSequence = 0;
   private routeHint: readonly { x: number; z: number }[] | null = null;
   private preparing = new Set<string>();
+  private builtUntil = new Map<string, number>();
   private details = 0;
   private materials = new SharedMaterials();
   private buildingModels: BuildingModelCache;
@@ -230,6 +234,8 @@ export class CoarseTiles {
         this.drop(e); this.entries.delete(id); continue;
       }
       if (wanted.includes(id) || lookahead.includes(id) || (e.resident && retain(id)) || (!e.resident && ahead.includes(id))) continue;
+      if (e.state === 'built' && now < (this.builtUntil.get(id) ?? 0)) continue;
+      this.builtUntil.delete(id);
       if (this.cacheFull(e)) continue;
       this.drop(e); this.entries.delete(id);
     }
@@ -623,7 +629,14 @@ export class CoarseTiles {
         fragment = full.fragment; hash = full.hash;
       }
       if (!fragment?.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: no visible draft`);
-      if (!load) { e.state = 'built'; e.nextPoll = 0; return; }
+      if (!load) {
+        if (this.entries.get(id) !== e) return;
+        e.state = 'built'; e.nextPoll = 0;
+        this.builtUntil.delete(id); this.builtUntil.set(id, this.clock + BUILT_CACHE_MS);
+        while (this.builtUntil.size > BUILT_CACHE_TILES) this.builtUntil.delete(this.builtUntil.keys().next().value!);
+        return;
+      }
+      this.builtUntil.delete(id);
       await this.applyFragment(id, e, fragment);
       e.manifestHash = hash;
       e.retries = 0; this.outageFailures = 0;
