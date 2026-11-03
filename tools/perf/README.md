@@ -85,7 +85,17 @@ The **summary** lists:
 - the slowest tiles from first request to full model, with their per-stage ms;
 - the slowest tiles per stage, and scenery cells;
 - holes and double coverage from the snapshots, and pops (full installs that replaced a preview or nothing,
-  with no dissolve);
+  with no dissolve), each marked in or outside the view wedge at that moment;
+- **HD coverage**, the goal metric for "only the high LOD in view". Each second it takes the 3x3 window around
+  the camera's tile plus every tile within 400 m that enters the horizontal view wedge (pose camera, FOV and
+  viewport), and reports the share drawing the full model (`F`, `D` or a held `h`). The rest show a collision
+  preview, a scenery cell or nothing. The report gives the mean, the share for the window alone, the number of
+  seconds below 100 %, non-HD tile-seconds by drawn band, and the worst seconds with their missing tiles
+  (`*` marks a tile in the window).
+  - It reads the 1 Hz `coverage` snapshots. Drive-bench captures recorded none before the QA path exposed
+    `__game.coarse`. For those, the drawn band is reconstructed from tile lifecycle events, and the summary says
+    which source it used. The reconstruction assumes the start window is full, since benches start once the 3x3
+    is detailed.
 - band event counts;
 - hitches (frame interval above `--hitch`, default 50 ms) by cause, from what actually ran in the frame:
   - its measured streaming slices (`slice:*`);

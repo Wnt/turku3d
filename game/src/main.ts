@@ -389,7 +389,8 @@ async function runQa() {
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
-  window.__game!.population = population;
+  // Drive-bench captures read the tile streamer here (stats.coarse, 1 Hz coverage snapshots), as in play sessions.
+  window.__game!.population = population; window.__game!.coarse = coarse;
   let replaySeed = 20261102;
   window.__game!.replay = {
     reset: async ({ epochMs, seed = 20261102, mode }: { epochMs: number; seed?: number; mode?: ClockMode }) => {
