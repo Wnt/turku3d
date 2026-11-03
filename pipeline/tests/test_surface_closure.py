@@ -33,7 +33,8 @@ def wall(x, y0, y1):
 
 
 def run(dry, structures=(), excluded=shapely.Polygon(), openings=None):
-    return resolve(dry, list(structures), [], EMPTY, openings or Openings(), excluded, BOUNDS)
+    _, _, meshes, report = resolve(dry, dry, list(structures), [], EMPTY, openings or Openings(), excluded, BOUNDS)
+    return meshes, report
 
 
 def test_raised_sheet_edge_gets_one_closing_face():

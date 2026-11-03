@@ -150,8 +150,10 @@ def faces(a, b, ha, hb, tile_id):
     return [appearance(f.mesh(f"seam:{tile_id}", "wall", metadata=dict(kind="retaining_wall")), "stone")]
 
 
-def resolve(dry, structures, decks, bank, openings, excluded, bounds, tile_id='tile'):
-    dry = clean(dry)
+def resolve(dry, solid, structures, decks, bank, openings, excluded, bounds, tile_id='tile'):
+    # Upstream producers leave duplicate and zero-area faces (about 24k on
+    # t0_2_-1); they would also hide seams by doubling boundary edges.
+    dry, solid = clean(dry), clean(solid)
     floors = [triangles(m) for m in [*structures, *decks]
               if m.visual and m.material not in ('railing', 'fence', 'water')]
     surfaces = np.concatenate([triangles(dry), *floors, triangles(bank)]) if floors else \
@@ -160,19 +162,19 @@ def resolve(dry, structures, decks, bank, openings, excluded, bounds, tile_id='t
     a, b, ha, hb, length, hole_length = seams(dry, surfaces, walls, excluded, bounds)
     meshes = openings.structures(faces(a, b, ha, hb, tile_id))
     span = np.abs((a[:, 1] + b[:, 1]) / 2 - (ha + hb) / 2)
-    return meshes, dict(sealed_seams=int(len(a)), sealed_length_m=round(float(length.sum()), 3),
+    return dry, solid, meshes, dict(sealed_seams=int(len(a)), sealed_length_m=round(float(length.sum()), 3),
                         sealed_area_m2=round(float((span * length).sum()), 3),
                         max_step_m=round(float(span.max()), 3) if len(span) else 0.,
                         open_hole_edges_m=round(hole_length, 3))
 
 
-def stage(cache, tile, dry, structures, decks, bank, openings, excluded):
+def stage(cache, tile, dry, solid, structures, decks, bank, openings, excluded):
     from .bridge_details import appearance
 
     return cache.run('surface_closure',
                      source_key(Path(__file__), Path(__file__).with_name('openings.py'),
                                 Path(__file__).with_name('surface_audit.py'),
                                 Path(__file__).parents[1] / 'structures/geometry.py', appearance),
-                     [tile, dry, structures, decks, bank, openings, excluded],
-                     lambda: resolve(dry, structures, decks, bank, openings, excluded,
+                     [tile, dry, solid, structures, decks, bank, openings, excluded],
+                     lambda: resolve(dry, solid, structures, decks, bank, openings, excluded,
                                      tile.bbox.as_tuple(), tile.id))

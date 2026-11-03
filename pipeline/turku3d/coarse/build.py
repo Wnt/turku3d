@@ -487,8 +487,8 @@ def build(
     closure_structures = [*stair_meshes, *kerb_meshes,
                           *[m for m in tunnels.meshes if m.object_id != "tunnel:ground-edge"]]
     closure_decks = [m for deck in osm_decks for m in deck.meshes]
-    seam_meshes, closure_report = surface_closure.stage(
-        cache, tile, dry, closure_structures, closure_decks, bank,
+    dry, solid, seam_meshes, closure_report = surface_closure.stage(
+        cache, tile, dry, solid, closure_structures, closure_decks, bank,
         tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
     )
     stair_meshes = [*stair_meshes, *seam_meshes]
