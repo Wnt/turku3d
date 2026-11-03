@@ -9,6 +9,24 @@ import { riverSurface } from './riverSurface';
 import { waterColour } from './waterAppearance';
 
 const liveRivers = new Set<RiverMaterial>();
+
+/** A water mesh's mirror point and normal (local space, its first vertex), sampled once while its arrays exist and
+ *  kept in userData: render arrays (normals) of uploaded tiles are released later. Non-finite samples fall back to the
+ *  mesh origin and +Y. */
+export function waterSurface(mesh: THREE.Mesh): { point: THREE.Vector3; normal: THREE.Vector3 } {
+  let sample = mesh.userData.waterSurface as { point: number[]; normal: number[] } | undefined;
+  if (!sample) {
+    const p = mesh.geometry.getAttribute('position'), n = mesh.geometry.getAttribute('normal');
+    const point = p && p.array.length >= 3 ? new THREE.Vector3().fromBufferAttribute(p, 0) : new THREE.Vector3();
+    const normal = n && n.array.length >= 3 ? new THREE.Vector3().fromBufferAttribute(n, 0) : new THREE.Vector3(0, 1, 0);
+    sample = { point: point.toArray(), normal: normal.toArray() };
+    if (p && p.array.length >= 3 && n && n.array.length >= 3) mesh.userData.waterSurface = sample;
+  }
+  const point = new THREE.Vector3().fromArray(sample.point), normal = new THREE.Vector3().fromArray(sample.normal);
+  if (![point.x, point.y, point.z].every(Number.isFinite)) point.set(0, 0, 0);
+  if (![normal.x, normal.y, normal.z].every(Number.isFinite) || normal.lengthSq() < 1e-8) normal.set(0, 1, 0);
+  return { point, normal: normal.normalize() };
+}
 let activeSurface = riverSurface;
 
 export class RiverMaterial {
@@ -92,10 +110,12 @@ export class RiverMaterial {
   attach(mesh: THREE.Mesh) {
     if (!this.reflection) return;
     const target = this.reflection.target;
-    const p = mesh.geometry.getAttribute('position'), n = mesh.geometry.getAttribute('normal');
-    target.position.fromBufferAttribute(p, 0);
-    target.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
-      n ? new THREE.Vector3().fromBufferAttribute(n, 0).normalize() : new THREE.Vector3(0, 1, 0));
+    // The plane comes from the surface sample taken while the mesh's arrays existed (waterSurface). A transfer to
+    // another reach mesh happens when a tile unloads, long after the uploaded normal arrays of resident tiles were
+    // released (world/releaseArrays.ts): reading them gave a NaN normal, a NaN mirror and no reflections at all.
+    const { point, normal } = waterSurface(mesh);
+    target.position.copy(point);
+    target.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
     target.matrixAutoUpdate = true; // never frozen with a tile (freezeModel): it moves between reaches
     mesh.add(target);
   }
