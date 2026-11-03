@@ -19,9 +19,9 @@ test('the uniform census counts each changed uniform by pass, object, group and 
   const mesh = new THREE.Mesh(); mesh.name = 'surface-array';
   const renderObject = { object: mesh, camera: new THREE.PerspectiveCamera(), material: new THREE.MeshBasicMaterial(),
     getNodeBuilderState: () => ({ updateNodes: [new ModelNode(), lamp] }) };
-  const backend = { updateBinding: () => {} };
+  const backend = { updateBinding: (_binding: unknown) => {} };
   const bindings = {
-    _update(this: any, bg: typeof bindGroup) { for (const b of bg.bindings) if (b.update()) backend.updateBinding(); },
+    _update(this: any, bg: typeof bindGroup) { for (const b of bg.bindings) if (b.update()) backend.updateBinding(b); },
     updateForRender(this: any, ro: typeof renderObject) { void ro; this._update(bindGroup, null); },
     updateSharedForRender() {},
   };
@@ -37,6 +37,12 @@ test('the uniform census counts each changed uniform by pass, object, group and 
   end!();
   const result = await census;
   expect(result.writes).toBe(2);
+  expect(result.rows.some(([key]) => key.includes('(buffer written whole)'))).toBe(false);
+  // A buffer written with no uniform change of its own (a uniform array) is its own row.
+  const array = { name: 'lightsArray' };
+  const second = uniformCensus(renderer, frameEnds);
+  end!(); backend.updateBinding(array); end!();
+  expect((await second).rows).toEqual([['screen|persp\t(no draw)\tlightsArray\t(buffer written whole)', 1]]);
   expect(result.rows).toEqual([['screen|persp\tsurface-array\tobject\tlampLight(object)', 1], ['screen|persp\tsurface-array\tobject\tModelNode.worldMatrix.uniformNode(object)', 1]]);
   // Everything is restored.
   expect(Object.keys(bindings)).toEqual(['_update', 'updateForRender', 'updateSharedForRender']);

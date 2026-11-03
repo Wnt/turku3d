@@ -111,7 +111,7 @@ export function uniformCensus(renderer: THREE.WebGPURenderer, frameEnds: FrameEn
     const host = renderer as unknown as { _bindings: { updateForRender(ro: CensusObject): void; updateSharedForRender(ro: CensusObject): void;
       _update(group: { bindings: Group[] }, bindings: unknown): void }; backend: { updateBinding(binding: unknown): void } };
     const bindings = host._bindings, labels = new WeakMap<object, string>(), rows = new Map<string, number>();
-    let current: CensusObject | null = null, writes = 0, changes = 0;
+    let current: CensusObject | null = null, writes = 0, changes = 0, changedGroup: unknown = null;
     const own = { full: bindings.updateForRender, shared: bindings.updateSharedForRender, update: bindings._update, write: host.backend.updateBinding };
     const patched = new Map<object, UpdateByType>();
     const track = (method: 'updateForRender' | 'updateSharedForRender') => function (this: unknown, renderObject: CensusObject) {
@@ -131,6 +131,7 @@ export function uniformCensus(renderer: THREE.WebGPURenderer, frameEnds: FrameEn
           patched.set(proto, original);
           (proto as { updateByType: UpdateByType }).updateByType = function (this: Group, uniform: UniformRef) {
             const changed = original.call(this, uniform);
+            if (changed) changedGroup = this;
             if (changed && current) {
               changes++;
               const node = uniform.nodeUniform?.node;
@@ -144,7 +145,16 @@ export function uniformCensus(renderer: THREE.WebGPURenderer, frameEnds: FrameEn
       }
       return own.update.call(this, bindGroup, list);
     };
-    host.backend.updateBinding = function (this: unknown, binding: unknown) { writes++; return own.write.call(this, binding); };
+    // Buffers written with no per-uniform change (uniform arrays, buffer nodes) count as their own rows.
+    host.backend.updateBinding = function (this: unknown, binding: unknown) {
+      writes++;
+      if (binding !== changedGroup) {
+        const key = `${passLabel(renderer, current?.camera)}\t${current ? objectLabel(current.object) : '(no draw)'}\t${(binding as Group | undefined)?.name ?? '?'}\t(buffer written whole)`;
+        rows.set(key, (rows.get(key) ?? 0) + 1);
+      }
+      changedGroup = null;
+      return own.write.call(this, binding);
+    };
     let ends = 0;
     frameEnds.install(() => {
       if (++ends === 1) { rows.clear(); writes = 0; changes = 0; return; } // the first end closes a partial frame
