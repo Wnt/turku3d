@@ -585,9 +585,13 @@ class Farm:
             return dict(returncode=0, adopted=True)
         repo = self.root / 'revisions' / revision / 'repo'
         self.mount_intermediates(repo, root / 'work')
+        # Bulk admission can drop to zero while already dispatched builds launch.
+        # Draining workers still share the host; do not inflate their thread budget.
+        with self.lock:
+            concurrent = max(1, self.workers, len(self.dispatched))
         env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
                    TURKU3D_WORK=str(root / 'work'),
-                   TURKU3D_THREADS_PER_WORKER=str(max(1, (os.cpu_count() or 1) // self.workers)))
+                   TURKU3D_THREADS_PER_WORKER=str(max(1, (os.cpu_count() or 1) // concurrent)))
         # Encoders already lock their content keys; share their results across revisions too.
         textures = self.root / 'cache' / 'textures'
         textures.mkdir(parents=True, exist_ok=True)

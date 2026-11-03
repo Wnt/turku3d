@@ -593,6 +593,24 @@ class FarmTests(unittest.TestCase):
             stop.assert_called_once_with(info, root / tile)
         farm.queue_info.clear()
 
+    def test_launch_keeps_thread_budget_when_bulk_admission_drains(self):
+        from unittest.mock import Mock, patch
+        farm = self.farm(execute=None)
+        root = farm.output(GEN)
+        root.mkdir(parents=True)
+        tile = 't0_0_0'
+        farm.queue_info[(GEN, tile)] = {}
+        farm.dispatched = {(GEN, f't0_{i}_0') for i in range(4)}
+        farm.workers = 0  # Memory pressure after pump(), before this worker launches.
+        process = Mock(pid=2147483647, returncode=0)
+        process.poll.return_value = 0
+        with patch.object(farm_module.os, 'cpu_count', return_value=16), \
+                patch.object(farm_module.subprocess, 'Popen', return_value=process) as launch:
+            farm.run_build(REV, tile, root)
+        self.assertEqual(launch.call_args.kwargs['env']['TURKU3D_THREADS_PER_WORKER'], '4')
+        farm.queue_info.clear()
+        farm.dispatched.clear()
+
     def test_recent_unpinned_payloads_get_a_grace_lease(self):
         farm = self.farm(grace_seconds=900)
         fake_build(REV, 't0_0_0', farm.output(GEN))
