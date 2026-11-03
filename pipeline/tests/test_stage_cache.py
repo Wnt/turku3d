@@ -653,3 +653,18 @@ def test_wall_export_reuses_identical_validated_meshes_but_tracks_geometry(tmp_p
         outputs.append((stage / 'architecture.vis.glb').read_bytes())
     assert outputs[0] == outputs[1]
     assert outputs[1] != outputs[2]
+
+
+def test_transient_stage_cache_computes_without_writing_entries(tmp_path, monkeypatch):
+    monkeypatch.setenv("TURKU3D_STAGE_CACHE", "transient")
+    cache = StageCache(tmp_path / "stages")
+    calls = []
+    for _ in range(2):
+        assert cache.run("double", "code", [21], lambda: calls.append(1) or 42) == 42
+    assert len(calls) == 2 and cache.metrics["double"]["cached"] is False
+    assert cache.metrics["double"]["key"] == content_key(["stage-v1", "double", "code", [21]])
+    assert not any(p.is_file() for p in tmp_path.rglob("*"))
+    out = tmp_path / "files"
+    value = cache.files("emit", "code", [1], out, lambda root: (root / "a.bin").write_bytes(b"x") and 7)
+    assert value == 7 and (out / "a.bin").read_bytes() == b"x"
+    assert not any(p.is_file() for p in (tmp_path / "stages").rglob("*"))

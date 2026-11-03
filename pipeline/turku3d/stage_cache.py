@@ -234,6 +234,8 @@ class StageCache:
             retain = False  # The shared service owns eviction, across all revisions.
         self.root = root
         self.retain = retain
+        # One-shot city runs compute every tile once; nothing would read the entries back.
+        self.persist = os.environ.get("TURKU3D_STAGE_CACHE") != "transient"
         self.metrics = {}
         self.report_path = report_path
 
@@ -266,6 +268,10 @@ class StageCache:
     def _run(self, name, code, inputs, operation):
         started = time.perf_counter()
         key = content_key(["stage-v1", name, code, inputs])
+        if not self.persist:
+            value = operation()
+            self.metrics[name] = dict(key=key, cached=False, seconds=round(time.perf_counter() - started, 6))
+            return value
         directory = self.root / name
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"{key}.pkl"
@@ -298,6 +304,7 @@ class StageCache:
         """Cache a stage's local files together with its typed result; no path enters the key."""
 
         def build():
+            self.root.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="stage-", dir=self.root) as temp:
                 root = Path(temp)
                 value = operation(root)
