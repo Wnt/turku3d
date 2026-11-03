@@ -56,13 +56,14 @@ def _level(heights):
 
 
 def flight(line, points, sides, step=0.5, reach=15.0):
-    """Measured axis and width of a wide straight flight mapped without a width.
+    """Measured axis, run and width of a wide straight flight mapped without a width.
 
-    A wide entrance flight is often mapped as one short centre way. Lidar ground
-    shows where the same bottom and top landings continue across it; the flight
-    ends where they stop (a wall, a cheek wall, a building). Its risers also give
-    the true ascent direction when the mapped way is skewed. Both measured sides
-    must meet mapped side structures, so an embankment or a quay band beside an
+    A wide entrance flight is often mapped as one short way, sometimes drawn
+    obliquely across it from landing to landing (a corner entrance). Lidar ground
+    on the flight itself, between its two landing levels, gives the ascent
+    direction and the run; the same bottom and top landings continue across the
+    flight until a wall, a cheek wall or a building ends it. Both measured sides
+    must meet mapped side structures (within 2 m), so an embankment or a quay band beside an
     ordinary stair never widens it.
     """
     coords = np.asarray(line.coords)[:, :2]
@@ -70,40 +71,54 @@ def flight(line, points, sides, step=0.5, reach=15.0):
         return None
     a, b = coords
     u = (b - a) / line.length
-    middle = (a + b) / 2
     xz, h = points[:, [0, 2]], points[:, 1]
-    rel = xz - middle
-    core = (np.abs(rel @ np.array([-u[1], u[0]])) < 1.0) & (np.abs(rel @ u) < line.length / 2 - 0.15)
-    if core.sum() < 12:
+
+    def frame(origin, direction):
+        normal = np.array([-direction[1], direction[0]])
+        return (xz - origin) @ direction, (xz - origin) @ normal
+
+    def ends(s, t, length, offset):
+        band = np.abs(t - offset) < 0.3
+        return (_level(h[band & (s > -1.0) & (s < -0.15)]),
+                _level(h[band & (s > length + 0.15) & (s < length + 1.0)]))
+
+    s, t = frame(a, u)
+    lo, hi = ends(s, t, line.length, 0.0)
+    if not (np.isfinite(lo) and np.isfinite(hi)) or abs(hi - lo) < 0.3:
         return None
-    fit = np.linalg.lstsq(np.c_[np.ones(core.sum()), xz[core]], h[core], rcond=None)[0]
+    low, high = min(lo, hi), max(lo, hi)
+    rise = high - low
+    on = ((np.abs(t) < 1.5) & (s > -1.0) & (s < line.length + 1.0)
+          & (h > low + 0.15 * rise) & (h < high - 0.15 * rise))
+    if on.sum() < 12:
+        return None
+    fit = np.linalg.lstsq(np.c_[np.ones(on.sum()), xz[on]], h[on], rcond=None)[0]
     gradient = fit[1:]
     if np.linalg.norm(gradient) < 0.2:
         return None
-    ascent = gradient / np.linalg.norm(gradient) * np.sign(gradient @ u)
-    if ascent @ u < np.cos(np.radians(35)):
+    ascent = gradient / np.linalg.norm(gradient)
+    # Keep the mapped orientation; a way more than 60 degrees off is another stair.
+    u = ascent * np.sign(ascent @ u) if hi < lo else ascent * np.sign(ascent @ u)
+    if abs(ascent @ (b - a) / line.length) < np.cos(np.radians(60)):
         return None
-    u = ascent  # Keep the mapped orientation and length, along the measured risers.
     n = np.array([-u[1], u[0]])
-    a, half = middle - u * line.length / 2, line.length / 2
-    s, t = (xz - a) @ u, (xz - a) @ n
-
-    def ends(offset):
-        band = np.abs(t - offset) < 0.3
-        return (_level(h[band & (s > -1.0) & (s < -0.15)]),
-                _level(h[band & (s > line.length + 0.15) & (s < line.length + 1.0)]))
-
-    lo0, hi0 = ends(0.0)
-    if not (np.isfinite(lo0) and np.isfinite(hi0)) or abs(hi0 - lo0) < 0.3:
+    along, across = xz[on] @ u, xz[on] @ n
+    # Flight points span the middle 70 % of the rise; extend to the full run.
+    first, last = np.quantile(along, [0.02, 0.98])
+    length = max((last - first) / 0.7, 0.6)
+    origin = np.median(across) * n + ((first + last) / 2 - length / 2) * u
+    s, t = frame(origin, u)
+    lo0, hi0 = ends(s, t, length, 0.0)
+    if not (np.isfinite(lo0) and np.isfinite(hi0)) or abs(hi0 - lo0) < 0.7 * rise:
         return None
     extents = []
     for sign in (1, -1):
-        last, misses, k = 0.0, 0, 1
+        last_ok, misses, k = 0.0, 0, 1
         while k * step <= reach:
-            lo, hi = ends(sign * k * step)
+            lo, hi = ends(s, t, length, sign * k * step)
             if (np.isfinite(lo) and np.isfinite(hi) and abs(lo - lo0) <= 0.25
                     and abs(hi - hi0) <= 0.25 and (hi - lo) / (hi0 - lo0) >= 0.6):
-                last, misses = k * step, 0
+                last_ok, misses = k * step, 0
             else:
                 misses += 1
                 if misses >= 2:
@@ -111,16 +126,16 @@ def flight(line, points, sides, step=0.5, reach=15.0):
             k += 1
         if k * step > reach:
             return None  # Unbounded: a band along a quay or an embankment.
-        extents.append(last + step / 2)
+        extents.append(last_ok + step / 2)
     width = sum(extents)
-    centre = middle + n * (extents[0] - extents[1]) / 2
     if width < 3.0:
         return None
+    middle = origin + u * length / 2
     for sign, extent in ((1, extents[0]), (-1, extents[1])):
-        edge = shapely.Point(middle + n * sign * extent)
-        if edge.distance(sides) > 1.5:
+        if shapely.Point(middle + n * sign * extent).distance(sides) > 2.0:
             return None
-    return shapely.LineString([centre - u * half, centre + u * half]), float(width)
+    middle = middle + n * (extents[0] - extents[1]) / 2
+    return shapely.LineString([middle - u * length / 2, middle + u * length / 2]), float(width)
 
 
 def attach(rows, paths, bridges, footways, sides=None, areas=()):

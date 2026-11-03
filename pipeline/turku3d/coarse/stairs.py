@@ -29,6 +29,8 @@ def prepare(tile, path, survey_paths=()):
         # Mapped side structures bound a lidar-measured flight width.
         if tags.get("barrier") in SIDE_BARRIERS or tags.get("building") not in (None, "no"):
             sides.append(geom.boundary if geom.geom_type in ("Polygon", "MultiPolygon") else geom)
+        elif tags.get("ramp") == "yes" and tags.get("highway") in ("footway", "path"):
+            sides.append(geom.buffer(1.0).boundary)  # A ramp's edge beside its flight.
         if (
             tags.get("highway") in ("footway", "path", "pedestrian", "cycleway")
             and geom.geom_type == "LineString"
