@@ -81,7 +81,8 @@ describe('catalog and previews', () => {
   test('a prop preview degenerates only its own range, draws a moved copy, and restores the batch exactly', () => {
     const { model, mesh } = batch();
     const catalog = new EditableCatalog(() => null, () => null);
-    const props = catalog.addModel(model);
+    const props = catalog.addModel(model, true);
+    expect(new EditableCatalog(() => null, () => null).addModel(model)).toEqual([]); // lazy unless asked
     const original = Array.from(mesh.geometry.index!.array);
     const previews = new Previews({ vegetation: () => null, lights: null });
     const e = props[0];

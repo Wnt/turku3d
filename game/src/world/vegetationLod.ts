@@ -252,12 +252,15 @@ export class VegetationLod {
 
   /** Editable trees of the drawn tiles (dev/editor): world matrix, asset size and identity of every placement with an
    *  id. Barrier modules have no ids and are skipped. Edited placements report the tile's own (original) matrix. */
-  forEachTree(visit: (tree: { id: string; asset: string; matrix: THREE.Matrix4; height: number; radius: number }) => void) {
+  forEachTree(visit: (tree: { id: string; asset: string; matrix: THREE.Matrix4; height: number; radius: number }) => void,
+    near?: { x: number; z: number; radius: number }) {
     const local = new THREE.Matrix4(), world = new THREE.Matrix4();
     for (const [model, data] of this.models) {
       if (this.activeTiles.get(model) !== true) continue;
       for (const bucket of data.buckets) {
         if (bucket.draw.barrier) continue;
+        const sphere = bucket.sphere;
+        if (near && sphere && Math.hypot(sphere.center.x - near.x, sphere.center.z - near.z) - sphere.radius > near.radius) continue;
         const root = bucket.draw.root;
         root.updateWorldMatrix(true, false);
         const asset = this.library?.asset(bucket.draw.asset);

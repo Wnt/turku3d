@@ -54,8 +54,9 @@ export const DEFAULT_BINDINGS: Bindings = {
   timeSpeed1: [key('Digit1')], timeSpeed2: [key('Digit2')], timeSpeed3: [key('Digit3')], timeSpeed4: [key('Digit4')],
   timeHourBack: [key('BracketLeft')], timeHourForward: [key('BracketRight')],
   timeMinutesBack: [key('Comma')], timeMinutesForward: [key('Period')], timeLive: [key('KeyB')],
-  // Developer object editor (dev/editor/README.md): the DualSense touchpad click (17), L3 + R3 on an Xbox pad, or F8.
-  editToggle: [button(17), chord(10, 11), key('F8')],
+  // Developer object editor (dev/editor/README.md): the DualSense touchpad click (17), L3 + R3 on an Xbox pad, Y or F8
+  // (a Mac keyboard sends F8 only with fn).
+  editToggle: [button(17), chord(10, 11), key('KeyY'), key('F8')],
   editPick: [], editBack: [], editPrev: [], editNext: [], editDelete: [], editGround: [], editTurnLeft: [], editTurnRight: [],
   editUp: [], editDown: [], editLeft: [], editRight: [], editLidar: [],
 };
@@ -128,9 +129,11 @@ const PLAYSTATION_BUTTONS = ['✕', '○', '□', '△', 'L1', 'R1', 'L2', 'R2',
 /** A pad id that reports a Sony controller (Chrome: "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c …)"). */
 export const playstationPad = (id: string | null | undefined) => !!id && /dualsense|dualshock|wireless controller.*054c|vendor: 054c|playstation/i.test(id);
 export function glyph(action: Action, bindings: Bindings, gamepad: boolean, playstation = false): string {
-  const b = bindings[action].find(b => gamepad ? b.kind !== 'key' : b.kind === 'key');
-  if (!b) return '—';
   const names = playstation ? PLAYSTATION_BUTTONS : XBOX_BUTTONS;
+  // A button the pad does not have (the DualSense touchpad on an Xbox pad) yields to the next binding (L3+R3).
+  const list = bindings[action].filter(b => gamepad ? b.kind !== 'key' : b.kind === 'key');
+  const b = list.find(b => b.kind !== 'button' || b.index < names.length) ?? list[0];
+  if (!b) return '—';
   if (b.kind === 'chord') return b.indices.map(i => names[i] ?? `B${i}`).join('+');
   if (b.kind === 'button') return names[b.index] ?? `B${b.index}`;
   if (b.kind === 'axis') return b.index < 2 ? 'Ⓛ' : 'Ⓡ';

@@ -59,7 +59,8 @@ describe('editor bindings', () => {
   test('PlayStation glyphs for a DualSense, Xbox glyphs otherwise', () => {
     const b = editorBindings(DEFAULT_BINDINGS);
     expect(glyph('editPick', b, true, true)).toBe('✕'); expect(glyph('editPick', b, true, false)).toBe('Ⓐ');
-    expect(glyph('editToggle', b, true, true)).toBe('Touchpad'); expect(glyph('editDelete', b, true, true)).toBe('△');
+    expect(glyph('editToggle', b, true, true)).toBe('Touchpad'); expect(glyph('editToggle', b, true, false)).toBe('L3+R3');
+    expect(glyph('editDelete', b, true, true)).toBe('△'); expect(glyph('editToggle', b, false)).toBe('Y');
     expect(glyph('editPick', b, false)).toBe('Enter');
   });
 });

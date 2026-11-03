@@ -92,7 +92,11 @@ export class ObjectEditor {
   private transport: SessionTransport;
   private raycast: Raycast;
   private input: Input | null = null;
-  private onLoad = (e: { scene: THREE.Object3D }) => { this.previews.attach(this.catalog.addModel(e.scene)); };
+  /** Props are indexed when the editor needs them; a model loading under open prop previews is indexed at once. */
+  private onLoad = (e: { scene: THREE.Object3D }) => {
+    const props = [...this.previews.states.values()].some(s => s.category === 'prop');
+    this.previews.attach(this.catalog.addModel(e.scene, props));
+  };
   private onDispose = (e: { scene: THREE.Object3D }) => { this.previews.detach(e.scene); this.catalog.removeModel(e.scene); };
 
   constructor(private hosts: EditorHosts, enabled = editorAllowed()) {
@@ -173,7 +177,7 @@ export class ObjectEditor {
     this.hud ??= new EditorHud();
     this.hud.show(true);
     if (!this.session) this.session = EditSession.start(this.store, this.transport, {
-      build: { ...buildStatus(), url: location.href }, tiles: { manifest: this.hosts.coarse?.manifestUrl('{tile}') ?? null, generations: {} },
+      build: { ...buildStatus(), url: location.href }, tiles: { manifest: this.hosts.coarse?.manifestUrl('TILE') ?? null, generations: {} },
       device: { userAgent: navigator.userAgent, ...this.hosts.device?.() },
     });
     this.session.setActive(true);

@@ -119,29 +119,34 @@ export function lampEditable(tile: string, lamp: Lamp, index: number): Editable 
 }
 
 export interface TreeSource {
-  forEachTree(visit: (tree: { id: string; asset: string; matrix: THREE.Matrix4; height: number; radius: number }) => void): void;
+  forEachTree(visit: (tree: { id: string; asset: string; matrix: THREE.Matrix4; height: number; radius: number }) => void,
+    near?: { x: number; z: number; radius: number }): void;
 }
 export interface LampSource { forEachPost(visit: (tile: string, lamp: Lamp, index: number) => void): void }
 
-/** Editables near the camera: props indexed per model as tiles load, trees and posts re-read at most every 500 ms. */
+/** Editables near the camera: props indexed per model on first use (tile loads cost nothing while the editor is
+ *  unused), trees and posts re-read at most every 500 ms. */
 export class EditableCatalog {
-  private props = new Map<THREE.Object3D, Editable[]>();
+  private props = new Map<THREE.Object3D, Editable[] | null>();
   private dynamic: Editable[] = [];
   private refreshedAt = -Infinity;
   private at = { x: Infinity, z: Infinity };
 
   constructor(private trees: () => TreeSource | null, private lamps: () => LampSource | null, readonly reach = 150) {}
 
-  /** Index a tile model's props; returns them (none for distant scenery models). */
-  addModel(model: THREE.Object3D): Editable[] {
+  /** Register a tile model (distant scenery models have no editables); `scan` indexes its props now and returns them. */
+  addModel(model: THREE.Object3D, scan = false): Editable[] {
     if (model.userData.scenery) return [];
-    const list = scanProps(model);
-    this.props.set(model, list);
-    return list;
+    this.props.set(model, null);
+    return scan ? this.scanned(model) : [];
   }
   removeModel(model: THREE.Object3D) { this.props.delete(model); }
-  /** Forget a model's cached rows (its batch geometry changed). */
-  rescan(model: THREE.Object3D) { if (this.props.has(model)) this.addModel(model); }
+  private scanned(model: THREE.Object3D): Editable[] {
+    let list = this.props.get(model);
+    if (!list) this.props.set(model, list = scanProps(model));
+    return list;
+  }
+  private *propLists() { for (const model of this.props.keys()) yield this.scanned(model); }
 
   refresh(x: number, z: number, now: number, force = false) {
     if (!force && now - this.refreshedAt < 500 && Math.hypot(x - this.at.x, z - this.at.z) < 20) return;
@@ -150,7 +155,7 @@ export class EditableCatalog {
     this.trees()?.forEachTree(tree => {
       const dx = tree.matrix.elements[12] - x, dz = tree.matrix.elements[14] - z;
       if (dx * dx + dz * dz <= reach2) out.push(treeEditable(tree));
-    });
+    }, { x, z, radius: this.reach + 30 });
     this.lamps()?.forEachPost((tile, lamp, index) => {
       const dx = lamp.x - x, dz = lamp.z - z;
       if (dx * dx + dz * dz <= reach2) out.push(lampEditable(tile, lamp, index));
@@ -159,7 +164,7 @@ export class EditableCatalog {
   }
 
   find(key: string): Editable | null {
-    for (const list of this.props.values()) { const e = list.find(x => x.key === key); if (e) return e; }
+    for (const list of this.propLists()) { const e = list.find(x => x.key === key); if (e) return e; }
     return this.dynamic.find(x => x.key === key) ?? null;
   }
 
@@ -167,10 +172,10 @@ export class EditableCatalog {
   near(x: number, z: number, radius = this.reach): Editable[] {
     const r2 = radius * radius, out: Editable[] = [];
     const take = (e: Editable) => { const dx = e.base.x - x, dz = e.base.z - z; if (dx * dx + dz * dz <= r2) out.push(e); };
-    for (const list of this.props.values()) list.forEach(take);
+    for (const list of this.propLists()) list.forEach(take);
     this.dynamic.forEach(take);
     return out;
   }
 
-  get size() { let n = this.dynamic.length; for (const list of this.props.values()) n += list.length; return n; }
+  get size() { let n = this.dynamic.length; for (const list of this.propLists()) n += list.length; return n; }
 }
