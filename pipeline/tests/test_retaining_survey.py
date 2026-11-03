@@ -144,15 +144,15 @@ def test_surveyed_ledge_edge_is_straight_and_parallel_while_lidar_sets_levels():
     rng = np.random.default_rng(7)
     x, z = np.meshgrid(np.arange(-4, 45, 0.2), np.arange(-4, 4.01, 0.2))
     x, z = x.ravel(), z.ravel()
-    # A straight 1.7 m quay step 0.25 m off the digitised line, a 1 % ramp, lidar noise
+    # A straight 1.7 m quay step 0.15 m off the surveyed line, a 1 % ramp, lidar noise
     # and seated people along the cap.
-    height = 1.1 + 0.01 * x + np.where(z > 0.25, 1.7, 0) + rng.normal(0, 0.02, len(x))
+    height = 1.1 + 0.01 * x + np.where(z > 0.15, 1.7, 0) + rng.normal(0, 0.02, len(x))
     people = (np.abs(x % 7 - 3) < 0.3) & (z > 0.3) & (z < 0.9)
     height[people] += 1.0
     points = np.c_[x, height, z]
-    # Digitised vertices every metre with +-6 cm noise across the line.
-    xs = np.arange(0, 41, 1.0)
-    line = shapely.LineString(np.c_[xs, rng.uniform(-0.06, 0.06, len(xs))])
+    # A surveyed line with a vertex every 5 m, like WFS structure lines.
+    xs = np.arange(0, 41, 5.0)
+    line = shapely.LineString(np.c_[xs, np.zeros(len(xs))])
     result = retaining_survey.measure(line, points)
     assert result
     for _, profile in result:

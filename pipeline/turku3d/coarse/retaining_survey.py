@@ -28,9 +28,6 @@ def ground_points(cloud):
     return np.concatenate([reference, extra[keep]])
 
 
-# Surveyed structure lines are digitised with sub-decimetre vertex noise. Built
-# quay caps and ledges are straight runs and smooth arcs within this tolerance.
-PLAN_TOLERANCE = 0.15
 # Along-line support for one cap/ledge level: long enough to cancel per-section
 # lidar noise, short enough to keep a ramped quay or a stepped garden wall.
 LEVEL_REACH = 5.0
@@ -58,8 +55,9 @@ def measure(line, points):
 
     Lidar decides heights only. The plan edge is the surveyed line at one constant
     offset for the whole line, so parallel quay edges stay parallel and straight.
+    WFS structure lines are already regular (a vertex per real bend); simplifying
+    them moves stations onto the face and loses measured sections.
     """
-    line = line.simplify(PLAN_TOLERANCE, preserve_topology=False)
     section = sections(line)
     if section is None or len(points) < 12:
         return []
