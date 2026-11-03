@@ -1,0 +1,56 @@
+"""Edit sessions read back as effective edits (undo removed, last edit per object) and clusters."""
+
+import contextlib
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import edit_sessions  # noqa: E402
+
+SERIAL = True  # patches os.environ
+
+
+def edit(seq, key, action="move", move=1.0, reason=None, surface="road"):
+    return {"format": "turku3d-edit", "version": 1, "id": f"s-{seq:04d}", "seq": seq, "session": "s", "action": action,
+            "changes": {"translated": action == "move", "rotated": action == "rotate", "height": False},
+            "object": {"key": key, "category": "prop", "type": "bench", "tile": "t0_0_0", "object_id": key.split(":", 2)[2],
+                       "provenance": {"dataset": "GIS_Penkit"}},
+            "delta": None if action == "delete" else {"dx": move, "dz": 0, "dy": 0, "horizontal_m": move, "yaw_deg": 0},
+            "reason": reason, "context": {"before": {"surface": surface, "road": {"edge_m": -0.4}}, "after": None}}
+
+
+class EditSessionTests(unittest.TestCase):
+    def test_effective_final_and_clusters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            session = Path(temp) / "s"
+            session.mkdir()
+            (session / "session.json").write_text(json.dumps({"id": "s", "started": "t"}))
+            lines = [edit(1, "prop:t0_0_0:GIS_Penkit:a", move=2, reason="on_road_or_path"),
+                     edit(2, "prop:t0_0_0:GIS_Penkit:a", move=3, reason="on_road_or_path"),
+                     edit(3, "prop:t0_0_0:GIS_Penkit:b", action="delete", reason="does_not_exist"),
+                     {"format": "turku3d-edit", "version": 1, "id": "s-0004", "seq": 4, "session": "s", "action": "undo", "undoes": "s-0002"},
+                     edit(5, "prop:t0_0_0:GIS_Penkit:c", move=1, reason="on_road_or_path")]
+            (session / "edits.jsonl").write_text("\n".join(json.dumps(r) for r in lines) + "\n{torn")
+            rows = edit_sessions.rows(session)
+            self.assertEqual([r["seq"] for r in edit_sessions.effective(rows)], [1, 3, 5])
+            final = edit_sessions.final(rows)
+            self.assertEqual(final["prop:t0_0_0:GIS_Penkit:a"]["delta"]["horizontal_m"], 2)
+            out = io.StringIO()
+            with patch.dict(os.environ, {"TURKU3D_EDITS": temp}), contextlib.redirect_stdout(out):
+                self.assertEqual(edit_sessions.main(["clusters"]), 0)
+            clusters = [json.loads(line) for line in out.getvalue().splitlines()]
+            self.assertEqual(clusters[0]["count"], 2)
+            self.assertEqual(clusters[0]["reason"], "on_road_or_path")
+            self.assertEqual(clusters[0]["median_move_m"], 1.5)
+            self.assertEqual(clusters[0]["original_surface"], {"road": 2})
+            self.assertEqual(clusters[1]["action"], "delete")
+
+
+if __name__ == "__main__":
+    unittest.main()

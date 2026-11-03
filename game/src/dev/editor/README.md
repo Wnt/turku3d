@@ -2,7 +2,8 @@
 
 Point the camera at a tree, sign, bench, bin, bike rack or street-light post, pick it and move, turn, lift or
 delete it with the gamepad. Every committed edit goes into an **edit session** for an agent to turn into generator
-rules (format and incorporation contract: `~/turku3d/loops/editor/EDIT-FORMAT.md`). Edits show at once as local
+rules (format and incorporation contract: `~/turku3d/loops/editor/EDIT-FORMAT.md`; reader:
+`scripts/dev/edit_sessions.py list | effective | clusters`). Edits show at once as local
 **previews** only: no tile, collision, physics body, breakable-pole state or multiplayer message changes, so other
 players never see them. On by default on localhost (`?editor=0` turns it off; `?editor=1` elsewhere, never on Pages).
 
