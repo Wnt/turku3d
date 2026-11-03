@@ -1,6 +1,7 @@
 import { localFeature } from '../core/localOnly';
 import { Vector2 } from 'three/webgpu';
 import { SLICES, streamTrace } from './streamTrace';
+import { buildStatus } from '../core/build';
 
 // The recorder boundary also supports the QA replay host, which exposes the same state shape as play.
 type Host = Record<string, any>;
@@ -44,7 +45,7 @@ export class DriveCapture {
   constructor(private game: Host, extra: Host = {}) {
     const r = window.__render!, s = game.state();
     this.paused = s.paused;
-    this.meta = { name: this.id, url: location.href, commit: import.meta.env.VITE_COMMIT ?? null,
+    this.meta = { name: this.id, url: location.href, commit: import.meta.env.VITE_COMMIT ?? null, build: buildStatus(),
       start: { performanceNow: performance.now(), wall: Date.now() }, replay: game.replay?.snapshot?.() ?? null,
       hour: game.dayClock?.hour ?? null, params: game.params, backend: game.backend, ua: navigator.userAgent, three: game.three,
       clockMode: game.dayClock?.captureMode?.() ?? null,
@@ -153,6 +154,9 @@ export class DriveCapture {
   }
   flush(beacon = false) {
     this.rows.tiles.push(...streamTrace.drain());
+    // A merge during the recording is a newer build waiting for F5: record it with the capture.
+    const build = buildStatus();
+    if (build.latest !== this.meta.build?.latest || build.pending !== this.meta.build?.pending) { this.meta.build = build; this.metaDirty = true; }
     const rows = this.rows; this.rows = empty();
     // Keep normal batches within the beacon quota; a large profiler trace uses ordinary fetch.
     let chunk: Host = { batch: this.batch++ };

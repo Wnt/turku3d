@@ -55,6 +55,16 @@ test('captures switch the trace on, deliver tile events and frame slices, report
   expect(stats[0].recorder).toMatchObject({ dropped: 0 });
   expect(bodies.find(body => body.meta)?.meta.trace).toMatchObject({ version: 1, slices: [...SLICES] });
   expect(coverageSnapshot).toHaveBeenCalledWith(10, 20);
+  expect(bodies.find(body => body.meta)?.meta.build).toMatchObject({ pending: 0 });
+});
+
+test('the build status names the HEAD stamped into the page at load and counts newer builds seen since', async () => {
+  const { buildStatus, noteServedHead } = await import('../../src/core/build');
+  const meta = { getAttribute: () => 'abc123+dirty' };
+  vi.stubGlobal('document', { querySelector: (selector: string) => selector === 'meta[name="turku3d-build"]' ? meta : null });
+  expect(buildStatus()).toMatchObject({ loaded: 'abc123', dirty: true, pending: 0 });
+  noteServedHead('abc123'); noteServedHead('def456'); noteServedHead('def456'); noteServedHead('0789ab');
+  expect(buildStatus()).toMatchObject({ loaded: 'abc123', latest: '0789ab', pending: 2 });
 });
 
 test('coverage snapshots name the band drawing each 250 m square, including holes and double coverage', () => {
