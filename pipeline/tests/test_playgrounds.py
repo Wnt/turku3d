@@ -170,3 +170,19 @@ def test_every_model_is_finite_and_keeps_the_furniture_palette():
     street = np.asarray(Image.open(io.BytesIO(F.atlas(""))).convert("RGB"))
     assert (play[:, :128] == street[:, :128]).all()
     assert M.model("bench").image == M.atlas()
+
+
+def test_overlapping_sites_place_a_shared_outline_once():
+    from turku3d.coarse import playgrounds as stage
+
+    tile = C.VisualTile(0, 0, 0)
+    x0, _, z0 = tile.origin
+    ring = [(x0 + 45, z0 + 45), (x0 + 50, z0 + 45), (x0 + 50, z0 + 47), (x0 + 45, z0 + 47)]
+    a = site_record(tile, [{"id": "P1:0", "category": "swing", "label": "Keinu", "polygon": ring}])
+    b = site_record(tile, [{"id": "P2:0", "category": "swing", "label": "Keinu",
+                            "polygon": [(x + 0.2, z) for x, z in ring]}])
+    a["id"], b["id"] = "P1", "P2"
+    result = stage.produce(tile, [b, a], [], lambda x, z: 0.0, [], [], [], [], [], [])
+    swings = [i for i in result["items"] if i.category == "swing"]
+    assert [i.site for i in swings] == ["P1"]
+    assert result["sites"]["P2"]["swing:duplicate"] == 1
