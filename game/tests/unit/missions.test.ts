@@ -146,10 +146,11 @@ describe('mission state machine', () => {
     expect(h.press(near(MARKET.point)).opened).toBe(true);
     const shop = h.missions.shop!;
     expect(shop).toMatchObject({ id: 'market', title: lineText('zone_market'), line: expect.any(String),
-      background: 'bg_market', money: START_MONEY, permit: 0 });
+      background: 'bg_market', money: START_MONEY, permit: 0, debt: 0 });
     expect(PHRASES.market_greet).toContain(h.last().message);
     expect(shop.options.map(o => [o.id, o.price, o.enabled, o.reason])).toEqual([
       ['rent_permit', PERMIT_PRICE, true, null],
+      ['permit_on_credit', null, false, lineText('reason_credit_cash')],
       ['forged_plates', PLATES_PRICE, true, null],
       ['sell_kidney', -KIDNEY_PAYOUT, true, null],
       ['expiry_warning', WARNING_PRICE, true, null],

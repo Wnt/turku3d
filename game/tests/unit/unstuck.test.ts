@@ -3,7 +3,10 @@
 import { describe, expect, it } from 'vitest';
 import { DEALER, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../../src/gameplay/content/locations';
 import { bringSpots, kerbSpots, offScreen } from '../../src/gameplay/kerbSpots';
-import { LOANER_FEE, parSeconds } from '../../src/gameplay/economy';
+import { CREDIT_PERMIT_DEBT, LOANER_FEE, PERMIT_DELIVERIES, PERMIT_PRICE, debtRepayment, deliveryDeadline, parSeconds,
+  sellBackPrice } from '../../src/gameplay/economy';
+import type { OptionId } from '../../src/gameplay/content/shops';
+import { lineText } from '../../src/gameplay/content/dialogue';
 import { BRING_COOLDOWN_SECONDS, BRING_NEAR_M, LOANER_ID, SCOOTER_ID } from '../../src/gameplay/missions/missions';
 import { CAR, FOOT, mergeRoadGraphs, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { SaveMenuFlow, type GameHooks, type MenuPage } from '../../src/ui/menu';
@@ -203,5 +206,127 @@ describe('the pizzeria loaner scooter', () => {
     const before = h.missions.money;
     h.press(near(h.missions.currentStop.point), { vehicleId: SCOOTER_ID });
     expect(h.missions.money).toBe(before + 6 + 8);
+  });
+});
+
+describe('permit on credit', () => {
+  /** Fails the carried order by waiting out its deadline away from the drop-off. */
+  const failOrder = (h: ReturnType<typeof harness>) => {
+    const deadline = deliveryDeadline(h.missions.snapshot().par);
+    for (let t = 0; t <= deadline + 1; t += 5) h.at(far, 5);
+    expect(h.missions.phase).not.toBe('carrying');
+  };
+
+  it('dead end 3: no permit, under 80 € after the kidney, a scooter worth less than the gap: credit starts work again', () => {
+    const h = harness();
+    h.missions.begin();
+    h.choose(MARKET.point, 'sell_kidney'); h.choose(MARKET.point, 'rent_permit'); h.choose(MARKET.point, 'forged_plates');
+    h.leave(MARKET.point);
+    h.choose(DEALER.point, 'buy_scooter');
+    while (h.missions.money >= 44) h.choose(PIZZERIA.point, 'slice');
+    h.leave(PIZZERIA.point);
+    for (let i = 0; i < PERMIT_DELIVERIES; i++) { h.choose(PIZZERIA.point, 'take_order', { vehicleId: SCOOTER_ID }); failOrder(h); }
+    h.wait(far, 15);
+    const { money } = h.missions;
+    expect(h.missions).toMatchObject({ permit: 0, kidney: true, vehicle: 'scooter', debt: 0, phase: 'permit_needed' });
+    expect(money + sellBackPrice('scooter')).toBeLessThan(PERMIT_PRICE);
+    h.press(near(MARKET.point));
+    expect(h.option('rent_permit')).toMatchObject({ enabled: false, reason: 'Not enough money.' });
+    expect(h.option('permit_on_credit')).toMatchObject({ enabled: true, price: null });
+    h.choose(MARKET.point, 'permit_on_credit');
+    const { permit, debt, phase } = h.missions;
+    expect({ permit, debt, money: h.missions.money, phase }).toEqual({ permit: PERMIT_DELIVERIES, debt: CREDIT_PERMIT_DEBT, money, phase: 'at_pizzeria' });
+    expect(h.missions.shop).toMatchObject({ debt: CREDIT_PERMIT_DEBT, line: 'Ten deliveries on credit. I take your base pay until we are even. Keep the tips.' });
+    expect(h.option('permit_on_credit').reason).toBe('Only once your permit has run out.');
+    h.leave(MARKET.point);
+    // The base pay repays the debt and the tip stays: cash grows on every delivery.
+    h.choose(PIZZERIA.point, 'take_order', { vehicleId: SCOOTER_ID });
+    h.press(near(h.missions.currentStop.point), { vehicleId: SCOOTER_ID });
+    expect(h.missions).toMatchObject({ money: money + 8, debt: CREDIT_PERMIT_DEBT - 6 });
+    expect(h.missions.snapshot().dialogue).toContain('paid_debt');
+    expect(harness(h.missions.serialize()).missions.debt).toBe(CREDIT_PERMIT_DEBT - 6);
+  });
+
+  it('quotes the credit and the loaner fee from the economy constants', () => {
+    expect(lineText('detail_permit_on_credit')).toContain(`${PERMIT_DELIVERIES} delivery orders now, ${CREDIT_PERMIT_DEBT} € of debt`);
+    expect(lineText('paid_loaner_fee')).toContain(`${LOANER_FEE} €`);
+  });
+
+  it('repays only base pay, never more than is owed', () => {
+    expect(debtRepayment(80, 6)).toBe(6);
+    expect(debtRepayment(3, 6)).toBe(3);
+    expect(debtRepayment(0, 6)).toBe(0);
+    expect(debtRepayment(80, 4)).toBe(4);
+  });
+
+  it('is refused with cash in hand, and reads 0 from saves without the field', () => {
+    const h = harness();
+    h.missions.begin();
+    h.press(near(MARKET.point));
+    expect(h.option('permit_on_credit')).toMatchObject({ enabled: false, reason: 'You have the cash. Pay it.' });
+    const old = JSON.parse(h.missions.serialize());
+    delete old.debt; delete old.loaner;
+    expect(harness(JSON.stringify(old)).missions.debt).toBe(0);
+  });
+});
+
+/** Deterministic 32-bit PRNG (mulberry32). */
+function rng(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+describe('never stuck', () => {
+  it('random purchases, sales and deliveries always leave a vehicle order or a permit within reach', () => {
+    const market: OptionId[] = ['rent_permit', 'permit_on_credit', 'forged_plates', 'sell_kidney', 'expiry_warning'];
+    const dealer: OptionId[] = ['buy_scooter', 'buy_car', 'buy_truck', 'sell_vehicle'];
+    let checks = 0;
+    for (let seed = 1; seed <= 50; seed++) {
+      const random = rng(seed), pick = <T>(list: T[]) => list[Math.floor(random() * list.length)];
+      const h = harness();
+      h.missions.begin();
+      for (let step = 0; step < 40; step++) {
+        const m = h.missions, kind = random();
+        if (kind < 0.15) { h.choose(MARKET.point, pick(market)); if (m.shop) h.leave(MARKET.point); }
+        else if (kind < 0.27) { h.choose(DEALER.point, pick(dealer)); if (m.shop) h.leave(DEALER.point); }
+        else if (kind < 0.32) { h.choose(PIZZERIA.point, 'slice'); h.leave(PIZZERIA.point); }
+        else if (m.permit === 0) { h.choose(MARKET.point, pick(['rent_permit', 'permit_on_credit'])); h.leave(MARKET.point); }
+        else {
+          // A delivery on the vehicle the player has (own or loaner), after bringing it if it was left far away.
+          const ride = { vehicleId: m.rideId, rideAt: random() < 0.3 ? far : PIZZERIA_VEHICLE_SPOT };
+          h.choose(PIZZERIA.point, 'bring_vehicle', ride);
+          h.at(near(PIZZERIA.point), 0.1, { ...ride, choose: 'take_order' });
+          if (m.shop) h.leave(PIZZERIA.point);
+          if (m.phase !== 'carrying') continue;
+          const outcome = random();
+          if (outcome < 0.2) { const deadline = deliveryDeadline(m.snapshot().par); for (let t = 0; t <= deadline + 1; t += 5) h.at(far, 5); }
+          else {
+            if (outcome < 0.5) h.at(far, 0.9 * m.snapshot().par, { vehicleId: m.rideId });
+            while (m.phase === 'carrying') h.press(near(m.currentStop.point), { vehicleId: m.rideId });
+          }
+        }
+        h.wait(far, 8);
+        expect(m.money).toBeGreaterThanOrEqual(0);
+        expect(m.debt).toBeGreaterThanOrEqual(0);
+        // The invariant: an order on a vehicle at the pizzeria, or a permit at the market (cash or credit).
+        if (m.permit > 0) {
+          h.press(near(PIZZERIA.point), { vehicleId: m.rideId, rideAt: PIZZERIA_VEHICLE_SPOT });
+          expect(h.option('take_order'), `seed ${seed} step ${step}`).toMatchObject({ enabled: true });
+          h.leave(PIZZERIA.point);
+        } else {
+          h.press(near(MARKET.point));
+          expect(h.option('rent_permit').enabled || h.option('permit_on_credit').enabled, `seed ${seed} step ${step}`).toBe(true);
+          h.leave(MARKET.point);
+        }
+        checks++;
+      }
+    }
+    expect(checks).toBe(50 * 40);
   });
 });

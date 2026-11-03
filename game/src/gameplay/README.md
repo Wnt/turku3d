@@ -76,7 +76,10 @@ the dealer kerb's path: the car is reset, the scooter and the truck are spawned 
 vehicle, `rideId` is `LOANER_ID` (the scooter's body as the pizzeria's loaner): `play.ts` spawns it at
 `PIZZERIA_VEHICLE_SPOT` whenever it is missing, the mission system accepts it for short orders at
 scooter par, charges `LOANER_FEE` for an order ridden on it (save field `loaner`) and asks for it at the
-kerb (`park`) when a short order is taken off it.
+kerb (`park`) when a short order is taken off it. The market's `permit_on_credit` rents a permit when none is left
+and cash is short; `missions.debt` (save field `debt`) is repaid by base pay (`economy.ts` `debtRepayment`).
+`tests/unit/unstuck.test.ts` plays out of each dead end and runs seeded random careers that must always keep
+a vehicle order or a permit available.
 The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,

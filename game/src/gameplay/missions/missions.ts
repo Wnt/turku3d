@@ -4,7 +4,7 @@
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
   basePay, LIMITED_COOLDOWN_SECONDS, LIMITED_OFFER_SECONDS, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
-  LOANER_FEE, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
+  CREDIT_PERMIT_DEBT, debtRepayment, LOANER_FEE, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
@@ -172,6 +172,8 @@ export class MissionSystem implements MissionHudSource {
   get devMoney(): number { return this.s.devMoney; }
   get longUnlocked(): boolean { return this.s.shortDeliveries >= LONG_UNLOCK_DELIVERIES; }
   get permit(): number { return this.s.permit; }
+  /** Euros still owed for permits rented on credit. */
+  get debt(): number { return this.s.debt ?? 0; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
   /** The physics vehicle the player delivers with: the owned one, or the pizzeria's loaner while owning none. */
   get rideId(): string { return ownedVehicleId(this.s.vehicle) ?? LOANER_ID; }
@@ -419,6 +421,8 @@ export class MissionSystem implements MissionHudSource {
     switch (id) {
       case 'rent_permit':
         return s.permit + PERMIT_DELIVERIES > PERMIT_MAX ? { price: PERMIT_PRICE, reason: 'reason_permit_stock' } : money(PERMIT_PRICE);
+      case 'permit_on_credit':
+        return { price: null, reason: s.permit > 0 ? 'reason_credit_permit_left' : s.money >= PERMIT_PRICE ? 'reason_credit_cash' : null };
       case 'forged_plates': return s.plates ? { price: PLATES_PRICE, reason: 'reason_plates_owned' } : money(PLATES_PRICE);
       case 'sell_kidney': return { price: -KIDNEY_PAYOUT, reason: s.kidney ? 'reason_kidney_sold' : null };
       case 'expiry_warning': return s.warning ? { price: WARNING_PRICE, reason: 'reason_warning_owned' } : money(WARNING_PRICE);
@@ -467,6 +471,13 @@ export class MissionSystem implements MissionHudSource {
         this.s.permit += PERMIT_DELIVERIES;
         if (this.s.phase === 'permit_needed') this.s.phase = 'at_pizzeria';
         this.reply('market_sold');
+        break;
+      case 'permit_on_credit':
+        this.s.permit += PERMIT_DELIVERIES;
+        this.s.debt = this.debt + CREDIT_PERMIT_DEBT;
+        if (this.s.phase === 'permit_needed') this.s.phase = 'at_pizzeria';
+        this.reply('market_sold_credit');
+        this.checkpoint = 'purchase';
         break;
       case 'forged_plates': this.s.plates = true; this.reply('market_sold_plates'); break;
       case 'sell_kidney': this.s.kidney = true; this.reply('market_sold_kidney'); break;
@@ -615,7 +626,9 @@ export class MissionSystem implements MissionHudSource {
     const pay = basePay(metres, this.s.job);
     // Spending, like the permit: the multiplayer payout below stays the earned pay.
     const fee = last && this.s.loaner ? LOANER_FEE : 0;
-    this.s.money += pay + t + bonus - fee;
+    const repaid = debtRepayment(this.debt, pay - fee);
+    this.s.debt = this.debt - repaid;
+    this.s.money += pay + t + bonus - fee - repaid;
     this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
       addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t, routeMeters: metres });
     this.s.pizzas += 1;
@@ -624,7 +637,9 @@ export class MissionSystem implements MissionHudSource {
     const customer: Said = { id: `customer_${band}`, text: this.phrase(`customer_${band}`) };
     const lines: (string | Said)[] = [customer, ...(this.s.job === 'long' ? [{ id: 'paid_long', text: `Long delivery: ${pay} € + tip ${t} €` }]
       : this.s.job === 'limited' ? [{ id: 'paid_limited', text: `Limited-time delivery: ${pay} € + tip ${t} €` }] : [`paid_tip_${t}`]), ...(bonus ? ['paid_double_bonus'] : []),
-      ...(fee ? ['paid_loaner_fee'] : [])];
+      ...(fee ? ['paid_loaner_fee'] : []),
+      ...(repaid ? [{ id: 'paid_debt', text: this.s.debt > 0 ? `Debt: ${repaid} € of the base pay repaid, ${this.s.debt} € left.`
+        : `Debt: ${repaid} € repaid. The market is paid off.` }] : [])];
     if (!last) {
       this.s.stop += 1; // the second pizza of a double: the timer keeps running
       this.say(...lines, { id: 'second_address',
@@ -721,7 +736,7 @@ export class MissionSystem implements MissionHudSource {
     });
     const next: ShopView = { id: shop.id, title: lineText(SHOP_TITLE[shop.id]),
       speaker: DIALOGUE.speakers[SHOP_SPEAKER[shop.id]].name, line: this.open.text ?? lineText(line), background: shop.background,
-      money: this.s.money, permit: this.s.permit, delivered: this.s.pizzas, options };
+      money: this.s.money, permit: this.s.permit, debt: this.debt, delivered: this.s.pizzas, options };
     return this.view && JSON.stringify(this.view) === JSON.stringify(next) ? this.view : next;
   }
 

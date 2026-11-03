@@ -4,7 +4,7 @@ import type { RouteTarget, TargetKind } from '../contract';
 import { DEALER, MARKET, PIZZERIA } from './locations';
 
 export type ShopId = 'market' | 'pizzeria' | 'dealer';
-export type OptionId = 'rent_permit' | 'forged_plates' | 'sell_kidney' | 'expiry_warning' | 'take_order' | 'slice'
+export type OptionId = 'rent_permit' | 'permit_on_credit' | 'forged_plates' | 'sell_kidney' | 'expiry_warning' | 'take_order' | 'slice'
   | 'take_long_order' | 'take_limited_order' | 'tip_rules' | 'bring_vehicle' | 'buy_scooter' | 'buy_car' | 'buy_truck' | 'sell_vehicle'
   | 'leave';
 
@@ -26,7 +26,7 @@ const option = (id: OptionId, icon: string | null): ShopOption => ({ id, icon })
 
 export const SHOPS: Record<ShopId, Shop> = {
   market: { id: 'market', target: MARKET, background: 'bg_market', options: [
-    option('rent_permit', 'icon_permit'), option('forged_plates', 'icon_plates'), option('sell_kidney', 'icon_kidney'),
+    option('rent_permit', 'icon_permit'), option('permit_on_credit', 'icon_permit'), option('forged_plates', 'icon_plates'), option('sell_kidney', 'icon_kidney'),
     option('expiry_warning', 'icon_warning'), option('leave', null)] },
   pizzeria: { id: 'pizzeria', target: PIZZERIA, background: 'bg_pizzeria', options: [
     option('take_order', 'icon_pizza_box'), option('take_long_order', 'icon_pizza_box'),

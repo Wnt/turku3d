@@ -84,6 +84,7 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Car | 350 € |
 | Trophy truck | 600 € |
 | Vehicle sold back | half the price, rounded down: 30 € / 175 € / 300 € |
+| Permit on credit | with no permit left and under 80 € in cash: 10 deliveries now for 80 € of debt (`CREDIT_PERMIT_DEBT`); each drop-off's base pay (after the loaner fee) repays it, tips and the double bonus stay in cash (`debtRepayment`) |
 | Pizzeria loaner scooter | free to use while owning no vehicle; an order carried on it pays 2 € less (`LOANER_FEE`) |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
@@ -124,6 +125,12 @@ permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and play
   `<player id>:scooter`); it is placed only while no shared record of it exists, so a loaner another
   player holds is never duplicated. A save keeps it through the last-used vehicle; otherwise it appears
   at the kerb once that collision tile is loaded.
+- *Permit on credit* (black market, `permit_on_credit`): when the permit has run out and the cash is
+  under the 80 € rental, the seller rents the ten deliveries on credit (`market_sold_credit`). The debt
+  (optional save field `debt`, default 0) is repaid by the base pay of the following drop-offs; tips and
+  the double bonus stay in cash, so the wallet still grows. Renting on credit again adds to the debt. The
+  shop status line shows `Debt N €`, and each repaying drop-off adds a `paid_debt` line. The multiplayer
+  payout is still the earned pay: repayments are spending, like the permit itself (`server/PROTOCOL.md`).
 
 The dealer sells nothing before the first permit is rented (the start money would otherwise fall
 short of the permit and no income would be possible). The player owns at most one vehicle: buying
@@ -337,7 +344,7 @@ selecting one the player cannot afford makes the shopkeeper refuse (`*_no_money`
 
 | Shop | Greeting | Options (menu order) |
 |---|---|---|
-| Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Leave |
+| Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Rent a permit on credit (only with no permit and under 80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Leave |
 | Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), Long-range delivery, Bring my vehicle here (free, `pizzeria_bring_vehicle`: the own vehicle to the kerb outside), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
 | Rantakadun Kulkine (dealer) | `dealer_greet`; `dealer_no_permit` before the first permit, with every option greyed | Scooter (60 €), Car (350 €) (both end the visit; the vehicle waits at the kerb), Sell your vehicle back (+half), Leave |
 

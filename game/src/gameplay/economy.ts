@@ -10,6 +10,12 @@ export const PERMIT_DELIVERIES = 10;
 export const PERMIT_MAX = 20;
 /** The bought-back expiry warning speaks after a hand-over when at most this many deliveries are left. */
 export const PERMIT_WARN_AT = 2;
+/** With no permit left and less than PERMIT_PRICE in cash, the black market rents the permit on credit for this much
+ *  debt (missions/missions.ts `permit_on_credit`), so a courier is never left without work. */
+export const CREDIT_PERMIT_DEBT = PERMIT_PRICE;
+/** The repayment rule: each drop-off's base pay (after the loaner fee) goes to the debt until it is paid; tips and the
+ *  double bonus stay with the courier, so cash still visibly grows. Euros of `basePay` that repay `debt`. */
+export const debtRepayment = (debt: number, basePay: number) => Math.max(0, Math.min(debt, basePay));
 export const WARNING_PRICE = 10;
 export const PLATES_PRICE = 120;
 export const KIDNEY_PAYOUT = 400;
