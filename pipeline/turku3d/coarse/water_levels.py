@@ -10,8 +10,8 @@ median of its water key points within ``RADIUS`` of nodes on an absolute ``GRID`
 interpolated bilinearly: flat across a channel and along a pool, gently sloped along a
 stream, and ramped over rapids where the measured surface falls. Nodes and their support
 are canonical (absolute grid, points read ``MARGIN`` beyond the tile), so both tiles of a
-seam compute the same surface. Pieces without water key points fall back to their lowest
-shore returns.
+seam compute the same surface. Pieces without any water key points fall back to their
+lowest shore returns.
 """
 
 import json
@@ -178,8 +178,9 @@ def measure(tile, water, steps, paths, rapids=()):
             fallback[k] = np.median(wet[:, 1])
         bank = points[shore]
         missing = near & ~np.isfinite(values)
-        if missing.any() and len(bank) >= MIN_POINTS:
-            # Without water returns, the lowest bank returns bound the surface.
+        if len(wet) < MIN_POINTS and len(bank) >= MIN_POINTS:
+            # Without water returns, the lowest bank returns bound the surface. A measured
+            # piece never takes them: beside quays they are the quay tops.
             tree = cKDTree(bank[:, [0, 2]])
             for n, ids in zip(np.flatnonzero(missing), tree.query_ball_point(grid[missing], RADIUS)):
                 if len(ids) >= MIN_POINTS:
