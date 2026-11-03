@@ -25,8 +25,9 @@ function riverShader(tier: QualityTier, water: string | null, traa = false) {
   sky.image = { width: 768, height: 1024 }; // a 128 px PMREM's cube-UV atlas
   Object.defineProperty(env, 'environmentMap', { get: () => sky });
   // TRAA's history as post.ts publishes it, and medium's beauty MRT (colour, puddle normals, motion).
-  Object.assign(WATER_HISTORY, traa ? { depth: new THREE.DepthTexture(4, 4), color: new THREE.Texture(), beautyVelocity: true }
-    : { depth: null, color: null, beautyVelocity: false });
+  Object.assign(WATER_HISTORY, traa ? { depth: new THREE.DepthTexture(4, 4), color: new THREE.Texture(),
+    camera: { view: new THREE.Matrix4(), projection: new THREE.Matrix4() }, beautyVelocity: true }
+    : { depth: null, color: null, camera: null, beautyVelocity: false });
   const target = new THREE.RenderTarget(4, 4, { count: 3, depthTexture: new THREE.DepthTexture(4, 4) });
   ['output', 'normal', 'velocity'].forEach((name, i) => { target.textures[i].name = name; });
   if (traa) { renderer.setRenderTarget(target); renderer.setMRT(mrt({ output, normal: vec4(0), velocity: vec4(0) })); }
@@ -70,4 +71,21 @@ test('with TRAA the river fades over the previous frame\'s bed depth and writes 
   // Without TRAA (fxaa, idPass) nothing changes: no history to read, no motion target.
   const plain = riverShader('medium', null, false);
   expect([plain.depthWrite, plain.motion]).toEqual([true, false]);
+});
+
+test('reduced reflects by a screen-space march over TRAA\'s last frame instead of the planar pass', () => {
+  const ssr = riverShader('reduced', null, true);
+  expect(ssr.name).toBe('river-ssr');
+  expect(ssr.depthWrite).toBe(false);
+  // The march's loop and its colour fetch from the history (a filtered sample at level 0).
+  expect(ssr.fragment).toMatch(/for \(/);
+  expect(ssr.fragment).toMatch(/textureSampleLevel/);
+  // Without history (fxaa) reduced falls back to the sky, and ?water= picks any path on any reflecting tier.
+  expect(riverShader('reduced', null, false).name).toBe('river-sky');
+  expect(riverShader('reduced', 'planar', true).name).toBe('river-planar');
+  expect(riverShader('medium', 'ssr', true).name).toBe('river-ssr');
+  expect(riverShader('medium', 'sky', true).name).toBe('river-sky');
+  // Even with ?water=nodepth the march keeps the river out of the stored depth.
+  expect(riverShader('reduced', 'nodepth', true).depthWrite).toBe(false);
+  expect(riverShader('mobile', 'ssr', true).name).toBe('river-sky');
 });

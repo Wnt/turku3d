@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { mrt, reflector, vec4, velocity } from 'three/tsl';
 import { labelGpuPass } from './gpuPasses';
 import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence, WaterCoverage, type WaterReflection } from './reflections';
-import { QUALITY, type QualityTier } from './quality';
+import { QUALITY, type QualityTier, type RiverReflection } from './quality';
 import type { Environment } from './environment';
 import { riverSurface } from './riverSurface';
 import { waterColour } from './waterAppearance';
@@ -31,6 +31,16 @@ export function waterSurface(mesh: THREE.Mesh): { point: THREE.Vector3; normal: 
 }
 let activeSurface = riverSurface;
 
+/** How a reach reflects: the tier's way (`?water=planar|ssr|sky` for the A/B), the sky where the tier has no reflection
+ *  (mobile, `?off=reflection`) and on sloped reaches (rapids, weirs: no single mirror plane, but a screen-space march
+ *  needs none), and the sky while TRAA keeps no history for a march (fxaa, off). */
+export function riverReflection(tier: QualityTier, sloped: boolean): RiverReflection {
+  if (QUALITY[tier].reflectionScale <= 0) return 'sky';
+  const wanted = WATER_SWITCHES.reflect ?? QUALITY[tier].riverReflection;
+  if (wanted === 'ssr') return WATER_HISTORY.depth && WATER_HISTORY.color && WATER_HISTORY.camera ? 'ssr' : 'sky';
+  return wanted === 'planar' && sloped ? 'sky' : wanted;
+}
+
 export class RiverMaterial {
   readonly material = new THREE.NodeMaterial();
   /** Where this reach's mirror plane is real water: the reflection pass draws only what can land on it. */
@@ -44,13 +54,14 @@ export class RiverMaterial {
   private reflection: ReturnType<typeof reflector> | null;
   /** The previous frame TRAA keeps, for the bank fade (W3); null keeps an opaque, depth-writing river. */
   private history: WaterHistory | null;
+  private mode: RiverReflection;
 
   constructor(mesh: THREE.Mesh, private env: Environment, tier: QualityTier, private deterministic: boolean, renderer: THREE.WebGPURenderer) {
     const rgb = waterColour(mesh.userData);
     this.bodyColour = rgb ? new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace) : new THREE.Color(0.075, 0.062, 0.035);
     const scale = QUALITY[tier].reflectionScale;
-    // Sloped reaches (rapids, weirs) have no single mirror plane; they shade from the sky.
-    const reflection = this.reflection = scale > 0 && mesh.userData.water_slope !== true ? reflector({ bounces: false, samples: 0 }) : null;
+    this.mode = riverReflection(tier, mesh.userData.water_slope === true);
+    const reflection = this.reflection = this.mode === 'planar' ? reflector({ bounces: false, samples: 0 }) : null;
     this.reflectionUV = reflection?.uvNode ?? null;
     // Reflections do not sample the main camera's screen-space GTAO context.
     const context = this.context = renderer.contextNode;
@@ -85,7 +96,8 @@ export class RiverMaterial {
       };
       this.attach(mesh);
     }
-    this.history = WATER_SWITCHES.depth && WATER_HISTORY.depth ? WATER_HISTORY : null;
+    // The screen-space march must not meet the water itself in the stored depth: it implies the bank fade's depth path.
+    this.history = (WATER_SWITCHES.depth || this.mode === 'ssr') && WATER_HISTORY.depth ? WATER_HISTORY : null;
     this.setSurface(activeSurface);
     liveRivers.add(this);
     // Opaque colour, but exclude the river from the opaque normal/velocity prepass and its recursive reflection.
@@ -96,14 +108,15 @@ export class RiverMaterial {
     // W7: TRAA reprojects river pixels with the water's own motion. Without it they carried whatever was below the
     // surface (mostly the sky box's rotation-only motion), and ripples smeared while the camera moved along the river.
     if (WATER_SWITCHES.motion && WATER_HISTORY.beautyVelocity) this.material.mrtNode = mrt({ velocity: vec4(velocity as unknown as THREE.Node<'vec2'>, 0, 1) });
-    this.material.name = reflection ? 'river-planar' : 'river-sky';
+    this.material.name = `river-${this.mode}`;
   }
 
   /** Rebuild the material graph in place; keep streamed geometry and the reflection target resident. */
   setSurface(factory: typeof riverSurface) {
     this.disposeSurface();
     if (this.reflection) this.reflection.uvNode = this.reflectionUV;
-    this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection, this.bodyColour, this.history);
+    this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection, this.bodyColour, this.history,
+      this.mode === 'ssr');
     this.material.needsUpdate = true;
   }
 

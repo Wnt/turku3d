@@ -29,12 +29,13 @@ test('GCN and Intel gen GPUs default to reduced; explicit and mobile tiers are k
 });
 
 test('reduced changes rendering only: simulation caps and the rest of the tier are medium', () => {
-  const { vegetation, reflectionScale, reflectionSlowFps, maxPixels, grass, splits, lights, ...rest } = QUALITY.reduced;
-  const { vegetation: v, reflectionScale: _r, reflectionSlowFps: _s, maxPixels: _p, grass: g, splits: sp, lights: l, ...medium } = QUALITY.medium;
+  const { vegetation, reflectionScale, reflectionSlowFps, riverReflection, maxPixels, grass, splits, lights, ...rest } = QUALITY.reduced;
+  const { vegetation: v, reflectionScale: _r, reflectionSlowFps: _s, riverReflection: _m, maxPixels: _p, grass: g, splits: sp, lights: l, ...medium } = QUALITY.medium;
   expect(rest).toEqual(medium);
   expect({ grass, splits, lights }).toEqual({ grass: g, splits: sp, lights: l });
   expect(vegetation).toEqual({ ...v, mid: 100 });
-  expect({ reflectionScale, reflectionSlowFps, maxPixels }).toEqual({ reflectionScale: 0.25, reflectionSlowFps: 8, maxPixels: 1920 * 1080 });
+  expect({ reflectionScale, reflectionSlowFps, riverReflection, maxPixels }).toEqual({ reflectionScale: 0.25, reflectionSlowFps: 8, riverReflection: 'ssr', maxPixels: 1920 * 1080 });
+  expect(QUALITY.medium.riverReflection).toBe('planar');
   expect(QUALITY.reduced.parkedBodies).toBe(QUALITY.medium.parkedBodies);
   expect(TRAFFIC_CAPS.reduced).toBe(TRAFFIC_CAPS.medium);
   expect(WALKER_CAPS.reduced).toBe(WALKER_CAPS.medium);

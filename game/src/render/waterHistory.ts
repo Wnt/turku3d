@@ -8,8 +8,11 @@ import type * as THREE from 'three/webgpu';
 export interface WaterHistory {
   depth: THREE.DepthTexture | null;
   color: THREE.Texture | null;
+  /** The camera those were drawn with (view and unjittered projection), captured by PostProcessing.render after each
+   *  frame, so during a beauty pass it is last frame's. */
+  camera: { view: THREE.Matrix4; projection: THREE.Matrix4 } | null;
   /** Whether the beauty pass carries TRAA's velocity (no GTAO prepass): the river can then write its own motion. */
   beautyVelocity: boolean;
 }
 
-export const WATER_HISTORY: WaterHistory = { depth: null, color: null, beautyVelocity: false };
+export const WATER_HISTORY: WaterHistory = { depth: null, color: null, camera: null, beautyVelocity: false };

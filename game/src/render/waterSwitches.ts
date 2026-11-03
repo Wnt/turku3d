@@ -5,6 +5,10 @@
 //   oldsun    W5 off: the earlier broad sun highlight (Phong powers 240/36) and flat body colour
 //   nodepth   W3 off: no bank fade; the river is opaque and writes depth again
 //   nomotion  W7 off: river pixels keep the motion vector of whatever lies below them
+//   planar | ssr | sky   W1: the river's reflection on every tier that has one: the planar reflector pass, the
+//            screen-space march over TRAA's last frame (reduced's default), or the sky alone
+import type { RiverReflection } from './quality';
+
 export interface WaterSwitches {
   /** W5: a tight, energy-normalised sun lobe (GTA's falloff 1,600-2,000) and wrap-diffuse wave relief. */
   tightSun: boolean;
@@ -12,12 +16,14 @@ export interface WaterSwitches {
   depth: boolean;
   /** W7: the river writes its own TRAA motion vectors. */
   motion: boolean;
+  /** W1: the reflection every reflecting tier uses instead of its own (render/water.ts riverReflection). */
+  reflect: RiverReflection | null;
 }
 
-const DEFAULTS: WaterSwitches = { tightSun: true, depth: true, motion: true };
+const DEFAULTS: WaterSwitches = { tightSun: true, depth: true, motion: true, reflect: null };
 export const WATER_SWITCHES: WaterSwitches = { ...DEFAULTS };
 
-const TOKENS = ['oldsun', 'nodepth', 'nomotion'] as const;
+const TOKENS = ['oldsun', 'nodepth', 'nomotion', 'planar', 'ssr', 'sky'] as const;
 
 /** Parse `?water=`; unknown tokens throw, as other URL parameters do. Absent keeps the defaults. */
 export function parseWaterSwitches(value: string | null): WaterSwitches {
@@ -28,6 +34,7 @@ export function parseWaterSwitches(value: string | null): WaterSwitches {
     if (token === 'oldsun') switches.tightSun = false;
     if (token === 'nodepth') switches.depth = false;
     if (token === 'nomotion') switches.motion = false;
+    if (token === 'planar' || token === 'ssr' || token === 'sky') switches.reflect = token;
   }
   return switches;
 }

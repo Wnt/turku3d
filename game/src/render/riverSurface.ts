@@ -7,6 +7,7 @@ import { nightUniforms } from './nightLights';
 import { riverClock, riverWaveOffsets, riverWavePixels } from './riverWaves';
 import { WATER_SWITCHES } from './waterSwitches';
 import type { WaterHistory } from './waterHistory';
+import { riverScreenReflection } from './riverReflection';
 
 /** W5 (GTA V water study, loops/techstudy REPORT.md §8): GTA's river shader uses a very tight Phong sun lobe (falloff
  *  1,600-2,000, intensity 4-10) and wrap diffuse. The lobe is energy-normalised ((n + 2) / 2pi) so the sun path keeps
@@ -36,7 +37,7 @@ function waveTexture() {
 /** Build just the surface graph so local water iterations can hot-replace it without reloading tiles. */
 export function riverSurface(material: THREE.NodeMaterial, env: Environment, deterministic: boolean,
   reflection: ReturnType<typeof reflector> | null, bodyColour = new THREE.Color(0.075, 0.062, 0.035),
-  history: WaterHistory | null = null): () => void {
+  history: WaterHistory | null = null, screenReflection = false): () => void {
   const waves = waveTexture();
   const baseUV = reflection?.uvNode;
   let disposeSurface = () => waves.dispose();
@@ -56,8 +57,15 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   const fresnel = float(0.02).add(pow(grazing, 5).mul(0.98));
   if (reflection) reflection.uvNode = reflection.uvNode!.add(cameraViewMatrix.mul(vec4(normal.x, 0, normal.z, 0)).xy.mul(vec2(-1, 1)).mul(mix(0.012, 0.021, grazing)));
   const daylight = float(1).sub(nightUniforms.night.mul(0.9));
-  const reflected = reflection?.rgb ?? (env.environmentMap
-    ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)) : vec3(0.18, 0.25, 0.3).mul(daylight));
+  const sky = env.environmentMap
+    ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)) : vec3(0.18, 0.25, 0.3).mul(daylight);
+  // W1 (reduced): what last frame showed along the reflected ray, over the sky where the march finds nothing. Half the
+  // wave slope steers the ray: the full slope scatters grazing rays across whole facades.
+  const screen = screenReflection && history?.depth && history.color && history.camera
+    ? riverScreenReflection({ ...history, depth: history.depth, color: history.color, camera: history.camera }, positionWorld,
+      reflect(view.negate(), normalize(vec3(slope.x.mul(0.5), 1, slope.y.mul(0.5)))), fresnel)
+    : null;
+  const reflected = reflection?.rgb ?? (screen ? mix(sky, screen.rgb, screen.a) : sky);
   const sunDir = uniform(env.sunDir), sunIntensity = uniform('float').onRenderUpdate(() => env.sun.intensity);
   const alignment = max(dot(reflect(sunDir.negate(), normal), view), 0);
   // Each body carries its measured water colour beneath the dynamic sky reflection.
@@ -70,7 +78,8 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
     // The planar image shows whether the sun is visible along the reflected ray: where a bank building occludes it,
     // the mirror point lies in that building's shadow, so the glint fades with the image's brightness relative to the
     // sky's own (the PMREM sky at the visible sky's display scale).
-    let open: THREE.Node<'float'> = float(1);
+    // A screen-space hit is itself something standing between the water and the sky.
+    let open: THREE.Node<'float'> = screen ? float(1).sub(screen.a) : float(1);
     if (reflection && env.environmentMap) {
       const skyScale = mix(float(1), env.atmosphere.skyBrightness, smoothstep(0.07, 0.26, sunDir.y));
       const sky = luminance(pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.3))).mul(skyScale);
@@ -110,7 +119,7 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   if (import.meta.hot) material.userData.setRiverSurface = (factory: typeof riverSurface) => {
     disposeSurface();
     if (reflection) reflection.uvNode = baseUV!;
-    disposeSurface = factory(material, env, deterministic, reflection, bodyColour, history);
+    disposeSurface = factory(material, env, deterministic, reflection, bodyColour, history, screenReflection);
     material.needsUpdate = true;
   };
   return () => { delete material.userData.setRiverSurface; disposeSurface(); };

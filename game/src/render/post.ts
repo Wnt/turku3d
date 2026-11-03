@@ -43,6 +43,8 @@ export class PostProcessing {
   private dimSaturation: THREE.UniformNode<'float', number>;
   private daySaturation: number;
   readonly puddles: PuddleReflections | null;
+  /** The camera of the frame TRAA's history holds (render/waterHistory.ts). */
+  private historyCamera: { view: THREE.Matrix4; projection: THREE.Matrix4 } | null = null;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
@@ -138,6 +140,7 @@ export class PostProcessing {
     const history = temporal ? (temporal as unknown as { _historyRenderTarget: THREE.RenderTarget })._historyRenderTarget : null;
     WATER_HISTORY.depth = history?.depthTexture ?? null;
     WATER_HISTORY.color = history?.texture ?? null;
+    WATER_HISTORY.camera = this.historyCamera = history ? { view: new THREE.Matrix4(), projection: new THREE.Matrix4() } : null;
     WATER_HISTORY.beautyVelocity = !!temporal && !pre;
     const color = temporal ?? reflected ?? beauty;
     const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
@@ -213,6 +216,11 @@ export class PostProcessing {
     const live = this.renderer instanceof GameRenderer ? this.renderer : null;
     if (live) live.liveFrame = true;
     try { this.pipeline.render(); } finally { this.scene.matrixWorldAutoUpdate = autoUpdate; if (live) live.liveFrame = false; }
+    // TRAA has cleared its jitter: the next frame's river reprojects into this frame's history with these.
+    if (this.historyCamera) {
+      this.historyCamera.view.copy(this.camera.matrixWorldInverse);
+      this.historyCamera.projection.copy(this.camera.projectionMatrix);
+    }
   }
   dispose() { for (const resource of this.resources) resource.dispose(); }
 }
