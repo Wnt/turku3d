@@ -152,10 +152,14 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         )
         compiled = compile_structure(row, form, rows, min_support=0)
         compiled.update(measured_geometry=compiled["geometry"], measured_size=[w, h])
-        if section["kind"] == "blank" and "panel_grid" in wall:
-            compiled["panel_grid"] = wall["panel_grid"]
+        if section["kind"] == "blank" and ("panel_grid" in section or "panel_grid" in wall):
+            grid = section.get("panel_grid")
+            compiled["panel_grid"] = (dict(value=grid, source="section cladding", support=0.6)
+                                      if grid else wall["panel_grid"])
         section_style = compile_wall(compiled, rows)
         section_style.update(wall=style["wall"], base=style["base"], trim=style["trim"])
+        if section.get("colour"):  # A measured cladding pigment (e.g. channel glass) owns its section.
+            section_style.update(wall=section["colour"], base=section["colour"])
         section_style["origin"] = [0, y0 + y]
         shift = max(0, ends[0])
         for points, uv, instruction, priority in _paint_layers(part[0], compiled, section_style):

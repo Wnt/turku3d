@@ -143,6 +143,7 @@ def apply(program, key, vertices, observed, description):
     return program
 
 
+CHANNEL_GLASS = re.compile(r"\bchannel glass\b|\bprofiled glass\b|\bu-(profile|glass)\b|\bglass planks?\b")
 GLAZING_STRIP = re.compile(r"\b(glazing|glazed|glass)\b.*\b(strip|band|ribbon)\b|\bribbon\b")
 
 
@@ -160,6 +161,17 @@ def reviewed_wall(wall, reading, floors, panels, m):
                                 MONOLITH_PANEL["joint_m"]], "reference-measured panel joint grid")
     if "render_sections" not in wall:
         return
+    from turkutex.facade_archetypes import MONOLITH_CHANNEL_GLASS as CHANNEL
+
+    sections = reading.get("structure", {}).get("facade_observations", {}).get("sections", [])
+    for part in wall["render_sections"]:
+        source = sections[part["index"]] if part["index"] < len(sections) else {}
+        text = " ".join([str(source.get(k, "")) for k in ("kind", "material")]).lower()
+        if CHANNEL_GLASS.search(text):
+            # Translucent U-profile glass is an opaque-looking cladding plane, not a window.
+            part.update(kind="blank", material="glass", count=1, rows=1,
+                        colour=CHANNEL["colour"],
+                        panel_grid=[CHANNEL["profile_m"], 1000.0, CHANNEL["joint_m"]])
     used = {s["index"] for s in wall["render_sections"]}
     for index, section in enumerate(reading.get("structure", {}).get("facade_observations", {})
                                     .get("sections", [])):

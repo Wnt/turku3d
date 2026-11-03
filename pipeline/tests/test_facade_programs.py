@@ -568,3 +568,21 @@ def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints(
     assert ribbon["bounds"] == [0.0, 0.0, 1.0, 0.25]  # narrow strip at the base, full width
     assert len(wall["render_sections"]) == 2  # doors and foreground structures are not glazing
     assert wall["panel_grid"]["value"] == [1.5, 1.4, 0.025]
+
+
+def test_monolith_channel_glass_reading_becomes_tinted_profiled_cladding():
+    from turku3d import facade_monolith
+    from turkutex.facade_archetypes import MONOLITH_CHANNEL_GLASS
+    from turkutex.facade_program import value
+
+    m = lambda x, s: value(x, s, 0.6)  # noqa: E731
+    reading = dict(structure=dict(facade_observations=dict(sections=[
+        dict(position="left half", kind="blank wall", material="pale smooth render"),
+        dict(position="top left edge", kind="translucent channel glass panel", material="channel glass")])))
+    wall = dict(render_sections=[dict(index=0, bounds=[0, 0, .5, 1], kind="blank", material="render"),
+                                 dict(index=1, bounds=[0, .75, .12, .25], kind=None, material="glass")])
+    facade_monolith.reviewed_wall(wall, reading, 4, False, m)
+    channel = wall["render_sections"][1]
+    assert channel["kind"] == "blank" and channel["colour"] == MONOLITH_CHANNEL_GLASS["colour"]
+    assert channel["panel_grid"][0] == 0.33 and "panel_grid" not in wall  # render volume has no joints
+    assert wall["render_sections"][0].get("colour") is None

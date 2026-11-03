@@ -289,6 +289,10 @@ MONOLITH_GRANITE = "#b6b3ac"
 MONOLITH_BASE_COURSE_M = 2.2
 MONOLITH_CURTAIN = dict(pane_m=2.12, glass=0.975, sill=0.012, plinth_m=3.9, mullion="#3f4447")
 MONOLITH_PANEL = dict(width_m=1.5, height_m=1.4, joint_m=0.025, colour="#d3cabb")
+# Channel (U-profile) glass measured on the library's translucent panel from the issue camera's
+# Look Around pano: sunlit #bdd4dc, profile lines every 0.15-0.175 m (paired flanges of
+# 0.33 m profiles), one horizontal division per panel half.
+MONOLITH_CHANNEL_GLASS = dict(profile_m=0.33, joint_m=0.012, colour="#bdd4dc")
 # Cultural and assembly uses (OSM building/amenity/tourism values), plus the register
 # function code carried by the library, art museum and city theatre. Schools, colleges and
 # hospitals abstain: their blank walls are local, not the building's composition.

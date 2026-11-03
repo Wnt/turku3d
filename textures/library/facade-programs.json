@@ -28617,6 +28617,15 @@
                 ]
               },
               {
+                "position": "top left edge",
+                "kind": "translucent channel glass panel",
+                "material": "channel glass",
+                "features": [
+                  "vertical U-profile glass strips",
+                  "one horizontal division at mid-height"
+                ]
+              },
+              {
                 "position": "right half middle",
                 "kind": "glazing ribbon behind vertical translucent glass fins",
                 "pane_count": null
