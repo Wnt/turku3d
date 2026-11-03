@@ -692,5 +692,98 @@
         }
       }
     }
+  },
+  "103622211Y": {
+    "building": {
+      "material_class": {
+        "value": "metal",
+        "support": 0.85,
+        "source": "vfix034 direct reference review: weathering (corten) steel cladding; register material not observed"
+      }
+    },
+    "walls": {
+      "103622211Y_vfix034_street_front": {
+        "wall": {
+          "colour": {
+            "value": "#a35e31",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior; sunlit corten cladding",
+            "support": 0.65
+          }
+        },
+        "trim": {
+          "colour": {
+            "value": "#975a3c",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior; sunlit corten canopy fascia top",
+            "support": 0.65
+          }
+        },
+        "provenance": {
+          "crop_sha256": "ae8fc711d40fa7dd25e9420baad2b8639a1fb27b6d51407d1d8d9d4fd2c7ca6e",
+          "patches": {
+            "corten": [
+              [
+                0.575,
+                0.4303,
+                0.075,
+                0.0478
+              ],
+              [
+                0.6,
+                0.4223,
+                0.05,
+                0.0637
+              ]
+            ],
+            "fascia": [
+              [
+                0.375,
+                0.4271,
+                0.175,
+                0.0096
+              ]
+            ],
+            "stone": [
+              [
+                0.165,
+                0.4781,
+                0.03,
+                0.0797
+              ]
+            ],
+            "lettering": [
+              [
+                0.2025,
+                0.502,
+                0.08,
+                0.0239
+              ]
+            ],
+            "glass": [
+              [
+                0.315,
+                0.5259,
+                0.035,
+                0.0518
+              ],
+              [
+                0.44,
+                0.5259,
+                0.03,
+                0.0478
+              ]
+            ]
+          }
+        }
+      },
+      "103622211Y_vfix034_sw_wing": {
+        "wall": {
+          "colour": {
+            "value": "#a35e31",
+            "source": "reviewed same-wall patch medians; uncalibrated photo appearance prior; same corten pigment as the sunlit street front; face itself unobserved",
+            "support": 0.65
+          }
+        }
+      }
+    }
   }
 }

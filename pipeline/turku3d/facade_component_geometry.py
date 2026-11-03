@@ -112,13 +112,25 @@ def plan(vertices, wall):
         if desc["kind"] in ADDITIVE:
             # Additive solids never cut paint, so they clip to each shell fragment
             # and may overlap cut components; levels stay in surveyed-wall metres.
+            slope = None
+            if desc.get("slope_m"):
+                # Sloped bottom edge in reading metres at x0/x1, mapped to metric ends.
+                ends = sorted([(offset + sign * x * width, desc["slope_m"][0]),
+                               (offset + sign * (x + w) * width, desc["slope_m"][1])])
+                (ea, ya), (eb, yb) = ends
             left, right = max(left, 0), min(right, length)
             bottom = max(bottom, float(vertices[:2, 1].min()))
             top = min(top, float(vertices[2:, 1].max()))
+            if desc.get("slope_m"):
+                slope = [
+                    float(np.clip(a[1] + np.interp(end, [ea, eb], [ya, yb]), bottom, top - 0.05))
+                    for end in (left, right)
+                ]
             if right - left >= 0.3 and top > bottom:
                 admitted.append(
                     {
                         **desc,
+                        **({"slope_bottoms": slope} if slope else {}),
                         "rect": shapely.box(left, bottom, right, top),
                         "metric": [left, bottom, right, top],
                         "tangent": tangent,
@@ -269,7 +281,7 @@ def geometry(vertices, plans, building, origin):
             )
         )
 
-    def box(x0, y0, z0, x1, y1, z1, material="slab", solid=True, colour=None):
+    def box(x0, y0, z0, x1, y1, z1, material="slab", solid=True, colour=None, bottoms=None):
         if min(x1 - x0, y1 - y0, z1 - z0) <= 0.001:
             return
         # Each face has flat normals. Winding faces outside in wall-local x/y/outward.
@@ -285,6 +297,9 @@ def geometry(vertices, plans, building, origin):
                 [x0, y1, z1],
             ]
         )
+        if bottoms is not None:
+            # A sloped bottom edge: the x0 and x1 ends start at their own heights.
+            v[[0, 4], 1], v[[1, 5], 1] = bottoms
         faces = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]]
         # Our frame is left-handed: the default TRI winding yields exterior normals.
         points = world(v[np.array(faces)[:, ::-1].ravel()])
@@ -499,8 +514,10 @@ def geometry(vertices, plans, building, origin):
                     face(coords, "slab", colour=colour)
                     face(coords[::-1], "slab", colour=colour)
         if kind == "panel":
-            box(left, y, 0.0, r, t, p.get("outward_m", 0.06), "glass" if p.get("glass") else "slab",
-                solid=False, colour=p.get("colour"))
+            bottoms = p.get("slope_bottoms")
+            box(left, min(bottoms) if bottoms else y, 0.0, r, t, p.get("outward_m", 0.06),
+                "glass" if p.get("glass") else "slab", solid=False, colour=p.get("colour"),
+                bottoms=bottoms)
         if kind == "stairs":
             rise, run = float(p["rise_m"]), float(p["run_m"])
             if run > r - left or rise > t - y:

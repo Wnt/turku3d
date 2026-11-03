@@ -214747,5 +214747,614 @@
         ]
       }
     }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103622211Y",
+    "seed": "034",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "material": "",
+      "material_class": "metal",
+      "year": 2019,
+      "era": "1960+",
+      "levels": 1,
+      "address": "Linnankatu 55b",
+      "construction_year": 2019,
+      "levels_source": "register"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "register",
+      "support": 1.0
+    },
+    "material": {
+      "value": "metal",
+      "source": "direct review: weathering (corten) steel cladding",
+      "support": 0.85
+    },
+    "style_era": {
+      "value": "1960+",
+      "source": "register year band",
+      "support": 0.4
+    },
+    "representative_wall": "103622211Y_vfix034_street_front",
+    "walls": [
+      {
+        "wall_id": "103622211Y_vfix034_street_front",
+        "width_m": 12.47,
+        "height_m": 4.32,
+        "geometry": {
+          "p0": [
+            23458434.67,
+            6703488.22
+          ],
+          "p1": [
+            23458442.8,
+            6703497.68
+          ],
+          "normal": [
+            0.759,
+            -0.652
+          ],
+          "base_h": 5.99
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View Jul 2026 (Linnankatu 48) / Look Around / Google 3D review 2026-11-03 (vfix 034)",
+          "reference_id": "local-only vfix034 refs",
+          "notes": "Street front of the funicular lower station, set into the slope: corten-clad recessed wall with two dark-framed glazed entrances (left single door bay, right three-pane entrance), a folded corten canopy fascia whose lower edge rises from just above the left door to near the roof terrace at the NE end, a dark vent panel, and at the SW end the return of the layered stone wall with the station lettering (generic panel; text not modelled). Positions from the mapped entrances and a frontal 47 px/m projection; heights from a 2.2 m door glazing scale, capped at the roof terrace.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "metal",
+            "source": "direct review: weathering (corten) steel cladding",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain contemporary",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960+",
+          "source": "register year 2019",
+          "support": 0.6
+        },
+        "modernist": {
+          "support": 0.8,
+          "source": "metric front profile: OSM entrance nodes + frontal reference projection, door-height scale",
+          "margins_m": [
+            0.0,
+            0.0
+          ],
+          "panels": [
+            {
+              "rect_m": [
+                0.0,
+                0.0,
+                0.95,
+                3.0
+              ],
+              "outward_m": 0.35,
+              "colour": "#7b7473",
+              "role": "stone-clad wall return"
+            },
+            {
+              "rect_m": [
+                0.05,
+                1.85,
+                0.85,
+                0.85
+              ],
+              "outward_m": 0.38,
+              "colour": "#312f35",
+              "role": "generic lettering panel"
+            },
+            {
+              "rect_m": [
+                1.07,
+                0.0,
+                2.0,
+                2.2
+              ],
+              "outward_m": 0.03,
+              "colour": "#2a2a2c",
+              "role": "entrance frame"
+            },
+            {
+              "rect_m": [
+                1.15,
+                0.06,
+                1.84,
+                2.08
+              ],
+              "outward_m": 0.05,
+              "glass": true,
+              "colour": "#1d252e",
+              "role": "glazed entrance door"
+            },
+            {
+              "rect_m": [
+                6.4,
+                0.0,
+                3.8,
+                2.2
+              ],
+              "outward_m": 0.03,
+              "colour": "#2a2a2c",
+              "role": "entrance frame"
+            },
+            {
+              "rect_m": [
+                6.48,
+                0.06,
+                1.15,
+                2.08
+              ],
+              "outward_m": 0.05,
+              "glass": true,
+              "colour": "#1d252e",
+              "role": "glazed entrance"
+            },
+            {
+              "rect_m": [
+                7.72,
+                0.06,
+                1.15,
+                2.08
+              ],
+              "outward_m": 0.05,
+              "glass": true,
+              "colour": "#1d252e",
+              "role": "glazed entrance door"
+            },
+            {
+              "rect_m": [
+                8.96,
+                0.06,
+                1.16,
+                2.08
+              ],
+              "outward_m": 0.05,
+              "glass": true,
+              "colour": "#1d252e",
+              "role": "glazed entrance"
+            },
+            {
+              "rect_m": [
+                4.1,
+                2.3,
+                0.95,
+                0.5
+              ],
+              "outward_m": 0.03,
+              "colour": "#1d252e",
+              "role": "vent panel"
+            },
+            {
+              "rect_m": [
+                0.95,
+                2.35,
+                10.85,
+                1.97
+              ],
+              "outward_m": 0.6,
+              "colour": "#975a3c",
+              "role": "folded corten canopy fascia",
+              "slope_m": [
+                2.35,
+                4.1
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "wall_id": "103622211Y_vfix034_sw_wing",
+        "width_m": 15.47,
+        "height_m": 4.32,
+        "geometry": {
+          "p0": [
+            23458423.15,
+            6703498.55
+          ],
+          "p1": [
+            23458434.67,
+            6703488.22
+          ],
+          "normal": [
+            -0.668,
+            -0.745
+          ],
+          "base_h": 5.99
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View Jul 2026 (Linnankatu 48) / Look Around / Google 3D review 2026-11-03 (vfix 034)",
+          "reference_id": "local-only vfix034 refs",
+          "notes": "SW face of the left wing, dug into the slope (ground rises 6.6 -> 9.6 m along it): blank corten cladding, no openings (Google 3D overview).",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "metal",
+            "source": "direct review: weathering (corten) steel cladding",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain contemporary",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960+",
+          "source": "register year 2019",
+          "support": 0.6
+        }
+      }
+    ],
+    "review": {
+      "method": "direct reference review; metric projection onto LoD2",
+      "scope": "matched walls only",
+      "independent": false,
+      "vfix034": {
+        "building_id": "103622211Y",
+        "address": "Linnankatu 55b (Kakolan funikulaari, ala-asema)",
+        "reference_source": "Street View Jul 2026, Apple Look Around, Google 3D; local-only",
+        "images_private": true,
+        "observations": [
+          {
+            "scope": "street front",
+            "confidence": 0.9,
+            "finding": "Corten-clad front with a folded sloping canopy fascia over two glazed entrances; the generic plaster box is wrong."
+          },
+          {
+            "scope": "SW end",
+            "confidence": 0.85,
+            "finding": "Layered stone wall with the station name lettering; mostly a free-standing wall beyond the LoD2 outline (OSM retaining wall 1136486747); only its return on the front is in this reading."
+          },
+          {
+            "scope": "roof",
+            "confidence": 0.85,
+            "finding": "Roof terrace at the upper grade with a rust-brown steel railing (terrace railing from coarse/slope_buildings)."
+          }
+        ]
+      }
+    }
   }
 ]

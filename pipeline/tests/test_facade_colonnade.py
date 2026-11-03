@@ -149,3 +149,24 @@ def test_full_wall_reading_outranks_partial_characterization_of_same_frontage():
     program = dict(needs_review=False, walls=[partial, full])
     assert matching_wall(v, program)["wall_id"] == "full"
     assert matching_wall(v, dict(needs_review=False, walls=[partial]))["wall_id"] == "partial"
+
+
+def test_modernist_panels_read_rect_as_x_y_w_h_and_keep_a_sloped_bottom():
+    from turku3d.facade_modernist import expand
+
+    v, w = modernist_wall()
+    w["modernist"] = dict(support=0.8, margins_m=[0, 0], panels=[
+        dict(rect_m=[9, 8.4, 1.6, 19], outward_m=0.05, glass=True),  # tall narrow stair glazing
+        dict(rect_m=[2, 20, 16, 6], outward_m=0.6, colour="#975a3c", slope_m=[20, 25]),
+    ])
+    out = expand(w)
+    glazing, fascia = out["geometry_components"]
+    assert glazing["bounds"] == pytest.approx([9 / 20, 8.4 / 30, 1.6 / 20, 19 / 30])
+    assert fascia["slope_m"] == [20, 25] and "slope_m" not in glazing
+    plans = plan(v, out)
+    bottoms = plans[1]["slope_bottoms"]
+    assert bottoms[0] < bottoms[1] and abs(bottoms[1] - 25) < 0.5
+    meshes, _ = geometry(v, plans, "test", np.zeros(3))
+    fascia_mesh = meshes[-1]
+    low_end = fascia_mesh.positions[fascia_mesh.positions[:, 0] < 3]
+    assert low_end[:, 1].min() == pytest.approx(bottoms[0], abs=1e-6)

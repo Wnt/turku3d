@@ -156,15 +156,25 @@ def expand(wall):
             and _number(panel.get("outward_m", 0.06), 0.01, 0.6)
         ):
             continue
+        # An optional sloped bottom edge (a fascia rising with the street): metres
+        # above the wall base at the panel's x0 and x1 ends, below the rect top.
+        slope = panel.get("slope_m")
+        if slope is not None and not (
+            isinstance(slope, list)
+            and len(slope) == 2
+            and all(_number(v, rect[1], rect[1] + rect[3] - 0.05) for v in slope)
+        ):
+            continue
         components.append(
             dict(
                 kind="panel",
-                bounds=frac(*rect),
+                bounds=frac(rect[0], rect[2], rect[1], rect[3]),  # rect_m is [x, y, w, h]
                 outward_m=panel.get("outward_m", 0.06),
                 glass=bool(panel.get("glass")),
                 colour=_colour(panel.get("colour")),
                 role=str(panel.get("role", "panel")),
                 support=support,
+                **({"slope_m": [float(v) for v in slope]} if slope is not None else {}),
             )
         )
     if not (windows or base_openings or components):
