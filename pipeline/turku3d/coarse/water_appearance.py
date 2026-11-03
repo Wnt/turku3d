@@ -68,14 +68,35 @@ def prepare(cache, inputs, sources):
     )
 
 
-# One mirror plane serves a mesh: measured inland surfaces split into 0.5 m bands, and
-# reaches steeper than 2 % (rapids, weirs) form their own unmirrored mesh; measured pools
+# One mirror plane serves a mesh. Measured inland water mirrors per reach: the piece's
+# canonical surface plus whole metres from it, so a pool is one mirror across all its
+# tiles. Reaches steeper than 2 % (rapids, weirs) form their own unmirrored mesh; pools
 # undulate by a few centimetres between level nodes and stay mirrored.
-BAND = 0.5
+BAND = 0.5  # m, mirror bands of water without a level field
+REACH_BAND = 1.0
 SLOPE = 0.02
 
 
-def visuals(tile, water, records):
+def reaches(centres, levels):
+    """A mirror key per flat triangle: None on the sea datum, else '<reach level><band>'."""
+    from .water import LEVEL
+
+    keys = np.full(len(centres), None, dtype=object)
+    if levels is None or not levels.pieces:
+        band = np.floor(centres[:, 1] / BAND + 1e-9).astype(int)
+        keys[band != 0] = band[band != 0]
+        return keys
+    reference = levels.fallback[levels.owner(centres[:, [0, 2]])]
+    known = np.isfinite(reference)
+    band = np.round((centres[:, 1] - np.where(known, reference, 0)) / REACH_BAND).astype(int)
+    loose = np.floor(centres[:, 1] / BAND + 1e-9).astype(int)
+    inland = (np.abs(centres[:, 1] - LEVEL) > 1e-6) | (known & (np.abs(reference - LEVEL) > 1e-6))
+    for i in np.flatnonzero(inland):
+        keys[i] = f"{reference[i]:.2f}{band[i]:+d}" if known[i] else str(loose[i])
+    return keys
+
+
+def visuals(tile, water, records, levels=None):
     triangles = water.positions[water.indices]
     centres = triangles.mean(axis=1)
     owner = np.full(len(centres), -1, dtype=int)
@@ -83,19 +104,22 @@ def visuals(tile, water, records):
         owner[shapely.intersects_xy(body, centres[:, 0], centres[:, 2])] = i
     normal = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
     sloped = np.hypot(normal[:, 0], normal[:, 2]) > SLOPE * np.abs(normal[:, 1])
-    band = np.where(sloped, -1, np.floor(centres[:, 1] / BAND + 1e-9).astype(int))
+    band = reaches(centres, levels)
+    band[sloped] = "slope"
     meshes = []
-    for i, b in sorted({(int(i), int(b)) for i, b in zip(owner, band)}):
+    labels = np.array([str(b) for b in band])
+    for i, b in sorted({(int(i), str(b)) for i, b in zip(owner, labels)}):
         key, colour = records[i][1:] if i>=0 else ("unmeasured", None)
-        selected = water.indices[(owner==i) & (band==b)]
+        selected = water.indices[(owner==i) & (labels==b)]
         ids, inverse = np.unique(selected, return_inverse=True)
-        suffix = "" if b == 0 else ("_slope" if b < 0 else f"_b{b}")
+        suffix = "" if b == "None" else ("_slope" if b == "slope" else f"_b{b}")
         extras = dict(layer="ground", object_id=f"water_{tile.id}_{key}{suffix}",
                       material_key="water", sensor=True, water_body=key,
                       reflection_surface=key)
-        if b != 0:
+        if b not in ("None", "slope"):
             extras["water_band"] = b
-        if b < 0:
+        if b == "slope":
+            extras["water_band"] = "slope"
             extras["water_slope"] = True
         if colour is not None:
             extras["water_color"] = colour  # sRGB, converted to linear by the shader

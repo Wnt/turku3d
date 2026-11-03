@@ -232,6 +232,11 @@ def build(
 
     # Before terrain and shells: both read the base, and seam buildings must agree.
     slope_buildings.apply([*inputs.buildings, *inputs.wall_context], inputs.points)
+    from . import water_levels
+
+    # Inland bridge footings, piers and moored boats sit on the measured local surface.
+    levels = water_levels.stage(cache, tile, inputs)
+    water_levels.follow(inputs, levels)
     seconds["inputs_total"] = time.perf_counter() - started
 
     base = Path(__file__).parents[1]
@@ -784,7 +789,7 @@ def build(
         from . import water_appearance
 
         water_colours = water_appearance.prepare(cache, inputs, ground_sources)
-        ground_meshes.extend(water_appearance.visuals(tile, river, water_colours))
+        ground_meshes.extend(water_appearance.visuals(tile, river, water_colours, levels))
     write_visual(stage / "ground.vis.glb", ground_meshes, root_translation=tile.origin)
     layer_files = [stage / "ground.vis.glb"]
     if (stage / "fences.vis.glb").exists():

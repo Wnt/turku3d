@@ -380,19 +380,9 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
                     if (C.raw_dir("laz") / "maanpinta" / f"{b.name}.laz").exists()})
     ponds = cache.run("pond_levels", source_key(Path(__file__)),
                       [candidates, [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]], lambda: pond_levels(candidates, paths)) if paths else []
-    levels = None
-    if inputs.water:
-        from . import water_levels
+    from . import water_levels
 
-        roads = inputs.sources.get("roads", ())
-        steps, rapids = water_levels.features(roads[0] if roads else None)
-        level_paths = water_levels.lidar_paths(tile)
-        levels = cache.run(
-            "water_levels", source_key(Path(water_levels.__file__)),
-            [tile, inputs.water, steps, rapids,
-             [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in level_paths]],
-            lambda: water_levels.measure(tile, inputs.water, steps, level_paths, rapids),
-        )
+    levels = water_levels.stage(cache, tile, inputs)
     centres = grid_pos[grid_idx].mean(axis=1)
     ids = surfaces.classify(centres, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     water = inputs.water

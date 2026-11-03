@@ -9,6 +9,13 @@ from turku3d.coarse.banks import produce
 from turku3d.coarse.build import grid_mesh
 from turku3d.coarse.inputs import CELLS
 from turku3d.col.materials import mat_id
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def no_whole_piece_reads(monkeypatch):
+    """Synthetic pieces never read the real survey; the tile's own points measure them."""
+    monkeypatch.setattr(water_levels, "reference", lambda piece: np.nan)
 
 
 def river_points(rng, body, level_at, count=4000):
@@ -92,3 +99,34 @@ def test_pier_inside_the_sea_outline_keeps_the_datum_but_mapped_rapids_climb(mon
     levels = water_levels.measure(tile, [sea], [], [], [rapids])
     assert levels.at([[55.0, 55.0]])[0] == 0
     assert abs(levels.at([[240.0, 50.0]])[0] - 1.8) < 0.05
+
+
+def test_piers_boats_and_bridge_footings_float_on_an_inland_pool():
+    from types import SimpleNamespace
+
+    pool = shapely.box(0, 0, 200, 40)
+    levels = water_levels.Levels([pool], (0.0, 0.0), (2, 2), np.full((1, 2, 2), np.nan), np.array([7.5]))
+    pier = dict(kind="pier", outline=shapely.box(20, 5, 30, 8), deck=0.55, water=0.0,
+                deck_source="waterline-fallback", floating=True)
+    ship = dict(kind="ship", outline=shapely.box(50, 5, 70, 12), deck=1.5, water=0.2)
+    way = dict(line=shapely.LineString([(100, -20), (100, 60)]), survey={})
+    inputs = SimpleNamespace(boats=[pier, ship], water=[pool], roads={"bridge_ways": [way]})
+    water_levels.follow(inputs, levels)
+    water_levels.follow(inputs, levels)
+    assert pier["water"] == 7.5 and abs(pier["deck"] - 8.05) < 1e-9
+    assert ship["water"] == 7.5 and ship["deck"] >= 8.4
+    assert way["survey"]["water_level"] == 7.5
+    sea = water_levels.Levels([pool], (0.0, 0.0), (2, 2), np.full((1, 2, 2), np.nan), np.array([0.0]))
+    tidal = dict(kind="pier", outline=shapely.box(20, 5, 30, 8), deck=0.55, water=0.0,
+                 deck_source="waterline-fallback", floating=True)
+    water_levels.follow(SimpleNamespace(boats=[tidal], water=[pool], roads={}), sea)
+    assert tidal["water"] == 0.0 and tidal["deck"] == 0.55
+
+
+def test_a_tile_without_water_returns_takes_the_canonical_piece_level(monkeypatch):
+    tile = C.VisualTile(0, 0, 0)
+    river = shapely.box(-40, 100, 290, 140)
+    monkeypatch.setattr(water_levels, "key_points", lambda tile, paths: np.empty((0, 3)))
+    monkeypatch.setattr(water_levels, "reference", lambda piece: 7.55)
+    levels = water_levels.measure(tile, [river], [], [])
+    assert levels.at([[125.0, 120.0]])[0] == 7.55

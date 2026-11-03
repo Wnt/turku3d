@@ -114,9 +114,9 @@ export class MaterialStyler {
           normal.transformDirection(mesh.matrixWorld);
           const point = new THREE.Vector3().fromBufferAttribute(mesh.geometry.getAttribute('position'), 0).applyMatrix4(mesh.matrixWorld);
           const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
-          // Measured inland surfaces carry their 0.5 m level band: one mirror per band, not per tile.
+          // Measured inland surfaces carry their reach key: one mirror per reach, not per tile.
           const band = mesh.userData.water_band;
-          const key = waterSharingKey(typeof band === 'number'
+          const key = waterSharingKey(typeof band === 'number' || typeof band === 'string'
             ? `${normal.toArray().map(v => v.toFixed(4)).join(',')},band:${band}`
             : [...normal.toArray(), plane.constant].map(v => v.toFixed(4)).join(','), mesh.userData);
           let shared = this.rivers.get(key);

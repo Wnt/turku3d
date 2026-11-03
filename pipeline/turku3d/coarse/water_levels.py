@@ -16,6 +16,7 @@ lowest shore returns.
 """
 
 import json
+from functools import lru_cache
 
 import numpy as np
 import shapely
@@ -36,6 +37,13 @@ QUANTILE = 25
 TIDAL = (0.8, 1.3)
 STEPS = ("dam", "weir", "waterfall", "lock_gate")
 RAPIDS_REACH = 25.0  # m around a mapped rapids line or point
+# A piece read whole from at most this many lidar blocks has one canonical reference level,
+# shared by every tile that sees any part of it (the sea and its estuary are read per tile).
+PIECE_BLOCKS = 24
+# The reference is the most populated 10 cm height bin of the piece's offshore water returns:
+# neighbouring tiles may outline a piece slightly differently, which moves a quantile but
+# hardly ever the modal bin of a flat pool.
+REFERENCE_STEP = 0.1
 
 
 def step_lines(osm):
@@ -96,6 +104,58 @@ def key_points(tile, paths):
     return np.concatenate(chunks) if chunks else np.empty((0, 3))
 
 
+def modal_surface(points, piece):
+    """Centre of the most populated height bin of a piece's water key points (offshore first)."""
+    if not len(points):
+        return np.nan
+    inside = shapely.contains_xy(piece, points[:, 0], points[:, 2])
+    wet = points[inside]
+    if len(wet) < MIN_POINTS:
+        return np.nan
+    clear = shapely.distance(shapely.points(wet[:, [0, 2]]), piece.boundary) >= OFFSHORE
+    heights = wet[clear, 1] if clear.sum() >= MIN_POINTS else wet[:, 1]
+    bins, counts = np.unique(np.floor(heights / REFERENCE_STEP).astype(int), return_counts=True)
+    return float((bins[np.argmax(counts)] + 0.5) * REFERENCE_STEP)
+
+
+def piece_blocks(piece):
+    from .sources import block_bbox
+
+    candidates = C.laz_tiles_for_bbox(C.BBoxLocal(*piece.bounds))
+    if len(candidates) > 4 * PIECE_BLOCKS:
+        return None
+    blocks = [b for b in candidates if piece.intersects(shapely.box(*block_bbox(b).as_tuple()))]
+    if len(blocks) > PIECE_BLOCKS:
+        return None
+    root = C.raw_dir("laz") / "maanpinta"
+    return tuple(str(p) for b in blocks if (p := root / f"{b.name}.laz").exists())
+
+
+@lru_cache(maxsize=64)
+def _reference(wkb, paths):
+    from turku3d.lidar.decoded import columns, source
+
+    piece = shapely.from_wkb(wkb)
+    shapely.prepare(piece)
+    x0, z0, x1, z1 = piece.bounds
+    chunks = []
+    for path in paths:
+        las = columns(source(path))
+        x, y, z = C.en_to_local(np.asarray(las.x), np.asarray(las.y), np.asarray(las.z))
+        keep = (x >= x0) & (x <= x1) & (z >= z0) & (z <= z1)
+        keep &= ~np.isin(np.asarray(las.classification), [3, 4, 5])
+        chunks.append(np.column_stack([x[keep], y[keep], z[keep]]))
+    return modal_surface(np.concatenate(chunks) if chunks else np.empty((0, 3)), piece)
+
+
+def reference(piece):
+    """The whole piece's modal surface, or NaN when the piece is too large to read whole."""
+    paths = piece_blocks(piece)
+    if not paths:
+        return np.nan
+    return _reference(piece.normalize().wkb, paths)
+
+
 def datum(measured):
     """Tidal water keeps the sea datum; inland measurements are used as they are."""
     lo, hi = TIDAL
@@ -112,16 +172,20 @@ class Levels:
         self.origin = origin  # (x0, z0) of node (0, 0), a multiple of GRID
         self.shape = shape  # (rows along z, columns along x)
         self.nodes = nodes  # (pieces, rows, cols) surface heights, NaN where unmeasured
-        self.fallback = fallback  # (pieces,) surface of a piece without nearby nodes
+        self.fallback = fallback  # (pieces,) canonical piece surface, or the tile's own reading
+
+    def owner(self, xz):
+        """The nearest piece of each point."""
+        xz = np.asarray(xz, float).reshape(-1, 2)
+        points = shapely.points(xz)
+        return np.argmin(np.stack([shapely.distance(points, p) for p in self.pieces]), axis=0)
 
     def at(self, xz):
         xz = np.asarray(xz, float).reshape(-1, 2)
         result = np.full(len(xz), LEVEL)
         if not self.pieces or not len(xz):
             return result
-        points = shapely.points(xz)
-        distance = np.stack([shapely.distance(points, p) for p in self.pieces])
-        owner = np.argmin(distance, axis=0)
+        owner = self.owner(xz)
         u = (xz[:, 0] - self.origin[0]) / GRID
         v = (xz[:, 1] - self.origin[1]) / GRID
         i0 = np.clip(np.floor(v).astype(int), 0, self.shape[0] - 2)
@@ -168,6 +232,7 @@ def measure(tile, water, steps, paths, rapids=()):
     for k, piece in enumerate(parts):
         shapely.prepare(piece)
         near = shapely.distance(shapely.points(grid), piece) <= RADIUS
+        fallback[k] = reference(piece)
         if not near.any() or not len(points):
             continue
         inside = shapely.contains_xy(piece, points[:, 0], points[:, 2])
@@ -183,10 +248,11 @@ def measure(tile, water, steps, paths, rapids=()):
                 ids = np.asarray(ids)
                 inner = ids[clear[ids]]
                 values[n] = np.percentile(wet[inner if len(inner) >= MIN_POINTS else ids, 1], QUANTILE)
-            fallback[k] = np.percentile(wet[clear, 1] if clear.sum() >= MIN_POINTS else wet[:, 1], QUANTILE)
+            if not np.isfinite(fallback[k]):
+                fallback[k] = np.percentile(wet[clear, 1] if clear.sum() >= MIN_POINTS else wet[:, 1], QUANTILE)
         bank = points[shore]
         missing = near & ~np.isfinite(values)
-        if len(wet) < MIN_POINTS and len(bank) >= MIN_POINTS:
+        if len(wet) < MIN_POINTS and not np.isfinite(fallback[k]) and len(bank) >= MIN_POINTS:
             # Without water returns, the lowest bank returns bound the surface. A measured
             # piece never takes them: beside quays they are the quay tops.
             tree = cKDTree(bank[:, [0, 2]])
@@ -203,3 +269,65 @@ def measure(tile, water, steps, paths, rapids=()):
         nodes[k] = values.reshape(rows, cols)
     fallback = datum(fallback)
     return Levels(parts, (x0, z0), (rows, cols), nodes, fallback)
+
+
+def stage(cache, tile, inputs):
+    """The tile's level field, cached on its water, mapped steps and key-point blocks."""
+    from pathlib import Path
+
+    from turku3d.stage_cache import source_key
+
+    if not inputs.water:
+        return None
+    roads = inputs.sources.get("roads", ())
+    steps, rapids = features(roads[0] if roads else None)
+    paths = lidar_paths(tile)
+    wholes = sorted({p for piece in pieces(inputs.water, steps) for p in (piece_blocks(piece) or ())})
+    identity = [(str(p), Path(p).stat().st_size, Path(p).stat().st_mtime_ns)
+                for p in sorted({*map(str, paths), *wholes})]
+    return cache.run(
+        "water_levels", source_key(Path(__file__)), [tile, inputs.water, steps, rapids, identity],
+        lambda: measure(tile, inputs.water, steps, paths, rapids),
+    )
+
+
+INLAND = 0.01  # m above the datum: an inland surface
+
+
+def surface(levels, geometry):
+    """Inland surface under a footprint or line (its lowest measured level), or None."""
+    if levels is None or not levels.pieces or geometry is None or geometry.is_empty:
+        return None
+    samples = shapely.get_coordinates(shapely.segmentize(geometry, 2.0))
+    if not len(samples):
+        return None
+    level = float(np.min(levels.at(samples)))
+    return level if level > LEVEL + INLAND else None
+
+
+def follow(inputs, levels):
+    """Moored vessels, piers and bridge footings over inland water take its local surface.
+
+    Prepared inputs carry the sea datum; above a dam a floating pier sits on the pool.
+    Values are set from the local surface, so applying this twice changes nothing.
+    """
+    if levels is None:
+        return
+    for boat in inputs.boats or ():
+        water = surface(levels, boat.get("outline"))
+        if water is None:
+            continue
+        if boat.get("kind") == "pier":
+            if boat.get("deck_source") in (None, "waterline-fallback") or boat["deck"] < water + 0.18:
+                boat["deck"] = water + (0.55 if boat.get("floating") else 0.9)
+        else:
+            boat["deck"] = max(boat["deck"], water + 0.9)
+        boat["water"] = water
+    wet = shapely.union_all(inputs.water)
+    for way in (inputs.roads or {}).get("bridge_ways", ()):
+        line = way.get("line")
+        if line is None or not line.intersects(wet):
+            continue
+        water = surface(levels, line.intersection(wet))
+        if water is not None:
+            way.setdefault("survey", {})["water_level"] = water

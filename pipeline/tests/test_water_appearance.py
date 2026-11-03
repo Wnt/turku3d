@@ -47,5 +47,18 @@ def test_sloped_reach_and_level_bands_get_their_own_mirror_meshes():
     assert set(by_id) == {'water_t0_0_0_aura', 'water_t0_0_0_aura_b15', 'water_t0_0_0_aura_slope'}
     assert by_id['water_t0_0_0_aura_slope'].extras['water_slope'] is True
     assert 'water_band' not in by_id['water_t0_0_0_aura'].extras
-    assert by_id['water_t0_0_0_aura_b15'].extras['water_band'] == 15
+    assert by_id['water_t0_0_0_aura_b15'].extras['water_band'] == '15'
     assert all(np.all(m.normals == [0, 1, 0]) for m in meshes)
+
+
+def test_a_measured_pool_is_one_mirror_reach_across_level_band_edges():
+    from turku3d.coarse.water_levels import Levels
+    tile = C.VisualTile(0, 0, 0)
+    pool = shapely.box(-1, -1, 30, 3)
+    levels = Levels([pool], (0.0, 0.0), (2, 2), np.full((1, 2, 2), np.nan), np.array([7.55]))
+    p = np.array([[0, 7.45, 0], [0, 7.45, 2], [2, 7.45, 0],
+                  [10, 7.6, 0], [10, 7.6, 2], [12, 7.6, 0]], float)
+    ix = np.array([[0, 1, 2], [3, 4, 5]], dtype='uint32')
+    meshes = appearance.visuals(tile, SimpleNamespace(positions=p, indices=ix),
+                                [(pool, 'aura', None)], levels)
+    assert [m.extras['water_band'] for m in meshes] == ['7.55+0']
