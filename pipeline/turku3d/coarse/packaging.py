@@ -101,6 +101,7 @@ def producer_paths():
             Path(__file__).with_name("vessel_observations.json"),
             Path(__file__).parents[1] / "stage_cache.py",
             Path(__file__).parents[1] / "spatial.py",
+            Path(__file__).parents[1] / "lidar/decoded.py",
             *sorted((Path(__file__).parents[1] / "roads").glob("*.py")),
             *package_sources(),
             *sorted((C.REPO_ROOT / "game/public/basis").glob("basis_transcoder.*")),

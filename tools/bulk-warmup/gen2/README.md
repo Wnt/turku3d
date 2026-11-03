@@ -50,7 +50,10 @@ upload. Inventory evidence: Mac `loops/bulkgen2/source-inventory.json.gz`.
 
 Environment matches the farm: locked Python 3.12.16, Node 24.18.0, KTX 4.4.2,
 meshoptimizer 1.3.0, micromamba/npm dependencies, triangle/jsonschema. `run.sh` sets
-paths and one BLAS/OpenMP thread per builder. All caches remain on **MaxIOPS**.
+paths and one BLAS/OpenMP thread per builder. Rayon, Numba and explicit job pools
+use `TURKU3D_THREADS_PER_WORKER` (default four; the farm sets CPU count / workers).
+Source-order LAZ decoding is shared across surveys, workers and generations in
+the farm's content-addressed raw-derived cache. All caches remain on **MaxIOPS**.
 
 ## Revision and source identity
 

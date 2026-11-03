@@ -473,6 +473,32 @@ class FarmTests(unittest.TestCase):
         roots = farm.intermediate_roots(repo)
         self.assertEqual(roots['vegetation'], old_roots['vegetation'])
         self.assertNotEqual(roots['coarse-roofs'], old_roots['coarse-roofs'])
+        (base / 'lidar/decoded.py').write_text('shared decoder')
+        decoded_roots = farm.intermediate_roots(repo)
+        self.assertEqual(set(decoded_roots), set(roots))
+        for name in roots:
+            self.assertNotEqual(decoded_roots[name], roots[name])
+
+    def test_decoded_eviction_during_build_preserves_locked_and_mapped_sources(self):
+        import fcntl
+        import mmap
+
+        farm = self.farm(workers=0, free=lambda: 0)
+        farm.jobs[(GEN, 't0_0_0')] = REV
+        root = self.root / 'cache/raw-derived/decoded' / ('e' * 64)
+        root.mkdir(parents=True)
+        cold, locked = root / ('f' * 64 + '.npy'), root / ('a' * 64 + '.npy')
+        cold.write_bytes(b'exact source columns')
+        locked.write_bytes(b'decoding')
+        with cold.open('rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            with locked.with_suffix('.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                self.assertFalse(farm.make_room(farm_module.GIB))
+                self.assertTrue(locked.exists())
+            self.assertFalse(cold.exists())
+            self.assertEqual(data[:], b'exact source columns')
+        self.assertTrue(cold.with_suffix('.lock').exists())
+        self.assertEqual(farm.metrics['evicted_bytes'], len(b'exact source columns'))
 
     def test_game_polling_counts_only_its_requested_generation(self):
         entered, release = threading.Event(), threading.Event()

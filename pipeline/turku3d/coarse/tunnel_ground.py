@@ -10,10 +10,10 @@ from turku3d import config as C
 @lru_cache(maxsize=8)
 def _keypoints(path, size, mtime):
     """A bounded cache of complete raw blocks makes cross-tile tunnel profiles identical."""
-    import laspy
+    from turku3d.lidar.decoded import source, columns
     from scipy.spatial import cKDTree
 
-    las = laspy.read(path)
+    las = columns(source(path))
     x, h, z = C.en_to_local(np.asarray(las.x), np.asarray(las.y), np.asarray(las.z))
     return cKDTree(np.c_[x, z]), np.asarray(h)
 
