@@ -5,7 +5,6 @@ import { nightUniforms, wallFrame, windowEmission } from './nightLights';
 import { facadeProgramSurface } from './facadeProgramSurface';
 import { interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
-import farGround from './farGroundPalette.json';
 
 const source = new THREE.MeshStandardMaterial({ name: 'distant-city-pigment', roughness: 1, metalness: 0 });
 // Node identity participates in the program key. Ground and plain shells have the
@@ -63,24 +62,6 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
   return material;
 }
 
-/** Derivatives built before farGroundPalette.json carry the old fixed ground palette (and white for unmatched keys):
- *  translate those exact quantized pigments to the near materials' distant colours, once per loaded cell. */
-export function translateLegacyGround(geometry: THREE.BufferGeometry) {
-  const colour = geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
-  if (!colour || colour.itemSize < 3 || geometry.userData.farGround) return;
-  geometry.userData.farGround = true;
-  const tolerance = 1.5 / 255;
-  for (let i = 0; i < colour.count; i++) {
-    const r = colour.getX(i), g = colour.getY(i), b = colour.getZ(i);
-    for (const [from, to] of farGround.legacy) {
-      if (Math.abs(r - from[0]) > tolerance || Math.abs(g - from[1]) > tolerance || Math.abs(b - from[2]) > tolerance) continue;
-      colour.setXYZ(i, to[0], to[1], to[2]);
-      break;
-    }
-  }
-  colour.needsUpdate = true;
-}
-
 export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, coverage?: THREE.DataTexture) {
   const originals = new Set<THREE.Material>();
   const materials = new Map<string, THREE.MeshStandardNodeMaterial>();
@@ -89,7 +70,6 @@ export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, co
     if (!mesh.isMesh) return;
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) originals.add(material);
     const layer = String(mesh.userData.layer ?? mesh.name);
-    if (layer === 'ground') translateLegacyGround(mesh.geometry);
     interleaveProgram(mesh.geometry);
     const map = (mesh.material as THREE.MeshStandardMaterial).map;
     const programVersion = mesh.geometry.getAttribute('_kit_layout')?.itemSize === 4 ? 6 : 5;

@@ -1,5 +1,5 @@
 {
-  "about": "Linear mean albedo of the near ground library textures (8 px mip of each draft_* KTX2, sRGB-decoded), measured 2026-11-03 from generation 2e6515f4 tiles. The far ground pigment must equal the near material's distant colour. `near` is keyed by the material key without its draft_ prefix; the longest contained key wins. `legacy` translates the pigments of scenery derivatives built before this table (old fixed palette, unmatched keys white); remove it once the scenery cache has been rebuilt with tools/remote-drafts/scenery.mjs from this commit. `survey` holds the survey/L2 ground classes: `land` and `street` are the area-weighted means of the authored far ground (this table's `near` pigments) over t0_0_0, t0_1_0, t0_-1_1, t0_2_-1 and t0_1_1 (land = every class but asphalt and water); `built` is the regional built-up class, the combined land+street mean.",
+  "about": "Linear mean albedo of the near ground library textures (8 px mip of each draft_* KTX2, sRGB-decoded), measured 2026-11-03 from generation 2e6515f4 tiles. The far ground pigment must equal the near material's distant colour. `near` is keyed by the material key without its draft_ prefix; the longest contained key wins. `survey` holds the survey/L2 ground classes: `land` and `street` are the area-weighted means of the authored far ground (this table's `near` pigments) over t0_0_0, t0_1_0, t0_-1_1, t0_2_-1 and t0_1_1 (land = every class but asphalt and water); `built` is the regional built-up class, the combined land+street mean.",
   "near": {
     "asphalt_worn": [
       0.205,
@@ -72,80 +72,6 @@
       0.24
     ]
   },
-  "legacy": [
-    [
-      [
-        0.16,
-        0.17,
-        0.18
-      ],
-      [
-        0.205,
-        0.205,
-        0.205
-      ]
-    ],
-    [
-      [
-        0.22,
-        0.29,
-        0.12
-      ],
-      [
-        0.107,
-        0.17,
-        0.04
-      ]
-    ],
-    [
-      [
-        0.36,
-        0.32,
-        0.25
-      ],
-      [
-        0.305,
-        0.27,
-        0.27
-      ]
-    ],
-    [
-      [
-        0.43,
-        0.43,
-        0.4
-      ],
-      [
-        0.424,
-        0.424,
-        0.382
-      ]
-    ],
-    [
-      [
-        0.35,
-        0.34,
-        0.32
-      ],
-      [
-        0.24,
-        0.23,
-        0.215
-      ]
-    ],
-    [
-      [
-        1,
-        1,
-        1
-      ],
-      [
-        0.296,
-        0.262,
-        0.23
-      ]
-    ]
-  ],
   "survey": {
     "land": [
       0.235,

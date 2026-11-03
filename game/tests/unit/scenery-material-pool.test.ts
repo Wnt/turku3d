@@ -1,7 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { sceneryMaterial, styleScenery, translateLegacyGround } from '../../src/render/sceneryMaterial';
-import farGround from '../../src/render/farGroundPalette.json';
+import { sceneryMaterial, styleScenery } from '../../src/render/sceneryMaterial';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { disposeModelResources } from '../../src/world/disposeModel';
 
@@ -53,21 +52,4 @@ test('plain scenery reuses program keys while coverage and atlas bindings stay d
   expect(mapped.customProgramCacheKey()).not.toBe(otherMap.customProgramCacheKey());
   for (const material of [ground, shell, masked, otherMask, mapped, otherMap]) material.dispose();
   first.dispose(); second.dispose();
-});
-
-test('far ground built with the old fixed palette takes the near materials distant colours', () => {
-  const quantized = (rgb: number[][]) => new THREE.BufferAttribute(new Uint8Array(rgb.flat().map(v => Math.round(v * 255))), 3, true);
-  const geometry = new THREE.BufferGeometry();
-  // Old grass, white (unmatched granite curb), old stone, and a survey colour that is not part of the old palette.
-  geometry.setAttribute('color', quantized([[.22, .29, .12], [1, 1, 1], [.35, .34, .32], [.24, .29, .16]]));
-  translateLegacyGround(geometry);
-  const colour = geometry.getAttribute('color') as THREE.BufferAttribute;
-  const at = (i: number) => [colour.getX(i), colour.getY(i), colour.getZ(i)].map(v => Math.round(v * 255));
-  const near = (rgb: number[]) => rgb.map(v => Math.round(v * 255));
-  expect(at(0)).toEqual(near(farGround.near.grass));
-  expect(at(1)).toEqual(near(farGround.near.granite_curb));
-  expect(at(2)).toEqual(near(farGround.near.stone));
-  expect(at(3)).toEqual(near([.24, .29, .16]));
-  translateLegacyGround(geometry); // once per geometry: a translated pigment is never translated again
-  expect(at(0)).toEqual(near(farGround.near.grass));
 });
