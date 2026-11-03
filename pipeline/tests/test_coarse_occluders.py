@@ -42,7 +42,7 @@ def test_boxes_are_model_local_inside_the_inset_footprint_above_the_ground_store
     for row in data["boxes"]:
         polygon = footprint_of(row, [10, 0, 5])
         assert footprint.buffer(-.249).covers(polygon)
-        assert row["min"][1] == 6.25 and row["max"][1] == 14.75
+        assert row["min"][1] == 2.25 and row["max"][1] == 14.75
         area += polygon.area
     # Oriented boxes fill most of a rotated block instead of an axis-aligned staircase.
     assert area > .8 * footprint.buffer(-.25).area
@@ -52,6 +52,9 @@ def test_courtyards_concavities_and_surveyed_passages_stay_open(monkeypatch):
     no_survey(monkeypatch)
     passage = shapely.box(2, 0, 6, 20)
     monkeypatch.setattr("turku3d.facade_apertures.volumes", lambda _: [(passage, 2, 8)])
+    observation = dict(walls=[dict(geometry=dict(base_h=2), height_m=10, width_m=20,
+                                   geometry_components=[dict(kind="arcade", through=True, bounds=[0, 0, .2, .6])])])
+    monkeypatch.setattr("turku3d.facade_programs.measured", lambda _: observation)
     footprint = shapely.box(0, 0, 20, 20).difference(shapely.box(10, 10, 20, 20)).difference(shapely.box(8, 4, 12, 8))
     data = building_occluders([fixture(footprint)], [mesh()], [0, 0, 0])
     assert data["boxes"]
@@ -60,7 +63,8 @@ def test_courtyards_concavities_and_surveyed_passages_stay_open(monkeypatch):
         polygon = footprint_of(row, [0, 0, 0])
         assert footprint.buffer(-.249).covers(polygon)
         assert not passage.intersects(polygon)
-        assert low[1] >= 6.25 and high[1] <= 14.75
+        # The through-arcade reaches 8 m, so nothing below it may occlude anywhere in the building.
+        assert low[1] >= 8.25 and high[1] <= 14.75
 
 
 def test_box_tops_follow_the_roof_above_each_area(monkeypatch):
@@ -85,7 +89,7 @@ def test_glass_translucent_low_or_unclosed_buildings_emit_nothing(monkeypatch):
     clear = mesh(); clear.color = (1, 1, 1, .5)
     assert not building_occluders([part], [clear], [0, 0, 0])["boxes"]
     assert not building_occluders([part], [], [0, 0, 0])["boxes"]
-    assert not building_occluders([fixture(shapely.box(0, 0, 20, 20), roof=7)], [mesh()], [0, 0, 0])["boxes"]
+    assert not building_occluders([fixture(shapely.box(0, 0, 20, 20), roof=3)], [mesh()], [0, 0, 0])["boxes"]
     building, shell = part
     assert not building_occluders([(building, (*shell[:6], np.empty((0, 3), int)))], [mesh()], [0, 0, 0])["boxes"]
     assert not building_occluders([part], [mesh()], [float("nan"), 0, 0])["boxes"]
