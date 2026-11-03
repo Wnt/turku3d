@@ -387,7 +387,8 @@ async function runQa() {
   });
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
-      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
+      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
+      prepare: model => prepareGraphics(model) }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
   // Drive-bench captures read the tile streamer here (stats.coarse, 1 Hz coverage snapshots), as in play sessions.
   window.__game!.population = population; window.__game!.coarse = coarse;
@@ -567,7 +568,8 @@ async function runLab() {
   });
   const population = !idPass && (params.traffic !== 0 || params.walkers !== 0)
     ? new ScenePopulation(scene, coarse, camera, labManifest, ground, { quality: params.quality, traffic: params.traffic,
-      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
+      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
+      prepare: model => prepareGraphics(model) }) : null;
   if (population) await population.load();
   const game = window.__game!;
   const pipelines = () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null;

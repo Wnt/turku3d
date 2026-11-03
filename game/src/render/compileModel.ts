@@ -66,7 +66,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
   const meshes: THREE.Mesh[] = [];
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
-    if (mesh.isMesh && (mesh.visible || mesh.userData.vegetationLod) && mesh.layers.test(camera.layers)
+    if (mesh.isMesh && (mesh.visible || mesh.userData.vegetationLod || mesh.userData.prepareHidden) && mesh.layers.test(camera.layers)
       && (!castersOnly || mesh.castShadow)) meshes.push(mesh);
   });
   const programs = new Set<string>();

@@ -47,10 +47,12 @@ export class ScenePopulation {
    *  walkers sample it with a grid lookup, never the visual meshes. */
   constructor(scene: THREE.Scene, private source: CoarseTiles, private camera: THREE.PerspectiveCamera,
     private manifest: Manifest, private ground: GroundIndex, private options: { quality: QualityTier; traffic: number | null; walkers: number | null;
-      density: number; hour: () => number; night: () => number }) {
+      density: number; hour: () => number; night: () => number; prepare?: (model: THREE.Object3D) => Promise<void> }) {
     this.root.name = 'scene-population'; scene.add(this.root);
     this.cap = options.traffic ?? TRAFFIC_CAPS[options.quality];
-    this.visuals = new ParkedCarVisuals(this.root); this.visuals.reserveTraffic(this.cap);
+    // Fleet designs compile before they draw (as play.ts's parked cars): unprepared, every design built its programs
+    // inside a frame (replay qj4rp2: 'Finnish fleet' 112 + glass 7 in-frame builds).
+    this.visuals = new ParkedCarVisuals(this.root, options.prepare); this.visuals.reserveTraffic(this.cap);
     this.signals = new TrafficSignals(this.root);
     this.network.density = { hourAt: () => options.hour(), multiplier: options.density };
     this.walkers = new Walkers(this.root, { cap: walkerCap(options.quality, options.walkers),
@@ -64,6 +66,8 @@ export class ScenePopulation {
   async load() {
     await Promise.all([this.visuals.load({ ...this.manifest, vehicles: [] }),
       this.walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`)]);
+    // Walker variants are hidden until someone walks; their VAT programs compile now, not in their first frame.
+    await this.options.prepare?.(this.root);
   }
   private height: LaneHeight = (lane, s) => {
     let i = 1; while (i < lane.cum.length - 1 && lane.cum[i] < s) i++;

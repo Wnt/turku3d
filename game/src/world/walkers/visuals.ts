@@ -178,7 +178,7 @@ export class WalkerMeshes {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.castShadow = false; // low and medium never cast; high has no VAT shadow program yet
       mesh.receiveShadow = true;
-      mesh.count = 0; mesh.visible = false;
+      mesh.count = 0; mesh.visible = false; mesh.userData.prepareHidden = true; // compiled while hidden (compileModel)
       this.group.add(mesh);
       return mesh;
     }));

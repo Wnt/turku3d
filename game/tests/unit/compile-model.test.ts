@@ -195,3 +195,16 @@ test('draws that share a program compile once per pass; object-specific instanci
   expect(compiled).toEqual([same[0], receiver, ...own, shared[0]]);
   target.dispose();
 });
+
+test('hidden draws flagged prepareHidden (walkers) compile with the model; other hidden draws do not', async () => {
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  Object.assign(renderer, { _renderContexts: { get: () => ({}) } });
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(), target = new THREE.RenderTarget();
+  const walker = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()), hidden = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  walker.visible = hidden.visible = false; walker.userData.prepareHidden = true; scene.add(walker, hidden);
+  const compiled: THREE.Object3D[] = [];
+  vi.spyOn(renderer, 'compileAsync').mockImplementation(mesh => { expect(mesh.visible).toBe(true); compiled.push(mesh); return Promise.resolve(); });
+  await compileModel(renderer, scene, scene, camera, target, null, renderer.contextNode);
+  expect(compiled).toEqual([walker]); expect(walker.visible).toBe(false);
+  target.dispose();
+});
