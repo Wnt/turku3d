@@ -161,3 +161,43 @@ test('simultaneous owners recheck their shared budget before cloning another pla
   for (const [i, owner] of owners.entries()) { disposeModelResources(owner, shared); releases[i](); await Promise.resolve(); }
   expect(disposed).toHaveBeenCalledOnce();
 });
+
+test('production preparation and retirement preserve shared packed archetype geometry across owners', async () => {
+  const { VisualTiles } = await import('../../src/world/tiles');
+  const { interleaveProgram } = await import('../../src/render/facadeProgramAttributes');
+  const { root, mesh } = prototype(); mesh.geometry.clearGroups();
+  mesh.material = new THREE.MeshStandardMaterial();
+  const count = mesh.geometry.attributes.position.count;
+  mesh.geometry.setAttribute('_kit_opening', new THREE.Float32BufferAttribute(new Float32Array(count * 4).fill(.25), 4));
+  mesh.geometry.setAttribute('_kit_wall', new THREE.Float32BufferAttribute(new Float32Array(count * 3).fill(.75), 3));
+  interleaveProgram(mesh.geometry);
+  const attribute = mesh.geometry.getAttribute('_kit_opening') as THREE.InterleavedBufferAttribute;
+  const buffer = attribute.data, bytes = buffer.array.slice(), disposed = vi.fn();
+  mesh.geometry.addEventListener('dispose', disposed);
+  const shared = new SharedMaterials(), load = vi.fn(async () => root);
+  const cache = new BuildingModelCache(load, model => disposeModelResources(model, shared));
+  const input = data();
+  input.placements.push({ ...input.placements[0], id: 'second-building', position: [270, 0, 120] });
+  const first = new THREE.Group(), second = new THREE.Group();
+  const releaseFirst = await cache.attach(first, input, base), releaseSecond = await cache.attach(second, input, base);
+  const tiles = new VisualTiles();
+  await tiles.prepareModelAsync(first);
+  expect(first.getObjectByName('static-placement-batch')).toBeDefined();
+  expect(first.getObjectByName('tile-shadow-batch')).toBeDefined();
+  expect(mesh.geometry.getAttribute('_kit_opening')).toBe(attribute);
+  expect(attribute.data).toBe(buffer); expect(buffer.array).toEqual(bytes);
+  updateBuildingDistances(first, 2000, 2000);
+  expect(first.getObjectByName('static-placement-batch')!.visible).toBe(false);
+  updateBuildingDistances(first, 260, 120);
+  expect(first.getObjectByName('static-placement-batch')!.visible).toBe(true);
+  tiles.releasePreparedModel(first); disposeModelResources(first, shared); releaseFirst(); await Promise.resolve();
+  expect(disposed).not.toHaveBeenCalled();
+  const remaining = second.children[0].children[0].children[0] as THREE.Mesh;
+  expect(remaining.geometry).toBe(mesh.geometry);
+  expect(remaining.geometry.getAttribute('_kit_opening')).toBe(attribute);
+  expect(buffer.array).toEqual(bytes);
+  await tiles.prepareModelAsync(second);
+  expect(second.getObjectByName('static-placement-batch')).toBeDefined();
+  tiles.releasePreparedModel(second); disposeModelResources(second, shared); releaseSecond(); await Promise.resolve();
+  expect(load).toHaveBeenCalledOnce(); expect(disposed).toHaveBeenCalledOnce();
+});
