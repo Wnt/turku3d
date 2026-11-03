@@ -78,3 +78,37 @@ test('component instances retain source building metadata for raycast hits', () 
   assert.deepEqual(node.getExtras().instance_objects.map(o=>[o.building_id,o.address]),
     [['house-0','Street 0'],['house-1','Street 1'],['house-2','Street 2']]);
 });
+
+for (const second of ['different', 'absent', 'equal']) {
+  test(`component visibility survives instancing when second bake is ${second}`, async () => {
+    const {doc,scene} = fixture();
+    const sourceNodes = scene.listChildren();
+    const expected = [];
+    sourceNodes.forEach((node, i) => {
+      node.setExtras({...node.getExtras(), building_id:`house-${i}`});
+      const values = i === 1 && second === 'absent' ? null :
+        Array.from({length:72}, (_, k) => k % 3 === 2 ? 1 :
+          i === 1 && second === 'different' ? .25 : .75);
+      expected.push(values);
+      if (values) node.getMesh().listPrimitives()[0].setAttribute('COLOR_1', doc.createAccessor()
+        .setType('VEC3').setArray(new Float32Array(values)).setBuffer(doc.getRoot().listBuffers()[0]));
+    });
+    instanceFacadeComponents(doc,scene,'t0_1_0',EXTMeshGPUInstancing);
+    const io = new NodeIO().registerExtensions([EXTMeshGPUInstancing]);
+    const read = await io.readBinary(await io.writeBinary(doc));
+    const seen = new Set();
+    for (const node of read.getRoot().listNodes().filter(n=>n.getMesh())) {
+      const values = node.getMesh().listPrimitives()[0].getAttribute('COLOR_1')?.getArray();
+      const owners = node.getExtras().instance_objects ?? [node.getExtras()];
+      for (const owner of owners) {
+        const i = Number(owner.building_id.slice(-1));
+        assert.deepEqual(values ? Array.from(values) : null, expected[i]);
+        seen.add(i);
+      }
+    }
+    assert.equal(seen.size, 3);
+    const batch = read.getRoot().listNodes().find(n=>n.getExtension('EXT_mesh_gpu_instancing'));
+    assert.equal(batch.getExtension('EXT_mesh_gpu_instancing').getAttribute('TRANSLATION').getCount(),
+      second === 'equal' ? 3 : 2);
+  });
+}

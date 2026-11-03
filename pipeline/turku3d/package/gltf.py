@@ -39,6 +39,7 @@ class GlbMesh:
     normal_image: bytes | None = None
     orm_image: bytes | None = None
     colors: np.ndarray | None = None  # (N,3) linear RGB multiplying ``color`` (COLOR_0)
+    baked_visibility: np.ndarray | None = None  # (N,3) local AO visibility, sky visibility, coverage (COLOR_1)
 
 
 def vertex_normals(pos: np.ndarray, idx: np.ndarray) -> np.ndarray:
@@ -131,6 +132,14 @@ def build_glb(
                 FLOAT,
                 "VEC3",
                 ARRAY_BUFFER,
+            )
+        if m.baked_visibility is not None:
+            visibility = np.asarray(m.baked_visibility)
+            if (visibility.shape != pos.shape or not np.isfinite(visibility).all()
+                    or np.any(visibility < 0) or np.any(visibility > 1)):
+                raise ValueError(f"{m.name}: baked_visibility must be finite (N,3) values in [0,1]")
+            attrs["COLOR_1"] = accessor(
+                np.ascontiguousarray(visibility, np.float32), FLOAT, "VEC3", ARRAY_BUFFER
             )
         if m.uvs is not None:
             attrs["TEXCOORD_0"] = accessor(
