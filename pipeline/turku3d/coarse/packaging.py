@@ -88,6 +88,8 @@ PRODUCERS = (
     "roofs",
     "register",
     "stored_facades",
+    "slope_buildings",
+    "funicular",
 )
 
 

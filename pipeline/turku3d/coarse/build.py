@@ -214,6 +214,10 @@ def build(
         inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
     seconds.update({"input_" + k: v for k, v in inputs.seconds.items()})
+    from . import slope_buildings
+
+    # Before terrain and shells: both read the base, and seam buildings must agree.
+    slope_buildings.apply([*inputs.buildings, *inputs.wall_context], inputs.points)
     seconds["inputs_total"] = time.perf_counter() - started
 
     base = Path(__file__).parents[1]
@@ -307,6 +311,18 @@ def build(
     solid = stairs.cut_ground(solid, attachment_openings)
     stair_meshes = [*stair_meshes, *attachment_meshes]
     seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
+    from . import funicular
+
+    t = time.perf_counter()
+    osm_path = (inputs.sources.get("roads") or [None])[0]
+    funicular_meshes, funicular_openings = funicular.produce(
+        tile, Path(osm_path) if osm_path else None, ground_sources, [*blds, *inputs.wall_context]
+    )
+    dry = stairs.cut_ground(dry, funicular_openings)
+    solid = stairs.cut_ground(solid, funicular_openings)
+    stair_meshes = [*stair_meshes, *funicular_meshes,
+                    *slope_buildings.railings(inputs.buildings, inputs.points)]
+    seconds["funicular"] = time.perf_counter() - t
     from . import yard_cover
     from turku3d.tile_layer import identities
 
@@ -895,6 +911,8 @@ def build(
         },
         buildings=len(blds),
         building_keys=[b.facade_key for b in blds],
+        set_into_slope={b.facade_key: b.attributes["set_into_slope"]
+                        for b in blds if b.attributes.get("set_into_slope")},
         roof_heights=[
             dict(building=b.key, parts=len(b.roof_parts), evidence=b.height_evidence) for b in blds
         ],
