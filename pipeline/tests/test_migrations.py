@@ -326,3 +326,14 @@ def test_spot_rebuild_leaves_unaffected_tiles_linked_to_their_base(tmp_path, cha
     assert stored["migrations"] == [dict(name="chain-record", version=1), dict(name="test-rebuild", version=1)]
     vis = stored["visual"][TILE]["url"]
     assert (migrated / TILE / vis).stat().st_ino == (root / "products" / BASE_GEN / TILE / vis).stat().st_ino
+
+
+def test_a_longer_chain_inherits_unchanged_spot_rebuilds(tmp_path, chain):
+    root, _, _ = rebuild_farm(tmp_path, chain)
+    first = tile_migrate.derive(root, BASE_REV, CODE_REV)
+    newer = "e" * 40
+    (root / "revisions" / newer / "repo").mkdir(parents=True)
+    (root / "revisions" / newer / "revision.json").write_text(json.dumps(dict(revision=newer, generation="8" * 64)))
+    longer = tile_migrate.derive(root, BASE_REV, newer, first["revision"])
+    assert longer["migrations"][1]["rebuild_generation"] == REBUILT_GEN
+    assert longer["generation"] == first["generation"] and longer["revision"] != first["revision"]
