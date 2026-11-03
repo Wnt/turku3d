@@ -3,6 +3,7 @@
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { styleBlockLod } from '../render/sceneryMaterial';
+import { lodFades } from '../render/lodFade';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
@@ -218,6 +219,7 @@ export class CoarseTiles {
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true) {
     this.clock = now;
+    lodFades.update(now);
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
     this.restoreCached(x,z);
     for (const entry of this.entries.values()) {
@@ -725,6 +727,7 @@ export class CoarseTiles {
   }
 
   private dispose(model: THREE.Object3D, id?: string) {
+    lodFades.cancelWithin(model);
     model.removeFromParent();
     if (id) this.host.untrackModel?.(model, id);
     const release = () => {

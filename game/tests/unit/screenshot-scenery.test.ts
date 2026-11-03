@@ -4,6 +4,7 @@ import { ScreenshotScenery } from '../../src/world/screenshotScenery';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
+import { LOD_FADE_SECONDS, lodFades } from '../../src/render/lodFade';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
@@ -102,8 +103,15 @@ test('prepared scenery owns the first visual until full detail and preview retur
   scenery.nearbyChanged('t0_0_0');expect(replacement.visible).toBe(true);
   entry.cachedAt=undefined;entry.model!.visible=true;
   scenery.nearbyChanged('t0_0_0');
+  // The cell dissolves away on top of the detailed tile, outside its merged batch, and is kept meanwhile.
+  expect(replacement.visible).toBe(true);
+  expect(lodFades.has(replacement)).toBe(true);
+  scenery.update(125, 125, 600); await settle();
+  expect(replacement.parent).toBe(scene);
+  lodFades.update(500 + LOD_FADE_SECONDS * 1000);
   expect(replacement.visible).toBe(false);
-  scenery.update(125, 125, 1000); await settle();
+  expect(lodFades.has(replacement)).toBe(false);
+  scenery.update(125, 125, 1200); await settle();
   expect(replacement.parent).toBeNull();
 });
 

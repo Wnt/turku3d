@@ -2,6 +2,7 @@ import { releaseGeometry } from './modelGeometry';
 import type * as THREE from 'three/webgpu';
 import { releaseModelTextures } from './sharedAssets';
 import { disposeDraw, type SharedMaterials } from '../render/sharedMaterials';
+import { isDissolveTwin } from '../render/lodFade';
 
 /** Release all render contexts before tile-owned buffers; shared materials keep their other owners. */
 export function disposeModelResources(model: THREE.Object3D, shared: SharedMaterials) {
@@ -11,6 +12,7 @@ export function disposeModelResources(model: THREE.Object3D, shared: SharedMater
     if (!mesh.isMesh) return;
     disposeDraw(mesh); geometries.add(mesh.geometry);
     for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (isDissolveTwin(m)) continue;
       materials.add(m);
       for (const v of Object.values(m)) if ((v as THREE.Texture)?.isTexture) textures.add(v as THREE.Texture);
     }
