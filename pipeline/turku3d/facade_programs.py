@@ -244,6 +244,8 @@ def classical(program, attrs, evidence):
     for wall in program["walls"]:
         if field(wall.get("appearance_details", {}), "pilasters", False):
             continue  # facade_style_geometry already paints this wall's pilasters.
+        if not wall.get("outline", True):
+            continue  # The order dresses the outer facade, never stacked roof rings.
         wall["order"] = copy.deepcopy(ORDER)
         windows, trim = wall["windows"], wall["trim"]
         for section, key, item in (
@@ -293,6 +295,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
         geometry.append(
             dict(
                 wall_id=f"{building.facade_key}:{index // 4}",
+                # Inner LoD2 roof rings and setbacks do not lie on the footprint outline.
+                outline=whole is not None,
                 width_m=float(lengths[whole]) if whole is not None else width,
                 fragment_width_m=width,
                 uv_offset=float(along[whole]) if whole is not None else 0,
