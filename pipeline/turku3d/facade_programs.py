@@ -205,7 +205,7 @@ def describe(program, description, source_width, *, blank_walls=frozenset()):
 
 def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
-    from turkutex.facade_archetypes import sample
+    from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, sample
 
     geometry = []
     polygons = getattr(building.footprint, "geoms", [building.footprint])
@@ -306,12 +306,16 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     program = sample(building.facade_key, attrs, geometry)
     if visual_levels:
         program["storeys"].update(source=visual_levels, support=0.4)
-    if not d:
+    # Donor readings of ordinary city blocks are no prior for a reference-measured
+    # masonry class (they would restore shopfronts and thin-walled layouts).
+    if not d and program["archetype"] != MASONRY:
         program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
     palettes = {}
     for wall in program["walls"]:
+        if wall["wall"]["colour"].get("source") == MEASURED_PIGMENT:
+            continue
         # A learned timber/brick family needs that material's pigment distribution,
         # rather than the generic blue-grey unknown-register palette.
         material = field(wall["wall"], "material", "plaster")
