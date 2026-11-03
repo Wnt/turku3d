@@ -59,7 +59,27 @@ def rebuild_revision(root: Path, code: str, source_version) -> dict:
     return dict(revision=revision, generation=generation)
 
 
-def derive(root: Path, base: str, code: str) -> dict:
+def inherited_rebuilds(root: Path, selector: str | None, migrations) -> dict:
+    """Spot-rebuild generators of an earlier derived revision whose step this chain repeats.
+
+    A rebuild step's tiles are the products of the generator that introduced it. A later chain
+    that keeps the step unchanged (same key and code hash) reuses those products, so extending the
+    chain resumes from its finished prefix instead of rebuilding the class with every new commit."""
+    if not selector:
+        return {}
+    meta = revision_meta(root, selector)
+    if meta.get('kind') != 'migrated':
+        raise ValueError(f'{selector} is not a migrated revision')
+    steps = {(s['name'], s['version'], s['code_hash']): s for s in meta['migrations']}
+    out = {}
+    for m in migrations:
+        step = steps.get((m.name, m.version, m.code_hash()))
+        if step and step.get('rebuild_revision'):
+            out[m.name] = dict(revision=step['rebuild_revision'], generation=step['rebuild_generation'])
+    return out
+
+
+def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None) -> dict:
     """Write the derived revision of ``base`` with this snapshot's migration chain."""
     from turku3d.migrations import Rebuild, chain, chain_generations
 
@@ -69,11 +89,14 @@ def derive(root: Path, base: str, code: str) -> dict:
     if not REV.fullmatch(code) or not (root / 'revisions' / code / 'repo').is_dir():
         raise KeyError(f'code snapshot {code} is not uploaded')
     migrations = chain()
-    rebuilds = {m.name: rebuild_revision(root, code, base_meta.get('source_version'))
+    inherited = inherited_rebuilds(root, rebuilds_from, migrations)
+    rebuilds = {m.name: inherited.get(m.name) or rebuild_revision(root, code, base_meta.get('source_version'))
                 for m in migrations if isinstance(m, Rebuild)}
     generations = chain_generations(base_meta['generation'], migrations,
                                     {name: r['generation'] for name, r in rebuilds.items()})
-    revision = hashlib.sha256(f"migrated:{base_meta['revision']}:{code}".encode()).hexdigest()
+    # Inherited rebuilds give the same code another chain generation, hence another revision.
+    suffix = f":{generations[-1]}" if inherited else ""
+    revision = hashlib.sha256(f"migrated:{base_meta['revision']}:{code}{suffix}".encode()).hexdigest()
     meta = dict(
         kind='migrated', revision=revision, generation=generations[-1],
         commit=base_meta.get('commit', base_meta['revision']), code_revision=code,
@@ -312,6 +335,7 @@ def main(argv=None):
     parser.add_argument('--farm-root', type=Path, required=True)
     parser.add_argument('--base')
     parser.add_argument('--code')
+    parser.add_argument('--rebuilds-from', help='derive: reuse the spot rebuilds of this derived revision')
     parser.add_argument('--revision')
     parser.add_argument('--generated', help='parity: generator alias or revision of the same tile')
     parser.add_argument('--jobs', type=int, default=MAX_JOBS)
@@ -322,7 +346,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     root = args.farm_root.resolve()
     if args.action == 'derive':
-        print(json.dumps(derive(root, args.base, args.code)))
+        print(json.dumps(derive(root, args.base, args.code, args.rebuilds_from)))
         return 0
     meta = revision_meta(root, args.revision)
     if meta.get('kind') != 'migrated':
