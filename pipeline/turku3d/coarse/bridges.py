@@ -140,8 +140,17 @@ def merge_crossings(ways, outlines):
 
 
 def passes_under(bridge, way):
-    """Only actual transverse interior crossings need headroom; approaches do not."""
+    """Only actual transverse interior crossings need headroom; approaches do not.
+
+    An indoor way (a station or mall corridor) runs inside the structure that carries
+    the deck, such as a driveway over a building set into a slope. It asks no road
+    headroom, supports or stair access: lifting the deck over it raises a free span
+    metres above the roof and drags the surrounding terrain up with it.
+    """
     if way["id"] in bridge.get("members", [bridge["id"]]):
+        return False
+    tags = way.get("tags", {})
+    if tags.get("indoor") not in (None, "no") or tags.get("highway") == "corridor":
         return False
     if way["layer"] > bridge["layer"] or (way["bridge"] and way["layer"] >= bridge["layer"]):
         return False
