@@ -10,6 +10,14 @@ import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
  *  inside its boundary: the costlier level never draws farther than before; only the cheaper one starts earlier. */
 export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] };
+/** Impostor alpha scale by mip level: 1 through mip 4, where the atlas keeps its alpha-test coverage, rising by `gain`
+ *  over mips 4-5, where it thins. `impostorAlphaScale` is the CPU mirror of the shader's ramp. */
+export const IMPOSTOR_BOOST = { from: 4, to: 5, gain: 0.3 } as const;
+export function impostorAlphaScale(level: number) {
+  const t = Math.min(1, Math.max(0, (level - IMPOSTOR_BOOST.from) / (IMPOSTOR_BOOST.to - IMPOSTOR_BOOST.from)));
+  return 1 + IMPOSTOR_BOOST.gain * t * t * (3 - 2 * t);
+}
+
 /** Bench lab `treefade=S`: scale the bands before the materials are built; 0 gives the old instant swaps. */
 export function scaleVegetationFade(scale: number) {
   for (let j = 0; j < 3; j++) { VEGETATION_FADE.width[j] = Math.max(1e-4, VEGETATION_FADE.width[j] * scale); VEGETATION_FADE.stagger[j] *= scale; }
@@ -124,7 +132,8 @@ export class NatureMaterials {
     // the chain-link boost (1 + 0.3 per mip) made distant crowns 8-61 % denser than the meshes they replace. Only
     // mips 5 and finer-than-pixel need the 1.3x that restores mip-0 coverage.
     const level = log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(imageWidth(impMap)), 1));
-    this.impostor.colorNode = vec4(impTex.rgb, impTex.a.mul(smoothstep(4, 5, level).mul(0.3).add(1)).mul(visible));
+    const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, level).mul(IMPOSTOR_BOOST.gain).add(1);
+    this.impostor.colorNode = vec4(impTex.rgb, impTex.a.mul(boost).mul(visible));
     this.impostor.positionNode = wind(0);
 
     const plain = (source: THREE.MeshStandardMaterial, name: string) => {
