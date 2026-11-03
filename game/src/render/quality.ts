@@ -54,7 +54,9 @@ export function parseQuality(value: string | null, fallback: QualityTier = 'medi
  *  residency (stream2) reads it. */
 export interface RenderTier {
   tier: QualityTier; source: 'url' | 'recorded' | 'device' | 'default'; gpu: { vendor: string; architecture: string } | null;
-  /** Startup GPU throughput probe (render/gpuProbe.ts), filled in shortly after start; recorded for calibration only. */
+  /** navigator.hardwareConcurrency, the second Apple signal. */
+  cores?: number | null;
+  /** Startup GPU throughput probe (render/gpuProbe.ts): before the renderer on Apple GPUs, shortly after start elsewhere. */
   probe?: { ms: number; method: 'timestamp' | 'wall'; gflop: number } | null;
 }
 let current: RenderTier | null = null;
@@ -62,20 +64,25 @@ export function setRenderTier(value: RenderTier) { current = value; }
 /** The session's resolved tier; null until main.ts has resolved it. */
 export function renderTier(): RenderTier | null { return current; }
 
-/** Startup GPU probe time (render/gpuProbe.ts) above which an Apple GPU is a base M-series chip: M1 Max 1.76-1.86 ms,
- *  M1 Air 5.96 ms cool and 7.01 ms under heavy thermal pressure (airperf, 2026-11-03). The probe reads up to ~18 %
- *  slower hot, so the threshold sits about 2x from both. */
+/** Startup GPU probe time (render/gpuProbe.ts) above which an Apple GPU may be a base M-series chip: M1 Max 1.76-1.86 ms,
+ *  M1 Air 5.96 ms cool and 7.01 ms under heavy thermal pressure (airperf, 2026-11-03). A loaded Max (about ten agents,
+ *  load average ~25) can still read above it, so the probe alone never demotes: the CPU must also look like a base chip. */
 export const APPLE_REDUCED_PROBE_MS = 3.5;
+/** navigator.hardwareConcurrency of a base M-series chip (M1/M2/M3: 8); the M1 Max reports 10. */
+export const APPLE_BASE_MAX_CORES = 8;
 
 /** GPU classes whose default is `reduced` instead of `medium`: by WebGPU adapter info, AMD GCN (Polaris/Vega, measured
- *  on the Radeon Pro 560X) and Intel's integrated `gen-*` graphics; Apple GPUs by the startup probe, since an M1 Air
- *  and an M1 Max report the same apple/metal-3. NVIDIA, AMD RDNA and the larger Apple chips keep medium. */
+ *  on the Radeon Pro 560X) and Intel's integrated `gen-*` graphics; Apple GPUs by the startup probe together with the
+ *  CPU core count, since an M1 Air and an M1 Max report the same apple/metal-3. NVIDIA, AMD RDNA and the larger Apple
+ *  chips keep medium. */
 export function deviceQuality(gpu: { vendor?: string; architecture?: string } | null | undefined, fallback: QualityTier,
-  probeMs?: number | null): QualityTier {
+  probeMs?: number | null, cores?: number | null): QualityTier {
   if (fallback !== 'medium' || !gpu) return fallback;
   const vendor = (gpu.vendor ?? '').toLowerCase(), architecture = (gpu.architecture ?? '').toLowerCase();
   if ((vendor === 'amd' && architecture.startsWith('gcn')) || (vendor === 'intel' && architecture.startsWith('gen'))) return 'reduced';
-  if (vendor === 'apple' && probeMs != null && Number.isFinite(probeMs) && probeMs > APPLE_REDUCED_PROBE_MS) return 'reduced';
+  // Both signals: a slow probe and a base chip's core count (unknown cores keep medium).
+  if (vendor === 'apple' && probeMs != null && Number.isFinite(probeMs) && probeMs > APPLE_REDUCED_PROBE_MS
+    && cores != null && cores > 0 && cores <= APPLE_BASE_MAX_CORES) return 'reduced';
   return fallback;
 }
 

@@ -81,15 +81,21 @@ test('leaf A/B variants parse strictly', async () => {
   expect(() => parseLeafVariant('cheap')).toThrow();
 });
 
-test('Apple GPUs take reduced only when the startup probe reads like a base M1: the M1 Max stays medium', async () => {
-  const { APPLE_REDUCED_PROBE_MS } = await import('../../src/render/quality');
+test('Apple GPUs take reduced only with a slow probe on a base chip: the M1 Max stays medium even loaded', async () => {
+  const { APPLE_REDUCED_PROBE_MS, APPLE_BASE_MAX_CORES } = await import('../../src/render/quality');
   const apple = { vendor: 'apple', architecture: 'metal-3' };
-  // M1 Max 1.76-1.86 ms, +18 % when hot; M1 Air 5.96 ms cool, 7.01 ms throttled (airperf).
-  for (const ms of [1.76, 1.86, 1.86 * 1.18, 2.8, null, undefined]) expect(deviceQuality(apple, 'medium', ms)).toBe('medium');
-  for (const ms of [5.96, 7.01, 4]) expect(deviceQuality(apple, 'medium', ms)).toBe('reduced');
+  // M1 Max (10 cores): 1.76-1.86 ms idle, +18 % hot, and above the threshold on a host with load average ~25.
+  for (const ms of [1.76, 1.86, 1.86 * 1.18, 3.6, 5, 9, null, undefined]) expect(deviceQuality(apple, 'medium', ms, 10)).toBe('medium');
+  // M1 Air (8 cores): 5.96 ms cool, 7.01 ms throttled; a fast read keeps medium.
+  for (const ms of [5.96, 7.01, 4]) expect(deviceQuality(apple, 'medium', ms, 8)).toBe('reduced');
+  expect(deviceQuality(apple, 'medium', 3.0, 8)).toBe('medium');
+  // Without a core count the probe alone never demotes.
+  for (const cores of [null, undefined, 0]) expect(deviceQuality(apple, 'medium', 7, cores)).toBe('medium');
+  expect(deviceQuality(apple, 'medium', 7)).toBe('medium');
   expect(APPLE_REDUCED_PROBE_MS).toBeGreaterThan(1.86 * 1.18 * 1.5);
-  expect(deviceQuality(apple, 'high', 7)).toBe('high');
-  expect(deviceQuality({ vendor: 'nvidia', architecture: 'ampere' }, 'medium', 9)).toBe('medium');
+  expect(APPLE_BASE_MAX_CORES).toBeLessThan(10);
+  expect(deviceQuality(apple, 'high', 7, 8)).toBe('high');
+  expect(deviceQuality({ vendor: 'nvidia', architecture: 'ampere' }, 'medium', 9, 4)).toBe('medium');
 });
 
 test('the setting governor runs below medium only, steps down on sustained slow frames at the floor and back up', async () => {
