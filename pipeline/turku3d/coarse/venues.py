@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import shapely
@@ -65,6 +66,8 @@ BAY = 9.5  # m between roof columns
 LANE = 1.22  # m athletics lane
 LINE = 0.05  # m track line width
 PITCH_LINE = 0.12  # m pitch line width
+STRIP = 2.0  # m longest line paint quad
+PAINT_LIFT = 0.008  # m over the ground surface, as road paint
 STRIPE = 5.5  # m mown stripe width
 TERRACE_TREAD = 0.8  # m
 TERRACE_RISE = 0.38  # m minimum rise per terrace row
@@ -289,8 +292,8 @@ class Builder:
             p = p[::-1]
         self.faces(surface, material).face(p)
 
-    def beam(self, surface, material, a, b, size):
-        """A square beam between two 3D points."""
+    def beam(self, surface, material, a, b, size, caps=True):
+        """A square beam between two 3D points; ``caps=False`` for ends buried in other parts."""
         a, b = np.asarray(a, float), np.asarray(b, float)
         axis = b - a
         length = np.linalg.norm(axis)
@@ -308,8 +311,9 @@ class Builder:
         for k in range(4):
             j = (k + 1) % 4
             self.quad(surface, material, [a + ring[k], b + ring[k], b + ring[j], a + ring[j]], centre)
-        self.quad(surface, material, [a + r for r in ring], -axis)
-        self.quad(surface, material, [b + r for r in ring], axis)
+        if caps:
+            self.quad(surface, material, [a + r for r in ring], -axis)
+            self.quad(surface, material, [b + r for r in ring], axis)
 
     def meshes(self, collision=True):
         out = []
@@ -502,10 +506,11 @@ def _roof(s, u0, u1, depth, roof_at, p3, top_h, front):
     bays = max(1, int(round((u1 - u0) / BAY)))
     for a in np.linspace(u0 + 0.4, u1 - 0.4, bays + 1):
         under = roof_at(a, depth) - ROOF_THICK
-        s.beam("steel", "pole", p3(a, depth - 0.65, top_h - 0.2), p3(a, depth - 0.65, under), 0.45)
+        s.beam("steel", "pole", p3(a, depth - 0.65, top_h - 0.2), p3(a, depth - 0.65, under), 0.45, caps=False)
         knee = roof_at(a, 0.4 * depth) - ROOF_THICK
-        s.beam("steel", "none", p3(a, depth - 0.65, under - 3.5), p3(a, 0.4 * depth, knee), 0.3)
-        s.beam("steel", "none", p3(a, 0.4 * depth, knee - 0.15), p3(a, 0.0, roof_at(a, 0.0) - ROOF_THICK - 0.15), 0.25)
+        s.beam("steel", "none", p3(a, depth - 0.65, under - 3.5), p3(a, 0.4 * depth, knee), 0.3, caps=False)
+        s.beam("steel", "none", p3(a, 0.4 * depth, knee - 0.15), p3(a, 0.0, roof_at(a, 0.0) - ROOF_THICK - 0.15), 0.25,
+               caps=False)
     lights = max(2, int((u1 - u0) / 14.0))
     for a in np.linspace(u0 + 3.0, u1 - 3.0, lights):
         h = roof_at(a, 0.2)
@@ -565,8 +570,9 @@ def goals(tile, venues, height_at, courts=()):
             left, right = centre - v * span / 2, centre + v * span / 2
             behind = u * (-inward) * 1.6
             for post in (left, right):
-                s.beam("paint", "pole", (post[0], y - 0.2, post[1]), (post[0], y + high, post[1]), 0.12)
-                s.beam("steel", "none", (post[0], y + high, post[1]), (post[0] + behind[0], y, post[1] + behind[1]), 0.05)
+                s.beam("paint", "pole", (post[0], y - 0.2, post[1]), (post[0], y + high, post[1]), 0.12, caps=False)
+                s.beam("steel", "none", (post[0], y + high, post[1]), (post[0] + behind[0], y, post[1] + behind[1]), 0.05,
+                       caps=False)
             s.beam("paint", "pole", (left[0], y + high, left[1]), (right[0], y + high, right[1]), 0.12)
             count += 1
     return s.meshes(), count
@@ -603,7 +609,8 @@ def terraces(tile, venues, height_at):
             band = clipped.intersection(field_area.buffer(start + (row + 1) * TERRACE_TREAD)).difference(
                 field_area.buffer(start + row * TERRACE_TREAD))
             for part in _polygons(band) if band.area > 0.05 else []:
-                _terrace_band(s, part, edge, height_at, row, rise)
+                _terrace_band(s, part, edge, height_at, row, rise,
+                              field_area, start + (row + 1) * TERRACE_TREAD, row == count - 1)
                 rows_built += 1
         outer = clipped.boundary.difference(field_area.buffer(start + (count - 0.5) * TERRACE_TREAD))
         for line in getattr(outer, "geoms", [outer]):
@@ -613,7 +620,7 @@ def terraces(tile, venues, height_at):
             for a, bb in zip(pts[:-1], pts[1:], strict=True):
                 ha = _tread_height(a, edge, height_at, count - 1, rise) + RAIL
                 hb = _tread_height(bb, edge, height_at, count - 1, rise) + RAIL
-                s.beam("steel", "railing", (a[0], ha, a[1]), (bb[0], hb, bb[1]), 0.05)
+                s.beam("steel", "railing", (a[0], ha, a[1]), (bb[0], hb, bb[1]), 0.05, caps=False)
     return s.meshes(), rows_built
 
 
@@ -622,11 +629,14 @@ def _tread_height(p, edge, height_at, row, rise):
     return height_at(q.x, q.y) + (row + 1) * rise
 
 
-def _terrace_band(s, part, edge, height_at, row, rise):
-    """One terrace row: a tread following its front ground line, and the faces down from its edges."""
+def _terrace_band(s, part, edge, height_at, row, rise, field_area, back, last):
+    """One terrace row: a tread following its front ground line, its riser and its end faces.
+
+    The back edge (at ``back`` from the field) is covered by the next row's riser, so only the
+    top row closes its back."""
     import mapbox_earcut
 
-    part = shapely.geometry.polygon.orient(part.simplify(0.05), 1.0)
+    part = shapely.geometry.polygon.orient(part.simplify(0.1), 1.0)
     if part.is_empty or part.geom_type != "Polygon":
         return
     rings = [np.asarray(r.coords)[:-1] for r in [part.exterior, *part.interiors]]
@@ -638,7 +648,11 @@ def _terrace_band(s, part, edge, height_at, row, rise):
     for tri in tris:
         s.quad("concrete", "stair_slope", np.c_[xz[tri][:, 0], h[tri], xz[tri][:, 1]], UP)
     ring, hr = rings[0], h[: len(rings[0])]
+    mids = (ring + np.roll(ring, -1, axis=0)) / 2
+    hidden = np.abs(shapely.distance(field_area, shapely.points(mids)) - back) < 0.3 * TERRACE_TREAD
     for i in range(len(ring)):
+        if hidden[i] and not last:
+            continue
         j = (i + 1) % len(ring)
         a, bb = ring[i], ring[j]
         low_a = min(height_at(*a), hr[i] - rise) - 0.3
@@ -650,8 +664,6 @@ def _terrace_band(s, part, edge, height_at, row, rise):
 
 def structures(tile, buildings, venues, height_at, playground_courts=()):
     """Grandstand, goal, net and terrace structure meshes owned by the tile, and their counts."""
-    from types import SimpleNamespace
-
     meshes, stands = [], 0
     for b in buildings:
         if b.key in venues.grandstands:
@@ -768,6 +780,7 @@ def ground_regions(tile, venues):
 
 
 def _lines_track(polygon, tags):
+    """(centre line, width) of every lane line, clipped to the track."""
     lines = []
     interiors = list(polygon.interiors)
     if interiors:
@@ -777,7 +790,7 @@ def _lines_track(polygon, tags):
         lane = min(LANE, width / lanes)
         for k in range(lanes + 1):
             ring = inner.buffer(k * lane, quad_segs=16).exterior if k else inner.exterior
-            lines.append(ring)
+            lines.append(shapely.LineString(ring.coords))
     else:
         origin, u, v, length, width = frame(polygon)
         lanes = _lanes(tags, width)
@@ -788,7 +801,7 @@ def _lines_track(polygon, tags):
             lines.append(shapely.LineString([at(0, offset + k * lane), at(length, offset + k * lane)]))
         lines.append(shapely.LineString([at(length - 1.0, offset), at(length - 1.0, offset + lanes * lane)]))
     area = polygon.buffer(0.05)
-    return [shapely.buffer(line, LINE / 2, cap_style="flat").intersection(area) for line in lines]
+    return [(line.intersection(area), LINE) for line in lines]
 
 
 def _lanes(tags, width):
@@ -802,17 +815,17 @@ def _lanes(tags, width):
 
 
 def _lines_pitch(polygon, tags):
+    """(centre line or spot polygon, width) of the pitch markings of its sport."""
     sport = str(tags.get("sport", "")).split(";")[0]
     origin, u, v, length, width = frame(polygon)
     at = _frame_point(origin, u, v)
-    w = PITCH_LINE
-    lines = [polygon.exterior]
+    lines = [shapely.LineString(polygon.exterior.coords)]
 
     def rect(a0, b0, a1, b1):
         return shapely.LineString([at(a0, b0), at(a1, b0), at(a1, b1), at(a0, b1), at(a0, b0)])
 
     def circle(a, b, r):
-        return shapely.Point(at(a, b)).buffer(r, quad_segs=12).exterior
+        return shapely.LineString(shapely.Point(at(a, b)).buffer(r, quad_segs=12).exterior.coords)
 
     if sport in FOOTBALL and length >= 30:
         lines.append(shapely.LineString([at(length / 2, 0), at(length / 2, width)]))
@@ -822,9 +835,8 @@ def _lines_pitch(polygon, tags):
         for end, sign in ((0.0, 1), (length, -1)):
             lines.append(rect(end, (width - box_w) / 2, end + sign * box_d, (width + box_w) / 2))
             lines.append(rect(end, (width - goal_w) / 2, end + sign * goal_d, (width + goal_w) / 2))
-            spot = shapely.Point(at(end + sign * min(11.0, 0.105 * length), width / 2)).buffer(0.15)
-            lines.append(spot.exterior)
-            lines.append(shapely.Point(at(end + sign * min(11.0, 0.105 * length), width / 2)).buffer(0.11))
+            spot = at(end + sign * min(11.0, 0.105 * length), width / 2)
+            lines.append(shapely.Point(spot).buffer(0.21, quad_segs=3))
     elif sport == "tennis":
         cl, cw = min(23.77, length - 1.0), min(10.97, width - 1.0)
         a0, b0 = (length - cl) / 2, (width - cw) / 2
@@ -843,17 +855,11 @@ def _lines_pitch(polygon, tags):
         key_d, key_w = min(5.8, 0.2 * length), min(4.9, 0.33 * width)
         for end, sign in ((0.0, 1), (length, -1)):
             lines.append(rect(end, (width - key_w) / 2, end + sign * key_d, (width + key_w) / 2))
-    polys = []
-    for line in lines:
-        if line.geom_type == "Polygon":
-            polys.append(line)
-        else:
-            polys.append(shapely.buffer(line, w / 2, cap_style="flat", join_style="mitre"))
-    return polys
+    return [(line, PITCH_LINE) for line in lines]
 
 
-def line_polygons(tile, venues):
-    """White line paint polygons of the tracks and pitches over the tile."""
+def line_marks(tile, venues):
+    """(centre line or spot polygon, width) of the track and pitch markings over the tile."""
     window = shapely.box(*tile.bbox.as_tuple())
     result = []
     for polygon, tags in venues.tracks:
@@ -863,10 +869,93 @@ def line_polygons(tile, venues):
         if polygon.intersects(window):
             result.extend(_lines_pitch(polygon, tags))
     out = []
-    for p in result:
-        clipped = shapely.make_valid(p).intersection(window)
-        out.extend(_polygons(clipped) if clipped.area > 0.01 else [])
-    return [g for g in out if g.area > 0.0005]
+    for geometry, width in result:
+        clipped = geometry.intersection(window)
+        for part in getattr(clipped, "geoms", [clipped]):
+            if (part.geom_type == "LineString" and part.length > 0.05) or (
+                    part.geom_type == "Polygon" and part.area > 0.01):
+                out.append((part, width))
+    return out
+
+
+def paint(tile, positions, indices, marks):
+    """One merged line paint mesh: every line a strip of quads at most ``STRIP`` long, draped
+    ``PAINT_LIFT`` over the ground surface and raised where the surface bulges between its
+    vertices; spots are small flat fans. Same material and colour as the road paint."""
+    import mapbox_earcut
+
+    from turku3d.ground.mesh import HeightQuery
+    from turku3d.package.gltf import GlbMesh
+
+    ground = HeightQuery(SimpleNamespace(positions=positions, indices=indices))
+
+    def height(xz):
+        h = ground(np.asarray(xz, float).reshape(-1, 2))
+        if np.isnan(h).any():  # a strip end just past the surface edge keeps its neighbour height
+            good = ~np.isnan(h)
+            h[~good] = np.nanmax(h) if good.any() else 0.0
+        return h
+
+    points, faces = [], []
+    count = 0
+    for geometry, width in marks:
+        if geometry.geom_type == "Polygon":
+            ring = np.asarray(geometry.exterior.coords)[:-1]
+            tris = mapbox_earcut.triangulate_float64(ring, np.array([len(ring)], np.uint32)).reshape(-1, 3)
+            h = height(ring).max() + PAINT_LIFT
+            points.append(np.c_[ring[:, 0], np.full(len(ring), h), ring[:, 1]])
+            faces.append(tris + count)
+            count += len(ring)
+            continue
+        xz = np.asarray(shapely.segmentize(geometry.simplify(0.01), STRIP).coords)[:, :2]
+        closed = len(xz) > 3 and np.allclose(xz[0], xz[-1])
+        if closed:
+            xz = xz[:-1]
+        if len(xz) < 2:
+            continue
+        seg = (np.roll(xz, -1, axis=0) - xz) if closed else np.diff(xz, axis=0)
+        seg /= np.maximum(np.linalg.norm(seg, axis=1, keepdims=True), 1e-9)
+        normal = np.c_[-seg[:, 1], seg[:, 0]]
+        before = np.roll(normal, 1, axis=0) if closed else np.vstack([normal[:1], normal])
+        after = normal if closed else np.vstack([normal, normal[-1:]])
+        miter = before + after
+        miter /= np.maximum(np.linalg.norm(miter, axis=1, keepdims=True), 1e-9)
+        scale = 1.0 / np.maximum((miter * after).sum(axis=1), 0.5)
+        offset = miter * (scale * width / 2)[:, None]
+        left, right = xz + offset, xz - offset
+        hl, hr = height(left), height(right)
+        n = len(xz)
+        a = np.arange(n if closed else n - 1)
+        b = (a + 1) % n
+        # Raise each quad where the ground surface rises above its plane between the vertices.
+        mids = np.r_[(left[a] + left[b]) / 2, (right[a] + right[b]) / 2, (xz[a] + xz[b]) / 2]
+        lift = height(mids) - np.r_[(hl[a] + hl[b]) / 2, (hr[a] + hr[b]) / 2, (hl[a] + hl[b] + hr[a] + hr[b]) / 4]
+        bulge = np.maximum(lift.reshape(3, -1).max(axis=0), 0.0)
+        raise_ = np.zeros(n)
+        np.maximum.at(raise_, a, bulge)
+        np.maximum.at(raise_, b, bulge)
+        hl, hr = hl + PAINT_LIFT + raise_, hr + PAINT_LIFT + raise_
+        points.append(np.r_[np.c_[left[:, 0], hl, left[:, 1]], np.c_[right[:, 0], hr, right[:, 1]]])
+        # Counter-clockwise seen from above: left a, right a, right b / left a, right b, left b.
+        quads = np.c_[a, n + a, n + b, a, n + b, b].reshape(-1, 3) + count
+        faces.append(quads)
+        count += 2 * n
+    if not points:
+        return None
+    positions = np.concatenate(points)
+    faces = np.concatenate(faces).astype(np.uint32)
+    tri = positions[faces]
+    down = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])[:, 1] < 0
+    faces[down] = faces[down][:, [0, 2, 1]]
+    return GlbMesh(
+        "ground_venue_paint",
+        positions - tile.origin,
+        faces,
+        color=(0.72, 0.71, 0.66, 1),
+        roughness=0.9,
+        extras=dict(layer="markings", object_id=f"venue_paint_{tile.id}", material_key="road_paint"),
+        colors=np.ones((len(positions), 3), np.float32),
+    )
 
 
 def tennis_nets(tile, venues, height_at):
@@ -884,7 +973,7 @@ def tennis_nets(tile, venues, height_at):
         p0, p1 = np.asarray(at(a, b0)), np.asarray(at(a, b1))
         y0, y1 = height_at(*p0), height_at(*p1)
         for p, y in ((p0, y0), (p1, y1)):
-            s.beam("steel", "pole", (p[0], y - 0.1, p[1]), (p[0], y + 1.07, p[1]), 0.08)
+            s.beam("steel", "pole", (p[0], y - 0.1, p[1]), (p[0], y + 1.07, p[1]), 0.08, caps=False)
         net = [(p0[0], y0 + 0.05, p0[1]), (p1[0], y1 + 0.05, p1[1]), (p1[0], y1 + 0.914, p1[1]),
                (p0[0], y0 + 0.914, p0[1])]
         across = np.array([u[0], 0.0, u[1]])
