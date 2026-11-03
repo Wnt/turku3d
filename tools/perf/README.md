@@ -6,7 +6,7 @@ Vite dev, Vite preview and `tools/dev/serve-dist.mjs` append capture files under
 
 Interrupted disk writes retain a temporary batch and the previous file lengths. The middleware repairs unfinished appends before the next read or write, including after Vite restarts. Committed retry receipts prevent duplicate rows. Temporary recovery data is removed after a successful commit.
 
-Core files match the coordinator recorder: `meta.json`, `frames.jsonl` (one array of frame rows per batch), and individual `poses.jsonl`, `stats.jsonl`, `loaf.jsonl`, `marks.jsonl` rows. Additional `js.jsonl` rows contain `{t,end,trace}` with native profiler resources/frames/stacks/samples. `network.jsonl` holds resource response timing/bytes (capture POSTs excluded; cross-origin sizes may be hidden by Resource Timing policy).
+Core files match the coordinator recorder: `meta.json`, `frames.jsonl` (one array of frame rows per batch), and individual `poses.jsonl`, `stats.jsonl`, `loaf.jsonl`, `marks.jsonl` rows. Additional `js.jsonl` rows contain `{t,end,trace}` with native profiler resources/frames/stacks/samples. Once-per-second stats also carry `gpuPassMs` and `gpuPassFrame`: a copied complete render-pass result and its originating renderer frame, or explicit nulls when unsupported/overflowed. The seven-field frame rows are unchanged. `network.jsonl` holds resource response timing/bytes (capture POSTs excluded; cross-origin sizes may be hidden by Resource Timing policy).
 
 ```sh
 python3 tools/perf/capture_summary.py ~/turku3d/captures/drive-01 --segment 1
