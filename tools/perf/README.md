@@ -35,7 +35,7 @@ main proving ground. Code: `game/src/qa/lab/`; tests: `game/tests/unit/bench-lab
 
 Common parameters: `tiles=t0_i_j,…` (default the 3×3 around `t0_0_0`), `cam=E,N,H,yaw,pitch,fov` or `id=<street camera>`
 (default `riverside`, Läntinen Rantakatu), `quality=`, `aa=`, `time=` (default the fixed 14:00 afternoon), `traffic=`,
-`walkers=`, `seed=` (population, default 20261102), `size=WxH` and `dpr=` (fixed drawing buffer), `record=0` (no
+`walkers=`, `water=` (river technique A/B tokens, `game/src/render/waterSwitches.ts`), `seed=` (population, default 20261102), `size=WxH` and `dpr=` (fixed drawing buffer), `record=0` (no
 capture folder), `settleLimit=` (ms, default 180000). Weather is fixed (partly cloudy); the river and reflection run
 at play cadence (`motion=0` freezes them).
 
