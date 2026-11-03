@@ -1,13 +1,14 @@
 import * as THREE from 'three/webgpu';
-import { cameraFar, cameraNear, cameraPosition, cameraViewMatrix, dot, exp, float, length, luminance, max, mix, normalize,
-  perspectiveDepthToViewZ, positionView, positionWorld, pow, reflect, reflector, screenUV, smoothstep, texture, uniform, vec2,
-  vec3, vec4, velocity, pmremTexture } from 'three/tsl';
+import { Fn, If, cameraFar, cameraNear, cameraPosition, cameraViewMatrix, dot, exp, float, floor, fract, length, luminance, max,
+  mix, normalize, perspectiveDepthToViewZ, positionView, positionWorld, pow, reflect, reflector, screenUV, smoothstep, texture,
+  uniform, vec2, vec3, vec4, velocity, pmremTexture } from 'three/tsl';
 import type { Environment } from './environment';
 import { nightUniforms } from './nightLights';
 import { riverClock, riverWaveOffsets, riverWavePixels } from './riverWaves';
 import { WATER_SWITCHES } from './waterSwitches';
 import type { WaterHistory } from './waterHistory';
 import { riverScreenReflection } from './riverReflection';
+import { weatherUniforms } from './weather/surfaceState';
 
 /** W5 (GTA V water study, loops/techstudy REPORT.md §8): GTA's river shader uses a very tight Phong sun lobe (falloff
  *  1,600-2,000, intensity 4-10) and wrap diffuse. The lobe is energy-normalised ((n + 2) / 2pi) so the sun path keeps
@@ -23,6 +24,35 @@ export const RIVER_SUN = { near: 1800, far: 220, nearDistance: 25, farDistance: 
  *  (1 - exp(-d / visibility)): quay walls and banks show through a soft, murky band at the waterline. The Aura is
  *  turbid clay water; the band is a few tens of centimetres deep. */
 export const RIVER_DEPTH = { visibility: 0.45 };
+
+/** W8: rain on the river (GTA's puddle ripples: rings 0.012-0.02 in texture scale, 4-5 s cycles). Waves grow rougher,
+ *  the reflection dulls towards grey, and drops ring the surface: per world cell one ring a second expands to `radius`
+ *  and fades, on two offset grids, within `range` metres of the camera (beyond it they are sub-pixel). */
+export const RIVER_RAIN = { roughness: 0.8, dull: 0.5, dim: 0.3, cells: [0.55, 0.8], radius: 0.22, width: 0.035, slope: 0.35, range: [12, 35] };
+
+/** Two-component hash of a cell index without trigonometry (large world cells keep their precision). */
+const hash22 = Fn(([cell]: [THREE.Node<'vec2'>]) => {
+  const p = fract(vec3(cell.x, cell.y, cell.x).mul(vec3(0.1031, 0.103, 0.0973))).toVar();
+  p.addAssign(dot(p, p.yzx.add(33.33)));
+  return fract(p.xx.add(p.yz).mul(p.zy));
+});
+
+/** Slopes of expanding raindrop rings at world `point` (xz) and time `seconds`. */
+function rainRings(point: THREE.Node<'vec2'>, seconds: THREE.Node<'float'>): THREE.Node<'vec2'> {
+  const r = RIVER_RAIN;
+  let total: THREE.Node<'vec2'> = vec2(0);
+  r.cells.forEach((size, layer) => {
+    const q = point.div(size).add(layer * 0.37), cell = floor(q), random = hash22(cell);
+    // Each cell's drop lands at its own point and phase; its ring stays inside the cell.
+    const offset = fract(q).sub(0.5).sub(random.sub(0.5).mul(0.4 - r.radius / size)).mul(size);
+    const distance = length(offset).max(0.0001), age = fract(seconds.mul(1 + layer * 0.27).add(random.x.mul(7.31)));
+    const band = distance.sub(age.mul(r.radius)).div(r.width);
+    // The derivative of a Gaussian ridge, fading as the ring spreads.
+    const ridge = band.mul(-2).mul(exp(band.mul(band).negate())).mul(float(1).sub(age).pow(2)).mul(r.slope);
+    total = total.add(offset.div(distance).mul(ridge));
+  });
+  return total;
+}
 
 /** One tiny mipmapped slope field, sampled at crossing scales for long ripples and fine capillary detail. */
 function waveTexture() {
@@ -50,7 +80,15 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   const uv = positionWorld.xz;
   const swell = texture(waves, uv.mul(0.19).add(flow.xy)).rg.sub(0.5).mul(0.32);
   const ripple = texture(waves, uv.yx.mul(0.6).add(flow.zw)).rg.sub(0.5).mul(0.24);
-  const slope = swell.add(ripple.yx);
+  // W8: rougher waves and drop rings while it rains (weatherUniforms.rain is a render-group uniform, 0 when dry).
+  const rain = weatherUniforms.rain;
+  const near = float(1).sub(smoothstep(RIVER_RAIN.range[0], RIVER_RAIN.range[1], length(cameraPosition.sub(positionWorld))));
+  const rings = Fn(() => {
+    const value = vec2(0).toVar();
+    If(rain.greaterThan(0), () => { value.assign(rainRings(uv, weatherUniforms.seconds).mul(rain.mul(near))); });
+    return value;
+  })();
+  const slope = swell.add(ripple.yx).mul(rain.mul(RIVER_RAIN.roughness).add(1)).add(rings);
   const normal = normalize(vec3(slope.x, 1, slope.y));
   const view = normalize(cameraPosition.sub(positionWorld));
   const grazing = float(1).sub(max(dot(view, normal), 0));
@@ -65,7 +103,9 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
     ? riverScreenReflection({ ...history, depth: history.depth, color: history.color, camera: history.camera }, positionWorld,
       reflect(view.negate(), normalize(vec3(slope.x.mul(0.5), 1, slope.y.mul(0.5)))), fresnel)
     : null;
-  const reflected = reflection?.rgb ?? (screen ? mix(sky, screen.rgb, screen.a) : sky);
+  const clear = reflection?.rgb ?? (screen ? mix(sky, screen.rgb, screen.a) : sky);
+  // Rain dulls the mirror towards grey and weakens it.
+  const reflected = mix(clear, vec3(luminance(clear)), rain.mul(RIVER_RAIN.dull)).mul(float(1).sub(rain.mul(RIVER_RAIN.dim)));
   const sunDir = uniform(env.sunDir), sunIntensity = uniform('float').onRenderUpdate(() => env.sun.intensity);
   const alignment = max(dot(reflect(sunDir.negate(), normal), view), 0);
   // Each body carries its measured water colour beneath the dynamic sky reflection.

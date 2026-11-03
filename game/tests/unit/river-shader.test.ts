@@ -89,3 +89,10 @@ test('reduced reflects by a screen-space march over TRAA\'s last frame instead o
   expect(riverShader('reduced', 'nodepth', true).depthWrite).toBe(false);
   expect(riverShader('mobile', 'ssr', true).name).toBe('river-sky');
 });
+
+test('rain rings build behind a uniform branch, so dry water skips their arithmetic', () => {
+  const { fragment } = riverShader('medium', null, true);
+  // The ring grids' cell sizes and the branch on the shared rain uniform.
+  expect(fragment).toMatch(/0\.55/);
+  expect(fragment).toMatch(/if \( \( render\.\w+ > 0\.0 \) \)/);
+});
