@@ -5,7 +5,7 @@ import { QUALITY, type QualityTier } from '../../render/quality';
 import { BLOCK_LOD } from '../../world/buildingPlacements';
 import { PROP_LOD } from '../../world/propLod';
 import { TILE_WINDOW } from '../../world/coarseRegion';
-import { SCENERY_CELLS, TILE_DETAIL } from '../../world/sceneryView';
+import { SCENERY_CELLS, TILE_DETAIL, detailFloor } from '../../world/sceneryView';
 import { REFLECTION_RANGE } from '../../render/reflections';
 import { LOD_FADE } from '../../render/lodFade';
 import { TRAFFIC_CAPS } from '../../traffic/constants';
@@ -66,7 +66,7 @@ export function lodSettings(tier: QualityTier, params: { traffic: number | null;
     shadow: { far: q.splits[q.splits.length - 1], cascades: q.splits.length, splits: [...q.splits] },
     fullr: { radius: TILE_WINDOW.radius, window: `${2 * TILE_WINDOW.radius + 1}x${2 * TILE_WINDOW.radius + 1}`, tileDetail: TILE_DETAIL.distance },
     cells: SCENERY_CELLS.distance ?? 'pixel rule (350..2000 m)',
-    cellFloor: TILE_DETAIL.distance + TILE_DETAIL.band + 90,
+    cellFloor: detailFloor(),
     reflect: Number.isFinite(REFLECTION_RANGE.maxDistance) ? REFLECTION_RANGE.maxDistance : 'unlimited (water coverage only)',
     cars: params.traffic ?? TRAFFIC_CAPS[tier],
     walkers: walkerCap(tier, params.walkers),

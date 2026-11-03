@@ -53,7 +53,10 @@ export const refineDistance = (horizontal: number, y: number) =>
 /** L0 refinement always reaches past any full tile still drawing (the refinement distance never exceeds a tile's 3D
  *  distance while tiles stay below 250 m; the slack covers rounding at the band edge), so a 1 km node never draws
  *  over HD squares. */
-const detailFloor = () => TILE_DETAIL.distance + TILE_DETAIL.band + 90;
+/** The 250 m cells reach at least this far (m) whatever the full-tile switch distance: moving the switch closer (GTA's
+ *  ~250 m HD band) must not shrink the cell band that covers the squares it hands over. */
+export const L0_FLOOR = 580;
+export const detailFloor = () => Math.max(L0_FLOOR, TILE_DETAIL.distance + TILE_DETAIL.band + 90);
 
 /** Non-overlapping quadtree cut: authored shells nearby, source-built kilometre groups farther out. */
 export function sceneryTiles(radius: number, view: SceneryView, previous: readonly string[] = []) {
