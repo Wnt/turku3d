@@ -266,9 +266,10 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
                             # The basis follows the original normal: preserve front-face winding.
                             pieces.append(coords)
                 changed[mi, ti] = (pieces, xy, p[0], basis)
+    changed_meshes = {mi for mi, _ in changed}
     result = []
     for mi, original in enumerate(meshes):
-        if not any(key[0] == mi for key in changed):
+        if mi not in changed_meshes:
             result.append(original)
             continue
         mesh = copy.copy(original)
@@ -296,7 +297,7 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
             if rows is None:
                 return
             owners = vertex_rows[indices]
-            if owners[0] < 0 or np.any(owners != owners[0]):
+            if owners[0] < 0 or owners[1] != owners[0] or owners[2] != owners[0]:
                 raise ValueError(f"Mixed facade instruction in {original.name}")
             if last_row == owners[0]:
                 instructions[-1]["count"] += 3

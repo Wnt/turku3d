@@ -530,8 +530,13 @@ def split_boundaries(
     # a spatial query for every individual triangle/region pair.
     region_ids, triangle_ids = shapely.STRtree(remaining).query(polygons, predicate="intersects")
     pieces, owners, channels = [], [], []
-    for region in np.unique(region_ids)[::-1]:
-        hits = triangle_ids[region_ids == region]
+    # Keep exact query order within each region, without scanning the complete
+    # intersection table again for every paint region.
+    order = np.argsort(region_ids, kind="stable")
+    grouped = region_ids[order]
+    region_groups, starts, counts = np.unique(grouped, return_index=True, return_counts=True)
+    for region, start, count in zip(region_groups[::-1], starts[::-1], counts[::-1], strict=True):
+        hits = triangle_ids[order[start:start + count]]
         pieces.append(overlay(shapely.intersection, remaining[hits], polygons[region]))
         owners.append(boundary[hits])
         channels.append(

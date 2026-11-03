@@ -44,9 +44,10 @@ def paint_partition(layers, origin, direction):
     covered = shapely.Polygon()
     result = []
     # Explicit paint priority replaces the old millimetre depth hierarchy.
-    for _, (points, uv, style, _priority) in sorted(
+    ordered = sorted(
         enumerate(layers), key=lambda item: (item[1][3], item[0]), reverse=True
-    ):
+    )
+    for rank, (_, (points, uv, style, _priority)) in enumerate(ordered):
         polygon = shapely.make_valid(shapely.Polygon(uv))
         if polygon.area < 1e-9:
             continue
@@ -58,7 +59,9 @@ def paint_partition(layers, origin, direction):
                 vertices = origin + coords[:, :1] * direction
                 vertices[:, 1] = coords[:, 1]
                 result.append((vertices, coords, style))
-        covered = covered.union(polygon)
+        # No later paint owner reads coverage after the last layer.
+        if rank + 1 < len(ordered):
+            covered = covered.union(polygon)
     return reversed(result)
 
 

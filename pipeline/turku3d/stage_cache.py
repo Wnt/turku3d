@@ -14,6 +14,7 @@ import struct
 import tempfile
 import time
 import zlib
+from functools import lru_cache
 from pathlib import Path
 
 from turku3d import profiling
@@ -36,12 +37,20 @@ def decompress_payload(data):
     return zlib.decompress(data[len(COMPRESSED):]) if data.startswith(COMPRESSED) else data
 
 
+@lru_cache(maxsize=4096)
+def _string_key(value):
+    """Repeated schema field names retain their original typed sort digest."""
+    return content_key(value)
+
+
 def content_key(value) -> str:
     """Hash typed values, array layout and geometry bytes; mapping insertion order is irrelevant."""
     h = hashlib.sha256()
 
     def part(tag, data=b""):
-        h.update(tag + struct.pack("<Q", len(data)) + data)
+        h.update(tag)
+        h.update(struct.pack("<Q", len(data)))
+        h.update(data)
 
     def visit(v):
         if v is None:
@@ -54,12 +63,12 @@ def content_key(value) -> str:
             if v.dtype.hasobject:
                 raise TypeError("stage keys cannot contain object arrays")
             part(b"array", str((v.dtype.descr, v.shape)).encode())
-            part(b"data", v.tobytes(order="C"))
+            part(b"data", memoryview(np.ascontiguousarray(v).reshape(-1)).cast("B"))
         elif isinstance(v, np.generic):
             visit(np.asarray(v))
         elif isinstance(v, dict):
             part(b"dict", str(len(v)).encode())
-            for key in sorted(v, key=content_key):
+            for key in sorted(v, key=lambda k: _string_key(k) if type(k) is str else content_key(k)):
                 visit(key)
                 visit(v[key])
         elif isinstance(v, (list, tuple)):
