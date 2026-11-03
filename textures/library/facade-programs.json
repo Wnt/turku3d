@@ -28583,6 +28583,95 @@
           "source": "unmeasured",
           "support": 0.0
         }
+      },
+      {
+        "wall_id": "103277359P_f7kauppias",
+        "width_m": 44.515,
+        "height_m": 18.329,
+        "geometry": {
+          "p0": [
+            23459852.5,
+            6704474.9
+          ],
+          "p1": [
+            23459877.6,
+            6704438.1
+          ],
+          "normal": [
+            -0.8252045457472063,
+            -0.5648340089602847
+          ],
+          "base_h": 4.339
+        },
+        "structure": {
+          "wall_id": "103277359P_f7kauppias",
+          "render_deferred": "Left half is the blank rendered volume returning from the north face; right half is a wing with a blank parapet band, two storeys of glazing behind vertical translucent glass fins, a slab band and a continuous lower glazing band. No punched window grid anywhere.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left half",
+                "kind": "blank wall",
+                "material": "pale smooth render",
+                "features": [
+                  "Sharp corner, no openings"
+                ]
+              },
+              {
+                "position": "right half middle",
+                "kind": "glazing ribbon behind vertical translucent glass fins",
+                "pane_count": null
+              },
+              {
+                "position": "right half top",
+                "kind": "blank parapet band",
+                "material": "pale smooth render"
+              },
+              {
+                "position": "right half lower",
+                "kind": "continuous glazing band",
+                "pane_count": null
+              },
+              {
+                "position": "foreground",
+                "kind": "street tree",
+                "belongs_to_facade": false
+              }
+            ],
+            "confidence": {
+              "blank_extent": 0.9,
+              "material": 0.85,
+              "glazing": 0.9,
+              "counts": 0
+            },
+            "occlusion": "A street tree hides the middle of the left half; parked cars hide the base."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Left half is the blank rendered volume returning from the north face; right half is a wing with a blank parapet band, two storeys of glazing behind vertical translucent glass fins, a slab band and a continuous lower glazing band. No punched window grid anywhere.",
+          "colour_space": "unmeasured",
+          "source": "structure-only reading of a local Look Around crop (2026-06-23), vfix9"
+        }
       }
     ],
     "review": {
