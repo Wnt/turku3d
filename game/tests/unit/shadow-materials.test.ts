@@ -24,7 +24,7 @@ test('opaque/cutout alternation computes shadow program keys once per caster', (
   const renderer = Object.create(GameRenderer.prototype) as GameRenderer;
   const context = { id: 1 };
   const nodes = { getCacheKey: () => 1 };
-  Object.assign(renderer, { shadowMaterials: new ShadowMaterials(), contextNode: { id: 1, version: 0 }, shadowContext: { id: 1, version: 0 },
+  Object.assign(renderer, { shadowMaterials: new ShadowMaterials(), shadowPasses: new Map(), contextNode: { id: 1, version: 0 }, shadowContext: { id: 1, version: 0 },
     backend: {}, shadowMap: { type: THREE.PCFShadowMap }, _currentSourceMaterial: null,
     _getShadowNodes: () => ({ colorNode: null, depthNode: null, positionNode: null }) });
   const objects = new RenderObjects(renderer, nodes as never, {} as never, {} as never, {} as never, {} as never);

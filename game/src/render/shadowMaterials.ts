@@ -13,8 +13,21 @@ type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
  * alternating zero/nonzero bumps that shared material's version and rehashes every caster every frame. */
 export class ShadowMaterials {
   private masked = new WeakMap<THREE.Material, { material: ShadowMaterial; version: number }>();
+  private shared: THREE.Material | null = null;
+  /** r186 gives every light its own, identical shadow material (ShadowBaseNode: colorNode vec4(0,0,0,1), no
+   * blending, no fog; the renderer derives everything else from each draw's source material). Its node ids are part
+   * of the program key, so every caster built one program per cascade. All shadow passes draw with the first. */
+  private canonical(override: THREE.Material) {
+    if (!this.shared) {
+      const shared = this.shared = override;
+      shared.addEventListener('dispose', () => { if (this.shared === shared) this.shared = null; });
+    }
+    return this.shared;
+  }
   select(source: THREE.Material, override: THREE.Material | null): THREE.Material | null {
-    if (!override || !(override as ShadowMaterial).isShadowPassMaterial || source.alphaTest <= 0) return override;
+    if (!override || !(override as ShadowMaterial).isShadowPassMaterial) return override;
+    override = this.canonical(override);
+    if (source.alphaTest <= 0) return override;
     let cached = this.masked.get(override);
     if (!cached) {
       cached = { material: override.clone(), version: override.version };
@@ -47,9 +60,9 @@ export class GameRenderer extends THREE.WebGPURenderer {
   readonly builds = new BuildLog();
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
-  /** Each live cascade's shadow draw state, keyed by three's per-light override material (its own node ids, so its
-   * own programs): preparation builds tiles' shadow programs ahead with it (render/post.ts) instead of each new
-   * caster building them inside a frame (147 of 397 in-frame builds in Jonni's replay light-1713). */
+  /** Each live cascade's shadow draw state, keyed by three's per-light override material: preparation builds tiles'
+   * shadow programs ahead with it (render/post.ts) instead of each new caster building them inside a frame (147 of
+   * 397 in-frame builds in Jonni's replay light-1713). Cascades share their programs (ShadowMaterials). */
   readonly shadowPasses = new Map<THREE.Material, ShadowPass>();
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
     super(parameters);
@@ -101,8 +114,11 @@ export class GameRenderer extends THREE.WebGPURenderer {
       this.contextNode = this.shadowContext;
       const pass = this.shadowPasses.get(original!), target = this.getRenderTarget();
       // Refreshed when a cascade's map or camera is rebuilt, so preparation never binds a released target.
-      if (!precompiling && (pass?.target !== target || pass.camera !== camera)) this.shadowPasses.set(original!, { override: original!,
-        camera, target, mrt: this.getMRT(), depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
+      if (!precompiling && (!pass || pass.target !== target || pass.camera !== camera)) {
+        if (!pass) original!.addEventListener('dispose', () => this.shadowPasses.delete(original!));
+        this.shadowPasses.set(original!, { override: original!, camera, target, mrt: this.getMRT(),
+          depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
+      }
     }
     scene.overrideMaterial = original?.userData.normalPrepass
       ? this.normalPrepass.select(material) : this.shadowMaterials.select(material, original);
