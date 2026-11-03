@@ -16,6 +16,7 @@ import { LampPools } from '../../src/render/lights/pools';
 import { DayClock } from '../../src/render/dayClock';
 import { sceneryMaterial } from '../../src/render/sceneryMaterial';
 import { PostProcessing } from '../../src/render/post';
+import { dissolveTwin } from '../../src/render/lodFade';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -395,4 +396,41 @@ test('facade and night programs fit 16 WebGPU varyings in the single-pass beauty
   }
   expect(programs['kit-v6'].fragment).toMatch(/color_1|nodeVarying/);
   post.dispose(); target.dispose();
+});
+
+test('far-band dissolve twins build on both backends in the beauty MRT, rigid and within 16 varyings', () => {
+  for (const webgl of [false, true]) {
+    const w = world(webgl, 'medium');
+    const post = new PostProcessing(w.renderer, w.scene, w.camera, 'medium', 'taa');
+    const beauty = (post as unknown as { beauty: THREE.PassNode; beautyContext: THREE.WebGPURenderer['contextNode'] });
+    w.renderer.setMRT(beauty.beauty.getMRT());
+    const target = new THREE.RenderTarget(1, 1, { count: 3 });
+    ['output', 'normal', 'velocity'].forEach((name, i) => { target.textures[i].name = name; });
+    w.renderer.setRenderTarget(target);
+    w.renderer.contextNode = beauty.beautyContext;
+    // Every far layer the scenery and block LOD styling produce, including the regional coverage mask.
+    const coverage = new THREE.DataTexture(new Uint8Array(4), 2, 2, THREE.RedFormat);
+    const layers = ['ground', 'buildings', 'vegetation', 'regional', 'buildings-lod', 'buildings-lod-glazed'];
+    const names: string[] = [];
+    for (const layer of layers) {
+      const geometry = wall();
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+      const mesh = new THREE.Mesh(geometry, dissolveTwin(sceneryMaterial(layer, coverage)));
+      mesh.name = `twin-${layer}`; mesh.castShadow = mesh.receiveShadow = true;
+      w.meshes.push(mesh); w.scene.add(mesh); names.push(mesh.name);
+    }
+    for (const mesh of w.meshes.filter(m => m.name.startsWith('far-'))) {
+      mesh.material = dissolveTwin(mesh.material as THREE.Material); names.push(mesh.name);
+    }
+    const programs = w.shaders(names);
+    for (const [name, program] of Object.entries(programs)) {
+      expect(program.fragment, `${name} dissolves`).toMatch(/discard/);
+      if (webgl) continue;
+      const varyings = program.vertex.slice(program.vertex.indexOf('struct VaryingsStruct'));
+      const locations = [...varyings.slice(0, varyings.indexOf('}')).matchAll(/@location\(\s*(\d+)\s*\)/g)].map(m => Number(m[1]));
+      expect(Math.max(-1, ...locations), `${name} WebGPU varying locations`).toBeLessThanOrEqual(15);
+      expect(program.vertex, name).not.toMatch(/positionPrevious/);
+    }
+    post.dispose(); target.dispose();
+  }
 });
