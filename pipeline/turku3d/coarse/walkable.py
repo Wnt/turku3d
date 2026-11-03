@@ -49,16 +49,18 @@ def coordinates(line, points):
     return station, np.sum((points - centre) * normal, axis=1)
 
 
-def measure(key, line, width, points, window):
-    """Fixed eight-metre knots make fitting independent of tile crop and pass order."""
+def measure(key, line, width, points, window, order=None):
+    """Fixed eight-metre knots make fitting independent of tile crop and pass order.
+
+    ``order`` (the x-sorted point order) only speeds up the box selection.
+    """
     bounds = line.buffer(width / 2 + 7).bounds
-    near = (
-        (points[:, 0] >= bounds[0])
-        & (points[:, 0] <= bounds[2])
-        & (points[:, 2] >= bounds[1])
-        & (points[:, 2] <= bounds[3])
-    )
-    points = points[near]
+    if order is None:
+        order = np.argsort(points[:, 0], kind="stable")
+    xs = points[order, 0]
+    candidates = order[np.searchsorted(xs, bounds[0], "left"):np.searchsorted(xs, bounds[2], "right")]
+    z = points[candidates, 2]
+    points = points[np.sort(candidates[(z >= bounds[1]) & (z <= bounds[3])])]
     points = points[shapely.distance(shapely.points(points[:, [0, 2]]), line) < width / 2 + 7]
     station, lateral = coordinates(line, points[:, [0, 2]])
     knots = np.unique(np.r_[np.arange(0, line.length, 8), line.length])
@@ -124,6 +126,18 @@ def area_strips(identity, geom):
                 continue
             strips.append((f"{identity}:{i}:{j}", line, max(width, 1)))
     return strips
+
+
+def near_ways(points, boxes):
+    """Points within 0.25 m of any (x0, z0, x1, z1) box; one x-sorted pass per box."""
+    order = np.argsort(points[:, 0], kind="stable")
+    xs = points[order, 0]
+    inside = np.zeros(len(points), dtype=bool)
+    for x0, z0, x1, z1 in boxes:
+        candidates = order[np.searchsorted(xs, x0 - 0.25, "left"):np.searchsorted(xs, x1 + 0.25, "right")]
+        z = points[candidates, 2]
+        inside[candidates[(z >= z0 - 0.25) & (z <= z1 + 0.25)]] = True
+    return inside
 
 
 def prepare(tile, osm, water_path, paths):
@@ -192,6 +206,10 @@ def prepare(tile, osm, water_path, paths):
             ways.extend(area_strips(identity, geom))
     if not ways:
         return []
+    # Only points used by a path's measurement can affect its fitted section.
+    # Keep a whole horizontal voxel around each measurement box so the original
+    # first return in that voxel still wins the deduplication below.
+    boxes = [line.buffer(width / 2 + 7).bounds for _, line, width in ways]
     bounds = tile.bbox.buffered(60)
     survey = {p.stem: p for p in paths if p.parent.name != "maanpinta"}
     if all(b.name in survey for b in C.laz_tiles_for_bbox(bounds)):
@@ -202,26 +220,23 @@ def prepare(tile, osm, water_path, paths):
             .query(bounds)
             .query(classes=[2, 12], last_return=True)
         )
+        from types import SimpleNamespace
+
         from .retaining_survey import ground_points
 
-        points = ground_points(cloud)
+        # Class-12 returns outside every measurement box are discarded below, so
+        # only the others are tested. All class-2 returns stay in the nearest-ground
+        # search: the same tree keeps the same nearest owner for every tested point.
+        classes = cloud.records["classification"]
+        tested = (classes != 12) | near_ways(cloud.points, boxes)
+        points = ground_points(
+            SimpleNamespace(points=cloud.points[tested], records={"classification": classes[tested]})
+        )
     else:
         points, _ = read_returns(
             [p for p in paths if p.parent.name == "maanpinta"], bounds, [1, 2, 8, 12]
         )
-    # Only points used by a path's measurement can affect its fitted section.
-    # Keep a whole horizontal voxel around each measurement box so the original
-    # first return in that voxel still wins the deduplication below.
-    relevant = np.zeros(len(points), dtype=bool)
-    for _, line, width in ways:
-        x0, z0, x1, z1 = line.buffer(width / 2 + 7).bounds
-        relevant |= (
-            (points[:, 0] >= x0 - 0.25)
-            & (points[:, 0] <= x1 + 0.25)
-            & (points[:, 2] >= z0 - 0.25)
-            & (points[:, 2] <= z1 + 0.25)
-        )
-    points = points[relevant]
+    points = points[near_ways(points, boxes)]
     exclude = shapely.union_all([water, *blocked])
     shapely.prepare(exclude)
     points = points[~shapely.intersects_xy(exclude, points[:, 0], points[:, 2])]
@@ -236,7 +251,8 @@ def prepare(tile, osm, water_path, paths):
     keys = np.ravel_multi_index(voxel.T, voxel.max(axis=0) + 1)
     _, first = np.unique(keys, return_index=True)
     points = points[first]
-    result = [measure(key, line, width, points, window) for key, line, width in ways]
+    order = np.argsort(points[:, 0], kind="stable")
+    result = [measure(key, line, width, points, window, order) for key, line, width in ways]
     return sorted((r for r in result if r is not None), key=lambda r: r["key"])
 
 
