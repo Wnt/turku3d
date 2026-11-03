@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VEHICLE_PRICE, parSeconds } from '../../src/gameplay/economy';
+import { PERMIT_PRICE, VEHICLE_PRICE, parSeconds } from '../../src/gameplay/economy';
 import { lineText } from '../../src/gameplay/content/dialogue';
 import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
@@ -8,21 +8,23 @@ import { parseSave } from '../../src/gameplay/missions/save';
 import { harness, lDistance, near } from './missionHarness';
 
 describe('trophy truck at the dealer', () => {
-  it('sells the trophy truck for 1000 €: its own physics vehicle, its line, its par speed', () => {
+  it('sells the trophy truck for 600 €: its own physics vehicle, its line, its par speed', () => {
     const h = harness();
     h.missions.begin();
     h.choose(MARKET.point, 'rent_permit');
     h.leave(MARKET.point);
     h.press(near(DEALER.point));
-    expect(h.option('buy_truck')).toMatchObject({ label: 'Trophy truck', icon: 'icon_truck', price: 1000, enabled: false,
+    expect(h.option('buy_truck')).toMatchObject({ label: 'Trophy truck', icon: 'icon_truck', price: 600, enabled: false,
       reason: lineText('reason_no_money') });
     h.leave(DEALER.point);
-    h.earn(VEHICLE_PRICE.truck);
+    // Enough for the truck and a permit renewal: the earning loop may end on the permit's last delivery.
+    h.earn(VEHICLE_PRICE.truck + PERMIT_PRICE);
     const money = h.missions.money;
     expect(h.choose(DEALER.point, 'buy_truck').bought).toBe('truck');
     expect(h.missions).toMatchObject({ vehicle: 'truck', money: money - VEHICLE_PRICE.truck, shop: null });
     expect(PHRASES.dealer_sold_truck).toContain(h.last().message);
     expect(ownedVehicleId('truck')).toBe(TRUCK_ID);
+    if (h.missions.permit === 0) { h.choose(MARKET.point, 'rent_permit'); h.leave(MARKET.point); }
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: OWN_VEHICLE_ID });
     expect(h.missions.phase).not.toBe('carrying');
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: TRUCK_ID });

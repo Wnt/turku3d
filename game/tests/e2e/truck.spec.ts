@@ -77,7 +77,7 @@ test('buys the trophy truck, drives it over a kerb at 40 km/h, to 120 km/h and o
     const result = missions.update(0, { ...frame, interact: false, choose: 'buy_truck' });
     return { shop: view?.id, option: view?.options.find((o: any) => o.id === 'buy_truck'), result, vehicle: missions.vehicle, money: missions.money };
   }, DEALER.point);
-  expect(bought).toMatchObject({ shop: 'dealer', option: { label: 'Trophy truck', price: 1000, enabled: true },
+  expect(bought).toMatchObject({ shop: 'dealer', option: { label: 'Trophy truck', price: 600, enabled: true },
     result: { bought: 'truck' }, vehicle: 'truck', money: 100 });
   // The truck appears at the dealer's kerb where the car would be parked.
   await untilSim(page, spot => (window as any).__game.state().vehicles.some((v: any) => v.id === 'truck' && v.kind === 'truck'
