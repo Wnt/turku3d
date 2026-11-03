@@ -6,6 +6,7 @@ import { fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './n
 import { GrassField } from './nature/grass';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
+import { shareInstanceProgram } from '../render/instancePrograms';
 
 export function vegetationLevel(distance: number, range: { near:number; mid:number }) {
   return distance < range.near ? 0 : distance < range.mid ? 1 : 2;
@@ -234,6 +235,8 @@ export class VegetationLod {
       const batch = (part: NaturePart, shadowProxy = false) => {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
+        // Library materials are object-agnostic: every tile's draws of this part reuse one built program per pass.
+        shareInstanceProgram(mesh);
         // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
         mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds };
         mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
