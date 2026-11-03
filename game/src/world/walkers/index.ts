@@ -13,10 +13,12 @@ import { Population, type BirthClock, type Walker } from './population';
 import { RING, Ring, type RingView } from './ring';
 import { WalkerMeshes, type WalkerInstance } from './visuals';
 import { humanAppearance } from './appearance';
+import { REACT, Reactions, type Threat } from './reactions';
 import { populationFocus } from '../populationFocus';
 
 export { walkersNear } from './population';
 export { buildWalkNetwork } from './network';
+export type { Threat as WalkerThreat } from './reactions';
 
 /** Drawn walkers per quality tier (street-richness plan §7); `?walkers=N` overrides. Phones stay at zero. */
 export const WALKER_CAPS: Record<QualityTier, number> = { mobile: 0, low: 10, medium: 60, high: 100 };
@@ -35,6 +37,8 @@ interface WalkerOptions {
   birthHour?: BirthClock;
   /** Resident road graphs (CoarseTiles.roadGraphs). */
   graphs: () => readonly RoadGraphJson[];
+  /** Every player this client knows of (local and remote, on foot or driving): drawn walkers react to them. */
+  threats?: () => readonly Threat[];
 }
 
 const systems: Set<Walkers> = import.meta.hot?.data.systems ?? new Set<Walkers>();
@@ -53,6 +57,7 @@ export class Walkers {
   private trafficCrossings: { x: number; z: number }[] = [];
   private heights: GroundHeights;
   private ring = new Ring<Walker>();
+  private reactions = new Reactions();
   private wide: Walker[] = [];
   private lastScan = -Infinity;
   private lastGraphPoll = -Infinity;
@@ -133,7 +138,7 @@ export class Walkers {
   reset() {
     this.syncGraphs(); ++this.request;
     this.install(buildWalkNetwork(this.graphs), 0);
-    this.ring.clear(); this.wide = []; this.poses = [];
+    this.ring.clear(); this.wide = []; this.poses = []; this.reactions.clear();
     this.lastScan = this.lastGraphPoll = -Infinity;
   }
 
@@ -174,30 +179,36 @@ export class Walkers {
     const instances: WalkerInstance[] = [];
     this.poses = [];
     const turn = 1 - Math.exp(-dt * YAW_RATE);
+    const threats = this.options.threats?.() ?? [], seconds = frameNow / 1000;
     for (const entry of drawn) {
       const w = entry.walker, look = humanAppearance(w.id);
       const variant = this.asset.variants[look.variant];
       const scale = w.scale;
-      if (entry.first) entry.yaw = w.yaw;
-      else entry.yaw += Math.atan2(Math.sin(w.yaw - entry.yaw), Math.cos(w.yaw - entry.yaw)) * turn;
+      const react = this.reactions.apply({ id: w.id, x: w.x, y: w.y, z: w.z, yaw: w.yaw, speed: w.moving ? w.speed : 0 }, threats, dt, seconds);
+      const yaw = react.yaw ?? w.yaw;
+      if (entry.first || react.down) entry.yaw = yaw;
+      else entry.yaw += Math.atan2(Math.sin(yaw - entry.yaw), Math.cos(yaw - entry.yaw)) * turn;
       const seed = (hash32(w.id, 13) % 1000) / 1000;
-      const clip = w.moving ? variant.walk : variant.idle;
-      const phase = w.moving ? w.distance / (variant.metresPerLoop * scale) + seed : w.idleTime / IDLE_SECONDS + seed;
+      const walking = (w.moving || react.moving) && !react.down;
+      const clip = walking ? variant.walk : variant.idle;
+      const phase = walking ? (w.distance + react.extra) / (variant.metresPerLoop * scale) + seed : w.idleTime / IDLE_SECONDS + seed;
       const rowStart = variant.rowBase + clip.row;
       const previousPhase = entry.first || entry.clip !== rowStart ? phase : entry.phase;
       entry.phase = phase; entry.clip = rowStart; entry.first = false;
-      const distance = Math.hypot(w.x - view.x, w.z - view.z);
+      const distance = Math.hypot(react.x - view.x, react.z - view.z);
       entry.lod = distance > (entry.lod === 1 ? 22 : 26) ? 1 : 0;
+      const y = w.y + REACT.lift * react.tilt / REACT.lean;
       instances.push({
-        variant: look.variant, x: w.x, y: w.y, z: w.z, yaw: entry.yaw, scale,
+        variant: look.variant, x: react.x, y, z: react.z, yaw: entry.yaw, scale, tilt: react.tilt, tiltYaw: react.tiltYaw,
         lod: entry.lod, shape: look.model.shape,
         rowStart, frames: clip.frames, phase: phase % 1, previousPhase: previousPhase % 1,
         skin: look.skin, top: look.top, bottom: look.bottom, hair: look.hair,
         shoes: look.shoes, inner: look.inner, legwear: look.legwear,
         fade: Math.max(0.001, entry.fade * w.fade),
       });
-      this.poses.push({ id: w.id, x: w.x, y: w.y, z: w.z, phase, fade: entry.fade * w.fade });
+      this.poses.push({ id: w.id, x: react.x, y, z: react.z, phase, fade: entry.fade * w.fade });
     }
+    this.reactions.prune(seconds);
     this.meshes.update(instances);
     this.count = instances.length;
     this.heights.pump(RAYS_PER_FRAME, frameNow);
@@ -250,7 +261,7 @@ export class Walkers {
     return { cap: this.options.cap, drawn: this.count, candidates: this.wide.length, chains: this.network?.chains.length ?? 0,
       cells: this.network?.cells.size ?? 0, graphs: this.graphs.length, heightsPending: this.heights.pending, rays: this.heights.rays,
       buildMs: Number(this.buildMs.toFixed(2)), updateMs: Number(this.updateMs.toFixed(3)), scanMs: Number(this.scanMs.toFixed(3)),
-      variants: this.meshes?.meshes.map(m => m.count) ?? [] };
+      reacting: this.reactions.active, variants: this.meshes?.meshes.map(m => m.count) ?? [] };
   }
 
   debugPoses() { return this.poses; }

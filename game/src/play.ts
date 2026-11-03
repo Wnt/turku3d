@@ -58,7 +58,7 @@ import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
 import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
-import { DT } from './physics/constants';
+import { DT, VEHICLES } from './physics/constants';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
@@ -74,7 +74,8 @@ import { Scoreboard } from './net/scoreboard';
 import { PoleSession } from './gameplay/poles/session';
 import { FramePacer } from './render/framePacer';
 import { QUALITY } from './render/quality';
-import { Walkers, walkerCap } from './world/walkers';
+import { Walkers, walkerCap, type WalkerThreat } from './world/walkers';
+import { chassisForward } from './traffic/pedestrians';
 import { CROWD_RADIUS } from './audio/mix';
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
@@ -136,7 +137,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
   const walkers = new Walkers(root, { cap: walkerCap(params.quality, params.walkers), now: world.sharedNow,
     birthHour: utc => multiplayerPlaying ? cycleHour(utc).hour : world.dayClock.hourAt(utc),
-    raycast: (origin, dir, maxToi, filter) => physics.raycast(origin, dir, maxToi, filter), graphs: () => coarse?.roadGraphs() ?? [] });
+    raycast: (origin, dir, maxToi, filter) => physics.raycast(origin, dir, maxToi, filter), graphs: () => coarse?.roadGraphs() ?? [],
+    threats: () => walkerThreats });
+  // Players the walkers react to this frame (world/walkers/reactions.ts): the local character or driven vehicle, and
+  // remote players. Filled after the physics state is read.
+  const walkerThreats: WalkerThreat[] = [];
   const orbit = new OrbitCamera(camera);
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
@@ -532,6 +537,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         }
         if (mode === 'car') { feet.set(activeCar.pos.x, activeCar.pos.y - VEHICLE_POSE_HEIGHT, activeCar.pos.z); vel.set(activeCar.linvel.x, activeCar.linvel.y, activeCar.linvel.z); }
       }
+      walkerThreats.length = 0;
+      const half = mode === 'car' && activeCar ? VEHICLES[activeCar.kind ?? 'car'].halfExt : null;
+      walkerThreats.push({ x: feet.x, y: feet.y, z: feet.z, vx: vel.x, vz: vel.z,
+        car: half && activeCar ? { ...chassisForward(activeCar.rot), length: 2 * half.x, width: 2 * half.z } : null });
+      if (multiplayerPlaying) walkerThreats.push(...remotePlayers.threats);
     }
     if (multiplayerPlaying && !startScreen.active && !saveGame.loading) {
       const yaw = mode === 'car' && vs ? yawOf(vs.rot) - Math.PI / 2 : player.root.rotation.y - Math.PI;

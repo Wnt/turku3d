@@ -15,7 +15,7 @@ import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 import { TrafficSim } from './traffic';
 export { CHARACTER, DT };
 import type { CharacterInput, CharacterState, PoleSpec, PoleState, Quat, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
-import type { TrafficPedestrian, TrafficVehicle } from '../traffic/pedestrians';
+import { chassisForward, type TrafficPedestrian, type TrafficVehicle } from '../traffic/pedestrians';
 
 type R = typeof RAPIER_NS;
 
@@ -685,6 +685,5 @@ function heightRange(col: ColTile): [number, number] {
 
 /** A player's vehicle as ambient drivers see it: chassis centre, forward (+X of the chassis) and footprint. */
 function trafficVehicle(id: string, pos: V3, rot: Quat, vx: number, vz: number, half: V3): TrafficVehicle {
-  const hx = 1 - 2 * (rot.y * rot.y + rot.z * rot.z), hz = 2 * (rot.x * rot.z - rot.w * rot.y), d = Math.hypot(hx, hz) || 1;
-  return { id, x: pos.x, y: pos.y, z: pos.z, hx: hx / d, hz: hz / d, vx, vz, length: 2 * half.x, width: 2 * half.z };
+  return { id, x: pos.x, y: pos.y, z: pos.z, ...chassisForward(rot), vx, vz, length: 2 * half.x, width: 2 * half.z };
 }

@@ -10,6 +10,7 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
 | `ring.ts` | Which walkers this client draws: camera ring, caps, hysteresis and fades |
 | `heights.ts` | Ground Y along chains from cached physics rays (`foot` filter, stair treads) |
 | `asset.ts`, `visuals.ts` | `walkers.bin` decoder; 96 model recipes, shared wardrobe batches, textured VAT material |
+| `reactions.ts` | Local reactions to players: sidestep, dodge or dive, knock-down |
 | `network.worker.ts` | Builds the network off the main thread |
 | `index.ts` | `Walkers` system for `play.ts`, tier caps, `liveWalkerCount()`, `walkersNear()` |
 
@@ -45,6 +46,21 @@ A walker entering or leaving the drawn set closer than 55 m in view fades over 0
 elsewhere it switches instantly. Caps: mobile 0, low 10, medium 60, high 100; `?walkers=N` (0–200) overrides.
 Yaw is smoothed per drawn walker. None of this changes where a walker is.
 
+## Reactions to players (local)
+
+`reactions.ts` displaces a drawn walker from its deterministic position, and the displacement decays back to zero:
+- a player on foot whose closest approach over 1.6 s comes within 0.85 m: the walker sidesteps relative to its own
+  heading (1.5 m/s);
+- a player's vehicle whose footprint, swept along its motion relative to the walker for 1.8 s, comes within 1.1 m
+  of it: the walker hurries aside (3 m/s) or dives (5.5 m/s within 0.7 s of arrival); a parked or slow car on the
+  path is walked round;
+- a vehicle at 2.5 m/s or more that still reaches the walker knocks it down: thrown along the car's motion, it
+  falls (0.45 s), lies (4 s), gets up (0.9 s) and walks back to its route.
+The walk cycle advances by the reaction's own metres, facing follows the combined motion, and the knock-down leans
+the instance about its feet. Threats are every player the client knows of (`play.ts walkerThreats`: the local
+character or driven vehicle, `RemotePlayers.threats`), so multiplayer clients see nearly the same reactions. Births,
+routes and what traffic yields to are unchanged; `snapshot().reacting` counts walkers with an active reaction.
+
 ## Rendering budget
 
 One `WalkerMaterial` serves twelve wardrobe families and their near/far meshes. Ninety-six anatomical/wardrobe
@@ -60,13 +76,13 @@ Existence, route and position are pure functions of the resident road graphs and
 depends on tile load order or `mergeRoadGraphs` numbering. Limits: a client draws only walkers whose routes are known
 within its resident tiles (others are simply not drawn there); two clients holding different builds of a tile's
 `roads.json` disagree about walkers in that tile (cosmetic, gameplay is unaffected; a road-graph hash agreement as
-planned for Phase 3 traffic would gate it). Walkers have no physics; a player walking into one passes through.
+planned for Phase 3 traffic would gate it). Walkers have no physics; they react to players locally (see Reactions).
 
 ## Verify
 
 ```sh
 cd game
-npx vitest run tests/unit/walkers.test.ts tests/unit/audio.test.ts
+npx vitest run tests/unit/walkers.test.ts tests/unit/walker-reactions.test.ts tests/unit/audio.test.ts
 npx tsc --noEmit -p tsconfig.json
 ```
 
