@@ -312,6 +312,9 @@ test('dissolve twins keep their base program, add a dithered mask and a depth bi
   base.dispose();
   expect(disposed).toHaveBeenCalledOnce(); expect(farDisposed).toHaveBeenCalledOnce();
   expect(dissolveTwin(new THREE.MeshBasicMaterial()).name).not.toContain('dissolve');
+  // A twin keeps its base's alpha test (r186 clone() alone drops it): foliage cards stay cut out while dissolving.
+  const leaf = new THREE.MeshStandardNodeMaterial({ name: 'leaf', alphaTest: 0.5, side: THREE.DoubleSide });
+  expect([dissolveTwin(leaf).alphaTest, dissolveTwin(leaf).side]).toEqual([0.5, THREE.DoubleSide]);
 });
 
 test('block swap distance is 3D: a camera high above a near block sees its shell', async () => {

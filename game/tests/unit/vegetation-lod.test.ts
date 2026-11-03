@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { VegetationLod, vegetationLevel } from '../../src/world/vegetationLod';
+import { VegetationLod, fadeReach, vegetationLevels } from '../../src/world/vegetationLod';
+import { VEGETATION_FADE } from '../../src/world/nature/materials';
 import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
 import { batchTileShadows } from '../../src/world/shadowBatch';
@@ -25,7 +26,13 @@ const generated = (model: THREE.Object3D, source: THREE.Object3D) => {
   model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== source) batches.push(o as THREE.InstancedMesh); });
   return batches;
 };
-const drawn = (batches: THREE.InstancedMesh[]) => batches.filter(b => b.visible && !b.userData.shadowProxy && b.material !== library.materials.bark).reduce((n, b) => n + b.count, 0);
+/** The library material a draw uses, through its LOD cross-fade variant (nature/materials.ts lodVariant). */
+const base = (b: THREE.InstancedMesh) => library.materials.baseOf(b.material as THREE.Material);
+const drawn = (batches: THREE.InstancedMesh[]) => batches.filter(b => b.visible && !b.userData.shadowProxy && base(b) !== library.materials.bark).reduce((n, b) => n + b.count, 0);
+/** Several selections with the camera nudged past the still-camera gate each time (budgets act per update). */
+const settle = (lod: VegetationLod, camera: THREE.PerspectiveCamera, updates = 40) => {
+  for (let i = 0; i < updates; i++) { camera.position.x += i % 2 ? -0.1 : 0.1; camera.updateMatrixWorld(); lod.update(camera); }
+};
 
 describe('species mapping', () => {
   it('uses registered species ahead of riverside and shape guesses', () => {
@@ -62,28 +69,32 @@ describe('species mapping', () => {
 });
 
 describe('vegetation LOD', () => {
-  it('uses reduced real meshes when the near budget is full, without nearby impostors or duplicates', () => {
+  it('a full near budget moves the near boundary in until the trees draw their reduced mesh: never impostors, never dropped', () => {
     const { model, mesh } = tile(900, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -10));
     mesh.userData.instance_species = Array(900).fill('Tilia cordata');
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(65, 1, .1, 1000);
-    const lod = new VegetationLod('mobile', library); lod.add(model); lod.update(camera);
-    const foliage = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy && b.material !== library.materials.bark);
-    const ids = foliage.flatMap(b => b.userData.instance_object_ids);
-    expect(ids).toHaveLength(900); expect(new Set(ids).size).toBe(900);
-    expect(foliage.filter(b => b.userData.level === 0).reduce((n, b) => n + b.count, 0)).toBe(64);
-    expect(foliage.filter(b => b.userData.level === 1).reduce((n, b) => n + b.count, 0)).toBe(836);
-    expect(foliage.some(b => b.userData.level === 2)).toBe(false);
+    const lod = new VegetationLod('mobile', library); lod.add(model);
+    const foliage = () => generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy && base(b) !== library.materials.bark);
+    const count = (level: number) => foliage().filter(b => b.userData.level === level).reduce((n, b) => n + b.count, 0);
+    for (let i = 0; i < 20; i++) {
+      settle(lod, camera, 1);
+      // Every update draws every tree, at one level or (inside the fade band) two, and never as an impostor.
+      const ids = foliage().flatMap(b => b.userData.instance_object_ids);
+      expect(new Set(ids).size).toBe(900); expect(ids.length).toBeLessThanOrEqual(1800);
+      expect(count(2)).toBe(0);
+    }
+    // 900 trees 10 m away against 64 full meshes: the boundary settles inside them, so they all draw reduced.
+    expect([count(0), count(1)]).toEqual([0, 900]);
     lod.remove(model);
   });
 
   it('selects LOD from each tree distance even inside one cell', () => {
-    expect([49.9,50,179.9,180].map(d=>vegetationLevel(d,{near:50,mid:180}))).toEqual([0,1,1,2]);
-    const {model,mesh}=tile(2,'tree_detailed_fall',i=>new THREE.Vector3(0,0,-(45+i*10)));
+    const {model,mesh}=tile(2,'tree_detailed_fall',i=>new THREE.Vector3(0,0,-(30+i*35)));
     mesh.userData.instance_species=['Tilia cordata','Tilia cordata'];
     const scene=new THREE.Scene();scene.add(model);
     const lod=new VegetationLod('medium',library);lod.add(model);lod.update(new THREE.PerspectiveCamera(65,1,.1,1000));
-    const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&b.material!==library.materials.bark);
+    const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&base(b)!==library.materials.bark);
     expect(foliage.filter(b=>b.userData.level===0).flatMap(b=>b.userData.instance_object_ids)).toEqual(['osm:0']);
     expect(foliage.filter(b=>b.userData.level===1).flatMap(b=>b.userData.instance_object_ids)).toEqual(['osm:1']);
     lod.dispose();
@@ -96,7 +107,7 @@ describe('vegetation LOD', () => {
     const camera=new THREE.PerspectiveCamera(65,1,.1,5000);
     for(const [height,level]of [[120,1],[400,2]]) {
       camera.position.set(0,height,0);camera.lookAt(0,0,-20);lod.update(camera);
-      const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&b.material!==library.materials.bark);
+      const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&base(b)!==library.materials.bark);
       expect(foliage).toHaveLength(1);expect(foliage[0].userData.level).toBe(level);
     }
     lod.dispose();
@@ -114,7 +125,9 @@ describe('vegetation LOD', () => {
     // Per species: bark + leaves at LOD 0 and 1, LOD 1's bark + leaves as LOD 0's shadow proxy, the impostor at LOD 2.
     expect(batches).toHaveLength(species.size * 7);
     const source = (b: THREE.InstancedMesh) => library.asset(b.userData.nature).lods[b.userData.shadowProxy ? 1 : b.userData.level];
-    expect(batches.every(b => source(b).parts.some(p => p.geometry === b.geometry && p.material === b.material))).toBe(true);
+    expect(batches.every(b => source(b).parts.some(p => p.geometry === b.geometry && p.material === base(b)))).toBe(true);
+    // Drawn levels use their cross-fade variant; shadow proxies cast with the plain library material.
+    expect(batches.every(b => b.userData.shadowProxy ? b.material === base(b) : (b.material as THREE.Material).name.endsWith(`@L${b.userData.level}`))).toBe(true);
     const visible = batches.filter(m => m.visible);
     expect(visible.length).toBeGreaterThan(0);
     expect(drawn(batches)).toBeLessThan(mesh.count);
@@ -134,21 +147,23 @@ describe('vegetation LOD', () => {
     expect(model.children).toEqual([mesh]); expect(mesh.visible).toBe(true);
   });
 
-  it('uses smaller near-instance budgets at low quality', () => {
-    const { model, mesh } = tile(600, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -20));
+  it('uses smaller near-instance budgets at low quality: the near boundary settles where the budget fits', () => {
+    // 600 trees along the view, 10 per metre from 5 to 65 m.
+    const { model, mesh } = tile(600, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, -(5 + i * 0.1)));
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000);
     const nearCount = (tier: 'low' | 'medium') => {
-      const lod = new VegetationLod(tier, library); lod.add(model); lod.update(camera);
-      const near = generated(model, mesh).filter(b => b.visible && b.userData.level === 0 && b.material === library.materials.leaves);
+      const lod = new VegetationLod(tier, library); lod.add(model); settle(lod, camera);
+      const near = generated(model, mesh).filter(b => b.visible && b.userData.level === 0 && base(b) === library.materials.leaves);
       const count = near.filter(b => !b.userData.shadowProxy).reduce((n, b) => n + b.count, 0);
       // Every near tree also casts its shadow through the proxy.
       expect(near.filter(b => b.userData.shadowProxy).reduce((n, b) => n + b.count, 0)).toBe(count);
       lod.remove(model);
       return count;
     };
-    expect(nearCount('low')).toBe(128);
-    expect(nearCount('medium')).toBe(300);
+    const low = nearCount('low'), medium = nearCount('medium');
+    expect(low).toBeGreaterThan(128 * 0.85 - 15); expect(low).toBeLessThanOrEqual(128 + 15);
+    expect(medium).toBeGreaterThan(300 * 0.85 - 15); expect(medium).toBeLessThanOrEqual(300 + 15);
   });
 
   it('draws far trees as impostors without shadows, and drops shrubs beyond their last LOD', () => {
@@ -158,7 +173,7 @@ describe('vegetation LOD', () => {
     lod.add(trees.model);
     lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
     const visible = generated(trees.model, trees.mesh).filter(b => b.visible);
-    const far = visible.filter(b => b.material === library.materials.impostor);
+    const far = visible.filter(b => base(b) === library.materials.impostor);
     expect(far.reduce((n, b) => n + b.count, 0)).toBe(1);
     expect(far.every(b => !b.castShadow && !b.receiveShadow)).toBe(true);
     lod.remove(trees.model);
@@ -179,6 +194,52 @@ describe('vegetation LOD', () => {
     library.materials.leaves.addEventListener('dispose', disposed);
     lod.remove(a.model); lod.remove(b.model);
     expect(disposed).not.toHaveBeenCalled();
+  });
+
+  it('cross-fades each boundary over a band: a tree inside it draws both levels, outside it one', () => {
+    const bands = [50, 180, 650] as const;
+    // Full mesh, both, reduced, both, impostor, nothing; shrubs (two levels) end at mid, grass (one) at near. Each band
+    // lies inside its boundary: full meshes never draw past 50 m, reduced past 180 m, impostors past 650 m.
+    expect([30, 40, 50, 51, 130, 150, 180, 181, 600, 651].map(d => vegetationLevels(d, bands, 3))).toEqual([1, 3, 3, 2, 2, 6, 6, 4, 4, 0]);
+    expect([40, 150, 181].map(d => vegetationLevels(d, bands, 2))).toEqual([3, 2, 0]);
+    expect([40, 51].map(d => vegetationLevels(d, bands, 1))).toEqual([1, 0]);
+    // The selection window covers every distance where the shader's fade (half width plus per-tree stagger) can
+    // still keep a pixel of either level: the CPU mirror of nature/materials.ts lodVariant's mask.
+    const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const fade = (j: number, d: number, seed: number) => {
+      const end = bands[j] * (1 - VEGETATION_FADE.stagger[j] * seed);
+      return smooth(end - 2 * bands[j] * VEGETATION_FADE.width[j], end, d);
+    };
+    const coverage = (k: number, d: number, seed: number) => (k > 0 ? fade(k - 1, d, seed) : 1) - fade(k, d, seed);
+    for (let d = 0; d < 760; d += 0.5) for (const seed of [0, 0.25, 0.5, 0.75, 0.999]) {
+      const mask = vegetationLevels(d, bands, 3);
+      let total = 0;
+      for (let k = 0; k < 3; k++) {
+        const c = coverage(k, d, seed); total += c;
+        if (c > 1e-6) expect(mask & (1 << k)).toBeTruthy();
+      }
+      // Levels split each pixel: their coverages add up to the tree's (1 until the far fade-out).
+      if (d < bands[2] - fadeReach(bands[2], 2)) expect(total).toBeCloseTo(1, 6);
+    }
+    // A tree at the near boundary is in both draws.
+    const { model, mesh } = tile(1, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -50));
+    mesh.userData.instance_species = ['Tilia cordata'];
+    const scene = new THREE.Scene(); scene.add(model);
+    const lod = new VegetationLod('medium', library); lod.add(model); lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+    const levels = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy && base(b) === library.materials.leaves).map(b => b.userData.level);
+    expect(levels.sort()).toEqual([0, 1]);
+    lod.dispose();
+  });
+
+  it('LOD variants are cached per material and level, fade only colour and depth, and go with the library', () => {
+    const m = library.materials;
+    const a = m.lodVariant(m.leaves, 0), b = m.lodVariant(m.leaves, 1), c = m.lodVariant(m.impostor, 2);
+    expect(m.lodVariant(m.leaves, 0)).toBe(a); expect(a).not.toBe(b);
+    expect([a.name, b.name, c.name]).toEqual(['nature-leaves@L0', 'nature-leaves@L1', 'nature-impostor@L2']);
+    expect([m.baseOf(a), m.baseOf(c), m.baseOf(m.bark)]).toEqual([m.leaves, m.impostor, m.bark]);
+    for (const v of [a, b, c]) { expect(v.maskNode).toBeTruthy(); expect(v.maskShadowNode).toBeTruthy(); expect(v.maskShadowNode).not.toBe(v.maskNode); }
+    // Same surface as the base: alpha test, side, textures and wind.
+    expect([b.alphaTest, b.side, b.colorNode, b.positionNode]).toEqual([m.leaves.alphaTest, m.leaves.side, m.leaves.colorNode, m.leaves.positionNode]);
   });
 
   it('never expands vegetation instances into a static tile shadow mesh', () => {
@@ -306,7 +367,7 @@ it('keeps far barriers visible on their last mesh without taking tree budgets', 
   const lod = new VegetationLod('medium', library); lod.add(model); lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
   const visible = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy);
   expect(visible.filter(b => b.userData.nature === 'picket_fence').reduce((n, b) => n + b.count, 0)).toBe(1500);
-  expect(visible.filter(b => b.userData.nature === 'tree_linden' && b.material === library.materials.leaves).reduce((n, b) => n + b.count, 0)).toBe(900);
+  expect(visible.filter(b => b.userData.nature === 'tree_linden' && base(b) === library.materials.leaves).reduce((n, b) => n + b.count, 0)).toBe(900);
   lod.dispose();
 });
 
@@ -377,7 +438,8 @@ describe('city-wide vegetation pools', () => {
     for (const mesh of [...parts, ...pools]) { expect(mesh.userData.sharedInstanceProgram).toBe(true); expect(mesh.userData.staticInstances).toBe(true); }
     const selected = parts.filter(p => p.visible), pooled = pools.filter(p => p.visible);
     expect(pooled.length).toBeGreaterThan(0);
-    expect(selected.length).toBe(pooled.length * 2); // two tiles of the same species: half the draws
+    // Two tiles of the same species share each pool (one tile alone where only it reaches a fade band).
+    expect(selected.length).toBeGreaterThan(pooled.length); expect(selected.length).toBeLessThanOrEqual(pooled.length * 2);
     // Every pool holds exactly the selected instances of its asset LOD part across both tiles.
     for (const pool of pooled) {
       const sources = selected.filter(p => p.userData.nature === pool.userData.nature && p.userData.level === pool.userData.level

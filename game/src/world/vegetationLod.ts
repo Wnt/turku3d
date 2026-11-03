@@ -4,13 +4,28 @@ import { PreparationBudget } from '../render/preparationBudget';
 import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
 import { fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './nature/species';
 import { GrassField } from './nature/grass';
-import { leafVariant } from './nature/materials';
+import { VEGETATION_FADE, leafVariant } from './nature/materials';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
 import { shareInstanceProgram } from '../render/instancePrograms';
 
 export function vegetationLevel(distance: number, range: { near:number; mid:number }) {
   return distance < range.near ? 0 : distance < range.mid ? 1 : 2;
+}
+
+/** How far (m) inside boundary `b` (index j: near, mid, far) a cross-fade can start: the fade's full width plus the
+ *  largest per-tree stagger (nature/materials.ts lodVariant). Fades end at the boundary at the latest. */
+export const fadeReach = (b: number, j: number) => b * (2 * VEGETATION_FADE.width[j] + VEGETATION_FADE.stagger[j]);
+
+/** Bitmask of the LOD levels (of `levels`) a tree at `distance` draws: level k up to boundary k, from where the fade
+ *  at boundary k-1 can start (so both while it runs). `bands` are the near, mid and far boundaries. */
+export function vegetationLevels(distance: number, bands: readonly [number, number, number], levels: number) {
+  let mask = 0;
+  for (let k = 0; k < levels && k < 3; k++) {
+    if (k > 0 && distance < bands[k - 1] - fadeReach(bands[k - 1], k - 1)) break;
+    if (distance <= bands[k]) mask |= 1 << k;
+  }
+  return mask;
 }
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
@@ -104,6 +119,9 @@ export class VegetationLod {
   private signature: number[] = [];
   private instance = new THREE.Matrix4();
   private poolSphere = new THREE.Sphere();
+  /** Near and far boundaries with the instance budgets folded in: a budget that runs out moves its boundary closer
+   *  (a few metres per update) instead of dropping trees, so the cross-fade carries the change. */
+  private bands: [number, number, number] = [NaN, NaN, NaN];
   /** With a scene, tile grass surfaces also grow instanced grass near the camera (world-space draws under it). */
   constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, scene?: THREE.Object3D) {
     const loaded = (lib: NatureLibrary) => {
@@ -263,7 +281,9 @@ export class VegetationLod {
       const objectIds: unknown[] = [];
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
       const batch = (part: NaturePart, shadowProxy = false) => {
-        const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
+        // Drawn levels cross-fade (their level's screen-door variant); shadow proxies cast with the plain material.
+        const material = shadowProxy || !this.library ? part.material : this.library.materials.lodVariant(part.material, level);
+        const mesh = new THREE.InstancedMesh(part.geometry, material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
         // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
         mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds,
@@ -337,7 +357,14 @@ export class VegetationLod {
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
-    let near = q.nearInstances, far = this.screenshotDistance ? Infinity : q.farInstances;
+    const bands = this.bands;
+    if (!Number.isFinite(bands[0])) { bands[0] = q.near; bands[2] = q.far; }
+    bands[1] = q.mid;
+    const reach = Math.max(bands[2], this.screenshotDistance);
+    // Soft budgets: counted, then folded into the boundaries below. A near tree is never left out (it has no other
+    // draw inside the near band); impostors far past their budget (1.5x, the farthest buckets) are.
+    let nearDrawn = 0, farDrawn = 0;
+    const farCap = this.screenshotDistance ? Infinity : q.farInstances * 1.5;
     let barriers = q.barrierInstances;
     for (const bucket of this.visible) {
       let level = bucket.distance < q.near ? 0 : bucket.distance < q.mid ? 1 : 2;
@@ -349,24 +376,31 @@ export class VegetationLod {
         if (count) bucket.draw.selections[Math.min(level, bucket.draw.levels.length - 1)].push({ bucket, offset: 0, count });
         continue;
       }
-      // Cells are only culling units. The tree's own position selects its LOD, in either pass.
-      // Exhausting the high-detail budget may choose the reduced mesh, never a nearby impostor.
+      // Cells are only culling units. The tree's own position selects its LODs, in either pass: one level, or two
+      // while it is inside a cross-fade band (the shader splits the pixels between them).
       const world = bucket.world!, px = this.position.x, py = this.position.y, pz = this.position.z;
+      const levels = bucket.draw.levels.length;
       for (let offset=0;offset<bucket.count;offset++) {
         const dx = world[offset * 3] - px, dy = world[offset * 3 + 1] - py, dz = world[offset * 3 + 2] - pz;
         const distance=Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (distance>Math.max(q.far,this.screenshotDistance)) continue;
-        const wanted=vegetationLevel(distance,q);
-        level=wanted===0 && near>0 ? 0 : wanted<2 ? 1 : 2;
-        if (level>=bucket.draw.levels.length) continue;
-        if (level===2 && far<=0) continue;
-        if (level===0) near--;
-        if (level===2) far--;
-        const selections=bucket.draw.selections[level], last=selections[selections.length-1];
-        if (last?.bucket===bucket && last.offset+last.count===offset) last.count++;
-        else selections.push({bucket,offset,count:1});
+        if (distance>reach) continue;
+        let mask = this.screenshotDistance && distance > bands[2] ? (levels > 2 ? 4 : 0) : vegetationLevels(distance, bands, levels);
+        if (mask & 1) nearDrawn++;
+        if (mask & 4 && ++farDrawn > farCap) mask &= ~4;
+        for (let k = 0; k < levels; k++) {
+          if (!(mask & (1 << k))) continue;
+          const selections=bucket.draw.selections[k], last=selections[selections.length-1];
+          if (last?.bucket===bucket && last.offset+last.count===offset) last.count++;
+          else selections.push({bucket,offset,count:1});
+        }
       }
     }
+    // Budgets move the boundaries, smoothly: the near one at most to a quarter, the far one no closer than mid + 50 m.
+    if (nearDrawn > q.nearInstances) bands[0] = Math.max(q.near * 0.25, bands[0] - 1);
+    else if (nearDrawn < q.nearInstances * 0.85) bands[0] = Math.min(q.near, bands[0] + 0.5);
+    if (!this.screenshotDistance && farDrawn > q.farInstances) bands[2] = Math.max(q.mid + 50, bands[2] - 10);
+    else if (farDrawn < q.farInstances * 0.85) bands[2] = Math.min(q.far, bands[2] + 5);
+    this.library?.materials.lodBands.value.set(bands[0], bands[1], Math.max(bands[2], this.screenshotDistance));
     // Cells cull independently, but compact into one draw per tile/asset/LOD part.
     // Only changed cell selections upload matrices; stationary views do no buffer writes.
     for (const data of this.models.values()) {

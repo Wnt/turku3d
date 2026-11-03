@@ -1,9 +1,15 @@
 import * as THREE from 'three/webgpu';
 import {
-  abs, attribute, cameraPosition, diffuseColor, dot, float, Fn, fwidth, interleavedGradientNoise, log2, max, modelWorldMatrix,
-  normalize, normalViewGeometry, positionLocal, positionView, positionWorld, pow, screenCoordinate, select, sin, smoothstep,
+  abs, attribute, bool, cameraPosition, diffuseColor, dot, float, Fn, fract, fwidth, instanceColor, log2, max, modelWorldMatrix,
+  normalize, normalViewGeometry, positionLocal, positionView, positionWorld, pow, select, sin, smoothstep,
   renderGroup, texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
+import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
+
+/** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
+ *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
+ *  inside its boundary: the costlier level never draws farther than before; only the cheaper one starts earlier. */
+export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] } as const;
 
 /** ?leaves=single|alpha65|noshadow: cheaper leaf paths for the reduced tier (A/B, owner winperf). In-page probes on a
  *  Radeon Pro 560X (reduced, 910x569, riverside, beauty 11.0 ms) saved: single-sided cards 1.3 ms, unshadowed leaves
@@ -37,6 +43,11 @@ export class NatureMaterials {
   readonly windStrength = uniform(1).setGroup(renderGroup);
   /** Unit vector in the XZ plane, the direction the wind blows towards. */
   readonly windDirection = uniform(new THREE.Vector2(0.8, 0.6)).setGroup(renderGroup);
+  /** LOD boundaries (m, 3D): full mesh -> reduced mesh, reduced -> impostor (or the end of a two-level asset),
+   *  impostor -> nothing. VegetationLod sets them each update, with budgets folded in (world/vegetationLod.ts). */
+  readonly lodBands = uniform(new THREE.Vector3(50, 180, 650)).setGroup(renderGroup);
+  private variants = new Map<THREE.Material, THREE.MeshStandardNodeMaterial[]>();
+  private bases = new WeakMap<THREE.Material, THREE.MeshStandardNodeMaterial>();
   /** Grass clumps fade out between these camera distances (m); GrassField sets them from the quality tier. */
   readonly grassRange = uniform(new THREE.Vector2(20, 35)).setGroup(renderGroup);
   readonly bark: THREE.MeshStandardNodeMaterial;
@@ -101,10 +112,15 @@ export class NatureMaterials {
     const impMap = imp.map!, impTex = texture(impMap, uv());
     this.impostor = new THREE.MeshStandardNodeMaterial({ name: 'nature-impostor', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0,
       normalMap: imp.normalMap, normalScale: imp.normalScale.clone() });
-    // Crossed planes fade out edge-on through a screen-space dither that temporal AA resolves into a blend.
+    // Crossed planes fade out edge-on through a screen door that changes every frame, so temporal AA resolves it
+    // into a blend (a screen-fixed pattern crawled over the crowns as the camera moved: the speckle flicker).
     const facing = abs(dot(normalViewGeometry, normalize(positionView.negate())));
-    const visible = select(smoothstep(0.2, 0.55, facing).greaterThan(interleavedGradientNoise(screenCoordinate.xy)), float(1), float(0));
-    this.impostor.colorNode = vec4(impTex.rgb, mipAlpha(impTex.a, imageWidth(impMap)).mul(visible));
+    const visible = select(smoothstep(0.2, 0.55, facing).greaterThan(ditherThreshold()), float(1), float(0));
+    // The impostor atlas keeps its alpha-test coverage through mip 4 (work/trees/coverage.mjs: 0.95-1.03 of mip 0);
+    // the chain-link boost (1 + 0.3 per mip) made distant crowns 8-61 % denser than the meshes they replace. Only
+    // mips 5 and finer-than-pixel need the 1.3x that restores mip-0 coverage.
+    const level = log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(imageWidth(impMap)), 1));
+    this.impostor.colorNode = vec4(impTex.rgb, impTex.a.mul(smoothstep(4, 5, level).mul(0.3).add(1)).mul(visible));
     this.impostor.positionNode = wind(0);
 
     const plain = (source: THREE.MeshStandardMaterial, name: string) => {
@@ -128,6 +144,38 @@ export class NatureMaterials {
     this.windTime.value = this.deterministic ? 0 : ((seconds % period) + period) % period;
   }
 
+  /** The material a vegetation draw of LOD `level` uses: `base` with a complementary screen-door cross-fade over the
+   *  LOD boundaries on either side (lodBands). At a pixel, every level of one tree compares the same per-frame dither
+   *  threshold with the same fade value, so exactly one level keeps it: no double coverage, no gap, and TRAA resolves
+   *  the door into a cross-fade. The fade is per pixel (3D distance), each tree's band offset by a hash of its tint.
+   *  Shadow casters (the LOD 1 proxies) never fade. Cached per material and level; disposed with the base. */
+  lodVariant(base: THREE.MeshStandardNodeMaterial, level: number): THREE.MeshStandardNodeMaterial {
+    let list = this.variants.get(base);
+    if (!list) this.variants.set(base, list = []);
+    const cached = list[level];
+    if (cached) return cached;
+    const variant = cloneNodeMaterial(base);
+    variant.name = `${base.name}@L${level}`;
+    const distance = positionWorld.sub(cameraPosition).length();
+    const seed = fract(sin(dot(instanceColor, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
+    // 0 -> 1 between end - 2 * width and end, where end = boundary * (1 - stagger * seed) <= boundary.
+    const fade = (j: number) => {
+      const band = [this.lodBands.x, this.lodBands.y, this.lodBands.z][j];
+      const end = band.mul(seed.mul(-VEGETATION_FADE.stagger[j]).add(1));
+      return smoothstep(end.sub(band.mul(2 * VEGETATION_FADE.width[j])), end, distance);
+    };
+    const threshold = ditherThreshold();
+    let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(fade(level));
+    if (level > 0) keep = keep.and(threshold.lessThan(fade(level - 1)));
+    variant.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(keep) : keep;
+    variant.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? bool(true);
+    list[level] = variant; this.bases.set(variant, base);
+    return variant;
+  }
+
+  /** The shared material a LOD variant was made from (itself for a base material). */
+  baseOf(material: THREE.Material): THREE.Material { return this.bases.get(material) ?? material; }
+
   /** The shared material for a glTF material name of nature.glb. */
   forSource(name: string): THREE.MeshStandardNodeMaterial {
     const material = ({ nature_bark: this.bark, nature_leaves: this.leaves, nature_impostor: this.impostor, nature_wood: this.wood,
@@ -136,5 +184,9 @@ export class NatureMaterials {
     return material;
   }
 
-  dispose() { for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose(); }
+  dispose() {
+    for (const list of this.variants.values()) for (const m of list) m?.dispose();
+    this.variants.clear();
+    for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
+  }
 }

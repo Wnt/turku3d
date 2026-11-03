@@ -60,6 +60,15 @@ const keepersOf = new WeakMap<THREE.Material, Set<string>>();
 /** Twins belong to their base material, never to a model that happens to hold one while it fades. */
 export const isDissolveTwin = (material: THREE.Material) => twinSet.has(material);
 
+/** A copy of node material `base` with its alpha test. r186's NodeMaterial.copy never calls Material.copy, and the
+ *  alpha test sits behind Material's accessor (`_alphaTest`, skipped as private): every clone() came back with
+ *  alphaTest 0, so dissolve twins of foliage drew their cards as opaque quads. */
+export function cloneNodeMaterial<T extends THREE.NodeMaterial>(base: T): T {
+  const copy = base.clone() as T;
+  copy.alphaTest = base.alphaTest;
+  return copy;
+}
+
 /** The dissolve twin of a far-band node material for a bias tier; cached per material and disposed with it. */
 export function dissolveTwin(material: THREE.Material, tier = 0): THREE.Material {
   let list = twins.get(material);
@@ -67,7 +76,7 @@ export function dissolveTwin(material: THREE.Material, tier = 0): THREE.Material
   if (cached) return cached;
   const base = material as THREE.NodeMaterial;
   if (!base.isNodeMaterial) return material;
-  const node = base.clone() as THREE.NodeMaterial;
+  const node = cloneNodeMaterial(base);
   node.name = `${base.name}:dissolve${tier ? `-${tier}` : ''}`;
   node.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(KEEP) : KEEP;
   // Fading meshes cast no shadow (LodFades.start); the nearer model draws, and casts, throughout the fade.
