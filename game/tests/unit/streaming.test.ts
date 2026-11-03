@@ -182,8 +182,13 @@ test('a moving player gets the collision along the next 8 s of travel loaded, an
   expect(physics.loaded.has('c_10_1')).toBe(false); // 625 m: beyond 100 + 100 + 320 and the one-tile corridor
   // Tiles behind the player stay within the radius only.
   expect(physics.loaded.has('c_0_1')).toBe(true);
-  // Standing, the ahead tiles beyond radius + hysteresis unload again; ahead of a walker nothing extra loads.
+  // Standing, the ahead tiles beyond radius + hysteresis stay 10 s (a heading wobble must not rebuild them), then
+  // unload; ahead of a walker nothing extra loads.
   s.update(100, 100, true);
+  expect(physics.loaded.has('c_8_1')).toBe(true);
+  const now = performance.now();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(now + 10_500);
+  try { s.update(100, 100, true); } finally { clock.mockRestore(); }
   expect(physics.loaded.has('c_8_1')).toBe(false);
   expect(s.ahead(100, 100, 2, 0)).toEqual([]);
 });

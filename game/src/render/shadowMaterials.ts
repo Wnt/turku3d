@@ -7,6 +7,10 @@ import { asyncFirstUsePipelines } from './asyncPipelines';
 import { BuildLog } from './census';
 import type { WaterReflection } from './reflections';
 import { executeBundles, renderBundle, type BundleDrawHook } from './bundleReplay';
+import { altitudeShadows } from './shadowAltitude';
+import type { ReflectionScope } from './reflectionScope';
+import { poolUniformBuffers } from './uniformPool';
+import { poolGeometryBuffers } from './geometryPool';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -84,8 +88,19 @@ export class GameRenderer extends THREE.WebGPURenderer {
   pipelinesSettled() { return this.asyncPipelines?.settled() ?? Promise.resolve(); }
   /** Set by PostProcessing.render around the per-frame pipeline: first-use draws compile their pipeline asynchronously. */
   liveFrame = false;
+  /** Uniform buffers sub-allocated from shared pages (render/uniformPool.ts); set before init. */
+  poolUniforms = false;
+  uniformPool: ReturnType<typeof poolUniformBuffers> = null;
+  /** Small static vertex/index buffers sub-allocated from shared pages (render/geometryPool.ts); set before init. */
+  poolGeometry = false;
+  geometryPool: ReturnType<typeof poolGeometryBuffers> = null;
   override async init(): Promise<this> {
     await super.init();
+    const webgpu = (this.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
+    if (this.poolUniforms && !this.uniformPool && webgpu)
+      this.uniformPool = poolUniformBuffers(this.backend as unknown as Parameters<typeof poolUniformBuffers>[0], () => this.info.frame);
+    if (this.poolGeometry && !this.geometryPool && webgpu)
+      this.geometryPool = poolGeometryBuffers(this.backend as unknown as Parameters<typeof poolGeometryBuffers>[0], () => this.info.frame);
     this.releaseAttributes ??= ownNodeAttributes(this);
     this.instanceSharing ??= shareInstancePrograms(this);
     this.asyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
@@ -102,14 +117,19 @@ export class GameRenderer extends THREE.WebGPURenderer {
     for (const bundle of bundles) this._renderBundle(bundle, sceneRef, lightsNode);
     executeBundles(this);
   }
+  /** Subtrees a river reflection render skips without changing it (render/reflectionScope.ts); set by main.ts. */
+  reflectionScope: ReflectionScope | null = null;
   /** A nested render (shadow maps drawn from a receiver's updateBefore) never records into an outer bundle. */
   _renderScene(scene: THREE.Object3D, camera: THREE.Camera, useFrameBufferTarget = true) {
     const self = this as unknown as Internals, outer = self._currentRenderBundle;
     self._currentRenderBundle = null;
+    const water = (camera.userData as { waterReflection?: WaterReflection }).waterReflection;
+    const scope = water && (scene as THREE.Scene).isScene ? this.reflectionScope : null;
+    scope?.begin(scene, camera, water!);
     try { return base._renderScene.call(this, scene, camera, useFrameBufferTarget); }
-    finally { self._currentRenderBundle = outer; }
+    finally { scope?.end(); self._currentRenderBundle = outer; }
   }
-  override dispose() { this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  override dispose() { this.geometryPool?.release(); this.uniformPool?.release(); this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
@@ -141,6 +161,8 @@ export class GameRenderer extends THREE.WebGPURenderer {
         this.shadowPasses.set(original!, { override: original!, camera, target, mrt: this.getMRT(),
           depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
       }
+      // Above about 100 m small casters leave the sun's cascades (render/shadowAltitude.ts); preparation compiles all.
+      if (!precompiling && !recording && altitudeShadows.skips(object)) { this.contextNode = context; return; }
     }
     scene.overrideMaterial = original?.userData.normalPrepass
       ? this.normalPrepass.select(material) : this.shadowMaterials.select(material, original);

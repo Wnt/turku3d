@@ -1,7 +1,7 @@
 // Night floodlights of lit sports venues: the generator's list (manifest `lights.floodlights`,
 // pipeline/turku3d/coarse/floodlights.py) of each tile's lit venues and the masts standing in it.
 // Every mast gets a frame of lamp heads facing its venue centre (glare sprites in the one sprite draw), every
-// venue lights its field through the shared ground irradiance map (groundField.ts, no draw of its own), and
+// venue lights its field and surroundings through the light set's area light (floodArea.ts, no draw of its own), and
 // masts the city does not draw already (`mesh: 0`) get a pole (FloodMasts, one instanced draw sharing the
 // lamp posts' material). Everything follows the timecycle's night level, so every client agrees.
 import * as THREE from 'three/webgpu';
@@ -30,12 +30,10 @@ export interface FloodlightsField { version: number; venues: FloodVenue[]; masts
 export interface FloodTile { venues: FloodVenue[]; masts: FloodMast[] }
 
 export const FLOOD = {
-  /** Linear colour of the LED floodlights (about 5000 K) and HDR intensity of one lamp head. */
-  color: [1.0, 0.95, 0.86] as const, intensity: 30,
+  /** Linear colour of the LED floodlights (about 5700 K: a white wash) and HDR intensity of one lamp head. */
+  color: [1.0, 0.97, 0.92] as const, intensity: 30,
   /** Corona radius of one lamp head (m) and spacing of the heads on their frame. */
   radius: 1.5, spacing: 1.0, perRow: 5,
-  /** Field irradiance at level 1 (a street pool under its lamp is about 0.3) and its soft spill beyond the field (m). */
-  ground: 1.6, spill: 12,
 } as const;
 
 /** The tile's floodlights; malformed or absent lists give none. Only items the tile owns are kept. */
@@ -72,18 +70,6 @@ export function floodLamps(tile: FloodTile | null): Lamp[] {
     yaw: 0, scale: 1, post: false, kind: 'flood' as const,
     light: { x: p.x, y: p.y, z: p.z, radius: FLOOD.radius, r: r * k, g: g * k, b: b * k, day: 0, glare: 1 },
   })));
-}
-
-/** Irradiance the venue adds at (x, z): flat over the field, a soft spill beyond its edges. Null outside. */
-export function venueIrradiance(v: FloodVenue, x: number, z: number): number {
-  const px = x - v.x, pz = z - v.z;
-  const a = Math.abs(px * v.ux + pz * v.uz) - v.length / 2, b = Math.abs(-px * v.uz + pz * v.ux) - v.width / 2;
-  const outside = Math.hypot(Math.max(a, 0), Math.max(b, 0));
-  if (outside >= FLOOD.spill) return 0;
-  const edge = 1 - outside / FLOOD.spill;
-  // Overlapping beams make the middle of the field a little brighter than its touchlines.
-  const inside = Math.min(1, Math.max(0, -Math.max(a, b) / 15));
-  return FLOOD.ground * v.level * edge * edge * (0.8 + 0.2 * inside);
 }
 
 function part(geometry: THREE.BufferGeometry, color: readonly number[], glow: number) {

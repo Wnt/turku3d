@@ -312,6 +312,9 @@ test('dissolve twins keep their base program, add a dithered mask and a depth bi
   base.dispose();
   expect(disposed).toHaveBeenCalledOnce(); expect(farDisposed).toHaveBeenCalledOnce();
   expect(dissolveTwin(new THREE.MeshBasicMaterial()).name).not.toContain('dissolve');
+  // A twin keeps its base's alpha test (r186 clone() alone drops it): foliage cards stay cut out while dissolving.
+  const leaf = new THREE.MeshStandardNodeMaterial({ name: 'leaf', alphaTest: 0.5, side: THREE.DoubleSide });
+  expect([dissolveTwin(leaf).alphaTest, dissolveTwin(leaf).side]).toEqual([0.5, THREE.DoubleSide]);
 });
 
 test('block swap distance is 3D: a camera high above a near block sees its shell', async () => {
@@ -375,8 +378,11 @@ test('model reads start before the tile GLB, nearest tile first, and a prefetch 
   };
   const started: string[] = [], finish: (() => void)[] = [], shared = new SharedMaterials();
   const disposed = vi.fn();
+  // A frozen clock: the streaming window never closes, so reads and clones advance on promise turns alone (the
+  // session's real-time budget made the order depend on how fast the test host ran).
+  const budget = new PreparationBudget(() => 0, () => new Promise(() => {}));
   const cache = new BuildingModelCache(url => { started.push(url.slice(url.lastIndexOf('/') + 1, url.lastIndexOf('/') + 2));
-    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => { disposed(); disposeModelResources(root, shared); });
+    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => { disposed(); disposeModelResources(root, shared); }, budget);
   const far = cache.prefetch(models('f', 8), base, 400);
   expect(started).toHaveLength(cache.reads); // reads begin at once, before any attach
   const nearOwner = new THREE.Group(), near = cache.attach(nearOwner, models('e', 2), base, 20);

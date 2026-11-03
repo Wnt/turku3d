@@ -64,6 +64,8 @@ interface SaveGameOptions {
   showIntro: () => Promise<void>;
   fail: (e: unknown) => void;
   multiplayer?: () => void;
+  /** The pause menu's "Bring my vehicle here" (ui/menu.ts GameHooks). */
+  bringVehicle?: GameHooks['bringVehicle'];
   scoreboardStart?: () => void;
   scoreboardPause?: () => void;
   /** Opens the pause menu's Developer page (localhost only, ui/devMenu.ts). */
@@ -109,6 +111,8 @@ export class SaveGameController {
         o.setPaused(false);
         o.startScreen.reopen(this.startFlow.start());
       },
+      ...(o.bringVehicle ? { bringVehicle: { reason: o.bringVehicle.reason,
+        run: () => { this.hooks.resume(); o.bringVehicle!.run(); } } } : {}),
     };
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
     this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer, o.audio, o.timedRounds, o.multiplayerActive);

@@ -71,6 +71,16 @@
    "fileSha256": "ba35b668a98755f69d93a1be29f71778d7bb58e96102389d59159f5e1c006411"
   },
   {
+   "id": "market_sold_credit",
+   "speaker": "market",
+   "file": "market_sold_credit.ogg",
+   "seconds": 5.027,
+   "text": "Ten deliveries on credit. I take your base pay until we are even. Keep the tips.",
+   "textSha256": "634c39f7f5467ae203254c48ca6c8867acbb531666e45c0a93cccd056aa14d3d",
+   "key": "566817de476bdcf9b94b3c5b6d05df6b0226e528eb586bb2285bfd6b2e45919e",
+   "fileSha256": "c7217a587cb76a589aeeb1088086ec1bf3a78805c2d572321090209d25554702"
+  },
+  {
    "id": "pizzeria_first",
    "speaker": "pizzeria",
    "file": "pizzeria_first.ogg",
@@ -79,6 +89,26 @@
    "textSha256": "7c8aa90e36be8f0efe3321f8a67a2a80c6767aaef7b14538ffe6d58cc1af4189",
    "key": "9c6505eba25e6ee881ed03cb02cdd6e54c92d81659be3f5f863fd846d40e24a9",
    "fileSha256": "9485a36ee99c1e557d782f2c738c55c09f957db857d03b31dbd3f46c8de19e68"
+  },
+  {
+   "id": "pizzeria_bring_vehicle",
+   "speaker": "pizzeria",
+   "file": "pizzeria_bring_vehicle.ogg",
+   "seconds": 3.63,
+   "text": "My nephew fetched it. It is at the kerb outside, keys in.",
+   "textSha256": "4d979ca2d2ea718beb054bb46ae8ef416175b215aa9193b801007314473fef59",
+   "key": "c4f66a5481b00d60c785fd5c08886caa65a9e6ac538b5d830cac9706227988c5",
+   "fileSha256": "36ad3d0d4d7088b6d8000b2536b31caf9f8faac2d0ae00d6ead8f9b4ff73660c"
+  },
+  {
+   "id": "pizzeria_loaner",
+   "speaker": "pizzeria",
+   "file": "pizzeria_loaner.ogg",
+   "seconds": 4.79,
+   "text": "No wheels? Take my scooter at the kerb. Two euros a run, if you ride it.",
+   "textSha256": "dbf6d29e843181ba4abbbb84803b77a5554495408b7255c2f3fa799212385e03",
+   "key": "bc5daa7b0647eb4683e35279ad1667a427bdc7815c7b0c43a165d590d0d2b1f7",
+   "fileSha256": "fb9faeae573919de1641f1c0684a03185fcf0c824d1a62952a0b0b122ede949d"
   },
   {
    "id": "pole_fine_01",
@@ -209,6 +239,46 @@
    "textSha256": "ad419bef273434e6480cfc843a58d2b92c9af2d950e2c3c852fea8bdf8c2c7b2",
    "key": "bd76ad33342437309636c9151bbe2aa91e7125efc991819da4c9f784a088c5d4",
    "fileSha256": "7cc4be46adc9c380ec29ac795ce45aa4a57e646d186d27f4551971eaf52e3c92"
+  },
+  {
+   "id": "heist_briefing",
+   "speaker": "market",
+   "file": "heist_briefing.ogg",
+   "seconds": 11.167,
+   "text": "A trophy truck is parked in the inner yard of Rettigin palatsi, by Itäinen Rantakatu. Take it to the road under Aninkaistensilta, leave it there, and the plates are yours.",
+   "textSha256": "5c9bcc755419d31d1334a8788a632f8dfd9161b422e44b055a2bb287ca41d438",
+   "key": "ecd9651c1ae8b4bffb61da6fe1614d05c1439e10aa3cfd205e25d5d88db9e71f",
+   "fileSha256": "33977ffb750c5fae300e1d15cffd7cbdac0ef1150adc055c4607f35f86293ce0"
+  },
+  {
+   "id": "heist_in_truck",
+   "speaker": "market",
+   "file": "heist_in_truck.ogg",
+   "seconds": 5.241,
+   "text": "Nice wheels. Now under Aninkaistensilta, on the road below the bridge, not on it.",
+   "textSha256": "ac66f745a7ee7464b0767e2d05e0ee796cec4ba54ece15d736d9d624445776e1",
+   "key": "89e7d567e6e7e412af0908fafafcfefcec31ac0ad630197618a2e98c02ebfe2c",
+   "fileSha256": "6c9722dc362ea8adbabf9d0526b855f1a5932fbad41368f1148115af9538653d"
+  },
+  {
+   "id": "heist_done",
+   "speaker": "market",
+   "file": "heist_done.ogg",
+   "seconds": 4.986,
+   "text": "The truck is gone and the plates are yours. There is a car parked by the road. Use it.",
+   "textSha256": "50498e5943c7cc892910677dbddc25fc976a488daf65b94b94b1f3b0d5356fc7",
+   "key": "68bfc181b4dfa7c235e77d6b168eafaf6b4e714e891f13c22f69019706054ac2",
+   "fileSha256": "194ced53f35bc71bfe6ca4f57dce529ca93fcac7b9ede83b88d0845250347b50"
+  },
+  {
+   "id": "heist_abandoned",
+   "speaker": "market",
+   "file": "heist_abandoned.ogg",
+   "seconds": 4.045,
+   "text": "Fine. The truck stays in its yard. Come back when you have the nerve.",
+   "textSha256": "725f710d368923048fc89873a82543f76ab2ae9a5c847f4e05e6abd8e85ccd27",
+   "key": "90b54ad3cf122d1130a0361255f85c345f35e58c3cefde5cce9baa9a873baf51",
+   "fileSha256": "158d0000fa5f5c9e3192ab8834b3f88c00ef517c4296d3f67078e997ac1d8543"
   },
   {
    "id": "phrase_order_1",
@@ -569,6 +639,126 @@
    "textSha256": "7e1c47d7a1eaa0b3b0f99931b00426285ef31e99873ba56e9aab97745c4cb2ed",
    "key": "d44f0750ba32f2908c3f03846b3ea5cb94b4333467eb895f14571633f3eb5d8d",
    "fileSha256": "1c1bd222b469b8866e7f2fbf2004cc51f854e6f61768653f8b965f2f5c18b076"
+  },
+  {
+   "id": "phrase_limited_1",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_1.ogg",
+   "seconds": 3.841,
+   "text": "Limited time at the pizzeria: double pay for a run to ",
+   "textSha256": "7d1b0b684bcd3cecda58816663e3def55633f090c369b454c069d8f5d64a042b",
+   "key": "825caa80614ecf4b583222e7dfa6ffc48419b341da53d27957976812de76fded",
+   "fileSha256": "1ae374f9c0a10d92a3d4c5c33ce78229bca08cb4685bc6b5c5c6df989ee80886"
+  },
+  {
+   "id": "phrase_limited_2",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_2.ogg",
+   "seconds": 4.574,
+   "text": "A rush order just came in, big money, a few minutes only. It goes to ",
+   "textSha256": "e831cd0926c2c0436ced774485afd08354ae42fff9192d799bfd88346ae9d2f0",
+   "key": "129211252930f6199a9f5f61b6e289ead49f02491afaf077fa749c735b85dc6b",
+   "fileSha256": "5ad293f68118bd219184dad2238f33166d1edda89aa51133468d8bedf2ebfe63"
+  },
+  {
+   "id": "phrase_limited_3",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_3.ogg",
+   "seconds": 4.494,
+   "text": "Special order on the counter, double pay if you take it soon. Destination: ",
+   "textSha256": "2c9c2f61621530d9ead64d9e690625c886a42e2652de848ddf8a270792af3e04",
+   "key": "c070789c1e8bc71e939436a0deff89937ba2eae14774464e35322569fcf9c51b",
+   "fileSha256": "b9b259790d7db69b796fb4b923013e06c90767771e57596747297790ee52ec4d"
+  },
+  {
+   "id": "phrase_limited_4",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_4.ogg",
+   "seconds": 4.417,
+   "text": "Limited time job: a long drive and a fat envelope. It goes to ",
+   "textSha256": "f647fe157fc9b93233b344fadde879906d77af8ef559b83c987513e3795f8894",
+   "key": "24bc4feb2887a01df9b075e59d93f5cfd01051e009af270586ac708c85c7f022",
+   "fileSha256": "5026cd94b54f333e99258571b8060fd7b83160c765ee50885991a46f594a37c5"
+  },
+  {
+   "id": "phrase_limited_5",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_5.ogg",
+   "seconds": 4.429,
+   "text": "The boss pays double for one far delivery. Come quickly. It goes to ",
+   "textSha256": "e999ee241f7a7420b7601460cce7b7e91934a59913f6cccb6bb97316536b8715",
+   "key": "7ae79a34e5bd47dde394f7aa478b969aaa00e024915280d9ab842e8d572c0bb7",
+   "fileSha256": "c58000e693a338495345cfa029324f301a12b4c34cfbc6542177d94e5abb456c"
+  },
+  {
+   "id": "phrase_limited_6",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_6.ogg",
+   "seconds": 3.959,
+   "text": "A high-value order is waiting, but not for long. Destination: ",
+   "textSha256": "2dc74fc2be7597cd01509c2001ab55665b86f143479c472d39002b61b4ee8109",
+   "key": "eaeec374a4914fa83c8324b1c6bbc9d59aeb198b935a19fad02c6aac2d87a708",
+   "fileSha256": "e6f5bd6440d030230835a8546cf1cc6031e648825d065380f0a863d8e4f26073"
+  },
+  {
+   "id": "phrase_limited_7",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_7.ogg",
+   "seconds": 4.158,
+   "text": "Double pay, limited time. Somebody far away is very hungry: ",
+   "textSha256": "48f135ba42cf5105119c20a1210aba83490c7a79c808821ffd9e9622c91ee917",
+   "key": "4d5da8107fe587866ae321331f3d09533b50ea63ea981a37deb67d9f49adc198",
+   "fileSha256": "8f11f0c0976cf87b3823c99a583ea95da669b52b54d33be994041e4a618c74e3"
+  },
+  {
+   "id": "phrase_limited_8",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_8.ogg",
+   "seconds": 3.616,
+   "text": "One premium order, first courier takes it. It goes to ",
+   "textSha256": "28684799aa2f7684e221ea134069f50b2128989a2ad591d11249af53a01c8f80",
+   "key": "adc207cb45fc1b9c81e4f4df9b0a47b913422c36181eae0d59fa67748497c940",
+   "fileSha256": "5e3c7afd126e013f0f2501cdbedf26d748643720389f81f6cafd5feae5eba233"
+  },
+  {
+   "id": "phrase_limited_9",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_9.ogg",
+   "seconds": 4.651,
+   "text": "Limited time offer. The pay is double, the tip is yours. Destination: ",
+   "textSha256": "6672cddb5d5376d2051320bee2a3a2b4908ff6c915f83790ab219773758be70b",
+   "key": "c09a7e13fcc3e34ee2abf991a93cf5edc9ac8f3c39fa5c94ddeb03432f44767e",
+   "fileSha256": "e4fedf405db78a52ddcbaefe82c220fdbe51e912df43026aa41eda5fa131d32a"
+  },
+  {
+   "id": "phrase_limited_10",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_10.ogg",
+   "seconds": 4.575,
+   "text": "A long run just came in at double pay. It expires soon. It goes to ",
+   "textSha256": "42ac771537a94ae36e20cc4c5284f4e4faaf2117e62a8b2b708d5c42f5a0c540",
+   "key": "ee7472f99f4d58bb00fc1ce4265db800a96d7b04f12f1d31586e99eda53a9959",
+   "fileSha256": "c49339342ab8d680f82d3b34e4c37655135817bb5f62b1751b9df8d4569f8529"
+  },
+  {
+   "id": "phrase_limited_11",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_11.ogg",
+   "seconds": 3.387,
+   "text": "Big order, short window. Pick it up at the pizzeria for ",
+   "textSha256": "a2219cb8aa57a7f456b30285a4fc482e66d9270a46096b02efc8695e84fcf865",
+   "key": "f35a6b3c1bff7997ce50faf6bf53b54d363fdecf43696387f29783787520b57e",
+   "fileSha256": "a72f4f627f62ff1ce44670bb2eb2a57dbcb35619b19ee1ef2dcd00061ee8b14f"
+  },
+  {
+   "id": "phrase_limited_12",
+   "speaker": "pizzeria",
+   "file": "phrase_limited_12.ogg",
+   "seconds": 4.148,
+   "text": "The pizzeria has a limited time delivery at double pay for ",
+   "textSha256": "61cd4bbef131e1978fac0fabe133f27111e2193fa0db62821204b947a8a38172",
+   "key": "a3b103ee75c9fafb0b07a4dff4a9e3456debee48605da7081538e915f1af0fd6",
+   "fileSha256": "a32ab7247789a9134090e792ab5fe089e3ae404ed58072bb04f7e3a868d0aea1"
   },
   {
    "id": "phrase_hint_permit_1",
@@ -3944,11 +4134,11 @@
    "id": "phrase_dealer_sold_truck_2",
    "speaker": "dealer",
    "file": "phrase_dealer_sold_truck_2.ogg",
-   "seconds": 2.139,
-   "text": "A thousand euros, and the truck waits outside.",
-   "textSha256": "d5de9b879e3fa35a31a7def3e395b09320290be0fcf38e871b221ad16329351f",
-   "key": "3918f3cd982d3507aeaf0c9d84be2c13427761ae1ad959ecb042bc72c0421677",
-   "fileSha256": "a9d245f75adc878034822d9f7cff975884cc19c893cf15c477cf2ad5540a6e7b"
+   "seconds": 2.175,
+   "text": "Six hundred euros, and the truck waits outside.",
+   "textSha256": "5ba4d046c08eb5f891fd1a5206f9c189bf3cd465f615cd4fe434fb45077c453f",
+   "key": "d6e584f4a33ad5f547037147beb4a4250fdd9acabecafb94fe2493f521a20426",
+   "fileSha256": "9157159467fcafaf25187571829d63c910ec5d3fa39fd7b7c3019be992cfc06e"
   },
   {
    "id": "phrase_dealer_sold_truck_3",
@@ -4034,11 +4224,11 @@
    "id": "phrase_dealer_sold_truck_11",
    "speaker": "dealer",
    "file": "phrase_dealer_sold_truck_11.ogg",
-   "seconds": 2.411,
-   "text": "A thousand euros bought a very large courier ride.",
-   "textSha256": "80d6137649bba0723a9f5f744a2393deed612b5ba75ae0310326e4c4c037ea71",
-   "key": "8e67700d3d06a293ec15f0d9fb35af57f91a0b72eb7c6bc3a1c4d87db8b1f5b2",
-   "fileSha256": "320e72245d0264d014168328ec1238b9a58bdfc9eb2a70173ae16c7ce5af3206"
+   "seconds": 2.467,
+   "text": "Six hundred euros bought a very large courier ride.",
+   "textSha256": "55ddb7961b25e0eb6c26482141710aefc8ca400d5f997355a394545088a3a04f",
+   "key": "20bfc95da91b4aa3019d77601f22924f207fa34a29cdf1d2f13403a8b61a9c6f",
+   "fileSha256": "0ee6b4c9977afd29705616235958593ae0580631247e72580634260f6241b1c4"
   },
   {
    "id": "phrase_dealer_sold_truck_12",
@@ -4059,16 +4249,6 @@
    "textSha256": "0597f441dcca7c9bb0a79da4d94d03c523c031a3384009afff47ac1fd1a72b95",
    "key": "583ad8604fbb604b16473865a1a88f3650e13e3f3b03e6c3d62736fda40d447f",
    "fileSha256": "88f547c27e078eae9d103d6acbd5d8c67cf1826cd89b8103479d85db639742d7"
-  },
-  {
-   "id": "address_aboa_vetus_ars_nova",
-   "speaker": "pizzeria",
-   "file": "address_aboa_vetus_ars_nova.ogg",
-   "seconds": 2.095,
-   "text": "Aboa Vetus Ars Nova",
-   "textSha256": "063e3d17e638e5ff93b8e1e10fb7f9da47a30a05a44aa0b0ce17a063944c217d",
-   "key": "26c5cb7744411de44ce7da2e9b1d369bc1c79b985a72aa42619a172f69e0f1a0",
-   "fileSha256": "b0bf29b618068f58d39993c4d8567f69ea66ea3bafad6525be1a654371c887c0"
   },
   {
    "id": "address_aninkaistenkatu_2",
@@ -4521,16 +4701,6 @@
    "fileSha256": "4c7333ea0eee5ed0f592699838da0558f56a358795bbe19eda52962b74c94b29"
   },
   {
-   "id": "address_forum_marinum",
-   "speaker": "pizzeria",
-   "file": "address_forum_marinum.ogg",
-   "seconds": 1.361,
-   "text": "Forum Marinum",
-   "textSha256": "c49369362c679f1ba4a990bc12210818e38e34f86ad9a031c6379368482f64fe",
-   "key": "0ec318967ff784028aa28f77c60d41e539e9a4e149d6357d716f7f4b9a398d9a",
-   "fileSha256": "ccec33d52e4d6229746f7e99201e7ec7c5758cc45ad441b1f89877a0a49baa23"
-  },
-  {
    "id": "address_hameenkatu_15",
    "speaker": "pizzeria",
    "file": "address_hameenkatu_15.ogg",
@@ -4789,6 +4959,26 @@
    "textSha256": "689e6425d89d23400a8ad52e74e1dd8d4d1d29d7972de4b2771b7a8f538f6396",
    "key": "5898b6de83d99ed8f7948a508e6944cf7821ac10ea5f94c3e961204e2139cb55",
    "fileSha256": "08c60da5e2d7994ca2402ff5656f47abef6c237fb7e5627f706912780742ae56"
+  },
+  {
+   "id": "address_jaanin_paloasema",
+   "speaker": "pizzeria",
+   "file": "address_jaanin_paloasema.ogg",
+   "seconds": 1.499,
+   "text": "Jaanin paloasema",
+   "textSha256": "a42b329ab7751977bb7760dffa3d8cf2611fd5d7e6aa69271dac64e7cdc533a6",
+   "key": "0ad8bef6cec61fc8ee0d57fbd1405655fe9a455f57a3b1426537352871d00f25",
+   "fileSha256": "d1b2139bbb910b854808e67a4ab2571e54f6a91804515456bf170a073a735ff7"
+  },
+  {
+   "id": "address_juhannuskukkulan_vesilinna",
+   "speaker": "pizzeria",
+   "file": "address_juhannuskukkulan_vesilinna.ogg",
+   "seconds": 2.117,
+   "text": "Juhannuskukkulan vesilinna",
+   "textSha256": "29347074142c17e0e4d507f5426997226d48ee077d10c0420cfff5b1ed17f23d",
+   "key": "f0f8f4f95feae37027fc981db0c896df90ae76284520a76e90a8b03ec0ddcba8",
+   "fileSha256": "0eb2afa2bddfc23b778f68a49486f3af3f15866cb54b56b5f8cf40618de9d697"
   },
   {
    "id": "address_kakola_spa",
@@ -5119,16 +5309,6 @@
    "textSha256": "fb09527e5b4196b4b0c5fef1ff50340d52c0739dfe0b227901beb45bae8329af",
    "key": "d6692edc554128d8684e54d44d7a94745b219a3c9d803eb8554dab35121006e2",
    "fileSha256": "32bc4688ddc9777fe417f0003c6f5ba0167ad873414222b962807dc6110fb0ee"
-  },
-  {
-   "id": "address_kuralan_kylamaki",
-   "speaker": "pizzeria",
-   "file": "address_kuralan_kylamaki.ogg",
-   "seconds": 1.627,
-   "text": "Kuralan Kylämäki",
-   "textSha256": "4314bbc4865bb354ac6252939f64a5b343a052f71bad97b6e0fff2e0364e1508",
-   "key": "ad8fc902e212071a3c585cb39eb06ff90627295e4b7db34f908b5033f76329d1",
-   "fileSha256": "7cfd9701ac8f6eafd0a2c10a56f345be67a1d23fe90a2425cb3cadf9134ee9a6"
   },
   {
    "id": "address_lantinen_rantakatu_1",
@@ -5691,6 +5871,16 @@
    "fileSha256": "902359db49ee59bda539e3b2ad8baf7c1a936bf09fc36f1a53dc50b3189f705c"
   },
   {
+   "id": "address_luolavuoren_vesitorni",
+   "speaker": "pizzeria",
+   "file": "address_luolavuoren_vesitorni.ogg",
+   "seconds": 2.115,
+   "text": "Luolavuoren vesitorni",
+   "textSha256": "1fa5ab3d62f3b7e7ba6f457b516c489498391c7ee0fa06cf1bad80f57e785ff0",
+   "key": "bb6b35b96f3fb064c1e97216bee271fada045c6f8236c25c0a10644541ee49b6",
+   "fileSha256": "d0880194821287968a5a05ad633978ee0e9162b6e5d8a196e8cc8713ae4af7b8"
+  },
+  {
    "id": "address_luostarinkatu_9",
    "speaker": "pizzeria",
    "file": "address_luostarinkatu_9.ogg",
@@ -5809,6 +5999,16 @@
    "textSha256": "cba83061382317bb9406c26e28acf9744cd5f600896d1d6bdb7532eabd117ac1",
    "key": "92c8d24dc12911960f74a719ec0643f204ac71eb750370bde871652fdeb379f7",
    "fileSha256": "236053a8b0f2b2ce5226718b2193ba07d0bd7271db60fa250db3295059ac1a76"
+  },
+  {
+   "id": "address_mikaelinkirkko",
+   "speaker": "pizzeria",
+   "file": "address_mikaelinkirkko.ogg",
+   "seconds": 1.236,
+   "text": "Mikaelinkirkko",
+   "textSha256": "25d65c68ffc809321eab7b081ba2657cb75c5c2f210d9f618f5ac8828f12547a",
+   "key": "4cdf5c2dac0ac7e1e2d78be17e40efd58f46b6f7838a0e732598731e7c5e0dfc",
+   "fileSha256": "c91de0296b20b6726c15a11b865cf84b9616228a37c4eff1e198ed5a38e10fcf"
   },
   {
    "id": "address_mustainveljestenkuja_1",
@@ -5971,6 +6171,16 @@
    "fileSha256": "cf21483810a79e1ef819754821c7a6c15af3000b049d5eb164936fccdde131c7"
   },
   {
+   "id": "address_ruissalon_telakka",
+   "speaker": "pizzeria",
+   "file": "address_ruissalon_telakka.ogg",
+   "seconds": 1.673,
+   "text": "Ruissalon telakka",
+   "textSha256": "57aeb966884b7e38943a60779223a8f2212151d31463fbf87b9328b7213b4bd1",
+   "key": "623696b92e7a25368e1b6979366de259559e6afa44c2469810e7ccd1f3024261",
+   "fileSha256": "c6c3d743708924a4f6a73af281488b92860792482da459ebbf654104228f6920"
+  },
+  {
    "id": "address_samppalinnankatu_4",
    "speaker": "pizzeria",
    "file": "address_samppalinnankatu_4.ogg",
@@ -6069,16 +6279,6 @@
    "textSha256": "2b450aea350d0aba3d10af9e745df24d8538d0ecdbb9daa0b802b3266a2e4eae",
    "key": "4ccb6a232e5428eabf9617d3e47eb1ac640bf568db83ee89bbd647178df77149",
    "fileSha256": "c1206bb203e69a41db2ce3a6a75433310a0763729cdbdf78b2da6ad605ad155e"
-  },
-  {
-   "id": "address_turun_linna",
-   "speaker": "pizzeria",
-   "file": "address_turun_linna.ogg",
-   "seconds": 1.172,
-   "text": "Turun linna",
-   "textSha256": "62ade15c4a952908d48452e4c1591e4c8b0fbd1e8d15be8db88232152662bcf3",
-   "key": "8d52c380d1926f494cbc43b177b02bd304e7d17aabf63a6c21d02ace3f8563bf",
-   "fileSha256": "699fb6ccbd61ed206b07639cab416c6f00687ce27ebfa0b8dba104d45be6c71f"
   },
   {
    "id": "address_turun_tuomiokirkko",
@@ -6221,6 +6421,16 @@
    "fileSha256": "959c8c12d4fb6cd3b38c0ad3726724b3ed9cf3dd1413df74d2031cfdcc512131"
   },
   {
+   "id": "address_vartiovuoren_tahtitorni",
+   "speaker": "pizzeria",
+   "file": "address_vartiovuoren_tahtitorni.ogg",
+   "seconds": 2.101,
+   "text": "Vartiovuoren tähtitorni",
+   "textSha256": "5f6e6a8487ef316d1aa40102e28728317dbd6248b1b4fce928d9f1abdb160481",
+   "key": "0a0c9812d89943eaf2a83f7ebdd710516514e0fb983d006930215014ec78a0e0",
+   "fileSha256": "937c92e727c124ed5453afac42deed74db4662b67f0ef817c8259919f4e8516c"
+  },
+  {
    "id": "address_vartiovuori_0",
    "speaker": "pizzeria",
    "file": "address_vartiovuori_0.ogg",
@@ -6231,14 +6441,14 @@
    "fileSha256": "7352c1e58ff02427a6e18451bb246eb46aeb607ae7662468f03d536f0d6759ac"
   },
   {
-   "id": "address_waino_aaltosen_museo",
+   "id": "address_vesilinna",
    "speaker": "pizzeria",
-   "file": "address_waino_aaltosen_museo.ogg",
-   "seconds": 2.157,
-   "text": "Wäinö Aaltosen museo",
-   "textSha256": "86c467429ea0c49e5af17ca20e7c04ff56dab0733566f191c5a2bdc6c7eab4e7",
-   "key": "f0677698c0214c9d36bad626581e35d5a67fba5cc221e903d3d8366c2292eb94",
-   "fileSha256": "dbde2338d4db5ae4a13b84ae2dccca8a5bad59ae10030433660d63de9fe36683"
+   "file": "address_vesilinna.ogg",
+   "seconds": 1.016,
+   "text": "Vesilinna",
+   "textSha256": "d424be62e0335369ae095e685df149ce4904396136a26fb1dd97a1dff29cbbe1",
+   "key": "4e689282a7b40e3e153ea2193ecf57be470259ae33cd631275362fdd5471a473",
+   "fileSha256": "80717f2057b043ba9668e13269c78c8253caab827dcd1809eacdcf0c5a0b0f70"
   }
  ]
 }

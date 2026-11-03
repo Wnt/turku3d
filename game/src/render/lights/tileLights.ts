@@ -10,11 +10,14 @@
 import { VISUAL_L0 } from '../../core/origin';
 import type { Lamp, SpriteLight } from './lampField';
 import type { FloodlightsField } from './floodlights';
+import type { WiresField } from './wires';
 
 export interface TileLightsField {
   format: 'turku3d-lights'; version: number; count: number; posts: number; street: number; data: string;
   /** Lit sports venues and their masts (floodlights.ts). */
   floodlights?: FloodlightsField;
+  /** Overhead wires and the lamps hung on them (wires.ts). */
+  wires?: WiresField;
 }
 
 const LIGHT_SCALE = 8;
@@ -47,7 +50,7 @@ function bytes(base64: string): Uint8Array {
 
 /** Content identity of a light list: unchanged on every re-poll of the same tile build. */
 export const lightsSignature = (field: TileLightsField | null | undefined) =>
-  field ? `${field.count}/${field.posts}/${field.data}${field.floodlights ? JSON.stringify(field.floodlights) : ''}` : '';
+  field ? `${field.count}/${field.posts}/${field.data}${field.floodlights ? JSON.stringify(field.floodlights) : ''}${field.wires ? JSON.stringify(field.wires) : ''}` : '';
 
 /** The tile's lamps: one per light record, with its post where it has one. Malformed lists decode to nothing. */
 export function decodeTileLights(field: TileLightsField | null | undefined): Lamp[] {

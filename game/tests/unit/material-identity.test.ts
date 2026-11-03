@@ -120,3 +120,20 @@ test('HDR emission above one cannot collapse into a different material', () => {
   expect(first.emissive.getHex()).toBe(second.emissive.getHex());
   expect(materialIdentity(first)).not.toBe(materialIdentity(second));
 });
+
+test('identities name textures by uuid without serialising their images (no warning for compressed sources)', () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  // A compressed (KTX2-like) source: no drawable image and no data array, which three cannot serialise.
+  const compressed = new THREE.CompressedTexture([{ data: new Uint8Array(16), width: 4, height: 4 }], 4, 4);
+  compressed.image = { width: 4, height: 4 } as unknown as HTMLImageElement;
+  const other = new THREE.Texture();
+  const a = new THREE.MeshStandardMaterial({ map: compressed, roughness: .5 }), b = a.clone(), c = a.clone();
+  c.map = other;
+  expect(materialIdentity(a)).toBe(materialIdentity(b));
+  expect(materialIdentity(a)).toContain(compressed.uuid);
+  expect(materialIdentity(c)).not.toBe(materialIdentity(a));
+  const node = new THREE.MeshStandardNodeMaterial({ map: compressed });
+  expect(materialIdentity(node)).toContain(compressed.uuid);
+  expect(warn.mock.calls.filter(call => String(call.join(' ')).includes('serialize'))).toEqual([]);
+  warn.mockRestore();
+});

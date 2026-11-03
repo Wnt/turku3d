@@ -278,6 +278,20 @@ describe('shader programs', () => {
     expect(programs[0][1]).toMatch(/texture_depth_2d/);
   });
 
+  test('the sprites\' water reflections are one more draw of the same instances, depth-tested at the surface crossing', () => {
+    const sprites = new LightSprites('medium');
+    sprites.setGroup('lamps', Array.from({ length: 30 }, (_, i) => ({ x: i, y: 5, z: 0, radius: 0.85, r: 3, g: 2, b: 1, day: 0 })));
+    sprites.update(new THREE.PerspectiveCamera(), new THREE.Vector2(1280, 720), 1);
+    expect(sprites.scene.children).toEqual([sprites.mesh, sprites.reflections]);
+    expect(sprites.reflections.geometry).toBe(sprites.mesh.geometry);
+    const [vertex, fragment] = build(sprites.reflections);
+    expect(fragment).toMatch(/texture_depth_2d/);
+    // The streak's vertical stretch and the mirrored height (2 * (y - level)) are constants of its vertex stage.
+    expect(vertex).toMatch(/vec2<f32>\( 1\.0, 3\.0 \)/);
+    expect(vertex).not.toEqual(build(sprites.mesh)[0]);
+    sprites.dispose();
+  });
+
   test('the lamp-post draw compiles one program for any post count and night level', () => {
     const programs = [[1, 0], [600, 1]].map(([count, night]) => {
       const posts = new LampPosts(1024);

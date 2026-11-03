@@ -34,7 +34,7 @@ export const TRAFFIC_STRIDE = 20;
 
 /** Moving-car caps per quality tier (street-richness plan §3.6/§7); the Air default is the low cap. The density
  *  (traffic/density.ts) sets how many cars the streets carry; the cap only bounds how many this client draws. */
-export const TRAFFIC_CAPS: Readonly<Record<QualityTier, number>> = { mobile: 10, low: 15, medium: 30, high: 40 };
+export const TRAFFIC_CAPS: Readonly<Record<QualityTier, number>> = { mobile: 10, low: 15, reduced: 30, medium: 30, high: 40 };
 
 /** Population ring (plan §3.6, provisional until the GTA host measurements). */
 export const RING = {

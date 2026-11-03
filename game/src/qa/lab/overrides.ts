@@ -1,12 +1,14 @@
-// Bench lab LOD and distance overrides (`?hd=&props=&trees=&shadow=&cascades=&fullr=&cells=&reflect=&cars=`). Each
+// Bench lab LOD and distance overrides (`?hd=&props=&trees=&shadow=&cascades=&fullr=&cells=&reflect=&cars=&lodfade=`). Each
 // sets an existing engine constant before anything reads it, so the engine runs its normal code path with another
 // value; absent parameters leave the constants untouched. `lodSettings` reads back what the engine now uses.
 import { QUALITY, type QualityTier } from '../../render/quality';
 import { BLOCK_LOD } from '../../world/buildingPlacements';
 import { PROP_LOD } from '../../world/propLod';
 import { TILE_WINDOW } from '../../world/coarseRegion';
-import { SCENERY_CELLS, TILE_DETAIL } from '../../world/sceneryView';
+import { SCENERY_CELLS, TILE_DETAIL, detailFloor } from '../../world/sceneryView';
 import { REFLECTION_RANGE } from '../../render/reflections';
+import { LOD_FADE } from '../../render/lodFade';
+import { VEGETATION_FADE, scaleVegetationFade } from '../../world/nature/materials';
 import { TRAFFIC_CAPS } from '../../traffic/constants';
 import { walkerCap } from '../../world/walkers';
 import { VISUAL_L0 } from '../../core/origin';
@@ -52,6 +54,8 @@ export function applyLodOverrides(lod: LodOverrides, tier: QualityTier, params: 
   if (lod.cells !== null) SCENERY_CELLS.distance = lod.cells;
   if (lod.reflect !== null) REFLECTION_RANGE.maxDistance = lod.reflect;
   if (lod.cars !== null) params.traffic = lod.cars;
+  if (lod.lodfade !== null) LOD_FADE.seconds = lod.lodfade;
+  if (lod.treefade !== null) scaleVegetationFade(lod.treefade);
 }
 
 /** The LOD distances and caps the engine runs with now, for the result. */
@@ -64,9 +68,11 @@ export function lodSettings(tier: QualityTier, params: { traffic: number | null;
     shadow: { far: q.splits[q.splits.length - 1], cascades: q.splits.length, splits: [...q.splits] },
     fullr: { radius: TILE_WINDOW.radius, window: `${2 * TILE_WINDOW.radius + 1}x${2 * TILE_WINDOW.radius + 1}`, tileDetail: TILE_DETAIL.distance },
     cells: SCENERY_CELLS.distance ?? 'pixel rule (350..2000 m)',
-    cellFloor: TILE_DETAIL.distance + TILE_DETAIL.band + 90,
+    cellFloor: detailFloor(),
     reflect: Number.isFinite(REFLECTION_RANGE.maxDistance) ? REFLECTION_RANGE.maxDistance : 'unlimited (water coverage only)',
     cars: params.traffic ?? TRAFFIC_CAPS[tier],
     walkers: walkerCap(tier, params.walkers),
+    lodfade: LOD_FADE.seconds,
+    treefade: { width: [...VEGETATION_FADE.width], stagger: [...VEGETATION_FADE.stagger] },
   };
 }

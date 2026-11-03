@@ -1,0 +1,18 @@
+# Installed by tools/share/deploy.sh. Outbound tunnel to the forwarder; the token is the existing Turku env file.
+[Unit]
+Description=Turku3D city share: tunnel https://city.lab.madekivi.fi -> city-web
+After=city-web.service
+Wants=city-web.service
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/turku3d/forwarder.env
+ExecStart=%h/turku3d-mp/bin/forwarder-agent-linux-amd64 --server tunnel.lab.madekivi.fi --tunnel city:http:city.lab.madekivi.fi:7780
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

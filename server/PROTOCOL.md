@@ -30,7 +30,9 @@ hour assignment. The client must handle a new timestamp epoch after rejoin.
 
 Earned cash is the sum of validated positive delivery pay, tips and bonuses in this
 hour. It is separate from the local wallet: fines, purchases and other spending never
-reduce it. Starting cash, developer grants and asset sales are not earnings. Future
+reduce it; that includes the pizzeria's loaner-scooter fee and the base pay that repays a permit rented
+on credit, so a delivery's `payout` is always the earned pay the envelope below validates.
+Starting cash, developer grants and asset sales are not earnings. Future
 reward events must be validated server-side before contributing to this total.
 Ranking uses earned cash descending, then paid deliveries descending, then the earliest
 server time at which that result was reached (join order resolves simultaneous times).
@@ -206,7 +208,10 @@ drop-off with tip >0. Thus `payout` must be 6, or 10 with tip >0; total maximum 
 Distance determines par time (`distance / speed + 20`, speeds foot=1.4,
 scooter=7, car=9, truck=10.5 m/s). Tip rounds a clamped linear fall from 8 at 0.7×par to 0 at
 1.3×par; failure is at 2×par. Long jobs add optional `job: "long"`; omitted means `"short"`. Their base payout is
-`24 + ceil(routeMeters * 0.012)` with 60 < routeMeters <= 7000 and no double bonus.
+`24 + ceil(routeMeters * 0.012)` with 60 < routeMeters <= 7000. Every third long job is a double: its second
+drop-off reports the leg between the two landmarks as `routeMeters` and adds the same double bonus of 4 when its tip is >0.
+`job: "limited"` marks the pizzeria's LIMITED TIME job (a run of 3 km or more in all): the same rules at twice the long
+base payout, `2 * (24 + ceil(routeMeters * 0.012))`.
 Long-job par speed is 1.4 times the short speed (1.2 for scooters); the same tip and failure fractions apply. The server checks
 the possible euro envelope; this message cannot prove timing, ownership, route,
 address existence, second-stop status, or that a delivery actually happened.
@@ -284,7 +289,8 @@ self pose when present, otherwise spawn.
   implementations answer pings automatically.
 - Slow readers with more than 256 KiB queued output are disconnected.
 - Upgrades require path `/` and an exact Origin of `https://wnt.github.io` or
-  `http://localhost` with an optional valid nonzero port. Missing Origin, `null`,
+  `http://localhost` with an optional valid nonzero port, or one of the exact origins in
+  `TURKU_MP_ORIGINS` (a share host's own server, tools/share/deploy.sh). Missing Origin, `null`,
   `127.0.0.1`, other hosts, schemes, paths and subdomains receive HTTP 403.
   Non-browser clients such as the probe must set Origin explicitly.
 

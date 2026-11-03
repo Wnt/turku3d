@@ -108,6 +108,24 @@ function cell(id: string, i: number, j: number, quads: { x0: number; z0: number;
 }
 
 describe('collision ground index', () => {
+  test('a lazily added cell decodes on its first ground query only, keeping its version', () => {
+    const g = new GroundIndex(), road = cell('c_0_0', 0, 0, [{ x0: 0, z0: 0, x1: 62.5, z1: 62.5, y: 2, material: MAT.road }]);
+    let decodes = 0;
+    const buffer = new ArrayBuffer(4096);
+    g.addLazy('c_0_0', buffer, () => { decodes++; return road; });
+    expect(g.size).toBe(1);
+    expect(g.retainedBytes().bytes).toBe(4096); // raw bytes until queried
+    const version = g.version(10, 10);
+    expect(version).toBeGreaterThan(0);
+    expect(decodes).toBe(0);
+    expect(g.ground(10, 10, 10, 20)).toBeCloseTo(2);
+    expect(g.ground(20, 10, 20, 20)).toBeCloseTo(2);
+    expect(decodes).toBe(1);
+    expect(g.version(10, 10)).toBe(version); // cached heights stay valid
+    g.remove('c_0_0');
+    expect(g.ground(10, 10, 10, 20)).toBeNull();
+  });
+
   const index = () => {
     const g = new GroundIndex();
     g.add(cell('c_0_0', 0, 0, [

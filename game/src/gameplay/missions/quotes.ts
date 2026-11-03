@@ -15,31 +15,43 @@ export interface OrderQuote {
   par: number;
   stops: number;
   pay?: number;
+  /** Whole seconds left of a LIMITED TIME offer. */
+  expires?: number;
+  /** Euros off the pay when the order is carried on the pizzeria's loaner scooter (economy.ts LOANER_FEE). */
+  fee?: number;
 }
 
 type StreetMetres = (from: WorldPoint, to: WorldPoint) => number;
+/** Route metres from one drop-off to the next. */
+export type StopLeg = (from: OrderStop, to: OrderStop) => number;
 
-export function longOrder(pool: readonly PoolAddress[], save: MissionSave) {
-  return drawLongOrder(pool, save.longDeliveries, save.seed, new Set(save.delivered));
-}
-
-export function longQuote(pool: readonly PoolAddress[], save: MissionSave, vehicle: VehicleOwnership): OrderQuote | null {
-  const stop = longOrder(pool, save);
-  return stop ? { address: stop.address, metres: stop.car!, par: parSeconds(stop.car!, vehicle, 'long'),
-    stops: 1, pay: basePay(stop.car!, 'long') } : null;
+/** Pool ids of the next long job: one landmark, or two for a long double (missions/orders.ts drawLongOrder). */
+export function longOrder(pool: readonly PoolAddress[], save: MissionSave,
+  leg?: (from: PoolAddress, to: PoolAddress) => number): string[] | null {
+  return drawLongOrder(pool, save.longDeliveries, save.seed, new Set(save.delivered), leg)?.map(a => a.id) ?? null;
 }
 
 /** Published route metres for pool addresses; scripted stops use the street router. */
 export function metresFromPizzeria(stop: OrderStop, vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres): number {
-  if (stop.pool) return vehicle === 'none' && job !== 'long' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
+  if (stop.pool) return vehicle === 'none' && job === 'short' ? stop.pool.foot : stop.pool.car ?? stop.pool.foot;
   return streetMetres(PIZZERIA.point, stop.point);
 }
 
-export function orderQuote(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres) {
-  const first = metresFromPizzeria(stops[0], vehicle, job, streetMetres);
-  const firstPar = parSeconds(first, vehicle, job);
-  const leg = stops.length > 1 ? streetMetres(stops[0].point, stops[1].point) : 0;
-  const par = stops.length > 1 ? firstPar + parSeconds(leg, vehicle, job) : firstPar;
-  return { firstPar: stops.length > 1 ? firstPar : 0,
-    quote: { address: stops.map(o => o.address).join(' + '), metres: first + leg, par, stops: stops.length, pay: basePay(first + leg, job) } };
+/** Route metres of each paid leg: pizzeria to the first drop-off, then drop-off to drop-off (`leg`, by default the
+ *  street router between the two points). */
+export function legMetres(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres,
+  leg: StopLeg = (a, b) => streetMetres(a.point, b.point)): number[] {
+  return stops.map((stop, i) => i === 0 ? metresFromPizzeria(stop, vehicle, job, streetMetres) : leg(stops[i - 1], stop));
+}
+
+/** Par, metres and base pay of any order, short or long, single or double: par adds each leg's par, and each pizza
+ *  pays its own leg's base pay (the double bonus and tips come on top). */
+export function orderQuote(stops: OrderStop[], vehicle: VehicleOwnership, job: DeliveryJob, streetMetres: StreetMetres,
+  leg?: StopLeg) {
+  const legs = legMetres(stops, vehicle, job, streetMetres, leg);
+  const pars = legs.map(m => parSeconds(m, vehicle, job));
+  const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
+  return { firstPar: stops.length > 1 ? pars[0] : 0,
+    quote: { address: stops.map(o => o.address).join(' + '), metres: sum(legs), par: sum(pars), stops: stops.length,
+      pay: sum(legs.map(m => basePay(m, job))) } };
 }

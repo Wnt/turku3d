@@ -25,6 +25,8 @@ export interface ShopView {
   money: number;
   /** Delivery orders left on the courier permit. */
   permit: number;
+  /** Euros still owed for a permit rented on credit. */
+  debt: number;
   /** Pizzas handed over so far. */
   delivered: number;
   options: ShopOptionView[];

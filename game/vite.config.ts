@@ -4,6 +4,7 @@ import { localhostGame } from '../tools/dev/localhost/vitePlugin.mjs';
 import path from 'node:path';
 import wasm from 'vite-plugin-wasm';
 import { capturePlugin } from '../tools/dev/capture.mjs';
+import { editSessionsPlugin } from '../tools/dev/editSessions.mjs';
 import { execFileSync } from 'node:child_process';
 const captureCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 
@@ -17,7 +18,7 @@ export default defineConfig({
   cacheDir: path.join(workRoot, 'cache/vite'),
   // Dev server only: /tiles from the sandbox dist (or the localhost service's tile release, tools/dev/localhost-game),
   // POST /telemetry (also on `vite preview`, the browser checks' server) and the localhost build status.
-  plugins: [wasm(), capturePlugin(), {
+  plugins: [wasm(), capturePlugin(), editSessionsPlugin(), {
     name: 'build-head',
     configureServer(server) {
       let cached = { at: 0, commit: '' };
@@ -59,6 +60,12 @@ export default defineConfig({
     // Same contract as serve-dist: an offline service is a 200 answer on /coarse/status, never a page console error.
     if (!('writeHead' in res) || res.headersSent) return;
     res.writeHead(req.url?.split('?')[0] === '/coarse/status' ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end('{"state":"offline"}\n');
+  }) },
+  // /pointcloud/* is the LiDAR overlay's COPC product (tools/pointcloud/serve.py on osgallery-dev; range requests).
+  '/pointcloud': { target: process.env.TURKU3D_POINTCLOUD ?? 'http://192.168.1.114:7960', configure: (proxy) => proxy.on('error', (_err, _req, res) => {
+    if (!('writeHead' in res) || res.headersSent) return;
+    res.writeHead(503, { 'Content-Type': 'application/json' });
     res.end('{"state":"offline"}\n');
   }) } } },
   preview: { port: port(1), strictPort: true, headers: isolation },

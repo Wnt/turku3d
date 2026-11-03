@@ -10,8 +10,6 @@
 //   props       no street furniture LOD
 //   facades     no generated facade modules (render/facadeModules.ts)
 //   scenery     no distant city (scenery radius 0, cells not updated)
-//   bundles     no static render bundles: every resident tile draw is projected and encoded each frame
-//               (render/staticBundles.ts)
 //   traffic / walkers  population caps 0 (install and fly default to both off; ?on= re-enables)
 import type * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../../render/quality';

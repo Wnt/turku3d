@@ -92,10 +92,12 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   await page.keyboard.press('KeyE');
   await expect(page.locator('#shop-menu .shop-option.selected')).toContainText(lineText('option_take_order'));
   await page.keyboard.press('Enter');
-  const delivery = DELIVERIES[0];
   await page.waitForFunction(() => (window.__game!.state as () => { missions: Missions })().missions.phase === 'carrying');
   const started = await missions(page);
-  expect(started.hud).toMatchObject({ activeTargetId: delivery.id, message: expect.stringContaining(delivery.address) });
+  // Each game plays the scripted opening in its own seeded order (missions/orders.ts openingOrder).
+  const delivery = DELIVERIES.find(d => d.id === started.hud.activeTargetId)!;
+  expect(delivery).toBeDefined();
+  expect(started.hud).toMatchObject({ message: expect.stringContaining(delivery.address) });
   expect(started.hud.timerSeconds).toBeGreaterThan(0);
   await shot('05-carrying');
 

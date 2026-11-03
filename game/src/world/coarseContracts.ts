@@ -32,6 +32,8 @@ export interface Entry extends DraftFreshness {
   manifestHash?: string; unchangedPolls?: number;
   /** Immutable road payload currently installed on the map. */
   roadsKey?: string;
+  /** Clock (ms) when the entry was created (tile status: how long a window tile has waited). */
+  since?: number;
   /** A full install in flight for a tile that left both the window and the lead: it stops at its next stage. */
   abandoned?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */
@@ -62,6 +64,14 @@ export interface CoarseHost {
   /** Retain validated bytes for the distance streamer; no second HTTP fetch to build colliders. */
   retainCollision?: (id: string, entry: ManifestEntry, buffer: ArrayBuffer) => void;
   previewCollision?: (buffers: ReadonlyMap<string, ArrayBuffer>) => Promise<THREE.Object3D>;
+  /** Keep CPU copies of uploaded geometry (id pass and other CPU readers of drawn meshes). */
+  keepArrays?: boolean;
+  /** GPU residency budget in bytes instead of the tier's (0: none); the `?gpuBudget=GiB` measurement override. */
+  gpuBudget?: number;
+  /** Apple (unified memory) reduced tier: JS heap + GPU bytes budget in bytes; the `?memBudget=GiB` override. */
+  memoryBudget?: number;
+  /** Compile and upload a collision preview outside the frame before it draws. */
+  preparePreview?: (model: THREE.Object3D) => Promise<void>;
   /** After material styling and draft tint: register derived runtime geometry here. */
   styled?: (model: THREE.Object3D) => void | Promise<void>;
   /** Prepare final streaming draw programs/uploads before attaching visible geometry. */

@@ -192,12 +192,15 @@ def test_placement_moves_drops_mounts_and_collides(monkeypatch):
     assert quay.x == pytest.approx(199.7)
     assert stats["moved_out_of_building:lamp"] == 1
     bench = next(p for p in result["props"] if p.object_id == "bench-wall")
-    assert (bench.x, bench.z, bench.y) == pytest.approx((110, 99.7, 1.0))
+    # Out of the house, then its back against that facade (props.seating), facing the street.
+    assert (bench.x, bench.z, bench.y) == pytest.approx((110, 100 - 0.42, 1.0))
+    assert bench.orientation == "barrier_back" and bench.yaw == pytest.approx(math.pi)
+    assert quay.orientation == "water_view" and quay.yaw == pytest.approx(math.pi / 2)
     assert {p.kind for p in result["props"]} == {"bench", "table", "bus_stop"}
     # Parked-car slot masks: everything standing, lamp posts included, where it was placed.
     masks = {p.object_id: (round(p.x, 2), round(p.z, 2)) for p in result["poles"]}
     assert set(masks) == {"bench-wall", "bench-quay", "lamp-wall", "lamp", "table", "stop"}
-    assert masks["bench-wall"] == (110, 99.7) and masks["lamp-wall"] == (120.3, 105)
+    assert masks["bench-wall"] == (110, 99.58) and masks["lamp-wall"] == (120.3, 105)
     lights, posts = decode(result["lights"])
     assert len(posts) == 2 and not any(light["category"] == "hung" for light in lights)
     assert sorted(round(p["x"], 2) for p in posts) == [50, 120.3]  # by the wall, not on the roof

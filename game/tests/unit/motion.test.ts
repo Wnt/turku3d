@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CharacterInterpolation, VehicleInterpolation } from '../../src/actors/interpolation';
+import { CharacterInterpolation, MAX_EXTRAPOLATION, VehicleInterpolation } from '../../src/actors/interpolation';
 import { ChaseCamera } from '../../src/vehicle/chaseCamera';
 import { OrbitCamera } from '../../src/actors/camera';
 import type { CharacterState, VehicleState } from '../../src/physics/protocol';
@@ -45,7 +45,8 @@ test('walking and driving sample adjacent physics ticks with one bounded render 
       expect(car.sample(time)!.wheels[0].rotation).toBeCloseTo(expected, 6);
     }
   }
-  expect(car.sample(100)!.pos.x).toBeCloseTo(1);
+  // A long-silent worker: the car extrapolates its last velocity (3 m/s) for at most MAX_EXTRAPOLATION, then holds.
+  expect(car.sample(100)!.pos.x).toBeCloseTo(1 + 3 * MAX_EXTRAPOLATION);
 });
 
 test('rotating chase camera keeps moving car centered while collision replies arrive late', async () => {

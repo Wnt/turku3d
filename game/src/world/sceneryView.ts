@@ -43,9 +43,20 @@ export function sceneryDetailDistance(view: SceneryView) {
 /** Camera distance (3D, m, with hysteresis) beyond which a resident full tile's visual yields to its scenery cell.
  *  Every tile of the 3x3 window is within 354 m of a camera on the ground, so this only acts on a high camera. */
 export const TILE_DETAIL = { distance: 450, band: 40 } as const;
-/** L0 refinement always reaches past any full tile still drawing (horizontal distance never exceeds the 3D one;
- *  the slack covers rounding at the band edge), so a 1 km node never draws over HD squares. */
-const detailFloor = () => TILE_DETAIL.distance + TILE_DETAIL.band + 90;
+/** Above this camera height (m) quadtree refinement measures 3D distance: the height beyond it joins the horizontal
+ *  distance (continuous, so no mass swap at the threshold). GTA V shows only LOD/SLOD below a 400 m camera
+ *  (techstudy REPORT §7 L1). Below it a flier keeps the 250 m cells: they carry the streets. */
+export const REFINE_3D_ABOVE = 250;
+/** The distance quadtree refinement uses for a node `horizontal` metres away, seen from height `y`. */
+export const refineDistance = (horizontal: number, y: number) =>
+  Number.isFinite(y) && y > REFINE_3D_ABOVE ? Math.hypot(horizontal, y - REFINE_3D_ABOVE) : horizontal;
+/** L0 refinement always reaches past any full tile still drawing (the refinement distance never exceeds a tile's 3D
+ *  distance while tiles stay below 250 m; the slack covers rounding at the band edge), so a 1 km node never draws
+ *  over HD squares. */
+/** The 250 m cells reach at least this far (m) whatever the full-tile switch distance: moving the switch closer (GTA's
+ *  ~250 m HD band) must not shrink the cell band that covers the squares it hands over. */
+export const L0_FLOOR = 580;
+export const detailFloor = () => Math.max(L0_FLOOR, TILE_DETAIL.distance + TILE_DETAIL.band + 90);
 
 /** Non-overlapping quadtree cut: authored shells nearby, source-built kilometre groups farther out. */
 export function sceneryTiles(radius: number, view: SceneryView, previous: readonly string[] = []) {
@@ -69,9 +80,10 @@ export function sceneryTiles(radius: number, view: SceneryView, previous: readon
     // A 20% hysteresis band avoids switching whole city blocks back and forth
     // as adaptive resolution or a moving camera crosses the pixel threshold.
     const detailLimit = Math.max(detailFloor(), detailDistance * (detailedParents.has(id) ? 1.2 : 1));
-    // Refinement stays horizontal: a 1 km node has no streets and raw survey shells, far poorer than the 250 m
-    // cells, so a high camera keeps the cells under it (height-aware detail is the full-tile -> cell swap instead).
-    const refine = level === 4 ? distance < 4500 : level === 2 ? distance < detailLimit && inView : false;
+    // Refinement is horizontal up to REFINE_3D_ABOVE: a 1 km node has no streets and raw survey shells, far poorer
+    // than the 250 m cells, so a low flier keeps the cells under it; higher up the camera's height counts too.
+    const reach = refineDistance(distance, view.y);
+    const refine = level === 4 ? reach < 4500 : level === 2 ? reach < detailLimit && inView : false;
     if (!refine) { result.push(id); return; }
     const childLevel = level - 2;
     for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) visit(childLevel, i * 4 + a, j * 4 + b);

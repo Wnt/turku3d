@@ -7,6 +7,13 @@
 // checked once per frame and any change (visibility, material, geometry, shadow flags, layers, removal) records again.
 // Draws that change by themselves stay out: placements and block shells (occlusion, band swaps), props, instancing,
 // vegetation, transparent or cutout materials and anything with its own render callbacks.
+//
+// Groups are per 62.5 m cell (static tile batches' own cells), plus one per tile for tile-wide surfaces, so a group
+// culls like its members would. Tile shadow batches stay out: they are already one draw per 62.5 m chunk and each
+// cascade culls them chunk by chunk. A per-tile group drew every chunk of each tile a cascade touched: bench=static
+// measured +120 draws, +0.64 M triangles and CPU p50 +0.9 ms against no bundles (r186 still refreshes every
+// replayed draw's uniforms, so a replay saves only projection and encoding).
+// An A/B alternative, off by default (main.ts).
 import * as THREE from 'three/webgpu';
 import { lodFades } from './lodFade';
 import type { WaterReflection } from './reflections';
@@ -17,6 +24,9 @@ const beforeRender = THREE.Object3D.prototype.onBeforeRender, afterRender = THRE
 const updateMatrixWorld = THREE.Object3D.prototype.updateMatrixWorld;
 /** Tiles bundled per frame: each records its bundles on its first frame in every pass. */
 const ADOPT_PER_FRAME = 4;
+/** Cull cell (m): world/staticBatch.ts buckets non-placement content in 62.5 m cells. A member wider than 1.5 cells
+ *  joins its tile's tile-wide group. */
+const CELL_M = 62.5;
 
 function plainDraw(object: THREE.Object3D): object is THREE.Mesh {
   const mesh = object as THREE.Mesh, material = mesh.material as THREE.Material & { transmission?: number };
@@ -30,11 +40,10 @@ function plainDraw(object: THREE.Object3D): object is THREE.Mesh {
   return true;
 }
 
-/** A direct child of a tile root that may be recorded: one static surface, or a shadow batch with its chunks. */
+/** A direct child of a tile root that may be recorded: one static surface (never a per-chunk-culled shadow batch). */
 export function bundleable(object: THREE.Object3D): boolean {
-  if (!plainDraw(object)) return false;
-  if (object.userData.shadowBatch) return object.children.every(chunk => chunk.userData.shadowBatch && plainDraw(chunk) && !chunk.children.length);
-  return !object.children.length && STATIC_LAYERS.has(object.userData.layer as string);
+  return plainDraw(object) && !object.userData.shadowBatch && !object.children.length
+    && STATIC_LAYERS.has(object.userData.layer as string);
 }
 
 interface Member {
@@ -108,12 +117,14 @@ function snapshot(o: THREE.Mesh) {
 
 const frustum = new THREE.Frustum(), projection = new THREE.Matrix4(), eye = new THREE.Vector3();
 
-/** Static render bundles of resident tiles (one TileBundle per tile root), culled per pass. */
+/** Static render bundles of resident tiles (TileBundles per 62.5 m cell and one tile-wide), culled per pass. */
 export class StaticBundles {
   private pending = new Set<THREE.Object3D>();
-  readonly bundles = new Map<THREE.Object3D, TileBundle>();
-  readonly stats = { tiles: 0, members: 0, records: 0, culled: 0 };
+  readonly bundles = new Map<THREE.Object3D, TileBundle[]>();
+  readonly stats = { tiles: 0, groups: 0, members: 0, records: 0, culled: 0 };
   private previous: THREE.Scene['onBeforeRender'];
+  /** Every group, flat, for the per-pass cull. */
+  private groups: TileBundle[] = [];
 
   constructor(private scene: THREE.Scene) {
     this.previous = scene.onBeforeRender;
@@ -135,18 +146,21 @@ export class StaticBundles {
   /** Restore a tile's members to its root (before its batches and surfaces are released). */
   remove(model: THREE.Object3D) {
     this.pending.delete(model);
-    const bundle = this.bundles.get(model);
-    if (!bundle) return;
+    const groups = this.bundles.get(model);
+    if (!groups) return;
     this.bundles.delete(model);
-    for (const m of bundle.members) {
-      bundle.watch(m, false);
-      if (m.object.parent !== bundle) continue;
-      m.parent.add(m.object);
-      for (const { node, frustumCulled, matrixAutoUpdate } of m.nodes) { node.frustumCulled = frustumCulled; node.matrixAutoUpdate = matrixAutoUpdate; }
+    for (const bundle of groups) {
+      for (const m of bundle.members) {
+        bundle.watch(m, false);
+        if (m.object.parent !== bundle) continue;
+        m.parent.add(m.object);
+        for (const { node, frustumCulled, matrixAutoUpdate } of m.nodes) { node.frustumCulled = frustumCulled; node.matrixAutoUpdate = matrixAutoUpdate; }
+      }
+      bundle.removeFromParent();
+      bundle.clear();
     }
-    bundle.removeFromParent();
-    bundle.clear();
-    this.stats.tiles = this.bundles.size;
+    this.groups = [...this.bundles.values()].flat();
+    this.counts();
   }
 
   /** Once per frame before rendering: adopt landed tiles and record again whatever changed. */
@@ -160,7 +174,7 @@ export class StaticBundles {
       adopted++;
     }
     let members = 0;
-    for (const bundle of this.bundles.values()) {
+    for (const bundle of this.groups) {
       if (bundle.changed()) this.stats.records++;
       bundle.refreshBounds();
       members += bundle.members.length;
@@ -168,12 +182,18 @@ export class StaticBundles {
     this.stats.members = members;
   }
 
+  private counts() { this.stats.tiles = this.bundles.size; this.stats.groups = this.groups.length; }
+
   private bundle(model: THREE.Object3D) {
-    const bundle = new TileBundle();
     const members = model.children.filter(bundleable) as THREE.Mesh[];
     if (!members.length) return;
     model.updateWorldMatrix(true, true);
+    const cells = new Map<string, TileBundle>(), box = new THREE.Box3(), size = new THREE.Vector3(), center = new THREE.Vector3();
     for (const object of members) {
+      box.setFromObject(object).getSize(size); box.getCenter(center);
+      const key = size.x > CELL_M * 1.5 || size.z > CELL_M * 1.5 ? 'tile' : `${Math.floor(center.x / CELL_M)},${Math.floor(center.z / CELL_M)}`;
+      let bundle = cells.get(key);
+      if (!bundle) cells.set(key, bundle = new TileBundle());
       const nodes: Member['nodes'] = [];
       object.traverse(node => {
         nodes.push({ node, frustumCulled: node.frustumCulled, matrixAutoUpdate: node.matrixAutoUpdate });
@@ -185,23 +205,27 @@ export class StaticBundles {
       bundle.watch(member);
       bundle.add(object);
     }
-    model.add(bundle);
-    bundle.updateMatrixWorld(true);
-    bundle.refreshBounds();
-    this.bundles.set(model, bundle);
-    this.stats.tiles = this.bundles.size;
+    const groups = [...cells.values()];
+    for (const bundle of groups) {
+      model.add(bundle);
+      bundle.updateMatrixWorld(true);
+      bundle.refreshBounds();
+    }
+    this.bundles.set(model, groups);
+    this.groups.push(...groups);
+    this.counts();
   }
 
   /** Per pass: a group draws only if its bounds meet this pass's view (and, in a river reflection, its water). */
   private cull(camera: THREE.Camera) {
-    if (!this.bundles.size) return;
+    if (!this.groups.length) return;
     projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(projection, camera.coordinateSystem, (camera as { reversedDepth?: boolean }).reversedDepth);
     const water = (camera.userData as { waterReflection?: WaterReflection }).waterReflection;
     const level = water?.plane.matrixWorld.elements[13] ?? 0;
     if (water) eye.setFromMatrixPosition(water.eye.matrixWorld);
     let culled = 0;
-    for (const bundle of this.bundles.values()) {
+    for (const bundle of this.groups) {
       const visible = !bundle.bounds.isEmpty() && frustum.intersectsBox(bundle.bounds)
         && (!water || water.coverage.reflects(bundle.sphere.center, bundle.sphere.radius, eye, level));
       bundle.visible = visible;

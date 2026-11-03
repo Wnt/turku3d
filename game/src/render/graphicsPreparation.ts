@@ -24,7 +24,9 @@ export class GraphicsPreparation {
     this.skipped.set(model, { model, prepare, signal });
   }
 
+  /** In the scene, or a detached keeper prepared for later draws on purpose (`userData.preparesDetached`). */
   private resident(model: THREE.Object3D) {
+    if (model.userData.preparesDetached === true) return true;
     for (let parent: THREE.Object3D | null = model; parent; parent = parent.parent) if (parent === this.scene) return true;
     return false;
   }

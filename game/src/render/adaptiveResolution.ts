@@ -6,6 +6,7 @@ export class AdaptiveResolution {
   private changedAt = -Infinity;
   private healthySince: number | null = null;
   private costs: number[] = [];
+  private slowRun = 0;
 
   constructor(private targetFps = 60) {}
 
@@ -15,8 +16,15 @@ export class AdaptiveResolution {
     const target = 1000 / this.targetFps;
     if (elapsed < 4 || elapsed > Math.max(80, target * 4)) {
       this.intervals.length = 0; this.costs.length = 0; this.healthySince = null;
+      // One hitch says nothing about resolution, but a run of them is a GPU that cannot carry this size at all: a
+      // 4 GB Radeon Pro 560X drew 5 FPS at 2429x1518 and never delivered a frame the interval test below counts.
+      if (elapsed >= 4 && ++this.slowRun >= 6 && now - this.changedAt >= 1000) {
+        this.scale = Math.max(0.5, this.scale - 0.1);
+        this.changedAt = now; this.slowRun = 0;
+      }
       return this.scale;
     }
+    this.slowRun = 0;
     this.intervals.push(elapsed);
     if (workMs !== undefined && Number.isFinite(workMs) && workMs > 0) this.costs.push(workMs);
     if (this.intervals.length < 30 || now - this.changedAt < 1000) return this.scale;

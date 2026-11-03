@@ -1,7 +1,9 @@
-import { ACTIONS, DEFAULT_BINDINGS, emptyActions, glyph, mapActions, clamp, type Action, type Actions, type Binding, type Bindings } from './bindings';
+import { ACTIONS, DEFAULT_BINDINGS, editorBindings, emptyActions, glyph, mapActions, playstationPad, clamp, type Action, type Actions, type Binding, type Bindings } from './bindings';
 import { TouchOverlay, TouchPad, type TouchContext } from './touch';
 export * from './bindings';
 export type InputSource = 'keyboard' | 'gamepad' | 'touch';
+/** `game`: the default bindings. `editor`: the developer object editor's layer (bindings.ts editorBindings). */
+export type InputLayer = 'game' | 'editor';
 
 /** Radians of camera turn per CSS px of mouse movement or look drag. */
 const LOOK_PER_PX = 0.0025;
@@ -16,6 +18,8 @@ const NO_TAPS: Readonly<Actions> = Object.freeze(emptyActions());
 /** The only browser input owner. Gameplay sees actions, never keys or device indices. */
 export class Input {
   readonly bindings: Bindings = structuredClone(DEFAULT_BINDINGS);
+  private editorTable: Bindings | null = null;
+  private layerName: InputLayer = 'game';
   actions: Actions = emptyActions();
   source: InputSource = 'keyboard';
   /** A touch screen was reported (`navigator.maxTouchPoints`) or touched. The overlay shows while `source` is touch. */
@@ -114,23 +118,37 @@ export class Input {
     for (const type of ['pointerup', 'pointercancel'] as const) overlay.element.addEventListener(type, e => this.touch.up(e.pointerId), options);
   }
 
+  /** The binding layer the next update maps with. */
+  get layer(): InputLayer { return this.layerName; }
+  set layer(layer: InputLayer) {
+    if (layer === this.layerName) return;
+    this.layerName = layer;
+    this.editorTable = null;
+  }
+  /** The bindings of the active layer. */
+  get active(): Bindings {
+    if (this.layerName === 'game') return this.bindings;
+    return this.editorTable ??= editorBindings(this.bindings);
+  }
+
   /** Poll every render frame: Chrome may expose a newly plugged pad only after its first button press. */
   update(dt: number) {
     this.time += dt;
+    const bindings = this.active;
     const pads = this.focused ? Array.from(navigator.getGamepads?.() ?? []).filter((p): p is Gamepad => !!p && p.connected && p.mapping === 'standard') : [];
     const active = pads.find(p => {
-      const a = mapActions(p, NO_KEYS, this.bindings);
+      const a = mapActions(p, NO_KEYS, bindings);
       return ACTIONS.some(k => Math.abs(a[k]) > 0.01);
     });
     this.pad = active ?? pads.find(p => p.index === this.pad?.index) ?? pads[0] ?? null;
     if (active) { this.source = 'gamepad'; if (!this.padActive) this.activate(); }
     this.padActive = !!active;
     if (!this.pad && this.source === 'gamepad') this.source = 'keyboard';
-    const next = mapActions(this.pad, this.keys, this.bindings);
+    const next = mapActions(this.pad, this.keys, bindings);
     const touch = this.touch.sample();
     if (this.touch.active) this.source = 'touch';
     for (const a of ACTIONS) if (Math.abs(touch.actions[a]) > Math.abs(next[a])) next[a] = touch.actions[a];
-    const taps = this.tapped.size ? mapActions(null, this.tapped, this.bindings) : NO_TAPS;
+    const taps = this.tapped.size ? mapActions(null, this.tapped, bindings) : NO_TAPS;
     this.tapped.clear();
     this.edges.clear();
     this.activity.clear();
@@ -164,11 +182,13 @@ export class Input {
   }
   get connected() { return this.pad !== null; }
   get gamepadName() { return this.pad?.id ?? null; }
+  /** The active pad is a PlayStation controller: prompts use its button names. */
+  get playstation() { return playstationPad(this.pad?.id); }
   get sprinting() { return this.actions.sprint > 0.5 || this.time < this.sprintUntil; }
   consume(action: Action) { const pressed = this.edges.has(action); this.edges.delete(action); return pressed; }
-  rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); }
+  rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); this.editorTable = null; }
   /** Touch buttons carry the gamepad glyphs, so touch prompts use them too. */
-  prompt(action: Action) { return glyph(action, this.bindings, this.source !== 'keyboard'); }
+  prompt(action: Action) { return glyph(action, this.active, this.source !== 'keyboard', this.source === 'gamepad' && this.playstation); }
   private clear() { this.keys.clear(); this.tapped.clear(); this.actions = emptyActions(); this.edges.clear(); this.activity.clear(); this.mouseLooking = false; this.mouseX = this.mouseY = this.wheel = this.sprintUntil = 0; }
   async rumble(duration = 100, strong = 0.35, weak = 0.15): Promise<boolean> {
     const actuator = this.pad?.vibrationActuator;

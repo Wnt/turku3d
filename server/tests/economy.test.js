@@ -8,8 +8,8 @@ const source = readFileSync(new URL('../../game/src/gameplay/economy.ts', import
 const game = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(source))}`);
 
 test('economy constants and timing match the actual game module', () => {
-  for (const key of ['BASE_PAY', 'MAX_TIP', 'DOUBLE_BONUS', 'PAR_HANDLING_SECONDS']) assert.equal(economy[key], game[key]);
-  for (const distance of [0, 1, 120, 1000, 100_000]) for (const vehicle of ['none', 'scooter', 'car', 'truck']) for (const job of ['short', 'long']) {
+  for (const key of ['BASE_PAY', 'MAX_TIP', 'DOUBLE_BONUS', 'PAR_HANDLING_SECONDS', 'LIMITED_PAY_FACTOR']) assert.equal(economy[key], game[key]);
+  for (const distance of [0, 1, 120, 1000, 100_000]) for (const vehicle of ['none', 'scooter', 'car', 'truck']) for (const job of ['short', 'long', 'limited']) {
     const par = game.parSeconds(distance, vehicle, job);
     assert.equal(economy.parSeconds(distance, vehicle, job), par);
     assert.equal(economy.deliveryDeadline(par), game.deliveryDeadline(par));
@@ -21,7 +21,7 @@ test('economy constants and timing match the actual game module', () => {
 
 test('pay envelope matches mission hand-over including the second-stop bonus', () => {
   for (const distance of [100, 745.7, 2500, 4580.3, 7000]) {
-    for (const job of ['short', 'long']) for (let t = 0; t <= game.MAX_TIP; t++) {
+    for (const job of ['short', 'long', 'limited']) for (let t = 0; t <= game.MAX_TIP; t++) {
       const payout = game.basePay(distance, job);
       assert.equal(economy.basePay(distance, job), payout);
       assert.ok(economy.validDelivery({ payout, tip: t, routeMeters: distance, job }));
@@ -29,6 +29,14 @@ test('pay envelope matches mission hand-over including the second-stop bonus', (
     }
   }
   assert.ok(economy.validDelivery({ payout: 10, tip: 1, routeMeters: 100 }));
+  // The second landmark of a long double pays its own leg plus the double bonus, unless it earns no tip.
+  const leg = game.basePay(1400, 'long');
+  assert.ok(economy.validDelivery({ payout: leg + game.DOUBLE_BONUS, tip: 3, routeMeters: 1400, job: 'long' }));
+  assert.equal(economy.validDelivery({ payout: leg + game.DOUBLE_BONUS, tip: 0, routeMeters: 1400, job: 'long' }), false);
+  // A LIMITED TIME run pays twice the long base pay per leg (plus the bonus on a tipped second stop), never once.
+  assert.ok(economy.validDelivery({ payout: 2 * game.basePay(4262, 'long'), tip: 8, routeMeters: 4262, job: 'limited' }));
+  assert.ok(economy.validDelivery({ payout: 2 * leg + game.DOUBLE_BONUS, tip: 2, routeMeters: 1400, job: 'limited' }));
+  assert.equal(economy.validDelivery({ payout: game.basePay(4262, 'long'), tip: 8, routeMeters: 4262, job: 'limited' }), false);
   assert.equal(economy.validDelivery({ payout: 60, tip: 1, routeMeters: 3000, job: 'unknown' }), false);
   assert.equal(economy.validDelivery({ payout: game.basePay(7001, 'long'), tip: 1, routeMeters: 7001, job: 'long' }), false);
   for (const bad of [{ payout: 7, tip: 0 }, { payout: 10, tip: 0 }, { payout: 6, tip: 9 },

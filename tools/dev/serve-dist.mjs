@@ -8,18 +8,24 @@
 //    (tools/dev/localhost/vitePlugin.mjs gives the same answer without its service), so pages never log a 404
 //  - GET /facades/candidates/: every reviewed generated facade candidate (facadeCandidates.mjs), from --candidates
 //    (default $TURKU3D_DATA/facade-approvals/candidates)
+//  - --public: a public share (tools/share/deploy.sh) answers only GET/HEAD for the game, its mounts and the tile routes
+//    the game uses; no capture, telemetry, facade candidates, dotfiles or service internals (a status answers
+//    {state, version}); /coarse payloads are compressed for the tunnel
+//  - --mp http://127.0.0.1:PORT: WebSocket upgrades and GET /live.json, /scores/* go to that multiplayer server, so
+//    a share host's game plays on its own origin (game/src/net/config.ts)
 // No dependencies (Node >= 20).
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
-//          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>]
+//          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>] [--public] [--mp http://127.0.0.1:PORT]
 import http from 'node:http';
+import net from 'node:net';
 import { captureMiddleware } from './capture.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { workRoot, port } from './environment.mjs';
 import { candidatesRoot, facadeCandidates, isFacadeCandidates } from './facadeCandidates.mjs';
-import { coarseProxy, resolveUnder, serveFile, telemetryHandler } from './http.mjs';
+import { coarseProxy, publicProxy, resolveUnder, serveFile, telemetryHandler } from './http.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
@@ -33,8 +39,18 @@ const MOUNTS = []; // [prefix, dir]
 args.forEach((a, i) => { if (a === '--mount') { const [pre, dir] = args[i + 1].split('='); MOUNTS.push([pre.replace(/\/$/, ''), expand(dir)]); } });
 MOUNTS.sort((a, b) => b[0].length - a[0].length);
 const telemetry = telemetryHandler(TELEMETRY_DIR);
-const coarse = coarseProxy(new URL(opt('--coarse', `http://127.0.0.1:${port(5)}`)));
+const COARSE = new URL(opt('--coarse', `http://127.0.0.1:${port(5)}`));
+const coarse = coarseProxy(COARSE);
 const candidates = facadeCandidates({ root: expand(opt('--candidates', candidatesRoot)) });
+const PUBLIC = args.includes('--public');
+const MP = opt('--mp') ? new URL(opt('--mp')) : null;
+// Plain tile, payload and scenery paths only: no dot segments or escapes reach the tile proxy's URL normalisation.
+const PUBLIC_COARSE = /^\/coarse(?:\/[A-Za-z0-9_,=+-][A-Za-z0-9_.,=+-]*)*\/?$/;
+const STATUS = /^\/coarse\/(?:_v\/[a-f0-9]{40,64}\/)?(?:status|health|want|demand)$/;
+// The game reads only these of a service status (world/coarseTiles.ts); queues, failures and generations stay inside.
+const publicStatus = publicProxy(COARSE, { reduce: (s) => ({ state: s?.state ?? 'offline', ...(typeof s?.version === 'number' ? { version: s.version } : {}) }) });
+const publicCoarse = publicProxy(COARSE);
+const mp = MP && publicProxy(MP);
 
 function resolvePath(urlPath) {
   let p = urlPath.split('?')[0];
@@ -44,8 +60,23 @@ function resolvePath(urlPath) {
 }
 
 const capture = captureMiddleware();
+async function publicHandler(req, res) {
+  const pathname = req.url.split('?')[0];
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }); return res.end(); }
+  if (mp && (pathname === '/live.json' || pathname.startsWith('/scores/'))) return mp(req, res);
+  if (pathname === '/coarse' || pathname.startsWith('/coarse/')) {
+    if (!PUBLIC_COARSE.test(pathname)) { res.writeHead(404); return res.end(); }
+    return (STATUS.test(pathname) ? publicStatus : publicCoarse)(req, res);
+  }
+  if (pathname.split('/').some((part) => part.startsWith('.'))) { res.writeHead(404); return res.end('not found'); }
+  const file = resolvePath(req.url);
+  if (!file) { res.writeHead(403); return res.end('forbidden'); }
+  return serveFile(req, res, file, { compress: COMPRESS });
+}
+
 async function handler(req, res) {
   res.setHeader('Document-Policy', 'js-profiling');
+  if (PUBLIC) return publicHandler(req, res);
   if (req.url.startsWith('/__capture/')) return capture(req, res, () => { res.writeHead(404); res.end(); });
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match, Content-Type', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS' });
@@ -66,7 +97,23 @@ async function handler(req, res) {
 
 if (!fs.existsSync(ROOT)) { console.error(`root ${ROOT} does not exist`); process.exit(2); }
 const server = http.createServer((req, res) => handler(req, res).catch((e) => { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }));
+// The multiplayer socket: the raw upgrade request goes to the server, which checks its Origin and path itself.
+if (MP) server.on('upgrade', (req, socket, head) => {
+  const upstream = net.connect(Number(MP.port), MP.hostname, () => {
+    const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
+    for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
+    upstream.write(`${lines.join('\r\n')}\r\n\r\n`);
+    if (head?.length) upstream.write(head);
+    socket.pipe(upstream).pipe(socket);
+  });
+  upstream.setNoDelay(true); socket.setNoDelay(true);
+  upstream.on('error', () => socket.destroy());
+  socket.on('error', () => upstream.destroy());
+  socket.on('close', () => upstream.destroy());
+  upstream.on('close', () => socket.destroy());
+});
 server.listen(PORT, HOST, () => {
   console.log(`serve-dist: http://${HOST}:${server.address().port}/ -> ${ROOT}${MOUNTS.map(([p, d]) => `\n  ${p}/ -> ${d}`).join('')}`);
-  console.log(`  COOP/COEP on, brotli ${COMPRESS ? 'on' : 'off'}, ranges on, POST /telemetry -> ${TELEMETRY_DIR}`);
+  console.log(PUBLIC ? `  public: GET/HEAD only, /coarse -> ${COARSE.origin}${MP ? `, multiplayer -> ${MP.origin}` : ''}`
+    : `  COOP/COEP on, brotli ${COMPRESS ? 'on' : 'off'}, ranges on, POST /telemetry -> ${TELEMETRY_DIR}`);
 });

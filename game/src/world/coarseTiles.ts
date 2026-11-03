@@ -3,7 +3,7 @@
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { styleBlockLod } from '../render/sceneryMaterial';
-import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
+import { LOD_FADE, lodFades } from '../render/lodFade';
 import { streamTrace, tileDistance } from '../telemetry/streamTrace';
 import { ownedGeometryBytes } from './modelGeometry';
 import { recordFreshness } from './coarseFreshness';
@@ -12,8 +12,9 @@ import { ScreenshotScenery } from './screenshotScenery';
 import { TILE_DETAIL } from './sceneryView';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
-import { textureUploads } from '../render/textureUploads';
-import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, preparationTiles, retainDraftTile, retainPreparedTile, startupDraftTiles, wantedTiles } from './coarseRegion';
+import { textureUploaded, textureUploads } from '../render/textureUploads';
+import { releaseModelTextureData } from './sharedAssets';
+import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, inViewWedge, preparationTiles, retainDraftTile, retainPreparedTile, startupDraftTiles, viewWedgeTiles, wantedTiles } from './coarseRegion';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -34,7 +35,10 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
-import { streamingAllowance } from '../render/preparationBudget';
+import { streamingAllowance, streamingBudget } from '../render/preparationBudget';
+import { TileArrays, drawnGeometries, rendererUploaded } from './releaseArrays';
+import { GpuMeter, modelGpuBytes, rendererResidency } from './gpuBytes';
+import { renderTier, type QualityTier } from '../render/quality';
 
 const POLL_MS = 1000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
@@ -84,6 +88,36 @@ const VIEW_DETAIL_M = 400;
 const VIEW_LEAD_S = 8;
 const VIEW_LEAD_MAX_M = 200;
 const VIEW_KEEP_M = 75;
+/** A camera this far above a tile's top (m) is flying: full installs only within HD_3D_M of 3D distance (GTA V's HD
+ *  band, techstudy L1/L5), so from 150 m up only a small disc under the camera installs; the scenery tier draws the
+ *  rest. Lower cameras keep the ground rules (3x3 window, path and view wedge). */
+const HIGH_CAMERA_M = 40;
+const HD_3D_M = 250;
+/** How often committed tiles release the CPU copies of uploaded render-only arrays (ms). */
+const RELEASE_MS = 2000;
+/** GPU-byte residency budget per render tier (uploaded scene vertex/index buffers, pooled ones at their slot, plus
+ *  textures; world/gpuBytes.ts), for 4 GB cards. Medium and high are unbudgeted. Reduced: winperf's 560X with the
+ *  geometry and uniform pools peaks at 2.5 GB in Chrome's GPU process with ~1.25 GB of the card free while the meter
+ *  reads 0.7-0.8 GiB, so 1.2 GiB. Over 90 % of it no lead or view tile starts a full install and the return cache
+ *  keeps nothing; over it, hidden and far full tiles are dropped (never the current 3x3 window). Measured every
+ *  GPU_MEASURE_MS, time-sliced. */
+const GPU_BUDGET_BYTES: Partial<Record<QualityTier, number>> = { reduced: 1.2 * 2 ** 30, low: 0.7 * 2 ** 30, mobile: 0.5 * 2 ** 30 };
+/** Apple GPUs share the machine's memory (an 8 GB M1 Air classed as reduced): no VRAM wall, but swap once the page
+ *  and the GPU process outgrow it (airperf: renderer 4.4 GB + GPU process 3.4 GB, 0.6-1.6 GB swap traffic per drive).
+ *  There the budget covers the page's JS heap (ArrayBuffers included) plus its GPU bytes: the GPU share is what
+ *  APPLE_MEMORY_BYTES leaves after the heap, within [APPLE_GPU_MIN, APPLE_GPU_MAX]. `?memBudget=GiB` sets the total. */
+const APPLE_MEMORY_BYTES = 3.0 * 2 ** 30, APPLE_GPU_MIN = 0.9 * 2 ** 30, APPLE_GPU_MAX = 1.5 * 2 ** 30;
+/** Chrome's JS heap including ArrayBuffer backing stores; undefined elsewhere. */
+function jsHeapBytes(): number | undefined {
+  return (globalThis.performance as unknown as { memory?: { usedJSHeapSize?: number } } | undefined)?.memory?.usedJSHeapSize;
+}
+const GPU_MEASURE_MS = 3000;
+/** A window tile still not loaded after this long (ms) shows as waiting in the tile status. */
+const WAITING_MS = 5000;
+/** At load and spawn the start's view wedge within this distance (m) installs full detail with the ground under it,
+ *  so the player never starts looking at scenery cells. Half angle of that wedge (rad). */
+const START_VIEW_M = 300;
+const START_VIEW_HALF = 0.75;
 /** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
 const ABANDON_AFTER_MS = 2000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
@@ -94,7 +128,7 @@ const MAX_SPEED = FLY.fastSpeed * 1.25;
 const PROBE_MS = 2000;
 /** A probe the busy service has not answered within this (ms) counts as no answer. */
 const PROBE_TIMEOUT_MS = 10_000;
-export const RESTARTING = 'drafts: service restarting';
+export const RESTARTING = 'tiles: service restarting';
 
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
@@ -102,6 +136,9 @@ class DraftRejected extends Error {}
 /** The service did not answer: paused until /coarse/status answers (any process, any producer code). */
 interface Outage { nextProbe: number; probing: boolean; attempts: number }
 
+
+/** Where a start looks from (engine metres) and its horizontal view direction. */
+export interface StartView { x: number; z: number; dx: number; dz: number }
 
 export class CoarseTiles {
   readonly entries = new Map<string, Entry>();
@@ -202,6 +239,7 @@ export class CoarseTiles {
   constructor(private host: CoarseHost) {
     this.fetch = host.fetch ?? fetch.bind(globalThis);
     this.load = host.loadModel ?? this.gltfLoader();
+    if (!host.keepArrays && (host.renderer as unknown as { backend?: unknown })?.backend) this.arrays = new TileArrays(rendererUploaded(host.renderer));
     this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials),
       undefined, undefined, (root, owner) => styleBlockLod(root, owner, this.materials));
     this.page = host.pageUrl ?? location.href;
@@ -233,13 +271,13 @@ export class CoarseTiles {
   }
 
   retainedStarts: readonly { x: number; z: number }[] = [];
-  private startup: { points: readonly { x: number; z: number }[]; radius: number } | null = null;
+  private startup: { points: readonly { x: number; z: number }[]; radius: number; view?: StartView } | null = null;
   /** Where this client boots: the farm schedules its tile and ring as the player's until placement. */
   private bootAt: { x: number; z: number } | null = null;
   /** Preload actual starting ground; distant draft expansion joins ordinary streaming after placement.
    *  `boot` marks the position the client actually starts at (not every menu choice). */
-  preload(points: readonly { x: number; z: number }[], radius: number, boot = false): () => void {
-    this.startup = { points, radius };
+  preload(points: readonly { x: number; z: number }[], radius: number, boot = false, view?: StartView): () => void {
+    this.startup = { points, radius, view };
     if (boot) this.bootAt = points[0] ?? null;
     return () => { this.startup = null; this.nextCheck = 0; this.bootAt = null; };
   }
@@ -250,7 +288,12 @@ export class CoarseTiles {
     return boot ? Math.min(distToL0(id, x, z), distToL0(id, boot.x, boot.z)) : distToL0(id, x, z);
   }
   private wantedStarts(x: number, z: number) {
-    if (this.startup) return startupDraftTiles(this.startup.points, this.startup.radius);
+    if (this.startup) {
+      const ground = startupDraftTiles(this.startup.points, this.startup.radius), view = this.startup.view;
+      if (!view) return ground;
+      const length = Math.hypot(view.dx, view.dz) || 1;
+      return [...new Set([...ground, ...viewWedgeTiles(view.x, view.z, view.dx / length, view.dz / length, START_VIEW_M, START_VIEW_HALF)])];
+    }
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }
   private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, vegetation?: CoarseFragment['vegetation']) {
@@ -335,6 +378,12 @@ export class CoarseTiles {
     return { pending, loading, preparing: this.preparing.size, details: this.details, leaving: this.leaving.size };
   }
 
+  /** The lowest content height (engine y) of the resident tile under (x, z), or NaN when none is known. */
+  groundBelow(x: number, z: number) {
+    const h = this.entries.get(`t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`)?.h;
+    return h ? h[0] : NaN;
+  }
+
   /** Which band draws each 250 m cell of a (2r+1)^2 grid around (x, z), one character per cell, rows by z:
    *  F full HD, h held HD (leaving or going distant), P collision preview, C scenery cell, c cell dissolving,
    *  U a coarser scenery node, D double (HD and a settled cell both drawn), . nothing (a hole). */
@@ -383,7 +432,7 @@ export class CoarseTiles {
     if (own === 'C' || own === 'c' || !model.visible || !model.parent) { if (under) this.dispose(under, id); return; }
     lodFades.cancelWithin(model);
     const started = lodFades.start(model, 0, 1, () => streamTrace.event('band.fadeEnd', id, { dir: 'in', band: 'full' }),
-      this.clock, LOD_FADE_SECONDS, 0);
+      this.clock, LOD_FADE.seconds, 0);
     streamTrace.event(started ? 'band.fade' : 'band.swap', id, { dir: 'in', band: 'full',
       over: under ? 'preview' : own === 'U' ? 'coarser' : 'nothing' });
     if (started && under) this.underFade.set(model, { id, under });
@@ -483,7 +532,7 @@ export class CoarseTiles {
       if (e.resident && (e.preview || !e.model) && (this.leadUntil.get(id) ?? 0) >= now) continue;
       if (e.state === 'built' && now < (this.builtUntil.get(id) ?? 0)) continue;
       this.builtUntil.delete(id);
-      if (this.cacheFull(id, e)) continue;
+      if (!this.overGpu && this.cacheFull(id, e)) continue;
       this.drop(e); this.entries.delete(id);
     }
     let anyCached = false;
@@ -502,10 +551,13 @@ export class CoarseTiles {
     }
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
-      this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
+      this.show(this.remote ? 'tiles: remote service offline' : RESTARTING, true);
       return;
     }
     for (const [id, e] of this.entries) void this.compare(id, e);
+    this.releaseUploadedArrays(now);
+    this.lastWanted = wanted;
+    this.measureGpu(now);
     void this.want(x, z, now);
     if (this.remote) {
       const demand = draftDemand([...wanted, ...lookahead], ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
@@ -536,7 +588,8 @@ export class CoarseTiles {
     for (const id of [...wanted, ...nextWindow]) {
       const e = this.entries.get(id);
       const inWindow = wanted.includes(id), slots = inWindow ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
-      if (!inWindow && !this.leadReady(id, now)) continue;
+      if (!inWindow && (!this.leadReady(id, now) || this.overGpu)) continue;
+      if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) continue;
       if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
         e.refreshing = true; e.abandoned = false; this.details++;
         void this.applyFragment(id, e, e.preview).catch(error => this.warn(`[coarse] ${id} detail: ${error}`))
@@ -557,18 +610,29 @@ export class CoarseTiles {
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
     const building = this.remote ? [...this.entries.values()].filter(e => e.state === 'pending' || e.state === 'loading').length : this.building;
     const queueFull = this.remote && [...this.entries.values()].some(e => e.error === 'queue full');
-    const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
+    // ('draft' is the internal name of a loaded tile.) Counts only; the ids are on demand (loadedTiles, __tiles).
+    const loaded = [...this.entries.values()].filter(e => e.state === 'draft').length;
+    const installing = [...this.entries.values()].filter(e => e.refreshing && e.preview).length;
     const at = this.entries.get(here);
     const inSeconds = (e?: Entry) => e?.readyAt === undefined ? null : Math.max(0, Math.ceil((e.readyAt - now) / 1000));
     const ready = inSeconds(at);
     const waiting = at?.state === 'pending' && at.error ? ` ${at.error}` : ready !== null ? ` ready in ${ready} s` : ' building...';
-    const soonest = wanted.map(id => this.entries.get(id)).filter(e => e?.state === 'pending' && !e.error)
-      .map(inSeconds).filter((v): v is number => v !== null).sort((a, b) => a - b)[0];
-    const head = at?.state === 'draft' ? `draft tile ${here}`
-      : at ? `draft tile ${here}${at.state === 'failed' ? ` retrying: ${at.error}` : waiting}` : '';
-    const next = soonest !== undefined && at?.state === 'draft' ? `next tile in ${soonest} s` : '';
-    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', queueFull ? 'remote queue full; retrying' : '', next]
-      .filter(Boolean).join(' · '));
+    // Something the player would notice: the tile underfoot or one of its window is not loaded yet, or failing.
+    // A window tile counts once it has waited WAITING_MS: every crossing briefly waits for the new row.
+    const missing = wanted.filter(id => {
+      const e = this.entries.get(id);
+      return (e?.state === 'pending' || e?.state === 'loading') && now - (e.since ?? now) > WAITING_MS;
+    });
+    const failing = wanted.find(id => this.entries.get(id)?.state === 'failed');
+    const head = !at ? '' : at.state === 'draft' ? `tile ${here}`
+      : `tile ${here}${at.state === 'failed' ? ` retrying: ${at.error}` : waiting}`;
+    const problems = [
+      failing && failing !== here ? `retrying ${failing}: ${this.entries.get(failing)!.error}` : '',
+      missing.length && at?.state === 'draft' ? `waiting for ${missing.length === 1 ? missing[0] : `${missing.length} tiles`}` : '',
+      queueFull ? 'remote queue full; retrying' : '',
+    ].filter(Boolean);
+    this.show([head, loaded ? `${loaded} loaded` : '', installing ? `${installing} installing` : '',
+      building ? `${building} building` : '', ...problems].filter(Boolean).join(' · '), (!!at && at.state !== 'draft') || problems.length > 0);
   }
 
   /** Startup waits for the requested draft ground on both localhost and Pages. A draft whose build failed does not
@@ -589,7 +653,20 @@ export class CoarseTiles {
   /** True when every drawn tile around (x, z) carries its full visual model, not a collision preview. Play may
    *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
   detailedAt(x: number, z: number) {
-    return this.wantedStarts(x, z).every(id => { const e = this.entries.get(id); return e?.state !== 'draft' || !e.preview; });
+    const window = this.wantedStarts(x, z).every(id => { const e = this.entries.get(id); return e?.state !== 'draft' || !e.preview; });
+    // Settling cameras also wait for the view wedge within START_VIEW_M (tiles the HD band admits), so a bench or QA
+    // view never starts on scenery cells there.
+    const view = this.startup ? null : this.screenshotScenery.cameraView;
+    // Over the GPU budget no view tile beyond the window installs: waiting for them would never end.
+    if (!window || !view || this.overGpu) return window;
+    const wanted = this.wantedStarts(x, z);
+    return viewWedgeTiles(view.x, view.z, view.dx, view.dz, START_VIEW_M, Math.min(view.halfAngle, Math.PI)).every(id => {
+      if (wanted.includes(id)) return true;
+      const e = this.entries.get(id);
+      if (e?.state === 'failed') return true;
+      if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) return true;
+      return e?.state === 'draft' && !e.preview && !!e.model;
+    });
   }
   /** Strict render coverage for tools and diagnostics; unlike startup, failed tiles are never skipped. */
   viewStatus(x: number, z: number) {
@@ -602,10 +679,14 @@ export class CoarseTiles {
   }
   private skipped = new Set<string>();
 
-  private show(status: string) {
+  /** The dev panel and loading screen read `status`; the top badge shows only while something waits or fails. */
+  private show(status: string, alert = false) {
     this.status = status;
-    if (this.badge) { this.badge.textContent = status; this.badge.style.display = status ? '' : 'none'; }
+    if (this.badge) { this.badge.textContent = alert ? status : ''; this.badge.style.display = alert && status ? '' : 'none'; }
   }
+
+  /** Ids of the loaded tiles (on demand: `__tiles.loaded()`), sorted. */
+  loadedTiles() { return [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort(); }
 
   /** The service is restarting: one console line, then only status probes until it answers (`probe`). */
   private nextWarning = -Infinity;
@@ -619,9 +700,9 @@ export class CoarseTiles {
   down(error?: ServiceDown) {
     if (this.outage) return;
     this.outage = { nextProbe: this.clock + Math.max(this.remote ? backoff(this.outageFailures++) : PROBE_MS, error?.retryAfter ?? 0), probing: false, attempts: 0 };
-    const message = this.remote ? 'drafts: remote service offline' : RESTARTING;
-    this.warn(`[coarse] ${message}: drafts paused until it answers again`);
-    this.show(message);
+    const message = this.remote ? 'tiles: remote service offline' : RESTARTING;
+    this.warn(`[coarse] ${message}: tiles paused until it answers again`);
+    this.show(message, true);
   }
 
   /** Any answer from /coarse/status other than the dev server's offline one ends the outage: every tile not drawn is
@@ -660,7 +741,7 @@ export class CoarseTiles {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) { this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0 }); streamTrace.event('tile.new', id); }
+    if (!e) { this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0, since: this.clock }); streamTrace.event('tile.new', id); }
     return e;
   }
 
@@ -708,19 +789,8 @@ export class CoarseTiles {
     const ahead = speed >= 3 && speed <= DETAIL_LEAD_MAX_SPEED ? Math.min(VIEW_LEAD_S * speed, VIEW_LEAD_MAX_M) : 0;
     const origins: [number, number][] = [[x, z]];
     if (ahead) origins.push([x + this.velocity.x / speed * ahead, z + this.velocity.z / speed * ahead]);
-    const inWedge = (i: number, j: number, ox: number, oz: number, range: number, angle: number) => {
-      const id = `t0_${i}_${j}`;
-      if (distToL0(id, ox, oz) > range) return false;
-      const cos = Math.cos(Math.min(Math.PI, angle));
-      // The nearest footprint point, the corners and the centre: any of them inside the wedge.
-      const x0 = i * VISUAL_L0, z0 = j * VISUAL_L0, x1 = x0 + VISUAL_L0, z1 = z0 + VISUAL_L0;
-      const points: [number, number][] = [[Math.min(Math.max(ox, x0), x1), Math.min(Math.max(oz, z0), z1)],
-        [x0, z0], [x1, z0], [x0, z1], [x1, z1], [(x0 + x1) / 2, (z0 + z1) / 2]];
-      return points.some(([px, pz]) => {
-        const vx = px - ox, vz = pz - oz, length = Math.hypot(vx, vz);
-        return length < 1e-6 || (vx * dx + vz * dz) / length >= cos;
-      });
-    };
+    const inWedge = (i: number, j: number, ox: number, oz: number, range: number, angle: number) =>
+      inViewWedge(i, j, ox, oz, dx, dz, range, angle);
     const reach = VIEW_DETAIL_M + VIEW_KEEP_M + ahead, out: { id: string; d: number }[] = [];
     for (let i = Math.floor((x - reach) / VISUAL_L0); i <= Math.floor((x + reach) / VISUAL_L0); i++) {
       for (let j = Math.floor((z - reach) / VISUAL_L0); j <= Math.floor((z + reach) / VISUAL_L0); j++) {
@@ -734,6 +804,14 @@ export class CoarseTiles {
     const ordered = out.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).map(t => t.id);
     this.viewSet = new Set(ordered);
     return ordered;
+  }
+
+  /** A full install is due on the ground, or for a high camera within HD_3D_M of 3D distance to the tile. */
+  private withinHdBand(id: string, fragment: CoarseFragment, x: number, z: number) {
+    if (!Number.isFinite(this.viewY)) return true;
+    const top = (fragment.visual[id]?.h as [number, number] | undefined)?.[1] ?? 0;
+    const above = this.viewY - top;
+    return above < HIGH_CAMERA_M || Math.hypot(distToL0(id, x, z), above) <= HD_3D_M;
   }
 
   /** A lead tile is worth a full install: covered for LEAD_DWELL_MS and held by the window long enough. */
@@ -969,8 +1047,17 @@ export class CoarseTiles {
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
       model.userData.traceId = id;
       this.screenshotScenery.nearbyChanged(id);
-      recordFreshness(e, fragment); this.host.scene.add(model);
+      recordFreshness(e, fragment);
       streamTrace.event('tile.preview', id, this.depth());
+      // Collision is published at once; the preview draws once its program and buffers are prepared outside a frame
+      // (a first draw would upload its several MB of vertices inside the frame).
+      const show = () => {
+        if (e.model !== model || this.entries.get(id) !== e) return;
+        this.host.scene.add(model);
+        this.arrays?.preview(model);
+      };
+      if (!this.host.preparePreview) { show(); return; }
+      await this.host.preparePreview(model).then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
       return;
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
@@ -1021,6 +1108,7 @@ export class CoarseTiles {
     if (old && old !== under) this.dispose(old, id);
     if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
+    this.releaseCommitted(model);
     // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
     if (!old || wasPreview) this.dissolveIn(id, model, own, under);
     if (installing) {
@@ -1142,10 +1230,128 @@ export class CoarseTiles {
       retryInMs: e.state === 'draft' ? 0 : Math.max(0, e.nextPoll - this.clock) };
   }
 
+  private nextRelease = 0;
+  /** CPU copies of uploaded render-only geometry (world/releaseArrays.ts); none while the host keeps arrays. */
+  private arrays: TileArrays | null = null;
+  private drawnSets = new WeakMap<object, Set<THREE.BufferGeometry>>();
+  /** A full tile committed: release its uploaded render-only arrays, and templates only committed tiles hold. */
+  private releaseCommitted(model: THREE.Object3D) {
+    if (!this.arrays) return;
+    this.arrays.commit(model);
+    // Its shared textures were uploaded at load and styled since (surface arrays took their ground maps).
+    releaseModelTextureData(model, texture => textureUploaded(this.host.renderer, texture));
+    this.buildingModels.markCommitted(model);
+    this.buildingModels.releaseCommitted((root, owners) => this.arrays!.template(root, geometry => owners.some(owner => {
+      let drawn = this.drawnSets.get(owner);
+      if (!drawn) { drawn = drawnGeometries(owner as THREE.Object3D); this.drawnSets.set(owner, drawn); }
+      return drawn.has(geometry);
+    })));
+  }
+  /** Every RELEASE_MS: only targets still waiting for their upload are visited. */
+  private releaseUploadedArrays(now: number) {
+    if (!this.arrays || now < this.nextRelease) return;
+    this.nextRelease = now + RELEASE_MS;
+    const bytes = this.arrays.check();
+    if (bytes) streamTrace.event('mem.release', undefined, { mib: Math.round(bytes / 2 ** 16) / 16 });
+  }
+  /** GPU residency (GPU_BUDGET_BYTES): the latest measurement and whether new non-window installs must wait. */
+  private gpu = { bytes: 0, measuring: false, next: 0 };
+  private overGpu = false;
+  private lastWanted: string[] = [];
+  private gpuBudget = streamingBudget();
+  /** The budget of the session's tier; undefined (none) on medium and high. */
+  private gpuLimit() {
+    if (this.host.gpuBudget !== undefined) return this.host.gpuBudget > 0 ? this.host.gpuBudget : undefined;
+    const tier = renderTier(), limit = tier ? GPU_BUDGET_BYTES[tier.tier] : undefined;
+    if (limit === undefined || tier?.gpu?.vendor?.toLowerCase() !== 'apple') return limit;
+    const heap = jsHeapBytes();
+    if (heap === undefined) return limit;
+    const total = this.host.memoryBudget ?? APPLE_MEMORY_BYTES;
+    return Math.min(APPLE_GPU_MAX, Math.max(APPLE_GPU_MIN, total - heap));
+  }
+  private measureGpu(now: number) {
+    const limit = this.gpuLimit();
+    if (limit === undefined || this.gpu.measuring || now < this.gpu.next) return;
+    this.gpu.measuring = true; this.gpu.next = now + GPU_MEASURE_MS;
+    void (async () => {
+      try {
+        const meter = new GpuMeter(rendererResidency(this.host.renderer));
+        let bytes = 0;
+        const cached = [...this.entries.values()].flatMap(e => e.model && e.cachedAt !== undefined ? [e.model] : []);
+        for (const root of [...this.host.scene.children, ...cached]) {
+          bytes += meter.root(root);
+          const pause = this.gpuBudget.checkpoint(); if (pause) await pause;
+        }
+        this.gpu.bytes = bytes;
+        this.applyGpuLimit(limit);
+      } finally { this.gpu.measuring = false; }
+    })();
+  }
+  /** Over the limit: drop return-cache entries (oldest first), full tiles drawn as distant cells, full tiles off the
+   *  lead, then lead and view tiles (farthest first) until the estimate fits; never the current window. */
+  private applyGpuLimit(limit: number) {
+    // Startup installs are an explicit, bounded set the menu waits for: the budget neither stops nor evicts them.
+    if (this.startup) { this.overGpu = false; return; }
+    this.overGpu = this.gpu.bytes > 0.9 * limit;
+    let excess = this.gpu.bytes - limit;
+    if (excess <= 0) return;
+    const at = this.at, wanted = new Set(this.lastWanted), lead = new Set(this.lead), residency = rendererResidency(this.host.renderer);
+    const full = [...this.entries].filter(([id, e]) => e.model && !e.preview && !wanted.has(id));
+    const far = (a: [string, Entry], b: [string, Entry]) => distToL0(b[0], at.x, at.z) - distToL0(a[0], at.x, at.z);
+    const order = [
+      ...full.filter(([, e]) => e.cachedAt !== undefined).sort((a, b) => a[1].cachedAt! - b[1].cachedAt!),
+      ...full.filter(([, e]) => e.cachedAt === undefined && e.distant).sort(far),
+      ...full.filter(([id, e]) => e.cachedAt === undefined && !e.distant && !lead.has(id)).sort(far),
+      ...full.filter(([id, e]) => e.cachedAt === undefined && !e.distant && lead.has(id)).sort(far),
+    ];
+    for (const [id, e] of order) {
+      if (excess <= 0) break;
+      const freed = modelGpuBytes(e.model!, residency);
+      streamTrace.event('tile.evict', id, { mib: Math.round(freed / 2 ** 16) / 16, cached: e.cachedAt !== undefined });
+      this.drop(e); this.entries.delete(id);
+      excess -= freed; this.gpu.bytes -= freed;
+    }
+  }
+  /** The latest GPU residency measurement (bytes; 0 where the tier has no budget) and its limit. */
+  gpuResidency() {
+    const apple = this.host.gpuBudget === undefined && renderTier()?.gpu?.vendor?.toLowerCase() === 'apple' && jsHeapBytes() !== undefined;
+    return { bytes: this.gpu.bytes, limit: this.gpuLimit() ?? null, over: this.overGpu,
+      rule: this.host.gpuBudget !== undefined ? 'url' : apple && this.gpuLimit() !== undefined ? 'apple-memory' : 'tier' };
+  }
+
+  /** CPU array bytes released so far (memory census). */
+  get releasedBytes() { return this.arrays?.releasedBytes ?? 0; }
+
+  /** Streaming residency for the memory census (world/memoryCensus.ts). */
+  memoryParts() {
+    const full: THREE.Object3D[] = [], cached: THREE.Object3D[] = [], previews: THREE.Object3D[] = [];
+    let previewFragments = 0, roads = 0;
+    for (const e of this.entries.values()) {
+      if (e.preview) previewFragments++;
+      if (e.roads) roads++;
+      if (!e.model) continue;
+      (e.cachedAt !== undefined ? cached : e.preview ? previews : full).push(e.model);
+    }
+    const json = (pick: (e: Entry) => unknown) => () => {
+      let bytes = 0;
+      for (const e of this.entries.values()) { const value = pick(e); if (value) bytes += 2 * JSON.stringify(value).length; }
+      return bytes;
+    };
+    const residency = this.gpuResidency();
+    return { full, cached, previews, previewFragments, roads, releasedBytes: this.releasedBytes, releases: this.arrays?.releases ?? 0,
+      gpuResidency: { measuredMiB: Math.round(residency.bytes / 2 ** 20), limitMiB: residency.limit === null ? null : Math.round(residency.limit / 2 ** 20), over: residency.over },
+      previewJsonBytes: json(e => e.preview), roadsJsonBytes: json(e => e.roads),
+      fragmentCache: { bytes: this.fragmentBytes, count: this.fragments.size },
+      buildingTemplates: () => this.buildingModels.templates() };
+  }
+
   /** Draft L0 tiles currently drawn. */
   drawn(): string[] {
     return [...this.entries].filter(([, e]) => e.model).map(([id]) => id);
   }
+
+  /** The tile manifest URL the client polls (developer object editor: an edit's generation pin). */
+  manifestUrl(id: string): string { return new URL(`${this.root}${id}/manifest.json`, this.page).href; }
 
   /** Street graphs of the drafts in the scene, for the map and the router (gameplay/index.ts StreetMap). */
   roadGraphs(): RoadGraphJson[] {
@@ -1209,6 +1415,7 @@ export class CoarseTiles {
   private dispose(model: THREE.Object3D, id?: string) {
     lodFades.cancelWithin(model);
     model.removeFromParent();
+    this.arrays?.forget(model);
     if (id) this.host.untrackModel?.(model, id);
     const release = () => {
       this.host.unstyle?.(model);

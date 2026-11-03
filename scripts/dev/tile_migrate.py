@@ -44,6 +44,14 @@ def revision_meta(root: Path, selector: str) -> dict:
     return dict(meta, revision=meta.get('revision', revision))
 
 
+def use_base_data(root: Path, meta: dict) -> None:
+    """Source reads see the base's own source version (its ``data_root``), as on the farm daemon's on-request
+    migrations; the runner's default TURKU3D_DATA is the combined working data, which can differ."""
+    data = revision_meta(root, meta['base_revision']).get('data_root')
+    if data:
+        os.environ['TURKU3D_DATA'] = data
+
+
 def rebuild_revision(root: Path, code: str, source_version) -> dict:
     """The generator of the code snapshot with the base's source version (farm overlay ids)."""
     code_meta = revision_meta(root, code)
@@ -126,6 +134,16 @@ def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None) -
     return meta
 
 
+def checkpoint(meta: dict, key: str) -> dict:
+    """The derived revision cut after step ``key``: migrating a tile to it stores that prefix generation's product,
+    which a later chain with other steps after ``key`` resumes from (migrate_tile's longest finished prefix)."""
+    keys = [f"{s['name']}@{s['version']}" for s in meta['migrations']]
+    if key not in keys:
+        raise ValueError(f'{key} is not a step of {keys}')
+    steps = meta['migrations'][:keys.index(key) + 1]
+    return dict(meta, generation=steps[-1]['generation'], migrations=steps, checkpoint_of=meta['generation'])
+
+
 def products(root: Path, generation: str) -> Path:
     return root / 'products' / generation
 
@@ -141,6 +159,8 @@ def verified_chain(meta: dict):
     if theirs not in _VERIFIED:
         migrations = chain()
         mine = tuple((m.key, m.code_hash()) for m in migrations)
+        if meta.get('checkpoint_of'):  # A checkpoint: the first steps of the derived revision's chain.
+            mine, migrations = mine[:len(theirs)], migrations[:len(theirs)]
         if mine != theirs:
             raise RuntimeError(f'snapshot chain {mine} differs from the derived revision {theirs}')
         _VERIFIED[theirs] = migrations
@@ -354,6 +374,7 @@ def main(argv=None):
     if args.action == 'status':
         print(json.dumps(status(root, meta)))
         return 0
+    use_base_data(root, meta)
     if args.action == 'parity':
         results = [parity(root, meta, args.generated, tile) for tile in args.tiles]
         for result in results:

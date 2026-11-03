@@ -63,7 +63,9 @@ ground with no building above it.
 | `dealer` | `shop` | Rantakadun Kulkine, a used-vehicle dealer | Corner of Kristiinankatu and Läntinen Rantakatu at the riverbank | 101.5, 290.5 | 23459601.5, 6704209.5 | sidewalk, H 3.45 |
 
 A bought vehicle waits at the kerb next to the dealer, x 119, z 286.5, facing along Läntinen
-Rantakatu (`DEALER_VEHICLE_SPOT`).
+Rantakatu (`DEALER_VEHICLE_SPOT`). The pizzeria's kerb, x 81.04, z 190.96, is on Linnankatu in front of
+the pizzeria (`PIZZERIA_VEHICLE_SPOT`): the nearest kerb-side pose to the pizzeria on the published road
+graph (`gameplay/kerbSpots.ts`), on the pizzeria's side of the two-lane street, facing that side's traffic.
 
 ## Economy
 
@@ -80,8 +82,10 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Slice for yourself | 4 €: full run speed for 120 s (game time) after the kidney sale; no effect otherwise |
 | Scooter | 60 € |
 | Car | 350 € |
-| Trophy truck | 1000 € |
-| Vehicle sold back | half the price, rounded down: 30 € / 175 € / 500 € |
+| Trophy truck | 600 € |
+| Vehicle sold back | half the price, rounded down: 30 € / 175 € / 300 € |
+| Permit on credit | with no permit left and under 80 € in cash: 10 deliveries now for 80 € of debt (`CREDIT_PERMIT_DEBT`); each drop-off's base pay (after the loaner fee) repays it, tips and the double bonus stay in cash (`debtRepayment`) |
+| Pizzeria loaner scooter | free to use while owning no vehicle; an order carried on it pays 2 € less (`LOANER_FEE`) |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
 | Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car, 10.5 m/s trophy truck |
@@ -91,20 +95,51 @@ The route distance is the `Router` path length from the pizzeria to the drop-off
 no path (either end off the graph), the straight-line distance is used.
 
 The par speed is that of the vehicle the player **owns**, or a car's when the order is taken from a
-borrowed car with forged plates. While carrying a pizza the player may travel only on foot or with
+borrowed car with forged plates; owning none, a short order is timed for the pizzeria's loaner scooter. While carrying a pizza the player may travel only on foot or with
 their own vehicle: entering any other car is refused with the notice `notice_own_vehicle_only`, and
 the pizzeria greys out the order in a borrowed car (`reason_own_vehicle_only`). Forged plates lift
 both limits. Free roam outside a delivery is unchanged, so every car stays drivable then. Faster vehicles do not raise the tip (the par is fair
 for each vehicle); they raise the earnings rate, because more deliveries fit in the same time.
 
+**Getting un-stuck.** A courier never has to run for cash: every state keeps a vehicle delivery or a
+permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and plays out of it).
+
+- *Bring my vehicle* (pizzeria, free): the own scooter, car or truck is parked at the pizzeria's kerb
+  (`PIZZERIA_VEHICLE_SPOT`), wherever it was left or stuck. Greyed without an own vehicle, while riding
+  it, or when it already stands within 30 m of the pizzeria (`BRING_NEAR_M`).
+- *Bring my vehicle here* (pause menu): parks it at the nearest ground-checked kerb beside the player
+  (`gameplay/kerbSpots.ts`; within 40 m a spot outside the camera view comes first, then up to 150 m
+  nearest first), so a vehicle wrecked or stuck mid-delivery is back in seconds. Not while riding it;
+  then 60 s of play before the next use (`BRING_COOLDOWN_SECONDS`). Owning no vehicle, it fetches the loaner.
+- *Pizzeria loaner scooter*: while the player owns no vehicle, the scooter's physics vehicle (`LOANER_ID`
+  = `scooter`) stands at the pizzeria's kerb. Short orders may be carried on it and are quoted and timed at
+  scooter par on the driving distance; an order ridden on it at any time pays `LOANER_FEE` (2 €) less,
+  charged with its last drop-off (quote: "loaner scooter −2 €", paid line `paid_loaner_fee`; the
+  multiplayer payout stays the earned pay, the fee is spending like the permit). The first loaner order of
+  a session adds `pizzeria_loaner`. Long and LIMITED TIME jobs still need an own vehicle or plates.
+  Taking a short order off the loaner brings it back to the kerb unless it is already within 8 m
+  (`LOANER_AT_KERB_M`); selling the own vehicle puts it back there too. Buying the scooter makes the
+  loaner's body the player's scooter, and like any purchase it waits at the dealer's kerb (unless the
+  player rides it there). With a car or truck bought, a loaner left in the world is an ordinary scooter.
+  Each player's loaner is their own local `scooter` (in multiplayer the shared vehicle
+  `<player id>:scooter`); it is placed only while no shared record of it exists, so a loaner another
+  player holds is never duplicated. A save keeps it through the last-used vehicle; otherwise it appears
+  at the kerb once that collision tile is loaded.
+- *Permit on credit* (black market, `permit_on_credit`): when the permit has run out and the cash is
+  under the 80 € rental, the seller rents the ten deliveries on credit (`market_sold_credit`). The debt
+  (optional save field `debt`, default 0) is repaid by the base pay of the following drop-offs; tips and
+  the double bonus stay in cash, so the wallet still grows. Renting on credit again adds to the debt. The
+  shop status line shows `Debt N €`, and each repaying drop-off adds a `paid_debt` line. The multiplayer
+  payout is still the earned pay: repayments are spending, like the permit itself (`server/PROTOCOL.md`).
+
 The dealer sells nothing before the first permit is rented (the start money would otherwise fall
 short of the permit and no income would be possible). The player owns at most one vehicle: buying
 another needs the current one sold back first.
 
-Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so on foot
-the permit eats most of the margin and a scooter takes some twenty deliveries. The kidney (+400 €) is
+Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so the permit eats
+most of the margin, and on the pizzeria's loaner (2 € a run) a scooter of one's own takes some fifteen deliveries. The kidney (+400 €) is
 the shortcut to a car, and the 15 % run penalty is what it costs for the rest of the game; the slice
-is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some hundred
+is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some sixty
 deliveries, or the kidney and a good run.
 
 **Scooter.** The 60 € vehicle is a 50 cc scooter with a red pizza case on the rack (physics vehicle
@@ -116,7 +151,7 @@ purchase parks it at the dealer's kerb (`DEALER_VEHICLE_SPOT`). A save slot stor
 vehicle for deliveries. Saves that owned the former bicycle (the speed-capped car) load as owning
 the scooter.
 
-**Trophy truck.** The 1000 € vehicle is a prerunner (physics vehicle `truck`, tuning `TRUCK`; model built
+**Trophy truck.** The 600 € vehicle is a prerunner (physics vehicle `truck`, tuning `TRUCK`; model built
 from Kenney's CC0 Car Kit pickup with an orange body, open cab, bed cage, light bar and big tyres): 4WD,
 long-travel suspension, 0–100 km/h in about 6 s, 120 km/h top speed, and it takes kerbs at speed with
 barely a jolt (12 cm at 40 km/h costs 2.6 % against the car's 17 %) and lands jumps on its wheels. Like
@@ -128,14 +163,18 @@ every vehicle it uses the published driving distance.
 
 ## Deliveries
 
-The first four orders are the scripted opening below (their own hand-over and customer lines).
+The first four orders are the scripted opening below (their own hand-over and customer lines), in
+an order shuffled per game: `openingOrder(seed)` in `missions/orders.ts` is a seeded permutation, so
+a given save always replays the same order and a new game usually starts somewhere else. The save
+records which opening addresses were served (`opening`), so a continued game never repeats one; a
+save from before the shuffle played the list order and reads as having served its first entries.
 Each names its address; the mission system looks it up in the published address pool and takes the
 pool's drop-off (the sidewalk spot 2.5 m in front of the door, outside every footprint), route
 metres and par, like any pool order. The coordinates below are the fallback for a pool that lacks
 the address (and the synthetic tiles, which carry no pool): the same sidewalk rule applied to the
 buildings layer. Route is the walking distance on the road graph from the pizzeria.
 
-| # | Address | Fallback x, z | Route | Par on foot |
+| List # | Address | Fallback x, z | Route | Par on foot |
 |---|---|---|---|---|
 | 1 | Linnankatu 13a | 183.24, 116.26 | ~129 m | ~112 s |
 | 2 | Aurakatu 1 | 267.03, 156.12 | ~245 m | ~195 s |
@@ -163,23 +202,24 @@ addressed building in the published tiles with a street-side door, its drop-off 
 the door, and route metres from the pizzeria on foot and by car. The four core tiles give 78
 addresses (t0_0_0 31, t0_0_1 14, t0_1_0 16, t0_1_1 17); a new tile adds its own. Addresses in
 tiles the manifest does not carry are skipped. Without a pool (synthetic tiles) the opening
-four repeat.
+four repeat in the game's order.
 
 `game/src/gameplay/missions/orders.ts` draws each order, seeded per game:
 
 - **No repeats.** An address served (delivered or cancelled) is not drawn again until every pool
   address has been; then the set starts over, without the last order's addresses. The opening's
   four addresses come last.
-- **Distance ladder.** Pool order *n* (0 = the fifth order) aims at 200 + 40·*n* m on foot, capped
+- **Distance ladder.** Pool order *n* (0 = the fifth short order) aims at 200 + 40·*n* m on foot, capped
   at 900 m, and takes a random address between 55 % of that and the target (the three nearest to
   the target when none is left in the band). One order in five is instead a short hop from the
   nearest quarter of what is left.
-- **Doubles.** Every fifth pool order (the 9th, 14th, … order) carries two pizzas: the drawn
-  address and the nearest unused one 15–250 m from it. The timer covers both: par is the first
+- **Doubles.** Every third pool order (the 7th, 10th, 13th, … short order) carries two pizzas: the
+  drawn address and the nearest unused one 15–250 m from it. The timer covers both: par is the first
   leg's par plus the second leg's (router distance between the two drop-offs). Each pizza pays
-  6 € plus its tip, the first against the first leg's par, the second against the whole par; the
-  second also pays the double bonus of 4 € (`paid_double_bonus`) unless it earns no tip. Missing
-  the deadline cancels what is left. A double uses one permit delivery.
+  its leg's base pay (6 € on a short job) plus its tip, the first against the first leg's par, the
+  second against the whole par; the second also pays the double bonus of 4 € (`paid_double_bonus`)
+  unless it earns no tip. Missing the deadline cancels what is left. A double uses one permit
+  delivery. The quote's pay is both pizzas' base pay.
 - **Par.** The published walking distance on foot, the driving distance with a scooter or a car
   (the walking one when no car route exists), at the vehicle's par speed; tip bands as above.
 
@@ -193,6 +233,41 @@ draw counts are stored in the mission save. The HUD shows the complete address s
 `VoicePlayer` plays its phrase and address clips back to back. `make voice-build` reads every published
 address pool plus the four scripted stops, so a tile's new addresses receive clips on the next build.
 The large map labels the drop-off marker with its house number.
+
+### Long-range jobs
+
+After four short orders the pizzeria also offers a long-range job (a vehicle or forged plates
+needed) to a curated landmark (`game/src/gameplay/content/landmarks.json`, OSM identities that the
+navigation build turns into drop-offs beside a car-reachable street). The list favours drives that
+turn, climb and cross bridges over a straight run down Linnankatu or Hämeentie, and the client's
+list decides what is offered even when the served navigation metadata carries other landmarks.
+Long pay is 24 € plus 12 € per road kilometre of each leg; par uses 1.4 times the short-job speed
+(1.2 on the scooter).
+
+Every third long job (the 3rd, 6th, … by finished long jobs) is a double: the drawn landmark and
+another unused one 0.6–2.5 km by road from it, chosen from the save's seed; with none in reach it is
+a single job. It is quoted, timed and paid like a short double: par is the sum of both legs' pars,
+each pizza pays its own leg's long pay plus its tip, the second adds the 4 € double bonus unless it
+earns no tip, and after the first hand-over the dispatcher announces the second landmark
+(`second_address`). A single long job carried in an older save stays single.
+
+Normal long jobs, singles and doubles, stay below 3 km of car route in all (`LIMITED_MIN_METRES`):
+a double that would reach it takes a closer second landmark or stays single. Runs of 3 km or more
+(Ruissalon telakka, Jaanin paloasema, and doubles that add up to it) are the pizzeria's third
+option, the **LIMITED TIME delivery**, so the player can turn them down:
+
+- The offer clock runs in game time once long jobs are unlocked. An offer is drawn when it is due
+  and nothing is being said or open, the dispatcher announces it (a 12-phrase `limited` pool plus
+  the address), and it stays on the menu for 240 s (`LIMITED_OFFER_SECONDS`) with its seconds left
+  in the quote line. Declining is letting it run out. 180 s (`LIMITED_COOLDOWN_SECONDS`) after it is
+  taken or runs out the next one is drawn.
+- Every third offer is a double when some landmark pair within 0.6–2.5 km of each other reaches
+  3 km in all; otherwise, and for the other offers, one landmark 3 km or more away. Draws are seeded
+  per game, prefer landmarks not yet served, and the offer (draw count, stops, seconds left) is
+  saved per player in the mission save (`limited`).
+- It pays `LIMITED_PAY_FACTOR` (2) times the long base pay per leg, plus the tip and, on a double,
+  the double bonus; par and the vehicle requirement are those of a long job. It does not count as a
+  finished long job.
 
 ## Mission state machine
 
@@ -269,12 +344,44 @@ selecting one the player cannot afford makes the shopkeeper refuse (`*_no_money`
 
 | Shop | Greeting | Options (menu order) |
 |---|---|---|
-| Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Leave |
-| Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
+| Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Rent a permit on credit (only with no permit and under 80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Steal the trophy truck (free, the truck heist below), Abandon the truck job, Leave |
+| Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), Long-range delivery, Bring my vehicle here (free, `pizzeria_bring_vehicle`: the own vehicle to the kerb outside), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
 | Rantakadun Kulkine (dealer) | `dealer_greet`; `dealer_no_permit` before the first permit, with every option greyed | Scooter (60 €), Car (350 €) (both end the visit; the vehicle waits at the kerb), Sell your vehicle back (+half), Leave |
 
 The drop-off has no menu: the button hands over the pizza, the customer's line and the pay line
 play, and the zone disappears until the next order.
+
+### Truck heist
+
+A black-market job whose reward is the forged plates (`job_truck_heist`; places in
+`content/locations.ts`, state in `MissionSystem.heist`, the world side in `play.ts`):
+
+- **Offer.** Free, and offered only while the player has no plates and does not own the trophy
+  truck; greyed while a pizza is carried. Taking it plays the briefing (`heist_briefing`) and marks
+  the inner yard of Rettigin palatsi (Itäinen Rantakatu 4–6, engine 546.9, 122.7) with a `job`
+  zone ("Truck job"). While it runs, pizza orders and buying the truck are refused
+  (`reason_heist_active`). "Abandon the truck job" at the market ends it (`heist_abandoned`; not
+  while sitting in the truck) and it can be started again.
+- **Truck.** The trophy truck (`TRUCK_ID`) is placed in the yard, nose to the exit, once the
+  yard's collision cell is resident and the spot passes the vehicle ground check. The yard's
+  collision has open sky over the spot and a 4–11 m wide drivable lane straight south to
+  Hämeenkatu past the private driveways; their OSM gates carry no collision. The private ways are
+  not in the street graph, so the route to the yard ends where the graph reaches it (the service
+  way to its north-east gate). Getting in plays `heist_in_truck` and moves the target to the
+  drop-off.
+- **Drop-off.** The road under Aninkaistensilta (engine 243.4, −873.5; ground y 9.67 under the
+  deck at 14.6–15.5). The zone's ray starts below the deck, the route ends on Ratapihankatu south
+  of the bridge (`approach`), and the job counts only when the player gets out of the truck within
+  8 m at the road's level (2.5 m), never on the bridge above.
+- **Reward.** `plates = true`, `heist_done` plays and the checkpoint autosaves. The truck is taken
+  out of the world (truck ownership is unchanged), and the start car (the player's own car, when
+  they bought the car) is parked for them at the nearest road-graph kerb spot 10–30 m from the
+  drop-off (60 m if none) that passes the vehicle ground check at the road's level. With the
+  plates any car may deliver.
+- **Save.** The optional `heist` field (`pickup` / `deliver`); a reload resumes a running job with
+  the truck back in the yard. It is per player. In multiplayer the truck is shared like an owned
+  truck while the job runs (`net/sharedVehicles.ts` registers the local `truck`); taking it away
+  at the end is not yet announced to other players.
 
 ## Dialogue
 

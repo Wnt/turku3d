@@ -10,7 +10,9 @@ type Decoded = ReturnType<typeof decodeGlb>;
 let worker: Worker | undefined, sequence = 0;
 const budget = streamingBudget();
 // Cache immutable visual bytes, not mutable glTF objects or their render resources.
-const visualBuffers = new AssetCache<ArrayBuffer>(256 * 1024 ** 2, buffer => buffer.byteLength);
+// 32 MiB keeps the last few tile GLBs for a quick U-turn (the return cache keeps whole tiles for a minute); the
+// census showed 248 MiB here at a 256 MiB cap. A later revisit refetches from the HTTP cache.
+export const visualBuffers = new AssetCache<ArrayBuffer>(32 * 1024 ** 2, buffer => buffer.byteLength);
 const pending = new Map<number, { objects: Record<string, unknown>[]; resolve: (decoded: Decoded) => void; reject: (error: Error) => void }>();
 function decode(buffer: ArrayBuffer): Promise<Decoded> {
   if (!worker) {

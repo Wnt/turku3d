@@ -40,6 +40,8 @@ def capture(root: Path):
         {'t': 960, 'k': 'tile.full', 'id': 't0_1_0', 'replaced': None, 'd': 300},
         {'t': times[45] - 20, 'k': 'cell.glb', 'id': 't0_5_0', 'ms': 30, 'bytes': 1000},
         {'t': times[45] + 5, 'k': 'cell.install', 'id': 't0_5_0', 'level': 0},
+        # The program that build was (game/src/render/census.ts emits one event per in-frame build).
+        {'t': times[45] - 30, 'k': 'gfx.build', 'pass': 'ShadowMap|ortho', 'material': 'ShadowMaterial', 'object': 'scene-population > parked/suv-2/0'},
         {'t': 700, 'k': 'band.block', 'id': 't0_0_0', 'to': 'lod'},
         {'t': times[30] + 1, 'k': 'band.swap', 'id': 't0_0_0', 'dir': 'out', 'reason': 'twin not compiled'},
         {'t': 800, 'k': 'coverage', 'i0': -1, 'j0': -1, 'n': 3, 'cells': 'CCC.FD' + 'CPU'},
@@ -68,6 +70,10 @@ class TileTimelineTest(unittest.TestCase):
             self.assertIn('slice:install', text); self.assertIn('js:shader-build', text)
             self.assertIn('near: cell.glb t0_5_0', text); self.assertNotIn('event:', text)
             self.assertIn('band.block>lod 1', text)
+            # The shader-build hitch names what was built, and the summary counts in-frame builds by family.
+            self.assertIn('built: ShadowMap|ortho ShadowMaterial [scene-population > parked/suv-#/#]', text)
+            self.assertIn('in-frame program builds: 1', text)
+            self.assertNotIn('near: cell.glb t0_5_0, gfx.build', text)
 
     def test_html_page_is_self_contained(self):
         with tempfile.TemporaryDirectory() as directory:

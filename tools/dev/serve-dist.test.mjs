@@ -174,3 +174,90 @@ test('facade candidate viewer', async () => {
   assert.equal(r.status, 200);
   assert.match(await r.text(), /Generated facade candidates[\s\S]*No candidates kept yet/);
 });
+
+test('--public serves only the game and its services: no uploads, internals or dotfiles; compressed tiles; multiplayer', async () => {
+  const http = (await import('node:http')).default;
+  const glb = Buffer.alloc(200000, 3); glb.write('glTF', 0);
+  const seen = [];
+  const coarse = http.createServer((req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    if (/\/(health|demand)$/.test(req.url.split('?')[0])) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify({ state: 'ready', version: 7, building: ['t0_0_0'], failures: [{ error: '/home/x' }] }));
+    }
+    res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length });
+    res.end(glb);
+  });
+  const mp = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ path: req.url, origin: req.headers.origin ?? null }));
+  });
+  const upgraded = [];
+  mp.on('upgrade', (req, socket) => {
+    upgraded.push(socket);
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nX-Origin: ${req.headers.origin}\r\nX-Path: ${req.url}\r\n\r\n`);
+    socket.on('data', (d) => socket.write(d)); // echo
+  });
+  await Promise.all([coarse, mp].map((s) => new Promise((r) => s.listen(0, '127.0.0.1', r))));
+  fs.writeFileSync(path.join(dir, '.secret'), 's');
+  fs.writeFileSync(path.join(dir, 'version.json'), '{"sha":"abc"}');
+  const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', '0',
+    '--public', '--coarse', `http://127.0.0.1:${coarse.address().port}`, '--mp', `http://127.0.0.1:${mp.address().port}`]);
+  try {
+    const base = await new Promise((resolve, reject) => {
+      child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+      child.stdout.on('data', (d) => { const m = /serve-dist: (http:\/\/[^/]+)\//.exec(String(d)); if (m) resolve(m[1]); });
+    });
+    const get = (p, init) => fetch(base + p, init);
+    const home = await get('/');
+    assert.equal(home.status, 200);
+    assert.equal(home.headers.get('cross-origin-embedder-policy'), 'require-corp');
+    assert.deepEqual(await (await get('/version.json')).json(), { sha: 'abc' });
+    assert.equal((await get('/telemetry', { method: 'POST', body: '{"t":1}\n' })).status, 405);
+    assert.equal((await get('/__capture/frame', { method: 'POST', body: 'x' })).status, 405);
+    assert.equal((await get('/facades/candidates/')).status, 404);
+    assert.equal((await get('/.secret')).status, 404);
+    // A service status keeps only what the game reads.
+    const health = await get('/coarse/health');
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { state: 'ready', version: 7 });
+    assert.deepEqual(await (await get('/coarse/demand?client=a&tiles=t0_0_0,t0_1_0')).json(), { state: 'ready', version: 7 });
+    assert.ok(seen.includes('GET /coarse/demand?client=a&tiles=t0_0_0,t0_1_0'));
+    // Raw paths: fetch() would normalise the dot segments before sending them.
+    const raw = (p) => new Promise((res) => http.get({ host: '127.0.0.1', port: new URL(base).port, path: p }, (x) => { x.resume(); res(x.statusCode); }));
+    for (const p of ['/coarse/%2e%2e/%2e%2e/health', '/coarse/%2E%2E/%2E%2E/status', '/coarse/../../health', '/coarse/./health',
+      '/coarse/t0_0_0/.x', '/coarse/t0_0_0%2f..%2f..%2fhealth', '/coarse/t0_0_0\\..\\health']) assert.equal(await raw(p), 404, p);
+    const before = seen.length;
+    assert.equal(await raw('/coarse/t0_0_0/manifest.json?d=1'), 200);
+    assert.equal(seen.length, before + 1);
+    assert.equal((await get('/coarse/t0_0_0/manifest.json', { method: 'POST', body: '{}' })).status, 405);
+    // Payloads are compressed for the tunnel and decode to the same bytes.
+    const tile = await new Promise((res) => http.get({ host: '127.0.0.1', port: new URL(base).port, path: '/coarse/t0_0_0/a.glb',
+      headers: { 'accept-encoding': 'br' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => res({ x, body: Buffer.concat(c) })); }));
+    assert.equal(tile.x.headers['content-encoding'], 'br');
+    assert.equal(tile.x.headers['cross-origin-resource-policy'], 'cross-origin');
+    assert.ok(tile.body.length < glb.length / 10);
+    assert.ok(zlib.brotliDecompressSync(tile.body).equals(glb));
+    // Scores and the socket reach the share's own multiplayer server.
+    assert.deepEqual(await (await get('/live.json', { headers: { origin: 'https://city.example' } })).json(), { path: '/live.json', origin: 'https://city.example' });
+    assert.equal((await (await get('/scores/index.json')).json()).path, '/scores/index.json');
+    const net = (await import('node:net')).default;
+    const echoed = await new Promise((resolve, reject) => {
+      const s = net.connect(Number(new URL(base).port), '127.0.0.1', () => s.write('GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nOrigin: https://city.example\r\n\r\n'));
+      let text = '';
+      s.on('data', (d) => {
+        text += d;
+        if (text.includes('\r\n\r\n') && !text.includes('ping')) s.write('ping');
+        if (text.endsWith('ping')) { s.destroy(); resolve(text); }
+      });
+      s.on('error', reject);
+    });
+    assert.match(echoed, /^HTTP\/1.1 101/);
+    assert.match(echoed, /X-Origin: https:\/\/city.example/);
+  } finally {
+    await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
+    upgraded.forEach((s) => s.destroy());
+    await Promise.all([coarse, mp].map((s) => new Promise((r) => { s.closeAllConnections?.(); s.close(r); })));
+    fs.rmSync(path.join(dir, '.secret')); fs.rmSync(path.join(dir, 'version.json'));
+  }
+});

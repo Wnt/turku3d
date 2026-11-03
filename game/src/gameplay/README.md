@@ -1,6 +1,7 @@
 ## Long-range delivery jobs
 
-Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job` and `longAnnounced` per slot.
+Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job`, `longAnnounced` and the served scripted
+`opening` ids per slot.
 Every ten finished short orders (successful or cancelled, including doubles as one order) complete a
 rented round. Four finished short deliveries unlock the pizzeria's long-range option. Renting ahead and picking up an
 order do not advance it. Formats 1–3 migrate historical completed orders as short deliveries.
@@ -11,13 +12,20 @@ residency. Its disk cache hashes source, OSM input identities and the spoken add
 Drop-offs are outside mapped buildings beside reachable public driving streets; runtime `DropoffGuard`
 checks actual collision too. Short draws stay within 1.2 km on foot and exclude landmarks. Long draws use the curated
 landmarks in `content/landmarks.json` (OSM feature and entrance identities), require reachable car routes
-and never substitute residential destinations. Nearer central landmarks are deliberately eligible too.
+and never substitute residential destinations. The curated list favours winding drives, hills, bridges and port
+streets over straight runs down one main road. Every third long job is a double: the second stop is another unused
+landmark 0.6–2.5 km by road from the first (a single job when none is in reach).
 Each landmark carries its published drop-off and city-wide route metres as `fallback`
-(`node game/scripts/landmark-fallbacks.mjs NAVIGATION.json` refreshes them from a served `/coarse/navigation.json`). A pool without landmarks, as from the shared local tile farm, which serves no
-navigation metadata, gets these entries (`content/landmarks.ts`), so long jobs never depend on resident street tiles.
+(`node game/scripts/landmark-fallbacks.mjs NAVIGATION.json` refreshes them from a served `/coarse/navigation.json`).
+`withLandmarks` (`content/landmarks.ts`) makes the curated list decide which landmarks are offered: a served landmark
+entry is kept (fresh metres) only when it is curated, and a curated landmark the served pool lacks, or a pool without
+navigation metadata, gets its fallback entry, so long jobs never depend on resident street tiles.
 The unlock notice waits until a long job can actually be drawn.
-`audio/voice/long-addresses.json` lists the twelve voiced landmark names; `make voice-build` includes them in the common spoken inventory.
-Long pay is €24 + ceil(€12/km), plus the existing tip. Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
+`audio/voice/long-addresses.json` lists the voiced landmark names; `make voice-build` includes them in the common spoken inventory.
+Long pay is €24 + ceil(€12/km) per leg, plus the existing tip; the second pizza of a long double adds the double bonus.
+Normal long jobs stay below 3 km of car route in all. Longer runs are the pizzeria's LIMITED TIME option
+(`drawLimitedOrder`, `MissionSystem.limitedClock`): an announced, saved offer that stays 240 s of game time, pays twice
+the long base pay per leg and is followed by another 180 s after it is taken or runs out (constants in `economy.ts`). Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
 `play.ts` sends the remaining minimap polyline through `CoarseTiles.setRouteHint`; the streaming
 scheduler owns its bounded 30-second look-ahead and request ordering.
 
@@ -40,15 +48,16 @@ Story, locations, economy and the state machine are specified in
 | `missions/missions.ts` | `MissionSystem`: deterministic state machine (`idle → permit_needed → at_pizzeria → carrying → delivered \| failed`), delivery timer, money, permit counter, plates, kidney, vehicle ownership, open shop and its `ShopView`, dialogue queue; implements `MissionHudSource`; `serialize()` / `restore(text \| null)` for the save slots (`core/save.ts` stores the text; format in `missions/save.ts`) |
 | `saveGame.ts` | `SaveGameController`: captures the running game into a save slot, places a loaded or new game (missions, clock, own car, player on the ground), autosave triggers, the pause menu's frame handling (`game/src/ui/README.md`, "Main menu, pause menu and save slots") |
 | `economy.ts` | Prices, permit rental, payouts, base pay, tip formula, par time, deadline |
-| `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
+| `content/locations.ts` | Pizzeria, black market and dealer targets, the bought-vehicle kerb spot and the pizzeria's kerb spot |
+| `kerbSpots.ts` | Kerb-side parking poses along drivable streets near a point (both kerbs, facing each side's traffic, clear of junctions) and the "Bring my vehicle here" ranking (off screen first) |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
 | `zones.ts` | `ZoneMarkers`: glowing ring, light wall and floating label at every HUD target, coloured like the minimap (`KIND_COLOURS`) |
-| `content/deliveries.ts` | The scripted opening: four deliveries in play order by address, each with a fallback sidewalk point for a pool that lacks it (they repeat only without an address pool) |
+| `content/deliveries.ts` | The scripted opening: four deliveries by address, each with a fallback sidewalk point for a pool that lacks it; each game plays them in its own seeded order (`openingOrder`), repeated only without an address pool |
 | `content/addresses.ts` | Loads `manifest.addresses` (the pool published by `pipeline/turku3d/content`: drop-off, street point, route metres), checks its origin is the pizzeria, skips addresses in tiles the manifest lacks |
 | `missions/stops.ts` | `Stops`: an order stop by id (`delivery_<n>` or a pool slug); a scripted delivery takes its address's pool drop-off and keeps its own point as the fallback; `relocate` moves a rejected drop-off to its next candidate |
 | `missions/dropoffs.ts` | Street-level check of a drop-off before its marker is placed (`DropoffGuard`, used by `ZoneMarkers`): a point on a building or more than 2 m off the street height around it is rejected with a console warning and moved by `MissionSystem.relocateDropoff` |
 | `missions/save.ts` | The mission save text (format 4, opaque to `core/save.ts`) and migrations of formats 1–3 |
-| `missions/orders.ts` | Seeded order draws after the opening: no repeats until the pool is exhausted, distance ladder, short hops, every fifth order a double |
+| `missions/orders.ts` | Seeded order draws: the opening's order per game, then no repeats until the pool is exhausted, distance ladder, short hops, every third order a double; long jobs to curated landmarks, every third one a double |
 | `content/dialogue.json` | Static intro, prompts, notices, pay lines and one-time character dialogue |
 | `content/dialogue.ts` | Typed lookup by static line id (`lineText(id)`, `dialogueLine`) |
 | `content/phrases.json`, `announcements.ts` | Twelve phrasings per active announcement type; seeded shuffled cycles with per-save draw counts; address sentence assembly |
@@ -59,6 +68,18 @@ while paused or on the start screen), asks `missions.mayDrive(id)` before enteri
 run and sprint speed by `missions.runFactor` (the kidney), and parks a bought vehicle at the dealer kerb
 when `missions.vehicle` changes: the scooter or the trophy truck (physics ids `SCOOTER_ID` / `TRUCK_ID`,
 spawned then, `SPAWN_HEIGHT` in `saveGame.ts`) or the player's car (`OWN_VEHICLE_ID`). `ownedVehicleId(missions.vehicle)` is the physics id deliveries accept.
+The frame also passes `rideAt`, where `missions.rideId` stands; `update` returns `park: true` when the
+pizzeria's "Bring my vehicle" asks for it at `PIZZERIA_VEHICLE_SPOT`, and the pause menu's "Bring my
+vehicle here" (`missions.bringHereReason()`, `broughtHere()`, `bringFailed()`) parks it at the first
+`kerbSpots` candidate that passes `vehicleGround` (`vehicleSave.ts`). Both reuse `play.ts` `parkRide`,
+the dealer kerb's path: the car is reset, the scooter and the truck are spawned (moved). Owning no
+vehicle, `rideId` is `LOANER_ID` (the scooter's body as the pizzeria's loaner): `play.ts` spawns it at
+`PIZZERIA_VEHICLE_SPOT` whenever it is missing, the mission system accepts it for short orders at
+scooter par, charges `LOANER_FEE` for an order ridden on it (save field `loaner`) and asks for it at the
+kerb (`park`) when a short order is taken off it. The market's `permit_on_credit` rents a permit when none is left
+and cash is short; `missions.debt` (save field `debt`) is repaid by base pay (`economy.ts` `debtRepayment`).
+`tests/unit/unstuck.test.ts` plays out of each dead end and runs seeded random careers that must always keep
+a vehicle order or a permit available.
 The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,
@@ -95,7 +116,8 @@ again. To change the scripted opening:
    pool lacks, apply the pipeline's rule to the buildings layer: 2.5 m (`SIDEWALK_M`) out from the
    street-side door wall nearest the register point, outside every footprint.
 2. Append `delivery(<n>, '<address>', { x, z })` to `DELIVERIES` in `content/deliveries.ts`, keeping
-   the list ordered by route distance, and add the row to the table in `docs/design/story.md`.
+   the list ordered by route distance (each game shuffles the play order), and add the row to the table in
+   `docs/design/story.md`.
 3. Run `npx vitest run tests/unit/missions.test.ts` from `game/` to check the order and economy.
 4. Voice the new address: `make voice-setup` (once) and `make voice-build` from the repo root, then
    commit the clips in `game/public/assets/voice/` (see `audio/voice/README.md`). The gate fails on a
@@ -103,6 +125,17 @@ again. To change the scripted opening:
 
 A saved game stores scripted stops by id (`delivery_<n>`) and pool stops by address slug, so a
 rebuilt pool keeps existing saves valid; an order whose address left the pool is dropped on load.
+
+### Truck heist
+
+The black market's `job_truck_heist` (`docs/design/story.md`, "Truck heist"): `MissionSystem.heist` is
+`pickup` / `deliver` / null, `update()` reports `heist: 'started' | 'delivered' | 'abandoned'`, and `play.ts` keeps the
+world in step: it places the trophy truck (`TRUCK_ID`) at `HEIST_TRUCK_SPOT` once the yard's collision cell is resident
+and the spot passes `vehicleGround`, removes it when the job ends or a game is loaded, and on `delivered` parks the
+start car at the nearest ground-checked `kerbSpots` spot near `HEIST_DROP`. `job` targets (`HEIST_YARD`, `HEIST_DROP`)
+are probed from `ZONE_RAY_TOP` like the market, never checked as delivery drop-offs; `RouteTarget.approach` ends the
+route on the street when the marker is off the graph or under a bridge.
+Verify: `npx vitest run tests/unit/truck-heist.test.ts tests/unit/missions.test.ts` from `game/`.
 
 ### Adding a shop option
 

@@ -18,7 +18,7 @@ export interface Score { nick: string; earned: number; deliveries: number; rank:
 export const earnedAmount = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 export const normalizeScores = (scores: Score[]): Score[] => scores.map(score => ({ ...score, earned: earnedAmount(score.earned) }));
 export interface Hour { id: string; start: string; end: string; tz: string }
-interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number; job?: 'short' | 'long' }
+interface Delivery { orderId: string; addressId: string; payout: number; tip: number; routeMeters: number; job?: 'short' | 'long' | 'limited' }
 interface MultiplayerState {
   rounds: RoundState;
   vehicles: Map<string, SharedVehicle>; vehicleSources: Set<string>; serverTime: number;

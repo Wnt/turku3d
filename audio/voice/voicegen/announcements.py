@@ -10,6 +10,7 @@ SPEAKERS = {
     "order": "pizzeria",
     "double": "pizzeria",
     "second": "pizzeria",
+    "limited": "pizzeria",
     "hint_permit": "narrator",
     "hint_pizzeria": "narrator",
     "hint_carry": "pizzeria",

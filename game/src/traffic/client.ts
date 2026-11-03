@@ -51,7 +51,8 @@ export class TrafficClient {
   /** Changes whenever the local tile hashes change (multiplayer reports them). */
   revision = 0;
   stats: TrafficStats | null = null;
-  private signals: TrafficSignals | null;
+  /** Drawn signal heads (the developer object editor previews moves of them). */
+  readonly signals: TrafficSignals | null;
 
   /** `density` multiplies every street's flow (traffic/density.ts); `clock` is the clock single-player density
    *  follows (multiplayer always follows the shared cycle). */

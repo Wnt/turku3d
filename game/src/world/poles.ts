@@ -68,6 +68,7 @@ export class BreakablePoles {
         visual.node = this.ranges.detach(visual.candidate);
       }
       const { node, spec, initial } = visual;
+      node.matrixAutoUpdate = true; // a broken pole moves: published tiles freeze their transforms (freezeModel)
       this.rotation.set(state.rot.x, state.rot.y, state.rot.z, state.rot.w);
       this.offset.set(0, -spec.height / 2, 0).applyQuaternion(this.rotation);
       this.position.set(state.pos.x, state.pos.y, state.pos.z).add(this.offset);

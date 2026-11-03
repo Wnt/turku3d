@@ -4,9 +4,13 @@ import { ScoreStore } from './store.js';
 import { createServer } from './http.js';
 
 const store = new ScoreStore(process.env.TURKU_MP_SCORES ?? fileURLToPath(new URL('./data/scores/', import.meta.url)));
-const app = createServer({ store, onConnection() {
+// A share host's server adds its page origin (TURKU_MP_ORIGINS=https://city.lab.madekivi.fi, exact, comma-separated) and
+// has no tile producer to notify (TURKU_MP_PRODUCER_PORTS='').
+const origins = (process.env.TURKU_MP_ORIGINS ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const producers = (process.env.TURKU_MP_PRODUCER_PORTS ?? '7765,7766').split(',').map(Number).filter(p => p > 0);
+const app = createServer({ store, origins, onConnection() {
   // Notify both persistent producer slots, including standby during cutover.
-  for (const port of [7765, 7766]) {
+  for (const port of producers) {
     const request = http.request({ host: '127.0.0.1', port, method: 'POST',
       path: '/internal/player-connected', timeout: 500 }, response => response.resume());
     request.on('error', () => {});

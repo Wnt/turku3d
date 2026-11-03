@@ -7,8 +7,18 @@ import { sunPosition, sunVector } from '../core/sun';
 import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
 import { REFLECTION_LAYER } from './reflections';
-import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
-import { litFraction, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
+import { TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_LAYER, TILE_SHADOW_WHOLE_LAYER } from '../world/shadowBatch';
+
+/** Layers a sun cascade's camera sees: everything on layer 0, the shadow-only layer (vegetation proxies), and of a
+ *  tile's shadow batch the per-chunk casters in the nearest cascade (fine culling in a 16 m map), the whole-tile
+ *  caster in every other one (one draw per tile instead of one per 62.5 m chunk). */
+export function cascadeLayerMask(cascade: number) {
+  const chunks = cascade === 0 || tileShadows.chunksEverywhere;
+  return 1 | 1 << TILE_SHADOW_LAYER | 1 << (chunks ? TILE_SHADOW_CHUNK_LAYER : TILE_SHADOW_WHOLE_LAYER);
+}
+/** A/B (?tileShadows=chunks, owner perf3): every cascade draws the per-chunk casters, as before 2026-11-03. */
+export const tileShadows = { chunksEverywhere: false };
+import { litFraction, sampleMoved, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
 import { WEATHER_PRESETS, type WeatherSample } from './weather/schedule';
 import { weatherLighting } from './weather/lighting';
@@ -50,6 +60,8 @@ export class Environment {
   hour = 12;
   sample: TimecycleSample = timecycle(90);
   private baseSample = this.sample;
+  /** The timecycle sample last applied by setSun (render/timecycle.ts sampleMoved). */
+  private lit: TimecycleSample | null = null;
   private weather: Readonly<WeatherSample> = WEATHER_PRESETS['partly cloudy'];
   private weatherState = '0,0,0,0.38,0.28';
   /** True while sun intensity is 0 and the cascades are not re-rendered. */
@@ -94,6 +106,7 @@ export class Environment {
     this.sun.shadow.camera.far = 600;
     // CSM clones this camera into every cascade, retaining the shadow-only tile batches.
     this.sun.shadow.camera.layers.enable(TILE_SHADOW_LAYER);
+    this.sun.shadow.camera.layers.enable(TILE_SHADOW_CHUNK_LAYER);
     this.sun.shadow.bias = -0.00015;
     this.sun.shadow.normalBias = 0.025;
     const far = q.splits[q.splits.length - 1];
@@ -150,7 +163,8 @@ export class Environment {
     this.follow(this.sun.target.position);
     this.sky.sunPosition.value.copy(this.sunDir);
     this.baseSample = timecycle(elevation);
-    this.applyLighting();
+    // The sun direction follows every frame (shadows, sky); lighting values only when they moved visibly.
+    if (!this.lit || sampleMoved(this.lit, this.baseSample)) { this.lit = this.baseSample; this.applyLighting(); }
     this.atmosphere.setSun(elevation, azimuth, this.sample);
     nightUniforms.night.value = this.sample.night;
     nightUniforms.hour.value = hour;
@@ -235,6 +249,9 @@ export class Environment {
     if (alternate) camera.updateMatrixWorld();
     for (let i = 0; i < lights.length; i++) {
       const shadow = lights[i].shadow!;
+      // CSM clones the sun's shadow camera into each cascade once it builds them.
+      const mask = cascadeLayerMask(i);
+      if (shadow.camera.layers.mask !== mask) shadow.camera.layers.mask = mask;
       const skip = alternate && i > 0 && (this.shadowFrame + i) % 2 === 0
         && cascadeCovers(shadow.camera as THREE.OrthographicCamera, camera, this.csm.frustums[i].vertices);
       shadow.autoUpdate = !this.shadowsFrozen && !skip;

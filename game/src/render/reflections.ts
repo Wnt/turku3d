@@ -3,7 +3,25 @@ import * as THREE from 'three/webgpu';
 /** Static large surfaces only; actor, vegetation, pole and small-prop work stays out of the river pass. */
 export const REFLECTION_LAYER = 2;
 const SURFACES = new Set(['ground', 'buildings', 'structures', 'massing', 'roads', 'boats', 'bridges']);
-export function reflectionSurface(mesh: THREE.Mesh): boolean {
+/** W2 A/B (?water=lod, render/waterSwitches.ts): the river's mirror camera sits below the water and looks up, so it sees
+ *  ground and road surfaces facing straight up only from behind, where single-sided faces are culled. Within this cosine
+ *  of up everywhere, a surface would show only as a sub-pixel sliver beyond about 60 m: it leaves the pass. */
+export const FLAT_UP = 0.998;
+const FLAT_LAYERS = new Set(['ground', 'roads']);
+
+/** Whether every vertex normal of a single-sided mesh faces up within FLAT_UP (read while its arrays exist). */
+export function faceUpOnly(mesh: THREE.Mesh): boolean {
+  const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  if (materials.some(material => material.side !== THREE.FrontSide)) return false;
+  const normal = mesh.geometry.getAttribute('normal');
+  if (!normal || normal.count === 0) return false;
+  mesh.updateWorldMatrix(true, false);
+  const basis = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld), n = new THREE.Vector3();
+  for (let i = 0; i < normal.count; i++) if (n.fromBufferAttribute(normal, i).applyMatrix3(basis).normalize().y < FLAT_UP) return false;
+  return true;
+}
+
+export function reflectionSurface(mesh: THREE.Mesh, dropFlatGround = false): boolean {
   if (mesh.userData.reflection_surface === false) return false;
   if (mesh.userData.shadowBatch || (mesh as THREE.InstancedMesh).isInstancedMesh) return false;
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -17,7 +35,7 @@ export function reflectionSurface(mesh: THREE.Mesh): boolean {
   if ((mesh.geometry.boundingSphere?.radius ?? 0) * mesh.matrixWorld.getMaxScaleOnAxis() < 2) return false;
   for (let node: THREE.Object3D | null = mesh; node; node = node.parent) {
     if (node.userData.material_key === 'water' || node.userData.material_key === 'river') return false;
-    if (node.userData.layer) return SURFACES.has(node.userData.layer);
+    if (node.userData.layer) return SURFACES.has(node.userData.layer) && !(dropFlatGround && FLAT_LAYERS.has(node.userData.layer) && faceUpOnly(mesh));
   }
   return false;
 }

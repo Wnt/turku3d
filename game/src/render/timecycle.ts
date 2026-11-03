@@ -33,6 +33,17 @@ const SCALARS: readonly ScalarRow[] = ['sunIntensity', 'environmentIntensity', '
   'exposure', 'bloomStrength', 'bloomThreshold', 'night'];
 const COLORS: readonly ColorRow[] = ['sunColor', 'hemisphereSky', 'hemisphereGround', 'fogColor', 'skyZenith', 'skyHorizon'];
 
+/** Whether `next` differs visibly from `applied`: any value by more than `tolerance` of its size (0.2 %: half an
+ *  8-bit display step). The 36x day moves the timecycle by thousandths of a percent per frame; applying each step
+ *  rewrote every lit draw's object uniforms (materialEnvIntensity) and every program's light colours each frame
+ *  (uniform census of the drive replay, 20261103: about 400 of 1,243 buffer writes per frame). */
+export function sampleMoved(applied: TimecycleSample, next: TimecycleSample, tolerance = 0.002) {
+  const moved = (a: number, b: number) => Math.abs(a - b) > tolerance * Math.max(Math.abs(a), Math.abs(b)) + 1e-6;
+  for (const row of SCALARS) if (moved(applied[row], next[row])) return true;
+  for (const row of COLORS) for (let i = 0; i < 3; i++) if (moved(applied[row][i], next[row][i])) return true;
+  return false;
+}
+
 /** sRGB hex to linear-light RGB, the renderer's working space. */
 export function linearRgb(hex: string): Rgb {
   const n = Number.parseInt(hex.slice(1), 16);

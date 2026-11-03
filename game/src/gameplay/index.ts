@@ -1,6 +1,6 @@
 // Gameplay entry for main.ts: the street router and the delivery address pool handed to the mission system, and
 // the minimap.
-import { isLocalHost } from '../core/localOnly';
+import { sameOriginServices } from '../core/localOnly';
 import type { CoarseTiles } from '../world/coarseTiles';
 import type { Manifest } from '../world/manifest';
 import { draftsUrl } from '../net/config';
@@ -76,8 +76,8 @@ class StreetMap {
 export async function createGameplay(manifest: GameplayManifest, parent: HTMLElement) {
   const endpoint = draftsUrl();
   const navigation = endpoint ? await fetch(new URL('navigation.json', new URL(endpoint, location.href))).then(async res => {
-    if (res.status === 404 && isLocalHost(location.hostname)) {
-      // Synthetic dev service or the shared local tile farm: resident street tiles only.
+    if (res.status === 404 && sameOriginServices(location.hostname)) {
+      // Synthetic dev service or the shared local tile farm (also behind a share host): resident street tiles only.
       console.warn('[gameplay] no /coarse/navigation.json: resident street graph, landmark fallbacks for long jobs');
       return null;
     }

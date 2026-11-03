@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { sceneryTiles, sceneryBounds, sceneryContains, sceneryDistance, skylinePriority, type SceneryView } from '../../src/world/sceneryView';
+import { L0_FLOOR, REFINE_3D_ABOVE, TILE_DETAIL, detailFloor, refineDistance, sceneryTiles, sceneryBounds, sceneryContains, sceneryDistance, skylinePriority, type SceneryView } from '../../src/world/sceneryView';
 
 const heading = 273 * Math.PI / 180;
 const view: SceneryView = { x: 3751.26, y: 164.15, z: 430.05, dx: Math.sin(heading), dz: -Math.cos(heading), halfAngle: .8 };
@@ -58,4 +58,29 @@ test('the projected-detail cut has hysteresis across small resolution changes', 
   expect(sceneryTiles(4000, {...pose, focalPixels:1100})).toContain('t2_1_0');
   expect(sceneryTiles(4000, {...pose, focalPixels:1100}, fine)).toContain('t0_4_0');
   expect(sceneryTiles(4000, {...pose, focalPixels:800}, fine)).toContain('t2_1_0');
+});
+
+test('above 250 m the quadtree refines on 3D distance: a high flier sees 1 km nodes where a low one sees 250 m cells', () => {
+  const pose = { x: 125, z: 125, dx: 1, dz: 0, halfAngle: .8, focalPixels: 600 };
+  const cells = (y: number) => sceneryTiles(4000, { ...pose, y }).filter(id => sceneryBounds(id).level === 0).length;
+  // Continuous: no change up to the threshold, then fewer cells as the camera climbs (GTA: only LOD/SLOD from 400 m).
+  expect(refineDistance(300, 200)).toBe(300); expect(refineDistance(300, REFINE_3D_ABOVE)).toBe(300);
+  expect(refineDistance(300, 650)).toBe(500);
+  expect(cells(240)).toBe(cells(20));
+  // The square under the camera keeps its 250 m cell well past the full-tile switch (450 m 3D), so a resident full
+  // tile always hands over to its own cell; from about 830 m (650 m beyond the threshold, past the 580 m floor)
+  // only 1 km nodes draw below.
+  for (const y of [500, 700]) expect(sceneryTiles(4000, { ...pose, y })).toContain('t0_0_0');
+  expect(cells(900)).toBe(0); expect(cells(240)).toBeGreaterThan(0);
+  for (const y of [20, 500, 1200]) { const ids = sceneryTiles(4000, { ...pose, y });
+    for (const a of ids) for (const b of ids) if (a !== b) expect(sceneryContains(a, b)).toBe(false); }
+});
+
+test('the 250 m cell band never shrinks below 580 m when the full-tile switch moves closer (stream2: ~250 m 3D)', () => {
+  const detail = TILE_DETAIL as { distance: number }, saved = detail.distance;
+  try {
+    expect(detailFloor()).toBe(580);
+    detail.distance = 250; expect(detailFloor()).toBe(L0_FLOOR);
+    detail.distance = 800; expect(detailFloor()).toBe(930);
+  } finally { detail.distance = saved; }
 });

@@ -86,6 +86,11 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,
 bloom and grading. `pass=id` continues to bypass post-processing entirely.
 
+TRAA motion vectors read one render-group projection (`velocityProjection`, render/rigidVelocity.ts), filled each
+frame with TRAA's unjittered matrix. r186 chose the projection when a program was built, and streaming preparation
+builds outside the post pipeline, so prepared terrain and trees carried the jitter as motion and wandered by up to a
+pixel while the camera stood still. `?taafix=0` restores r186's choice for the A/B.
+
 These are permanent user quality settings (`?quality=mobile|low|medium|high`). Phones and tablets default to
 **mobile**, including when using a controller; desktops and fixed-camera QA default to **medium**.
 Explicit quality/AA choices override the defaults. Mobile quality uses one 1024² shadow cascade covering 90 m,
@@ -126,6 +131,14 @@ Only the replacement materials and their private resources are disposed on tile 
 `water`/`river` keys select a planar river material. A plane derived from the mesh's local vertex/normal follows its
 world transform. A non-recursive planar reflection, Fresnel response, sun highlight and two scrolling normal-map bands
 provide the surface. The small periodic normal map is generated locally; there is no asset fetch. QA freezes waves.
+The GTA V water study (loops/techstudy REPORT.md §8) shapes the rest, each technique with a `?water=` A/B token
+(`waterSwitches.ts`): a tight energy-normalised sun lobe that fades where the reflected ray meets a building, with
+wrap-diffuse wave relief (W5, `oldsun`); with TRAA the river writes no depth and thickens its body colour over the
+previous frame's opaque bed and walls, a soft band at quays and banks without an extra pass (W3, `nodepth`), and writes
+its own motion vectors (W7, `nomotion`); reduced reflects by a screen-space march over TRAA's history instead of the
+planar pass (W1, `riverReflection.ts`; `planar|ssr|sky` choose any path); rain roughens it, rings it with drops and
+dulls the mirror (W8); light sprites have a mirrored, streaked image on the sea-level water (W6, `lights/sprites.ts`);
+`quarter` and `lod` are medium's planar-pass A/Bs (W2: 0.25 scale with a mip blur; no straight-up ground in the pass).
 Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
 vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.
 A moving camera re-renders the reflection every frame (an older image visibly trails the view); only a still

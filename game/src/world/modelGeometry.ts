@@ -9,7 +9,12 @@ export function sharedGeometry(geometry: THREE.BufferGeometry) { return users.ha
 /** Bytes of typed arrays only this model owns (released with it): its geometry attributes, indices and instance data.
  *  Shared prototype geometry is excluded, as dropping the model does not free it. */
 export function ownedGeometryBytes(model: THREE.Object3D) {
-  const seen = new Set<THREE.BufferGeometry>();
+  const seen = new Set<THREE.BufferGeometry>(), arrays = new Set<ArrayLike<number>>();
+  // Geometries may share buffers (a tile's shadow chunks and its whole-tile shadow mesh): count each array once.
+  const add = (array: ArrayLike<number> & { byteLength?: number } | undefined) => {
+    if (!array || arrays.has(array)) return 0;
+    arrays.add(array); return array.byteLength ?? 0;
+  };
   let bytes = 0;
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
@@ -19,8 +24,8 @@ export function ownedGeometryBytes(model: THREE.Object3D) {
     const geometry = mesh.geometry;
     if (seen.has(geometry) || users.has(geometry)) return;
     seen.add(geometry);
-    for (const attribute of Object.values(geometry.attributes)) bytes += (attribute as THREE.BufferAttribute).array?.byteLength ?? 0;
-    bytes += geometry.index?.array.byteLength ?? 0;
+    for (const attribute of Object.values(geometry.attributes)) bytes += add((attribute as THREE.BufferAttribute).array);
+    bytes += add(geometry.index?.array);
   });
   return bytes;
 }

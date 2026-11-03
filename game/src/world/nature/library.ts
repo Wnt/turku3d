@@ -7,14 +7,16 @@ import { sharedKtx } from '../loadingKtx';
 import { textureUploads } from '../../render/textureUploads';
 import { NatureMaterials, type NatureLighting, type NatureSources } from './materials';
 import { hashId } from './species';
+import { fitCrown, type CrownMode } from './crowns';
 
 export type NatureKind = 'tree' | 'shrub' | 'hedge' | 'grass' | 'fence';
 export interface NaturePart { geometry: THREE.BufferGeometry; material: THREE.MeshStandardNodeMaterial; triangles: number }
 export interface NatureLod { parts: NaturePart[]; triangles: number }
 export interface NatureAsset {
   name: string; kind: NatureKind; species?: string;
-  /** Model height and crown radius (m) at scale 1; fences and hedges are 2 m modules along X. */
-  height: number; radius: number; module?: number;
+  /** Model height and crown radius (m) at scale 1; fences and hedges are 2 m modules along X. A tile's measured
+   *  crown radius maps to `radius`; `extent` is the widest point after the lidar crown fit (nature/crowns.ts). */
+  height: number; radius: number; module?: number; extent?: number;
   /** Nearest first. Trees end with their impostor. */
   lods: NatureLod[];
 }
@@ -69,7 +71,8 @@ function bakeNode(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.
 export const NATURE_URL =`${import.meta.env.BASE_URL}assets/nature/`;
 
 /** Build the library from a parsed nature.glb scene (also used by tests with a synthetic scene). */
-export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLighting | null, deterministic: boolean, manifest: NatureManifest | null = null) {
+export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLighting | null, deterministic: boolean, manifest: NatureManifest | null = null,
+  crowns: CrownMode = 'stretch') {
   const sources = new Map<string, THREE.MeshStandardMaterial>();
   root.traverse(o => {
     const mesh = o as THREE.Mesh;
@@ -102,16 +105,20 @@ export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLig
     }
     asset.lods[extras.lod] = { parts, triangles: parts.reduce((n, p) => n + p.triangles, 0) };
   });
+  // Trees fill the crowns the lidar measures, at every LOD (nature/crowns.ts).
+  const done = new WeakSet<object>();
+  for (const asset of assets.values()) { const extent = fitCrown(asset, done, crowns); if (extent !== null) asset.extent = extent; }
   return new NatureLibrary(assets, materials, manifest);
 }
 
-export async function loadNatureLibrary(renderer: THREE.WebGPURenderer, lighting: NatureLighting | null, deterministic: boolean): Promise<NatureLibrary> {
+export async function loadNatureLibrary(renderer: THREE.WebGPURenderer, lighting: NatureLighting | null, deterministic: boolean,
+  crowns: CrownMode = 'stretch'): Promise<NatureLibrary> {
   const loader = new GLTFLoader().register(() => textureUploads(renderer).plugin()).setKTX2Loader(sharedKtx(renderer)).setMeshoptDecoder(MeshoptDecoder);
   const [gltf, manifest] = await Promise.all([
     loader.loadAsync(`${NATURE_URL}nature.glb`),
     fetch(`${NATURE_URL}nature.json`).then(r => r.ok ? r.json() as Promise<NatureManifest> : null, () => null),
   ]);
-  return natureLibraryFromScene(gltf.scene, lighting, deterministic, manifest);
+  return natureLibraryFromScene(gltf.scene, lighting, deterministic, manifest, crowns);
 }
 
 if (import.meta.hot) import.meta.hot.accept();

@@ -15,6 +15,10 @@ const AHEAD_SECONDS = 8;
 export const STARTUP_COLLISION_RADIUS = 80;
 /** Below this speed (m/s) nothing is loaded ahead. */
 const AHEAD_MIN_SPEED = 3;
+/** A tile the travel corridor covered stays loaded this long after it leaves it (ms): small heading changes swing
+ *  the far end of the corridor across tiles, and capture 20261103-201621-v8hjwo unloaded and rebuilt the same
+ *  far cells 2-3 times within 4 s. */
+const AHEAD_KEEP_MS = 10_000;
 const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 const sameContent = (a: ManifestEntry | undefined, b: ManifestEntry) => !!a && a.bytes === b.bytes
   && a.sha256 === b.sha256 && (!!a.sha256 || a.url === b.url);
@@ -31,6 +35,14 @@ export class CollisionStreamer {
   private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
   private installed = new Map<string, string>();
   private refreshes = new Set<string>();
+  /** Tiles of the travel corridor and when they were last in it (AHEAD_KEEP_MS). */
+  private aheadSeen = new Map<string, number>();
+  /** Retained collision cell bytes and cells (memory census). */
+  retainedBytes() {
+    let bytes = 0;
+    for (const { buffer } of this.prepared.values()) bytes += buffer.byteLength;
+    return { bytes, count: this.prepared.size };
+  }
   retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) {
     this.prepared.set(id, { entry, buffer });
     this.lastCheck = -Infinity; // Newly published ground must reach the worker before the next edge.
@@ -85,8 +97,10 @@ export class CollisionStreamer {
     }
     for (const id of this.installed.keys()) if (!this.physics.loaded.has(id) && !this.loading.has(id)) this.installed.delete(id);
     const ahead = this.ahead(x, z, vx, vz);
+    for (const t of ahead) this.aheadSeen.set(t.id, now);
+    for (const [id, at] of this.aheadSeen) if (now - at > AHEAD_KEEP_MS) this.aheadSeen.delete(id);
     const retained = this.retainedStarts.flatMap(p => this.near(p.x, p.z, this.radius));
-    const keep = new Set([...ahead, ...retained].map(t => t.id));
+    const keep = new Set([...this.aheadSeen.keys(), ...retained.map(t => t.id)]);
     for (const id of [...this.physics.loaded.keys()]) {
       const ij = parseCollisionId(id);
       if (ij && !keep.has(id) && distToCollisionTile(x, z, ij.i, ij.j) > this.radius + this.hysteresis) {
@@ -164,11 +178,11 @@ export class CollisionStreamer {
           if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
           this.prepared.set(id, { entry: e, buffer: buf });
           // Keep the validated original while its parent tile is resident. Rapier owns and detaches only the copy.
-          await this.physics.loadTile(id, buf.slice(0));
+          const stats = await this.physics.loadTile(id, buf.slice(0));
           if (!sameContent(this.manifest.collision[id], e)) { done('Superseded while collider built'); continue; }
           if (e.sha256) this.installed.set(id, e.sha256);
           this.retries.delete(id);
-          traced({ cached: !!cached && sameContent(cached.entry, e) });
+          traced({ cached: !!cached && sameContent(cached.entry, e), buildMs: stats?.buildMs, pieces: stats?.pieces, waitMs: stats?.waitMs });
           done('Rapier collider ready');
           return;
         } catch (err) {

@@ -26,6 +26,7 @@
   "dependencies": {
     "@dimforge/rapier3d": "0.21.0",
     "3d-tiles-renderer": "0.5.3",
+    "laz-perf": "0.0.7",
     "meshoptimizer": "1.3.0",
     "three": "0.186.1"
   },

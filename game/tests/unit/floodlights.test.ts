@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { LampField, type Lamp } from '../../src/render/lights/lampField';
-import { FLOOD, FloodMasts, decodeFloodlights, floodHeads, floodLamps, venueIrradiance, type FloodlightsField, type FloodMast }
+import { FLOOD, FloodMasts, decodeFloodlights, floodHeads, floodLamps, type FloodlightsField, type FloodMast }
   from '../../src/render/lights/floodlights';
 import { coronaProfile, SPRITE } from '../../src/render/lights/sprites';
 import { lightsSignature, tileBounds, type TileLightsField } from '../../src/render/lights/tileLights';
@@ -62,19 +62,6 @@ describe('venue floodlights', () => {
     expect(out.filter(l => l.kind === 'flood')).toHaveLength(15);
     expect(venues).toBe(1);
     expect(lightsSignature(LIGHTS)).not.toBe(lightsSignature({ ...LIGHTS, floodlights: undefined }));
-  });
-
-  test('the field is lit evenly with a soft spill past its edges', () => {
-    const v = FIELD.venues[0];
-    const centre = venueIrradiance(v, 100, 100), touchline = venueIrradiance(v, 100, 130);
-    expect(centre).toBeCloseTo(FLOOD.ground * v.level, 5);
-    expect(touchline).toBeGreaterThan(0.75 * centre);
-    expect(venueIrradiance(v, 100, 130 + FLOOD.spill / 2)).toBeLessThan(touchline / 2);
-    expect(venueIrradiance(v, 100, 130 + FLOOD.spill)).toBe(0);
-    // A rotated field follows its axis.
-    const turned = { ...v, ux: 0, uz: 1 };
-    expect(venueIrradiance(turned, 100, 145)).toBeGreaterThan(0.75 * centre);
-    expect(venueIrradiance(turned, 145, 100)).toBe(0);
   });
 
   test('only masts the city does not draw get a pole, scaled to the mast and facing the field', () => {

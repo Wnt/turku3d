@@ -19,8 +19,9 @@ export function formatPrice(price: number | null): string {
 /** The pizzeria's order quote, or the option's static detail line. */
 export function optionDetail(option: ShopOptionView): string | null {
   if (option.quote) {
-    const { address, metres, par, pay } = option.quote;
-    return `${address} · ${Math.round(metres)} m · par ${formatTimer(par)}${pay ? ` · ${pay} € + tip` : ''}`;
+    const { address, metres, par, pay, expires, fee } = option.quote;
+    return `${address} · ${Math.round(metres)} m · par ${formatTimer(par)}${pay ? ` · ${pay} € + tip` : ''}`
+      + (fee ? ` · loaner scooter −${fee} €` : '') + (expires !== undefined ? ` · ${formatTimer(expires)} left` : '');
   }
   return option.detail;
 }
@@ -69,7 +70,8 @@ export class ShopMenu {
     this.element.dataset.shop = view.id;
     this.element.style.setProperty('--shop-art', `url("${this.assets}${view.background}.webp")`);
     this.title.textContent = view.title;
-    this.status.textContent = `Cash ${view.money} € · Delivered ${view.delivered} · Courier permit: ${view.permit === 1 ? '1 delivery' : `${view.permit} deliveries`} left`;
+    this.status.textContent = `Cash ${view.money} € · Delivered ${view.delivered} · Courier permit: ${view.permit === 1 ? '1 delivery' : `${view.permit} deliveries`} left`
+      + (view.debt > 0 ? ` · Debt ${view.debt} €` : '');
     this.speaker.textContent = view.speaker;
     this.line.textContent = view.line;
     this.list.set(view.options, (option, li) => this.fill(option, li),

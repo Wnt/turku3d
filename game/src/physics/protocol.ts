@@ -34,7 +34,15 @@ export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
 
-export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number }
+/** `buildMs`: worker time spent building the cell; `pieces`: its install pieces; `waitMs`: request to install, queue included. */
+export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number; pieces?: number; waitMs?: number }
+
+/** A late physics snapshot, as the worker saw it: `gap` (no tick for `ms`; `busy` lists the message handling and
+ *  installs that ran in between, ms by kind), `step` (one snapshot's fixed substeps took `ms`; `traffic` of it in
+ *  the ambient traffic sim), or `install` (one collider piece of cell `cell` took `ms`). `wall` is the worker's
+ *  epoch time (ms) of the event. Repeated in snapshots until acknowledged, like traffic claim events. */
+export interface PhysStall { id: number; revision: number; cause: 'gap' | 'step' | 'install'; ms: number; wall: number;
+  busy?: Record<string, number>; substeps?: number; traffic?: number; cell?: string; phase?: string; queued?: number }
 
 /** Ambient traffic (physics/traffic.ts). A tile's road graph as CoarseTiles holds it, with its agreed hash. */
 export interface TrafficTile { tile: string; hash: string; bounds: [number, number, number, number]; roads: unknown }
@@ -103,7 +111,9 @@ export type FromWorker =
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
   | { type: 'state'; coverageBlock?: { actor: string; recover: boolean } | null; publishedAt?: number; revision?: number; actorsDelta?: boolean; removedVehicles?: string[]; removedPoles?: string[]; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[];
       /** Drawn ambient cars, physics/traffic.ts TRAFFIC_STRIDE numbers each; claim events until acknowledged. */
-      traffic?: number[]; trafficEvents?: TrafficClaimEvent[]; trafficStats?: TrafficStats; trafficTime?: number }
+      traffic?: number[]; trafficEvents?: TrafficClaimEvent[]; trafficStats?: TrafficStats; trafficTime?: number;
+      /** Worker stalls not yet acknowledged (PhysStall). */
+      stalls?: PhysStall[] }
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hits: (RayHit | null)[] }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }

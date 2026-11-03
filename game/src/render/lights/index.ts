@@ -11,6 +11,9 @@ import type { Footprint } from './tileScan';
 import { nightLevel, type NightInputs } from './night';
 import { GroundLampField } from './groundField';
 import { FloodMasts, type FloodTile } from './floodlights';
+import { FloodArea, areaVenues } from './floodArea';
+import { FloodGlow, mistOf } from './glow';
+import { OverheadWires, type WireTile } from './wires';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
 const STEP_MS = 1.5;
@@ -19,6 +22,18 @@ const SYNC_MS = 250;
 /** Drawn draft tiles with their final visual model (collision previews are not the visual surface). */
 function* drawnTiles(entries: ReadonlyMap<string, Entry>): Generator<LampSource> {
   for (const [id, e] of entries) if (e.state === 'draft' && e.model && !e.preview) yield { id, model: e.model, lights: e.lights ?? null };
+}
+
+/** A previewed post: new base (world metres) and yaw (rad, three.js rotation.y). */
+export interface LampEdit { x: number; y: number; z: number; yaw: number }
+
+/** The lamp moved to a new base and yaw; its light head follows rigidly. The slot key stays, so the post keeps its slot. */
+export function moveLamp(lamp: Lamp, edit: LampEdit): Lamp {
+  const turn = edit.yaw - lamp.yaw, c = Math.cos(turn), s = Math.sin(turn);
+  const dx = lamp.light.x - lamp.x, dz = lamp.light.z - lamp.z;
+  // three.js rotation.y: x' = x cos + z sin, z' = -x sin + z cos.
+  const light = { ...lamp.light, x: edit.x + dx * c + dz * s, y: lamp.light.y + edit.y - lamp.y, z: edit.z - dx * s + dz * c };
+  return { ...lamp, x: edit.x, y: edit.y, z: edit.z, yaw: edit.yaw, light };
 }
 
 export class StreetLights {
@@ -30,10 +45,21 @@ export class StreetLights {
   readonly ground: GroundLampField;
   /** Poles of the floodlight masts the city does not draw already. */
   readonly masts: FloodMasts;
+  /** Floodlit venues' light on everything around them (the light set's area light). */
+  readonly area = new FloodArea();
+  /** The air over them: light domes and faint beams in the sprite overlay. */
+  readonly glow: FloodGlow;
+  /** Overhead wires the survey sees over the streets, and the lamps hung on span wires. */
+  readonly wires: OverheadWires;
+  private overhead = new Map<string, WireTile>();
+  private wireCounts = { wires: 0, lamps: 0 };
   night = 0;
   private floodMasts = 0;
   private floodVenues = 0;
   private tiles = new Map<string, readonly Lamp[]>();
+  /** The tiles' own lamps before developer editor previews (dev/editor), and those previews by lamp key. */
+  private raw = new Map<string, readonly Lamp[]>();
+  private edits = new Map<string, LampEdit | null>();
   private footprints = new Map<string, Footprint>();
   private flood = new Map<string, FloodTile>();
   private source: { entries: ReadonlyMap<string, Entry> } | null = null;
@@ -49,14 +75,53 @@ export class StreetLights {
     this.ground = new GroundLampField(() => this.footprints.values());
     // The masts share the posts' material (and its prebuilt pipeline): no new shader at night.
     this.masts = new FloodMasts(this.posts.mesh.material as THREE.Material);
-    scene.add(this.posts.mesh, this.masts.mesh);
-    this.field.onTile = (id, lamps, footprint, flood) => {
-      if (lamps) this.tiles.set(id, lamps); else this.tiles.delete(id);
+    this.wires = new OverheadWires(this.posts.mesh.material as THREE.Material);
+    scene.add(this.posts.mesh, this.masts.mesh, this.wires.mesh, this.wires.lamps);
+    this.glow = new FloodGlow(this.sprites.scene, this.sprites.sceneDepth);
+    this.field.onTile = (id, lamps, footprint, flood, wires) => {
+      if (lamps) this.raw.set(id, lamps); else this.raw.delete(id);
+      const drawn = lamps ? this.edited(lamps) : null;
+      if (drawn) this.tiles.set(id, drawn); else this.tiles.delete(id);
       if (footprint) this.footprints.set(id, footprint); else this.footprints.delete(id);
-      if (lamps && flood) this.flood.set(id, flood); else this.flood.delete(id);
-      this.sprites.setGroup(`tile:${id}`, lamps?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
+      if (drawn && flood) this.flood.set(id, flood); else this.flood.delete(id);
+      if (drawn && wires) this.overhead.set(id, wires); else this.overhead.delete(id);
+      this.sprites.setGroup(`tile:${id}`, drawn?.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light) ?? null);
       this.postsDirty = true;
     };
+  }
+
+  /** Street-light posts of the drawn tiles with their tile (dev/editor picking): the tiles' own, unedited posts. */
+  forEachPost(visit: (tile: string, lamp: Lamp, index: number) => void) {
+    for (const [tile, lamps] of this.raw) lamps.forEach((lamp, i) => { if (lamp.post) visit(tile, lamp, i); });
+  }
+
+  /** The tile's own (unedited) lamp with this key. */
+  originalLamp(key: string): { tile: string; lamp: Lamp; index: number } | null {
+    for (const [tile, lamps] of this.raw) { const index = lamps.findIndex(l => l.key === key); if (index >= 0) return { tile, lamp: lamps[index], index }; }
+    return null;
+  }
+
+  /** Preview an edited post (visual only): its new base and yaw, null removes the lamp, undefined restores it. */
+  setEdit(key: string, edit: LampEdit | null | undefined) {
+    if (edit === undefined) this.edits.delete(key); else this.edits.set(key, edit);
+    for (const [tile, lamps] of this.raw) {
+      if (!lamps.some(l => l.key === key)) continue;
+      const edited = this.edited(lamps);
+      this.tiles.set(tile, edited);
+      this.sprites.setGroup(`tile:${tile}`, edited.map(l => l.kind === 'street' ? { ...l.light, headRadius: 0.1 * l.scale } : l.light));
+      this.postsDirty = true;
+    }
+  }
+
+  private edited(lamps: readonly Lamp[]): readonly Lamp[] {
+    if (!this.edits.size) return lamps;
+    const out: Lamp[] = [];
+    for (const lamp of lamps) {
+      const edit = this.edits.get(lamp.key);
+      if (edit === null) continue;
+      out.push(edit === undefined ? lamp : moveLamp(lamp, edit));
+    }
+    return out;
   }
 
   /** Follow a draft tile source (CoarseTiles). */
@@ -72,18 +137,25 @@ export class StreetLights {
       this.posts.setLamps(all.filter(l => l.post));
       this.ground.setLamps(all);
       const flood = [...this.flood.values()];
-      this.ground.setVenues(flood.flatMap(f => f.venues));
-      this.floodMasts = this.masts.setMasts(flood.flatMap(f => f.masts));
+      const masts = flood.flatMap(f => f.masts);
+      const venues = areaVenues(flood.flatMap(f => f.venues), masts);
+      this.area.setVenues(venues);
+      this.glow.setVenues(venues, masts);
+      this.floodMasts = this.masts.setMasts(masts);
       this.floodVenues = flood.reduce((n, f) => n + f.venues.length, 0);
+      this.wireCounts = this.wires.setTiles([...this.overhead.values()]);
       if (this.pools.size) this.pools.setLamps(all.map(poolLamp).filter((l): l is PoolLamp => l !== null));
     }
     this.night = this.override ?? nightLevel(inputs);
     this.posts.night.value = this.night;
     this.ground.update(camera.position.x, camera.position.z, this.night);
+    this.area.update(camera.position.x, camera.position.z, this.night);
+    this.glow.update(camera, this.night, mistOf(inputs.weather), inputs.fogFar ?? 2600);
     this.posts.update(camera.position.x, camera.position.z, now);
     camera.getWorldDirection(this.forward);
     this.pools.update(camera.position.x, camera.position.z, this.forward.x, this.forward.z, this.night, now);
     renderer.getDrawingBufferSize(this.size);
+    this.wires.update(camera, this.size);
     this.sprites.update(camera, this.size, this.night);
   }
 
@@ -92,12 +164,13 @@ export class StreetLights {
     for (const list of this.tiles.values()) { lamps += list.length; posts += list.filter(l => l.post).length; }
     return { tiles: this.tiles.size, pending: this.field.pending() || this.ground.pending, lamps, posts, postsDrawn: this.posts.drawn,
       sprites: this.sprites.count, spriteCapacity: this.sprites.capacity, spritesDropped: this.sprites.dropped, night: this.night,
-      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts,
-      floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0) };
+      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts, floodLit: this.area.snapshot(), floodDomes: this.glow.domeCount, floodBeams: this.glow.beamCount,
+      floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0),
+      wires: this.wireCounts.wires, wireLamps: this.wireCounts.lamps };
   }
 
   dispose() {
-    this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent();
-    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose();
+    this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent(); this.wires.mesh.removeFromParent(); this.wires.lamps.removeFromParent();
+    this.masts.dispose(); this.wires.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); this.area.dispose(); this.glow.dispose();
   }
 }

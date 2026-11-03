@@ -109,6 +109,21 @@ test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arr
   expect(a.root.children.some(child => child.name.startsWith('surface-array'))).toBe(false);
 });
 
+test('ground maps keep their CPU mips for later tiles\' arrays; a map whose mips were released keeps its own draw', async () => {
+  const { styler } = world();
+  const a = tile();
+  const maps = a.root.children.flatMap(child => { const m = (child as THREE.Mesh).material as THREE.MeshStandardMaterial; return [m.map!, m.normalMap!, m.roughnessMap!]; });
+  styler.apply(a.model); await styler.surfacesReady();
+  expect(maps.every(map => map.userData.keepData === true)).toBe(true); // world/sharedAssets.ts releaseTextureData skips them
+  const b = tile();
+  const granite = b.root.children.find(child => child.userData.material_key === 'draft_granite_curb') as THREE.Mesh;
+  const albedo = (granite.material as THREE.MeshStandardMaterial).map as THREE.CompressedTexture;
+  albedo.mipmaps = albedo.mipmaps.map(mip => ({ ...mip, data: new Uint8Array(0) })); // released elsewhere first
+  styler.apply(b.model);
+  expect(b.root.children.filter(child => child.userData.material_key === 'draft_granite_curb')).toHaveLength(1);
+  expect(b.root.children.some(child => child.name === 'surface-array')).toBe(true); // the others still merge
+});
+
 test('the merged surface material builds a WebGPU program with r186\'s CPU builder', async () => {
   const { renderer, scene, styler } = world();
   const a = tile(); styler.apply(a.model); scene.add(a.model); await styler.surfacesReady();

@@ -22,6 +22,12 @@ export const colReaderName = 'src/shared/col/colFormat.ts#readCol';
 
 export async function readCol(buffer: ArrayBuffer, opts: { checkCrc?: boolean } = {}): Promise<ColTile> {
   await MeshoptDecoder.ready;
+  return readColSync(buffer, opts);
+}
+
+/** readCol once the meshopt decoder is ready (`decoderReady`): the worker's queued installs decode synchronously
+ *  inside a budgeted piece. */
+export function readColSync(buffer: ArrayBuffer, opts: { checkCrc?: boolean } = {}): ColTile {
   const t = readShared(buffer, { decoder: MeshoptDecoder, verifyCrc: opts.checkCrc ?? true, onWarning: (w) => console.warn(`[col] ${w}`) });
   return {
     id: t.id, origin: t.header.origin, tileI: t.header.tileI, tileJ: t.header.tileJ, flags: t.header.flags,
@@ -30,3 +36,4 @@ export async function readCol(buffer: ArrayBuffer, opts: { checkCrc?: boolean } 
     meta: t.meta,
   };
 }
+export const decoderReady: Promise<void> = MeshoptDecoder.ready;

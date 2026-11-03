@@ -17,18 +17,22 @@ import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
 import { enToEngine, headingToYaw } from './core/origin';
-import { createRenderer, defaultBackend } from './render/renderer';
+import { adapterInfo, createRenderer, defaultBackend } from './render/renderer';
 import { DayClock, type ClockMode } from './render/dayClock';
-import { Environment } from './render/environment';
+import { Environment, tileShadows } from './render/environment';
 import { riverClock } from './render/riverWaves';
 import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
+import { PointCloudOverlay, pointCloudParam } from './render/pointCloud';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { QUALITY, renderPixelRatio } from './render/quality';
+import { QUALITY, deviceQuality, renderPixelRatio, renderTier, setRenderTier } from './render/quality';
+import { gpuProbe } from './render/gpuProbe';
+import { SettingGovernor } from './render/settingGovernor';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
+import { crownMode } from './world/nature/crowns';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
@@ -40,7 +44,8 @@ import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
-import { readCol } from './physics/colTile';
+import { memoryCensus } from './world/memoryCensus';
+import { readCol, readColSync } from './physics/colTile';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
@@ -52,11 +57,16 @@ import { CameraBench, benchPose } from './qa/bench';
 import { FrameClock } from './core/frameClock';
 import { ScenePopulation } from './world/scenePopulation';
 import { GroundIndex } from './world/groundIndex';
-import { drawCensus } from './render/census';
+import { drawCensus, uniformCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
+import { freezeModel } from './world/frozenTransforms';
+import { materialBandSort } from './render/drawSort';
+import { altitudeShadows } from './render/shadowAltitude';
+import { ReflectionScope } from './render/reflectionScope';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
+import { applyWaterSwitches } from './render/waterSwitches';
 import { BenchLab } from './qa/lab/lab';
 import { saveLabResult, startLabRecording } from './qa/lab/record';
 
@@ -82,7 +92,13 @@ declare global {
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
       /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
-      census?: () => Promise<unknown>; bundles?: StaticBundles | null };
+      census?: () => Promise<unknown>; bundles?: StaticBundles | null;
+      /** One frame's uniform-buffer writes by pass, object family, group and uniform (render/census.ts). */
+      uniforms?: () => Promise<unknown>;
+      /** Retained bytes by category: geometry, texture data, streaming caches, collision cells (world/memoryCensus.ts). */
+      memory?: () => Promise<unknown> };
+    /** Tile streaming on demand: the loaded tile ids (the HUD shows only their count). */
+    __tiles?: { loaded: () => string[] };
   }
 }
 
@@ -93,6 +109,8 @@ try {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
 }
+// ?water= river technique A/B switches (render/waterSwitches.ts), before any river material exists.
+try { applyWaterSwitches(location.search); } catch (e) { window.__qaError = String((e as Error).message ?? e); throw e; }
 // Lab LOD overrides and ablations set engine constants, quality-tier fields and AA before anything reads them.
 if (params.lab) applyLodOverrides(params.lab.lod, params.quality, params);
 if (params.lab) ablateSettings(params.lab.off, params.quality, params, new URLSearchParams(location.search).has('aa'));
@@ -102,10 +120,27 @@ if (params.drive) {
   try {
     initialDrive = await loadDrive(params.drive.capture, params.drive.segment);
     params.qa = driveQaPose(initialDrive.poses[0]); params.motion = true;
+    // ?view=live replays the scene content but renders with this machine's own window, resolution path and tier.
+    const recorded = params.drive.view === 'live' ? ['traffic', 'walkers', 'trafficDensity'] as const
+      : ['traffic', 'walkers', 'trafficDensity', 'quality', 'aa'] as const;
     if (initialDrive.meta.params) {
-      for (const key of ['traffic', 'walkers', 'trafficDensity', 'quality', 'aa'] as const) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
+      for (const key of recorded) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
     }
   } catch (e) { window.__qaError = String(e); Object.assign(window.__bench!, { phase: 'error', error: String(e) }); throw e; }
+}
+// Lower-end GPUs default to the reduced tier (render/quality.ts deviceQuality); ?quality= always wins. Play and
+// ?view=live replays only: QA, the bench lab and recorded replays keep their deterministic tier.
+{
+  const given = new URLSearchParams(location.search).has('quality'), live = params.drive?.view === 'live';
+  const detect = !given && (!params.qa || live);
+  const adapter = params.backend === 'webgpu' ? await adapterInfo() : null;
+  const gpu = adapter && { vendor: adapter.vendor, architecture: adapter.architecture };
+  const cores = navigator.hardwareConcurrency ?? null;
+  const tier = detect ? deviceQuality(gpu, params.quality, adapter?.probe?.ms, cores) : params.quality;
+  if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}${adapter?.probe ? ` (probe ${adapter.probe.ms.toFixed(2)} ms)` : ''}`);
+  setRenderTier({ tier, gpu, cores, probe: adapter?.probe ?? undefined,
+    source: given ? 'url' : params.drive && !live ? 'recorded' : tier !== params.quality ? 'device' : 'default' });
+  params.quality = tier;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
 /** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
@@ -139,7 +174,23 @@ const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
   { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
+// A page kept in the back-forward cache holds its whole WebGPU device. On a 4 GB GPU the next game page then pages
+// VRAM every frame (Radeon Pro 560X: ~20 ms of GPU idle per frame; 22 -> 58 FPS once the working set fit), so leaving
+// releases the device and coming back from the cache reloads.
+addEventListener('pagehide', event => { if (event.persisted) (renderer.backend as { device?: GPUDevice }).device?.destroy(); });
+addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
+// Startup GPU throughput probe for the GPUs adapterInfo() did not probe (Apple's chooses the tier there): recorded in
+// renderTier() and captures, to calibrate tiering on other vendors.
+const probeDevice = (renderer.backend as { device?: GPUDevice }).device;
+if (probeDevice && !renderTier()?.probe && (!params.qa || params.drive?.view === 'live')) void gpuProbe(probeDevice).then(probe => {
+  const tier = renderTier();
+  if (tier) setRenderTier({ ...tier, probe });
+  if (probe) loading.note(`GPU probe ${probe.ms.toFixed(2)} ms (${probe.method})`);
+});
 const scene = new THREE.Scene();
+/** ?bench=drive&view=live: play's window and adaptive pixel ratio instead of the recorded ones. */
+const liveDrive = params.drive?.view === 'live';
+if (liveDrive && initialDrive) initialDrive.settings = { pixelRatio: null, viewport: null };
 let driveViewport: number[] | null = initialDrive?.settings.viewport ?? params.lab?.size ?? null;
 let drivePixelRatio: number | null = initialDrive?.settings.pixelRatio ?? params.lab?.dpr ?? null;
 if (driveViewport) renderer.setSize(driveViewport[0], driveViewport[1], false);
@@ -165,7 +216,13 @@ const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Came
   return { color: lightLayer ? weatherLayer.color.add(lightLayer.color) : weatherLayer.color,
     resource: { dispose() { weatherLayer.resource.dispose(); lightLayer?.resource.dispose(); } } };
 } } : lights?.sprites;
-let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+// LiDAR overlay (render/pointCloud): built hidden in desktop play for the editor to show; ?pointcloud=1 shows it at
+// startup (also in QA views), ?pointcloud=0 leaves it out of the pipeline.
+const pointCloudWanted = pointCloudParam();
+const pointCloud = idPass || !pointCloudWanted.build || (!pointCloudWanted.show && (params.qa || params.mobile || params.lab || params.drive))
+  ? null : new PointCloudOverlay(params.quality);
+if (pointCloud && pointCloudWanted.show) { pointCloud.setColorMode(pointCloudWanted.mode); pointCloud.setVisible(true); }
+let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay, pointCloud);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
   census: () => {
@@ -174,7 +231,14 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
       install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
       uninstall: () => { window.__render!.afterFrame = previous; },
     }, renderer instanceof GameRenderer ? renderer.builds : undefined);
-  }, setTime: (iso: string) => {
+  }, uniforms: () => {
+    let previous: (() => void) | undefined;
+    return uniformCensus(renderer, {
+      install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
+      uninstall: () => { window.__render!.afterFrame = previous; },
+    });
+  }, memory: () => memoryCensus({ scene, renderer, coarse: censusSources.coarse, collision: censusSources.collision, ground: censusSources.ground }),
+  setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
@@ -182,15 +246,42 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
+let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion, crownMode(params.quality));
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
-// Resident tiles' unchanging draws replay as static render bundles (WebGPU only; the WebGL2 fallback has none).
-const bundles = idPass || backend !== 'WebGPU' || params.lab?.off.has('bundles') ? null : new StaticBundles(scene);
+// Static render bundles (render/staticBundles.ts) are an A/B alternative, off by default: per-tile bundles measured a
+// net loss (bench=static: CPU p50 +0.9 ms, +120 draws). Opt in with ?bundles=1 (lab, drive replays and play).
+// Owner perf3; removed unless the per-cell variant wins its A/B. WebGPU only.
+const bundlesWanted = new URLSearchParams(location.search).get('bundles') === '1';
+const bundles = idPass || backend !== 'WebGPU' || !bundlesWanted ? null : new StaticBundles(scene);
+// GTA V's altitude rule: small casters leave the sun's cascades above about 100 m (render/shadowAltitude.ts).
+// ?altitudeShadows=0 keeps them, for the bench=fly A/B (owner perf3; the losing path goes after it).
+altitudeShadows.enabled = new URLSearchParams(location.search).get('altitudeShadows') !== '0';
+// River reflection renders skip subtrees they cannot draw (render/reflectionScope.ts); ?reflectionScope=0 for the A/B.
+if (renderer instanceof GameRenderer && new URLSearchParams(location.search).get('reflectionScope') !== '0') {
+  const scope = renderer.reflectionScope = new ReflectionScope();
+  tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => scope.add(model));
+  tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => scope.remove(model));
+}
+
+// ?drawSort=material groups opaque draws by material within 25 m depth bands (render/drawSort.ts, A/B).
+if (new URLSearchParams(location.search).get('drawSort') === 'material')
+  (renderer as unknown as { setOpaqueSort(sort: ReturnType<typeof materialBandSort>): void }).setOpaqueSort(materialBandSort());
+// ?tileShadows=chunks: every cascade draws tile shadows per 62.5 m chunk (the A/B against whole-tile outer cascades).
+tileShadows.chunksEverywhere = new URLSearchParams(location.search).get('tileShadows') === 'chunks';
+/** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
+let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.add(model));
+// The world root never moves, so it does not force every object's matrices each frame; published models freeze their
+// static transforms (world/frozenTransforms.ts). ?frozen=0 keeps the old per-frame recompose, for the A/B.
+const frozenModels = new URLSearchParams(location.search).get('frozen') !== '0';
+if (frozenModels) {
+  scene.updateMatrix(); scene.matrixAutoUpdate = false;
+  tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => freezeModel(model));
+}
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.remove(model));
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
@@ -227,7 +318,22 @@ const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, a
   const tiers = model.userData.dissolveTiers as number[] | undefined;
   if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
 }, undefined, 'scenery');
-const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
+// ?resolutionTarget=40: desktop AdaptiveResolution aims at the 40 FPS goal instead of 60, so it lowers resolution only
+// when frames miss the goal (at 60 every desktop sits at the 0.5 floor). A/B, owner winperf: decided by M1 Max and
+// Radeon 560X ?view=live replays; the losing path goes within ten merges.
+const resolution = new AdaptiveResolution(params.mobile ? 30 : new URLSearchParams(location.search).get('resolutionTarget') === '40' ? 40 : 60);
+// Rendering-only steps for tiers below medium when frames miss the goal at the resolution floor (render/settingGovernor.ts),
+// least visible first. ?governor=0 keeps the tier fixed: A/B, owner winperf, decided by Windows and Air live replays;
+// the losing path goes within ten merges.
+const sceneryRadius = params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000;
+const governedVegetation = QUALITY[params.quality].vegetation as { near: number; mid: number };
+const vegetationAsConfigured = { ...governedVegetation };
+const governor = QUALITY[params.quality].governor && new URLSearchParams(location.search).get('governor') !== '0' ? new SettingGovernor([
+  { name: 'distant city 2500 m', apply: () => distantCity?.setRadius(Math.min(sceneryRadius, 2500)), undo: () => distantCity?.setRadius(sceneryRadius) },
+  { name: 'trees to impostors sooner', apply: () => Object.assign(governedVegetation, { near: Math.min(vegetationAsConfigured.near, 35), mid: Math.min(vegetationAsConfigured.mid, 70) }),
+    undo: () => Object.assign(governedVegetation, vegetationAsConfigured) },
+  { name: 'small casters drop sun shadows', apply: () => { altitudeShadows.forced = true; }, undo: () => { altitudeShadows.forced = false; } },
+]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
@@ -243,7 +349,7 @@ function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
 if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
   if (!next || idPass) return;
   const previous = post;
-  post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+  post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay, pointCloud);
   window.__render!.post = post;
   graphics.retire(() => previous?.dispose());
 });
@@ -255,10 +361,12 @@ if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   rain = replacement;
 });
 const renderFrame = () => {
-  if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
+  if ((liveDrive || (!params.qa && worldLoad.snapshot().phase === 'ready')) && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
-    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile) * scale;
+    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
+    const stepped = governor?.update(performance.now(), scale <= 0.5 + 1e-9);
+    if (stepped) console.info(`[governor] level ${governor!.level}: ${stepped.name}`);
   }
   dayClock.update();
   const weatherSample = weather.update();
@@ -281,9 +389,12 @@ const renderFrame = () => {
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
   furniture?.update(camera);
-  lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
+  lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation, weather: weatherSample, fogFar: env.sample.fogFar });
+  pointCloud?.update(camera, renderer);
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
+  const ground = groundBelow(camera.position.x, camera.position.z);
+  altitudeShadows.update(camera.position.y - (Number.isFinite(ground) ? ground : 0));
   if (post) post.render(); else renderer.render(scene, camera);
   // Models prepared before the first shadow pass compile their casters now, in the paced preparation queue.
   if (post) for (const model of post.takeShadowless())
@@ -295,7 +406,7 @@ addEventListener('resize', () => {
   camera.aspect = driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight;
   if (params.qa && !params.drive) applyQaCamera();
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile) * (params.qa ? 1 : resolution.scale));
+  renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile, QUALITY[params.quality].maxPixels) * (params.qa && !liveDrive ? 1 : resolution.scale));
   renderer.setSize(driveViewport?.[0] ?? innerWidth, driveViewport?.[1] ?? innerHeight, !driveViewport);
   env.resize();
 });
@@ -304,7 +415,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 if (import.meta.env.DEV) void import('./dev/buildNotice').then(m => m.startBuildNotice());
-window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
+window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, governor, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
   lights, vegetation };
 
 // Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
@@ -346,6 +457,15 @@ function applyQaCamera() {
   camera.updateMatrixWorld();
 }
 
+/** `?gpuBudget=GiB` as bytes; undefined (the tier's budget) when absent or not a number. */
+function gpuBudgetParam(value: string | null) {
+  const gib = value === null || value.trim() === '' ? NaN : Number(value);
+  return Number.isFinite(gib) && gib >= 0 ? gib * 2 ** 30 : undefined;
+}
+
+/** What `__render.memory()` reads once the world exists. */
+const censusSources: { coarse: CoarseTiles | null; collision: CollisionStreamer | null; ground: GroundIndex | null } = { coarse: null, collision: null, ground: null };
+
 async function draftWorld() {
   const physics = new PhysicsClient();
   physics.onError = e => fail(`physics: ${e}`);
@@ -357,6 +477,8 @@ async function draftWorld() {
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
   });
+  censusSources.coarse = coarse; censusSources.collision = streamer;
+  window.__tiles = { loaded: () => coarse.loadedTiles() };
   return { physics, rapier, manifest, streamer, coarse };
 }
 
@@ -366,7 +488,13 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     detailRadius: params.mobile ? 80 : undefined,
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
     prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
-    previewCollision: collisionPreview,
+    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m),
+    // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
+    keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
+    // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
+    gpuBudget: gpuBudgetParam(new URLSearchParams(location.search).get('gpuBudget')),
+    // ?memBudget=GiB: the Apple reduced tier's heap + GPU total (default 2.5).
+    memoryBudget: gpuBudgetParam(new URLSearchParams(location.search).get('memBudget')),
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),
@@ -374,10 +502,11 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
+  groundBelow = (x, z) => coarse.groundBelow(x, z);
   lights?.attach(coarse);
   if (!idPass) {
     distantCity = coarse.screenshotScenery;
-    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
+    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
     if (params.qa) distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
@@ -399,9 +528,12 @@ async function runQa() {
     checkCollision: async buffer => {
       const col = await readCol(buffer);
       if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
-      ground.add(col);
+      // Validated now; indexed on the first ground query of the cell (actors stand on few of them).
+      ground.addLazy(col.id, buffer, bytes => readColSync(bytes, { checkCrc: false }));
     },
   });
+  censusSources.coarse = coarse; censusSources.ground = ground;
+  window.__tiles = { loaded: () => coarse.loadedTiles() };
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
@@ -513,8 +645,9 @@ async function runQa() {
   };
   const driveBench = initialDrive ? new DriveBench({ scene, camera, game: window.__game!,
     configure: drive => {
+      if (liveDrive) drive.settings = { pixelRatio: null, viewport: null };
       driveViewport = drive.settings.viewport; drivePixelRatio = drive.settings.pixelRatio;
-      renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false));
+      renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * (liveDrive ? resolution.scale : 1));
       renderer.setSize(driveViewport?.[0] ?? innerWidth, driveViewport?.[1] ?? innerHeight, false);
       camera.aspect = driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight; camera.updateProjectionMatrix();
       env.resize();
@@ -580,7 +713,8 @@ async function runLab() {
     checkCollision: async buffer => {
       const col = await readCol(buffer);
       if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
-      ground.add(col);
+      // Validated now; indexed on the first ground query of the cell (actors stand on few of them).
+      ground.addLazy(col.id, buffer, bytes => readColSync(bytes, { checkCrc: false }));
     },
   });
   const population = !idPass && (params.traffic !== 0 || params.walkers !== 0)
@@ -664,7 +798,9 @@ async function runPlay() {
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
   streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
-  coarse.preload([requested], streamer.radius, true);
+  // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
+  const startYaw = headingToYaw(params.spawn.headingDeg);
+  coarse.preload([requested], streamer.radius, true, { x: requested.x, z: requested.z, dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) });
   const tWait = performance.now();
   let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
   while (!placed) {
@@ -688,7 +824,7 @@ async function runPlay() {
   const yaw0 = headingToYaw(params.spawn.headingDeg);
   const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
-  const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest,
+  const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
     streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
     loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
     trafficClock: () => dayClock.trafficClock(),

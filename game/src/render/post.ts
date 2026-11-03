@@ -14,6 +14,7 @@ import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { QUALITY, type QualityTier } from './quality';
 import { MESOPIC, type TimecycleSample } from './timecycle';
+import { WATER_HISTORY } from './waterHistory';
 
 // r186 exposes this public method; the corresponding DefinitelyTyped declaration omits it.
 const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
@@ -24,6 +25,12 @@ export type Antialiasing = 'off' | 'taa' | 'fxaa';
 /** An additive HDR layer composited after the temporal resolve; it tests its own fragments against `sceneDepth`. */
 export interface PostOverlay {
   overlay(renderer: THREE.WebGPURenderer, camera: THREE.Camera, sceneDepth: THREE.Texture): { color: THREE.Node<'vec3'>; resource: { dispose(): void } };
+}
+
+/** A display-referred layer mixed over the tone-mapped, graded frame: rgb, and its coverage in alpha (render/pointCloud).
+ *  It tests its own fragments against `sceneDepth`; with one, the pipeline applies the output transform itself. */
+export interface PostComposite {
+  composite(renderer: THREE.WebGPURenderer, camera: THREE.Camera, sceneDepth: THREE.Texture): { color: THREE.Node<'vec4'>; resource: { dispose(): void } };
 }
 
 export class PostProcessing {
@@ -42,12 +49,15 @@ export class PostProcessing {
   private dimSaturation: THREE.UniformNode<'float', number>;
   private daySaturation: number;
   readonly puddles: PuddleReflections | null;
+  /** The camera of the frame TRAA's history holds (render/waterHistory.ts). */
+  private historyCamera: { view: THREE.Matrix4; projection: THREE.Matrix4 } | null = null;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
-    overlay: PostOverlay | null = null) {
-    installRigidVelocity();
+    overlay: PostOverlay | null = null, composite: PostComposite | null = null) {
+    // ?taafix=0: r186's build-time velocity projection, for the A/B of render/rigidVelocity.ts.
+    installRigidVelocity(new URLSearchParams(globalThis.location?.search ?? '').get('taafix') === '0');
     const q = QUALITY[tier];
-    const taa = aa === 'taa', wet = tier === 'medium' || tier === 'high';
+    const taa = aa === 'taa', wet = tier === 'reduced' || tier === 'medium' || tier === 'high';
     // GTAO darkens beauty's indirect light, so it needs depth and normals before beauty: a second geometry pass.
     // Without GTAO, TRAA depth/velocity and puddle normals come from beauty's own MRT: one geometry pass, not two.
     const pre = this.pre = q.aoSamples > 0 ? pass(scene, camera) : null;
@@ -132,6 +142,12 @@ export class PostProcessing {
       .add(puddleLight.rgb), beauty.a), null, null, { depthBuffer: false }) : null;
     const temporal = taa ? traa(reflected ?? beauty, geometry.getTextureNode('depth'), geometry.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
+    // River pixels read the previous frame from TRAA's history (render/waterHistory.ts); r186 keeps it private.
+    const history = temporal ? (temporal as unknown as { _historyRenderTarget: THREE.RenderTarget })._historyRenderTarget : null;
+    WATER_HISTORY.depth = history?.depthTexture ?? null;
+    WATER_HISTORY.color = history?.texture ?? null;
+    WATER_HISTORY.camera = this.historyCamera = history ? { view: new THREE.Matrix4(), projection: new THREE.Matrix4() } : null;
+    WATER_HISTORY.beautyVelocity = !!temporal && !pre;
     const color = temporal ?? reflected ?? beauty;
     const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
     this.bloomScale = q.bloomStrength / QUALITY.medium.bloomStrength;
@@ -148,10 +164,13 @@ export class PostProcessing {
     const saturation = mix(this.dimSaturation, q.saturation, smoothstep(MESOPIC.luminance[0], MESOPIC.luminance[1], luminance));
     const graded = mix(vec3(luminance), hdr, saturation).mul(vec3(1.012, 1, 0.99));
     const output = vec4(graded, 1);
+    // The composite layer (survey point colours) joins after tone mapping and grading: its colours are display sRGB.
+    const layer = composite?.composite(renderer, camera, geometry.getTexture('depth'));
+    const display = layer ? vec4(mix(renderOutput(output).rgb, layer.color.rgb, layer.color.a), 1) : null;
     // FXAA's contrast thresholds require display-referred sRGB, unlike temporal HDR resolve.
-    const spatial = aa === 'fxaa' ? fxaa(renderOutput(output)) : null;
-    this.pipeline = new THREE.RenderPipeline(renderer, spatial ?? output);
-    this.pipeline.outputColorTransform = !spatial;
+    const spatial = aa === 'fxaa' ? fxaa(display ?? renderOutput(output)) : null;
+    this.pipeline = new THREE.RenderPipeline(renderer, spatial ?? display ?? output);
+    this.pipeline.outputColorTransform = !spatial && !display;
     this.resources = [beauty, this.pipeline];
     if (pre) this.resources.push(pre);
     if (ambient) this.resources.push(ambient);
@@ -161,6 +180,7 @@ export class PostProcessing {
     if (temporal) this.resources.push(temporal);
     if (spatial) this.resources.push(spatial);
     if (lights) this.resources.push(lights.resource);
+    if (layer) this.resources.push(layer.resource);
   }
 
   /** Models prepared before any shadow pass had drawn, so with no cascade state to compile their casters against. */
@@ -206,6 +226,11 @@ export class PostProcessing {
     const live = this.renderer instanceof GameRenderer ? this.renderer : null;
     if (live) live.liveFrame = true;
     try { this.pipeline.render(); } finally { this.scene.matrixWorldAutoUpdate = autoUpdate; if (live) live.liveFrame = false; }
+    // TRAA has cleared its jitter: the next frame's river reprojects into this frame's history with these.
+    if (this.historyCamera) {
+      this.historyCamera.view.copy(this.camera.matrixWorldInverse);
+      this.historyCamera.projection.copy(this.camera.projectionMatrix);
+    }
   }
   dispose() { for (const resource of this.resources) resource.dispose(); }
 }

@@ -32,6 +32,14 @@ The HUD button uses the same toggle. Esc exits fullscreen through the browser; f
 `flyUp` (Xbox X, RT, Space) and `flyDown` (Xbox B, LT, Q) are held values read only while the developer fly mode
 is on (localhost only, `gameplay/flyMode.ts`, `ui/README.md`); a double tap of `jump` toggles it.
 
+## Editor layer
+
+`input.layer = 'editor'` (set by the developer object editor, `dev/editor/README.md`, while its mode is on and no menu
+is open) maps with `editorBindings`: the editor actions get ✕ ○ △ L1 R1 Create and the D-pad, which gameplay actions
+lose; the sticks, □, the triggers, Options and R3 stay shared so walking, flying and pausing work, and L3 is the fast
+modifier. `editToggle` (DualSense touchpad click 17, Xbox L3 + R3 as a `chord` binding, F8) is bound in both layers.
+Prompts use PlayStation button names when the active pad is a Sony controller (`input.playstation`).
+
 ## Developer panels
 
 `timePanel` (T) shows the developer time panel (`ui/timePanel.ts`); `timePause` (0), `timeSpeed1`–`timeSpeed4` (1–4),

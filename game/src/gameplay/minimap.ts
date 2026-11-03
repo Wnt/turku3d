@@ -10,7 +10,8 @@ export { RouteTracker, REROUTE_M } from './routeTracker';
 import { COLLISION_TILE } from '../core/origin';
 
 /** Marker colour per target kind, shared with the world zones (zones.ts). */
-export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c' };
+export const KIND_COLOURS: Record<TargetKind, string> = { pickup: '#f4c430', dropoff: '#4fc3f7', shop: '#66bb6a', market: '#ef6c8c',
+  job: '#ff8a3d' };
 const SIZE = 240;
 const UPDATE_MS = 50;
 const SPAN_M = { foot: 200, car: 320, expanded: 650 };

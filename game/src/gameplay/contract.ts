@@ -9,13 +9,17 @@ export interface WorldPoint {
   y?: number;
 }
 
-export type TargetKind = 'pickup' | 'dropoff' | 'shop' | 'market';
+/** `job`: a black-market job's place (the truck heist's yard and drop-off), probed from ZONE_RAY_TOP, not checked as a
+ *  delivery drop-off. */
+export type TargetKind = 'pickup' | 'dropoff' | 'shop' | 'market' | 'job';
 
 export interface RouteTarget {
   id: string;
   point: WorldPoint;
   label: string;
   kind: TargetKind;
+  /** Where the street route ends when the marker lies off the street graph or under a bridge; default `point`. */
+  approach?: WorldPoint;
 }
 
 export interface MissionHudState {
@@ -39,8 +43,9 @@ export interface MissionHudSource {
 
 export interface Router {
   /** Shortest walkable/drivable path along the street network, from the nearest graph point to `from`
-   *  to the nearest graph point to `to`, including both endpoints. Null when either end is off the graph. */
-  route(from: WorldPoint, to: WorldPoint): WorldPoint[] | null;
+   *  to the nearest graph point to `to`, including both endpoints. Null when either end is off the graph.
+   *  `mode` picks walking or driving; by default the router's current travel mode (the player's). */
+  route(from: WorldPoint, to: WorldPoint, mode?: 'foot' | 'car'): WorldPoint[] | null;
   /** Path length in metres. */
   distance(path: WorldPoint[]): number;
 }

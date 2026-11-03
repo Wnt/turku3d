@@ -1,9 +1,9 @@
-// All resident mapped lamps and floodlit sports fields illuminate the ground through one shared irradiance map.
-// The near point slots still light people, posts and foliage; this field has no per-lamp draw.
+// All resident mapped lamps illuminate the ground through one shared irradiance map. The near point slots still
+// light people, posts and foliage; this field has no per-lamp draw. Floodlit venues light every material through the
+// light set's area light instead (floodArea.ts): pitches and tracks are dry surfaces that never sample this map.
 import * as THREE from 'three/webgpu';
 import { Fn, If, float, normalWorldGeometry, positionWorld, smoothstep, texture, uniform, vec3 } from 'three/tsl';
 import type { Lamp } from './lampField';
-import { FLOOD, venueIrradiance, type FloodVenue } from './floodlights';
 import { footprintSight } from './pools';
 import type { Footprint } from './tileScan';
 
@@ -37,7 +37,6 @@ export class GroundLampField {
   /** Active shader state for the dev harness; use the instance, not a second HMR module import. */
   readonly state = groundLampField;
   private lamps: readonly Lamp[] = [];
-  private venues: readonly FloodVenue[] = [];
   private dirty = true;
   private x = Infinity;
   private z = Infinity;
@@ -51,8 +50,6 @@ export class GroundLampField {
   constructor(private footprints: () => Iterable<Footprint>) {}
   get pending() { return this.work !== null; }
   setLamps(lamps: readonly Lamp[]) { this.lamps = lamps; this.dirty = true; }
-  /** Floodlit fields: each lights its pitch evenly, with a soft spill past its edges. */
-  setVenues(venues: readonly FloodVenue[]) { this.venues = venues; this.dirty = true; }
   update(x: number, z: number, night: number) {
     groundLampField.night.value = night;
     const ox = Math.floor(x / 128) * 128 - SPAN / 2;
@@ -65,7 +62,7 @@ export class GroundLampField {
     if (this.dirty) {
       this.x = ox; this.z = oz; this.dirty = false;
       this.buildMs = 0; this.maxStepMs = 0;
-      this.work = this.rasterize(ox, oz, this.lamps, [...this.footprints()], this.venues);
+      this.work = this.rasterize(ox, oz, this.lamps, [...this.footprints()]);
     }
     if (!this.work) return;
     const start = performance.now();
@@ -75,7 +72,7 @@ export class GroundLampField {
     this.buildMs += elapsed; this.maxStepMs = Math.max(this.maxStepMs, elapsed);
     if (!this.work) this.lastBuildMs = this.buildMs;
   }
-  private *rasterize(ox: number, oz: number, lamps: readonly Lamp[], footprints: Footprint[], venues: readonly FloodVenue[] = []): Generator<void> {
+  private *rasterize(ox: number, oz: number, lamps: readonly Lamp[], footprints: Footprint[]): Generator<void> {
     this.count = 0;
     const linear = this.linear, strongest = this.strongest;
     linear.fill(0); strongest.fill(0);
@@ -112,22 +109,6 @@ export class GroundLampField {
         linear[at + 1] += energy * head.g / peak;
         linear[at + 2] += energy * head.b / peak;
         if (energy > strongest[texel]) { strongest[texel] = energy; linear[at + 3] = base; }
-      }
-    }
-    const [fr, fg, fb] = FLOOD.color, fpeak = Math.max(fr, fg, fb);
-    for (const v of venues) {
-      const reach = Math.hypot(v.length, v.width) / 2 + FLOOD.spill;
-      const x0 = Math.max(0, Math.floor((v.x - reach - ox) / CELL)), x1 = Math.min(SIZE - 1, Math.ceil((v.x + reach - ox) / CELL));
-      const z0 = Math.max(0, Math.floor((v.z - reach - oz) / CELL)), z1 = Math.min(SIZE - 1, Math.ceil((v.z + reach - oz) / CELL));
-      if (x0 > x1 || z0 > z1) continue;
-      this.count++;
-      for (let j = z0; j <= z1; j++) for (let i = x0; i <= x1; i++) {
-        if ((++visited & 63) === 0) yield;
-        const energy = venueIrradiance(v, ox + (i + .5) * CELL, oz + (j + .5) * CELL);
-        if (energy <= 0) continue;
-        const texel = j * SIZE + i, at = texel * 4;
-        linear[at] += energy * fr / fpeak; linear[at + 1] += energy * fg / fpeak; linear[at + 2] += energy * fb / fpeak;
-        if (energy > strongest[texel]) { strongest[texel] = energy; linear[at + 3] = v.y; }
       }
     }
     for (let i = 0; i < pixels.length; i++) {

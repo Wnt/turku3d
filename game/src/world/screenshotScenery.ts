@@ -8,7 +8,7 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
-import { LOD_FADE_BIAS, LOD_FADE_SECONDS, fadeTier, lodFades } from '../render/lodFade';
+import { LOD_FADE, LOD_FADE_BIAS, fadeTier, lodFades } from '../render/lodFade';
 import { streamTrace } from '../telemetry/streamTrace';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
@@ -142,7 +142,7 @@ export class ScreenshotScenery {
       model.visible = direction === 'in';
       this.batches.invalidate(model);
       this.cutState.clear(); // the landed model's cut visibility is decided again on the next update
-    }, this.clock, LOD_FADE_SECONDS, tier);
+    }, this.clock, LOD_FADE.seconds, tier);
     return true;
   }
 
@@ -169,6 +169,13 @@ export class ScreenshotScenery {
     model.userData.lodFading = undefined;
     model.removeFromParent();
     this.batches.retireModel(model, () => this.dispose(model, id));
+  }
+
+  /** 3D camera distance to square `id` (its source's top height; horizontal without a view height), as every band. */
+  private viewDistance(id: string, x: number, z: number) {
+    const horizontal = sceneryDistance(id, x, z), y = this.view?.y;
+    if (y === undefined || !Number.isFinite(y)) return horizontal;
+    return Math.hypot(horizontal, Math.max(0, y - (this.sources.get(id)?.h[1] ?? 0)));
   }
 
   /** Standby cells (hidden under a resident full tile) prepare no trees: the HD tile draws its own, and the cell's
@@ -385,7 +392,7 @@ export class ScreenshotScenery {
     const concurrency = this.view ? 4 : 2;
     if (paused || this.active >= concurrency) return;
     this.entries.forEach((e, id) => { if (e.model && e.complete && e.next === Infinity
-      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z),id) && !e.busy) e.next = 0; });
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,this.viewDistance(id,x,z),id) && !e.busy) e.next = 0; });
     const demand = this.view ? undefined : new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
@@ -396,7 +403,7 @@ export class ScreenshotScenery {
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
       if (e.busy || now < e.next) return;
       e.busy = true; this.active++;
-      void this.poll(id, e, sceneryDistance(id, x, z), this.sources.get(id));
+      void this.poll(id, e, this.viewDistance(id, x, z), this.sources.get(id));
     };
     if (this.view) {
       // Live views keep the skyline order of `wanted`; walked in place every frame, without a filtered copy.
@@ -440,7 +447,7 @@ export class ScreenshotScenery {
     for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading)
       target.set(id, !parents.some(parent => sceneryContains(parent, id) && parent !== id) && (keep.has(id) || fallback.has(id)));
     const hiding = [...target].filter(([id, show]) => !show && this.entries.get(id)!.model!.visible).map(([id]) => id);
-    const until = now + LOD_FADE_SECONDS * 1000;
+    const until = now + LOD_FADE.seconds * 1000;
     for (const [id, show] of target) {
       const model = this.entries.get(id)!.model!;
       if (!show || model.visible) continue;

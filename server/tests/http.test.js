@@ -9,10 +9,10 @@ import { createServer, allowedOrigin } from '../http.js';
 import { ScoreStore } from '../store.js';
 import { hourAt } from '../hours.js';
 
-async function start(t) {
+async function start(t, options = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'turku-mp-http-'));
   const store = new ScoreStore(directory);
-  const app = createServer({ store });
+  const app = createServer({ store, ...options });
   app.server.listen(0, '127.0.0.1');
   await once(app.server, 'listening');
   t.after(async () => { await app.close(); rmSync(directory, { recursive: true, force: true }); });
@@ -54,6 +54,23 @@ test('origin allowlist matches exact Pages and localhost origins', () => {
     'http://localhost:65536', 'http://user@localhost:80', 'http://127.0.0.1:5170']) {
     assert.equal(allowedOrigin(origin), false, String(origin));
   }
+  const share = ['https://city.lab.madekivi.fi'];
+  assert.equal(allowedOrigin('https://city.lab.madekivi.fi', share), true);
+  assert.equal(allowedOrigin('https://wnt.github.io', share), true);
+  for (const origin of [undefined, 'https://city.lab.madekivi.fi/', 'http://city.lab.madekivi.fi', 'https://x.city.lab.madekivi.fi']) {
+    assert.equal(allowedOrigin(origin, share), false, String(origin));
+  }
+});
+
+test('a share server accepts its own page origin for sockets and scores, and no other', async t => {
+  const app = await start(t, { origins: ['https://city.lab.madekivi.fi'] });
+  const ws = await socket(`${app.ws}/`, 'https://city.lab.madekivi.fi');
+  ws.terminate();
+  assert.equal(await denied(`${app.ws}/`, 'https://evil.lab.madekivi.fi'), 403);
+  const live = await fetch(`${app.http}/live.json`, { headers: { origin: 'https://city.lab.madekivi.fi' } });
+  assert.equal(live.status, 200);
+  assert.equal(live.headers.get('access-control-allow-origin'), 'https://city.lab.madekivi.fi');
+  assert.equal((await fetch(`${app.http}/live.json`, { headers: { origin: 'https://evil.lab.madekivi.fi' } })).status, 403);
 });
 
 test('HTTP serves health, live scores, archive index/files and CORS without exposing sessions', async t => {

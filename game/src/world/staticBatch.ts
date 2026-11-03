@@ -2,6 +2,7 @@ import { sharedGeometry } from './modelGeometry';
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { interleaveProgram } from '../render/facadeProgramAttributes';
+import { stableMaterial } from '../render/lodFade';
 import { disposeDraw } from '../render/sharedMaterials';
 import { streamingBudget } from '../render/preparationBudget';
 
@@ -19,6 +20,8 @@ export function updateStaticBatchVisibility(model: THREE.Object3D) {
     batch.mesh.visible = batch.placements.some(placement => placement.visible);
 }
 const owners = new WeakMap<THREE.Object3D, Batch[]>();
+/** Source meshes a model's static batches detached (they return on release): memory census. */
+export function staticBatchSources(model: THREE.Object3D): THREE.Mesh[] { return (owners.get(model) ?? []).flatMap(batch => batch.sources); }
 const budget = streamingBudget();
 
 /** Only the canonical, tightly packed facade layout can bypass the general attribute merger. */
@@ -137,7 +140,7 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
         geometry.setAttribute(name, new THREE.InterleavedBufferAttribute(buffer, itemSize, offset));
     } else interleaveProgram(geometry);
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, sources[0].material);
+    const mesh = new THREE.Mesh(geometry, stableMaterial(sources[0].material as THREE.Material));
     mesh.name = sourcePlacements.length ? 'static-placement-batch' : 'static-tile-batch';
     mesh.userData = { layer: sources[0].userData.layer, objects: rows };
     if (sourcePlacements.length) {

@@ -6,6 +6,7 @@ import type * as THREE from 'three/webgpu';
 import { decodeTileLights, lampKey, lightsSignature, owns, tileBounds, type TileLightsField } from './tileLights';
 import { scanTile, type Footprint, type LightPoint } from './tileScan';
 import { decodeFloodlights, floodLamps, type FloodTile } from './floodlights';
+import { decodeWires, wireLamps, withoutReplaced, type WireTile } from './wires';
 
 /** One light: a corona sprite, and for street-light posts the post below it. */
 export interface Lamp {
@@ -40,7 +41,7 @@ function sprite(p: LightPoint, type: keyof typeof LIGHT_TYPES, day: number): Spr
 
 export interface LampSource { id: string; model: THREE.Object3D; lights: TileLightsField | null }
 
-interface TileLights { lamps: Lamp[]; footprint: Footprint | null; flood: FloodTile | null }
+interface TileLights { lamps: Lamp[]; footprint: Footprint | null; flood: FloodTile | null; wires: WireTile | null }
 interface TileJob { model: THREE.Object3D; signature: string; job: Generator<void, TileLights> | null; lamps: Lamp[] | null }
 
 /** Building footprints are kept this far around a tile (metres), so a building reaching over a seam still blocks. */
@@ -50,6 +51,8 @@ function* tileLamps(source: LampSource): Generator<void, TileLights> {
   const bounds = tileBounds(source.id);
   const listed = decodeTileLights(source.lights);
   const flood = decodeFloodlights(source.lights?.floodlights, bounds);
+  const wires = decodeWires(source.lights?.wires, bounds);
+  const hung = wireLamps(wires);
   const m = FOOTPRINT_MARGIN;
   const scan = yield* scanTile(source.model, undefined,
     bounds ? [bounds[0] - m, bounds[1] - m, bounds[2] + m, bounds[3] + m] : undefined);
@@ -58,14 +61,14 @@ function* tileLamps(source: LampSource): Generator<void, TileLights> {
     built.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'tunnel', light: sprite(p, 'tunnel', 1) });
   for (const p of scan.bridge) if (!bounds || owns(bounds, p.x, p.z))
     built.push({ key: lampKey(p.x, p.z), x: p.x, y: p.y, z: p.z, yaw: 0, scale: 1, post: false, kind: 'bridge', light: sprite(p, 'led', 0) });
-  return { lamps: [...listed, ...floodLamps(flood), ...built], footprint: scan.footprint ?? null, flood };
+  return { lamps: [...withoutReplaced(listed, hung), ...hung, ...floodLamps(flood), ...built], footprint: scan.footprint ?? null, flood, wires };
 }
 
 /** Resident tiles' lamps. `sync` follows the drawn drafts; `step` advances pending tiles within a time budget. */
 export class LampField {
   private tiles = new Map<string, TileJob>();
-  /** Called when a tile's lamps (its building footprints and floodlit venues) are ready, or with null when it left. */
-  onTile: (id: string, lamps: Lamp[] | null, footprint?: Footprint | null, flood?: FloodTile | null) => void = () => {};
+  /** Called when a tile's lamps (its building footprints, floodlit venues and overhead wires) are ready, or with null when it left. */
+  onTile: (id: string, lamps: Lamp[] | null, footprint?: Footprint | null, flood?: FloodTile | null, wires?: WireTile | null) => void = () => {};
 
   sync(sources: Iterable<LampSource>) {
     const seen = new Set<string>();
@@ -86,7 +89,7 @@ export class LampField {
     for (const [id, tile] of this.tiles) {
       while (tile.job) {
         const next = tile.job.next();
-        if (next.done) { tile.job = null; tile.lamps = next.value.lamps; this.onTile(id, next.value.lamps, next.value.footprint, next.value.flood); }
+        if (next.done) { tile.job = null; tile.lamps = next.value.lamps; this.onTile(id, next.value.lamps, next.value.footprint, next.value.flood, next.value.wires); }
         if (now() >= until) return this.pending();
       }
     }

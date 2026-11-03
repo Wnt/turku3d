@@ -1,7 +1,9 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { AssetCache, sharedAssetKey, shareModelTextures, releaseModelTextures } from '../../src/world/sharedAssets';
-import { LoadingKtx } from '../../src/world/loadingKtx';
+import { AssetCache, sharedAssetKey, shareModelTextures, releaseModelTextures, releaseTextureData, releaseModelTextureData, keepTextureData,
+  ktxTemplates, textureRelease } from '../../src/world/sharedAssets';
+import { modelGpuBytes } from '../../src/world/gpuBytes';
+import { LoadingKtx, guardReleasedTextures, sharedKtx } from '../../src/world/loadingKtx';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 
 const url = `https://turku.lab.madekivi.fi/coarse/shared/${'a'.repeat(64)}.ktx2`;
@@ -97,4 +99,67 @@ test('glTF dot segments preserve immutable identities across tile and generation
     expect(map(a)).toBe(map(b));
     releaseModelTextures(a, new Set([map(a)])); releaseModelTextures(b, new Set([map(b)]));
   } finally { load.mockRestore(); }
+});
+
+test('a resident compressed texture drops its CPU mips once uploaded; its template, other variants and kept maps keep theirs', async () => {
+  const asset = url.replace('a'.repeat(64), 'b'.repeat(64));
+  const template = new THREE.CompressedTexture([{ data: new Uint8Array(64), width: 8, height: 8 }, { data: new Uint8Array(16), width: 4, height: 4 }] as unknown as THREE.CompressedTextureMipmap[], 8, 8);
+  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
+  try {
+    const loader = new LoadingKtx();
+    const [first, second] = await Promise.all([loader.loadAsync(asset), loader.loadAsync(asset)]);
+    second.offset.x = 0.5; // another glTF variant: its own resident texture
+    const a = model(first), b = model(second);
+    shareModelTextures(a); shareModelTextures(b);
+    expect(ktxTemplates.get(map(a).source)).toBe(template);
+    const before = modelGpuBytes(a), released = textureRelease.bytes;
+    expect(releaseTextureData(map(a), () => false)).toBe(0); // not uploaded yet
+    expect(releaseModelTextureData(a, () => true)).toBe(80);
+    expect((map(a).mipmaps as unknown as { width: number; data: Uint8Array }[]).map(mip => [mip.width, mip.data.byteLength])).toEqual([[8, 0], [4, 0]]);
+    expect(map(a).userData.releasedBytes).toBe(80);
+    expect(textureRelease.bytes - released).toBe(80);
+    expect(modelGpuBytes(a)).toBe(before); // the GPU copy keeps its size
+    expect((template.mipmaps[0].data as Uint8Array).byteLength).toBe(64);
+    expect((map(b).mipmaps as unknown as { data: Uint8Array }[])[0].data.byteLength).toBe(64);
+    expect(ktxTemplates.has(map(a).source)).toBe(false); // a new variant decodes the source again
+    expect(releaseTextureData(map(a), () => true)).toBe(0); // once
+    keepTextureData(map(b));
+    expect(releaseTextureData(map(b), () => true)).toBe(0); // surface array sources keep theirs
+    const local = new THREE.CompressedTexture([{ data: new Uint8Array(8), width: 4, height: 4 }] as unknown as THREE.CompressedTextureMipmap[], 4, 4);
+    expect(releaseTextureData(local, () => true)).toBe(0); // not a resident shared texture
+    // A tile clone of the released texture resolves to the uploaded resident one before upload.
+    const c = model(map(a).clone());
+    shareModelTextures(c);
+    expect(map(c)).toBe(map(a));
+    for (const scene of [a, b, c]) releaseModelTextures(scene, new Set([map(scene)]));
+  } finally { load.mockRestore(); }
+});
+
+test('released mips never reach an upload: the texture (or a clone) decodes again, keeps that data and uploads then', async () => {
+  const asset = url.replace('a'.repeat(64), 'c'.repeat(64));
+  const template = new THREE.CompressedTexture([{ data: new Uint8Array(64), width: 8, height: 8 }, { data: new Uint8Array(16), width: 4, height: 4 }] as unknown as THREE.CompressedTextureMipmap[], 8, 8);
+  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    // The backend's upload of a compressed texture: what WebGPU's WriteTexture would get, per mip.
+    const writes: number[][] = [];
+    const renderer = { isWebGPURenderer: true, hasFeature: () => false,
+      backend: { updateTexture: (texture: THREE.Texture, _options?: unknown) => { writes.push((texture.mipmaps as unknown as { data: Uint8Array }[]).map(mip => mip.data.byteLength)); } } };
+    guardReleasedTextures(renderer as never);
+    const scene = model(await sharedKtx(renderer as never).loadAsync(asset));
+    shareModelTextures(scene);
+    const resident = map(scene);
+    expect(releaseTextureData(resident, () => true)).toBe(80);
+    const clone = resident.clone(); // e.g. a placement's material clone made after the release
+    renderer.backend.updateTexture(resident, {}); renderer.backend.updateTexture(clone, {});
+    expect(writes).toEqual([]); // nothing uploads empty data
+    const versions = [resident.version, clone.version];
+    await vi.waitFor(() => expect([resident, clone].every(texture => texture.userData.keepData === true)).toBe(true));
+    expect([resident.version, clone.version].map((v, i) => v > versions[i])).toEqual([true, true]); // uploads again
+    renderer.backend.updateTexture(resident, {}); renderer.backend.updateTexture(clone, {});
+    expect(writes).toEqual([[64, 16], [64, 16]]);
+    expect(resident.userData.releasedBytes).toBeUndefined();
+    expect(releaseTextureData(resident, () => true)).toBe(0); // keeps its data from now on
+    releaseModelTextures(scene, new Set([resident]));
+  } finally { load.mockRestore(); warn.mockRestore(); }
 });

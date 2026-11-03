@@ -8,11 +8,13 @@ export const PAR_SPEED = Object.freeze({ none: 1.4, scooter: 7, car: 9, truck: 1
 export const TIP_FULL_UNTIL = 0.7;
 export const TIP_NONE_FROM = 1.3;
 export const FAIL_AFTER_PAR = 2;
+export const LIMITED_PAY_FACTOR = 2;
 
-export const basePay = (metres, job = 'short') => job === 'long' ? 24 + Math.ceil(metres * 0.012) : BASE_PAY;
+export const basePay = (metres, job = 'short') => job === 'short' ? BASE_PAY
+  : (job === 'limited' ? LIMITED_PAY_FACTOR : 1) * (24 + Math.ceil(metres * 0.012));
 
 export function parSeconds(routeMeters, vehicle, job = 'short') {
-  const boost = job === 'long' ? (vehicle === 'scooter' ? 1.2 : 1.4) : 1;
+  const boost = job !== 'short' ? (vehicle === 'scooter' ? 1.2 : 1.4) : 1;
   return routeMeters / (PAR_SPEED[vehicle] * boost) + PAR_HANDLING_SECONDS;
 }
 
@@ -28,6 +30,7 @@ export function validDelivery({ payout, tip: gratuity, routeMeters, job = 'short
   return Number.isFinite(routeMeters) && routeMeters >= 0 && routeMeters <= 100_000
     && Number.isInteger(payout) && Number.isInteger(gratuity)
     && gratuity >= 0 && gratuity <= MAX_TIP
-    && (job === 'long' ? routeMeters > 60 && routeMeters <= 7000 && payout === basePay(routeMeters, 'long')
+    && (job === 'long' || job === 'limited' ? routeMeters > 60 && routeMeters <= 7000 && (payout === basePay(routeMeters, job)
+        || (payout === basePay(routeMeters, job) + DOUBLE_BONUS && gratuity > 0))
       : job === 'short' && (payout === BASE_PAY || (payout === BASE_PAY + DOUBLE_BONUS && gratuity > 0)));
 }

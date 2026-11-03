@@ -12,7 +12,8 @@ import { materialColor, materialRoughness, texture, positionWorld, mix, vec3, bu
 import { facadeKitMaterial } from './facadeKit';
 import { interleaveProgram, interleaveProgramAsync } from './facadeProgramAttributes';
 import { QUALITY, type QualityTier } from './quality';
-import { RiverMaterial } from './water';
+import { RiverMaterial, waterSurface } from './water';
+import { WATER_SWITCHES } from './waterSwitches';
 import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
 import { streamingBudget } from './preparationBudget';
@@ -157,6 +158,8 @@ export class MaterialStyler {
           if (!this.riverSources.has(mesh)) this.riverSources.set(mesh, mesh.material);
           mesh.layers.disable(REFLECTION_LAYER);
           mesh.updateWorldMatrix(true, false);
+          // Sample the mirror plane now: the reach's reflector may move onto this mesh after its arrays are released.
+          waterSurface(mesh);
           const normal = new THREE.Vector3(0, 1, 0);
           const attribute = mesh.geometry.getAttribute('normal');
           if (attribute) normal.fromBufferAttribute(attribute, 0);
@@ -212,7 +215,7 @@ export class MaterialStyler {
       };
       sources.set(mesh, mesh.material);
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
-      if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
+      if (reflectionSurface(mesh, WATER_SWITCHES.lod)) mesh.layers.enable(REFLECTION_LAYER);
       else mesh.layers.disable(REFLECTION_LAYER);
       yield;
       if (!live()) return undefined;
