@@ -58,12 +58,25 @@ def validate_sources(directory,expected,*,raw=True):
     return manifest
 
 
+def references(value):
+    """Every relative path-like string in a manifest or JSON payload, at any depth."""
+    if isinstance(value,dict):
+        for v in value.values():yield from references(v)
+    elif isinstance(value,list):
+        for v in value:yield from references(v)
+    elif (isinstance(value,str) and 0<len(value)<512 and '.' in value
+          and not value.startswith(('data:','http:','https:','/'))):
+        yield value
+
+
 def publication(root,tile):
-    """Only published payloads and small provenance reports, including GLB dependencies."""
+    """Published payloads and small provenance reports, with every reachable dependency.
+
+    Walks every relative reference in the manifest (visual, collision, roads, vehicle and
+    building models, playgrounds, piers, ... and any section added later) and in the JSON and
+    GLB files it reaches, so each ../shared/ asset a manifest names travels with the tile.
+    """
     root=Path(root).resolve();product=root/tile
-    manifest=json.loads((product/'manifest.json').read_text())
-    entries=[v for kind in ('visual','collision','vehicle_models') for v in manifest.get(kind,{}).values()]
-    if manifest.get('roads'):entries.append(manifest['roads'])
     files={}
     def visit(path):
         path=path.resolve()
@@ -73,6 +86,11 @@ def publication(root,tile):
         if not (path.is_relative_to(product) or path.is_relative_to(root/'shared')):
             raise ValueError('payload outside tile/shared layout')
         files[relative]=path.stat().st_size
+        if path.suffix=='.json' and path.stat().st_size<64*2**20:
+            try:doc=json.loads(path.read_text())
+            except ValueError:return
+            follow(path.parent,doc)
+            return
         with path.open('rb') as stream:
             header=stream.read(20)
             if header[:4]==b'glTF':
@@ -82,6 +100,17 @@ def publication(root,tile):
                 for item in [*doc.get('images',[]),*doc.get('buffers',[])]:
                     uri=item.get('uri')
                     if uri and not uri.startswith('data:'):visit(path.parent/uri)
+    def follow(base,doc):
+        for value in references(doc):
+            candidate=(base/value)
+            try:resolved=candidate.resolve()
+            except OSError:continue
+            if resolved.is_file() and resolved.is_relative_to(root) and (
+                    resolved.is_relative_to(product) or resolved.is_relative_to(root/'shared')):
+                visit(resolved)
+    manifest=json.loads((product/'manifest.json').read_text())
+    entries=[v for kind in ('visual','collision','vehicle_models') for v in manifest.get(kind,{}).values()]
+    if manifest.get('roads'):entries.append(manifest['roads'])
     for entry in entries:visit(product/entry['url'])
     for name in ('manifest.json','ready.json','input-cache.json','stage-times.json'):
         if (product/name).exists():visit(product/name)
