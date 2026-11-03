@@ -11,6 +11,9 @@ import numpy as np
 import shapely
 from scipy.ndimage import binary_closing, find_objects, label
 from scipy.signal import find_peaks
+from rasterio.features import shapes
+from shapely.affinity import affine_transform
+from shapely.geometry import shape
 
 from turku3d.structures.geometry import Faces
 
@@ -18,6 +21,15 @@ from .retaining_survey import ground_points
 
 CELL = 0.25
 REACH = 8.0
+
+
+def support_region(mask, origin, along, outward):
+    """Trace the occupied-cell boundary directly, avoiding unions of tiny quads."""
+    polygons = [shape(geometry) for geometry, _ in shapes(mask.astype(np.uint8), mask=mask)]
+    polygon = polygons[0] if len(polygons) == 1 else shapely.union_all(polygons)
+    return affine_transform(
+        polygon, [CELL * outward[0], CELL * along[0], CELL * outward[1], CELL * along[1], *origin]
+    ).simplify(0.08)
 
 
 def measure(buildings, points, classes, context=()):
@@ -96,16 +108,11 @@ def measure(buildings, points, classes, context=()):
                     for group, slc in enumerate(find_objects(groups), 1):
                         if slc is None:
                             continue
-                        ij = np.argwhere(groups[slc] == group) + [slc[0].start, slc[1].start]
-                        if len(ij) < 8:
+                        patch = groups[slc] == group
+                        if patch.sum() < 8:
                             continue
-                        corners = (
-                            a + ij[:, 0, None] * CELL * along + ij[:, 1, None] * CELL * outward
-                        )
-                        quads = corners[:, None] + CELL * np.array(
-                            [[0, 0], along, along + outward, outward]
-                        )
-                        region = shapely.union_all(shapely.polygons(quads)).simplify(0.08)
+                        origin = a + CELL * (slc[0].start * along + slc[1].start * outward)
+                        region = support_region(patch, origin, along, outward)
                         region = shapely.make_valid(region.difference(footprints))
                         if region.is_empty or region.area < 0.5:
                             continue
@@ -240,7 +247,7 @@ def prepare(tile, vector, paths):
         records.extend(
             cache.run(
                 "survey",
-                source_key(measure, ground_points),
+                source_key(measure, support_region, ground_points),
                 [
                     CELL,
                     REACH,

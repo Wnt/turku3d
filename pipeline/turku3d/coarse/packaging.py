@@ -71,6 +71,7 @@ PRODUCERS = (
     "canopy_trees",
     "fences",
     "fence_survey",
+    "route_surface",
     "furniture",
     "tree_inputs",
     "geometry",

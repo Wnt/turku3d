@@ -1,5 +1,6 @@
 import type { WebGPURenderer } from 'three/webgpu';
 import { GpuFrameTimer } from './gpuTimer';
+import { GPU_PASSES, type GpuPassTimes } from './gpuPasses';
 
 export function percentiles(values: number[]) {
   const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
@@ -7,7 +8,7 @@ export function percentiles(values: number[]) {
   return { samples: sorted.length, p50: at(0.5), p95: at(0.95) };
 }
 
-interface FrameSample { frame: number; cpu: number; interval: number | null; gpu: number | null }
+interface FrameSample { frame: number; cpu: number; interval: number | null; gpu: number | null; passes?: GpuPassTimes }
 
 export class PerformanceMonitor {
   private samples = new Map<number, FrameSample>();
@@ -20,19 +21,23 @@ export class PerformanceMonitor {
   private timer: GpuFrameTimer;
   private minimumFrame = 0;
   private skippedAtReset = 0;
+  private passesSkippedAtReset = 0;
   lastCpu = 0;
   lastGpu = 0;
   lastGpuFrame = -1;
+  lastGpuPasses: GpuPassTimes | null = null;
+  lastGpuPassFrame = -1;
 
   /** CPU and GPU overlap; use the limiting stage, not their sum or the capped RAF interval. */
   get frameCostMs() { return Math.max(this.lastCpu, this.lastGpu); }
 
   constructor(private renderer: WebGPURenderer, private backend: string) {
-    this.timer = new GpuFrameTimer(renderer, (frame, gpu) => {
+    this.timer = new GpuFrameTimer(renderer, (frame, gpu, passes) => {
       const sample = this.samples.get(frame);
-      if (sample && frame >= this.minimumFrame) sample.gpu = gpu;
+      if (sample && frame >= this.minimumFrame) { sample.gpu = gpu; sample.passes = passes; }
       if (sample && frame >= this.minimumFrame && frame > this.lastGpuFrame) {
         this.lastGpu = gpu; this.lastGpuFrame = frame;
+        this.lastGpuPasses = passes ?? null; this.lastGpuPassFrame = passes ? frame : -1;
       }
     });
   }
@@ -68,8 +73,10 @@ export class PerformanceMonitor {
     this.totalFrames = 0;
     this.previousStart = null;
     this.lastCpu = this.lastGpu = 0; this.lastGpuFrame = -1;
+    this.lastGpuPasses = null; this.lastGpuPassFrame = -1;
     this.minimumFrame = this.renderer.info.frame;
     this.skippedAtReset = this.timer.skipped;
+    this.passesSkippedAtReset = this.timer.passSkipped;
   }
 
   snapshot() {
@@ -83,8 +90,19 @@ export class PerformanceMonitor {
       workMs: percentiles(rows.flatMap(s => s.gpu === null ? [] : [s.cpu + s.gpu])),
       frameMs: percentiles(rows.flatMap(s => s.interval === null ? [] : [s.interval])),
       gpuStatus: this.timer.status, gpuSkipped: this.timer.skipped - this.skippedAtReset,
+      gpuPassStatus: this.timer.passStatus,
       drawCalls: this.calls, triangles: this.triangles,
     };
+  }
+
+  /** Diagnostic-only percentiles: do not add nine extra sorts to each HUD refresh.
+   * Repeated passes (cascades/bloom levels) sum per frame; absent passes count as zero.
+   * Copy/compute work and GPU idle gaps remain in whole-frame gpuMs, not these totals. */
+  passSnapshot() {
+    const rows = [...this.samples.values()].filter(s => s.passes !== undefined);
+    return { status: this.timer.passStatus, frames: rows.length,
+      skipped: this.timer.passSkipped - this.passesSkippedAtReset,
+      gpuMs: Object.fromEntries(GPU_PASSES.map(name => [name, percentiles(rows.map(s => s.passes![name] ?? 0))])) };
   }
 }
 

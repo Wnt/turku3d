@@ -59,6 +59,7 @@ export class PositionHud {
   private queryModels = -1;
   private queryVisibility = -1;
   private target = '';
+  private instanceBounds = new WeakMap<THREE.InstancedMesh, { matrix: THREE.InstancedBufferAttribute; version: number; count: number; sphere: THREE.Sphere }>();
 
   constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles, readonly enabled = devToolsEnabled(location),
     private visibilityVersion: () => number = () => 0) {
@@ -103,7 +104,17 @@ export class PositionHud {
       if (!mesh.isMesh || o.userData.shadowBatch || !this.ray.layers.test(mesh.layers)) return;
       if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
         const instance = mesh as THREE.InstancedMesh;
-        if (!instance.boundingBox) instance.computeBoundingBox();
+        let bounds = this.instanceBounds.get(instance);
+        if (!instance.boundingBox || !bounds || bounds.matrix !== instance.instanceMatrix
+          || bounds.version !== instance.instanceMatrix.version || bounds.count !== instance.count) {
+          instance.computeBoundingBox();
+          if (!bounds) {
+            bounds = { matrix: instance.instanceMatrix, version: -1, count: -1, sphere: new THREE.Sphere() };
+            this.instanceBounds.set(instance, bounds);
+          }
+          bounds.matrix = instance.instanceMatrix; bounds.version = instance.instanceMatrix.version; bounds.count = instance.count;
+          instance.boundingBox!.getBoundingSphere(bounds.sphere);
+        }
         this.bounds.copy(instance.boundingBox!);
       } else {
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
@@ -119,7 +130,15 @@ export class PositionHud {
     for (const { mesh, distance } of this.candidates) {
       if (distance > this.ray.far) break;
       this.hits.length = 0;
-      mesh.raycast(this.ray, this.hits);
+      const instance = mesh as THREE.InstancedMesh;
+      const bounds = this.instanceBounds.get(instance);
+      if (bounds) {
+        // Raycast needs the same fresh bounds. Preserve any conservative sphere
+        // installed by the renderer/LOD owner; never tighten its render culling.
+        const sphere = instance.boundingSphere;
+        try { instance.boundingSphere = bounds.sphere; mesh.raycast(this.ray, this.hits); }
+        finally { instance.boundingSphere = sphere; }
+      } else mesh.raycast(this.ray, this.hits);
       for (const candidate of this.hits) if (!hit || candidate.distance < hit.distance) {
         hit = candidate;
         this.ray.far = hit.distance;
