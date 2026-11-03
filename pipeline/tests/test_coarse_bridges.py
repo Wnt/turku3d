@@ -603,3 +603,23 @@ def test_furniture_omits_detached_stub_shorter_than_post_bay():
         )
         == []
     )
+
+
+def test_deck_resting_on_ground_over_nothing_is_a_terrace_with_railings_only_at_drops():
+    from turku3d.coarse.bridges import drop_edges, on_grade
+
+    deck = shapely.LineString([(0, 0), (20, 0)]).buffer(3)
+    level = np.full(11, 10.2)
+    roof, none = shapely.box(4, -2, 16, 10), shapely.Polygon()
+    assert on_grade(level, level - 0.1, [], deck, none, roof)
+    assert not on_grade(level, level - 0.1, [], deck, none, none)  # no roof: a bridge on banks
+    assert not on_grade(level, level - 3, [], deck, none, roof)  # a real span
+    assert not on_grade(level, level, [(5, 6, 4.5)], deck, none, roof)  # crosses a way
+    assert not on_grade(level, level, [], deck, shapely.box(5, -10, 8, 10), roof)  # over water
+    # Terrace at 10.2 on the hill side (z > 0), the street 4 m lower in front (z < -3).
+    ground = lambda xz: np.where(np.asarray(xz)[:, 1] < -3.5, 6.0, 10.2)
+    height = lambda xz: np.full(len(np.asarray(xz)), 10.2)
+    edges = shapely.MultiLineString([[(0, -3), (20, -3)], [(0, 3), (20, 3)]])
+    kept = drop_edges(edges, height, ground)
+    assert kept.length > 19
+    assert shapely.get_coordinates(kept)[:, 1].max() < -2.9  # only the street edge

@@ -306,6 +306,44 @@ def under_height(bridge, under, point, sample):
     return float(np.interp(station, [a[0] for a in anchors], [a[1] for a in anchors]))
 
 
+GRADE = 0.4  # a deck this close to the measured ground under it rests on that ground
+DROP = 1.0  # an on-grade deck edge needs a railing only above a drop this deep
+
+
+def on_grade(heights, terrain, requirements, footprint, water, roofs):
+    """A deck on a building's roof terrace: over no mapped way or water, partly on the
+    roof, with a profile that follows the measured ground (the terrace) under it."""
+    if requirements or not len(heights) or (not water.is_empty and footprint.intersects(water)):
+        return False
+    if roofs.is_empty or footprint.intersection(roofs).area < 0.1 * footprint.area:
+        return False
+    return float(np.mean(np.abs(np.asarray(heights) - np.asarray(terrain)) <= GRADE)) >= 0.9
+
+
+def drop_edges(lines, height_at, sample_ground, step=1.0):
+    """Parts of an on-grade deck's edges where the ground beside it falls away."""
+    from shapely.ops import substring
+
+    keep = []
+    for part in shapely.get_parts(lines):
+        if part.geom_type not in ("LineString", "LinearRing") or part.length < 1e-6:
+            continue
+        count = max(1, int(np.ceil(part.length / step)))
+        for k in range(count):
+            piece = substring(part, k * part.length / count, (k + 1) * part.length / count)
+            ends = np.asarray(piece.coords)[[0, -1]]
+            direction = ends[1] - ends[0]
+            if np.linalg.norm(direction) < 1e-9:
+                continue
+            normal = np.array([-direction[1], direction[0]]) / np.linalg.norm(direction)
+            middle = ends.mean(axis=0)
+            beside = sample_ground(np.array([middle + normal, middle - normal]))
+            if float(height_at(middle[None])[0]) - float(np.min(beside)) > DROP:
+                keep.append(piece)
+    # Merged pieces keep their joints; drop them so railings get no zero-length bays.
+    return shapely.line_merge(shapely.union_all(keep)).simplify(0.01) if keep else shapely.LineString()
+
+
 def deck_profile(stations, ground, ends, requirements=(), thickness=THICKNESS):
     """Abutment line raised uniformly to clear terrain and (station, ground, clearance) crossings.
 
@@ -592,6 +630,16 @@ def produce(tile, grid_pos, inputs):
             if landing
             else deck_profile(s, terrain, ends, requirements, spec["thickness"])
         )
+        wet = shapely.union_all(list(getattr(inputs, "water", ()) or ()))
+        # The way's mapped building outlines are the same in both tiles of a split deck.
+        if not landing and on_grade(heights, terrain, requirements, axis.buffer(width / 2), wet,
+                                    obstacles):
+            # A mapped bridge that crosses nothing and rests on measured ground is a
+            # terrace driveway (a roof terrace of a building set into a slope): a
+            # thin paved slab, no body, abutments, supports or ramps, and a railing
+            # only where the ground beside it drops away.
+            way = {**way, "landing": True, "on_grade": True}
+            spec = details.style(way)
         if "heights" in survey:
             heights = np.interp(s, survey["stations"], survey["heights"])
         elif anchors:
@@ -673,6 +721,8 @@ def produce(tile, grid_pos, inputs):
             meshes[1].metadata["night_soffit"] = True
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
+        if way.get("on_grade"):
+            rail_lines = drop_edges(rail_lines, height_at, sample_ground)
         meshes.extend(
             details.furniture(
                 way,
