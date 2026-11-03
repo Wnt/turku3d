@@ -139,6 +139,36 @@ test('stationary targets reuse queries but motion, streaming, filters, freshness
   expect(writeText.mock.calls[0][0]).toContain('Centre: office');
 });
 
+test.each(['matrix', 'count'])('instance %s changes refresh query bounds without tightening render culling', change => {
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
+  const camera = new THREE.PerspectiveCamera(), tiles = new VisualTiles();
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial(), 2);
+  const transform = new THREE.Matrix4();
+  mesh.setMatrixAt(0, transform.makeTranslation(100, 0, -10));
+  mesh.setMatrixAt(1, transform.makeTranslation(0, 0, -10));
+  mesh.instanceMatrix.needsUpdate = true; mesh.count = 1;
+  mesh.userData.instance_objects = [{ building_id: 'close' }, { building_id: 'close' }];
+  mesh.computeBoundingBox(); mesh.computeBoundingSphere(); mesh.updateMatrixWorld();
+  const renderSphere = mesh.boundingSphere!, originalSphere = renderSphere.clone();
+  const computeBox = vi.spyOn(mesh, 'computeBoundingBox');
+  tiles.models.add(mesh);
+  const hud = new PositionHud(camera, tiles, true);
+  hud.update(0, true);
+  expect(hud.element.textContent).not.toContain('Centre:');
+  if (change === 'matrix') {
+    mesh.setMatrixAt(0, transform.makeTranslation(0, 0, -10)); mesh.instanceMatrix.needsUpdate = true;
+  } else mesh.count = 2;
+  camera.position.x = .01;
+  hud.update(500, true);
+  expect(hud.element.textContent).toContain('Centre: close');
+  expect(computeBox).toHaveBeenCalledTimes(2);
+  camera.position.x = .02; hud.update(1000, true);
+  expect(computeBox).toHaveBeenCalledTimes(2);
+  expect(mesh.boundingSphere).toBe(renderSphere);
+  expect(mesh.boundingSphere).toEqual(originalSphere);
+});
+
 test('public sessions cannot show, toggle, copy or hide the character with photo shortcuts', async () => {
   vi.stubGlobal('document', { createElement: () => ({ hidden: false }), body: { append: () => {} } });
   const hud = new PositionHud(new THREE.PerspectiveCamera(), new VisualTiles(), false);

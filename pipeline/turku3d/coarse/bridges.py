@@ -239,17 +239,13 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         )
         members = b.get("member_ways", [b])
         endpoints = shapely.union_all([member["line"].boundary for member in members])
-        rail = b["tags"].get("railway") in RAILS
         foot = b["tags"].get("highway") in PATHS
-        b["approaches"] = [
-            w
-            for i in sorted(road_tree.query(endpoints.buffer(0.05), predicate="intersects"))
-            for w in [ways[i]]
-            if not w["bridge"]
-            and (w["tags"].get("railway") in RAILS) == rail
-            and (w["tags"].get("highway") in PATHS) == foot
-            and w["line"].boundary.distance(endpoints) < 0.05
-        ]
+        from .bridge_join import connected_approaches
+
+        b["approaches"] = connected_approaches(
+            members,
+            [ways[i] for i in sorted(road_tree.query(endpoints.buffer(0.05), predicate="intersects"))],
+        )
         from .bridge_access import configure
 
         configure(b, ways, members, foot)
@@ -348,7 +344,11 @@ def approach_lengths(way, ends, sample, obstacles):
     if way.get("landing"):
         return 0.0, 0.0
     minimum = min(3.0, axis.length * 0.1)
-    approaches = way.get("approaches", [])
+    approaches = [
+        w for w in way.get("approaches", [])
+        if (w["tags"].get("highway") in PATHS) == (way["tags"].get("highway") in PATHS)
+        and (w["tags"].get("railway") in RAILS) == (way["tags"].get("railway") in RAILS)
+    ]
     corridor = shapely.union_all([w["line"].buffer(w["width"] / 2 + 2) for w in approaches])
     # A divided carriageway's outline axis lies between its mapped continuations.
     # Fill that narrow median, rather than treating it as an unmapped bank.
@@ -467,6 +467,7 @@ class Deck:
     heights: np.ndarray
     meshes: list
     height_at: object = None
+    aprons: tuple = ()
 
 
 def approach_branches(way):
@@ -668,39 +669,22 @@ def produce(tile, grid_pos, inputs):
                 obstacles=obstacles.buffer(0.6),
             )
         )
-        # Blend only the approaches into the ground. The entire span below stays traversable.
-        # The centreline can reach road level while the outside of a skew
-        # abutment is still on the lower bank. A flat cap drops those raised
-        # corners straight back into the TIN, leaving a ditch beside the road.
-        # Fade the fill over two ground cells beyond each landward join too.
+        # Every member's mapped land continuation shares the same end taper,
+        # including side paths whose skew endpoint lies inside the main axis.
+        from .bridge_join import approach_patches, grade
         from .inputs import CELLS
+        from .walkable import sampler as walk_sampler
 
-        feather = 2 * tile.size / CELLS
-        join_line = extended(line, feather)
-        corridor = join_line.buffer(width / 2 + 2, cap_style="flat")
-        candidates = np.flatnonzero(shapely.contains_xy(corridor, grid_pos[:, 0], grid_pos[:, 2]))
-        blocked_approaches = obstacles.buffer(width / 2)
-        for i in candidates:
-            p = shapely.Point(grid_pos[i, [0, 2]])
-            t = join_line.project(p) - feather
-            if (
-                way.get("stair_access")
-                or start_ramp <= t <= start_ramp + axis.length
-                or (t < 0 and not start_ramp)
-                or (t > line.length and not end_ramp)
-                or blocked_approaches.covers(p)
-                or any(g.covers(p) for g in blocked)
-            ):
-                continue
-            lateral = max(0.0, join_line.distance(p) - width / 2)
-            target = float(np.interp(t, ss, hh)) - 0.02
-            blend = (1 - lateral / 2) * np.clip(1 + min(t, line.length - t) / feather, 0, 1)
-            grid_pos[i, 1] = max(
-                grid_pos[i, 1], target * blend + grid_pos[i, 1] * (1 - blend)
-            )
+        protected = shapely.union_all([*blocked, obstacles.buffer(.15), *getattr(inputs, "water", ())])
+        aprons = approach_patches(
+            way, line, (start_ramp, end_ramp), height_at,
+            walk_sampler(full_ground, getattr(inputs, "walkable", ())),
+            protected, 2 * tile.size / CELLS,
+        )
+        grid_pos[:] = grade(grid_pos, aprons)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
         if meshes:
-            decks.append(Deck(way, line, ss, hh, meshes, height_at))
+            decks.append(Deck(way, line, ss, hh, meshes, height_at, tuple(aprons)))
     return decks
 
 

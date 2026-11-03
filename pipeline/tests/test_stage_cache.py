@@ -442,6 +442,58 @@ def test_registering_unrelated_dataset_helper_preserves_existing_inputs(monkeypa
     assert input_keys.producer_code('ground') == before
 
 
+def test_input_dependencies_follow_local_helpers_and_constants_not_mesh_emitters(tmp_path):
+    from turku3d.coarse.input_keys import dependency_code
+
+    source = tmp_path / 'attachments.py'
+    code = '''import numpy as np
+CELL = 0.25
+def measure(points, cell=CELL):
+    return np.floor(points / cell)
+def prepare(tile, points):
+    return measure(points)
+def produce(tile, records):
+    return records
+'''
+    source.write_text(code)
+    before = dependency_code(source, 'attachments')
+    source.write_text(code.replace('return records', 'return records[:1]'))
+    assert dependency_code(source, 'attachments') == before
+    for changed in (code.replace('0.25', '0.5'),
+                    code.replace('np.floor', 'np.ceil'),
+                    code.replace('import numpy as np', 'import other as np')):
+        source.write_text(changed)
+        assert dependency_code(source, 'attachments') != before
+
+
+def test_prepared_surveys_survive_mesh_only_edits(tmp_path, monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs
+
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'cache'))
+    before = {name: inputs._key([], name) for name in
+              ('attachments', 'retaining', 'walkable', 'stairs', 'surfaces', 'markings',
+               'vegetation_canopy', 'ground', 'wfs')}
+    original = Path.read_bytes
+    def edited(path):
+        data = original(path)
+        if path.name in ('attachments.py', 'retaining.py', 'stairs.py'):
+            data = data.replace(b'def produce(', b'def unused_mesh_producer(')
+        if path.name == 'walkable.py':
+            data = data.replace(b'def grade(', b'def unused_mesh_grade(')
+        if path.name == 'surfaces.py':
+            data = data.replace(b'def split_boundaries(', b'def unused_mesh_split(')
+        if path.name == 'canopy_trees.py':
+            data = data.replace(b'def inventory(', b'def unused_inventory(')
+        if path.name == 'trees.py':
+            data = data.replace(b'def variant(', b'def unused_variant(')
+        if path.name == 'reconstruct.py':
+            data = data.replace(b'def selection_code(', b'def unused_selection_code(')
+        return data
+    monkeypatch.setattr(Path, 'read_bytes', edited)
+    assert {name: inputs._key([], name) for name in before} == before
+
+
 def test_shared_preparation_reads_published_result_after_waiting_for_another_version(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     import threading

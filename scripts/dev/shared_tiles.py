@@ -19,6 +19,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import signal
 import socket
@@ -44,6 +45,11 @@ RAW_CACHES = {
     'vegetation': ('vegetation/trees.py',),
     'coarse-roofs': ('buildings/reconstruct.py', 'buildings/inputs.py'),
     'lidar': ('lidar/cache.py',),
+}
+RAW_PRODUCERS = {
+    'vegetation/trees.py': ('reduced_points',),
+    'buildings/reconstruct.py': ('class6',),
+    'buildings/inputs.py': ('read_points',),
 }
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'generation')
@@ -578,7 +584,8 @@ class Farm:
         repo = self.root / 'revisions' / revision / 'repo'
         self.mount_intermediates(repo, root / 'work')
         env = dict(os.environ, REPO=str(repo), TURKU3D_SHARED_CACHE=str(self.root / 'cache'),
-                   TURKU3D_WORK=str(root / 'work'))
+                   TURKU3D_WORK=str(root / 'work'),
+                   TURKU3D_THREADS_PER_WORKER=str(max(1, (os.cpu_count() or 1) // self.workers)))
         # Encoders already lock their content keys; share their results across revisions too.
         textures = self.root / 'cache' / 'textures'
         textures.mkdir(parents=True, exist_ok=True)
@@ -656,10 +663,21 @@ class Farm:
         """Whole-source decoding has its own producer identity, independent of tile geometry."""
         base = repo / 'pipeline/turku3d'
         result = {}
+        selector = base / 'source_code.py'
+        select = runpy.run_path(str(selector))['selected_source'] if selector.exists() else None
         for name, sources in RAW_CACHES.items():
             paths = [base / 'config.py', *(base / p for p in sources)]
+            # Older immutable revisions still use direct LAZ readers during handoff.
+            decoder = base / 'lidar/decoded.py'
+            if decoder.exists():
+                paths.append(decoder)
             if all(p.exists() for p in paths):
-                digest = hashlib.sha256(b''.join(p.read_bytes() for p in paths)).hexdigest()
+                code = []
+                for path in paths:
+                    source = path.read_bytes()
+                    roots = RAW_PRODUCERS.get(str(path.relative_to(base)))
+                    code.append(select(source, roots) if select and roots else source)
+                digest = hashlib.sha256(b''.join(code)).hexdigest()
                 result[name] = self.root / 'cache/raw-derived' / name / digest
         return result
 
@@ -810,6 +828,34 @@ class Farm:
             if self.free() >= target:
                 return True
         cache = self.root / 'cache'
+        # Decoded arrays are opened under their source lock and memory-mapped.
+        # Unlinking a cold entry cannot invalidate an existing reader's inode;
+        # do not wait for a city-wide queue to become idle before reclaiming it.
+        decoded = []
+        for path in (cache / 'raw-derived/decoded').glob('*/*.npy'):
+            if not HASHED.fullmatch(path.stem) or not HASHED.fullmatch(path.parent.name):
+                continue
+            try:
+                decoded.append((path.stat().st_mtime, path))
+            except FileNotFoundError:
+                continue
+        for _, path in sorted(decoded):
+            try:
+                with path.with_suffix('.lock').open('a') as lock:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    stat = path.stat()
+                    if time.time() - stat.st_mtime < self.grace_seconds:
+                        continue
+                    path.unlink()
+                    self.metrics['evicted_bytes'] += stat.st_size
+                    self.event('decoded-cache-evicted', key=path.stem, bytes=stat.st_size)
+            except FileNotFoundError:
+                continue
+            if self.free() >= target:
+                return True
         # Map files are hard-linked into private products before the producer lock
         # is released, so old shared entries can be evicted even while builds run.
         map_candidates = []

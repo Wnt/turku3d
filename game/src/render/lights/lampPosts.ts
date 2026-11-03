@@ -53,6 +53,8 @@ export class LampPosts {
   private used = 0;
   private last = { x: Infinity, z: Infinity, t: -Infinity };
   private dirty = true;
+  private uploadStart = Infinity;
+  private uploadEnd = 0;
 
   constructor(readonly capacity = 1024) {
     const material = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.4 });
@@ -60,7 +62,8 @@ export class LampPosts {
     material.emissiveNode = vec3(1.0, 0.88, 0.72).mul(attribute('lampGlow', 'float')).mul(this.night).mul(6);
     this.mesh = new THREE.InstancedMesh(postGeometry(), material, capacity);
     this.mesh.name = 'street-lamp-posts';
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // r186 uploads DynamicDrawUsage every render, even without a version change.
+    // These matrices change only on refresh; versioned updates retain partial ranges.
     this.mesh.castShadow = true; this.mesh.receiveShadow = true;
     // Instances span the window; per-pass culling of one draw buys nothing.
     this.mesh.frustumCulled = false;
@@ -93,21 +96,39 @@ export class LampPosts {
       const s = lamp.scale * postFade(Math.hypot(lamp.x - x, lamp.z - z));
       _m.makeRotationY(lamp.yaw).scale(_s.setScalar(s)).setPosition(lamp.x, lamp.y, lamp.z);
       if (s <= 0) this.park(_m);
-      _m.toArray(this.mesh.instanceMatrix.array, slot * 16);
+      this.writeMatrix(slot);
     }
     // Trim trailing free slots so the draw covers only used instances; keep one so the program stays warm.
     while (this.used > 1 && this.free.includes(this.used - 1)) { this.free.splice(this.free.indexOf(this.used - 1), 1); this.used--; }
     this.mesh.count = Math.max(1, this.used);
-    this.mesh.instanceMatrix.clearUpdateRanges();
-    this.mesh.instanceMatrix.addUpdateRange(0, this.mesh.count * 16);
-    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.uploadEnd > this.uploadStart) {
+      const attribute = this.mesh.instanceMatrix;
+      // An update can run again before a hidden draw uploads. Retain its pending dirty span.
+      for (const range of attribute.updateRanges) {
+        this.uploadStart = Math.min(this.uploadStart, range.start);
+        this.uploadEnd = Math.max(this.uploadEnd, range.start + range.count);
+      }
+      attribute.clearUpdateRanges();
+      attribute.addUpdateRange(this.uploadStart, this.uploadEnd - this.uploadStart);
+      attribute.needsUpdate = true;
+      this.uploadStart = Infinity; this.uploadEnd = 0;
+    }
   }
 
   get drawn() { return this.slots.size; }
 
   /** A collapsed instance far below the city: no fragments, but the draw (and its pipeline) stays alive. */
   private park(m: THREE.Matrix4) { return m.makeScale(0, 0, 0).setPosition(0, -1000, 0); }
-  private parkSlot(slot: number) { this.park(_m).toArray(this.mesh.instanceMatrix.array, slot * 16); }
+  private writeMatrix(slot: number) {
+    const array = this.mesh.instanceMatrix.array, offset = slot * 16;
+    let changed = false;
+    for (let i = 0; i < 16; i++) if (array[offset + i] !== Math.fround(_m.elements[i])) { changed = true; break; }
+    if (!changed) return;
+    _m.toArray(array, offset);
+    this.uploadStart = Math.min(this.uploadStart, offset);
+    this.uploadEnd = Math.max(this.uploadEnd, offset + 16);
+  }
+  private parkSlot(slot: number) { this.park(_m); this.writeMatrix(slot); }
 
   dispose() { this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); this.mesh.dispose(); }
 }

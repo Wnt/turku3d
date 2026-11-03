@@ -7,13 +7,38 @@ function element(): any {
   return { append() {}, replaceChildren() {}, setAttribute() {}, querySelectorAll: () => [], style: {}, dataset: {}, remove() {} };
 }
 afterEach(() => vi.unstubAllGlobals());
-function setup(choices: Record<string, boolean> = {}) {
+function setup(choices: Record<string, boolean> = {}, readout: any = null) {
   vi.stubGlobal('location', { hostname: 'localhost', search: '' });
-  vi.stubGlobal('document', { createElement: element, createTextNode: () => ({}), body: element(), getElementById: () => null });
+  const events = new EventTarget();
+  vi.stubGlobal('document', { createElement: element, createTextNode: () => ({}), body: element(), getElementById: () => readout,
+    addEventListener: events.addEventListener.bind(events), removeEventListener: events.removeEventListener.bind(events) });
   vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ choices }), setItem() {} });
   const scene = new THREE.Scene();
-  return { scene, panel: new DevLayers(scene, null) };
+  return { scene, panel: new DevLayers(scene, null), events };
 }
+
+test('closed layer button follows HUD visibility, resized text and debug layout without repeated measurements', () => {
+  let resize = () => {};
+  const observe = vi.fn(), disconnect = vi.fn();
+  vi.stubGlobal('ResizeObserver', class { constructor(callback: () => void) { resize = callback; } observe = observe; disconnect = disconnect; });
+  let bottom = 140;
+  const readout = { hidden: false, getBoundingClientRect: vi.fn(() => ({ bottom })) };
+  const { panel, events } = setup({}, readout);
+  panel.update();
+  expect(observe).toHaveBeenCalledWith(readout);
+  expect(panel.element.style.top).toBe('144px');
+  panel.update(); panel.update();
+  expect(readout.getBoundingClientRect).toHaveBeenCalledOnce();
+  readout.hidden = true; panel.update();
+  expect(panel.element.style.top).toBe('86px');
+  readout.hidden = false; panel.update();
+  expect(panel.element.style.top).toBe('144px');
+  bottom = 168; resize(); panel.update();
+  expect(panel.element.style.top).toBe('172px');
+  bottom = 294; events.dispatchEvent(new Event('turku3d-hud-layout')); panel.update();
+  expect(panel.element.style.top).toBe('298px');
+  panel.dispose(); expect(disconnect).toHaveBeenCalledOnce();
+});
 test('discovers authored types, tree variants, bridge parts and unfamiliar layers', () => {
   expect(layerPath({ layer: 'buildings', surface: 'facade-component' })).toBe('Buildings/Facade Component');
   expect(layerPath({ layer: 'vegetation', variant: 'birch', material_key: 'tree_bark' })).toBe('Vegetation/Birch');

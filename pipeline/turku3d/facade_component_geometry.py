@@ -29,10 +29,10 @@ def frame(vertices):
 
 
 def plan(vertices, wall):
-    """Admit only components contained by this surviving roof/passage wall fragment.
+    """Fit components to surviving walls; clip arcades without resetting columns.
 
-    This prevents decoration bridging a mapped through-passage or duplicated LOD2
-    part. Partial/occluded fragments stay unresolved rather than recreating a wall.
+    Other partial components remain unresolved. An arcade only removes existing
+    surface, so clipping it cannot fill a mapped passage or recreate a removed wall.
     """
     descriptors = wall.get("geometry_components", [])
     if not descriptors:
@@ -64,6 +64,21 @@ def plan(vertices, wall):
         # Insets keep corner returns/slabs clear of neighbouring wall and roof faces.
         left, right = left + 0.04, right - 0.04
         bottom, top = bottom + 0.04, top - 0.04
+        source_left, source_right = left, right
+        source_bottom, source_top = bottom, top
+        columns = None
+        if desc["kind"] == "arcade":
+            # A long arcade crosses roof/passage fragments. Clip its surface,
+            # while retaining the surveyed column phase and true end returns.
+            count = max(2, desc["count"] if desc["count"] > 1 else int((right - left) / 4) + 1)
+            columns = (
+                np.array([])
+                if desc.get("no_columns")
+                else np.linspace(left + 0.18, right - 0.18, count)
+            )
+            left, right = max(left, 0), min(right, length)
+            bottom = max(bottom, float(vertices[:2, 1].max()))
+            top = min(top, float(vertices[2:, 1].min()))
         rect = shapely.box(left, bottom, right, top)
         if (
             right - left < 0.3
@@ -77,13 +92,29 @@ def plan(vertices, wall):
         ):
             continue
         occupied = occupied.union(rect)
+        through = bool(
+            desc.get("through") and desc.get("support", 0) >= 0.6 and 0 < desc["depth_m"] <= 12
+        )
+        # Ground-level through-colonnades use the terrain pavement. A flat
+        # component slab otherwise floats over its slope and hides the opening.
+        terrain_floor = through and desc["bounds"][1] == 0
         admitted.append(
             {
                 **desc,
+                "through": through,
                 "rect": rect,
                 "metric": [left, bottom, right, top],
                 "tangent": tangent,
                 "normal": normal,
+                "column_centres": columns,
+                "returns": [False] * 4
+                if desc.get("no_returns")
+                else [
+                    left == source_left,
+                    right == source_right,
+                    bottom == source_bottom and not terrain_floor,
+                    top == source_top,
+                ],
             }
         )
     return admitted
@@ -102,11 +133,13 @@ def surface_parts(points, uv, plans, *, collision=False):
     cuts = [
         p
         for p in plans
-        if p["kind"] in {"bay", "recess", "loggia", "arcade"}
-        and (not collision or p["kind"] == "arcade")
+        if p["kind"] in {"bay", "recess", "loggia", "arcade", "through_cut"}
+        and (not collision or p["kind"] in {"arcade", "through_cut"})
     ]
     regions = [(surface.difference(shapely.union_all([p["rect"] for p in cuts])), 0)]
     for p in cuts:
+        if p.get("through"):
+            continue
         depth = p["depth_m"] * (1 if p["kind"] == "bay" else -1)
         regions.append((surface.intersection(p["rect"]), depth))
     # UV is affine on each existing wall paint quad, including stored-map clamping.
@@ -157,10 +190,15 @@ def geometry(vertices, plans, building, origin):
         out[:, 1] = xyz[:, 1]
         return out
 
-    def face(coords, material="wall"):
+    def face(coords, material="wall", *, component_return=False):
         meshes.append(
             quad_mesh(
-                world(coords), f"{identity}_{len(meshes)}", material, building, origin
+                world(coords),
+                f"{identity}_{len(meshes)}",
+                material,
+                building,
+                origin,
+                component_return=component_return,
             )
         )
 
@@ -221,13 +259,18 @@ def geometry(vertices, plans, building, origin):
         if kind in {"bay", "recess", "loggia", "arcade"}:
             z = d if kind == "bay" else -d
             # The original wall patch is removed; only its returns and moved face exist.
-            for coords in (
-                [[left, y, 0], [left, y, z], [left, t, z], [left, t, 0]],
-                [[r, y, z], [r, y, 0], [r, t, 0], [r, t, z]],
-                [[left, y, z], [left, y, 0], [r, y, 0], [r, y, z]],
-                [[left, t, 0], [left, t, z], [r, t, z], [r, t, 0]],
+            for keep, coords in zip(
+                p.get("returns", [True] * 4),
+                (
+                    [[left, y, 0], [left, y, z], [left, t, z], [left, t, 0]],
+                    [[r, y, z], [r, y, 0], [r, t, 0], [r, t, z]],
+                    [[left, y, z], [left, y, 0], [r, y, 0], [r, y, z]],
+                    [[left, t, 0], [left, t, z], [r, t, z], [r, t, 0]],
+                ),
+                strict=True,
             ):
-                face(coords)
+                if keep:
+                    face(coords, component_return=True)
             if kind == "bay":
                 # Collision uses a box, but its expanded mesh is not emitted twice.
                 before = len(meshes)
@@ -237,15 +280,21 @@ def geometry(vertices, plans, building, origin):
                 # Back and returns are supplied to collision below. Column rhythm is
                 # observed when counted, otherwise a conservative <=4 m spacing prior.
                 count = max(2, p["count"] if p["count"] > 1 else int((r - left) / 4) + 1)
-                for x in np.linspace(left + 0.18, r - 0.18, count):
-                    box(x - 0.12, y, 0.03, x + 0.12, t - 0.2, 0.31)
+                centres = p.get("column_centres")
+                if centres is None:
+                    centres = np.linspace(left + 0.18, r - 0.18, count)
+                for x in centres:
+                    if x + 0.12 > left and x - 0.12 < r:
+                        box(max(left, x - 0.12), y, 0.03, min(r, x + 0.12), t - 0.2, 0.31)
                 if p["head"] != "flat":
                     # Faceted arch spandrels occupy only the head above the opening.
                     for a, b in zip(
-                        np.linspace(left + 0.3, r - 0.3, count)[:-1],
-                        np.linspace(left + 0.3, r - 0.3, count)[1:],
+                        centres[:-1] + 0.12,
+                        centres[1:] - 0.12,
                         strict=True,
                     ):
+                        if a < left or b > r:
+                            continue
                         radius = (b - a) / 2
                         xs = np.linspace(a, b, 9)
                         for x0, x1 in zip(xs[:-1], xs[1:], strict=True):
@@ -308,7 +357,10 @@ def collision_walls(building, walls):
     """Open collision only for walkable arcades; passages remain tunnel-owned."""
     from turku3d.facade_programs import matching_wall, measured
 
+    from turku3d.facade_apertures import cuts, volumes
+
     observation = measured(building.facade_key)
+    apertures = volumes(observation)
     if not observation or not any(w.get("geometry_components") for w in observation["walls"]):
         idx = (
             np.concatenate([TRI + i * 4 for i in range(len(walls) // 4)])
@@ -327,7 +379,7 @@ def collision_walls(building, walls):
 
     for vertices in walls.reshape(-1, 4, 3):
         own = matching_wall(vertices, observation)
-        plans = plan(vertices, own) if own else []
+        plans = (plan(vertices, own) if own else []) + cuts(vertices, apertures)
         _, boxes = geometry(vertices, plans, building.facade_key, np.zeros(3))
         uv = np.zeros((4, 2))
         for points, _ in surface_parts(vertices, uv, plans, collision=True):
@@ -339,8 +391,9 @@ def collision_walls(building, walls):
             if p["kind"] != "arcade":
                 continue
             only, _ = geometry(vertices, [p], building.facade_key, np.zeros(3))
-            for mesh in only[:4]:
-                append(mesh.positions, mesh.indices)
+            for mesh in only:
+                if mesh.extras.get("component_return"):
+                    append(mesh.positions, mesh.indices)
     return (
         (np.concatenate(positions), np.concatenate(indices))
         if positions

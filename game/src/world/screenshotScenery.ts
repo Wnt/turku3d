@@ -61,7 +61,12 @@ export class ScreenshotScenery {
   private release(id: string, e: Scenery) {
     const nearby = this.nearby.get(id);
     if (nearby?.preview && nearby.model) nearby.model.visible = true;
-    if (e.model) this.dispose(e.model,id);
+    if (e.model) this.retireModel(e.model,id);
+  }
+
+  private retireModel(model: THREE.Object3D, id: string) {
+    model.removeFromParent();
+    this.batches.retireModel(model, () => this.dispose(model, id));
   }
 
   private needsTrees(e: Scenery, distance: number) {
@@ -105,7 +110,7 @@ export class ScreenshotScenery {
     private request: (url: string) => Promise<Response>, private load: (url: string) => Promise<THREE.Object3D>,
     private style: (model: THREE.Object3D) => void, private dispose: (model: THREE.Object3D, id: string) => void,
     private root: string, private page: string, private shared?: SharedMaterials) {
-    this.batches = new SceneryBatches(host.scene, host.retire);
+    this.batches = new SceneryBatches(host.scene, host.retire, host.prepareGraphics);
   }
 
   setRadius(radius: number, view?: SceneryView) {
@@ -315,9 +320,10 @@ export class ScreenshotScenery {
         styleScenery(model, this.shared, this.coverage.texture);
         e.treesReady = false;
         await this.prepareTrees(id,e,model,distance,source);
+        await this.host.prepareGraphics?.(model);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
       if (this.entries.get(id) !== e || this.detailed(id) || (source && this.sources.get(id)?.key !== source.key)) return;
-      if (e.model) this.dispose(e.model, id);
+      if (e.model) this.retireModel(e.model, id);
       if (this.view) model.visible = false; // Visibility is committed with the cut on the next update.
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;

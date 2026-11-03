@@ -1,7 +1,7 @@
 # Shared local tile farm
 
 The LAN service at `http://192.168.1.114:7950` builds committed local revisions on demand.
-It never publishes to production. The server uses eight workers (maximum twelve; `POST /limits {"workers": N}` changes it live), a bounded
+It never publishes to production. The server uses four workers (maximum twelve; `POST /limits {"workers": N}` changes it live), a bounded
 128-tile queue, and a shared content-addressed stage/input cache. Urgent camera tiles lead, then visible tiles, explicit CLI requests and background demand;
 revisions share turns within each category.
 Queued speculative requests expire after three minutes without requests or live demand. Identical requests join
@@ -49,7 +49,7 @@ Service owner (tiles) starts the daemon with:
 ```sh
 python3 scripts/dev/shared_tiles.py --host 192.168.1.114 --port 7950 \
   --root /home/wnt/turku3d-local/loops/tiles/farm \
-  --runner /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh --workers 8
+  --runner /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh --workers 4
 ```
 
 Source inputs remain read-only at `~/turku3d-local/combined/data`; missing source data is
@@ -143,6 +143,18 @@ fallbacks, records served revisions and visual hashes, and fails if any requeste
 become fresh. The capture tool must still verify the actual resident hashes after loading.
 
 ## Shared decoding caches
+
+All coarse LAZ consumers share source-order `.npy` columns under
+`cache/raw-derived/decoded/<decoder-hash>/<source-sha256>.npy`. Atomic publication
+and a source lock admit one decoder across workers and revisions. Coordinates,
+classes, returns and intensity retain their exact values and order; RGB/GPS data
+is skipped by codecs that support selective decompression. Downstream spatial
+shards and reducers reuse these mappings. Existing raw-cache eviction also owns
+these entries. The extra uncompressed working set is 29 bytes per source point.
+
+The daemon divides the available CPU count by its worker count and passes that
+budget to Rayon (LAZ), Numba and explicit job pools. BLAS/OpenMP stay at one thread
+to avoid nested parallelism. Four workers on the 16-core host get four threads each.
 
 Workers mount content-keyed roof, vegetation and lidar decoding stores under
 `farm/cache/raw-derived/<kind>/<producer-hash>`. Producer namespaces include the decoding

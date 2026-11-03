@@ -43,6 +43,7 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
 DEPENDENCIES = {
+    "ground": ("../lidar/decoded.py", "../vegetation/trees.py"),
     "water": ("water.py", "../spatial.py", "../ground/mesh.py"),
     "walkable": (
         "walkable.py",
@@ -58,11 +59,14 @@ DEPENDENCIES = {
         "roofs.py",
         "street_materials.py",
         "../buildings/source_surfaces.py",
+        "../buildings/reconstruct.py",
+        "../buildings/inputs.py",
         "../ground/materials.py",
         "../spatial.py",
     ),
     "roads": (
         "bridges.py",
+        "bridge_join.py",
         "bridge_survey.py",
         "bridge_access.py",
         "tunnels.py",
@@ -112,6 +116,9 @@ DEPENDENCIES = {
         "../spatial.py",
     ),
 }
+for _dataset in ("walkable", "wfs", "attachments", "retaining", "vegetation_canopy",
+                 "barriers", "stairs", "gardens", "boats", "street_profiles"):
+    DEPENDENCIES[_dataset] += ("../lidar/decoded.py",)
 
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -196,12 +203,12 @@ def grid_heights(points: np.ndarray, xs: np.ndarray, zs: np.ndarray) -> np.ndarr
 
 
 def ground_points(tile: C.VisualTile, paths: list[Path], canopy=None) -> np.ndarray:
-    import laspy
+    from turku3d.lidar.decoded import source, columns
 
     e0, n0, e1, n1 = tile.bbox.buffered(POINT_MARGIN).to_en().as_tuple()
     chunks = []
     for path in paths:
-        las = laspy.read(path)
+        las = columns(source(path))
         e, n, h = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)
         keep = (e >= e0) & (e <= e1) & (n >= n0) & (n <= n1)
         x, y, z = C.en_to_local(e[keep], n[keep], h[keep])
@@ -439,15 +446,11 @@ def prepare_trees(
 
 
 def _key(paths: list[Path], dataset: str = "") -> str:
-    from .input_keys import producer_code
+    from .input_keys import dependency_code, producer_code
 
     h = hashlib.sha256(producer_code(dataset))
     for name in DEPENDENCIES.get(dataset.removesuffix("-first"), ()):
-        h.update(
-            Path(__file__).with_name(name).read_bytes()
-            if "/" not in name
-            else (Path(__file__).parent / name).read_bytes()
-        )
+        h.update(dependency_code(Path(__file__).parent / name, dataset))
     from turku3d.tile_layer import identities
 
     from .sources import content_paths

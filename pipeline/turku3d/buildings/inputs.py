@@ -161,23 +161,22 @@ def write_roofer_footprints(buildings, path):
 
 def read_points(paths, bounds):
     """Chunked class-6 read; no downsampling and no class-12 contamination in residuals."""
-    import laspy
+    from turku3d.lidar.decoded import chunks as decoded_chunks
 
     chunks = []
     for path in paths:
-        with laspy.open(path) as reader:
-            for p in reader.chunk_iterator(1_000_000):
-                select = p.classification == 6
-                e, n, h = np.asarray(p.x)[select], np.asarray(p.y)[select], np.asarray(p.z)[select]
-                x, y, z = C.en_to_local(e, n, h)
-                keep = (
-                    (x >= bounds.xmin)
-                    & (x <= bounds.xmax)
-                    & (z >= bounds.zmin)
-                    & (z <= bounds.zmax)
-                )
-                if keep.any():
-                    chunks.append(np.column_stack((x[keep], y[keep], z[keep])))
+        for p in decoded_chunks(path):
+            select = p.classification == 6
+            e, n, h = np.asarray(p.x)[select], np.asarray(p.y)[select], np.asarray(p.z)[select]
+            x, y, z = C.en_to_local(e, n, h)
+            keep = (
+                (x >= bounds.xmin)
+                & (x <= bounds.xmax)
+                & (z >= bounds.zmin)
+                & (z <= bounds.zmax)
+            )
+            if keep.any():
+                chunks.append(np.column_stack((x[keep], y[keep], z[keep])))
     return np.concatenate(chunks) if chunks else np.empty((0, 3), dtype=np.float64)
 
 

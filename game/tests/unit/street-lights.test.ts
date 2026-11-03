@@ -201,6 +201,30 @@ describe('sprites and fades', () => {
     expect(posts.drawn).toBe(0); expect(posts.mesh.count).toBe(1); expect(scale(0)).toBe(0);
   });
 
+  test('post uploads skip identical Float32 matrices and retain dirty spans until rendered', () => {
+    const posts = new LampPosts(8);
+    posts.setLamps([0, 50, 115].map((x, i) => ({ key: String(i), x, y: .1, z: 0, yaw: .3, scale: 1 })));
+    posts.update(0, 0, 0);
+    const attribute = posts.mesh.instanceMatrix, initial = attribute.version;
+    attribute.clearUpdateRanges(); // GPU consumed the initial upload.
+    posts.update(0, 0, 1000);
+    expect(attribute.version).toBe(initial);
+    expect(attribute.updateRanges).toEqual([]);
+    posts.update(.5, 0, 2000); // Only the third lamp is in the fade band.
+    expect(attribute.version).toBe(initial + 1);
+    expect(attribute.updateRanges).toEqual([{ start: 32, count: 16 }]);
+    posts.setLamps([{ key: '0', x: 1, y: .1, z: 0, yaw: .3, scale: 1 }]);
+    posts.update(.5, 0, 3000); // Reassign/park before the preceding range uploads.
+    expect(attribute.updateRanges).toEqual([{ start: 0, count: 48 }]);
+    expect(posts.mesh.count).toBe(1);
+    const actual = new THREE.Matrix4().fromArray(attribute.array);
+    expect(actual.elements[12]).toBe(1);
+    const parked = new THREE.Matrix4().fromArray(attribute.array, 16);
+    expect(parked.getMaxScaleOnAxis()).toBe(0);
+    expect(parked.elements[13]).toBe(-1000);
+    posts.dispose();
+  });
+
   test('sprite groups keep fade state for unchanged lights and keep the nearest when over capacity', () => {
     let now = 10;
     const sprites = new LightSprites('mobile', () => now);

@@ -97,8 +97,12 @@ export class DriveCapture {
     if (t - this.lastStat >= 1000) {
       this.lastStat = t;
       const s = g.state(), m = r.renderer.info.memory, coarse = g.coarse;
+      const passFrame = perf.lastGpuPassFrame ?? -1;
+      // Snapshot the complete frame-owned result; later readbacks must not mutate a queued stats row.
+      const passMs = passFrame >= 0 && perf.lastGpuPasses ? { ...perf.lastGpuPasses } : null;
       this.rows.stats.push({ t: R(t, 1), heap: (performance as any).memory?.usedJSHeapSize ?? null, geometries: m.geometries, textures: m.textures,
         visModels: s.visModels, visTris: s.visTris, tilesSettled: s.tilesSettled, frameEma: R(s.frameMs, 2),
+        gpuPassMs: passMs, gpuPassFrame: passMs ? passFrame : null,
         coarse: coarse?.entries ? [...coarse.entries.values()].reduce((o: Host, e: any) => (o[e.state] = (o[e.state] ?? 0) + 1, o), {}) : null,
         pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport() });
     }

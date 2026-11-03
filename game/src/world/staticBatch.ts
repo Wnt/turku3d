@@ -1,3 +1,4 @@
+import { sharedGeometry } from './modelGeometry';
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { interleaveProgram } from '../render/facadeProgramAttributes';
@@ -118,7 +119,7 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
       let start = 0;
       for (const [index, source] of sources.entries()) {
         const original = program.buffers[index], end = start + original.array.length;
-        if (geometryUsers.get(source.geometry) === 1 && original.usage === THREE.StaticDrawUsage
+        if (!sharedGeometry(source.geometry) && geometryUsers.get(source.geometry) === 1 && original.usage === THREE.StaticDrawUsage
           && !original.updateRanges.length && original.onUploadCallback === THREE.InterleavedBuffer.prototype.onUploadCallback) {
           const buffer = new THREE.InterleavedBuffer(packed.subarray(start, end), program.stride);
           for (const { name, itemSize, offset } of program.fields) {

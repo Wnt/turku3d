@@ -36,7 +36,10 @@ test('a failed distant derivative does not put nearby tile streaming into outage
   const fetch = vi.fn(async (url: string) => {
     const path = new URL(url).pathname;
     if (path.endsWith('/status')) return new Response('{"state":"ready"}');
-    if (path.endsWith('/scenery')) return new Response('{"tiles":[{"tile":"t0_4_0","key":"broken","h":[0,30]}],"missing":[]}');
+    if (path.endsWith('/scenery')) {
+      const tile = new URL(url).searchParams.get('tiles')!.split(',')[0];
+      return Response.json({ tiles: [{ tile, key: 'broken', h: [0, 30] }], missing: [] });
+    }
     if (path.includes('/scenery/')) return new Response('{}', { status: 503 });
     return new Response('{}', { status: 202 });
   });

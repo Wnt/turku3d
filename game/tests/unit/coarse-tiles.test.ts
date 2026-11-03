@@ -215,6 +215,36 @@ test('a moving player gets builds ahead requested without loading them; they loa
   expect(coarse.velocity).toEqual({ x: 0, z: 0 });
 });
 
+test('ahead metadata survives a quick heading reversal, expires, and revalidates before promotion', async () => {
+  const manifest = { visual: {}, collision: {} } as unknown as Manifest;
+  const service = fakeService(manifest), loaded: string[] = [];
+  const point = { x: 300, z: 100 }, id = 't0_5_0';
+  let generation = 'initial';
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest, pageUrl: 'http://localhost/',
+    fetch: (async (url: string) => {
+      const response = await service.fetch(url);
+      if (!url.includes(`/${id}/manifest.json`) || response.status !== 200) return response;
+      const fragment = await response.json(); fragment.visual[id].sha256 = generation;
+      return Response.json(fragment);
+    }) as typeof fetch, unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2,
+    renderer: {} as THREE.WebGPURenderer,
+    loadModel: async url => { loaded.push(/(t0_[^/]+)\/vis/.exec(url)![1]); return new THREE.Group(); } });
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  const update = async (t: number, vx: number, x = point.x) => { coarse.update(x, point.z, t, { x: vx, z: 0 }); await settle(); };
+  await update(0, 25); await update(2000, 25);
+  expect(coarse.entries.get(id)?.state).toBe('built');
+  expect(service.polls.get(id)).toBe(2); expect(loaded).not.toContain(id);
+  await update(3000, -25); await update(4000, 25);
+  expect(service.polls.get(id)).toBe(2); expect(loaded).not.toContain(id);
+  await update(33_000, -25); await update(34_000, 25);
+  expect(service.polls.get(id)).toBe(3); // Expired metadata is revalidated on return.
+  generation = 'latest';
+  await update(35_000, 0, 1300);
+  expect(service.polls.get(id)).toBe(4); // A metadata hit never publishes stale model/collision inputs.
+  expect(loaded).toContain(id);
+  expect(coarse.entries.get(id)?.visualHash).toBe('latest');
+});
+
 test('reports the player motion once a second and names the data a waiting tile needs', async () => {
   const manifest = { visual: Object.fromEntries(published.map(id => [id, { url: `visual/${id}.glb` }])), collision: {} } as unknown as Manifest;
   const wants: string[] = [];

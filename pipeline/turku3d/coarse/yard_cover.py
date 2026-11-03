@@ -38,29 +38,37 @@ def lawn_mask(rgb):
     return sun | shade
 
 
+def paving_mask(rgb):
+    """Bright neutral courtyard hardscape, excluding vegetation and coloured play surfaces."""
+    r, g, b = np.moveaxis(rgb.astype(float), -1, 0)
+    neutral = (rgb.max(axis=-1).astype(float) - rgb.min(axis=-1)) < 42
+    return (r > 120) & (g > 120) & (b > 105) & neutral & (rgb.min(axis=-1) < 248) & ~lawn_mask(rgb)
+
+
 def regions(tile, rgb, parcels, blocked):
-    """Keep half-metre lawn islands that a two-metre triangle centroid misses."""
+    """Keep aerial lawn and light-paving outlines that terrain centroids miss."""
     if parcels.is_empty:
         return []
     domain = parcels.difference(shapely.union_all(blocked))
     if domain.is_empty:
         return []
     step = tile.size / rgb.shape[0]
-    mask = lawn_mask(rgb)
-    components, _ = label(mask)
-    counts = np.bincount(components.ravel())
-    keep = counts * step**2 >= 1.5
-    keep[0] = False
-    mask = keep[components].astype(np.uint8)
     transform = Affine(step, 0, tile.origin[0], 0, step, tile.origin[2])
     patches = []
-    for geo, value in shapes(mask, mask=mask.astype(bool), transform=transform):
-        if not value:
-            continue
-        area = shapely.make_valid(shapely.geometry.shape(geo).simplify(.2)).intersection(domain)
-        for part in shapely.get_parts(area):
-            if part.geom_type == 'Polygon' and part.area >= 1.5:
-                patches.append((part, mat_id('grass')))
+    for mask, material, minimum in ((paving_mask(rgb), "paving_slab", 4.0),
+                                     (lawn_mask(rgb), "grass", 1.5)):
+        components, _ = label(mask)
+        counts = np.bincount(components.ravel())
+        keep = counts * step**2 >= minimum
+        keep[0] = False
+        mask = keep[components].astype(np.uint8)
+        for geo, value in shapes(mask, mask=mask.astype(bool), transform=transform):
+            if not value:
+                continue
+            area = shapely.make_valid(shapely.geometry.shape(geo).simplify(.2)).intersection(domain)
+            for part in shapely.get_parts(area):
+                if part.geom_type == 'Polygon' and part.area >= minimum:
+                    patches.append((part, mat_id(material)))
     return sorted(patches, key=lambda p: (-p[0].area, p[0].wkb))
 
 

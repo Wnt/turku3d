@@ -1,6 +1,69 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { SceneryBatches, sceneryBatchGroups } from '../../src/render/sceneryBatches';
+
+test.each([false, true])('merged draws stay hidden until warm; cancelled warm cannot return geometry (cancel=%s)', async cancel => {
+  const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();
+  const sources = [0, 1].map(i => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
+    mesh.userData.layer = 'buildings'; scene.add(mesh); return [`t0_${i}_0`, mesh] as [string, THREE.Mesh];
+  });
+  let finish!: () => void;
+  const prepare = vi.fn((model: THREE.Object3D) => {
+    expect(model.parent).toBeNull();
+    expect(sources.map(([, mesh]) => mesh.layers.mask)).toEqual([1, 1]);
+    return new Promise<void>(resolve => { finish = resolve; });
+  });
+  const batches = new SceneryBatches(scene, undefined, prepare);
+  batches.sync(sources, 0); await Promise.resolve();
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(batches.pending).toBe(1);
+  expect(scene.children.filter(m => m.name === 'distant-city-cell')).toHaveLength(0);
+  batches.sync(sources, 1000);
+  expect(prepare).toHaveBeenCalledTimes(1);
+  const mesh = prepare.mock.calls[0][0] as THREE.Mesh;
+  const disposed = vi.spyOn(mesh.geometry, 'dispose');
+  const releaseSource = vi.fn();
+  if (cancel) {
+    batches.retireModel(sources[0][1], releaseSource);
+    batches.clear(); expect(disposed).not.toHaveBeenCalled(); expect(releaseSource).not.toHaveBeenCalled();
+  }
+  finish(); for (let i = 0; i < 12; i++) await Promise.resolve();
+  expect(batches.pending).toBe(0);
+  if (cancel) {
+    expect(mesh.parent).toBeNull(); expect(disposed).toHaveBeenCalledTimes(1);
+    expect(releaseSource).toHaveBeenCalledTimes(1);
+    expect(sources.map(([, source]) => source.layers.mask)).toEqual([1, 1]);
+  } else {
+    expect(mesh.parent).toBe(scene);
+    expect(sources.map(([, source]) => source.layers.mask)).toEqual([0, 0]);
+    expect(disposed).not.toHaveBeenCalled(); batches.clear();
+  }
+});
+
+test('failed batch warm keeps source coverage and retries without publishing a cold draw', async () => {
+  const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();
+  const sources = [0, 1].map(i => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
+    mesh.userData.layer = 'buildings'; scene.add(mesh); return [`t0_${i}_0`, mesh] as [string, THREE.Mesh];
+  });
+  const prepare = vi.fn(async (_model: THREE.Object3D) => {}).mockRejectedValueOnce(new Error('shader failure'));
+  const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const batches = new SceneryBatches(scene, undefined, prepare);
+  try {
+    batches.sync(sources, 0);
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(scene.children.filter(mesh => mesh.name === 'distant-city-cell')).toHaveLength(0);
+    expect(sources.map(([, source]) => source.layers.mask)).toEqual([1, 1]);
+    expect(batches.pending).toBe(1);
+    batches.sync(sources, performance.now() + 6000);
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(scene.children.filter(mesh => mesh.name === 'distant-city-cell')).toHaveLength(1);
+    expect(sources.map(([, source]) => source.layers.mask)).toEqual([0, 0]);
+    expect(batches.pending).toBe(0);
+  } finally { warning.mockRestore(); batches.clear(); }
+});
 
 test('bounds batches by expanded facade bytes and leaves an oversized source unmerged', () => {
   const sources = [0,1,2,3].map(() => {
