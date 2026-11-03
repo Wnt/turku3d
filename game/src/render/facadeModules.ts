@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { streamingBudget } from './preparationBudget';
+import { shareInstanceProgram } from './instancePrograms';
 import { attribute, cameraPosition, dot, modelWorldMatrixInverse, vec4 } from 'three/tsl';
 
 interface Opening {
@@ -215,6 +216,9 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     cellGeometry.setAttribute('_facade_plane',planes);
     const mesh = new THREE.InstancedMesh(cellGeometry, material, rows.length);
     mesh.name = 'facade-frame-sill'; mesh.userData.facadeModules = true;
+    // Every cell of every tile draws one program per pass: r186 otherwise keys each InstancedMesh by its uuid, and
+    // these cells were the largest program family (replay c9n7my: 532 prepared builds, plus their shadow builds).
+    shareInstanceProgram(mesh, true);
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
       mesh.setMatrixAt(i,rows[i].matrix);mesh.setColorAt(i,rows[i].colour);
