@@ -92,6 +92,8 @@ const HIGH_CAMERA_M = 40;
 const HD_3D_M = 250;
 /** How often committed tiles release the CPU copies of uploaded render-only arrays (ms). */
 const RELEASE_MS = 2000;
+/** A window tile still not loaded after this long (ms) shows as waiting in the tile status. */
+const WAITING_MS = 5000;
 /** At load and spawn the start's view wedge within this distance (m) installs full detail with the ground under it,
  *  so the player never starts looking at scenery cells. Half angle of that wedge (rad). */
 const START_VIEW_M = 300;
@@ -106,7 +108,7 @@ const MAX_SPEED = FLY.fastSpeed * 1.25;
 const PROBE_MS = 2000;
 /** A probe the busy service has not answered within this (ms) counts as no answer. */
 const PROBE_TIMEOUT_MS = 10_000;
-export const RESTARTING = 'drafts: service restarting';
+export const RESTARTING = 'tiles: service restarting';
 
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
 class DraftRejected extends Error {}
@@ -529,7 +531,7 @@ export class CoarseTiles {
     }
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
-      this.show(this.remote ? 'drafts: remote service offline' : RESTARTING);
+      this.show(this.remote ? 'tiles: remote service offline' : RESTARTING, true);
       return;
     }
     for (const [id, e] of this.entries) void this.compare(id, e);
@@ -586,18 +588,29 @@ export class CoarseTiles {
     const here = `t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`;
     const building = this.remote ? [...this.entries.values()].filter(e => e.state === 'pending' || e.state === 'loading').length : this.building;
     const queueFull = this.remote && [...this.entries.values()].some(e => e.error === 'queue full');
-    const loaded = [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort();
+    // ('draft' is the internal name of a loaded tile.) Counts only; the ids are on demand (loadedTiles, __tiles).
+    const loaded = [...this.entries.values()].filter(e => e.state === 'draft').length;
+    const installing = [...this.entries.values()].filter(e => e.refreshing && e.preview).length;
     const at = this.entries.get(here);
     const inSeconds = (e?: Entry) => e?.readyAt === undefined ? null : Math.max(0, Math.ceil((e.readyAt - now) / 1000));
     const ready = inSeconds(at);
     const waiting = at?.state === 'pending' && at.error ? ` ${at.error}` : ready !== null ? ` ready in ${ready} s` : ' building...';
-    const soonest = wanted.map(id => this.entries.get(id)).filter(e => e?.state === 'pending' && !e.error)
-      .map(inSeconds).filter((v): v is number => v !== null).sort((a, b) => a - b)[0];
-    const head = at?.state === 'draft' ? `draft tile ${here}`
-      : at ? `draft tile ${here}${at.state === 'failed' ? ` retrying: ${at.error}` : waiting}` : '';
-    const next = soonest !== undefined && at?.state === 'draft' ? `next tile in ${soonest} s` : '';
-    this.show([head, loaded.length ? `drafts ${loaded.join(' ')}` : '', building ? `${building} building` : '', queueFull ? 'remote queue full; retrying' : '', next]
-      .filter(Boolean).join(' · '));
+    // Something the player would notice: the tile underfoot or one of its window is not loaded yet, or failing.
+    // A window tile counts once it has waited WAITING_MS: every crossing briefly waits for the new row.
+    const missing = wanted.filter(id => {
+      const e = this.entries.get(id);
+      return (e?.state === 'pending' || e?.state === 'loading') && now - (e.since ?? now) > WAITING_MS;
+    });
+    const failing = wanted.find(id => this.entries.get(id)?.state === 'failed');
+    const head = !at ? '' : at.state === 'draft' ? `tile ${here}`
+      : `tile ${here}${at.state === 'failed' ? ` retrying: ${at.error}` : waiting}`;
+    const problems = [
+      failing && failing !== here ? `retrying ${failing}: ${this.entries.get(failing)!.error}` : '',
+      missing.length && at?.state === 'draft' ? `waiting for ${missing.length === 1 ? missing[0] : `${missing.length} tiles`}` : '',
+      queueFull ? 'remote queue full; retrying' : '',
+    ].filter(Boolean);
+    this.show([head, loaded ? `${loaded} loaded` : '', installing ? `${installing} installing` : '',
+      building ? `${building} building` : '', ...problems].filter(Boolean).join(' · '), (!!at && at.state !== 'draft') || problems.length > 0);
   }
 
   /** Startup waits for the requested draft ground on both localhost and Pages. A draft whose build failed does not
@@ -643,10 +656,14 @@ export class CoarseTiles {
   }
   private skipped = new Set<string>();
 
-  private show(status: string) {
+  /** The dev panel and loading screen read `status`; the top badge shows only while something waits or fails. */
+  private show(status: string, alert = false) {
     this.status = status;
-    if (this.badge) { this.badge.textContent = status; this.badge.style.display = status ? '' : 'none'; }
+    if (this.badge) { this.badge.textContent = alert ? status : ''; this.badge.style.display = alert && status ? '' : 'none'; }
   }
+
+  /** Ids of the loaded tiles (on demand: `__tiles.loaded()`), sorted. */
+  loadedTiles() { return [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort(); }
 
   /** The service is restarting: one console line, then only status probes until it answers (`probe`). */
   private nextWarning = -Infinity;
@@ -660,9 +677,9 @@ export class CoarseTiles {
   down(error?: ServiceDown) {
     if (this.outage) return;
     this.outage = { nextProbe: this.clock + Math.max(this.remote ? backoff(this.outageFailures++) : PROBE_MS, error?.retryAfter ?? 0), probing: false, attempts: 0 };
-    const message = this.remote ? 'drafts: remote service offline' : RESTARTING;
-    this.warn(`[coarse] ${message}: drafts paused until it answers again`);
-    this.show(message);
+    const message = this.remote ? 'tiles: remote service offline' : RESTARTING;
+    this.warn(`[coarse] ${message}: tiles paused until it answers again`);
+    this.show(message, true);
   }
 
   /** Any answer from /coarse/status other than the dev server's offline one ends the outage: every tile not drawn is
@@ -701,7 +718,7 @@ export class CoarseTiles {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) { this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0 }); streamTrace.event('tile.new', id); }
+    if (!e) { this.entries.set(id, e = { state: 'pending', collision: new Map(), nextPoll: 0, since: this.clock }); streamTrace.event('tile.new', id); }
     return e;
   }
 

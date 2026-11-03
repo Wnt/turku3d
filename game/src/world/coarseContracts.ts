@@ -32,6 +32,8 @@ export interface Entry extends DraftFreshness {
   manifestHash?: string; unchangedPolls?: number;
   /** Immutable road payload currently installed on the map. */
   roadsKey?: string;
+  /** Clock (ms) when the entry was created (tile status: how long a window tile has waited). */
+  since?: number;
   /** A full install in flight for a tile that left both the window and the lead: it stops at its next stage. */
   abandoned?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */

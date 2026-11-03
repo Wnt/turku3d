@@ -93,6 +93,8 @@ declare global {
       uniforms?: () => Promise<unknown>;
       /** Retained bytes by category: geometry, texture data, streaming caches, collision cells (world/memoryCensus.ts). */
       memory?: () => Promise<unknown> };
+    /** Tile streaming on demand: the loaded tile ids (the HUD shows only their count). */
+    __tiles?: { loaded: () => string[] };
   }
 }
 
@@ -439,6 +441,7 @@ async function draftWorld() {
     retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
   });
   censusSources.coarse = coarse; censusSources.collision = streamer;
+  window.__tiles = { loaded: () => coarse.loadedTiles() };
   return { physics, rapier, manifest, streamer, coarse };
 }
 
@@ -488,6 +491,7 @@ async function runQa() {
     },
   });
   censusSources.coarse = coarse; censusSources.ground = ground;
+  window.__tiles = { loaded: () => coarse.loadedTiles() };
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,

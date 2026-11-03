@@ -162,7 +162,7 @@ test('streams only drafts, validates all collision before visibility and unloads
     expect(cellsOf(id).filter(cid => manifest.collision[cid])).toEqual([]);
   }
   coarse.update(600, 100, 4100); await settle(); // the badge follows at the next 1 s check
-  expect(coarse.status).toContain('draft tile t0_2_0');
+  expect(coarse.status).toContain('tile t0_2_0');
   // Its street graph is on the map: one graph (t0_2_0's; the other drafts have none), announced once.
   expect(coarse.roadGraphs().map(g => g.bbox)).toEqual([[500, 0, 750, 250]]);
   expect(mapChanges).toBe(1);
@@ -210,7 +210,8 @@ test('a moving player gets builds ahead requested without loading them; they loa
   expect(coarse.entries.get('t0_6_0')?.state).toBe('built');
   expect(loaded).not.toContain('t0_6_0');
   expect(loaded).toContain('t0_2_0');
-  expect(coarse.status).toMatch(/drafts .*t0_2_0/);
+  expect(coarse.status).toMatch(/^tile t0_2_0 · \d+ loaded/); // counts, not ids
+  expect(coarse.loadedTiles()).toContain('t0_2_0');
   // A teleport is no speed: no prefetch from it.
   coarse.update(5000, 5000, 9000); await settle();
   expect(coarse.velocity).toEqual({ x: 0, z: 0 });
@@ -266,7 +267,7 @@ test('reports the player motion once a second and names the data a waiting tile 
   expect(coarse.entries.get('t0_2_0')?.state).toBe('pending');
   coarse.update(627, 100, 1000); await settle();
   expect(wants[1]).toBe('?x=627.0&z=100.0&vx=13.5&vz=0.0'); // the smoothed ground velocity
-  expect(coarse.status).toMatch(/^draft tile t0_2_0 waiting for lidar, wfs data/);
+  expect(coarse.status).toMatch(/^tile t0_2_0 waiting for lidar, wfs data/);
 });
 
 test('a restarting service pauses the drafts: one console line, only status probes, then they resume', async () => {
@@ -376,7 +377,7 @@ test('a finished build reaches the game at the next check, and the badge shows w
   coarse.update(600, 100, 0); await settle();
   expect(polls).toBe(1);
   coarse.update(600, 100, 1000); await settle();
-  expect(coarse.status).toMatch(/^draft tile t0_2_0 ready in 6 s/);
+  expect(coarse.status).toMatch(/^tile t0_2_0 ready in 6 s/);
   expect(polls).toBe(1); // its own schedule: every 2 s
   version = 5; // a build finished; the next check's /coarse/want reports it
   coarse.update(600, 100, 2000); await settle();
@@ -416,7 +417,7 @@ test('Pages retries offline and queue-full states, then draws remote drafts afte
   expect(coarse.progressAt(600, 100)).toEqual({ loaded: 0, total: 9, errors: [] });
   const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 0)); };
   coarse.update(600, 100, 0);
-  expect(coarse.status).toBe('drafts: remote service offline');
+  expect(coarse.status).toBe('tiles: remote service offline');
   state = 'full';
   coarse.update(600, 100, 3000); await settle();
   coarse.update(600, 100, 4000); await settle();
@@ -1029,4 +1030,30 @@ test('startup loads the start view wedge within 300 m with its ground', () => {
   expect(viewed).not.toContain('t0_2_0'); // 375 m: beyond 300 m
   expect(viewed).not.toContain('t0_-1_0'); // behind
   expect(coarse.progressAt(125, 125).total).toBeGreaterThan(ground);
+});
+
+test('the tile status shows counts in the steady state and names what waits or fails', async () => {
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  let slow = 't0_1_1';
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      if (m && m[1] === slow) return new Response('{"state":"queued"}', { status: 202 });
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  for (let t = 0; t <= 8000; t += 1000) { coarse.update(125, 125, t, { x: 0, z: 0 }, false); await settle(); }
+  expect(coarse.status).toMatch(/^tile t0_0_0 · \d+ loaded · waiting for t0_1_1$/); // a window tile waits > 5 s
+  expect(coarse.status).toContain(`${coarse.loadedTiles().length} loaded`);
+  slow = '';
+  for (let t = 9000; t <= 14000; t += 1000) { coarse.update(125, 125, t, { x: 0, z: 0 }, false); await settle(); }
+  expect(coarse.status).toMatch(/^tile t0_0_0 · \d+ loaded$/); // the steady state: counts only
+  expect(coarse.status).not.toMatch(/draft/);
 });
