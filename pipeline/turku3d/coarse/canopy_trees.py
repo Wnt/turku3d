@@ -63,7 +63,8 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths):
     points = points[inside]
     if not len(points):
         return mapped
-    base = np.array([height_at(x, z) for x, _, z in points])
+    many = getattr(height_at, "many", None)  # the same sampler for all points at once
+    base = many(points[:, 0], points[:, 2]) if many else np.array([height_at(x, z) for x, _, z in points])
     heights = points[:, 1] - base
     valid = (heights > 3) & (heights < 38)
     points, heights = points[valid], heights[valid]

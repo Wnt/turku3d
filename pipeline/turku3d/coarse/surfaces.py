@@ -81,6 +81,33 @@ def grid_height(tile, heights, x, z):
     )
 
 
+def grid_heights(tile, heights, x, z):
+    """grid_height for arrays of float64 points, with the same operations in the same order.
+
+    Other dtypes or non-finite points keep the scalar path: there Python's min/max and
+    NumPy scalar promotion decide the result, and int() rejects NaN.
+    """
+    x, z = np.asarray(x), np.asarray(z)
+    if (heights.dtype != np.float64 or x.dtype != np.float64 or z.dtype != np.float64
+            or not (np.isfinite(x).all() and np.isfinite(z).all())):
+        return np.array([grid_height(tile, heights, a, b) for a, b in zip(x, z, strict=True)])
+    cells = heights.shape[0] - 1
+
+    def clamp(value):
+        # min(max(value, 0.0), cells) keeps value unless a bound strictly beats it.
+        value = np.where(0.0 > value, 0.0, value)
+        return np.where(cells < value, float(cells), value)
+
+    u = clamp((x - tile.origin[0]) / tile.size * cells)
+    v = clamp((z - tile.origin[2]) / tile.size * cells)
+    i, j = np.minimum(u.astype(np.int64), cells - 1), np.minimum(v.astype(np.int64), cells - 1)
+    fu, fv = u - i, v - j
+    lower = heights[j, i] * (1 - fu - fv) + heights[j, i + 1] * fu + heights[j + 1, i] * fv
+    upper = (heights[j + 1, i + 1] * (fu + fv - 1) + heights[j + 1, i] * (1 - fu)
+             + heights[j, i + 1] * (1 - fv))
+    return np.where(fu + fv <= 1, lower, upper)
+
+
 def osm_surfaces(tile, path):
     """Mapped areas and ground-level road/path corridors; no elevated transport painted on terrain."""
     from turku3d.spatial import rows

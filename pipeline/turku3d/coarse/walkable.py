@@ -81,15 +81,23 @@ def measure(key, line, width, points, window):
     # the mapped way. On a short quay connector that upper surface can outvote
     # all of its actual paving and create a metre-high artificial ramp.
     on_way = (station >= -1e-6) & (station <= line.length + 1e-6)
+    # Each knot reads the returns within 10 m along the way: a station-sorted window
+    # (1 µm wider) finds them, then the exact test keeps the original return order.
+    order = np.argsort(station, kind="stable")
+    ordered = station[order]
     for i, s in enumerate(knots):
-        along = on_way & (np.abs(station - s) <= 10)
-        core = along & (np.abs(lateral) < min(0.85, half * 0.65))
-        fit = robust_plane(np.c_[station[core] - s, lateral[core]], points[core, 1])
+        lo = np.searchsorted(ordered, s - 10 - 1e-6, side="left")
+        hi = np.searchsorted(ordered, s + 10 + 1e-6, side="right")
+        window = np.sort(order[lo:hi])
+        rows = window[on_way[window] & (np.abs(station[window] - s) <= 10)]
+        along, side, height = station[rows], lateral[rows], points[rows, 1]
+        core = np.abs(side) < min(0.85, half * 0.65)
+        fit = robust_plane(np.c_[along[core] - s, side[core]], height[core])
         if fit is not None and abs(fit[1]) <= 0.15 and abs(fit[2]) <= 0.12:
             heights[i, 2:5] = fit[0] + cross[2:5] * fit[2]
         for j in (0, 1, 5, 6):
-            use = along & (np.abs(lateral - cross[j]) < 0.85)
-            fit = robust_plane(np.c_[station[use] - s, lateral[use] - cross[j]], points[use, 1])
+            use = np.abs(side - cross[j]) < 0.85
+            fit = robust_plane(np.c_[along[use] - s, side[use] - cross[j]], height[use])
             if fit is not None and abs(fit[1]) <= 0.25 and abs(fit[2]) <= 0.7:
                 heights[i, j] = fit[0]
     # Do not bridge missing evidence. In particular, absent endpoint support must
