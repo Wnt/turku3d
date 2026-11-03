@@ -21,3 +21,15 @@ export function applyJsonRecords(objects: Record<string, unknown>[], records: Js
     Object.defineProperty(objects[parent], key, { value: item, writable: true, enumerable: true, configurable: true });
   }
 }
+
+/** Top-level scalars and the keys of top-level objects: enough to check a document without delivering it. */
+export interface JsonPeek { scalars: Record<string, unknown>; keys: Record<string, string[]> }
+export function peekJson(root: unknown): JsonPeek {
+  const peek: JsonPeek = { scalars: {}, keys: {} };
+  if (root === null || typeof root !== 'object' || Array.isArray(root)) return peek;
+  for (const [key, value] of Object.entries(root)) {
+    if (value === null || typeof value !== 'object') peek.scalars[key] = value;
+    else if (!Array.isArray(value)) peek.keys[key] = Object.keys(value);
+  }
+  return peek;
+}

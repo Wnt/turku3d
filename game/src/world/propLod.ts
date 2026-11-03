@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { streamTrace } from '../telemetry/streamTrace';
 
 /** Street furniture (the generator's `props_palette` batch, one per tile) switches off beyond `hide` metres from the
  *  camera and back on within `show`: a hard switch per tile batch (plan §3.10), with no discard or vertex fade, so
@@ -45,10 +46,16 @@ export class PropLod {
 
   update(camera: THREE.Camera) {
     const { x, y, z } = camera.position;
-    for (const draws of this.models.values()) for (const { mesh, box } of draws) {
+    let shown = 0, hidden = 0;
+    for (const [model, draws] of this.models) for (const { mesh, box } of draws) {
       // 3D: a camera high above a tile is as far from its furniture as one standing beside it at that distance.
       const d = Math.hypot(footprintDistance(box, x, z), Math.max(0, y - box.max.y, box.min.y - y));
-      mesh.visible = d < (mesh.visible ? PROP_LOD.hide : PROP_LOD.show);
+      const visible = d < (mesh.visible ? PROP_LOD.hide : PROP_LOD.show);
+      if (visible !== mesh.visible && streamTrace.on) {
+        if (visible) shown++; else hidden++;
+        streamTrace.event('band.props', model.userData.traceId as string | undefined, { to: visible ? 'shown' : 'hidden', d3: Math.round(d) });
+      }
+      mesh.visible = visible;
     }
   }
 

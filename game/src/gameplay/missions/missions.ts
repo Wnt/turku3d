@@ -214,7 +214,9 @@ export class MissionSystem implements MissionHudSource {
     let bought: BoughtVehicle | null = null;
     const wasOpen = this.open !== null;
     this.advanceDialogue(dt);
-    if (this.longUnlocked && !this.s.longAnnounced && !this.queue.length && !this.open && !frame.interact && !frame.choose) {
+    // Announced once, and only when a long job can actually be offered (missions/orders.ts drawLongOrder).
+    if (this.longUnlocked && !this.s.longAnnounced && !this.queue.length && !this.open && !frame.interact && !frame.choose
+      && this.longOrder()) {
       this.s.longAnnounced = true;
       this.say('long_unlocked');
       this.checkpoint = 'delivery';

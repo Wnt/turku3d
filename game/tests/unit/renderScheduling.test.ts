@@ -107,6 +107,24 @@ test('glTF publication waits for uploads with final map settings and deduplicate
 });
 
 
+test('a texture change and its upload run together in one budgeted task after the frame', async () => {
+  const callbacks: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length; });
+  try {
+    const texture = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    const events: string[] = [];
+    const initTexture = vi.fn((map: THREE.Texture) => { events.push(`upload v${map.version}`); });
+    const queue = textureUploads({ initTexture } as unknown as THREE.WebGPURenderer);
+    const done = queue.update(texture, 4, () => { events.push('change'); texture.needsUpdate = true; });
+    expect(events).toEqual([]); // nothing changes before the frame has been drawn
+    callbacks.shift()!(0);
+    await done;
+    expect(events).toEqual(['change', 'upload v1']);
+    await queue.enqueue(texture); // the same version: no second upload
+    expect(initTexture).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); }
+});
+
 test('startup texture selection follows visibility, layers and the first camera while retaining required actors', () => {
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, .1, 100);
   const maps = Array.from({ length: 5 }, () => new THREE.Texture());

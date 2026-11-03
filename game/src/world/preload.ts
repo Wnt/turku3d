@@ -68,6 +68,8 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   });
   try {
     stage = performance.now();
+    // Surface arrays grown while the ring styled swap in first, so the warmup draws and uploads the final ones.
+    await materials?.surfacesReady();
     const textures = modelTextures(scene, camera);
     worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureDiscoveryMs: performance.now() - stage } });
     stage = performance.now();
@@ -80,6 +82,9 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     const firstDraw = loading.begin('Initial shader and GPU warmup draw');
     stage = performance.now();
     renderFrame();
+    // First-use pipelines of the live frame compile asynchronously (render/asyncPipelines.ts): wait for them here,
+    // so the menu opens with the initial view's pipelines ready.
+    await (renderer as unknown as { pipelinesSettled?: () => Promise<void> }).pipelinesSettled?.();
     await drainGpu(renderer);
     worldLoad.update({ timings: { ...worldLoad.snapshot().timings, pipelineWarmupMs: performance.now() - stage },
       compile: { done: 1, total } });

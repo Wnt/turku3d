@@ -8,10 +8,15 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
-import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
+import { LOD_FADE_BIAS, LOD_FADE_SECONDS, fadeTier, lodFades } from '../render/lodFade';
+import { streamTrace } from '../telemetry/streamTrace';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
+
+/** Bias tiers a cell of quadtree `level` can fade on: 250 m cells hand over and refine within ~1.8 km, 1 km nodes
+ *  change at 0.7-4.5 km, 4 km nodes beyond (render/lodFade.ts LOD_FADE_BIAS). */
+export const dissolveTiers = (level: number) => level === 0 ? [0, 1] : level === 2 ? [1, 2] : [2];
 
 /** Lightweight distant city: authored visuals without collision, shadows or simulation. */
 export class ScreenshotScenery {
@@ -63,6 +68,21 @@ export class ScreenshotScenery {
     return !!model?.visible && !model.userData.lodFading;
   }
   releaseDetail(id: string) { this.held.delete(id); }
+  private coarser: string[] = [];
+  private coarserAt = -1;
+  /** Trace coverage of one L0 square: C its own cell drawn, c dissolving, U a coarser node drawn over it. */
+  cellState(id: string): 'C' | 'c' | 'U' | undefined {
+    const model = this.entries.get(id)?.model;
+    if (model?.visible) return model.userData.lodFading ? 'c' : 'C';
+    if (this.coarserAt !== this.clock) {
+      this.coarserAt = this.clock;
+      this.coarser = [];
+      for (const [other, e] of this.entries)
+        if (e.model?.visible && sceneryBounds(other).level > 0 && !this.sources.get(other)?.regional) this.coarser.push(other);
+    }
+    return this.coarser.some(node => sceneryContains(node, id)) ? 'U' : undefined;
+  }
+
   /** A resident full tile may yield to its cell only once that cell is loaded (standby or drawn). */
   canTakeOver(id: string) { return this.radius > 0 && !!this.entries.get(id)?.model && this.sources.has(id); }
 
@@ -70,22 +90,40 @@ export class ScreenshotScenery {
    *  It leaves its merged batch so that its own meshes carry the dissolve; the next cut hides it. */
   private handOver(model: THREE.Object3D) {
     if (!model.visible || (model.userData.lodFading && model.userData.lodFading !== 'in')) return;
-    this.fade(model, 'out');
+    const id = [...this.entries].find(([, e]) => e.model === model)?.[0];
+    this.fade(model, 'out', id);
   }
 
   /** Dissolve a scenery model in over what already draws there, or out over what replaces it. A reversal
    *  continues from the current coverage. Fading models draw their own meshes, outside merged batches. */
-  private fade(model: THREE.Object3D, direction: 'in' | 'out') {
+  /** Returns false when no compiled twin tier fits: the model then swaps at once (no in-frame shader build). */
+  private fade(model: THREE.Object3D, direction: 'in' | 'out', id?: string): boolean {
     const from = model.userData.lodFading ? lodFades.coverage(model) : direction === 'in' ? 0 : 1;
+    const view = this.view ?? this.footprintView;
+    const distance = id && view ? Math.hypot(sceneryDistance(id, view.x, view.z), Math.max(0, view.y - 30)) : 0;
+    // The ideal bias tier, else the nearest one this model's preparation compiled.
+    const ideal = fadeTier(distance);
+    const tier = model.userData.lodFading ? ideal
+      : [ideal, ideal + 1, ideal - 1, ideal + 2, ideal - 2].find(t => t >= 0 && t < LOD_FADE_BIAS.length && lodFades.canStart(model, t));
+    if (tier === undefined) {
+      streamTrace.event('band.swap', id, { dir: direction, reason: 'twin not compiled' });
+      model.userData.lodFading = undefined;
+      model.visible = direction === 'in';
+      this.batches.invalidate(model);
+      return false;
+    }
     model.userData.lodFading = direction;
     model.visible = true;
     this.batches.invalidate(model);
+    streamTrace.event('band.fade', id, { dir: direction, from, tier, held: !!id && this.held.has(id) });
     lodFades.start(model, from, direction === 'in' ? 1 : 0, () => {
+      streamTrace.event('band.fadeEnd', id, { dir: direction });
       model.userData.lodFading = undefined;
       model.visible = direction === 'in';
       this.batches.invalidate(model);
       this.cutState.clear(); // the landed model's cut visibility is decided again on the next update
-    }, this.clock);
+    }, this.clock, LOD_FADE_SECONDS, tier);
+    return true;
   }
 
   private updateCoverage() {
@@ -112,12 +150,22 @@ export class ScreenshotScenery {
     this.batches.retireModel(model, () => this.dispose(model, id));
   }
 
-  private needsTrees(e: Scenery, distance: number) {
-    return !!this.host.prepareVegetation && !e.treesReady && distance < (this.host.vegetationDistance ?? 0);
+  /** Standby cells (hidden under a resident full tile) prepare no trees: the HD tile draws its own, and the cell's
+   *  trees follow once it is wanted again. */
+  private needsTrees(e: Scenery, distance: number, id?: string) {
+    return !!this.host.prepareVegetation && !e.treesReady && distance < (this.host.vegetationDistance ?? 0)
+      && !(id && this.standby.has(id));
   }
 
   private async prepareTrees(id: string, e: Scenery, model: THREE.Object3D, distance: number, source: ScenerySource) {
-    if (!this.needsTrees(e,distance)) return;
+    if (!this.needsTrees(e,distance,id)) {
+      // A standby cell within tree range still never exposes skyline cones up close once it is shown.
+      if (this.standby.has(id) && distance < (this.host.vegetationDistance ?? 0)) {
+        for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
+        this.batches.invalidate(model);
+      }
+      return;
+    }
     // A camera approaching a cached far tile must never expose its skyline cones up close.
     for (const child of model.children) if (child.userData.layer === 'vegetation') child.visible = false;
     this.batches.invalidate(model);
@@ -218,6 +266,7 @@ export class ScreenshotScenery {
 
   private async catalogue(selection: number, tiles: string[], refresh = false) {
     this.cataloguePending = true;
+    const traced = streamTrace.begin('cell.catalogue', undefined, { tiles: tiles.length, refresh });
     try {
       const batches: string[][] = [];
       for (let i = 0; i < tiles.length; i += 256) batches.push(tiles.slice(i, i + 256));
@@ -243,11 +292,13 @@ export class ScreenshotScenery {
         this.sources.set(source.tile, source); this.unavailable.delete(source.tile);
       }
       for (const id of tiles) if (!returned.has(id)) { this.sources.delete(id); this.unavailable.add(id); }
+      traced({ returned: returned.size, missing: tiles.length - returned.size, changed });
       if (refresh || changed) this.catalogueExpires = this.clock + 30_000;
       this.catalogueError = false;
       // A turn during the request changes the wanted sector, not the validity of cached source metadata.
       this.refreshWanted();
-    } catch {
+    } catch (error) {
+      traced({ error: String(error) });
       if (selection === this.selection) { this.catalogueError = true; this.catalogueRetry = this.clock + 2000; }
     } finally { if (selection === this.selection) this.cataloguePending = false; }
   }
@@ -298,7 +349,7 @@ export class ScreenshotScenery {
     const concurrency = this.view ? 4 : 2;
     if (paused || this.active >= concurrency) return;
     for (const [id,e] of this.entries) if (e.model && e.complete && e.next === Infinity
-      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z)) && !e.busy) e.next = 0;
+      && this.sources.get(id)?.trees_url && this.needsTrees(e,sceneryDistance(id,x,z),id) && !e.busy) e.next = 0;
     const demand = new Set(this.demand());
     // Live views keep skyline priority when a preparation retry becomes due.
     // Untouched entries must not outrank that retry just because their next time is zero.
@@ -320,6 +371,13 @@ export class ScreenshotScenery {
   }
 
   private commitCut(now: number, previousUpdate: number) {
+    if (!streamTrace.on) { this.commitCutNow(now, previousUpdate); return; }
+    const started = performance.now(), stats = this.commitCutNow(now, previousUpdate), ms = performance.now() - started;
+    streamTrace.slice('scenery', ms);
+    streamTrace.event('cut.commit', undefined, { ...stats, ms });
+  }
+
+  private commitCutNow(now: number, previousUpdate: number) {
     const keep = new Set(this.wanted);
     this.nextCutExpiry = Infinity;
     const outside: [string, Scenery][] = [];
@@ -342,7 +400,7 @@ export class ScreenshotScenery {
       if (!show || model.visible) continue;
       const under = hiding.filter(other => sceneryContains(other, id) || sceneryContains(id, other));
       if (!under.length && !this.held.has(id)) continue;
-      this.fade(model, 'in');
+      if (!this.fade(model, 'in', id)) continue;
       for (const other of under) this.outgoing.set(other, Math.max(this.outgoing.get(other) ?? 0, until));
     }
     for (const [id, end] of this.outgoing) if (end <= now || !this.entries.get(id)?.model) this.outgoing.delete(id);
@@ -362,23 +420,33 @@ export class ScreenshotScenery {
     }
     for (const [, e] of outside.slice(0,128)) this.nextCutExpiry = Math.min(this.nextCutExpiry, e.seen + 5000);
     for (const end of this.outgoing.values()) this.nextCutExpiry = Math.min(this.nextCutExpiry, end);
-    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading)
-      e.model.visible = (target.get(id) ?? false) || this.outgoing.has(id);
+    let shown = 0, hidden = 0;
+    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading) {
+      const visible = (target.get(id) ?? false) || this.outgoing.has(id);
+      if (visible !== e.model.visible) { if (visible) shown++; else hidden++; }
+      e.model.visible = visible;
+    }
+    const stats = streamTrace.on ? { wanted: this.wanted.length, entries: this.entries.size, shown, hidden, outgoing: this.outgoing.size,
+      held: this.held.size, standby: this.standby.size, pending: this.wanted.filter(id => !this.entries.get(id)?.model).length } : undefined;
     this.committed = new Set([...keep, ...fallback]);
     this.updateCoverage();
     this.batchModels = [];
     for (const [id, entry] of this.entries) if (entry.model) this.batchModels.push([id, entry.model]);
     this.cutState.capture(this.wanted, this.entries, this.nearby, this.sources);
+    return stats;
   }
 
   private async poll(id: string, e: Scenery, distance: number, source?: ScenerySource) {
     let model: THREE.Object3D | undefined;
+    const rank = streamTrace.on ? this.wanted.indexOf(id) : -1;
+    const manifest = streamTrace.begin('cell.manifest', id, { level: sceneryBounds(id).level, rank, standby: this.standby.has(id), active: this.active });
     try {
       const res = await this.request(source ? `${this.root}scenery/${source.key}.json`
         : `${this.root}${id}/manifest.json?d=${Math.round(distance)}`);
-      if (res.status === 202 || res.status === 429) { e.complete = false; return; }
+      if (res.status === 202 || res.status === 429) { manifest({ status: res.status }); e.complete = false; return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const fragment = await res.json() as CoarseFragment;
+      manifest({ status: 200 });
       if (source && this.sources.get(id)?.key !== source.key) return;
       const visual = fragment.visual?.[id];
       if (!fragment.coarse || fragment.tile !== id || !visual) throw new Error('Missing scenery');
@@ -388,13 +456,22 @@ export class ScreenshotScenery {
         if (source) await this.prepareTrees(id,e,e.model,distance,source);
         return;
       }
+      const glb = streamTrace.begin('cell.glb', id, { bytes: visual.bytes, tris: visual.tris });
       model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href);
+      glb();
       if (source) {
         model.userData.scenery = true;
-        styleScenery(model, this.shared, this.coverage.texture);
+        const loaded = model;
+        streamTrace.time('scenery', () => styleScenery(loaded, this.shared, this.coverage.texture));
         e.treesReady = false;
+        const trees = streamTrace.begin('cell.trees', id);
         await this.prepareTrees(id,e,model,distance,source);
+        trees({ ready: e.treesReady });
+        const prepared = streamTrace.begin('cell.prepare', id);
+        // Its preparation also compiles the dissolve twins of the bias tiers this level's fades use.
+        model.userData.dissolveTiers = dissolveTiers(sceneryBounds(id).level);
         await this.host.prepareGraphics?.(model);
+        prepared();
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
       if (this.entries.get(id) !== e || (this.detailed(id) && !this.standby.has(id))
         || (source && this.sources.get(id)?.key !== source.key)) return;
@@ -402,8 +479,12 @@ export class ScreenshotScenery {
       if (this.view) model.visible = false; // Visibility is committed with the cut on the next update.
       this.host.scene.add(model); this.host.trackModel?.(model, id);
       e.model = model; e.hash = visual.sha256; model = undefined;
+      streamTrace.event('cell.install', id, { level: sceneryBounds(id).level, tris: visual.tris, standby: this.standby.has(id), detailed: this.detailed(id) });
       this.nearbyChanged(id);
-    } catch (error) { e.error = error instanceof TreePlacementsPending ? undefined : String(error); e.complete = false; }
+    } catch (error) {
+      e.error = error instanceof TreePlacementsPending ? undefined : String(error); e.complete = false;
+      if (e.error) streamTrace.event('cell.error', id, { error: e.error });
+    }
     finally {
       if (model) this.dispose(model, id);
       if (source && this.sources.get(id)?.key !== source.key) { e.complete = false; e.next = this.clock; }

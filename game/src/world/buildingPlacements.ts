@@ -6,6 +6,8 @@ import { retainGeometry } from './modelGeometry';
 import { PreparationBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
 import { lodFades, type LodFades } from '../render/lodFade';
+import { StaticGroup } from './frozenTransforms';
+import { streamTrace } from '../telemetry/streamTrace';
 
 type Vec3 = [number, number, number];
 export interface BuildingModel {
@@ -141,12 +143,12 @@ export class BuildingModelCache {
         };
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map(cloneMaterial) : cloneMaterial(mesh.material);
       });
-      const wrapper = new THREE.Group();
+      const wrapper = new StaticGroup();
       wrapper.name = `building:${placement.id}`;
       wrapper.position.fromArray(placement.position);
       wrapper.userData = { archetype: placement.model, placementId: placement.id, block: placement.block,
         viewDistance: placement.viewDistance, modelBounds: descriptor.bounds, occluders: descriptor.occluders };
-      wrapper.add(root); owner.add(wrapper);
+      wrapper.add(root); owner.add(wrapper); wrapper.freeze();
       slots.push(this.visibility.register(wrapper, descriptor.bounds, placement.viewDistance, descriptor.occluders));
     }
     // Block LOD parents: one clone per block, swapped against its HD children by camera distance.
@@ -156,16 +158,16 @@ export class BuildingModelCache {
       const root = templates.get(block.lod)!.clone(true);
       root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
       this.styleLod(root, owner);
-      const wrapper = new THREE.Group();
+      const wrapper = new StaticGroup();
       wrapper.name = `block-lod:${block.id}`;
       wrapper.position.fromArray(block.position);
       wrapper.userData = { blockLod: block.id };
-      wrapper.add(root); owner.add(wrapper);
+      wrapper.add(root); owner.add(wrapper); wrapper.freeze();
       states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: block.hdDistance, near: true, hd: true, settled: false });
     }
     if (states.size) {
       owner.userData.blockLods = states;
-      owner.userData.blockLodTile = mergeBlockLods(owner, [...states.values()].map(s => s.lod));
+      owner.userData.blockLodTile = streamTrace.time('lod', () => mergeBlockLods(owner, [...states.values()].map(s => s.lod)));
     }
     for (const geometry of geometries) retainGeometry(geometry);
     // Each unstyled material owner enters the existing styling cache independently.
@@ -200,6 +202,12 @@ function mergeBlockLods(owner: THREE.Object3D, wrappers: THREE.Object3D[]) {
   return merged;
 }
 
+/** The block LOD shells of a tile model, whose dissolve twins its preparation compiles (tier 0: 280 m swaps). */
+export function blockLodRoots(model: THREE.Object3D): THREE.Object3D[] {
+  const blocks = model.userData.blockLods as Map<string, BlockState> | undefined;
+  return blocks ? [...blocks.values()].map(state => state.lod) : [];
+}
+
 /** Cull complete placements against their own expanded bounds, never their container square. */
 export function updateBuildingDistances(root: THREE.Object3D, x: number, z: number,
   visibility: PlacementVisibility = placementVisibility, fades: LodFades = lodFades, y = NaN) {
@@ -219,9 +227,12 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
       if (!state.settled) { state.settled = true; state.near = state.hd = near; }
       else if (near !== state.near) {
         state.near = near;
+        streamTrace.event('band.block', root.userData.traceId as string | undefined, { block: state.lod.userData.blockLod, to: near ? 'hd' : 'lod',
+          d3: Math.round(d), fade: shown });
+        // A shell whose dissolve twin is not compiled yet swaps at once rather than building a shader mid-frame.
         if (!shown) { fades.cancel(state.lod); state.hd = near; }
         else if (near) { state.hd = true; fades.start(state.lod, 1, 0); }
-        else fades.start(state.lod, 0, 1, () => { state.hd = state.near; });
+        else if (!fades.start(state.lod, 0, 1, () => { state.hd = state.near; })) state.hd = false;
       }
       merged &&= !state.near && !state.hd && !fades.has(state.lod);
     }

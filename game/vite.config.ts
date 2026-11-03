@@ -29,6 +29,16 @@ export default defineConfig({
         res.end(JSON.stringify({ commit: cached.commit }));
       });
     },
+    // Every page load is stamped with the worktree it was served from (src/core/build.ts records it in captures).
+    transformIndexHtml: { order: 'pre', handler() {
+      let content = captureCommit;
+      try {
+        const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+        const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim() !== '';
+        content = head + (dirty ? '+dirty' : '');
+      } catch { /* keep the server's start commit */ }
+      return [{ tag: 'meta', attrs: { name: 'turku3d-build', content }, injectTo: 'head' }];
+    } },
   }, {
     name: 'preload-game-entry',
     transformIndexHtml: { order: 'post', handler(_html, context) {

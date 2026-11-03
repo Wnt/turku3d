@@ -37,6 +37,12 @@ function copyAttribute(source: Attribute, destination: Attribute, vertexOffset: 
 /** Bake compatible scenery into final buffers. Bulk-copy packed facade instructions,
  * colours and UVs; direct numeric loops handle only transforms, conversion and index rebasing. */
 export function mergeSceneryGeometry(meshes: readonly THREE.Mesh[]): THREE.BufferGeometry {
+  const steps = mergeScenerySteps(meshes);
+  for (;;) { const step = steps.next(); if (step.done) return step.value; }
+}
+
+/** The same merge, resumable: it yields after each source mesh so a caller can spread one batch over frames. */
+export function* mergeScenerySteps(meshes: readonly THREE.Mesh[]): Generator<void, THREE.BufferGeometry, void> {
   const first = meshes[0].geometry;
   const vertices = meshes.reduce((sum, mesh) => sum + mesh.geometry.attributes.position.count, 0);
   const geometry = new THREE.BufferGeometry();
@@ -116,6 +122,7 @@ export function mergeSceneryGeometry(meshes: readonly THREE.Mesh[]): THREE.Buffe
       indexOffset+=input.length;
     }
     vertexOffset += source.attributes.position.count;
+    if (mesh !== meshes[meshes.length - 1]) yield;
   }
   // Three's generic bounds helpers use getX/getY/getZ per vertex. The output is
   // a tightly packed Float32 position array, so compute the same bounds directly.

@@ -360,3 +360,47 @@ it('does not upload stationary trees or grass again through the actual WebGPU at
   }
   lod.dispose(); grass.dispose();
 });
+
+describe('city-wide vegetation pools', () => {
+  it('draws each asset LOD once for all tiles, in world space, and repacks only on selection changes', () => {
+    const scene = new THREE.Scene();
+    const a = tile(40, 'tree_detailed_fall', i => new THREE.Vector3(i * 6 - 120, 0, -60));
+    const b = tile(40, 'tree_detailed_fall', i => new THREE.Vector3(i * 6 - 120, 0, -60));
+    b.model.position.set(30, 0, -20); a.model.updateMatrixWorld(); b.model.updateMatrixWorld();
+    scene.add(a.model, b.model);
+    const camera = new THREE.PerspectiveCamera(65, 1, .1, 2000); camera.position.set(0, 2, 40); camera.updateMatrixWorld();
+    const lod = new VegetationLod('medium', library, scene); lod.add(a.model); lod.add(b.model); lod.update(camera);
+    const parts = [...generated(a.model, a.mesh), ...generated(b.model, b.mesh)];
+    const pools = scene.getObjectByName('vegetation-pools')!.children as THREE.InstancedMesh[];
+    expect(parts.every(p => p.userData.pooledVegetation === true)).toBe(true);
+    const selected = parts.filter(p => p.visible), pooled = pools.filter(p => p.visible);
+    expect(pooled.length).toBeGreaterThan(0);
+    expect(selected.length).toBe(pooled.length * 2); // two tiles of the same species: half the draws
+    // Every pool holds exactly the selected instances of its asset LOD part across both tiles.
+    for (const pool of pooled) {
+      const sources = selected.filter(p => p.userData.nature === pool.userData.nature && p.userData.level === pool.userData.level
+        && p.material === pool.material && p.geometry === pool.geometry && !!p.userData.shadowProxy === !!pool.userData.shadowProxy);
+      expect(pool.count).toBe(sources.reduce((n, p) => n + p.count, 0));
+      const world = new THREE.Matrix4(), expected = new THREE.Matrix4(), got = new THREE.Matrix4();
+      let offset = 0;
+      for (const source of sources) {
+        source.updateWorldMatrix(true, false);
+        for (let i = 0; i < source.count; i++) {
+          source.getMatrixAt(i, expected); expected.premultiply(world.copy(source.matrixWorld));
+          pool.getMatrixAt(offset + i, got);
+          expect(got.toArray().map(v => +v.toFixed(3))).toEqual(expected.toArray().map(v => +v.toFixed(3)));
+        }
+        offset += source.count;
+      }
+      expect(pool.castShadow).toBe(sources[0].castShadow); expect(pool.layers.mask).toBe(sources[0].layers.mask);
+    }
+    const versions = pools.map(p => p.instanceMatrix.version);
+    lod.update(camera);
+    expect(pools.map(p => p.instanceMatrix.version)).toEqual(versions); // a stationary view writes nothing
+    const before = pooled.reduce((n, p) => n + p.count, 0);
+    lod.remove(b.model); lod.update(camera);
+    expect(pools.filter(p => p.visible).reduce((n, p) => n + p.count, 0)).toBeLessThan(before);
+    lod.dispose();
+    expect(scene.getObjectByName('vegetation-pools')).toBeUndefined();
+  });
+});

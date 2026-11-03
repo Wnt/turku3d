@@ -1,5 +1,7 @@
 // Dev server only: Vite HMR is off (vite.config.ts), so merges never reload the page. Poll the served worktree's HEAD
 // and show a small notice when it moves; the player reloads (F5) when it suits them.
+import { noteServedHead } from '../core/build';
+
 export function startBuildNotice(intervalMs = 20_000) {
   let first: string | null = null;
   const seen = new Set<string>();
@@ -13,7 +15,10 @@ export function startBuildNotice(intervalMs = 20_000) {
     try {
       const { commit } = await (await fetch('/__build', { cache: 'no-store' })).json() as { commit?: string };
       if (!commit) return;
-      if (first === null) { first = commit; return; }
+      noteServedHead(commit);
+      // The page's own build is the HEAD stamped into its HTML at load (core/build.ts), else the first poll.
+      first ??= document.querySelector('meta[name="turku3d-build"]')?.getAttribute('content')?.split('+')[0] ?? commit;
+      if (commit === first && !seen.size) return;
       if (commit !== first) seen.add(commit);
       if (seen.size) { el.textContent = `New build ready (${seen.size} update${seen.size > 1 ? 's' : ''}) \u00b7 F5 to load`; el.style.display = ''; }
     } catch { /* dev server restarting */ }

@@ -1,12 +1,16 @@
 import * as THREE from 'three/webgpu';
-import { mergeSceneryGeometry } from './mergeSceneryGeometry';
+import { mergeScenerySteps } from './mergeSceneryGeometry';
 import { shareSceneryProgram } from './shareSceneryProgram';
 import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
+import { streamTrace } from '../telemetry/streamTrace';
 
 interface Source { mesh: THREE.Mesh; mask: number; revision?: number; owner?: THREE.Object3D }
 interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; releaseProgram?: () => void; queuedAt: number; readyAt: number; preparing?: boolean; cancelled?: boolean; finished?: Promise<void> }
 interface ModelSources { model: THREE.Object3D; visible: boolean; groups: Map<string, Source[]> }
+
+/** Main-thread milliseconds one frame spends merging a batch; a large 1 km batch spreads over several frames. */
+export const MERGE_BUDGET_MS = 3;
 
 /** Bound merged allocations below WebGPU's default 256 MiB buffer limit. Facade
  * fields become one float buffer, so their source accessor sizes underestimate it. */
@@ -37,6 +41,8 @@ export class SceneryBatches {
   private waiting: Bucket[] = [];
   private revision = 0;
   private preparing = new Set<Bucket>();
+  /** The one batch being merged across frames (MERGE_BUDGET_MS each); its sources keep drawing meanwhile. */
+  private merging?: { bucket: Bucket; steps: Generator<void, THREE.BufferGeometry, void>; ms: number; frames: number };
   pending = 0;
 
   /** Call after changing a resident model's children, geometry, material or transforms. */
@@ -64,7 +70,10 @@ export class SceneryBatches {
     bucket.mesh = undefined;
     this.retire(() => { disposeDraw(mesh); mesh.geometry.dispose(); });
   }
-  clear() { for (const bucket of this.buckets.values()) this.release(bucket); this.buckets.clear(); this.models.clear(); this.waiting = []; this.pending = 0; }
+  clear() {
+    for (const bucket of this.buckets.values()) this.release(bucket);
+    this.buckets.clear(); this.models.clear(); this.waiting = []; this.merging = undefined; this.pending = 0;
+  }
 
   sync(models: Iterable<[string, THREE.Object3D]>, now = performance.now()) {
     // Residency/visibility changes are cheap to detect; unchanged models never traverse
@@ -133,40 +142,59 @@ export class SceneryBatches {
   }
 
   private buildNext(now: number) {
-    if (this.preparing.size) { this.pending = this.waiting.length + this.preparing.size; return; }
-    // Admit one eligible cell per frame. Pending sources stay visible, and a
+    if (this.preparing.size) { this.pending = this.waiting.length + this.preparing.size + (this.merging ? 1 : 0); return; }
+    // Admit one eligible cell at a time. Pending sources stay visible, and a
     // frequently changing cell must not block ready cells later in the queue.
-    const index = this.waiting.findIndex(bucket => bucket.readyAt <= now);
-    const bucket = index < 0 ? undefined : this.waiting.splice(index,1)[0];
-    if (bucket) {
-      const geometry = mergeSceneryGeometry(bucket.sources.map(source => source.mesh));
-      const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
-      mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
-      mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;
-      bucket.mesh = mesh;
-      const commit = () => {
-        bucket.releaseProgram = shareSceneryProgram(bucket.sources.map(source => source.mesh), geometry);
-        this.scene.add(mesh);
-        for (const source of bucket.sources) source.mesh.layers.mask = 0;
-      };
-      if (!this.prepare) commit();
-      else {
-        bucket.preparing = true; this.preparing.add(bucket);
-        // Keep the already prepared sources visible while the replacement warms off the live draw path.
-        bucket.finished = Promise.resolve().then(() => this.prepare!(mesh)).then(() => {
-          if (!bucket.cancelled) commit();
-        }).catch(error => {
-          if (!bucket.cancelled) {
-            console.warn(`[scenery] batch preparation: ${error}`);
-            bucket.readyAt = performance.now() + 5000; this.waiting.push(bucket);
-          }
-        }).finally(() => {
-          bucket.preparing = false; this.preparing.delete(bucket);
-          if (bucket.cancelled || mesh.parent !== this.scene) this.disposeMesh(bucket);
-          this.pending = this.waiting.length + this.preparing.size;
-        });
+    if (!this.merging) {
+      const index = this.waiting.findIndex(bucket => bucket.readyAt <= now);
+      const bucket = index < 0 ? undefined : this.waiting.splice(index,1)[0];
+      if (bucket) this.merging = { bucket, steps: mergeScenerySteps(bucket.sources.map(source => source.mesh)), ms: 0, frames: 0 };
+    }
+    const merging = this.merging;
+    if (merging && merging.bucket.cancelled) this.merging = undefined;
+    else if (merging) {
+      // One source mesh per step, until this frame's budget is spent.
+      const started = performance.now();
+      let step: IteratorResult<void, THREE.BufferGeometry>;
+      do step = merging.steps.next(); while (!step.done && performance.now() - started < MERGE_BUDGET_MS);
+      const ms = performance.now() - started;
+      merging.ms += ms; merging.frames++;
+      streamTrace.slice('scenery', ms);
+      if (step.done) {
+        this.merging = undefined;
+        streamTrace.event('batch.merge', undefined, { sources: merging.bucket.sources.length, vertices: step.value.attributes.position.count,
+          ms: merging.ms, frames: merging.frames, waiting: this.waiting.length });
+        this.install(merging.bucket, step.value);
       }
     }
-    this.pending = this.waiting.length + this.preparing.size;
+    this.pending = this.waiting.length + this.preparing.size + (this.merging ? 1 : 0);
+  }
+
+  /** A merged batch replaces its sources once its draw is prepared off the live path. */
+  private install(bucket: Bucket, geometry: THREE.BufferGeometry) {
+    const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
+    mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
+    mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;
+    bucket.mesh = mesh;
+    const commit = () => {
+      bucket.releaseProgram = shareSceneryProgram(bucket.sources.map(source => source.mesh), geometry);
+      this.scene.add(mesh);
+      for (const source of bucket.sources) source.mesh.layers.mask = 0;
+    };
+    if (!this.prepare) { commit(); return; }
+    bucket.preparing = true; this.preparing.add(bucket);
+    // Keep the already prepared sources visible while the replacement warms off the live draw path.
+    bucket.finished = Promise.resolve().then(() => this.prepare!(mesh)).then(() => {
+      if (!bucket.cancelled) commit();
+    }).catch(error => {
+      if (!bucket.cancelled) {
+        console.warn(`[scenery] batch preparation: ${error}`);
+        bucket.readyAt = performance.now() + 5000; this.waiting.push(bucket);
+      }
+    }).finally(() => {
+      bucket.preparing = false; this.preparing.delete(bucket);
+      if (bucket.cancelled || mesh.parent !== this.scene) this.disposeMesh(bucket);
+      this.pending = this.waiting.length + this.preparing.size + (this.merging ? 1 : 0);
+    });
   }
 }

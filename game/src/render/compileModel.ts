@@ -1,5 +1,6 @@
 import type * as THREE from 'three/webgpu';
 import { PreparationBudget } from './preparationBudget';
+import { streamTrace } from '../telemetry/streamTrace';
 
 type RenderContexts = { get(target: THREE.RenderTarget | null, mrt: ReturnType<THREE.WebGPURenderer['getMRT']>, depth?: number): unknown };
 
@@ -12,6 +13,8 @@ export const isPrecompiling = (renderer: THREE.WebGPURenderer) =>
   (renderer as unknown as { _isPreCompiling: boolean })._isPreCompiling === true;
 
 const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
+/** Streaming shader/pipeline compiles so far and their wall time (ms), for the capture trace. */
+export const compileStats = { count: 0, ms: 0 };
 
 /** r186 compileAsync(object, camera, scene) walks the whole world with traverseVisible for its lights on every call,
  * and streaming preparation calls it once per mesh, material and pass. The light set is fixed at startup
@@ -80,7 +83,10 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context;
         scene.overrideMaterial = override;
         mesh.material = material; mesh.children = []; mesh.visible = true; mesh.frustumCulled = false;
+        const started = performance.now();
         compiled = renderer.compileAsync(mesh, camera, scene);
+        streamTrace.slice('compile', performance.now() - started);
+        void compiled.then(() => { compileStats.count++; compileStats.ms += performance.now() - started; }, () => {});
       } catch (error) {
         renderer.debug.onNodeBuilderCreated = previousBuilder;
         throw error;

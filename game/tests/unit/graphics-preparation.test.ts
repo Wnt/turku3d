@@ -104,3 +104,18 @@ test('an abort during preparation skips view compilation but still finishes the 
   await queue.enqueue(new THREE.Group(), () => signal.abort(), signal.signal);
   expect(view).not.toHaveBeenCalled();
 });
+
+test('a scenery job reaching the head while full-tile jobs wait goes behind them, keeping tile order', async () => {
+  const scene = new THREE.Scene(), first = pending(), events: string[] = [];
+  const queue = new GraphicsPreparation(scene, () => {}, () => {}, async () => {});
+  const head = queue.enqueue(new THREE.Group(), async () => { events.push('tile-a'); await first.promise; });
+  const scenery = queue.enqueue(new THREE.Group(), () => { events.push('scenery'); }, undefined, false, 'scenery');
+  const b = queue.enqueue(new THREE.Group(), () => { events.push('tile-b'); });
+  const c = queue.enqueue(new THREE.Group(), () => { events.push('tile-c'); });
+  first.resolve();
+  await Promise.all([head, scenery, b, c]);
+  expect(events).toEqual(['tile-a', 'tile-b', 'tile-c', 'scenery']);
+  // With no tile waiting, scenery runs in its own turn.
+  await queue.enqueue(new THREE.Group(), () => { events.push('scenery-2'); }, undefined, false, 'scenery');
+  expect(events.at(-1)).toBe('scenery-2');
+});

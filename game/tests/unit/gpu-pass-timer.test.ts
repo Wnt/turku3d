@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import type * as THREE from 'three/webgpu';
-import { GpuFrameTimer } from '../../src/render/gpuTimer';
-import { gpuPassName, labelGpuPass } from '../../src/render/gpuPasses';
+import { GpuFrameTimer, serialPassTimes } from '../../src/render/gpuTimer';
+import { gpuPassName, labelGpuPass, type GpuPass } from '../../src/render/gpuPasses';
 
 function gpu() {
   vi.stubGlobal('GPUBufferUsage', { QUERY_RESOLVE:1, COPY_SRC:2, COPY_DST:4, MAP_READ:8, STORAGE:16 });
@@ -81,4 +81,33 @@ test('known effect targets classify separately while unknown offscreen work stay
     expect(gpuPassName({renderTarget:{},textures:[{name}]})).toBe(label);
   expect(gpuPassName({renderTarget:{},textures:[{name:''}]})).toBe('other');
   expect(gpuPassName({renderTarget:null,fullscreenPass:true})).toBe('post');
+});
+
+test('overlapping pass timestamps (tile GPUs) are credited on the serialized timeline and add up to the frame', () => {
+  // As on an M1 Max: bloom's chained fullscreen passes all begin early and end one after another.
+  const ms = (v: number) => BigInt(Math.round(v * 1e6));
+  const passes: GpuPass[] = ['shadows', 'beauty', 'traa'];
+  const values = [0, 16, 0.5, 1, 1, 7, 6.5, 8].map(ms);
+  for (let i = 0; i < 12; i++) { passes.push('bloom'); values.push(ms(7.5), ms(8.1 + i * 0.1)); }
+  passes.push('post'); values.push(ms(9.1), ms(9.4));
+  const times = serialPassTimes(passes, new BigUint64Array(values))!;
+  const round = Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Math.round(v! * 100) / 100]));
+  expect(round).toEqual({ shadows: 0.5, beauty: 6, traa: 1, bloom: 1.2, post: 0.2 });
+  // Summing each pass's own begin..end counted bloom as 12 x ~1.15 ms = 13.8 ms.
+  expect(Object.values(times).reduce((a, b) => a! + b!, 0)).toBeLessThanOrEqual(16);
+  expect(serialPassTimes(['beauty'], new BigUint64Array([0, 4, 3, 2].map(ms)))).toBeUndefined();
+  // Apple GPUs can run the frame's begin marker after its render passes: credit passes from the first pass on.
+  const late = serialPassTimes(['beauty', 'traa', 'post'], new BigUint64Array([40, 41, 10, 16, 15.5, 17, 40.5, 40.7].map(ms)))!;
+  expect(Object.fromEntries(Object.entries(late).map(([k, v]) => [k, Math.round(v! * 100) / 100]))).toEqual({ beauty: 6, traa: 1, post: 0.2 });
+});
+
+test('passes are credited in GPU order: the post quad encodes first but its nested scene passes execute before it', () => {
+  // three r186: the output quad's pass begins, then its draw renders the scene, shadow and effect passes (each
+  // submitted on finishing) before the quad's own encoder is submitted. Encoding order credited 0 to all but post.
+  const ms = (v: number) => BigInt(Math.round(v * 1e6));
+  const passes: GpuPass[] = ['post', 'beauty', 'shadows', 'reflection', 'bloom'];
+  const values = [0, 16, /* post */ 15.6, 15.8, /* beauty */ 2, 11, /* shadows */ 0.2, 2, /* reflection */ 11, 13, /* bloom */ 13, 15.5].map(ms);
+  const times = serialPassTimes(passes, new BigUint64Array(values))!;
+  const round = Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Math.round(v! * 100) / 100]));
+  expect(round).toEqual({ post: 0.2, beauty: 9, shadows: 1.8, reflection: 2, bloom: 2.5 });
 });

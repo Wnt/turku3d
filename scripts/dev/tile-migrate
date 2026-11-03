@@ -2,6 +2,7 @@
 """Tile migrations on the shared LAN farm: edit existing tiles without regenerating them.
 
 Usage: scripts/dev/tile-migrate register --base bulkgen2-3d1445b2 [--ref HEAD] [--alias NAME]
+                                         [--rebuilds-from PINNED_MIGRATED_ALIAS]
        scripts/dev/tile-migrate apply --version ALIAS t0_0_0 t0_1_0     (foreground, a few tiles)
        scripts/dev/tile-migrate run --version ALIAS [--jobs 6] [--watch 60]   (background, city)
        scripts/dev/tile-migrate status --version ALIAS
@@ -61,6 +62,8 @@ def main():
     register.add_argument('--base', required=True, help='alias or revision of the base generation')
     register.add_argument('--ref', default='HEAD')
     register.add_argument('--alias')
+    register.add_argument('--rebuilds-from', help='reuse the unchanged spot rebuilds of this migrated alias '
+                          '(e.g. the pinned one), so only the new steps run')
     for name in ('apply', 'run', 'status', 'parity'):
         p = sub.add_parser(name)
         p.add_argument('--version', required=True, help='migrated alias or revision')
@@ -81,12 +84,22 @@ def main():
                                branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'),
                                purpose='tile-migration code'), host=args.host, root=args.root)
         base = resolve(args, args.base)
+        # A spot-rebuild step rebuilds tiles with this commit's generator and the base's source
+        # version: register that revision too (no alias; it never moves the game's pin).
+        base_meta = code_of(args, base)
+        source_version = base_meta.get('base_source_version') if base_meta.get('kind') == 'migrated' \
+            else base_meta.get('source_version')
+        if source_version:
+            urlopen(Request(args.url + '/register', data=json.dumps(dict(
+                revision=args.code, source_version=source_version)).encode(),
+                headers={'Content-Type': 'application/json'})).read()
         derived = json.loads(command('ssh', args.host, ' '.join([
             f'mkdir -p {shlex.quote(args.root)}/work/migrate &&',
             f'REPO={shlex.quote(args.root)}/revisions/{args.code}/repo',
             f'TURKU3D_WORK={shlex.quote(args.root)}/work/migrate', shlex.quote(args.runner),
             'python scripts/dev/tile_migrate.py derive --farm-root', shlex.quote(args.root),
-            '--base', base, '--code', args.code])).splitlines()[-1])
+            '--base', base, '--code', args.code,
+            *(['--rebuilds-from', resolve(args, args.rebuilds_from)] if args.rebuilds_from else [])])).splitlines()[-1])
         alias = args.alias or f"{args.base}+m{derived['generation'][:8]}"
         body = json.dumps(dict(revision=derived['revision'], alias=alias)).encode()
         registered = json.load(urlopen(Request(args.url + '/register', data=body,

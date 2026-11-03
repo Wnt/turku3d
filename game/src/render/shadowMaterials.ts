@@ -3,6 +3,9 @@ import { NormalPrepass } from './normalPrepass';
 import { placementVisibility } from '../world/placementVisibility';
 import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
+import { asyncFirstUsePipelines } from './asyncPipelines';
+import { BuildLog } from './census';
+import type { WaterReflection } from './reflections';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -38,6 +41,8 @@ export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) 
 }
 export class GameRenderer extends THREE.WebGPURenderer {
   readonly normalPrepass = new NormalPrepass();
+  /** Every node-program build, for `__render.census()`. */
+  readonly builds = new BuildLog();
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
@@ -45,20 +50,37 @@ export class GameRenderer extends THREE.WebGPURenderer {
     this.debug.onNodeBuilderCreated = (builder, draw) => {
       instancePrograms(builder, (draw as InstanceDraw).object);
       this.instanceSharing?.builder(builder, draw as InstanceDraw);
+      // In-frame builds stall the frame; preparation builds run in budgeted tasks (render/census.ts).
+      this.builds.record(this, draw as Parameters<BuildLog['record']>[1],
+        this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
     };
   }
   private releaseAttributes?: () => void;
   private instanceSharing?: ReturnType<typeof shareInstancePrograms>;
+  private asyncPipelines?: ReturnType<typeof asyncFirstUsePipelines>;
+  /** Every first-use pipeline requested asynchronously so far is compiled. */
+  pipelinesSettled() { return this.asyncPipelines?.settled() ?? Promise.resolve(); }
+  /** Set by PostProcessing.render around the per-frame pipeline: first-use draws compile their pipeline asynchronously. */
+  liveFrame = false;
   override async init(): Promise<this> {
     await super.init();
     this.releaseAttributes ??= ownNodeAttributes(this);
     this.instanceSharing ??= shareInstancePrograms(this);
+    this.asyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
+      () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
     return this;
   }
-  override dispose() { this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  override dispose() { this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
+    const precompiling = (this as unknown as { _isPreCompiling?: boolean })._isPreCompiling === true;
+    // Pooled per-tile vegetation parts are drawn by their city-wide pool (world/vegetationLod.ts); they still compile.
+    if (object.userData.pooledVegetation === true && !precompiling) return;
+    // River reflections draw only what can land on water (render/reflections.ts); preparation still compiles all.
+    const water = (camera.userData as { waterReflection?: WaterReflection }).waterReflection;
+    if (water && !precompiling
+      && !water.coverage.reflectsObject(object, water.eye, water.plane.matrixWorld.elements[13])) return;
     const original = scene.overrideMaterial;
     // Worker occlusion skips the primary camera's beauty and normal-prepass draws together; shadows, reflections
     // and shader preparation keep their own visibility.

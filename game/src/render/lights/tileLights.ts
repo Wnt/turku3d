@@ -9,9 +9,12 @@
 //   post:  float32 x, y, z (post base); uint16 yaw (/65536 * 2pi, three.js rotation.y); uint8 scale * 100; uint8 style
 import { VISUAL_L0 } from '../../core/origin';
 import type { Lamp, SpriteLight } from './lampField';
+import type { FloodlightsField } from './floodlights';
 
 export interface TileLightsField {
   format: 'turku3d-lights'; version: number; count: number; posts: number; street: number; data: string;
+  /** Lit sports venues and their masts (floodlights.ts). */
+  floodlights?: FloodlightsField;
 }
 
 const LIGHT_SCALE = 8;
@@ -21,7 +24,7 @@ type LightCategory = typeof CATEGORIES[number];
 export const CORONA_RADIUS: Record<LightCategory, number> = { street: 1.2, path: 1.0, hung: 1.2, wall: 0.45 };
 const RECORD = 16;
 
-type Bounds = readonly [number, number, number, number];
+export type Bounds = readonly [number, number, number, number];
 
 export function tileBounds(id: string): Bounds | null {
   const m = /^t0_(-?\d+)_(-?\d+)$/.exec(id);
@@ -44,7 +47,7 @@ function bytes(base64: string): Uint8Array {
 
 /** Content identity of a light list: unchanged on every re-poll of the same tile build. */
 export const lightsSignature = (field: TileLightsField | null | undefined) =>
-  field ? `${field.count}/${field.posts}/${field.data}` : '';
+  field ? `${field.count}/${field.posts}/${field.data}${field.floodlights ? JSON.stringify(field.floodlights) : ''}` : '';
 
 /** The tile's lamps: one per light record, with its post where it has one. Malformed lists decode to nothing. */
 export function decodeTileLights(field: TileLightsField | null | undefined): Lamp[] {

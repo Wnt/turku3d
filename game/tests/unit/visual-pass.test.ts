@@ -57,7 +57,9 @@ test('the return cache bounds GPU residency and expires; mobile still releases f
   coarse.update(10000,10000,1000);
   expect([...coarse.entries.values()].filter(e=>e.cachedAt!==undefined)).toHaveLength(16);
   expect(untrackModel).toHaveBeenCalledTimes(4);
-  coarse.update(10000,10000,32001);
+  coarse.update(10000,10000,60001);
+  expect([...coarse.entries.values()].filter(e=>e.cachedAt!==undefined)).toHaveLength(16);
+  coarse.update(10000,10000,62001);
   expect([...coarse.entries.values()].filter(e=>e.cachedAt!==undefined)).toHaveLength(0);
   expect(untrackModel).toHaveBeenCalledTimes(20);
   const mobile=returnCache(1,80);mobile.coarse.update(10000,10000,1000);

@@ -19,6 +19,30 @@ interface Slot {
 }
 const PASS_LIMIT = 128, QUERY_COUNT = 2 + PASS_LIMIT * 2;
 
+/** Per-pass GPU time on the frame's serialized timeline. `values` holds the frame begin/end markers, then one
+ * begin/end pair per pass in encoding order. Encoding order is not execution order: the final post quad's pass
+ * begins first and the scene, shadow and effect passes it samples are rendered (and submitted) from inside its draw,
+ * so post runs last. Attributing in encoding order credited post its own time and then every earlier-executed pass
+ * 0 ms (captures 20261103-134213, -144904: post 0.19 ms, all else 0). Passes are therefore taken in GPU order (by
+ * their begin timestamp). Tile-based GPUs (Apple M-series) start a pass's vertex stage, and so its beginning
+ * timestamp, while earlier passes still shade: chained fullscreen passes overlap, and summing each pass's own
+ * begin..end counted bloom's 12 tiny passes as 20 ms of a 16 ms frame (capture 20261103-133034). Each pass is
+ * credited only with the time its end extends past every earlier pass's end (never before its own start), so the
+ * totals add up to at most the passes' span; the remainder is idle, copy or compute time. */
+export function serialPassTimes(passes: readonly GpuPass[], values: BigUint64Array): GpuPassTimes | undefined {
+  const times: GpuPassTimes = {};
+  const timeline = passes.map((name, i) => ({ name, start: values[2 + i * 2], end: values[3 + i * 2] }));
+  if (timeline.some(pass => pass.end < pass.start)) return undefined;
+  timeline.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.end < b.end ? -1 : a.end > b.end ? 1 : 0));
+  let covered: bigint | null = null;
+  for (const { name, start, end } of timeline) {
+    const from = covered === null || start > covered ? start : covered;
+    times[name] = (times[name] ?? 0) + (end > from ? Number(end - from) / 1e6 : 0);
+    if (covered === null || end > covered) covered = end;
+  }
+  return times;
+}
+
 /** Whole-frame GPU interval. Independent readback slots prevent reusing queries still in flight.
  * WebGPU markers also include command-copy work and GPU idle gaps between this frame's submissions.
  * WebGL uses one disjoint timer query around the entire frame, never nested per-pass timers.
@@ -123,12 +147,8 @@ export class GpuFrameTimer {
         const values = new BigUint64Array(slot.read!.getMappedRange());
         const ms = Number(values[1] - values[0]) / 1e6;
         if (this.releasePassHooks && !slot.overflow) {
-          passTimes = {};
-          for (const [i, name] of slot.passes.entries()) {
-            const start = values[2 + i * 2], end = values[3 + i * 2];
-            if (end < start) { passTimes = undefined; this.passSkipped++; break; }
-            passTimes[name] = (passTimes[name] ?? 0) + Number(end - start) / 1e6;
-          }
+          passTimes = serialPassTimes(slot.passes, values);
+          if (!passTimes) this.passSkipped++;
         } else if (slot.overflow) this.passSkipped++;
         slot.read!.unmap();
         return ms;

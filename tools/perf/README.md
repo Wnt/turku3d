@@ -19,3 +19,90 @@ Replay: `http://localhost:5220/?bench=drive&capture=drive-01&segment=1`. Segment
 `window.__bench` exposes `phase` (loading/settle/prepare/play/drain/done/error), `done`, `error`, `capture`, `replayOf` and `segment`. Scene failures stop and flush the active recorder. The reported measurement duration excludes the final disk flush. After completion, `await window.__bench.run('drive-01', 1)` starts another capture in the same scene. A run with another quality/AA setting needs a new page. Output meta includes `replayOf`, segment and source timestamps, so the summary automatically compares the original segment. The replay API resets seeded ambient populations, the source clock mode and sky lighting before each run, and advances `FrameClock` from the recorded timestamps; old drives without a replay snapshot use seed 20261102 and their wall-clock start. Source actor state cannot be recovered from old recordings.
 
 The bench uses the QA render path, including deterministic traffic/walkers and a kinematic player car; it does not simulate live driving physics, input or HUD updates. Compare **replay against replay** to measure build changes. Original/live versus QA numbers describe different workloads. Viewport stats follow renderer resizes. Comparisons use the latest stats sample before each window, show source commit and render settings, and flag resolution changes or mismatches; host contention and cache state also affect results. Frame GPU timings are deduplicated by the associated renderer frame, since GPU readbacks can arrive late. JS values are sampled-time estimates, not complete call counts.
+
+## Tile / LOD streaming trace
+
+**Recording a tile/LOD debug session (Jonni):**
+1. Open the pause menu on the local game (:5220) and switch **Performance capture: On**.
+2. Close the menu and play or fly the route that shows the problem. Each time you see a late tile, a pop, a hole
+   or a hitch, keep going for a few seconds so its context is in the trace.
+3. Switch the capture **Off** in the pause menu and wait for "Saved as <id>".
+4. Hand the id over. Anyone can then run
+   `python3 tools/perf/tile_timeline.py ~/turku3d/captures/<id> --html /tmp/<id>.html` and open the page: every
+   hitch is listed with the tile or band event that caused it. There is nothing else to switch on.
+
+Every capture also records the streaming trace (`game/src/telemetry/streamTrace.ts`). Streaming code reports into
+one shared trace; with no capture running each call is a single boolean check.
+- **Recording:** a capture switches the trace on, gives it the camera every frame, and drains it with each batch.
+- **Overhead:**
+  - about 0.3 µs per event while recording;
+  - at most `meta.trace.capacity` events (20,000) between 5 s drains; overflow is counted in `stats.recorder.dropped`;
+  - the recorder's own cost per frame (frame hook plus trace) is in `stats.recorder.msPerFrame`; the budget is 0.3 ms.
+
+`tiles.jsonl` holds one event per line: `{t, k, id, d, h, ...}`.
+- `t` is the capture clock (ms), `k` the kind, `id` the tile or cell id.
+- `d` is the horizontal distance from the camera to that square at event time, `h` the camera height.
+- Timed stages are logged when they end, with `ms`; they started at `t - ms`.
+
+Event kinds:
+- **Tiles:**
+  - `tile.new` and `tile.manifest`. The manifest event carries `role` (wanted, lookahead or ahead), `load`,
+    `demand` distance, `status` (200, 202 with `eta`, 429 or an error), `pass`, `tris`, `bytes`, and the queue
+    depth `pending`, `loading`, `preparing`, `details` and `leaving`.
+  - Stages: `tile.collision` (cells, bundle), `tile.glb`, `tile.buildings`, `tile.style`, `tile.facades`,
+    `tile.vegetation` and `tile.prepare` (static and shadow batches, vegetation draws, shader preparation).
+  - Installs and lifecycle: `tile.preview`, `tile.full` (`replaced` preview or model), `tile.refresh`,
+    `tile.cache`, `tile.restore`, `tile.hold`, `tile.release` (`ms` held, `covered`), `tile.drop`, `tile.fail`.
+- **Bands:**
+  - switches: `band.tile` (`to` full or cell: height-aware detail), `band.block` (`to` hd or lod), `band.props`;
+  - dissolves: `band.fade` and `band.fadeEnd` (`dir` in or out, bias `tier`, `held`); `band.swap` when a model swapped at once because its dissolve twin was not compiled yet;
+  - `cut.commit`, the quadtree cut: wanted, shown, hidden, outgoing, held, standby, pending;
+  - `coverage` every second: `cells` is a 9x9 grid of 250 m squares around the camera, rows by z from `j0`,
+    columns by x from `i0`, one character each:
+    - `F` full HD, `h` HD held while its cell dissolves in, `P` collision preview;
+    - `C` scenery cell, `c` cell dissolving, `U` a coarser scenery node;
+    - `D` double (HD and a settled cell), `.` a hole.
+- **Scenery:** `cell.catalogue`, `cell.manifest` (level, rank, standby, active, status), `cell.glb`, `cell.trees`,
+  `cell.prepare`, `cell.install`, `cell.error`, `batch.merge`.
+- **Collision:** `col.load` (cell, bytes, cached) and `col.unload`.
+- **Graphics:** `gfx.prepare` (queue `wait`, `ms`, `compiles`, `compileMs`) and `gfx.upload` (textures drained, `ms`).
+
+`slices.jsonl` holds one row per frame that did streaming work on the main thread: `[t, frame, parse, install,
+compile, upload, scenery, lod]` in ms (`meta.trace.slices`).
+- parse: GLB records applied from the decode worker;
+- install: full-tile commit and draft tinting;
+- compile: the synchronous part of shader preparation;
+- upload: texture upload drains;
+- scenery: cell styling, cut commits and batch merges;
+- lod: merging block-LOD parents.
+
+```sh
+python3 tools/perf/tile_timeline.py ~/turku3d/captures/<id>                  # text summary
+python3 tools/perf/tile_timeline.py ~/turku3d/captures/<id> --html out.html  # self-contained timeline page
+```
+
+The **summary** lists:
+- the slowest tiles from first request to full model, with their per-stage ms;
+- the slowest tiles per stage, and scenery cells;
+- holes and double coverage from the snapshots, and pops (full installs that replaced a preview or nothing,
+  with no dissolve);
+- band event counts;
+- hitches (frame interval above `--hitch`, default 50 ms) by cause, from what actually ran in the frame:
+  - its measured streaming slices (`slice:*`);
+  - its JS samples by class (`js:shader-build` for r186 node-program building, `js:streaming`, `js:population`,
+    `js:render`, `js:other`);
+  - `native` for the time with no JS sample: GPU process waits, synchronous pipeline or buffer calls.
+
+  The largest share wins. Events near the frame are listed as context only, never as the cause. A table shows how
+  often each event kind occurs in the second before a hitch against before any frame; a lift above about 1.5
+  suggests a cause, and about 1 means coincidence.
+
+The **page** shows, on one time axis:
+- the frame-time strip with hitches (hover for the cause) and the stacked slices;
+- the band-switch lanes;
+- Gantt rows per tile and per scenery cell (stage bars and lifecycle marks; hover for fields);
+- holes and doubles over time (hover for the grid);
+- the camera path with hitch positions.
+
+The recorder is tested by `game/tests/unit/stream-trace.test.ts`, the middleware by `tools/dev/capture.test.mjs`
+and the report by `tools/perf/test_tile_timeline.py`.

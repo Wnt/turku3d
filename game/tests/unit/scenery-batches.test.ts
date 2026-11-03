@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { SceneryBatches, sceneryBatchGroups } from '../../src/render/sceneryBatches';
+import { MERGE_BUDGET_MS, SceneryBatches, sceneryBatchGroups } from '../../src/render/sceneryBatches';
 
 test.each([false, true])('merged draws stay hidden until warm; cancelled warm cannot return geometry (cancel=%s)', async cancel => {
   const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();
@@ -219,4 +219,29 @@ test('a changing cell does not block another ready cell and clearing cancels pen
   batches.sync([],500);
   expect(scene.children.filter(mesh=>mesh.name==='distant-city-cell')).toHaveLength(0);
   for (const [,mesh] of entries) expect(mesh.layers.mask).toBe(1);
+});
+
+test('a large batch merges over several frames within the per-frame budget while its sources keep drawing', () => {
+  const scene = new THREE.Scene(), material = new THREE.MeshStandardNodeMaterial();
+  const sources = [0, 1, 2, 3].map(i => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
+    mesh.userData.layer = 'buildings'; scene.add(mesh); return [`t0_${i}_0`, mesh] as [string, THREE.Mesh];
+  });
+  const batches = new SceneryBatches(scene);
+  // Each clock read advances past the budget: one source mesh merges per frame.
+  let clock = 0;
+  const now = vi.spyOn(performance, 'now').mockImplementation(() => (clock += MERGE_BUDGET_MS + 1));
+  try {
+    const merged = () => scene.children.filter(m => m.name === 'distant-city-cell');
+    for (let frame = 0; frame < 3; frame++) {
+      batches.sync(sources, 1000 + frame * 16);
+      expect(merged()).toHaveLength(0);
+      expect(sources.every(([, mesh]) => mesh.layers.mask === 1)).toBe(true);
+      expect(batches.pending).toBe(1);
+    }
+    batches.sync(sources, 1100);
+    expect(merged()).toHaveLength(1);
+    expect(sources.every(([, mesh]) => mesh.layers.mask === 0)).toBe(true);
+    expect(batches.pending).toBe(0);
+  } finally { now.mockRestore(); batches.clear(); }
 });

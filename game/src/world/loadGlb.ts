@@ -4,6 +4,7 @@ import { PreparationBudget } from '../render/preparationBudget';
 import { applyJsonRecords } from './glbRecords';
 import type { decodeGlb } from './decodeGlb';
 import { AssetCache, sharedAssetKey, sharedBuffers } from './sharedAssets';
+import { streamTrace } from '../telemetry/streamTrace';
 
 type Decoded = ReturnType<typeof decodeGlb>;
 let worker: Worker | undefined, sequence = 0;
@@ -18,7 +19,7 @@ function decode(buffer: ArrayBuffer): Promise<Decoded> {
       const job = pending.get(data.id);
       if (!job) return;
       if (data.error) { pending.delete(data.id); job.reject(new Error(data.error)); return; }
-      applyJsonRecords(job.objects, data.rows);
+      streamTrace.time('parse', () => applyJsonRecords(job.objects, data.rows));
       if (data.done) { pending.delete(data.id); job.resolve({ json: job.objects[0], binary: data.binary }); }
       else {
         const nextFrame = budget.checkpoint();

@@ -130,6 +130,13 @@ hashes participate in the source version; workers mount these directories into t
 work root without modifying shared raw or another loop's work. For example the accepted
 Port Arthur survey uses `supplements/lidar-supplement/23458000_6704500.laz`.
 
+GET `/v/<revision-or-alias>/coarse/navigation.json` serves the city road graph and delivery address
+pool (`turku3d.coarse.navigation`, as the public coarse service serves it) from the revision's own
+source snapshot and data root; a migrated revision serves its base's, since navigation derives from
+OSM inputs rather than tile products. The first request starts one background build and answers 404
+(`state: building`), which the game treats as no navigation; later requests get `farm/navigation/<revision>.json`
+(`no-cache`). `events.jsonl` records `navigation-built` with address, landmark, node and edge counts.
+
 POST `/cancel` with `{"revision":"alias-or-id","tiles":["t0_0_0"]}` drops only queued jobs.
 It reports already-running tiles and lets those generators complete normally.
 
@@ -257,6 +264,36 @@ transform code hashes differ from the derived revision's is refused.
 source version, built explicitly as one tile) with the migrated base product: every referenced
 payload must be identical; manifest keys that only record build provenance (`built`, `seconds`,
 `code`, `collision_code`, `migration_base`) are listed apart.
+
+### Spot rebuilds
+
+A generator fix whose effect is limited to a class of tiles reaches the city as a `Rebuild` step:
+
+```python
+# pipeline/turku3d/migrations/stand_roofs.py
+from .core import Rebuild
+
+def affected(manifest):            # data only: which tiles contain what the rule changes
+    venues = manifest.get("venues") or {}
+    return bool(venues.get("grandstand_buildings") or venues.get("grandstands"))
+
+MIGRATION = Rebuild("stand-roof", 1, affected=affected)
+```
+
+The fix itself goes in the generator. In the generator the step is a no-op (the build already is
+the fixed product). On the farm an affected tile adopts the normal build of the step's commit with
+the base's source version; that build already applied the whole chain, so the runner records the
+rest of the chain instead of applying it again. Every other tile stays hard links. The step's
+generation id includes the rebuilt products' generation. `tile-migrate register` registers the
+code commit with the base's source version; a missing rebuilt tile is built by the farm on
+request (the base stands in meanwhile) or requested by a `run --watch`. Build the affected tiles
+explicitly first (`shared-tiles build --version <alias of the commit + source> TILES`).
+
+Before trusting a rebuild, prove its inputs: build the affected tiles with the old generator and
+the same source version, and `parity` them against the base (all payloads identical). Missing
+raw inputs of a source version can be reconstituted by hard link from any file with the
+catalog's sha256 (`source-version.json`), or downloaded from the original public source and
+checked against that hash.
 
 Checks: `bash pipeline/env/run.sh python -m pytest pipeline/tests/test_migrations.py -q` and
 `python3 -m unittest tests.test_shared_tiles.MigratedRevisionTests` (from `scripts/dev`).

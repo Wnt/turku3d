@@ -4,6 +4,7 @@ import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
 import { shareModelTextures } from '../world/sharedAssets';
 import { afterRender } from './afterRender';
+import { streamTrace } from '../telemetry/streamTrace';
 
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
 export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set<THREE.Texture> {
@@ -70,12 +71,30 @@ class TextureUploads {
     this.schedule();
     return done;
   }
+  /** Changes a texture and uploads it in one budgeted task after a frame: no frame sees the change before its upload
+   * (it would upload inside the frame) or draws a half-written texture. */
+  update(texture: THREE.Texture, bytes: number, change: () => void): Promise<void> {
+    const done = this.budget.enqueue(bytes, () => {
+      change();
+      this.renderer.initTexture(texture);
+      this.versions.set(texture, { version: texture.version, done });
+    });
+    this.schedule();
+    return done;
+  }
   private schedule() {
     if (this.scheduled) return;
     this.scheduled = true;
     afterRender(() => {
       this.scheduled = false;
+      const before = this.budget.pending;
+      const started = streamTrace.on ? performance.now() : 0;
       this.budget.drain();
+      if (started) {
+        const ms = performance.now() - started;
+        streamTrace.slice('upload', ms);
+        if (before !== this.budget.pending) streamTrace.event('gfx.upload', undefined, { textures: before - this.budget.pending, left: this.budget.pending, ms });
+      }
       if (this.budget.pending) this.schedule();
     });
   }

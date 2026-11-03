@@ -251,3 +251,89 @@ class _Inline:
 
     def map(self, function, items, chunksize=1):
         return map(function, items)
+
+
+REBUILT_GEN = "9" * 64
+REBUILD = core.Rebuild("test-rebuild", 1, affected=lambda m: m.get("lights", {}).get("count") == 0)
+
+
+def rebuilt_product(root, chain_steps):
+    """The fixed generator's own build of the tile: a new visual and the whole chain recorded."""
+    built = root / "products" / REBUILT_GEN
+    shutil.copytree(root / "products" / BASE_GEN / TILE, built / TILE)
+    shutil.copytree(root / "products" / BASE_GEN / "shared", built / "shared")
+    manifest = json.loads((built / TILE / "manifest.json").read_bytes())
+    product = core.Product(built / TILE, manifest)
+    entry = manifest["visual"][TILE]
+    document, binary = core.glb_chunks(product.read(entry["url"]))
+    product.replace(entry, core.glb_pack(dict(document, extras={"fixed": True}), binary))
+    core.write_in_place(product)
+    manifest["migrations"] = [dict(name=m.name, version=m.version) for m in chain_steps]
+    (built / TILE / "manifest.json").write_bytes(core.manifest_bytes(manifest))
+    (built / TILE / "ready.json").write_text("{}")
+    return manifest
+
+
+def rebuild_farm(tmp_path, chain):
+    steps = chain(registry.CHAIN[0], REBUILD)
+    root = tmp_path / "farm"
+    (root / "revisions" / CODE_REV).mkdir(parents=True)
+    (root / "revisions" / CODE_REV / "revision.json").write_text(
+        json.dumps(dict(revision=CODE_REV, generation=REBUILT_GEN)))
+    base = root / "products" / BASE_GEN
+    manifest = base_product(base)
+    (base / TILE / "ready.json").write_text("{}")
+    (root / "revisions" / CODE_REV / "repo").mkdir()
+    (root / "revisions" / BASE_REV).mkdir(parents=True)
+    (root / "revisions" / BASE_REV / "revision.json").write_text(
+        json.dumps(dict(revision=BASE_REV, generation=BASE_GEN, commit=BASE_REV)))
+    return root, steps, manifest
+
+
+def test_spot_rebuild_adopts_the_fixed_generators_product_for_affected_tiles(tmp_path, chain):
+    root, steps, base_manifest = rebuild_farm(tmp_path, chain)
+    meta = tile_migrate.derive(root, BASE_REV, CODE_REV)
+    assert meta["migrations"][1]["rebuild_generation"] == REBUILT_GEN
+    assert tile_migrate._worker((str(root), meta, TILE))["state"] == "missing-rebuild"
+    rebuilt = rebuilt_product(root, steps)
+    result = tile_migrate.migrate_tile(root, meta, TILE)
+    assert (result["state"], result["rebuilt_from"]) == ("migrated", REBUILT_GEN)
+    migrated = root / "products" / meta["generation"]
+    stored = json.loads((migrated / TILE / "manifest.json").read_bytes())
+    assert stored.pop("migration_base")["generation"] == BASE_GEN
+    assert core.manifest_bytes(stored) == core.manifest_bytes(rebuilt)
+    vis = stored["visual"][TILE]["url"]
+    assert vis != base_manifest["visual"][TILE]["url"]
+    assert (migrated / TILE / vis).stat().st_ino == (root / "products" / REBUILT_GEN / TILE / vis).stat().st_ino
+    assert tile_migrate.Farm.validate(migrated, TILE, stored) == 20
+    # The generator's own build already is the rebuild: the step changes nothing there.
+    built = tmp_path / "generator"
+    shutil.copytree(root / "products" / BASE_GEN, built)
+    generated = migrations.apply_in_place(built / TILE, base_manifest)
+    assert generated["migrations"] == rebuilt["migrations"]
+    assert generated["visual"] == base_manifest["visual"]
+
+
+def test_spot_rebuild_leaves_unaffected_tiles_linked_to_their_base(tmp_path, chain):
+    root, steps, base_manifest = rebuild_farm(tmp_path, chain)
+    manifest = dict(base_manifest, lights=dict(count=3))
+    (root / "products" / BASE_GEN / TILE / "manifest.json").write_bytes(core.manifest_bytes(manifest))
+    meta = tile_migrate.derive(root, BASE_REV, CODE_REV)
+    result = tile_migrate.migrate_tile(root, meta, TILE)
+    assert (result["rebuilt_from"], result["written"]) == (None, 0)
+    migrated = root / "products" / meta["generation"]
+    stored = json.loads((migrated / TILE / "manifest.json").read_bytes())
+    assert stored["migrations"] == [dict(name="chain-record", version=1), dict(name="test-rebuild", version=1)]
+    vis = stored["visual"][TILE]["url"]
+    assert (migrated / TILE / vis).stat().st_ino == (root / "products" / BASE_GEN / TILE / vis).stat().st_ino
+
+
+def test_a_longer_chain_inherits_unchanged_spot_rebuilds(tmp_path, chain):
+    root, _, _ = rebuild_farm(tmp_path, chain)
+    first = tile_migrate.derive(root, BASE_REV, CODE_REV)
+    newer = "e" * 40
+    (root / "revisions" / newer / "repo").mkdir(parents=True)
+    (root / "revisions" / newer / "revision.json").write_text(json.dumps(dict(revision=newer, generation="8" * 64)))
+    longer = tile_migrate.derive(root, BASE_REV, newer, first["revision"])
+    assert longer["migrations"][1]["rebuild_generation"] == REBUILT_GEN
+    assert longer["generation"] == first["generation"] and longer["revision"] != first["revision"]

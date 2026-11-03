@@ -6,7 +6,7 @@ import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { CoarseTiles, cellsOf } from '../../src/world/coarseTiles';
 import type { Manifest } from '../../src/world/manifest';
 import { PreparationBudget } from '../../src/render/preparationBudget';
-import { LOD_FADE_SECONDS, LodFades, dissolveTwin, isDissolveTwin } from '../../src/render/lodFade';
+import { LOD_FADE_SECONDS, LodFades, dissolveReady, dissolveTwin, fadeTier, isDissolveTwin, precompileDissolve } from '../../src/render/lodFade';
 
 beforeAll(() => vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0)));
 afterAll(() => vi.unstubAllGlobals());
@@ -265,6 +265,10 @@ test('a block LOD shell dissolves in over its HD children and out again, never p
   const shellMesh = lod.getObjectByProperty('isMesh', true) as THREE.Mesh;
   const house = owner.children.find(o => o.userData.archetype)!;
   const at = (z: number) => updateBuildingDistances(owner, 260, z, slots, fades);
+  // Without a compiled twin the swap is immediate: a dissolve never builds its shader mid-frame.
+  const bare = new THREE.Group(); bare.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial()));
+  expect(fades.start(bare, 0, 1)).toBe(false); expect(fades.size).toBe(0);
+  await precompileDissolve([lod], [0], () => {}); // the tile's preparation path (main.ts prepareGraphics)
   at(300); // 160 m: settles on HD without a dissolve
   expect([house.visible, lod.visible, merged.visible, fades.size]).toEqual([true, false, false, 0]);
   at(440); // 300 m: the shell dissolves in on top while HD keeps drawing
@@ -298,9 +302,15 @@ test('dissolve twins keep their base program, add a dithered mask and a depth bi
   expect([twin.name, twin.polygonOffset, twin.polygonOffsetUnits < 0, !!twin.maskNode, !!twin.maskShadowNode])
     .toEqual(['distant-city-buildings:dissolve', true, true, true, true]);
   expect(twin.positionNode).toBeNull(); // never the deformed velocity path (render/rigidVelocity.ts)
+  // The bias shrinks with distance (one unit is ~0.6e-6 d^2 m), so a 4 km node is not pulled hundreds of metres.
+  expect([fadeTier(300), fadeTier(1000), fadeTier(4000)]).toEqual([0, 1, 2]);
+  const far = dissolveTwin(base, 2) as THREE.MeshStandardNodeMaterial;
+  expect(far).not.toBe(twin); expect(dissolveTwin(base, 2)).toBe(far);
+  expect([far.polygonOffsetUnits, isDissolveTwin(far)]).toEqual([-2, true]);
+  const farDisposed = vi.fn(); far.addEventListener('dispose', farDisposed);
   const disposed = vi.fn(); twin.addEventListener('dispose', disposed);
   base.dispose();
-  expect(disposed).toHaveBeenCalledOnce();
+  expect(disposed).toHaveBeenCalledOnce(); expect(farDisposed).toHaveBeenCalledOnce();
   expect(dissolveTwin(new THREE.MeshBasicMaterial()).name).not.toContain('dissolve');
 });
 
@@ -324,4 +334,30 @@ test('block swap distance is 3D: a camera high above a near block sees its shell
   expect(lone.children.find(o => o.userData.archetype)!.visible).toBe(false);
   updateBuildingDistances(lone, 260, 300, slots, fades); // unknown height keeps the horizontal rule: 160 m is HD
   expect(lone.children.find(o => o.userData.archetype)!.visible).toBe(true);
+});
+
+test('every dissolve twin shares one mask, and preparation compiles twins on proxies, never touching the live model', async () => {
+  const a = new THREE.MeshStandardNodeMaterial({ name: 'a' }), b = new THREE.MeshStandardNodeMaterial({ name: 'b' });
+  const ta = dissolveTwin(a) as THREE.MeshStandardNodeMaterial, tb = dissolveTwin(b, 1) as THREE.MeshStandardNodeMaterial;
+  expect(ta.maskNode).toBe(tb.maskNode); expect(ta.maskShadowNode).toBe(tb.maskShadowNode);
+  const root = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry(), a); root.add(mesh);
+  const seen: THREE.Material[] = [], live: THREE.Material[] = [];
+  await precompileDissolve([root], [0, 2], async r => {
+    const proxy = r.children[0] as THREE.Mesh;
+    seen.push(proxy.material as THREE.Material); live.push(mesh.material as THREE.Material);
+    expect(proxy).not.toBe(mesh); expect(proxy.geometry).toBe(mesh.geometry);
+  });
+  expect(seen.map(m => m.name)).toEqual(['a:dissolve', 'a:dissolve-2']);
+  expect(live).toEqual([a, a]); expect(mesh.material).toBe(a);
+  expect([dissolveReady(a, 0), dissolveReady(a, 1), dissolveReady(a, 2)]).toEqual([true, false, true]);
+  const calls = vi.fn();
+  await precompileDissolve([root], [0], calls); // already compiled: nothing to do
+  expect(calls).not.toHaveBeenCalled();
+  const fades = new LodFades();
+  mesh.castShadow = true;
+  expect(fades.start(root, 0, 1, undefined, 0, 1, 1)).toBe(false); // tier 1 was never compiled
+  expect(fades.start(root, 0, 1, undefined, 0, 1, 2)).toBe(true);
+  expect([(mesh.material as THREE.Material).name, mesh.castShadow]).toEqual(['a:dissolve-2', false]);
+  fades.update(2000);
+  expect([mesh.material, mesh.castShadow]).toEqual([a, true]);
 });

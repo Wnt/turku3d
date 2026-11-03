@@ -22,6 +22,7 @@ from pathlib import Path
 import shutil
 import sys
 import time
+from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shared_tiles import REV, TILE, Farm, atomic_json, file_lock, read_json  # noqa: E402
@@ -43,9 +44,44 @@ def revision_meta(root: Path, selector: str) -> dict:
     return dict(meta, revision=meta.get('revision', revision))
 
 
-def derive(root: Path, base: str, code: str) -> dict:
+def rebuild_revision(root: Path, code: str, source_version) -> dict:
+    """The generator of the code snapshot with the base's source version (farm overlay ids)."""
+    code_meta = revision_meta(root, code)
+    if source_version:
+        revision = hashlib.sha256(f'{code}:{source_version}'.encode()).hexdigest()
+        generation = hashlib.sha256(f"{code_meta['generation']}:{source_version}".encode()).hexdigest()
+    else:
+        revision, generation = code, code_meta['generation']
+    meta = read_json(root / 'revisions' / revision / 'revision.json')
+    if not meta or meta.get('generation') != generation:
+        raise KeyError(f'rebuild revision {revision} is not registered (register the code with the '
+                       f'base source version first)')
+    return dict(revision=revision, generation=generation)
+
+
+def inherited_rebuilds(root: Path, selector: str | None, migrations) -> dict:
+    """Spot-rebuild generators of an earlier derived revision whose step this chain repeats.
+
+    A rebuild step's tiles are the products of the generator that introduced it. A later chain
+    that keeps the step unchanged (same key and code hash) reuses those products, so extending the
+    chain resumes from its finished prefix instead of rebuilding the class with every new commit."""
+    if not selector:
+        return {}
+    meta = revision_meta(root, selector)
+    if meta.get('kind') != 'migrated':
+        raise ValueError(f'{selector} is not a migrated revision')
+    steps = {(s['name'], s['version'], s['code_hash']): s for s in meta['migrations']}
+    out = {}
+    for m in migrations:
+        step = steps.get((m.name, m.version, m.code_hash()))
+        if step and step.get('rebuild_revision'):
+            out[m.name] = dict(revision=step['rebuild_revision'], generation=step['rebuild_generation'])
+    return out
+
+
+def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None) -> dict:
     """Write the derived revision of ``base`` with this snapshot's migration chain."""
-    from turku3d.migrations import chain, chain_generations
+    from turku3d.migrations import Rebuild, chain, chain_generations
 
     base_meta = revision_meta(root, base)
     if base_meta.get('kind') == 'migrated':  # Chains always start from a generator product.
@@ -53,15 +89,23 @@ def derive(root: Path, base: str, code: str) -> dict:
     if not REV.fullmatch(code) or not (root / 'revisions' / code / 'repo').is_dir():
         raise KeyError(f'code snapshot {code} is not uploaded')
     migrations = chain()
-    generations = chain_generations(base_meta['generation'], migrations)
-    revision = hashlib.sha256(f"migrated:{base_meta['revision']}:{code}".encode()).hexdigest()
+    inherited = inherited_rebuilds(root, rebuilds_from, migrations)
+    rebuilds = {m.name: inherited.get(m.name) or rebuild_revision(root, code, base_meta.get('source_version'))
+                for m in migrations if isinstance(m, Rebuild)}
+    generations = chain_generations(base_meta['generation'], migrations,
+                                    {name: r['generation'] for name, r in rebuilds.items()})
+    # Inherited rebuilds give the same code another chain generation, hence another revision.
+    suffix = f":{generations[-1]}" if inherited else ""
+    revision = hashlib.sha256(f"migrated:{base_meta['revision']}:{code}{suffix}".encode()).hexdigest()
     meta = dict(
         kind='migrated', revision=revision, generation=generations[-1],
         commit=base_meta.get('commit', base_meta['revision']), code_revision=code,
         base_revision=base_meta['revision'], base_generation=base_meta['generation'],
         base_source_version=base_meta.get('source_version'),
         parents=[base_meta['generation'], *generations[:-1]],
-        migrations=[dict(name=m.name, version=m.version, code_hash=m.code_hash(), generation=g)
+        migrations=[dict(name=m.name, version=m.version, code_hash=m.code_hash(), generation=g,
+                         **({f'rebuild_{k}': v for k, v in rebuilds[m.name].items()}
+                            if m.name in rebuilds else {}))
                     for m, g in zip(migrations, generations)])
     destination = root / 'revisions' / revision
     if (destination / 'revision.json').exists():
@@ -130,7 +174,9 @@ def migrate_tile(root: Path, meta: dict, tile: str) -> dict:
                 source, done = prefix, index
                 break
         product = core.Product(source / tile, json.loads((source / tile / 'manifest.json').read_bytes()))
-        core.run(product, migrations[done:])
+        product.rebuilds = {step['name']: products(root, step['rebuild_generation'])
+                            for step in meta['migrations'] if step.get('rebuild_generation')}
+        core.run(product, migrations[done:], full=migrations)
         product.manifest['migration_base'] = dict(
             revision=meta['base_revision'], generation=meta['base_generation'], manifest_sha256=base_sha)
         target_root.mkdir(parents=True, exist_ok=True)
@@ -154,20 +200,28 @@ def migrate_tile(root: Path, meta: dict, tile: str) -> dict:
             shutil.rmtree(target_root / tile, ignore_errors=True)
             raise
         written = sum(1 for p in product.written if p in paths)
+        rebuilt = product.directory.parent.name not in (source.name, base.name)
         result = dict(revision=meta['revision'], generation=generation, kind='migrated', tile=tile,
                       base_revision=meta['base_revision'], base_generation=meta['base_generation'],
                       base_manifest_sha256=base_sha, source_generation=source.name,
                       migrations=keys, applied=keys[done:], payloads=len(paths), checked=checked,
                       written=written, linked=len(paths) - written,
+                      rebuilt_from=product.directory.parent.name if rebuilt else None,
                       seconds=round(time.monotonic() - started, 3))
         atomic_json(target_root / tile / 'ready.json', result)
         return dict(result, state='migrated')
 
 
 def _worker(args):
+    from turku3d.migrations import MissingRebuild
+
     root, meta, tile = args
     try:
         return migrate_tile(Path(root), meta, tile)
+    except MissingRebuild as error:
+        step = next(s for s in meta['migrations'] if s['name'] == error.name)
+        return dict(tile=tile, state='missing-rebuild', rebuild_revision=step['rebuild_revision'],
+                    rebuild_generation=step['rebuild_generation'], error=str(error))
     except MissingBase as error:
         return dict(tile=tile, state='missing-base', error=str(error))
     except Exception as error:  # Reported per tile; the run continues.
@@ -181,7 +235,18 @@ def finished_base_tiles(root: Path, meta: dict) -> list[str]:
     return sorted(tiles, key=lambda t: (max(abs(int(v)) for v in t.split('_')[1:]), t))
 
 
-def run(root: Path, meta: dict, jobs: int, tiles=None, watch=0, idle_exit=7200) -> dict:
+def request_rebuild(farm_url, result):
+    """An explicit farm build of a spot-rebuild tile (no distance: never moves the game's pin)."""
+    if not farm_url:
+        return
+    try:
+        urlopen(f"{farm_url}/v/{result['rebuild_revision']}/coarse/{result['tile']}/manifest.json",
+                timeout=30).read()
+    except OSError:
+        pass  # Queue full or busy: the next pass asks again.
+
+
+def run(root: Path, meta: dict, jobs: int, tiles=None, watch=0, idle_exit=7200, farm_url=None) -> dict:
     log_dir = root / 'migrations' / meta['generation']
     log_dir.mkdir(parents=True, exist_ok=True)
     counts, last_new, finished = {}, time.monotonic(), set()
@@ -196,6 +261,8 @@ def run(root: Path, meta: dict, jobs: int, tiles=None, watch=0, idle_exit=7200) 
                     counts[result['state']] = counts.get(result['state'], 0) + 1
                     if result['state'] in ('kept', 'migrated'):
                         finished.add(result['tile'])
+                    elif result['state'] == 'missing-rebuild':
+                        request_rebuild(farm_url, result)
                     if result['state'] != 'kept':
                         changed += 1
                         log.write(json.dumps(dict(result, t=time.time())) + '\n')
@@ -268,15 +335,18 @@ def main(argv=None):
     parser.add_argument('--farm-root', type=Path, required=True)
     parser.add_argument('--base')
     parser.add_argument('--code')
+    parser.add_argument('--rebuilds-from', help='derive: reuse the spot rebuilds of this derived revision')
     parser.add_argument('--revision')
     parser.add_argument('--generated', help='parity: generator alias or revision of the same tile')
     parser.add_argument('--jobs', type=int, default=MAX_JOBS)
     parser.add_argument('--watch', type=float, default=0, help='rescan the base every N seconds')
     parser.add_argument('--idle-exit', type=float, default=7200)
+    parser.add_argument('--farm-url', default='http://192.168.1.114:7950',
+                        help='run: ask the farm to build missing spot-rebuild tiles')
     args = parser.parse_args(argv)
     root = args.farm_root.resolve()
     if args.action == 'derive':
-        print(json.dumps(derive(root, args.base, args.code)))
+        print(json.dumps(derive(root, args.base, args.code, args.rebuilds_from)))
         return 0
     meta = revision_meta(root, args.revision)
     if meta.get('kind') != 'migrated':
@@ -290,13 +360,15 @@ def main(argv=None):
             print(json.dumps(result))
         return 0 if all(r['identical'] for r in results) else 1
     if args.action == 'apply':
-        failed = 0
+        states = []
         for tile in args.tiles:
             result = _worker((str(root), meta, tile))
-            failed += result['state'] not in ('kept', 'migrated')
-            print(json.dumps(result))
-        return 1 if failed else 0
-    summary = run(root, meta, args.jobs, args.tiles or None, args.watch, args.idle_exit)
+            states.append(result['state'])
+            print(json.dumps(result), flush=True)
+        if any(state not in ('kept', 'migrated', 'missing-rebuild') for state in states):
+            return 1
+        return 4 if 'missing-rebuild' in states else 0  # 4: the farm builds the rebuild first
+    summary = run(root, meta, args.jobs, args.tiles or None, args.watch, args.idle_exit, args.farm_url)
     print(json.dumps(summary))
     return 1 if summary['counts'].get('failed') else 0
 

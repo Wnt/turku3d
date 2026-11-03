@@ -30,7 +30,9 @@ import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
-import { GraphicsPreparation } from './render/graphicsPreparation';
+import { GraphicsPreparation, type PreparationPriority } from './render/graphicsPreparation';
+import { precompileDissolve } from './render/lodFade';
+import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
@@ -47,6 +49,8 @@ import { retireAfterFrame, frameSubmitted } from './render/retirement';
 import { CameraBench, benchPose } from './qa/bench';
 import { FrameClock } from './core/frameClock';
 import { ScenePopulation } from './world/scenePopulation';
+import { drawCensus } from './render/census';
+import { GameRenderer } from './render/shadowMaterials';
 
 declare global {
   interface Window {
@@ -68,7 +72,9 @@ declare global {
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
-      beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility };
+      beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
+      /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
+      census?: () => Promise<unknown> };
   }
 }
 
@@ -149,7 +155,14 @@ const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Came
 } } : lights?.sprites;
 let post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility, setTime: (iso: string) => {
+window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
+  census: () => {
+    let previous: (() => void) | undefined;
+    return drawCensus(renderer, {
+      install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
+      uninstall: () => { window.__render!.afterFrame = previous; },
+    }, renderer instanceof GameRenderer ? renderer.builds : undefined);
+  }, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
@@ -169,19 +182,29 @@ tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE
   rain?.exposure.remove(model);
   graphics.retire(() => { vegetation?.remove(model); materials?.release(model); });
 });
-const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal) => {
+const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal,
+  priority: PreparationPriority = 'tile') => {
   // The menu warms its initial view only. Backfill other resident programs after it becomes ready.
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') {
     graphics.defer(model, prepare, signal);
     return Promise.resolve();
   }
-  return graphics.enqueue(model, prepare, signal);
+  return graphics.enqueue(model, prepare, signal, false, priority);
 };
+// Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
+// builds a shader or pipeline inside a frame: block LOD shells of a tile, the level's bias tiers of a scenery cell.
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
-  queueGraphics(model, () => materials?.prepare(model, scene, camera, signal), signal);
+  queueGraphics(model, async () => {
+    await materials?.prepare(model, scene, camera, signal);
+    const shells = blockLodRoots(model);
+    if (shells.length && post) await precompileDissolve(shells, [0], root => post!.prepare(root));
+  }, signal);
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
-const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model,
-  () => Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map))));
+const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
+  await Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map)));
+  const tiers = model.userData.dissolveTiers as number[] | undefined;
+  if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
+}, undefined, 'scenery');
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;

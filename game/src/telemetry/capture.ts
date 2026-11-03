@@ -1,11 +1,13 @@
 import { localFeature } from '../core/localOnly';
 import { Vector2 } from 'three/webgpu';
+import { SLICES, streamTrace } from './streamTrace';
+import { buildStatus } from '../core/build';
 
 // The recorder boundary also supports the QA replay host, which exposes the same state shape as play.
 type Host = Record<string, any>;
-type Rows = Record<'frames' | 'poses' | 'loaf' | 'stats' | 'marks' | 'js' | 'network', any[]>;
+type Rows = Record<'frames' | 'poses' | 'loaf' | 'stats' | 'marks' | 'js' | 'network' | 'tiles' | 'slices', any[]>;
 interface SelfProfiler { stop(): Promise<unknown>; addEventListener(type: string, fn: () => void): void }
-const empty = (): Rows => ({ frames: [], poses: [], loaf: [], stats: [], marks: [], js: [], network: [] });
+const empty = (): Rows => ({ frames: [], poses: [], loaf: [], stats: [], marks: [], js: [], network: [], tiles: [], slices: [] });
 const R = (x: number | null | undefined, d = 3) => x == null ? null : Math.round(x * 10 ** d) / 10 ** d;
 export const captureAllowed = () => import.meta.env.VITE_PUBLIC_RELEASE !== '1' && localFeature(location, 'capture');
 const KEY = 'turku3d.performanceCapture';
@@ -28,6 +30,9 @@ export class DriveCapture {
   private viewport = new Vector2();
   private lastPose = -Infinity;
   private lastStat = -Infinity;
+  /** Recorder cost (frame hook + streaming trace), ms accumulated since the last stats row, and its frames. */
+  private selfMs = 0;
+  private selfFrames = 0;
   private paused: boolean;
   private meta: Host;
   private metaDirty = true;
@@ -40,13 +45,15 @@ export class DriveCapture {
   constructor(private game: Host, extra: Host = {}) {
     const r = window.__render!, s = game.state();
     this.paused = s.paused;
-    this.meta = { name: this.id, url: location.href, commit: import.meta.env.VITE_COMMIT ?? null,
+    this.meta = { name: this.id, url: location.href, commit: import.meta.env.VITE_COMMIT ?? null, build: buildStatus(),
       start: { performanceNow: performance.now(), wall: Date.now() }, replay: game.replay?.snapshot?.() ?? null,
       hour: game.dayClock?.hour ?? null, params: game.params, backend: game.backend, ua: navigator.userAgent, three: game.three,
       clockMode: game.dayClock?.captureMode?.() ?? null,
       quality: game.params?.quality, pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport(),
       gpu: (() => { const info = (r.renderer.backend as Host)?.device?.adapterInfo; return info ? Object.fromEntries(['vendor', 'architecture', 'device', 'description'].map(k => [k, info[k] ?? null])) : null; })(), ...extra };
+    this.meta.trace = { version: 1, slices: SLICES, capacity: streamTrace.capacity };
     this.mark(this.paused ? 'pause' : 'resume');
+    streamTrace.reset(); streamTrace.on = true;
     window.__render!.afterFrame = this.tick;
     if (PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame')) {
       this.observer = new PerformanceObserver(list => {
@@ -81,6 +88,10 @@ export class DriveCapture {
   private frame() {
     const r = window.__render!, perf = r.perf, cam = r.camera, t = performance.now(), g = this.game;
     this.rows.frames.push([R(t, 2), r.renderer.info.frame, R(perf.lastCpu, 2), R(perf.lastGpu, 2), perf.lastGpuFrame, perf.calls, perf.triangles]);
+    // Streaming work of the frame just rendered, then the camera for the next frame's event distances.
+    const slices = streamTrace.takeSlices();
+    if (slices) this.rows.slices.push([R(t, 2), r.renderer.info.frame, ...slices]);
+    streamTrace.setCamera(cam.position.x, cam.position.y, cam.position.z);
     if (t - this.lastPose >= 50) {
       this.lastPose = t;
       const s = g.state(), lat = g.physics?.latest, a = g.input?.actions ?? {}, v = s.vehicle;
@@ -104,8 +115,14 @@ export class DriveCapture {
         visModels: s.visModels, visTris: s.visTris, tilesSettled: s.tilesSettled, frameEma: R(s.frameMs, 2),
         gpuPassMs: passMs, gpuPassFrame: passMs ? passFrame : null,
         coarse: coarse?.entries ? [...coarse.entries.values()].reduce((o: Host, e: any) => (o[e.state] = (o[e.state] ?? 0) + 1, o), {}) : null,
-        pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport() });
+        pixelRatio: r.renderer.getPixelRatio(), viewport: this.renderViewport(),
+        recorder: { msPerFrame: this.selfFrames ? R(this.selfMs / this.selfFrames, 4) : null, frames: this.selfFrames, dropped: streamTrace.dropped } });
+      this.selfMs = 0; this.selfFrames = 0;
+      // Which band draws each 250 m cell around the camera: holes and double coverage show up here.
+      const coverage = coarse?.coverageSnapshot?.(cam.position.x, cam.position.z);
+      if (coverage) streamTrace.event('coverage', undefined, coverage);
     }
+    this.selfMs += performance.now() - t + streamTrace.takeCost(); this.selfFrames++;
   }
   private startProfiler() {
     if (!this.active) return;
@@ -136,6 +153,10 @@ export class DriveCapture {
     return this.profilerDrain;
   }
   flush(beacon = false) {
+    this.rows.tiles.push(...streamTrace.drain());
+    // A merge during the recording is a newer build waiting for F5: record it with the capture.
+    const build = buildStatus();
+    if (build.latest !== this.meta.build?.latest || build.pending !== this.meta.build?.pending) { this.meta.build = build; this.metaDirty = true; }
     const rows = this.rows; this.rows = empty();
     // Keep normal batches within the beacon quota; a large profiler trace uses ordinary fetch.
     let chunk: Host = { batch: this.batch++ };
@@ -171,7 +192,7 @@ export class DriveCapture {
     finally { this.inFlight = null; this.sending = false; this.onChange?.(); }
   }
   async stop() {
-    this.active = false; clearInterval(this.timer); clearTimeout(this.profilerTimer);
+    this.active = false; streamTrace.on = false; clearInterval(this.timer); clearTimeout(this.profilerTimer);
     this.observer?.disconnect(); this.resources?.disconnect(); removeEventListener('pagehide', this.hide); removeEventListener('pageshow', this.show);
     if (window.__render?.afterFrame === this.tick) window.__render.afterFrame = this.previous;
     await this.rollProfiler(false); this.flush();

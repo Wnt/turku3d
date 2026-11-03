@@ -40,13 +40,24 @@ export function wantedTiles(x: number, z: number, radius = Infinity): string[] {
     .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b));
 }
 
-/** Retain the normal window plus 75 m of boundary hysteresis, at most 4x4 per start. */
-export function retainDraftTile(id: string, points: readonly { x: number; z: number }[]) {
+/** Square (Chebyshev) distance from each point to L0 tile `id`'s footprint is at most `reach`. */
+function withinSquare(id: string, points: readonly { x: number; z: number }[], reach: number) {
   const tile = parse(id);
   if (!tile || tile.level !== 0) return false;
   const x0 = tile.i * VISUAL_L0, z0 = tile.j * VISUAL_L0;
   return points.some(point => Math.max(x0 - point.x, point.x - x0 - VISUAL_L0,
-    z0 - point.z, point.z - z0 - VISUAL_L0) <= VISUAL_L0 + 75);
+    z0 - point.z, point.z - z0 - VISUAL_L0) <= reach);
+}
+
+/** Retain the normal window plus 75 m of boundary hysteresis, at most 4x4 per start. */
+export function retainDraftTile(id: string, points: readonly { x: number; z: number }[]) {
+  return withinSquare(id, points, VISUAL_L0 + 75);
+}
+
+/** Retain a prepared surface tile of the 5x5 reserve (preparationTiles) plus 75 m of hysteresis, at most 6x6 per
+ *  start: the reserve's nearest-first slots reorder as the player moves inside a tile. */
+export function retainPreparedTile(id: string, points: readonly { x: number; z: number }[]) {
+  return withinSquare(id, points, 2 * VISUAL_L0 + 75);
 }
 
 /** The 16 collision cells (62.5 m) of L0 tile `id`. */

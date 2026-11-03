@@ -16,6 +16,22 @@ import { weatherLighting } from './weather/lighting';
 /** Below this the sky is dark enough that IBL only needs a slow refresh. */
 const DEEP_NIGHT = -12;
 const liveEnvironments = new Set<Environment>();
+const corner = new THREE.Vector3();
+
+/** True while every corner of a cascade's view slice (camera view-space `vertices`, CSMFrustum) lies inside the
+ *  cascade camera's last rendered volume, keeping `margin` of the map width clear at the sides: at least 0.7 m on the
+ *  16-50 m cascade and 5 m on the 50-200 m one, wider than the CSM fade band beyond each slice (0.1 m and 1.7 m). */
+export function cascadeCovers(shadowCamera: THREE.OrthographicCamera, camera: THREE.Camera,
+  vertices: { near: THREE.Vector3[]; far: THREE.Vector3[] }, margin = 0.01) {
+  const mx = (shadowCamera.right - shadowCamera.left) * margin, my = (shadowCamera.top - shadowCamera.bottom) * margin;
+  for (const plane of [vertices.near, vertices.far]) for (const vertex of plane) {
+    corner.copy(vertex).applyMatrix4(camera.matrixWorld).applyMatrix4(shadowCamera.matrixWorldInverse);
+    if (corner.x < shadowCamera.left + mx || corner.x > shadowCamera.right - mx
+      || corner.y < shadowCamera.bottom + my || corner.y > shadowCamera.top - my
+      || -corner.z < shadowCamera.near || -corner.z > shadowCamera.far) return false;
+  }
+  return true;
+}
 
 export class Environment {
   readonly sky = new AnalyticSky();
@@ -205,11 +221,28 @@ export class Environment {
   }
 
   /** While the sun has no intensity its cascades are not re-rendered (3 passes on medium, 4 on high). Startup
-   *  warmup passes `allowFreeze = false` so every shadow pipeline compiles before play, whatever the hour. */
+   *  warmup passes `allowFreeze = false` so every shadow pipeline compiles before play, whatever the hour.
+   *  In play the nearest cascade (the player's and nearby actors' shadows) renders every frame; the farther ones take
+   *  alternate frames while the camera's view of them still lies inside their last map. r186 changes a cascade's
+   *  shadow matrix only when it renders, so receivers always sample a map with its own matrix; distant moving casters
+   *  lag one frame. A resize renders every cascade, as its bounds change. */
   updateShadows(allowFreeze: boolean) {
     this.shadowsFrozen = allowFreeze && this.sun.intensity === 0;
-    for (const light of this.csm.lights) light.shadow!.autoUpdate = !this.shadowsFrozen;
+    const lights = this.csm.lights, camera = this.csm.camera;
+    const alternate = allowFreeze && !this.shadowsFrozen && camera !== null && this.fullShadowFrames <= 0;
+    this.fullShadowFrames--;
+    this.shadowFrame++;
+    if (alternate) camera.updateMatrixWorld();
+    for (let i = 0; i < lights.length; i++) {
+      const shadow = lights[i].shadow!;
+      const skip = alternate && i > 0 && (this.shadowFrame + i) % 2 === 0
+        && cascadeCovers(shadow.camera as THREE.OrthographicCamera, camera, this.csm.frustums[i].vertices);
+      shadow.autoUpdate = !this.shadowsFrozen && !skip;
+    }
   }
+  private shadowFrame = 0;
+  /** Frames that render every cascade (after construction and resize). */
+  private fullShadowFrames = 2;
 
   /** CSM itself snaps each cascade's light-space centre to shadow texels. */
   follow(focus: THREE.Vector3) {
@@ -231,7 +264,7 @@ export class Environment {
     this.updateIBL();
   }
 
-  resize() { if (this.csm.camera) this.csm.updateFrustums(); }
+  resize() { if (this.csm.camera) this.csm.updateFrustums(); this.fullShadowFrames = 2; }
 
   dispose() {
     liveEnvironments.delete(this);
