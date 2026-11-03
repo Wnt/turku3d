@@ -6,7 +6,7 @@ import { TrafficNetwork } from '../../src/traffic/network';
 import { trafficRoads } from '../../src/traffic/roads';
 import { honking, vehicleLights } from '../../src/traffic/lights';
 import { pointAt } from '../../src/traffic/network';
-import { LaneChangePlanner } from '../../src/traffic/laneChanges';
+import { LaneChangePlanner, PLAN_BUDGET } from '../../src/traffic/laneChanges';
 import { buildTileTraffic, type Lane } from '../../src/traffic/tileNetwork';
 
 export function intersection(signal = false, lanes = 1): RoadGraphJson {
@@ -311,5 +311,25 @@ describe('incremental graph rebuilds', () => {
       expect(signature(flow)).toBe(signature(fresh));
       if (before) expect(flow.cars.size).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('simulation budgets', () => {
+  test('lane-change planning never exceeds its per-tick budget, even with every car due at once', () => {
+    const net = flowNetwork(intersection(false, 2)), flow = new TrafficFlow(net, 0);
+    flow.update(30);
+    const movements = (flow as unknown as { movements: Map<Lane, Lane[]> }).movements;
+    const planner = new LaneChangePlanner([...movements.keys()], movements);
+    const byLane = new Map<Lane, FlowCar[]>();
+    const template = [...flow.cars.values()].find(c => c.lane.laneCount === 2 && c.lane.length > 60)!;
+    const cars: FlowCar[] = Array.from({ length: PLAN_BUDGET * 3 }, (_, i) => ({ ...template, key: `budget:${i}`, s: 20, speed: 2,
+      change: null, reservation: null, changeCooldown: 0, signal: { target: template.lane, since: 0, reason: 'queue' } }));
+    let most = 0;
+    for (let tick = 100; tick < 110; tick++) {
+      for (const car of cars) planner.target(car, tick, byLane);
+      expect(planner.planned).toBeLessThanOrEqual(PLAN_BUDGET);
+      most = Math.max(most, planner.planned);
+    }
+    expect(most).toBe(PLAN_BUDGET); // the first tick had every signalling car due
   });
 });

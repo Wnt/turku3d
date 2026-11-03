@@ -292,12 +292,18 @@ function surface(at: Located, height: LaneHeight): number {
 
 /** Point and unit tangent at arc length s along a polyline. */
 export function pointAt(p: Float64Array, cum: Float64Array, s: number): { x: number; z: number; hx: number; hz: number } {
+  return pointAtInto(p, cum, s, { x: 0, z: 0, hx: 1, hz: 0 });
+}
+
+/** pointAt into a caller's object (the per-substep pose paths allocate nothing). */
+export function pointAtInto<T extends { x: number; z: number; hx: number; hz: number }>(p: Float64Array, cum: Float64Array, s: number, out: T): T {
   const n = p.length / 2;
   let lo = 1, hi = n - 1;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (cum[mid] < s) lo = mid + 1; else hi = mid; }
   const i = Math.max(1, lo);
   const span = cum[i] - cum[i - 1];
   const f = span > 1e-9 ? Math.min(1, Math.max(0, (s - cum[i - 1]) / span)) : 0;
-  const dx = p[2 * i] - p[2 * i - 2], dz = p[2 * i + 1] - p[2 * i - 1], d = Math.hypot(dx, dz) || 1;
-  return { x: p[2 * i - 2] + dx * f, z: p[2 * i - 1] + dz * f, hx: dx / d, hz: dz / d };
+  const dx = p[2 * i] - p[2 * i - 2], dz = p[2 * i + 1] - p[2 * i - 1], d = Math.sqrt(dx * dx + dz * dz) || 1;
+  out.x = p[2 * i - 2] + dx * f; out.z = p[2 * i - 1] + dz * f; out.hx = dx / d; out.hz = dz / d;
+  return out;
 }

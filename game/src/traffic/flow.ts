@@ -3,7 +3,7 @@
 // All resident lanes participate, independent of the camera ring, render cap or local frame rate.
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, pick } from './hash';
-import { blankPose, entryTime, pointAt, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
+import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
 import { connector, cumulative, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { signalState, protectedLeft } from './controls';
@@ -737,15 +737,24 @@ function shifted(p: { x: number; z: number; hx: number; hz: number }, offset: nu
 }
 
 function routePoint(lane: Lane, s: number) {
-  if (s <= lane.length || !lane.connector) return pointAt(lane.points, lane.cum, s);
-  if (s <= lane.length + lane.connector.length || !lane.next) return pointAt(lane.connector.points, lane.connector.cum, s - lane.length);
-  return pointAt(lane.next.points, lane.next.cum, s - lane.length - lane.connector.length);
+  return routePointInto(lane, s, { x: 0, z: 0, hx: 1, hz: 0 });
 }
+type Point = { x: number; z: number; hx: number; hz: number };
+function routePointInto(lane: Lane, s: number, out: Point): Point {
+  if (s <= lane.length || !lane.connector) return pointAtInto(lane.points, lane.cum, s, out);
+  if (s <= lane.length + lane.connector.length || !lane.next) return pointAtInto(lane.connector.points, lane.connector.cum, s - lane.length, out);
+  return pointAtInto(lane.next.points, lane.next.cum, s - lane.length - lane.connector.length, out);
+}
+const midPoint: Point = { x: 0, z: 0, hx: 1, hz: 0 }, frontPoint: Point = { ...midPoint }, backPoint: Point = { ...midPoint }, fromPoint: Point = { ...midPoint };
+const scratchA = blankPose(), scratchB = blankPose();
 
-export function sampleFlowPose(car: FlowCar, _dt: number, height: LaneHeight, out: CarPose = blankPose()): CarPose {
+/** What a pose depends on: a car now, or the same fields one tick earlier (`FlowCar.previous`). */
+export type PoseState = Pick<FlowCar, 'route' | 's' | 'speed' | 'change' | 'swerve' | 'swerveRate'>;
+
+export function sampleFlowPose(car: PoseState, _dt: number, height: LaneHeight, out: CarPose = blankPose()): CarPose {
   const lane = car.route, s = car.s;
-  const mid = routePoint(lane, s), front = routePoint(lane, s + 1.3), back = routePoint(lane, s - 1.3);
-  const dx = front.x - back.x, dz = front.z - back.z, d = Math.hypot(dx, dz);
+  const mid = routePointInto(lane, s, midPoint), front = routePointInto(lane, s + 1.3, frontPoint), back = routePointInto(lane, s - 1.3, backPoint);
+  const dx = front.x - back.x, dz = front.z - back.z, d = Math.sqrt(dx * dx + dz * dz);
   out.x = mid.x; out.z = mid.z; out.hx = d > 0.01 ? dx / d : mid.hx; out.hz = d > 0.01 ? dz / d : mid.hz;
   out.speed = car.speed;
   const y = height(lane, Math.min(s, lane.length));
@@ -758,11 +767,11 @@ export function sampleFlowPose(car: FlowCar, _dt: number, height: LaneHeight, ou
   if (car.change) {
     const change = car.change, u = change.progress, f = u * u * u * (10 + u * (-15 + 6 * u));
     const ratio = change.from.length / lane.length, sourceS = s * ratio;
-    const from = pointAt(change.from.points, change.from.cum, sourceS);
+    const from = pointAtInto(change.from.points, change.from.cum, sourceS, fromPoint);
     const df = 30 * u * u * (1 - u) * (1 - u) * change.rate;
     const vx = car.speed * (from.hx * ratio * (1 - f) + mid.hx * f) + (mid.x - from.x) * df;
     const vz = car.speed * (from.hz * ratio * (1 - f) + mid.hz * f) + (mid.z - from.z) * df;
-    const v = Math.hypot(vx, vz);
+    const v = Math.sqrt(vx * vx + vz * vz);
     out.x = from.x + (mid.x - from.x) * f; out.z = from.z + (mid.z - from.z) * f;
     if (v > 0.05) { out.hx = vx / v; out.hz = vz / v; }
     const sourceY = height(change.from, sourceS);
@@ -773,7 +782,7 @@ export function sampleFlowPose(car: FlowCar, _dt: number, height: LaneHeight, ou
     // Going round a stopped car: shifted off the lane centre, nose turned along the lateral motion.
     out.x -= out.hz * car.swerve; out.z += out.hx * car.swerve;
     const forward = Math.max(2, out.speed), hx = out.hx * forward - out.hz * car.swerveRate, hz = out.hz * forward + out.hx * car.swerveRate;
-    const d = Math.hypot(hx, hz);
+    const d = Math.sqrt(hx * hx + hz * hz);
     out.hx = hx / d; out.hz = hz / d;
   }
   return out;
@@ -781,10 +790,10 @@ export function sampleFlowPose(car: FlowCar, _dt: number, height: LaneHeight, ou
 
 /** Render one tick behind the clock, between two collision-checked poses. Never extrapolate into a blocked gap. */
 export function interpolateFlowPose(car: FlowCar, fraction: number, height: LaneHeight, out: CarPose = blankPose()): CarPose {
-  const a = sampleFlowPose({ ...car, ...car.previous }, 0, height), b = sampleFlowPose(car, 0, height);
+  const a = sampleFlowPose(car.previous, 0, height, scratchA), b = sampleFlowPose(car, 0, height, scratchB);
   const f = Math.max(0, Math.min(1, fraction));
   out.x = a.x + (b.x - a.x) * f; out.z = a.z + (b.z - a.z) * f; out.y = a.y + (b.y - a.y) * f;
-  const hx = a.hx + (b.hx - a.hx) * f, hz = a.hz + (b.hz - a.hz) * f, d = Math.hypot(hx, hz) || 1;
+  const hx = a.hx + (b.hx - a.hx) * f, hz = a.hz + (b.hz - a.hz) * f, d = Math.sqrt(hx * hx + hz * hz) || 1;
   out.hx = hx / d; out.hz = hz / d; out.pitch = a.pitch + (b.pitch - a.pitch) * f;
   out.speed = a.speed + (b.speed - a.speed) * f;
   return out;
