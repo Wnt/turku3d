@@ -10,7 +10,8 @@ self.onmessage = ({ data }: MessageEvent<{ id: number; buffer?: ArrayBuffer }>) 
     const job = jobs.get(data.id)!;
     const rows: JsonRecord[] = [];
     let size = 0;
-    while (rows.length < 256 && size < 32768) {
+    // About 0.5 ms of main-thread record application per reply (a tile GLB is ~9k records: 5 replies, not 36).
+    while (rows.length < 2048 && size < 262144) {
       const next = job.records.next();
       if (next.done) {
         jobs.delete(data.id);

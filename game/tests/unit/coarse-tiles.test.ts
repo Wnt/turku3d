@@ -778,3 +778,38 @@ test('final fragments of the service generation are fetched once per tile: no re
   expect(requests.slice(before).filter(p => p === '/coarse/t0_0_0/manifest.json')).toHaveLength(1);
   expect(coarse.entries.get('t0_0_0')?.visualHash).toBe('t0_0_0-H');
 });
+
+test('a driving player gets full visuals for the next 3x3 window before entering it; ahead acknowledgements run a few at a time', async () => {
+  let inFlight = 0, maxAcks = 0;
+  const requests: string[] = [], loaded: string[] = [];
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, previewCollision: async () => new THREE.Group(), retainCollision: () => {},
+    loadModel: async url => { loaded.push(/vis\.(t0_[^.]+)\.glb/.exec(url)![1]); return new THREE.Group(); },
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname; requests.push(path);
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      if (!m) return new Response(null, { status: 404 });
+      maxAcks = Math.max(maxAcks, ++inFlight);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      inFlight--;
+      return Response.json(fragment(m[1]));
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  // East at 20 m/s along z 125 from x 10: t0_2_0 joins the window when the player enters t0_1_0 at x 250.
+  let shownBeforeEntry = false;
+  for (let t = 0, x = 10; x < 250; t += 250, x += 5) {
+    coarse.update(x, 125, t, { x: 20, z: 0 }); await settle();
+    const e = coarse.entries.get('t0_2_0');
+    shownBeforeEntry ||= !!e?.model && !e.preview;
+  }
+  expect(shownBeforeEntry).toBe(true);
+  expect(loaded).toContain('t0_2_0');
+  expect(loaded).not.toContain('t0_4_0'); // only the next window, not the whole prefetch corridor
+  expect(maxAcks).toBeLessThanOrEqual(4 + 4 + 9); // ack slots + preparation slots + the window itself
+});

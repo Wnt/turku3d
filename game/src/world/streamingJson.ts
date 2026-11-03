@@ -1,18 +1,19 @@
 import { PreparationBudget } from '../render/preparationBudget';
-import { applyJsonRecords } from './glbRecords';
+import { applyJsonRecords, type JsonPeek } from './glbRecords';
+export type { JsonPeek } from './glbRecords';
 
 const budget = new PreparationBudget();
 let worker: Worker | undefined, sequence = 0;
 const pending = new Map<number, { objects: Record<string, unknown>[]; resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 
-/** Parsing and structured-clone delivery are both bounded away from the render loop. */
-export function parseStreamingJson<T>(buffer: ArrayBuffer): Promise<T> {
+function streamingWorker() {
   if (!worker) {
     worker = new Worker(new URL('./streamingJson.worker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = async ({ data }) => {
       const job = pending.get(data.id);
       if (!job) return;
       if (data.error) { pending.delete(data.id); job.reject(new Error(data.error)); return; }
+      if (data.peek) { pending.delete(data.id); job.resolve(data.peek); return; }
       const pause = budget.checkpoint();
       if (pause) await pause;
       applyJsonRecords(job.objects, data.rows);
@@ -24,10 +25,24 @@ export function parseStreamingJson<T>(buffer: ArrayBuffer): Promise<T> {
       pending.clear(); worker?.terminate(); worker = undefined;
     };
   }
-  const id = ++sequence;
+  return worker;
+}
+
+/** Parsing and structured-clone delivery are both bounded away from the render loop. */
+export function parseStreamingJson<T>(buffer: ArrayBuffer): Promise<T> {
+  const target = streamingWorker(), id = ++sequence;
   return new Promise<T>((resolve, reject) => {
     pending.set(id, { objects: [{}], resolve: value => resolve(value as T), reject });
-    worker!.postMessage({ id, buffer }, [buffer]);
+    target.postMessage({ id, buffer }, [buffer]);
+  });
+}
+
+/** Parse in the worker and deliver only `peekJson`: one small reply that needs no main-thread record budget. */
+export function peekStreamingJson(buffer: ArrayBuffer): Promise<JsonPeek> {
+  const target = streamingWorker(), id = ++sequence;
+  return new Promise<JsonPeek>((resolve, reject) => {
+    pending.set(id, { objects: [{}], resolve: value => resolve(value as JsonPeek), reject });
+    target.postMessage({ id, buffer, peek: true }, [buffer]);
   });
 }
 
