@@ -1,3 +1,4 @@
+import { releaseGeometry } from './modelGeometry';
 import type * as THREE from 'three/webgpu';
 import { releaseModelTextures } from './sharedAssets';
 import { disposeDraw, type SharedMaterials } from '../render/sharedMaterials';
@@ -14,7 +15,7 @@ export function disposeModelResources(model: THREE.Object3D, shared: SharedMater
       for (const v of Object.values(m)) if ((v as THREE.Texture)?.isTexture) textures.add(v as THREE.Texture);
     }
   });
-  for (const geometry of geometries) geometry.dispose();
+  for (const geometry of geometries) releaseGeometry(geometry);
   releaseModelTextures(model, textures);
   shared.releaseModel(model, materials);
 }

@@ -1,6 +1,7 @@
 // Draft service is the only world source. Each visible tile owns all sixteen collision cells.
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
+import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
@@ -77,6 +78,8 @@ export class CoarseTiles {
   private preparing = new Set<string>();
   private details = 0;
   private materials = new SharedMaterials();
+  private buildingModels: BuildingModelCache;
+  private buildingLeases = new WeakMap<THREE.Object3D, () => void>();
   private comparison: VisualPassComparison;
   readonly screenshotScenery: ScreenshotScenery;
   get visualPass() { return this.comparison.pass; }
@@ -116,12 +119,13 @@ export class CoarseTiles {
   constructor(private host: CoarseHost) {
     this.fetch = host.fetch ?? fetch.bind(globalThis);
     this.load = host.loadModel ?? this.gltfLoader();
+    this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials));
     this.page = host.pageUrl ?? location.href;
     const page = new URL(this.page);
     this.root = draftsUrl(page) ?? '/coarse/';
     this.remote = !isLocalHost(page.hostname);
     this.comparison = new VisualPassComparison(host, this.entries, url => this.request(url), url => this.load(url),
-      model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page);
+      model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page, (id, fragment) => this.loadFragment(id, fragment));
     // Optional distant derivatives must not put collision/nearby streaming into outage backoff.
     this.screenshotScenery = new ScreenshotScenery(host, this.entries,
       url => this.fetch(new URL(url, this.page).href, { signal: AbortSignal.timeout(30_000) }), url => this.load(url),
@@ -196,6 +200,10 @@ export class CoarseTiles {
     this.clock = now;
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
     this.restoreCached(x,z);
+    for (const entry of this.entries.values()) {
+      if (entry.model) updateBuildingDistances(entry.model, x, z);
+      if (entry.comparison) updateBuildingDistances(entry.comparison, x, z);
+    }
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
     if (scenery) this.screenshotScenery.update(x, z, now);
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
@@ -479,12 +487,26 @@ export class CoarseTiles {
     return { fragment: hash === e.manifestHash && !e.preview ? null : await parseStreamingJson<CoarseFragment>(buffer), hash };
   }
 
+  private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>) {
+    const base = new URL(`${this.root}${id}/`, this.page);
+    const root = await this.load(new URL(fragment.visual[id].url, base).href);
+    try {
+      if (fragment.buildingPlacements) {
+        // Tile GLBs carry a translated root node. Placements are siblings in world-local coordinates.
+        const release = await this.buildingModels.attach(root, fragment.buildingPlacements, base);
+        this.buildingLeases.set(root, release);
+      }
+      return root;
+    } catch (error) { this.dispose(root); throw error; }
+  }
+
   /** Commit a validated visual/collision pair together after model preparation. */
   private async applyFragment(id: string, e: Entry, fragment: CoarseFragment) {
     const state = e.state;
     if (!fragment.coarse || fragment.tile !== id || !fragment.visual?.[id]) throw new DraftRejected(`${id}: invalid draft fragment`);
     if (e.model && !e.preview && !acceptsVisualPass(e.pass, fragment.pass_kind)) return;
-    const visualChanged = !e.model || fragment.visual[id].sha256 !== e.visualHash;
+    const placementsKey = JSON.stringify(fragment.buildingPlacements ?? null);
+    const visualChanged = !e.model || fragment.visual[id].sha256 !== e.visualHash || placementsKey !== e.placementsKey;
     const missing = cellsOf(id).filter(cid => !fragment.collision[cid]);
     if (missing.length) throw new DraftRejected(`no collision for ${missing.length} of 16 cells (${missing[0]})`);
     const base = new URL(`${this.root}${id}/`, this.page);
@@ -528,7 +550,7 @@ export class CoarseTiles {
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
     const [validation, geometry, streets] = await Promise.allSettled([
-      validate(), visualChanged ? this.load(new URL(fragment.visual[id].url, base).href) : Promise.resolve(null),
+      validate(), visualChanged ? this.loadFragment(id, fragment) : Promise.resolve(null),
       roadsChanged && roadsUrl ? this.request(roadsUrl)
         .then(r => { if (!r.ok) throw new DraftRejected(`roads: HTTP ${r.status}`); return readStreamingJson<RoadGraphJson>(r); })
         : Promise.resolve(e.roads ?? null),
@@ -555,7 +577,7 @@ export class CoarseTiles {
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     if (e.cachedAt === undefined) this.host.scene.add(model);
     this.comparison.clear(e); e.pass = fragment.pass_kind;
-    e.model = model; model.visible = e.cachedAt === undefined && (this.visualPass === 'auto' || e.pass === this.visualPass); e.visualHash = fragment.visual[id].sha256;
+    e.model = model; model.visible = e.cachedAt === undefined && (this.visualPass === 'auto' || e.pass === this.visualPass); e.visualHash = fragment.visual[id].sha256; e.placementsKey = placementsKey;
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
@@ -679,6 +701,8 @@ export class CoarseTiles {
     const release = () => {
       this.host.unstyle?.(model);
       disposeModelResources(model, this.materials);
+      this.buildingLeases.get(model)?.();
+      this.buildingLeases.delete(model);
     };
     if (this.host.retire) this.host.retire(release); else release();
   }

@@ -4,10 +4,12 @@ import type { CollisionBundle } from './collisionBundle';
 import type { Manifest, ManifestEntry, ParkedVehicle } from './manifest';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { TileLightsField } from '../render/lights/tileLights';
+import type { BuildingPlacements } from './buildingPlacements';
 import type { TreePlacements } from './treePlacements';
 
 export interface CoarseFragment { generation?: string; stale?: boolean; pass_kind?: 'first' | 'full'; vegetation?: TreePlacements; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
+  buildingPlacements?: BuildingPlacements;
   collision_bundle?: CollisionBundle;
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'];
   /** The generator's street lights for this tile (render/lights/tileLights.ts). */
@@ -25,7 +27,7 @@ export interface Entry extends DraftFreshness {
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
   /** The service's build counter at this entry's last poll. */
-  version?: number; visualHash?: string; refreshing?: boolean;
+  version?: number; visualHash?: string; placementsKey?: string; refreshing?: boolean;
   /** Last successfully applied manifest body and adaptive resident revalidation interval. */
   manifestHash?: string; unchangedPolls?: number;
   /** Immutable road payload currently installed on the map. */
