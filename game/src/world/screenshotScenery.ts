@@ -110,6 +110,9 @@ export class ScreenshotScenery {
   private active = 0;
   private clock = 0;
   private wanted: string[] = [];
+  /** L0 cells of the live footprint under resident full tiles: loaded but hidden, so a leaving tile's cell is
+   *  already prepared when it takes the square back (no hole while it would otherwise fetch). */
+  private standby = new Set<string>();
   private view: SceneryView | null = null;
   private footprint: string[] = [];
   private sources = new Map<string, ScenerySource>();
@@ -138,7 +141,7 @@ export class ScreenshotScenery {
     for (const [id, e] of this.entries) this.release(id,e);
     for (const entry of this.nearby.values()) if (entry.preview && entry.model) entry.model.visible = true;
     this.coverage.update([]);
-    this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = [];
+    this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = []; this.standby.clear();
     this.catalogueError = false; this.cataloguePending = false; this.unavailable.clear();
     this.footprintView = null; this.nextView = 0; this.catalogueRetry = 0;
     this.catalogueExpires = 0; this.generation = undefined;
@@ -170,6 +173,12 @@ export class ScreenshotScenery {
     }));
     this.footprint.sort((a, b) => priorities.get(b)! - priorities.get(a)!);
     this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
+    this.refreshStandby();
+  }
+
+  private refreshStandby() {
+    this.standby.clear();
+    for (const id of this.footprint) if (sceneryBounds(id).level === 0 && !this.unavailable.has(id) && this.detailed(id)) this.standby.add(id);
   }
 
   private readMissingSources() {
@@ -253,6 +262,7 @@ export class ScreenshotScenery {
       .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z));
     if (this.view) {
       this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
+      this.refreshStandby();
       this.readMissingSources();
     }
     if (now >= this.nextCutExpiry || this.cutState.changed(this.wanted, this.entries, this.nearby, this.sources))
@@ -269,8 +279,11 @@ export class ScreenshotScenery {
     const due = this.wanted.filter(id => !this.detailed(id)
       && (this.view ? this.sources.has(id) : demand.has(id) || this.entries.get(id)?.complete))
       .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
+    // Visible work first; standby cells fill the remaining slots.
+    for (const id of this.standby) if (this.sources.has(id) && !this.entries.get(id)?.model) due.push(id);
     for (const id of due) {
       if (this.active >= concurrency) break;
+      if (this.detailed(id) && !this.standby.has(id)) continue;
       let e = this.entries.get(id);
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
       if (e.busy || now < e.next) continue;
@@ -285,14 +298,15 @@ export class ScreenshotScenery {
     const outside: [string, Scenery][] = [];
     // Keep the old cut during refinement AND coarsening until its replacement is ready.
     const fallback = new Set<string>();
-    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id)
+    // A cell under a resident full tile (standby or dissolving) never stands in as a fallback: HD already draws there.
+    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id) && !this.detailed(id)
       && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
         && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
     for (const [id, e] of this.entries) {
       // Stable cuts no longer touch seen every frame. Preserve the last frame
       // that still owned this tile, including long suspended-tab time gaps.
       if (this.committed.has(id)) e.seen = previousUpdate;
-      if (keep.has(id) || fallback.has(id) || e.model?.userData.lodHandover) e.seen = now;
+      if (keep.has(id) || fallback.has(id) || this.standby.has(id) || e.model?.userData.lodHandover) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { this.release(id,e); this.entries.delete(id); }
     }
@@ -340,7 +354,8 @@ export class ScreenshotScenery {
         await this.prepareTrees(id,e,model,distance,source);
         await this.host.prepareGraphics?.(model);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
-      if (this.entries.get(id) !== e || this.detailed(id) || (source && this.sources.get(id)?.key !== source.key)) return;
+      if (this.entries.get(id) !== e || (this.detailed(id) && !this.standby.has(id))
+        || (source && this.sources.get(id)?.key !== source.key)) return;
       if (e.model) this.retireModel(e.model, id);
       if (this.view) model.visible = false; // Visibility is committed with the cut on the next update.
       this.host.scene.add(model); this.host.trackModel?.(model, id);
