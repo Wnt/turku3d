@@ -247,7 +247,11 @@ not yet migrated is served as its own base product (`stale: true`, `source_kind:
 migration job runs beside the build workers (two light slots). A missing base tile first builds
 at the base revision, then migrates. A migrated generation has its base's registration vintage,
 so switching the game to it supersedes nothing the base would not, and base builds continue. Its
-alias pins the base and prefix generations and the code snapshot against eviction.
+alias pins the base and prefix generations and the code snapshot against eviction. A
+content-addressed payload a migration left unchanged is served under its base URL, so a client
+switching to the migrated alias reloads only the tiles the chain changed (a no-op chain: none).
+`apply`/`run --code REF` run a newer runner snapshot over an existing alias; a snapshot whose
+transform code hashes differ from the derived revision's is refused.
 
 `parity` compares a fresh generator build at the migration commit (registered with the base's
 source version, built explicitly as one tile) with the migrated base product: every referenced
