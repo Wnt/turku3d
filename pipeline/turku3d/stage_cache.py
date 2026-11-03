@@ -10,6 +10,7 @@ import inspect
 import json
 import os
 import pickle
+import re
 import struct
 import tempfile
 import time
@@ -220,6 +221,10 @@ def _prune_entries(directory, key=None):
     return deleted
 
 
+# Namespaces read only by the tile that writes them.
+ONE_TILE = re.compile(r"t\d+_-?\d+_-?\d+|archetypes")
+
+
 class StageCache:
     """Cache trusted local Python intermediates; checksum and atomic writes reject interrupted entries.
 
@@ -229,13 +234,17 @@ class StageCache:
 
     def __init__(self, root: Path, *, retain=False, report_path=None):
         shared = os.environ.get("TURKU3D_SHARED_CACHE")
+        one_tile = False
         if shared and ".stages" in root.parts:
-            root = Path(shared) / "stages" / Path(*root.parts[root.parts.index(".stages") + 1:])
+            namespace = root.parts[root.parts.index(".stages") + 1:]
+            root = Path(shared) / "stages" / Path(*namespace)
             retain = False  # The shared service owns eviction, across all revisions.
+            one_tile = bool(namespace) and ONE_TILE.fullmatch(namespace[0]) is not None
         self.root = root
         self.retain = retain
-        # One-shot city runs compute every tile once; nothing would read the entries back.
-        self.persist = os.environ.get("TURKU3D_STAGE_CACHE") != "transient"
+        # One-shot city runs compute every tile once: nothing reads a tile's own stage entries
+        # (or its archetype packages) back. Entries shared between tiles stay cached.
+        self.persist = not (one_tile and os.environ.get("TURKU3D_STAGE_CACHE") == "transient")
         self.metrics = {}
         self.report_path = report_path
 
