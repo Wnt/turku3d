@@ -187,3 +187,45 @@ def test_mapped_path_widths_preserve_dense_park_between_paths(tmp_path, monkeypa
     assert mapped[0] in trees
     assert len(trees) > 25
     assert all(clears_path(t, footprint) for t in trees)
+
+
+@pytest.mark.parametrize("source", ["register", "osm", "lidar", "scatter"])
+def test_solid_structures_reject_trunks_but_keep_planting_holes(source, monkeypatch):
+    from test_canopy_trees import crowns
+
+    deck = shapely.Polygon([(0, 30), (100, 30), (100, 60), (0, 60)],
+                           holes=[[(64, 34), (76, 34), (76, 46), (64, 46)]])
+    data = replace(inputs(), roads=None, vegetation_paths=[],
+                   barriers=[(shapely.LineString([(0, 10), (100, 10)]),
+                              {"barrier": "retaining_wall"}, False)],
+                   attachments=[{"region": deck, "kind": "terrace"},
+                                {"region": shapely.box(80, 0, 100, 25), "kind": "balcony"}])
+    points = [(20, 10), (40, 10.2), (50, 40), (70, 40), (90, 10), (20, 20)]
+    mapped = []
+    if source in ("register", "osm"):
+        mapped = [Tree(("puut:" if source == "register" else "osm:") + str(x),
+                       x, z, source, crown_radius=3) for x, z in points]
+    elif source == "lidar":
+        data = replace(data, vegetation_canopy=crowns(*[(x, z, 15, 3) for x, z in points]))
+    else:
+        data = replace(data, forests=[("park", shapely.box(0, 0, 100, 100), "park", "")])
+        monkeypatch.setattr("turku3d.coarse.forests.scatter", lambda *a, **kw: points)
+    trees, _ = produce(C.VisualTile(0, 0, 0), data, lambda x, z: 0, mapped)
+    assert trees
+    assert all(abs(t.z - 10) > 1 for t in trees)  # wall, including beneath balcony
+    assert not any(45 < t.x < 55 for t in trees)  # solid terrace
+    assert any(64 < t.x < 76 and 34 < t.z < 46 for t in trees)  # planting hole
+    assert any(15 < t.x < 25 and 15 < t.z < 25 for t in trees)  # adjacent ground
+
+
+def test_structures_allow_low_wall_overhang_and_ground_below_balcony():
+    from turku3d.coarse.forests import built_surfaces, clears_structure
+
+    data = replace(inputs(), barriers=[(shapely.LineString([(0, 0), (100, 0)]),
+                   {"barrier": "wall"}, False)],
+                   attachments=[{"region": shapely.box(0, 5, 10, 15), "kind": "balcony"}])
+    mask = built_surfaces(data)
+    tree = Tree("surveyed", 5, 1, "register", crown_radius=7, trunk_radius=0.3)
+    assert clears_structure(tree, mask)  # wide roots/crown can cross a low wall
+    assert clears_structure(replace(tree, z=10), mask)  # balcony does not occupy soil
+    assert not clears_structure(replace(tree, z=0.4), mask)  # trunk intersects wall

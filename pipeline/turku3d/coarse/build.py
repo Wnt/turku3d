@@ -33,7 +33,7 @@ from . import banks, boats, bridges, fences, gardens, kerbs, parked, road_top, s
 from .collision import collision_tiles, compact_collision  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
-from .forests import draft_trees
+from .forests import draft_trees, structure_clearance
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .retention import managed_build
@@ -414,6 +414,7 @@ def build(
                 Path(__file__).with_name("forests.py"),
                 Path(__file__).with_name("canopy_trees.py"),
                 Path(__file__).with_name("forest_paths.py"),
+                Path(__file__).with_name("fences.py"),
                 base / "vegetation/trees.py",
                 base / "vegetation/visual.py",
                 *sorted((base / "vegetation/assets").glob("*.glb")),
@@ -434,6 +435,8 @@ def build(
                 inputs.vegetation_paths,
                 inputs.vegetation_roads,
                 inputs.retaining,
+                inputs.barriers,
+                inputs.attachments,
                 inputs.trees,
                 shells,
                 carried_mask,
@@ -567,7 +570,7 @@ def build(
             cache=cache,
             gardens=gardens.stats(tile, inputs.gardens),
             boats=boats.stats(tile, inputs.boats, boat_meshes),
-            trees=draft_trees(tile, grid_pos, inputs.trees, water, shells),
+            trees=structure_clearance(draft_trees(tile, grid_pos, inputs.trees, water, shells), inputs),
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
