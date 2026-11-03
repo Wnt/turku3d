@@ -245,6 +245,9 @@ export class ScreenshotScenery {
     if (this.view) this.setView(this.view, this.clock);
   }
 
+  /** The camera the scenery last followed (null without a far radius): the tile streamer installs full detail in it. */
+  get cameraView(): Readonly<SceneryView> | null { return this.view; }
+
   /** Follow the live camera, with a small refresh interval to avoid catalogue churn while turning. */
   setView(view: SceneryView, now = this.clock) {
     if (this.radius <= 1000) return;

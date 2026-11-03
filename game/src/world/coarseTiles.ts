@@ -74,6 +74,11 @@ const LEAD_KEEP_MS = 30_000;
  *  jitter), and only when the window is predicted to hold it at least LEAD_MIN_RESIDENCE_S (not a corner clip). */
 const LEAD_DWELL_MS = 1500;
 const LEAD_MIN_RESIDENCE_S = 4;
+/** Everything in the camera's view wedge within this distance (m) draws full detail: it joins the lead, nearest
+ *  first and ahead of the path, under the same dwell rule (a quick look around installs nothing). */
+const VIEW_DETAIL_M = 400;
+/** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
+const ABANDON_AFTER_MS = 2000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -142,6 +147,8 @@ export class CoarseTiles {
   /** When each lead tile entered the lead (continuously since), and its predicted window residence. */
   private leadSince = new Map<string, number>();
   private leadInfo = new Map<string, { residence: number; continuing: boolean }>();
+  /** When an installing tile left the window, the path and the view. */
+  private offPath = new Map<string, number>();
   /** The player position of the latest update, for install priority. */
   private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
@@ -432,13 +439,21 @@ export class CoarseTiles {
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     const lookahead = this.startup ? [] : preparationTiles(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
-    const nextWindow = this.lead = this.nextWindow(x, z, wanted);
+    const path = this.nextWindow(x, z, wanted), view = this.viewTiles(wanted);
+    for (const id of view) if (!this.leadInfo.has(id)) this.leadInfo.set(id, { residence: Infinity, continuing: true });
+    const nextWindow = this.lead = [...new Set([...view, ...path])];
     for (const id of [...this.leadSince.keys()]) if (!this.leadInfo.has(id)) this.leadSince.delete(id);
     for (const id of nextWindow) if (!this.leadSince.has(id)) this.leadSince.set(id, now);
     // Streaming may spend more of the frame's headroom while the current window still waits for full detail.
     streamingAllowance.urgent = wanted.some(id => { const e = this.entries.get(id); return !!e?.preview || (!!e?.refreshing && !!e.model); });
-    // An install for a tile that left both the window and the lead stops at its next stage.
-    for (const [id, e] of this.entries) if (e.refreshing && e.preview && !wanted.includes(id) && !nextWindow.includes(id)) e.abandoned = true;
+    // An install for a tile that stayed off the window, the path and the view stops at its next stage.
+    for (const [id, e] of this.entries) {
+      if (!e.refreshing || !e.preview || wanted.includes(id) || nextWindow.includes(id)) { this.offPath.delete(id); continue; }
+      const left = this.offPath.get(id) ?? now;
+      this.offPath.set(id, left);
+      if (now - left >= ABANDON_AFTER_MS) e.abandoned = true;
+    }
+    for (const id of [...this.offPath.keys()]) if (!this.entries.get(id)?.refreshing) this.offPath.delete(id);
     for (const [id, until] of this.leadUntil) if (until < now) this.leadUntil.delete(id);
     for (const id of nextWindow) this.leadUntil.set(id, now + LEAD_KEEP_MS);
     const retain = (id: string) => this.host.detailRadius === undefined
@@ -669,6 +684,31 @@ export class CoarseTiles {
     }
     for (const id of order) this.leadInfo.set(id, { residence: (last.get(id)! - first.get(id)! + step) / speed, continuing: last.get(id) === end });
     return order;
+  }
+
+  /** L0 tiles outside the current window within VIEW_DETAIL_M of the camera and inside its horizontal view wedge,
+   *  nearest first. */
+  private viewTiles(wanted: string[]) {
+    const view = this.screenshotScenery.cameraView;
+    if (!view || this.startup || this.host.detailRadius !== undefined) return [];
+    const { x, z, dx, dz, halfAngle } = view, cos = Math.cos(Math.min(Math.PI, halfAngle));
+    const seen = (px: number, pz: number) => {
+      const vx = px - x, vz = pz - z, length = Math.hypot(vx, vz);
+      return length < 1e-6 || (vx * dx + vz * dz) / length >= cos;
+    };
+    const out: { id: string; d: number }[] = [];
+    for (let i = Math.floor((x - VIEW_DETAIL_M) / VISUAL_L0); i <= Math.floor((x + VIEW_DETAIL_M) / VISUAL_L0); i++) {
+      for (let j = Math.floor((z - VIEW_DETAIL_M) / VISUAL_L0); j <= Math.floor((z + VIEW_DETAIL_M) / VISUAL_L0); j++) {
+        const id = `t0_${i}_${j}`, d = distToL0(id, x, z);
+        if (d > VIEW_DETAIL_M || wanted.includes(id)) continue;
+        // The nearest footprint point, the corners and the centre: any of them inside the wedge.
+        const x0 = i * VISUAL_L0, z0 = j * VISUAL_L0, x1 = x0 + VISUAL_L0, z1 = z0 + VISUAL_L0;
+        const points: [number, number][] = [[Math.min(Math.max(x, x0), x1), Math.min(Math.max(z, z0), z1)],
+          [x0, z0], [x1, z0], [x0, z1], [x1, z1], [(x0 + x1) / 2, (z0 + z1) / 2]];
+        if (points.some(([px, pz]) => seen(px, pz))) out.push({ id, d });
+      }
+    }
+    return out.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).map(t => t.id);
   }
 
   /** A lead tile is worth a full install: covered for LEAD_DWELL_MS and held by the window long enough. */

@@ -936,8 +936,8 @@ test('lead tiles install only after a steady heading, and an install for a tile 
   const lead = [...loads];
   expect(lead.length).toBeGreaterThan(0);
   expect(lead.every(l => !window(125, 125).includes(l.id))).toBe(true);
-  // Turning back west drops them from the path: their installs are abandoned, the previews stay.
-  for (let k = 0; k < 2; k++, t += 500) { coarse.update(125, 125, t, { x: -20, z: 0 }); await settle(); }
+  // Turning back west drops them from the path; 2 s later their installs are abandoned, the previews stay.
+  for (let k = 0; k < 6; k++, t += 500) { coarse.update(125, 125, t, { x: -20, z: 0 }); await settle(); }
   for (const l of lead) l.finish();
   await settle();
   for (const l of lead) {
@@ -945,4 +945,30 @@ test('lead tiles install only after a steady heading, and an install for a tile 
     if (!e) continue;
     expect(e.preview).toBeDefined();
   }
+});
+
+test('tiles in the camera view wedge within 400 m install full detail after the dwell; tiles behind do not', async () => {
+  const loaded: string[] = [];
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, previewCollision: async () => new THREE.Group(), retainCollision: () => {},
+    loadModel: async url => { loaded.push(/vis\.(t0_[^.]+)\.glb/.exec(url)![1]); return new THREE.Group(); },
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  coarse.screenshotScenery.setRadius(4000);
+  coarse.screenshotScenery.setView({ x: 125, y: 2, z: 125, dx: 1, dz: 0, halfAngle: 0.6 }, 0);
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  // Standing still, looking east.
+  for (let t = 0; t <= 6000; t += 500) { coarse.update(125, 125, t, { x: 0, z: 0 }, false); await settle(); }
+  expect(loaded).toContain('t0_2_0'); // 375 m east, in view
+  expect(loaded).not.toContain('t0_-2_0'); // behind the camera
+  expect(loaded).not.toContain('t0_3_0'); // in view but beyond 400 m
 });
