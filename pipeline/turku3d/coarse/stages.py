@@ -32,8 +32,12 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
             meshes.append(metal)
             continue
         uv = ortho_uv(tile, roof)
+        if b.attributes.get("set_into_slope"):
+            # A roof terrace at grade is walkable paving: the photo of a sunken terrace
+            # is mostly blue sky-lit shade, not its surface.
+            roof_image, roof_uv = roof_crop(tile, roof, None, TERRACE_PAVING)
         # OSM material/heritage tags must never bypass usable roof imagery.
-        if image is not None and np.all((uv >= 0) & (uv <= 1)):
+        elif image is not None and np.all((uv >= 0) & (uv <= 1)):
             roof_image, roof_uv = image, uv
         else:
             roof_image, roof_uv = roof_crop(tile, roof, photo, roof_fallback(b))
@@ -64,6 +68,9 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
                 mesh.extras["address"] = b.attributes["address"]
         meshes.extend(walls)
     return meshes
+
+
+TERRACE_PAVING = np.asarray((152, 148, 139), np.uint8)  # neutral concrete paving slabs
 
 
 def valid_roof_pixels(rgb):

@@ -71,3 +71,23 @@ def test_roof_terrace_gets_a_railing_only_on_its_exposed_edges():
     xs = np.concatenate([m.positions[:, 0] for m in rails])
     # The street side (x = 0) and the side walls down to the hill line; never the buried back.
     assert xs.min() < 0.5 and xs.max() < 7.5
+
+
+def test_roof_terrace_at_grade_is_drawn_as_paving_not_the_shaded_photo():
+    from turku3d import config as C
+    from turku3d.coarse.extrusion import extrude
+    from turku3d.coarse.stages import TERRACE_PAVING, building_visual
+
+    tile = C.VisualTile.parse("t0_0_0")
+    b = station()
+    slope_buildings.apply([b], hillside(step_x=4.0))
+    assert b.attributes.get("set_into_slope")
+    photo = np.zeros((512, 512, 3), np.uint8)
+    photo[...] = (40, 60, 120)  # blue sky-lit shade
+    meshes = building_visual(tile, [(b, extrude(b))], photo, False)
+    roof = next(m for m in meshes if m.name.startswith("roof_"))
+    from io import BytesIO
+    from PIL import Image
+
+    pixels = np.asarray(Image.open(BytesIO(roof.image)))
+    assert np.all(pixels.reshape(-1, 3) == TERRACE_PAVING)
