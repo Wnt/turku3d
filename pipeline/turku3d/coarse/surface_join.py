@@ -56,10 +56,11 @@ class Field:
         self.target = HeightQuery(patch, tolerance=1e-7)
 
     def heights(self, positions):
+        from .proximity import near_distance
+
         p = np.asarray(positions, np.float64)
         result = p[:, 1].copy()
-        xy = shapely.points(p[:, [0, 2]])
-        distance = shapely.distance(xy, self.area)
+        distance = near_distance(p[:, [0, 2]], self.area, REACH)
         base = self.source(p[:, [0, 2]], reference=p[:, 1])
         # Lower beds, water sensors and vertical face bottoms retain their levels.
         use = (distance < REACH) & np.isfinite(base) & (p[:, 1] >= base - 1e-5)
@@ -67,7 +68,7 @@ class Field:
         if not len(ids):
             return result
         nearest = shapely.get_coordinates(
-            shapely.get_point(shapely.shortest_line(xy[ids], self.area), -1)
+            shapely.get_point(shapely.shortest_line(shapely.points(p[ids][:, [0, 2]]), self.area), -1)
         )
         target = self.target(nearest)
         valid = np.isfinite(target)
@@ -90,6 +91,7 @@ def stitch(original, patch, source):
     """Insert one patch boundary into visual/solid terrain and loft its outside edge."""
     from .surfaces import split_boundaries
     from .banks import join
+    from .proximity import near_distance
     from .street_profiles import conform
 
     field = Field(source, patch)
@@ -117,7 +119,7 @@ def stitch(original, patch, source):
     )
     result = join(unchanged, patch)
     centres = result.positions[result.indices].mean(axis=1)
-    local = shapely.distance(shapely.points(centres[:, [0, 2]]), field.area) < REACH + 1e-7
+    local = near_distance(centres[:, [0, 2]], field.area, REACH + 1e-7) < REACH + 1e-7
     # Repair hanging vertices only at this join. Conforming the whole city TIN
     # would unnecessarily subdivide unrelated inherited surface boundaries.
     p, ix, material = conform(result.positions, result.indices[local], result.material[local])

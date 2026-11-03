@@ -4,6 +4,7 @@ import numpy as np
 import shapely
 from turku3d.col.materials import mat_id
 from turku3d.ground.mesh import HeightQuery, Mesh
+from .proximity import near_distance
 from .walkable import coordinates
 
 REACH = 1.5
@@ -29,7 +30,7 @@ def deformation(positions, profiles):
     best = np.full(len(result), np.inf)
     for patch in sorted(profiles, key=lambda p: (p["key"], p["line"].wkb)):
         line = patch["line"]
-        distance = shapely.distance(shapely.points(positions[:, [0, 2]]), line)
+        distance = near_distance(positions[:, [0, 2]], line, REACH + 1e-8)
         ids = np.flatnonzero(distance <= REACH + 1e-8)
         if not len(ids):
             continue

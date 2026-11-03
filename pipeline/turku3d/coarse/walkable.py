@@ -242,6 +242,8 @@ def prepare(tile, osm, water_path, paths):
 
 def grade(positions, scene, *, inner_only=False):
     """Flat/graded paving, ruled slopes, and a continuous blend at the outer limit."""
+    from .proximity import near_distance
+
     if not scene or not len(positions):
         return positions
     result = positions.copy()
@@ -250,7 +252,7 @@ def grade(positions, scene, *, inner_only=False):
     weighted, weights = np.zeros(len(result)), np.zeros(len(result))
     for patch in scene:
         line, half = patch["line"], patch["width"] / 2
-        distance = shapely.distance(shapely.points(result[:, [0, 2]]), line)
+        distance = near_distance(result[:, [0, 2]], line, half + 6)
         selection = np.flatnonzero((distance < half + 6))
         if not len(selection):
             continue
