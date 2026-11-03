@@ -8,7 +8,7 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
-import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
+import { LOD_FADE_SECONDS, fadeTier, lodFades } from '../render/lodFade';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
@@ -70,13 +70,16 @@ export class ScreenshotScenery {
    *  It leaves its merged batch so that its own meshes carry the dissolve; the next cut hides it. */
   private handOver(model: THREE.Object3D) {
     if (!model.visible || (model.userData.lodFading && model.userData.lodFading !== 'in')) return;
-    this.fade(model, 'out');
+    const id = [...this.entries].find(([, e]) => e.model === model)?.[0];
+    this.fade(model, 'out', id);
   }
 
   /** Dissolve a scenery model in over what already draws there, or out over what replaces it. A reversal
    *  continues from the current coverage. Fading models draw their own meshes, outside merged batches. */
-  private fade(model: THREE.Object3D, direction: 'in' | 'out') {
+  private fade(model: THREE.Object3D, direction: 'in' | 'out', id?: string) {
     const from = model.userData.lodFading ? lodFades.coverage(model) : direction === 'in' ? 0 : 1;
+    const view = this.view ?? this.footprintView;
+    const distance = id && view ? Math.hypot(sceneryDistance(id, view.x, view.z), Math.max(0, view.y - 30)) : 0;
     model.userData.lodFading = direction;
     model.visible = true;
     this.batches.invalidate(model);
@@ -85,7 +88,7 @@ export class ScreenshotScenery {
       model.visible = direction === 'in';
       this.batches.invalidate(model);
       this.cutState.clear(); // the landed model's cut visibility is decided again on the next update
-    }, this.clock);
+    }, this.clock, LOD_FADE_SECONDS, fadeTier(distance));
   }
 
   private updateCoverage() {
@@ -342,7 +345,7 @@ export class ScreenshotScenery {
       if (!show || model.visible) continue;
       const under = hiding.filter(other => sceneryContains(other, id) || sceneryContains(id, other));
       if (!under.length && !this.held.has(id)) continue;
-      this.fade(model, 'in');
+      this.fade(model, 'in', id);
       for (const other of under) this.outgoing.set(other, Math.max(this.outgoing.get(other) ?? 0, until));
     }
     for (const [id, end] of this.outgoing) if (end <= now || !this.entries.get(id)?.model) this.outgoing.delete(id);

@@ -6,7 +6,7 @@ import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { CoarseTiles, cellsOf } from '../../src/world/coarseTiles';
 import type { Manifest } from '../../src/world/manifest';
 import { PreparationBudget } from '../../src/render/preparationBudget';
-import { LOD_FADE_SECONDS, LodFades, dissolveTwin, isDissolveTwin } from '../../src/render/lodFade';
+import { LOD_FADE_SECONDS, LodFades, dissolveTwin, fadeTier, isDissolveTwin } from '../../src/render/lodFade';
 
 beforeAll(() => vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0)));
 afterAll(() => vi.unstubAllGlobals());
@@ -298,9 +298,15 @@ test('dissolve twins keep their base program, add a dithered mask and a depth bi
   expect([twin.name, twin.polygonOffset, twin.polygonOffsetUnits < 0, !!twin.maskNode, !!twin.maskShadowNode])
     .toEqual(['distant-city-buildings:dissolve', true, true, true, true]);
   expect(twin.positionNode).toBeNull(); // never the deformed velocity path (render/rigidVelocity.ts)
+  // The bias shrinks with distance (one unit is ~0.6e-6 d^2 m), so a 4 km node is not pulled hundreds of metres.
+  expect([fadeTier(300), fadeTier(1000), fadeTier(4000)]).toEqual([0, 1, 2]);
+  const far = dissolveTwin(base, 2) as THREE.MeshStandardNodeMaterial;
+  expect(far).not.toBe(twin); expect(dissolveTwin(base, 2)).toBe(far);
+  expect([far.polygonOffsetUnits, isDissolveTwin(far)]).toEqual([-2, true]);
+  const farDisposed = vi.fn(); far.addEventListener('dispose', farDisposed);
   const disposed = vi.fn(); twin.addEventListener('dispose', disposed);
   base.dispose();
-  expect(disposed).toHaveBeenCalledOnce();
+  expect(disposed).toHaveBeenCalledOnce(); expect(farDisposed).toHaveBeenCalledOnce();
   expect(dissolveTwin(new THREE.MeshBasicMaterial()).name).not.toContain('dissolve');
 });
 
