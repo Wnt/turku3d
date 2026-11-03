@@ -202,7 +202,8 @@ def test_parity_compares_a_generator_build_with_the_migrated_base(tmp_path, chai
     generated_gen, generated_rev = "e" * 64, "f" * 40
     built = root / "products" / generated_gen
     shutil.copytree(root / "products" / BASE_GEN, built)
-    manifest = migrations.apply_in_place(built / TILE, dict(base_manifest, built="2026-11-04T00:00:00Z"))
+    manifest = migrations.apply_in_place(built / TILE, dict(
+        base_manifest, built="2026-11-04T00:00:00Z", lights=dict(count=0, seconds=1.5)))
     (built / TILE / "manifest.json").write_bytes(core.manifest_bytes(manifest))
     (root / "revisions" / generated_rev).mkdir()
     (root / "revisions" / generated_rev / "revision.json").write_text(

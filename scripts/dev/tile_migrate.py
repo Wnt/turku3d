@@ -205,8 +205,18 @@ def status(root: Path, meta: dict) -> dict:
                 run=read_json(root / 'migrations' / meta['generation'] / 'status.json'))
 
 
-# Build provenance: when and by which producer code, not what the tile contains.
-PROVENANCE = {'built', 'seconds', 'code', 'collision_code', 'migration_base'}
+# Build provenance: when, by which producer code and from which input paths (snapshot paths
+# differ per revision; ``inputs`` keys the content), not what the tile contains.
+PROVENANCE = {'built', 'seconds', 'code', 'collision_code', 'migration_base', 'sources'}
+
+
+def _content(value):
+    """A manifest value without nested stage timings."""
+    if isinstance(value, dict):
+        return {k: _content(v) for k, v in value.items() if k != 'seconds'}
+    if isinstance(value, list):
+        return [_content(v) for v in value]
+    return value
 
 
 def parity(root: Path, meta: dict, generated: str, tile: str) -> dict:
@@ -225,7 +235,7 @@ def parity(root: Path, meta: dict, generated: str, tile: str) -> dict:
                                   for p in core.references(product)})
     (left, a), (right, b) = sides['migrated'], sides['generated']
     payloads = sorted(set(a) ^ set(b) | {p for p in set(a) & set(b) if a[p] != b[p]})
-    keys = sorted(k for k in set(left) | set(right) if left.get(k) != right.get(k))
+    keys = sorted(k for k in set(left) | set(right) if _content(left.get(k)) != _content(right.get(k)))
     content = [k for k in keys if k not in PROVENANCE]
     return dict(tile=tile, identical=not payloads and not content, payloads=len(a),
                 differing_payloads=payloads[:20], differing_content_keys=content,
