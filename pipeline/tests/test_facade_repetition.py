@@ -77,3 +77,42 @@ def test_reviewed_through_arcade_cuts_front_and_back_without_copying_rear_paint(
         )
         == []
     )
+
+
+def test_through_volume_removes_inner_roof_walls_and_preserves_upper_and_end_faces():
+    from turku3d.facade_apertures import volumes, cuts
+
+    v, w = fixture("arcade")
+    w["observation"] = {"needs_review": False}
+    w["geometry"]["normal"] = [0, 1]
+    w["geometry_components"][0].update(bounds=[0, 0, 1, 0.5], through=True, depth_m=4, support=0.9)
+    apertures = volumes({"needs_review": False, "walls": [w]})
+    # A skew roof-part wall inside the strip is neither surveyed outer plane.
+    inner = np.array([[0, 0, 1], [12, 0, 2], [12, 12, 2], [0, 12, 1]], float)
+    plans = cuts(inner, apertures)
+    assert plans
+    geometry(inner, plans, "test", np.zeros(3))
+    parts = list(surface_parts(inner, np.zeros((4, 2)), plans, collision=True))
+    for p, _ in parts:
+        assert (
+            p[:, 1].min() >= 5.9
+            or p[:, 1].max() < 0.05
+            or p[:, 0].max() < 0.05
+            or p[:, 0].min() > 11.95
+        )
+    assert cuts(inner + [0, 0, 5], apertures) == []
+    assert cuts(inner + [15, 0, 0], apertures) == []
+    upper = inner.copy()
+    upper[:2, 1] = 7
+    assert cuts(upper, apertures) == []
+
+
+def test_ground_through_arcade_uses_terrain_but_elevated_opening_keeps_floor():
+    v, w = fixture("arcade")
+    desc = w["geometry_components"][0]
+    desc.update(bounds=[0, 0, 1, 0.5], through=True, support=0.9, depth_m=4)
+    assert plan(v, w)[0]["returns"] == [True, True, False, True]
+    desc["bounds"] = [0, 0.2, 1, 0.5]
+    assert plan(v, w)[0]["returns"] == [True, True, True, True]
+    desc.update(bounds=[0, 0, 1, 0.5], through=False)
+    assert plan(v, w)[0]["returns"] == [True, True, True, True]
