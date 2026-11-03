@@ -45,6 +45,12 @@ export function pedestrianStop(s: number, speed: number, length: number, width: 
   return stop;
 }
 
+/** Unit forward (+X of a physics chassis) of a rotation, flattened onto the ground plane. */
+export function chassisForward(rot: { x: number; y: number; z: number; w: number }): { hx: number; hz: number } {
+  const hx = 1 - 2 * (rot.y * rot.y + rot.z * rot.z), hz = 2 * (rot.x * rot.z - rot.w * rot.y), d = Math.hypot(hx, hz) || 1;
+  return { hx: hx / d, hz: hz / d };
+}
+
 /** Separating-axis overlap of two oriented car footprints; `margin` pads the first one. */
 export function bodyOverlap(a: { x: number; z: number; hx: number; hz: number }, sizeA: { width: number; length: number },
   b: { x: number; z: number; hx: number; hz: number }, sizeB: { width: number; length: number }, margin = 0) {

@@ -8,6 +8,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { collisionTileAt } from '../core/origin';
 import type { V3 } from '../core/origin';
 import type { RemoteBody } from '../physics/protocol';
+import { VEHICLES } from '../physics/constants';
+import { chassisForward } from '../traffic/pedestrians';
+import type { WalkerThreat } from '../world/walkers';
 import type { PhysicsClient } from '../physics/client';
 import type { PlayerVisual } from '../actors/player';
 import type { CarVisual, ParkedCarVisuals } from '../actors/car';
@@ -78,13 +81,15 @@ export class RemotePlayers {
   private readonly distantSource = distantCharacter();
   frameMs = 0;
   readonly horns: HornEmitter[] = [];
+  /** Remote players as ambient walkers see them (world/walkers/reactions.ts), refreshed by update(). */
+  readonly threats: WalkerThreat[] = [];
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
     private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
       parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles) {
     const t0 = performance.now();
-    this.horns.length = 0;
+    this.horns.length = 0; this.threats.length = 0;
     const selfId = client.state.you?.id;
     const players: (NetPlayer & { locallySimulated?: boolean })[] = client.state.connected
       ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
@@ -192,6 +197,12 @@ export class RemotePlayers {
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
+      if (!p.locallySimulated) {
+        const half = pose.mode === 'foot' ? null : VEHICLES[pose.mode].halfExt;
+        const heading = pose.rot ? chassisForward(pose.rot) : { hx: Math.cos(pose.yaw + Math.PI / 2), hz: -Math.sin(pose.yaw + Math.PI / 2) };
+        this.threats.push({ x: pose.E, y: pose.H, z: -pose.N, vx: pose.vE, vz: -pose.vN,
+          car: half ? { ...heading, length: 2 * half.x, width: 2 * half.z } : null });
+      }
     }
     this.physics.setRemotes(bodies);
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;
@@ -225,7 +236,7 @@ export class RemotePlayers {
   }
 
   dispose() {
-    this.physics.setRemotes([]);
+    this.physics.setRemotes([]); this.threats.length = 0;
     for (const r of this.remotes.values()) {
       this.tyreEffects.release(r.effectSlot);
       r.pizza.removeFromParent(); r.foot?.removeFromParent(); r.distant.removeFromParent(); r.car.removeFromParent(); r.scooter.removeFromParent();

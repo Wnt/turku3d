@@ -143,6 +143,8 @@ export interface WalkerInstance {
   lod?: 0 | 1;
   shape?: readonly [number, number, number, number];
   x: number; y: number; z: number; yaw: number; scale: number;
+  /** Knock-down lean from upright (radians) towards the facing `tiltYaw` (world, the yaw convention). */
+  tilt?: number; tiltYaw?: number;
   /** VAT rows of the clip, and its phase now and one frame ago (velocity for temporal AA). */
   rowStart: number; frames: number; phase: number; previousPhase: number;
   /** Packed sRGB tints. */
@@ -159,6 +161,8 @@ export class WalkerMeshes {
   private matrix = new THREE.Matrix4();
   private rotation = new THREE.Quaternion();
   private axis = new THREE.Vector3(0, 1, 0);
+  private lean = new THREE.Quaternion();
+  private leanAxis = new THREE.Vector3();
   private translation = new THREE.Vector3();
   private scale = new THREE.Vector3();
 
@@ -190,6 +194,11 @@ export class WalkerMeshes {
       if (!mesh || k >= this.capacity) continue;
       counts[variant]++;
       this.rotation.setFromAxisAngle(this.axis, w.yaw);
+      if (w.tilt) {
+        // Lean about the horizontal axis that tips the body's up vector towards the fall direction (feet stay put).
+        const fx = Math.sin(w.tiltYaw ?? 0), fz = Math.cos(w.tiltYaw ?? 0);
+        this.rotation.premultiply(this.lean.setFromAxisAngle(this.leanAxis.set(fz, 0, -fx), w.tilt));
+      }
       mesh.setMatrixAt(k, this.matrix.compose(this.translation.set(w.x, w.y, w.z), this.rotation, this.scale.setScalar(w.scale)));
       const g = mesh.geometry.attributes;
       (g[WALKER_ATTRIBUTES.anim] as THREE.InterleavedBufferAttribute).setXYZW(k, w.rowStart, w.frames, w.phase, w.previousPhase);

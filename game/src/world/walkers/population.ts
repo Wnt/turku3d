@@ -69,6 +69,8 @@ export interface Walker {
   yaw: number;
   chain: number; s: number;
   moving: boolean;
+  /** Walking speed of this life (m/s). */
+  speed: number;
   /** Metres walked (walk phase) or seconds into the current pause (idle phase). */
   distance: number; idleTime: number;
   /** Lifecycle fade, shared by every client. */
@@ -168,7 +170,7 @@ export class Population {
     return {
       id, slot, variant: hash32(id, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(id, 8) % WALKER.variants].height,
       x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz), chain: leg.chain, s,
-      moving: !leg.idle, distance: leg.d0 + walked, idleTime: leg.idle ? elapsed : 0,
+      moving: !leg.idle, speed: route.speed, distance: leg.d0 + walked, idleTime: leg.idle ? elapsed : 0,
       fade: Math.max(0, Math.min(1, age / WALKER.fade, (life - age) / WALKER.fade)), age, cell, life, born,
     };
   }
