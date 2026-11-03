@@ -212,74 +212,80 @@ export class SurfaceArrays {
 }
 
 const position = new THREE.Vector3(), normal = new THREE.Vector3(), normalMatrix = new THREE.Matrix3();
-/** One mesh per parent for the merged slices; sources detach (restored by the returned function). */
-export function mergeSurfaces(model: THREE.Object3D, arrays: SurfaceArrays, kindOf: (mesh: THREE.Mesh) => { kind: string; key: string } | null) {
-  const groups = new Map<string, { parent: THREE.Object3D; wet: boolean; sources: { mesh: THREE.Mesh; layer: number }[] }>();
-  model.updateWorldMatrix(true, true);
-  model.traverse(object => {
-    const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh || !mesh.parent) return;
-    let owner: THREE.Object3D | null = mesh;
-    while (owner && !owner.userData.layer) owner = owner.parent;
-    if (owner?.userData.layer !== 'ground') return;
-    const style = kindOf(mesh);
-    const slice = style && surfaceSlice(mesh, style.kind, style.key);
-    const layer = slice && arrays.layer(slice);
-    if (!slice || layer === null || layer === undefined) return;
-    const group = `${mesh.parent.uuid}:${slice.wet}`;
-    let entry = groups.get(group);
-    if (!entry) groups.set(group, entry = { parent: mesh.parent, wet: slice.wet, sources: [] });
-    entry.sources.push({ mesh, layer });
-  });
+/** One mesh per parent for the merged slices; sources detach (restored by `restore`). `steps` yields after each
+ * copied source, so a tile's ground merges across frames (MaterialStyler.applyAsync); a group's merged mesh replaces
+ * its sources only once complete, and `restore` undoes the completed groups (also when stopped part-way). */
+export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, kindOf: (mesh: THREE.Mesh) => { kind: string; key: string } | null) {
   const merged: { mesh: THREE.Mesh; sources: THREE.Mesh[]; parent: THREE.Object3D }[] = [];
-  for (const { parent, wet, sources } of groups.values()) {
-    if (sources.length < 2) continue;
-    let vertices = 0, indices = 0;
-    for (const { mesh } of sources) { vertices += mesh.geometry.attributes.position.count; indices += mesh.geometry.index!.count; }
-    const geometry = new THREE.BufferGeometry();
-    const first = sources[0].mesh.geometry;
-    for (const name of ATTRIBUTES) {
-      const source = first.getAttribute(name);
-      const Array = (source.array as THREE.TypedArray).constructor as new (length: number) => THREE.TypedArray;
-      geometry.setAttribute(name, new THREE.BufferAttribute(new Array(vertices * source.itemSize), source.itemSize, source.normalized));
-    }
-    const layers = new Float32Array(vertices);
-    const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
-    const rows: Record<string, unknown>[] = [];
-    let vertex = 0, offset = 0;
-    for (const { mesh, layer } of sources) {
-      const g = mesh.geometry, count = g.attributes.position.count, identity = mesh.matrix.equals(new THREE.Matrix4());
-      normalMatrix.getNormalMatrix(mesh.matrix);
+  function* steps(): Generator<void> {
+    const groups = new Map<string, { parent: THREE.Object3D; wet: boolean; sources: { mesh: THREE.Mesh; layer: number }[] }>();
+    model.updateWorldMatrix(true, true);
+    model.traverse(object => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.parent) return;
+      let owner: THREE.Object3D | null = mesh;
+      while (owner && !owner.userData.layer) owner = owner.parent;
+      if (owner?.userData.layer !== 'ground') return;
+      const style = kindOf(mesh);
+      const slice = style && surfaceSlice(mesh, style.kind, style.key);
+      const layer = slice && arrays.layer(slice);
+      if (!slice || layer === null || layer === undefined) return;
+      const group = `${mesh.parent.uuid}:${slice.wet}`;
+      let entry = groups.get(group);
+      if (!entry) groups.set(group, entry = { parent: mesh.parent, wet: slice.wet, sources: [] });
+      entry.sources.push({ mesh, layer });
+    });
+    for (const { parent, wet, sources } of groups.values()) {
+      if (sources.length < 2) continue;
+      let vertices = 0, indices = 0;
+      for (const { mesh } of sources) { vertices += mesh.geometry.attributes.position.count; indices += mesh.geometry.index!.count; }
+      const geometry = new THREE.BufferGeometry();
+      const first = sources[0].mesh.geometry;
       for (const name of ATTRIBUTES) {
-        const from = g.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute, to = geometry.getAttribute(name) as THREE.BufferAttribute;
-        copyRaw(from, to, vertex, count);
-        if (identity) continue;
-        if (name === 'position') for (let i = vertex; i < vertex + count; i++) { position.fromBufferAttribute(to, i).applyMatrix4(mesh.matrix); to.setXYZ(i, position.x, position.y, position.z); }
-        if (name === 'normal') for (let i = vertex; i < vertex + count; i++) { normal.fromBufferAttribute(to, i).applyMatrix3(normalMatrix).normalize(); to.setXYZ(i, normal.x, normal.y, normal.z); }
+        const source = first.getAttribute(name);
+        const Array = (source.array as THREE.TypedArray).constructor as new (length: number) => THREE.TypedArray;
+        geometry.setAttribute(name, new THREE.BufferAttribute(new Array(vertices * source.itemSize), source.itemSize, source.normalized));
       }
-      layers.fill(layer, vertex, vertex + count);
-      const source = g.index!;
-      for (let i = 0; i < source.count; i++) index[offset + i] = source.getX(i) + vertex;
-      for (const row of (mesh.userData.objects as Record<string, number>[] | undefined) ?? [{ ...mesh.userData, start: 0, count: source.count }])
-        rows.push({ ...row, start: (row.start as number) + offset });
-      vertex += count; offset += source.count;
+      const layers = new Float32Array(vertices);
+      const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+      const rows: Record<string, unknown>[] = [];
+      let vertex = 0, offset = 0;
+      for (const { mesh, layer } of sources) {
+        const g = mesh.geometry, count = g.attributes.position.count, identity = mesh.matrix.equals(new THREE.Matrix4());
+        normalMatrix.getNormalMatrix(mesh.matrix);
+        for (const name of ATTRIBUTES) {
+          const from = g.getAttribute(name) as THREE.BufferAttribute | THREE.InterleavedBufferAttribute, to = geometry.getAttribute(name) as THREE.BufferAttribute;
+          copyRaw(from, to, vertex, count);
+          if (identity) continue;
+          if (name === 'position') for (let i = vertex; i < vertex + count; i++) { position.fromBufferAttribute(to, i).applyMatrix4(mesh.matrix); to.setXYZ(i, position.x, position.y, position.z); }
+          if (name === 'normal') for (let i = vertex; i < vertex + count; i++) { normal.fromBufferAttribute(to, i).applyMatrix3(normalMatrix).normalize(); to.setXYZ(i, normal.x, normal.y, normal.z); }
+        }
+        layers.fill(layer, vertex, vertex + count);
+        const source = g.index!;
+        for (let i = 0; i < source.count; i++) index[offset + i] = source.getX(i) + vertex;
+        for (const row of (mesh.userData.objects as Record<string, number>[] | undefined) ?? [{ ...mesh.userData, start: 0, count: source.count }])
+          rows.push({ ...row, start: (row.start as number) + offset });
+        vertex += count; offset += source.count;
+        yield;
+      }
+      geometry.setAttribute(SURFACE_LAYER, new THREE.BufferAttribute(layers, 1));
+      geometry.setIndex(new THREE.BufferAttribute(index, 1));
+      geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+      const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial(wet));
+      mesh.name = wet ? 'surface-array' : 'surface-array-dry';
+      mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length };
+      mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = true;
+      mesh.layers.mask = sources[0].mesh.layers.mask; mesh.renderOrder = sources[0].mesh.renderOrder;
+      for (const { mesh: source } of sources) source.removeFromParent();
+      parent.add(mesh);
+      merged.push({ mesh, sources: sources.map(s => s.mesh), parent });
     }
-    geometry.setAttribute(SURFACE_LAYER, new THREE.BufferAttribute(layers, 1));
-    geometry.setIndex(new THREE.BufferAttribute(index, 1));
-    geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-    const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial(wet));
-    mesh.name = wet ? 'surface-array' : 'surface-array-dry';
-    mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length };
-    mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = true;
-    mesh.layers.mask = sources[0].mesh.layers.mask; mesh.renderOrder = sources[0].mesh.renderOrder;
-    for (const { mesh: source } of sources) source.removeFromParent();
-    parent.add(mesh);
-    merged.push({ mesh, sources: sources.map(s => s.mesh), parent });
   }
   return {
-    meshes: merged.map(m => m.mesh),
+    steps: steps(),
+    meshes: () => merged.map(m => m.mesh),
     restore() {
-      for (const { mesh, sources, parent } of merged) {
+      for (const { mesh, sources, parent } of merged.splice(0)) {
         mesh.removeFromParent(); mesh.geometry.dispose();
         for (const source of sources) parent.add(source);
       }

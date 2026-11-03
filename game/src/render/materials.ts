@@ -14,8 +14,9 @@ import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial } from './water';
 import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
+import { streamingBudget } from './preparationBudget';
 import { shareInstanceProgram } from './instancePrograms';
-import { SurfaceArrays, mergeSurfaces } from './surfaceArrays';
+import { SurfaceArrays, mergeSurfaceSteps } from './surfaceArrays';
 import type { Environment } from './environment';
 
 type SurfaceStyle = 'asphalt' | 'granite' | 'cobblestone' | 'grass' | 'water' | 'standard';
@@ -66,6 +67,8 @@ export class MaterialStyler {
   private surfaces: SurfaceArrays;
   private rivers = new Map<string, { river: RiverMaterial; meshes: Set<THREE.Mesh> }>();
   private preparing: Promise<void> = Promise.resolve();
+  /** Styling's own share of a frame, as the other streaming install stages (render/preparationBudget.ts). */
+  private budget = streamingBudget();
   private riverKeys = new Map<THREE.Mesh, string>();
   private riverSources = new Map<THREE.Mesh, THREE.Mesh['material']>();
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
@@ -84,21 +87,42 @@ export class MaterialStyler {
     await Promise.all(Array.from({ length: Math.min(PACKS_IN_FLIGHT, queue.length) }, async () => {
       for (let geometry = queue.shift(); geometry; geometry = queue.shift()) await interleaveProgramAsync(geometry);
     }));
-    return this.apply(model);
+    // Styling a tile took 30-110 ms in one task (replay c9n7my: 25 between-frame hitches); spread it across frames.
+    const steps = this.applySteps(model);
+    for (;;) {
+      const step = steps.next();
+      if (step.done) return step.value;
+      const pending = this.budget.checkpoint();
+      if (pending) await pending;
+    }
   }
 
   apply(model: THREE.Object3D) {
+    const steps = this.applySteps(model);
+    for (;;) { const step = steps.next(); if (step.done) return step.value; }
+  }
+
+  /** Yields between merged ground sources and between meshes. The model's record exists from the first step, so a
+   * release part-way restores exactly what was styled so far, and the remaining steps stop. */
+  private *applySteps(model: THREE.Object3D): Generator<void, ReturnType<GroundBindings['apply']> | undefined> {
     model.updateWorldMatrix(true, true);
-    // Bound ground library surfaces become one draw per tile before the per-material styling below.
-    const surfaces = this.ground ? null : mergeSurfaces(model, this.surfaces, mesh => {
-      const key = materialKey(mesh, mesh.material as THREE.Material);
-      return key ? { kind: surfaceStyle(key), key } : null;
-    });
     const sources = new Map<THREE.Mesh, THREE.Mesh['material']>(), rivers: THREE.Mesh[] = [];
+    const owned = { sources, rivers, restoreSurfaces: () => {} };
+    this.owned.set(model, owned);
+    const live = () => this.owned.get(model) === owned;
+    // Bound ground library surfaces become one draw per tile before the per-material styling below.
+    if (!this.ground) {
+      const surfaces = mergeSurfaceSteps(model, this.surfaces, mesh => {
+        const key = materialKey(mesh, mesh.material as THREE.Material);
+        return key ? { kind: surfaceStyle(key), key } : null;
+      });
+      owned.restoreSurfaces = surfaces.restore;
+      for (const _step of surfaces.steps) { void _step; yield; if (!live()) return undefined; }
+    }
     const cache = new Map<string, THREE.Material>();
-    model.traverse(object => {
-      const mesh = object as THREE.Mesh;
-      if (!mesh.isMesh) return;
+    const meshes: THREE.Mesh[] = [];
+    model.traverse(object => { if ((object as THREE.Mesh).isMesh) meshes.push(object as THREE.Mesh); });
+    for (const mesh of meshes) {
       interleaveProgram(mesh.geometry);
       // Tile glTF instancing (EXT_mesh_gpu_instancing) uses source/styled tile materials without object graphs.
       if ((mesh as THREE.InstancedMesh).isInstancedMesh) shareInstanceProgram(mesh as THREE.InstancedMesh);
@@ -183,8 +207,9 @@ export class MaterialStyler {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
       if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
       else mesh.layers.disable(REFLECTION_LAYER);
-    });
-    this.owned.set(model, { sources, rivers, restoreSurfaces: surfaces?.restore ?? (() => {}) });
+      yield;
+      if (!live()) return undefined;
+    }
     return this.ground?.apply(model);
   }
 
