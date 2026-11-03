@@ -119,8 +119,6 @@ interface PcNode extends LodNode {
   anchor: [number, number, number];
   state: 'idle' | 'loading' | 'decoded' | 'ready' | 'failed';
   points: DecodedPoints | null;
-  /** Points of this node the class filter draws (the mesh's instance capacity). */
-  kept: number;
   mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.NodeMaterial> | null;
   used: number;
 }
@@ -328,7 +326,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     for (const tile of this.tiles.values()) if (tile.nodes) for (const node of tile.nodes.values()) {
       if (!node.points || node.state !== 'ready') continue;
       if (node.mesh) { node.mesh.removeFromParent(); node.mesh.geometry.dispose(); node.mesh = null; }
-      node.state = 'decoded'; node.loaded = false;
+      node.state = 'decoded'; node.loaded = false; node.drawable = undefined;
       this.attachQueue.push(node);
     }
     this.lastSelect = 0;
@@ -417,7 +415,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
       const a = surveyToEngine(e0, n1, lo), b = surveyToEngine(e1, n0, hi);
       map.set(copc.key, { key: copc.key, depth: copc.depth, pointCount: copc.pointCount, box: [a[0], a[1], a[2], b[0], Math.max(b[1], a[1]), b[2]],
         spacing: header.spacing / 2 ** copc.depth, children: [], loaded: false, tile, copc, parent: null,
-        anchor: nodeAnchor(header, copc), state: 'idle', points: null, kept: 0, mesh: null, used: 0 });
+        anchor: nodeAnchor(header, copc), state: 'idle', points: null, mesh: null, used: 0 });
     }
     for (const node of map.values()) for (const key of childKeys(node.copc)) {
       const child = map.get(key);
@@ -446,8 +444,11 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
       const count = selection.drawn.get(node)!;
       const refined = node.children.some(c => chosen.has(c) && c.mesh);
       // Spacing of what is drawn here: halved where children add points, widened where only a prefix draws.
-      node.mesh.userData.pcSpacing = node.spacing / (refined ? 2 : 1) / Math.sqrt(Math.min(1, count / Math.max(1, node.kept)));
-      node.mesh.geometry.instanceCount = count;
+      // Never past the instance buffers (a larger count fails validation and the whole pass stops updating).
+      const capacity = (node.mesh.geometry.getAttribute('pcPosition') as THREE.InstancedBufferAttribute).count;
+      const drawn = Math.min(count, capacity);
+      node.mesh.userData.pcSpacing = node.spacing / (refined ? 2 : 1) / Math.sqrt(Math.min(1, drawn / Math.max(1, capacity)));
+      node.mesh.geometry.instanceCount = drawn;
       node.mesh.visible = true;
     }
     this.evict(chosen);
@@ -467,7 +468,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
       const node = this.attachQueue.shift()!;
       if (node.state !== 'decoded' || !node.points) continue;
       const kept = keepClasses(node.points, this.classMask);
-      node.kept = kept.count;
+      node.drawable = kept.count;
       node.weight = kept.count / Math.max(1, node.points.count);
       // Not-yet-loaded children start from their parent's share, so the budget plans with the filter.
       for (const child of node.children) if (!child.points) child.weight = node.weight;
@@ -511,7 +512,7 @@ export class PointCloudOverlay implements PointCloudOverlayApi {
     for (const child of node.children) if (child.points) this.unload(child);
     if (node.mesh) { node.mesh.removeFromParent(); node.mesh.geometry.dispose(); node.mesh = null; }
     if (node.points) this.loadedPoints -= node.points.count;
-    node.points = null; node.loaded = false; node.state = 'idle'; node.kept = 0;
+    node.points = null; node.loaded = false; node.state = 'idle'; node.drawable = undefined;
   }
 
   private note(message: string) {

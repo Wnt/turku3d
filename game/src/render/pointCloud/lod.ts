@@ -6,7 +6,9 @@ export interface LodNode {
   key: string;
   depth: number;
   pointCount: number;
-  /** Share of the points the class filter draws (1 until known; the overlay sets it when the node loads). */
+  /** Points the class filter draws, exactly, once the node is loaded (its instance buffer's capacity). */
+  drawable?: number;
+  /** Estimated share the class filter draws while not loaded (from the parent; 1 until known). */
   weight?: number;
   /** Engine-frame AABB: min x, y, z, max x, y, z. */
   box: readonly number[];
@@ -94,8 +96,10 @@ class Heap {
  *  screen area. A node whose classes are all filtered away costs nothing but still refines into its children. */
 export function drawnPoints(node: LodNode, px: number, thinPx: number): number {
   const fraction = Math.min(1, (px / thinPx) ** 2);
-  const shown = node.pointCount * (node.weight ?? 1);
-  return shown > 0 ? Math.max(1, Math.ceil(shown * fraction)) : 0;
+  // Integers only: pointCount * (kept / count) can land one ulp above kept, and ceil then asked for one instance
+  // more than the node's buffer holds (WebGPU rejected those draws, the pass stopped updating: points froze on screen).
+  const shown = node.drawable ?? Math.round(node.pointCount * (node.weight ?? 1));
+  return shown > 0 ? Math.min(shown, Math.max(1, Math.ceil(shown * fraction))) : 0;
 }
 
 /** Select the nodes to draw or load: largest projected spacing first, until the budget is spent. A node that does not

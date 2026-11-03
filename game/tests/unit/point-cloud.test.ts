@@ -165,6 +165,21 @@ describe('point-cloud LOD', () => {
     expect(s.points).toBe(4 * Math.ceil(170_000 * 0.25));
   });
 
+  it('never asks for more instances than a loaded node holds (Jonni 2026-11-04: Draw(3, N) one instance past the buffer)', () => {
+    // pointCount * (kept / count) lands one ulp above kept for e.g. 43 points with 14 kept; ceil asked for 15.
+    let checked = 0;
+    for (let count = 1; count < 2000; count += 3) for (const kept of [count - 1, count >> 1, Math.floor(count / 3), 14]) {
+      if (kept <= 0 || kept > count) continue;
+      const node: LodNode = { key: 'n', depth: 0, pointCount: count, box: [0, 0, 0, 1, 1, 1], spacing: 1, children: [], loaded: true,
+        drawable: kept, weight: kept / count };
+      for (const px of [0.1, 0.7, 1.25, 2, 10]) { expect(drawnPoints(node, px, 1.25)).toBeLessThanOrEqual(kept); checked++; }
+    }
+    expect(checked).toBeGreaterThan(5000);
+    const t = tile(0, 0);
+    Object.assign(t, { pointCount: 43, drawable: 14, weight: 14 / 43 });
+    expect(drawnPoints(t, 10, 1.25)).toBe(14);
+  });
+
   it('thins by screen area below the thinning spacing', () => {
     const node = tile(0, 0);
     expect(drawnPoints(node, 2, 1.25)).toBe(67_000);
