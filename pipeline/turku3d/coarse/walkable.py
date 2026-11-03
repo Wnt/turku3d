@@ -70,8 +70,12 @@ def measure(key, line, width, points, window):
     half = width / 2
     cross = np.array([-half - 6, -half - 3, -half, 0, half, half + 3, half + 6])
     heights = np.full((len(knots), len(cross)), np.nan)
+    # Endpoint fits may use one-sided support, but never another landing beyond
+    # the mapped way. On a short quay connector that upper surface can outvote
+    # all of its actual paving and create a metre-high artificial ramp.
+    on_way = (station >= -1e-6) & (station <= line.length + 1e-6)
     for i, s in enumerate(knots):
-        along = np.abs(station - s) <= 10
+        along = on_way & (np.abs(station - s) <= 10)
         core = along & (np.abs(lateral) < min(0.85, half * 0.65))
         fit = robust_plane(np.c_[station[core] - s, lateral[core]], points[core, 1])
         if fit is not None and abs(fit[1]) <= 0.15 and abs(fit[2]) <= 0.12:

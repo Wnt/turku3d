@@ -205,3 +205,17 @@ def test_supported_paving_end_is_constrained_before_an_unsurveyed_gap():
     np.testing.assert_allclose(heights(p[ix], query, np.full(len(query), 2)), 2, atol=1e-6)
     # The gap itself remains unsupported rather than extending paving under a bridge.
     assert walkable.grade(np.array([[20, -999.0, 10.4]]), [patch])[0, 1] == -999
+
+
+def test_short_connector_cannot_inherit_a_higher_landing_beyond_its_end():
+    x, z = np.meshgrid(np.arange(-9, 14, .25), np.arange(-.8, .81, .2))
+    x, z = x.ravel(), z.ravel()
+    # A lower paved connector is surrounded longitudinally by a much larger
+    # upper landing. Those returns are valid ground, but belong to another way.
+    h = np.where((x >= 0) & (x <= 4.5), 1.2, 3.6)
+    points = np.c_[x, h, z]
+    line = shapely.LineString([(0, 0), (4.5, 0)])
+    patch = walkable.measure('connector', line, 3, points, shapely.box(-20, -20, 20, 20))
+    np.testing.assert_allclose(patch['heights'][:, 2:5], 1.2, atol=1e-8)
+    query = np.c_[np.linspace(0, 4.5, 31), np.zeros(31), np.zeros(31)]
+    np.testing.assert_allclose(walkable.grade(query, [patch])[:, 1], 1.2, atol=1e-8)
