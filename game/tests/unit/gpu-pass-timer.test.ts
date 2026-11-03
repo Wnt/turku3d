@@ -100,3 +100,14 @@ test('overlapping pass timestamps (tile GPUs) are credited on the serialized tim
   const late = serialPassTimes(['beauty', 'traa', 'post'], new BigUint64Array([40, 41, 10, 16, 15.5, 17, 40.5, 40.7].map(ms)))!;
   expect(Object.fromEntries(Object.entries(late).map(([k, v]) => [k, Math.round(v! * 100) / 100]))).toEqual({ beauty: 6, traa: 1, post: 0.2 });
 });
+
+test('passes are credited in GPU order: the post quad encodes first but its nested scene passes execute before it', () => {
+  // three r186: the output quad's pass begins, then its draw renders the scene, shadow and effect passes (each
+  // submitted on finishing) before the quad's own encoder is submitted. Encoding order credited 0 to all but post.
+  const ms = (v: number) => BigInt(Math.round(v * 1e6));
+  const passes: GpuPass[] = ['post', 'beauty', 'shadows', 'reflection', 'bloom'];
+  const values = [0, 16, /* post */ 15.6, 15.8, /* beauty */ 2, 11, /* shadows */ 0.2, 2, /* reflection */ 11, 13, /* bloom */ 13, 15.5].map(ms);
+  const times = serialPassTimes(passes, new BigUint64Array(values))!;
+  const round = Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Math.round(v! * 100) / 100]));
+  expect(round).toEqual({ post: 0.2, beauty: 9, shadows: 1.8, reflection: 2, bloom: 2.5 });
+});
