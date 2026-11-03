@@ -744,12 +744,12 @@ def build(
     )
     if paint is not None:
         ground_meshes.append(paint)
-    venue_lines = venue_stage.line_polygons(tile, venue)
+    venue_lines = venue_stage.line_marks(tile, venue)
     venue_paint = cache.run(
         "venue_paint",
-        source_key(surfaces.paint_visual, *venue_stage.source_files(), *common),
-        [*paint_args[:-1], venue_lines],
-        lambda: surfaces.paint_visual(*paint_args[:-1], venue_lines, on=None, name="venue_paint"),
+        source_key(*venue_stage.source_files(), base / "ground/mesh.py", *common),
+        [tile, surface_pos, surface_idx, venue_lines],
+        lambda: venue_stage.paint(tile, surface_pos, surface_idx, venue_lines),
     ) if venue_lines else None
     if venue_paint is not None:
         ground_meshes.append(venue_paint)

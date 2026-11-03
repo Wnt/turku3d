@@ -554,26 +554,23 @@ def _deck_height(deck, xz):
     return np.interp(stations, deck.stations, deck.heights)
 
 
-PAINTED = ("road", "crossing", "cycleway", "bridge_deck")
-
-
-def paint_visual(tile, positions, indices, materials, keep, polygons, decks=(), *, on=PAINTED,
-                 name="paint"):
+def paint_visual(tile, positions, indices, materials, keep, polygons, decks=()):
     """Drape road paint on the tile's road surface: one ``road_paint`` mesh, colours in COLOR_0.
 
     ``polygons`` holds explicit OSM marking polygons (white, any road triangle) and rule paint
     items ``(polygon, rgb, deck, kind)`` from ``turku3d.roads.paint``. A deck item lies on a built
     bridge deck (``decks``, at its top surface) and on road triangles only where no deck carries it;
     a ground item never lands on bridge-deck triangles, so a street passing under a bridge never
-    paints the deck above it. ``rgb`` multiplies the shared paint colour. ``on`` names the painted
-    surface classes; None paints every ground triangle (sports venue lines)."""
+    paints the deck above it. ``rgb`` multiplies the shared paint colour."""
     import mapbox_earcut
 
     from turku3d.structures.geometry import Faces
 
     if not polygons:
         return None
-    selected = keep if on is None else keep & np.isin(materials, [mat_id(k) for k in on])
+    selected = keep & np.isin(
+        materials, [mat_id(k) for k in ("road", "crossing", "cycleway", "bridge_deck")]
+    )
     triangles = positions[indices[selected]]
     on_deck = materials[selected] == mat_id("bridge_deck")
     footprints = shapely.polygons(triangles[:, :, [0, 2]]) if len(triangles) else []
@@ -641,12 +638,12 @@ def paint_visual(tile, positions, indices, materials, keep, polygons, decks=(), 
     if not faces.indices:
         return None
     return GlbMesh(
-        f"ground_{name}",
+        "ground_paint",
         np.asarray(faces.positions) - tile.origin,
         np.asarray(faces.indices, np.uint32),
         color=(0.72, 0.71, 0.66, 1),
         roughness=0.9,
-        extras=dict(layer="markings", object_id=f"{name}_{tile.id}", material_key="road_paint"),
+        extras=dict(layer="markings", object_id=f"paint_{tile.id}", material_key="road_paint"),
         colors=np.asarray(colours, np.float32),
     )
 

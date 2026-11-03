@@ -59,13 +59,26 @@ def test_grandstand_rows_face_the_field_under_a_roof():
 
 def test_track_lanes_and_pitch_stripes():
     v = venue()
-    lines = V.line_polygons(TILE, v)
+    marks = V.line_marks(TILE, v)
     regions = V.ground_regions(TILE, v)
     ids = [m for _, m in regions]
     assert SM.TRACK in ids and SM.PITCH_LIGHT in ids and SM.PITCH_DARK in ids
     stripes = [g for g, m in regions if m in (SM.PITCH_LIGHT, SM.PITCH_DARK)]
     assert 16 <= len(stripes) <= 20 and abs(sum(g.area for g in stripes) - 6000) < 1
     # 9 lane lines around the oval plus the football markings.
-    assert sum(g.area for g in lines) > 9 * 0.05 * 400
+    lanes = [g for g, w in marks if w == V.LINE]
+    assert len(lanes) == 9 and sum(g.length for g in lanes) > 9 * 400
+    # One merged paint mesh of strips (2 triangles per <= 2 m) draped over a 1 m-high plane.
+    xs, zs = np.meshgrid(np.linspace(0, 250, 65), np.linspace(0, 250, 65))
+    ground = np.c_[xs.ravel(), np.full(xs.size, 1.0), zs.ravel()]
+    q = (np.arange(64)[:, None] * 65 + np.arange(64)[None]).ravel()
+    tris = np.r_[np.c_[q, q + 65, q + 1], np.c_[q + 1, q + 65, q + 66]].astype(np.uint32)
+    mesh = V.paint(TILE, ground, tris, marks)
+    length = sum(g.length for g, _ in marks if g.geom_type == "LineString")
+    assert len(mesh.indices) < 1.4 * length
+    y = mesh.positions[:, 1]
+    assert np.allclose(y, 1.0 + V.PAINT_LIFT)
+    tri = mesh.positions[mesh.indices]
+    assert (np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])[:, 1] > 0).all()
     meshes, count = V.goals(TILE, v, lambda x, z: 0.0)
     assert count == 2 and meshes
