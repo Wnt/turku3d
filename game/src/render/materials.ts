@@ -7,6 +7,7 @@ import { modelTextures, textureUploads } from './textureUploads';
 // The assembler resolves COMMON §4 texture paths and binds KTX2 maps into glTF.
 // Runtime styling preserves those maps, their UV transforms, ORM channels and facade colours.
 import * as THREE from 'three/webgpu';
+import { streamTrace } from '../telemetry/streamTrace';
 import { materialColor, materialRoughness, texture, positionWorld, mix, vec3, bumpMap, float } from 'three/tsl';
 import { facadeKitMaterial } from './facadeKit';
 import { interleaveProgram, interleaveProgramAsync } from './facadeProgramAttributes';
@@ -83,15 +84,21 @@ export class MaterialStyler {
     model.traverse(object => { if ((object as THREE.Mesh).isMesh) geometries.add((object as THREE.Mesh).geometry); });
     // Bounded admission (PACKS_IN_FLIGHT) bounds input copies and worker output retained before publication, while
     // the pack worker never idles on one geometry's round trip: serial packs cost a frame per facade geometry.
-    const queue = [...geometries];
+    const queue = [...geometries], packing = streamTrace.on ? performance.now() : 0;
     await Promise.all(Array.from({ length: Math.min(PACKS_IN_FLIGHT, queue.length) }, async () => {
       for (let geometry = queue.shift(); geometry; geometry = queue.shift()) await interleaveProgramAsync(geometry);
     }));
     // Styling a tile took 30-110 ms in one task (replay c9n7my: 25 between-frame hitches); spread it across frames.
+    const applying = streamTrace.on ? performance.now() : 0;
     const steps = this.applySteps(model);
     for (;;) {
       const step = steps.next();
-      if (step.done) return step.value;
+      if (step.done) {
+        // Install traces split style into the facade program packs and the material pass.
+        if (streamTrace.on) streamTrace.event('tile.style.split', model.userData.traceId as string | undefined,
+          { packMs: applying - packing, applyMs: performance.now() - applying, geometries: geometries.size });
+        return step.value;
+      }
       const pending = this.budget.checkpoint();
       if (pending) await pending;
     }

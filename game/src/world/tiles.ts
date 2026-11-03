@@ -1,6 +1,7 @@
 // Resident draft model ownership and telemetry; loading belongs to CoarseTiles.
 import { staticBatchSteps, prepareStaticBatches, releaseStaticBatches } from './staticBatch';
 import * as THREE from 'three/webgpu';
+import { streamTrace } from '../telemetry/streamTrace';
 import { batchTileShadows, prepareTileShadows } from './shadowBatch';
 import { disposeShadowBatch } from './shadowChunks';
 import { disposeDraw } from '../render/sharedMaterials';
@@ -46,9 +47,14 @@ export class VisualTiles {
       if (mesh.isMesh) { mesh.castShadow = true; mesh.receiveShadow = true; }
     });
     if (!this.idPass) {
+      const started = streamTrace.on ? performance.now() : 0;
       await prepareStaticBatches(scene);
+      const shadows = streamTrace.on ? performance.now() : 0;
       const shadow = await prepareTileShadows(scene);
       if (shadow) this.shadows.set(scene, shadow);
+      // Install traces split the prepare stage into static batching and the shadow batch.
+      if (streamTrace.on) streamTrace.event('tile.prepare.split', scene.userData.traceId as string | undefined,
+        { staticMs: shadows - started, shadowMs: performance.now() - shadows });
     }
     this.prepared.add(scene);
   }

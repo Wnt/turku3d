@@ -59,8 +59,10 @@ interface BlockState { lod: THREE.Object3D; bounds: BuildingBlock['bounds']; hdD
 /** Metres of hysteresis around a block's HD distance, so a camera on the threshold never flickers. */
 const SWAP_BAND = 10;
 
-interface Resident { users: number; promise: Promise<THREE.Object3D> }
-interface Lease { root: THREE.Object3D; release: () => void }
+interface Resident { users: number; promise: Promise<THREE.Object3D>; trace?: ReadTrace }
+/** One model read for install traces: slot wait, then fetch/decode/parse, of which the texture upload wait. */
+interface ReadTrace { queueMs: number; loadMs: number; textureMs: number; textures: number }
+interface Lease { root: THREE.Object3D; release: () => void; trace?: ReadTrace }
 
 /** Decode each content model once while resident. Tile cancellation releases every successful lease. */
 export class BuildingModelCache {
@@ -75,14 +77,22 @@ export class BuildingModelCache {
     private visibility: PlacementVisibility = placementVisibility,
     private styleLod: (root: THREE.Object3D, owner: THREE.Object3D) => void = () => {}) {}
 
-  private async read(url: string, priority: number) {
+  private async read(url: string, priority: number, trace?: ReadTrace) {
+    const queued = trace ? performance.now() : 0;
     if (this.active >= this.reads) await new Promise<void>(start => {
       const at = this.queue.findIndex(waiting => waiting.priority > priority);
       this.queue.splice(at < 0 ? this.queue.length : at, 0, { priority, start });
     });
     else this.active++;
     try {
+      const loading = trace ? performance.now() : 0;
+      if (trace) trace.queueMs = loading - queued;
       const root = await this.load(url);
+      if (trace) {
+        trace.loadMs = performance.now() - loading;
+        const upload = root.userData.textureUpload as { ms: number; textures: number } | undefined;
+        trace.textureMs = upload?.ms ?? 0; trace.textures = upload?.textures ?? 0;
+      }
       const geometries = new Set<THREE.BufferGeometry>();
       root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
       for (const geometry of geometries) retainGeometry(geometry);
@@ -97,7 +107,10 @@ export class BuildingModelCache {
     // Hashes are reusable across generation URL prefixes, but never across content hosts.
     const url = new URL(model.uri, base), key = `${url.origin}/${model.id}`;
     let entry = this.entries.get(key);
-    if (!entry) { entry = { users: 0, promise: this.read(url.href, priority) }; this.entries.set(key, entry); }
+    if (!entry) {
+      const trace = streamTrace.on ? { queueMs: 0, loadMs: 0, textureMs: 0, textures: 0 } : undefined;
+      entry = { users: 0, promise: this.read(url.href, priority, trace), trace }; this.entries.set(key, entry);
+    }
     entry.users++;
     let released = false;
     const release = () => {
@@ -107,7 +120,7 @@ export class BuildingModelCache {
       if (this.entries.get(key) === entry) this.entries.delete(key);
       void entry.promise.then(root => this.dispose(root), () => {});
     };
-    try { return { root: await entry.promise, release }; }
+    try { return { root: await entry.promise, release, trace: entry.trace }; }
     catch (error) { release(); throw error; }
   }
 
@@ -127,11 +140,23 @@ export class BuildingModelCache {
     validateBuildingPlacements(data);
     const descriptors = new Map(data.models.map(model => [model.id, model]));
     const needed = this.needed(data);
+    const traced = streamTrace.on, started = traced ? performance.now() : 0;
     const results = await Promise.allSettled(needed.map(id => this.acquire(descriptors.get(id)!, base, priority)));
     const leases = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') { for (const lease of leases) lease.release(); throw failure.reason; }
     const templates = new Map(needed.map((id, i) => [id, leases[i].root]));
+    const traceId = owner.userData.traceId as string | undefined;
+    let cloning = traced ? performance.now() : 0, cloneCpu = 0;
+    if (traced) {
+      // Model reads (slot wait, fetch + decode + glTF parse, of which budgeted texture uploads), summed over this tile's
+      // models; a model another tile already holds counts as shared.
+      const reads = leases.map(lease => lease.trace).filter((t): t is ReadTrace => !!t);
+      const sum = (pick: (t: ReadTrace) => number) => reads.reduce((total, t) => total + pick(t), 0);
+      streamTrace.event('tile.buildings.read', traceId, { ms: cloning - started, models: needed.length,
+        queueMs: sum(t => t.queueMs), loadMs: sum(t => t.loadMs), textureMs: sum(t => t.textureMs), textures: sum(t => t.textures),
+        longestLoadMs: Math.max(0, ...reads.map(t => t.loadMs)) });
+    }
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Map<THREE.Material, THREE.Material>(), textures = new Map<THREE.Texture, THREE.Texture>();
     const slots: number[] = [];
@@ -140,6 +165,7 @@ export class BuildingModelCache {
       let pause = this.budget.checkpoint();
       // Other tile attachments can spend this shared budget when the same yield resolves.
       while (pause) { await pause; pause = this.budget.checkpoint(); }
+      const cloneStart = traced ? performance.now() : 0;
       const descriptor = descriptors.get(placement.model)!;
       const root = templates.get(placement.model)!.clone(true);
       root.traverse(o => {
@@ -168,6 +194,12 @@ export class BuildingModelCache {
         viewDistance: placement.viewDistance, modelBounds: descriptor.bounds, occluders: descriptor.occluders };
       wrapper.add(root); owner.add(wrapper); wrapper.freeze();
       slots.push(this.visibility.register(wrapper, descriptor.bounds, placement.viewDistance, descriptor.occluders));
+      if (traced) cloneCpu += performance.now() - cloneStart;
+    }
+    if (traced) {
+      const now = performance.now();
+      streamTrace.event('tile.buildings.clone', traceId, { ms: now - cloning, cpu: cloneCpu, placements: data.placements.length });
+      cloning = now;
     }
     // Block LOD parents: one clone per block, swapped against its HD children by camera distance.
     const states = new Map<string, BlockState>();
@@ -187,6 +219,7 @@ export class BuildingModelCache {
       owner.userData.blockLods = states;
       owner.userData.blockLodTile = streamTrace.time('lod', () => mergeBlockLods(owner, [...states.values()].map(s => s.lod)));
     }
+    if (traced) streamTrace.event('tile.buildings.lod', traceId, { ms: performance.now() - cloning, blocks: states.size });
     for (const geometry of geometries) retainGeometry(geometry);
     // Each unstyled material owner enters the existing styling cache independently.
     shareModelTextures(owner);
