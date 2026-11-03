@@ -147,6 +147,51 @@ def clears_path(tree, paths):
     return distance >= trunk_base_radius(tree.variant) * tree.crown_radius
 
 
+def car_corridors(roads, surveyed=()):
+    """Centreline lane buffers, and the rendered carriageway where no survey covers it.
+
+    Surveyed carriageways (GIS:Katualueet) own their kerbs, verges and median
+    holes. Elsewhere (bridges, new or private streets, tile areas without the
+    survey) the drawn road is the graph's carriageway width, so trees clear all
+    of it, not only two metres around the centreline. Tunnels do not occupy the
+    ground above them.
+    """
+    from turku3d.roads import CLASS_SHIFT
+    from turku3d.roads.attributes import EDGE_FLAGS
+
+    lanes, unsurveyed = [], []
+    if not roads or not roads.get("json"):
+        return lanes, unsurveyed
+    graph = json.loads(roads["json"])
+    nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
+    columns = {name: i for i, name in enumerate(graph.get("edgeAttrColumns", ()))}
+    attributes = graph.get("edgeAttrs") or [None] * len(graph["edges"])
+    survey = shapely.union_all(list(surveyed))
+    for edge, attrs in zip(graph["edges"], attributes, strict=True):
+        if edge[2] >> CLASS_SHIFT == 0:
+            continue
+        coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
+        line = shapely.LineString(coords)
+        lanes.append(line.buffer(2))
+        if attrs is None or "width" not in columns:
+            continue
+        half, flags = float(attrs[columns["width"]]) / 2, int(attrs[columns["flags"]])
+        if half <= 2 or flags & EDGE_FLAGS["TUNNEL"]:
+            continue
+        # A yard or parking drive without a tagged width is drawn narrower than
+        # its two default lanes; its centreline clearance already covers it.
+        if edge[2] >> CLASS_SHIFT == 1 and not flags & (
+            EDGE_FLAGS["WIDTH_TAGGED"] | EDGE_FLAGS["LANES_TAGGED"]
+        ):
+            continue
+        # A centreline within half a carriageway of the survey is that street:
+        # OSM centrelines stray into median holes and onto kerbs.
+        free = line.difference(survey.buffer(half)) if not survey.is_empty else line
+        if free.length > 0.5:
+            unsurveyed.append(free.buffer(half, cap_style="flat"))
+    return lanes, unsurveyed
+
+
 def built_surfaces(inputs):
     """Solid wall bases and supported ground decks, preserving planting holes.
 
@@ -185,25 +230,14 @@ def produce(tile, inputs, height_at, mapped, carried=None):
             *(g.buffer(1) for g, _ in inputs.streets),
         ]
     )
-    # Retain centreline clearance as a fallback where the city has no carriageway
-    # survey. Foot/cycle paths use their actual mapped footprint.
-    from turku3d.roads import CLASS_SHIFT
-
-    roads = inputs.roads
-    lanes = []
-    if roads and roads.get("json"):
-        graph = json.loads(roads["json"])
-        nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
-        for edge in graph["edges"]:
-            if edge[2] >> CLASS_SHIFT == 0:
-                continue
-            coords = [nodes[edge[0]], *np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
-            lanes.append(shapely.LineString(coords).buffer(2))
-        blocked = shapely.union_all([blocked, *lanes])
+    # Centreline clearance everywhere; unsurveyed streets clear their rendered
+    # carriageway. Foot/cycle paths use their actual mapped footprint.
+    lanes, unsurveyed = car_corridors(inputs.roads, inputs.vegetation_roads)
+    blocked = shapely.union_all([blocked, *lanes])
     # Crown maxima are not surveyed trunks: an overhanging crown can peak over a
     # driving lane, well outside the old 2 m centreline buffer. Every source must
     # clear the complete carriageway, including its visible flared trunk base.
-    paths = shapely.union_all([path_corridors(inputs), *inputs.vegetation_roads])
+    paths = shapely.union_all([path_corridors(inputs), *inputs.vegetation_roads, *unsurveyed])
     blocked = shapely.union_all([blocked, paths])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
