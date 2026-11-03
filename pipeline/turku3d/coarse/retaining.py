@@ -118,13 +118,17 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
     from .tunnels import _polygon_faces
 
     meshes, openings = [], []
+    walls = ("retaining_wall", "wall", "city_wall")
+    if not any(tags.get("barrier") in walls and geom.geom_type in ("LineString", "MultiLineString")
+               for geom, tags, _ in records):
+        return meshes, openings  # No wall to build: skip the shoreline buffer and unions.
     shore = shapely.union_all(water).buffer(2.5)
     wet = shapely.union_all(water)
     window = shapely.box(*tile.bbox.as_tuple()).buffer(3)
     claimed = shapely.Polygon()
     flights = shapely.union_all(list(stairs))
     for index, (geom, tags, _) in enumerate(records):
-        if tags.get("barrier") not in ("retaining_wall", "wall", "city_wall"):
+        if tags.get("barrier") not in walls:
             continue
         if geom.geom_type not in ("LineString", "MultiLineString"):
             continue

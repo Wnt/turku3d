@@ -1,6 +1,7 @@
 """Mapped stair flights: measured landings, real treads and exact terrain openings."""
 
 import json
+import functools
 
 import numpy as np
 import shapely
@@ -69,6 +70,7 @@ def number(value, default):
 
 
 def produce(tile, prepared, sample, decks=(), *, landing_domain=None):
+    """Landing aprons are clipped to ``landing_domain`` (a polygon, or a callable giving it)."""
     meshes, openings = [], []
     rows, areas = prepared or ((), ())
     window = shapely.box(*tile.bbox.as_tuple())
@@ -260,6 +262,8 @@ def produce(tile, prepared, sample, decks=(), *, landing_domain=None):
             outer = inner + outward
             apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
             if landing_domain is not None and not bridge_access:
+                if callable(landing_domain):
+                    landing_domain = landing_domain()
                 apron = apron.intersection(landing_domain)
             if apron.is_empty:
                 continue
@@ -480,17 +484,21 @@ def stage(
         base / "col/materials_v1.json",
     ]
 
-    def geometry():
+    @functools.cache
+    def land():
+        # Only a flight's landing apron reads it; most tiles have none.
         polygons, planar = surface_join.footprint(dry)
-        land = shapely.union_all(polygons[planar], grid_size=1e-8)
+        return shapely.union_all(polygons[planar], grid_size=1e-8)
+
+    def geometry():
         flights, flight_cuts = produce(tile, prepared, sample, decks, landing_domain=land)
         paving = [
             p["line"].buffer(p["width"] / 2, cap_style="flat", join_style="mitre") for p in walks
         ]
-        query = HeightQuery(dry)
+        query = functools.cache(lambda: HeightQuery(dry))  # measured walls only
         walls, _ = retaining.produce(
             tile, barriers, sample, flight_cuts, water, paving,
-            surface=lambda x, z: float(query([[x, z]])[0]),
+            surface=lambda x, z: float(query()([[x, z]])[0]),
         )
         apron = retaining.terrain(walls, dry)
         if apron is not None:

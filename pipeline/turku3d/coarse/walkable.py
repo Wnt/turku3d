@@ -59,7 +59,14 @@ def measure(key, line, width, points, window):
         & (points[:, 2] <= bounds[3])
     )
     points = points[near]
-    points = points[shapely.distance(shapely.points(points[:, [0, 2]]), line) < width / 2 + 7]
+    query, reach = shapely.points(points[:, [0, 2]]), width / 2 + 7
+    # An indexed distance-within test (1 µm wider) admits a superset; the exact
+    # distance then decides only those, instead of every point in the box.
+    shapely.prepare(line)
+    candidates = np.flatnonzero(shapely.dwithin(line, query, reach + 1e-6))
+    keep = np.zeros(len(points), bool)
+    keep[candidates] = shapely.distance(query[candidates], line) < reach
+    points = points[keep]
     station, lateral = coordinates(line, points[:, [0, 2]])
     knots = np.unique(np.r_[np.arange(0, line.length, 8), line.length])
     centres = shapely.get_coordinates(shapely.line_interpolate_point(line, knots))
@@ -95,6 +102,49 @@ def measure(key, line, width, points, window):
     if not np.isfinite(heights[:, 3]).any():
         return None
     return dict(key=key, line=line, width=width, knots=knots, cross=cross, heights=heights)
+
+
+def intersects_parts(geometry, x, y, cell=4.0):
+    """shapely.intersects_xy, exactly, without testing every point against GEOS.
+
+    A point intersects a collection exactly when it intersects one of its parts. A
+    prepared GeometryCollection (water + building union with stray points) has no
+    index: 27 µs per point, minutes for a coastal tile's millions of returns. Per
+    part, grid cells whose (slightly grown) box GEOS finds disjoint or covered decide
+    all their points; only points in cells on the part's boundary are tested singly.
+    """
+    hit = np.zeros(len(x), bool)
+    order = np.argsort(x, kind="stable")
+    xs = x[order]
+    for part in shapely.get_parts(geometry):
+        x0, y0, x1, y1 = part.bounds
+        if not np.isfinite([x0, y0, x1, y1]).all():
+            continue
+        lo, hi = np.searchsorted(xs, x0, "left"), np.searchsorted(xs, x1, "right")
+        rows = order[lo:hi]
+        rows = rows[~hit[rows] & (y[rows] >= y0) & (y[rows] <= y1)]
+        if not len(rows):
+            continue
+        shapely.prepare(part)
+        nx, ny = int((x1 - x0) // cell) + 1, int((y1 - y0) // cell) + 1
+        if nx * ny > 1 << 20:
+            hit[rows] = shapely.intersects_xy(part, x[rows], y[rows])
+            continue
+        i = np.clip(((x[rows] - x0) // cell).astype(int), 0, nx - 1)
+        j = np.clip(((y[rows] - y0) // cell).astype(int), 0, ny - 1)
+        flat = i * ny + j
+        used = np.unique(flat)
+        ci, cj = used // ny, used % ny
+        # Grown by 1 mm: every point lies inside the box of the cell it was binned to.
+        boxes = shapely.box(x0 + ci * cell - 1e-3, y0 + cj * cell - 1e-3,
+                            x0 + (ci + 1) * cell + 1e-3, y0 + (cj + 1) * cell + 1e-3)
+        state = np.where(shapely.covers(part, boxes), 1, np.where(shapely.intersects(part, boxes), 2, 0))
+        state = state[np.searchsorted(used, flat)]
+        hit[rows[state == 1]] = True
+        mixed = rows[state == 2]
+        if len(mixed):
+            hit[mixed] = shapely.intersects_xy(part, x[mixed], y[mixed])
+    return hit
 
 
 def area_strips(identity, geom):
@@ -194,6 +244,22 @@ def prepare(tile, osm, water_path, paths):
         return []
     bounds = tile.bbox.buffered(60)
     survey = {p.stem: p for p in paths if p.parent.name != "maanpinta"}
+
+    def relevant(points):
+        # Only points used by a path's measurement can affect its fitted section.
+        # Keep a whole horizontal voxel around each measurement box so the original
+        # first return in that voxel still wins the deduplication below.
+        mask = np.zeros(len(points), dtype=bool)
+        for _, line, width in ways:
+            x0, z0, x1, z1 = line.buffer(width / 2 + 7).bounds
+            mask |= (
+                (points[:, 0] >= x0 - 0.25)
+                & (points[:, 0] <= x1 + 0.25)
+                & (points[:, 2] >= z0 - 0.25)
+                & (points[:, 2] <= z1 + 0.25)
+            )
+        return mask
+
     if all(b.name in survey for b in C.laz_tiles_for_bbox(bounds)):
         from turku3d.lidar import TileStore
 
@@ -204,27 +270,14 @@ def prepare(tile, osm, water_path, paths):
         )
         from .retaining_survey import ground_points
 
-        points = ground_points(cloud)
+        points = ground_points(cloud, within=relevant)
     else:
         points, _ = read_returns(
             [p for p in paths if p.parent.name == "maanpinta"], bounds, [1, 2, 8, 12]
         )
-    # Only points used by a path's measurement can affect its fitted section.
-    # Keep a whole horizontal voxel around each measurement box so the original
-    # first return in that voxel still wins the deduplication below.
-    relevant = np.zeros(len(points), dtype=bool)
-    for _, line, width in ways:
-        x0, z0, x1, z1 = line.buffer(width / 2 + 7).bounds
-        relevant |= (
-            (points[:, 0] >= x0 - 0.25)
-            & (points[:, 0] <= x1 + 0.25)
-            & (points[:, 2] >= z0 - 0.25)
-            & (points[:, 2] <= z1 + 0.25)
-        )
-    points = points[relevant]
+        points = points[relevant(points)]
     exclude = shapely.union_all([water, *blocked])
-    shapely.prepare(exclude)
-    points = points[~shapely.intersects_xy(exclude, points[:, 0], points[:, 2])]
+    points = points[~intersects_parts(exclude, points[:, 0], points[:, 2])]
     # Equal horizontal support prevents dense scan strips from outweighing the
     # rest of the paving. Keep separate height bands for robust outlier rejection.
     voxel = np.floor(points[:, [0, 2, 1]] / [0.25, 0.25, 0.1]).astype(np.int64)

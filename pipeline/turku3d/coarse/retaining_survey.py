@@ -12,19 +12,25 @@ from turku3d.spatial import frame
 from .retaining import sections
 
 
-def ground_points(cloud):
+def ground_points(cloud, within=None):
     """Class 12 contains overlapping canopy scans too; admit only near-ground returns.
 
     Keep all surveyed class-2 breakline support. Nearest ground evidence avoids
     averaging the two sides of a vertical step before it has been measured.
+    ``within(points) -> mask`` returns only the selected points, as if filtered after:
+    every class-2 point still serves as nearest ground evidence.
     """
     classes = cloud.records["classification"]
     reference = cloud.points[classes == 2]
     extra = cloud.points[classes == 12]
+    if within is not None:
+        extra = extra[within(extra)]
     if not len(reference) or not len(extra):
-        return reference
+        return reference if within is None else reference[within(reference)]
     distance, owner = cKDTree(reference[:, [0, 2]]).query(extra[:, [0, 2]])
     keep = (distance < 1.0) & (abs(extra[:, 1]-reference[owner, 1]) < 0.2+0.5*distance)
+    if within is not None:
+        reference = reference[within(reference)]
     return np.concatenate([reference, extra[keep]])
 
 
