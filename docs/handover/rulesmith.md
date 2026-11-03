@@ -108,3 +108,9 @@ common: on t0_3_3 it is 11 of 16 benches, so a delete rule would remove many ben
 benches newer than the survey. The rule is ready to switch on as a `furniture@N` step once you decide. Possible
 answers are "yes", "no", or "only with another signal" (for example a second source that also lacks it, or the
 ortho).
+
+## Decision from Jonni (2026-11-04)
+
+"Bench deletes: should a bench missing from the LiDAR be deleted?" **No.** Survey absence must not delete register
+benches; the orientation is what needs correcting ("I think many benches face the wrong way"). `furniture@1`
+already deletes nothing, so it stands; future furniture rules keep register benches and fix their facing.
