@@ -69,7 +69,10 @@ export class SurfaceArrays {
   private factors = [Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()), Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()),
     Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4())];
   private materials = new Map<boolean, THREE.MeshStandardNodeMaterial>();
-  constructor(private tier: QualityTier, private detail: THREE.Texture) {}
+  private pending: Promise<void> = Promise.resolve();
+  private dirty = false;
+  constructor(private tier: QualityTier, private detail: THREE.Texture,
+    private upload: (texture: THREE.Texture) => Promise<void> = async () => {}) {}
 
   owns(material: THREE.Material) { return [...this.materials.values()].includes(material as THREE.MeshStandardNodeMaterial); }
   get layers() { return this.slices.length; }
@@ -92,31 +95,43 @@ export class SurfaceArrays {
     return index;
   }
 
-  /** Arrays hold a power-of-two capacity; a new slice rewrites only its own layer unless capacity grows. */
+  /** The first arrays are built at once, before anything draws them, and upload with the tile's own preparation.
+   * Every later layer double-buffers: a complete new set uploads through the budgeted queue, then the material's
+   * texture nodes swap to it, so resident tiles never trigger an upload inside a frame. */
   private rebuild() {
+    if (!this.arrays.length) { this.arrays = this.build(); return; }
+    if (this.dirty) return;
+    this.dirty = true;
+    this.pending = this.pending.then(async () => {
+      this.dirty = false;
+      const next = this.build();
+      await Promise.all(next.map(texture => this.upload(texture)));
+      const previous = this.arrays;
+      this.arrays = next;
+      next.forEach((texture, channel) => { if (this.nodes[channel]) this.nodes[channel].value = texture; });
+      for (const texture of previous) texture.dispose();
+    }).catch(error => console.warn(`[surface arrays] ${error}`));
+  }
+
+  /** Resolves once every layer handed out so far is in the arrays the material samples (MaterialStyler.prepare). */
+  ready() { return this.pending; }
+
+  /** Power-of-two capacity, every current slice copied from its own compressed mips. */
+  private build() {
     const capacity = Math.max(4, 2 ** Math.ceil(Math.log2(this.slices.length)));
-    for (let channel = 0; channel < 3; channel++) {
+    return [0, 1, 2].map(channel => {
       const first = this.slices[0].maps[channel];
-      let array = this.arrays[channel];
-      if (!array || array.image.depth !== capacity) {
-        const mipmaps = first.mipmaps.map(mip => ({ data: new Uint8Array(mip.data.byteLength * capacity), width: mip.width, height: mip.height }));
-        const next = new THREE.CompressedArrayTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], first.image.width, first.image.height, capacity, first.format, first.type);
-        for (const property of ['colorSpace', 'wrapS', 'wrapT', 'magFilter', 'minFilter', 'flipY', 'premultiplyAlpha', 'unpackAlignment'] as const)
-          (next as unknown as Record<string, unknown>)[property] = first[property];
-        next.anisotropy = first.anisotropy; // the sources' sampling, so the look is unchanged
-        next.offset.copy(first.offset); next.repeat.copy(first.repeat); next.center.copy(first.center); next.rotation = first.rotation;
-        next.generateMipmaps = false; next.name = `surface-array-${channel}`;
-        for (let i = 0; i < this.slices.length; i++) this.copy(next, i, channel);
-        next.needsUpdate = true;
-        array?.dispose();
-        this.arrays[channel] = next;
-        if (this.nodes[channel]) this.nodes[channel].value = next;
-      } else {
-        const index = this.slices.length - 1;
-        this.copy(array, index, channel);
-        array.addLayerUpdate(index); array.needsUpdate = true;
-      }
-    }
+      const mipmaps = first.mipmaps.map(mip => ({ data: new Uint8Array(mip.data.byteLength * capacity), width: mip.width, height: mip.height }));
+      const next = new THREE.CompressedArrayTexture(mipmaps as unknown as THREE.CompressedTextureMipmap[], first.image.width, first.image.height, capacity, first.format, first.type);
+      for (const property of ['colorSpace', 'wrapS', 'wrapT', 'magFilter', 'minFilter', 'flipY', 'premultiplyAlpha', 'unpackAlignment'] as const)
+        (next as unknown as Record<string, unknown>)[property] = first[property];
+      next.anisotropy = first.anisotropy; // the sources' sampling, so the look is unchanged
+      next.offset.copy(first.offset); next.repeat.copy(first.repeat); next.center.copy(first.center); next.rotation = first.rotation;
+      next.generateMipmaps = false; next.name = `surface-array-${channel}`;
+      for (let i = 0; i < this.slices.length; i++) this.copy(next, i, channel);
+      next.needsUpdate = true;
+      return next;
+    });
   }
 
   private copy(array: THREE.CompressedArrayTexture, index: number, channel: number) {

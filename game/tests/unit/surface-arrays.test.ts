@@ -54,13 +54,18 @@ function world() {
   renderer.lighting = new GameLighting(QUALITY.medium.lights);
   const scene = new THREE.Scene(), env = new Environment(scene, renderer, 'medium');
   scene.environment = Object.assign(new THREE.DataTexture(new Uint8Array(4 * 64 * 64), 64, 64), { mapping: THREE.CubeUVReflectionMapping });
-  return { renderer, scene, env, styler: new MaterialStyler(renderer, env, 'medium', true) };
+  const styler = new MaterialStyler(renderer, env, 'medium', true);
+  const uploads: THREE.Texture[] = [];
+  // The real queue uploads in budgeted tasks after rendered frames; record what it would upload.
+  (styler as unknown as { surfaces: { upload: (t: THREE.Texture) => Promise<void> } }).surfaces.upload = async texture => { uploads.push(texture); };
+  return { renderer, scene, env, styler, uploads };
 }
 
-test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arrays; others keep their own draw', () => {
-  const { styler } = world();
+test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arrays; others keep their own draw', async () => {
+  const { styler, uploads } = world();
   const a = tile();
   styler.apply(a.model);
+  await styler.surfacesReady();
   const names = a.root.children.map(child => (child as THREE.Mesh).userData.material_key ?? child.name);
   // Wet surfaces in one draw, grass and gravel (no wet film) in another; fieldstone has another texture size.
   expect(names).toEqual(['draft_fieldstone', 'surface-array', 'surface-array-dry']);
@@ -80,6 +85,8 @@ test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arr
   const slice = albedo.mipmaps[1].data as Uint8Array, level = 16 * 16;
   expect(slice[level * 1]).toBe((4 * 16 + 1) & 255); // layer 1 (granite), mip 1
   expect(albedo.image.depth).toBe(8); expect(albedo.repeat.toArray()).toEqual([0.5, 0.5]); // 5 layers: capacity 8
+  // Layers after the first set double-buffer: the set the material samples was uploaded before it swapped in.
+  expect(uploads).toContain(albedo);
 
   // A second tile with its own texture objects for the same assets adds no layer and shares the program.
   const b = tile();
@@ -94,9 +101,9 @@ test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arr
   expect(a.root.children.some(child => child.name.startsWith('surface-array'))).toBe(false);
 });
 
-test('the merged surface material builds a WebGPU program with r186\'s CPU builder', () => {
+test('the merged surface material builds a WebGPU program with r186\'s CPU builder', async () => {
   const { renderer, scene, styler } = world();
-  const a = tile(); styler.apply(a.model); scene.add(a.model);
+  const a = tile(); styler.apply(a.model); scene.add(a.model); await styler.surfacesReady();
   const merged = a.root.children.find(child => child.name === 'surface-array') as THREE.Mesh, material = merged.material as THREE.NodeMaterial;
   type Builder = NodeBuilder & { build(): void; fragmentShader: string };
   const nodes = new NodeManager(renderer, renderer.backend) as { _createNodeBuilder(draw: object, material: THREE.Material): Builder };
@@ -109,4 +116,19 @@ test('the merged surface material builds a WebGPU program with r186\'s CPU build
   const dryBuilder = nodes._createNodeBuilder({ object: dry, material: dry.material, scene, camera: new THREE.PerspectiveCamera(), lightsNode, clippingContext: null }, dry.material as THREE.Material);
   dryBuilder.build();
   expect(dryBuilder.fragmentShader).toMatch(/texture_2d_array/);
+});
+
+test('a surface first seen later swaps in a complete uploaded array set; the old set is released', async () => {
+  const { styler, uploads } = world();
+  const a = tile(); styler.apply(a.model); await styler.surfacesReady();
+  const arrays = () => (styler as unknown as { surfaces: { arrays: THREE.CompressedArrayTexture[] } }).surfaces.arrays;
+  const before = arrays()[0]; let released = false; before.addEventListener('dispose', () => { released = true; });
+  const b = new THREE.Group(), root = new THREE.Group(); b.add(root);
+  root.add(surfaceMesh('draft_cobblestone', surfaceMaterial('cobbles', 19), 0), surfaceMesh('draft_asphalt_worn', surfaceMaterial('asphalt', 1), 2));
+  styler.apply(b);
+  expect(arrays()[0]).toBe(before); // nothing resident samples a set that is still uploading
+  await styler.surfacesReady();
+  const after = arrays()[0];
+  expect(after).not.toBe(before); expect(uploads).toContain(after); expect(released).toBe(true);
+  expect((after.mipmaps[0].data as Uint8Array)[32 * 32 * 5]).toBe((19 * 16) & 255); // layer 5: the new cobbles
 });

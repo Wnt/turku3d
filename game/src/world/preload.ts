@@ -68,6 +68,8 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   });
   try {
     stage = performance.now();
+    // Surface arrays grown while the ring styled swap in first, so the warmup draws and uploads the final ones.
+    await materials?.surfacesReady();
     const textures = modelTextures(scene, camera);
     worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureDiscoveryMs: performance.now() - stage } });
     stage = performance.now();

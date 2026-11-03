@@ -68,7 +68,7 @@ export class MaterialStyler {
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean, tileset?: string) {
     this.ground = tileset ? new GroundBindings(renderer, new URL(tileset, location.href).href) : null;
-    this.surfaces = new SurfaceArrays(tier, this.detail);
+    this.surfaces = new SurfaceArrays(tier, this.detail, texture => textureUploads(renderer).enqueue(texture));
   }
 
   async applyAsync(model: THREE.Object3D) {
@@ -141,7 +141,9 @@ export class MaterialStyler {
         }
         if (!(source as THREE.MeshStandardMaterial).isMeshStandardMaterial) return source;
         if (kind === 'standard') {
-          if (!/(?:concrete|stone|brick|road_paint|fieldstone)/.test(key)) return source;
+          // Unstyled surfaces (roofs, metal, paint) still share one material per identical source: each building
+          // model brings its own copy, and static batching merges only draws that share a material.
+          if (!/(?:concrete|stone|brick|road_paint|fieldstone)/.test(key)) return this.shared.acquire(source, 'plain', model, () => source.clone());
           return this.shared.acquire(source, `wet:${key}`, model, () =>
             wetSurface(this.renderer.library.fromMaterial(source.clone()) as THREE.MeshStandardNodeMaterial));
         }
@@ -178,11 +180,16 @@ export class MaterialStyler {
     return this.ground?.apply(model);
   }
 
+  /** Every surface layer handed out so far is uploaded and sampled (render/surfaceArrays.ts). */
+  surfacesReady() { return this.surfaces.ready(); }
+
   prepare(model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera, signal?: AbortSignal): Promise<void> {
     // Initial residency precedes CSM setup; preloadWorld prepares the complete ring after its main compile.
     if (!this.env.csm.camera) return Promise.resolve();
     const prepared = this.preparing.then(async () => {
       if (signal?.aborted) return;
+      // A tile that added a surface layer publishes only once the arrays holding it are uploaded and swapped in.
+      await this.surfaces.ready();
       await Promise.all([...modelTextures(model)].map(map => textureUploads(this.renderer).enqueue(map)));
       for (const { river } of this.rivers.values()) {
         if (signal?.aborted) return;
