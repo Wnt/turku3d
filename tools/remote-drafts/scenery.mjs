@@ -147,14 +147,18 @@ for (const node of input.getRoot().listNodes()) {
       continue;
     }
     // Weld discarded normal/UV seams before simplifying; retain authored colour discontinuities.
-    const positions = [], colours = [], remap = [], welded = new Map();
+    // Ground keeps the near tile's baked sky visibility (COLOR_1: crease, sky, coverage), so the client darkens far
+    // street canyons' indirect light exactly as near; ground without a bake (water) carries zero coverage.
+    const positions = [], colours = [], remap = [], welded = new Map(), seen = [];
+    const baked = ground ? primitive.getAttribute('COLOR_1') : null;
     let high = -Infinity;
     for (let i = 0; i < position.getCount(); i++) {
       const p = world(matrix, position.getElement(i, []));
       const c = authored?.getElement(i, []).slice(0, 3) ?? colour;
       const key = [...p.map(v => Math.round(v * 1000)), ...c.map(v => Math.round(v * 255))].join(',');
       let index = welded.get(key);
-      if (index === undefined) { index = positions.length / 3; welded.set(key, index); positions.push(...p); colours.push(...c); }
+      if (index === undefined) { index = positions.length / 3; welded.set(key, index); positions.push(...p); colours.push(...c);
+        if (ground) seen.push(...(baked ? baked.getElement(i, []).slice(0, 4) : [1, 1, 1, 0])); }
       remap.push(index); high = Math.max(high, p[1]);
     }
     const indices = Uint32Array.from(primitive.getIndices()?.getArray() ?? remap.map((_, i) => i), i => remap[i]);
@@ -168,7 +172,12 @@ for (const node of input.getRoot().listNodes()) {
     for (const index of reduced) {
       let mapped = compact.get(index);
       if (mapped === undefined) { mapped = target.positions.length / 3; compact.set(index, mapped);
-        target.positions.push(...positions.slice(index * 3, index * 3 + 3)); target.colours.push(...colours.slice(index * 3, index * 3 + 3)); }
+        target.positions.push(...positions.slice(index * 3, index * 3 + 3)); target.colours.push(...colours.slice(index * 3, index * 3 + 3));
+        if (ground) {
+          if (!target.fields.has('COLOR_1')) target.fields.set('COLOR_1', { size: 4, values: [] });
+          target.fields.get('COLOR_1').values.push(...seen.slice(index * 4, index * 4 + 4));
+        }
+      }
       target.indices.push(mapped);
     }
   }
@@ -219,7 +228,7 @@ for (const [layer, data] of groups) {
   scene.addChild(doc.createNode(layer).setExtras({ layer, scenery: true }).setMesh(doc.createMesh(layer).addPrimitive(primitive)));
 }
 await doc.transform(reorder({encoder:MeshoptEncoder,target:'size'}),
-  quantize({quantizePosition:16,quantizeColor:8,pattern:/^(POSITION|COLOR_0)$/}));
+  quantize({quantizePosition:16,quantizeColor:8,pattern:/^(POSITION|COLOR_0|COLOR_1)$/}));
 doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({method:EXTMeshoptCompression.EncoderMethod.QUANTIZE});
 await io.write(output, doc);
 console.log(JSON.stringify({ sourceTriangles, triangles, draws, sourceBytes: raw.length,
