@@ -54,6 +54,16 @@ RAW_PRODUCERS = {
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'buildingPlacements', 'generation')
 GIB = 2**30
+PLAYER_SECONDS = 20    # a player stands on a tile while its d=0 requests continue (1 s polls)
+DEMAND_SECONDS = 120   # game demand without a request for this long has been left behind
+FAR_TILES = 8          # 2 km beyond every live player: dropped after half a minute
+FINISH_SECONDS = 60    # a new pin lets the player's own tile finish when this close to done
+RING_METRES = 400      # a ring tile's latest reported distance (bbox, <= 354 m) confirms it
+
+
+def tile_ij(tile):
+    _, i, j = tile.split('_')
+    return int(i), int(j)
 
 
 def atomic_json(path, value):
@@ -132,6 +142,8 @@ class Farm:
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
+        # Live player positions: client -> {tile the player stands on (d=0): last time}.
+        self.players, self.durations = {}, {}
         self.registrations, self.registrations_scanned = {}, float('-inf')
         # The game's version: the generation its proxy requests by distance from a pin client.
         self.pin = read_json(self.root / 'pin.json', {})
@@ -354,7 +366,7 @@ class Farm:
                         revision=revision, generation=generation,
                         queued=len(queued), building=building, failures=failures[-10:])
 
-    def request(self, revision, tile, distance=None, client=None):
+    def request(self, revision, tile, distance=None, client=None, player=None):
         if not TILE.fullmatch(tile):
             raise ValueError('invalid tile')
         meta = self.revision(revision)
@@ -368,6 +380,8 @@ class Farm:
             self.metrics['requests'] += 1
             if distance is not None:
                 self.observe(revision, generation, client)
+                if distance < 1:
+                    self.players.setdefault(player or client or 'anonymous', {})[tile] = time.time()
             root = self.output(generation)
             receipt = root / tile / 'ready.json'
             if receipt.exists():
@@ -461,7 +475,7 @@ class Farm:
             if self.older(g) and now - demand['seen'] < 120:
                 for tile, category in demand['tiles'].items():
                     demanded[tile] = min(demanded.get(tile, 9), category)
-        cancelled, stopping = [], []
+        cancelled, stopping, kept = [], [], []
         for key in list(self.jobs):
             if not self.older(key[0]):
                 continue
@@ -469,6 +483,9 @@ class Farm:
             if not info.get('explicit') and now - info.get('seen', 0) < 180:
                 demanded.setdefault(key[1], 3)
                 distances[key[1]] = info.get('distance', 0)
+            if key in self.dispatched and self.finishing(key, now):
+                kept.append(key[1])  # The player sees it within a minute; the new version queues too.
+                continue
             cancelled.append(key[1])
             if key in self.dispatched:
                 info['cancelled'] = True
@@ -485,11 +502,22 @@ class Farm:
                                        requested=now, seen=now, distance=distances.get(tile, 0),
                                        explicit=False)
         self.event('cancelled', revision=revision, previous=previous, reason='pin moved',
-                   tiles=cancelled, running=len(stopping), requeued=sorted(demanded))
+                   tiles=cancelled, running=len(stopping), kept=kept, requeued=sorted(demanded))
         for info, output in stopping:
             threading.Thread(target=self.cancel_running, args=(info, output), daemon=True).start()
         self.save_queue(force=True)
         self.pump()
+
+    def finishing(self, key, now):
+        """A running build of a tile a live player stands on, expected to finish within
+        FINISH_SECONDS (from this tile's last build time, else the recent median)."""
+        if tile_ij(key[1]) not in self.standing(now):
+            return False
+        info = self.queue_info[key]
+        recent = sorted(self.durations.values())
+        expected = self.durations.get(key[1]) or (recent[len(recent) // 2] if recent else None)
+        started = info.get('dispatched_at')
+        return expected is not None and started is not None and expected - (now - started) < FINISH_SECONDS
 
     def cancel_running(self, info, output):
         try:
@@ -498,15 +526,55 @@ class Farm:
         except Exception as error:  # A changed process identity is never stopped.
             self.event('cancel-failed', tile=info.get('tile'), error=str(error)[-300:])
 
+    def standing(self, now=None):
+        """Tiles live players stand on (a d=0 request within PLAYER_SECONDS), as (i, j)."""
+        now = now or time.time()
+        here = set()
+        for client, tiles in list(self.players.items()):
+            live = {t: seen for t, seen in tiles.items() if now - seen < PLAYER_SECONDS}
+            if live:
+                self.players[client] = live
+                here.update(tile_ij(t) for t in live)
+            else:
+                self.players.pop(client)
+        return here
+
     def priority(self, key):
+        """Player first: the tile a live player stands on, then its ring, then agents' explicit
+        checks, then the rest of the game's demand nearest-first by its latest distance."""
         info = self.queue_info[key]
         if info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
             return (-2, 0, 0, info['requested'])  # Adopt existing work before starting anything new.
-        category, distance = (1 if info.get('explicit') else 3), info.get('distance', 0)
+        distance = info.get('distance', 0)
+        category = 1 if info.get('explicit') else 3
         for (generation, _client), demand in self.demands.items():
             if generation == key[0] and time.time() - demand['seen'] < 120 and key[1] in demand['tiles']:
-                category = min(category, demand['tiles'][key[1]])
-        return (category, max(self.turns.get(key[0], 0), info['requested']), distance, info['requested'])
+                category = min(category, demand['tiles'][key[1]] if demand['tiles'][key[1]] < 1 else 2)
+        here = self.standing()
+        if here and distance < RING_METRES:
+            i, j = tile_ij(key[1])
+            ring = min(max(abs(i - a), abs(j - b)) for a, b in here)
+            if ring <= 1:
+                category = min(category, ring - 1)  # -1 standing on it, 0 its ring
+        if category == 1:
+            return (1, max(self.turns.get(key[0], 0), info['requested']), distance, info['requested'])
+        return (category, distance, info['requested'], 0)
+
+    def stale(self, key, now):
+        """Game demand the player has left: no request for DEMAND_SECONDS, or far from every
+        live player for half a minute. Agents' explicit checks never age out."""
+        info = self.queue_info[key]
+        if info.get('explicit') or key in self.dispatched or info.get('pid'):
+            return False
+        if self.priority(key)[0] <= 2:
+            return False  # Still in a live demand or a player's ring.
+        if now - info['seen'] > DEMAND_SECONDS:
+            return True
+        here = self.standing(now)
+        if not here or now - info['seen'] < 30:
+            return False
+        i, j = tile_ij(key[1])
+        return min(max(abs(i - a), abs(j - b)) for a, b in here) > FAR_TILES
 
     def demand(self, revision, client, tiles, urgent, visible, address=None):
         generation = self.revision(revision)['generation']
@@ -528,9 +596,8 @@ class Farm:
                 self.jobs.pop(key)
                 self.queue_info.pop(key)
                 continue
-            if (key not in self.dispatched and not info.get('explicit') and not info.get('pid')
-                    and time.time() - info['seen'] > 180 and self.priority(key)[0] == 3):
-                self.event('dropped', revision=self.jobs[key], tile=key[1], reason='no recent demand')
+            if self.stale(key, time.time()):
+                self.event('dropped', revision=self.jobs[key], tile=key[1], reason='player left this demand')
                 self.jobs.pop(key)
                 self.queue_info.pop(key)
         while len(self.dispatched) < self.workers:
@@ -604,6 +671,9 @@ class Farm:
                             seconds=seconds, queue_seconds=queue_seconds,
                             stage_hits=hit, stage_misses=miss, result=result))
                 with self.lock:
+                    self.durations[tile] = seconds
+                    if len(self.durations) > 512:
+                        self.durations.pop(next(iter(self.durations)))
                     self.metrics['builds'] += 1
                     self.metrics['stage_hits'] += hit
                     self.metrics['stage_misses'] += miss
@@ -1158,12 +1228,13 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(url.query)
             distance = max(0, min(100000, float(query['d'][0]))) if 'd' in query else None
             with farm.lock:
-                status, value = self.fragment(farm, revision, meta, rel[0], distance)
+                status, value = self.fragment(farm, revision, meta, rel[0], distance,
+                                              query.get('client', [None])[0])
             return self.json(status, value)
         return self.file(farm.output(meta['generation']), rel)
 
-    def fragment(self, farm, revision, meta, tile, distance):
-        status, value = farm.request(revision, tile, distance, self.client_address[0])
+    def fragment(self, farm, revision, meta, tile, distance, player=None):
+        status, value = farm.request(revision, tile, distance, self.client_address[0], player)
         queue = dict(queue_status=status, queue_state=value.get('state'))
         if distance is None and status >= 400:
             # A CLI check must see its rejection; games keep the retained tile below.

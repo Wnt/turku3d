@@ -561,6 +561,56 @@ class FarmTests(unittest.TestCase):
         self.wait(farm)
         self.assertEqual(calls, ['t0_0_0', 't0_3_0', 't0_2_0', 't0_1_0'])
 
+    def test_player_tile_and_ring_precede_explicit_checks_and_older_demand(self):
+        entered, release, calls = threading.Event(), threading.Event(), []
+        def build(revision, tile, root):
+            calls.append(tile)
+            if len(calls) == 1:
+                entered.set()
+                release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0', 0, 'game')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV, 't0_8_8', 1400, 'game')   # older demand, far behind the player now
+        farm.request(REV, 't0_3_0', 600, 'game')
+        farm.request(REV, 't0_9_9')                 # an agent's explicit check
+        farm.request(REV, 't0_6_1', 120, 'game')    # the player's ring
+        farm.request(REV, 't0_5_0', 0, 'game')      # the tile the player now stands on
+        farm.request(REV, 't0_5_1', 80, 'game')
+        farm.players['game'].pop('t0_0_0')
+        release.set()
+        self.wait(farm)
+        self.assertEqual(calls, ['t0_0_0', 't0_5_0', 't0_5_1', 't0_6_1', 't0_9_9', 't0_3_0', 't0_8_8'])
+
+    def test_demand_the_player_left_ages_out_but_explicit_checks_stay(self):
+        farm = self.farm(workers=0)
+        farm.request(REV, 't0_20_0', 0, 'game')
+        farm.request(REV, 't0_1_0', 300, 'game')
+        farm.request(REV, 't0_2_0', 300, 'game')
+        farm.request(REV, 't0_3_0')
+        farm.queue_info[(GEN, 't0_1_0')]['seen'] -= 40    # 19 tiles from the player now
+        farm.queue_info[(GEN, 't0_2_0')]['seen'] -= 200   # no request for minutes
+        farm.queue_info[(GEN, 't0_3_0')]['seen'] -= 500
+        farm.pump()
+        self.assertEqual({k[1] for k in farm.jobs}, {'t0_20_0', 't0_3_0'})
+
+    def test_new_version_lets_the_players_nearly_finished_tile_complete(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.durations['t0_0_0'] = 20.0
+        farm.request(REV, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        farm.queue_info[(GEN, 't0_0_0')]['pid'] = 1
+        farm.request(REV2, 't0_0_0', 0, 'proxy')
+        self.assertEqual(farm.pin['generation'], GEN2)
+        self.assertFalse(farm.queue_info[(GEN, 't0_0_0')].get('cancelled'))
+        self.assertIn((GEN2, 't0_0_0'), farm.jobs)
+        time.sleep(.1)
+        self.assertEqual(stopped, [])
+        farm.queue_info[(GEN, 't0_0_0')].pop('pid')
+        release.set()
+        self.wait(farm)
+
     def pinned_farm(self):
         entered, release = threading.Event(), threading.Event()
         calls, stopped = [], []
