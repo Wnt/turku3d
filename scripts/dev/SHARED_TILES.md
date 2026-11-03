@@ -189,3 +189,70 @@ in farm-owned delivery storage even when their source is an accepted fallback. I
 cells across versions share the same bundle. The audit verifies both the full bundle and
 each cell slice. Game `/want`, `/demand` and version health counts cover only the requested
 generation; root `/health` remains the operator's complete farm view.
+
+## Migrations: edit existing tiles without regenerating
+
+A migration is a versioned, deterministic transform `(name, version, function)` over a finished
+tile product (manifest and payloads), in `pipeline/turku3d/migrations/`. The ordered chain is
+`registry.py`; append only. The generator applies the same chain at the end of every build
+(`turku3d.coarse.build`, no flag), so a whole-city regeneration equals base + migrations.
+
+```python
+# pipeline/turku3d/migrations/merge_draws.py
+from .core import Migration, Product, glb_chunks, glb_pack
+
+def transform(product: Product) -> None:
+    entry = product.manifest["visual"][product.tile]
+    document, binary = glb_chunks(product.read(entry["url"]))
+    ...                                             # deterministic edit
+    product.replace(entry, glb_pack(document, binary))  # new vis.<hash>.glb, sha256/bytes updated
+
+MIGRATION = Migration("merge-draws", 1, transform)
+```
+
+`product.put("../shared/{hash}.glb", data)` and `product.put("name.{hash}.json", data)` add
+content-addressed payloads. An existing file is never modified; a byte-identical result keeps
+the existing payload. Transforms update derived entry numbers (`tris`, `brotli_bytes`) themselves.
+New client-visible manifest keys also need an entry in `PUBLIC` in `shared_tiles.py`.
+
+Identity: each step's generation is `sha256(parent generation, name@version, code hash)`; the code
+hash covers the transform's module, the framework and every `turku3d` module they import
+statically (lazy imports included, `registry.py` excluded). The derived generation is the last
+step's id. Each migrated tile's manifest records `migrations` (the chain, also in fresh builds)
+and `migration_base` (base revision, generation and manifest SHA-256), and passes `Farm.validate`.
+
+From a committed checkout:
+
+```sh
+scripts/dev/tile-migrate register --base bulkgen2-3d1445b2 [--alias NAME]   # default <base>+m<id8>
+scripts/dev/tile-migrate apply --version NAME t0_0_0 t0_1_0 t0_-1_0          # foreground
+scripts/dev/tile-migrate run --version NAME --jobs 6 --watch 120             # city, background
+scripts/dev/tile-migrate status --version NAME
+scripts/dev/tile-migrate parity --version NAME --generated GENERATOR_ALIAS t0_12_-12
+```
+
+`register` uploads the snapshot, runs `tile_migrate.py derive` on the farm host (writes
+`revisions/<derived>/revision.json` with `kind: migrated`, base, code snapshot, parents and
+per-step ids) and registers the alias. It never repins the game; the coordinator does.
+`run` migrates every finished base tile with at most six nice'd processes: hard links for
+unchanged payloads and referenced shared assets, a new manifest, `Farm.validate`, then
+`ready.json`. It is resumable (finished tiles whose base manifest is unchanged are kept), starts at
+the centre, and `--watch` rescans for new base tiles until two idle hours. A chain that extends an
+existing derived generation starts from its finished products and applies only the new steps.
+Results: `farm/migrations/<generation>/run.jsonl` and `status.json`; log `farm/logs/migrate-*.log`.
+A no-op migration of the 3,440-tile city took 102 s and 0.29 GiB (new manifests only).
+
+Serving: `/v/<migrated alias>/coarse/<tile>/manifest.json` serves the migrated product. A tile
+not yet migrated is served as its own base product (`stale: true`, `source_kind: base`) while a
+migration job runs beside the build workers (two light slots). A missing base tile first builds
+at the base revision, then migrates. A migrated generation has its base's registration vintage,
+so switching the game to it supersedes nothing the base would not, and base builds continue. Its
+alias pins the base and prefix generations and the code snapshot against eviction.
+
+`parity` compares a fresh generator build at the migration commit (registered with the base's
+source version, built explicitly as one tile) with the migrated base product: every referenced
+payload must be identical; manifest keys that only record build provenance (`built`, `seconds`,
+`code`, `collision_code`, `migration_base`) are listed apart.
+
+Checks: `bash pipeline/env/run.sh python -m pytest pipeline/tests/test_migrations.py -q` and
+`python3 -m unittest tests.test_shared_tiles.MigratedRevisionTests` (from `scripts/dev`).

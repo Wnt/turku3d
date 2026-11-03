@@ -4,6 +4,7 @@ import { ScreenshotScenery } from '../../src/world/screenshotScenery';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
+import { LOD_FADE_SECONDS, lodFades } from '../../src/render/lodFade';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
@@ -102,8 +103,15 @@ test('prepared scenery owns the first visual until full detail and preview retur
   scenery.nearbyChanged('t0_0_0');expect(replacement.visible).toBe(true);
   entry.cachedAt=undefined;entry.model!.visible=true;
   scenery.nearbyChanged('t0_0_0');
+  // The cell dissolves away on top of the detailed tile, outside its merged batch, and is kept meanwhile.
+  expect(replacement.visible).toBe(true);
+  expect(lodFades.has(replacement)).toBe(true);
+  scenery.update(125, 125, 600); await settle();
+  expect(replacement.parent).toBe(scene);
+  lodFades.update(500 + LOD_FADE_SECONDS * 1000);
   expect(replacement.visible).toBe(false);
-  scenery.update(125, 125, 1000); await settle();
+  expect(lodFades.has(replacement)).toBe(false);
+  scenery.update(125, 125, 1200); await settle();
   expect(replacement.parent).toBeNull();
 });
 
@@ -413,9 +421,35 @@ test('near-model replacement and caching invalidate a stable cut without changin
   scenery.update(125,125,1016,true); expect(commit).not.toHaveBeenCalled();
   entry.preview=undefined; near.visible=true;
   scenery.update(125,125,1032,true);
-  expect(far.parent).toBeNull(); expect(near.visible).toBe(true);
+  // Under the resident full tile the cell stays loaded but hidden (standby) ...
+  expect(far.parent).toBe(scene); expect(far.visible).toBe(false); expect(near.visible).toBe(true);
   entry.cachedAt=1048; near.visible=false;
   scenery.update(125,125,1048,true);
+  // ... so when the tile leaves, the square is covered again in the same update, with no fetch in between.
+  expect(far.visible).toBe(true);
   expect(commit).toHaveBeenCalledTimes(2);
   expect(scenery.progress.total).toBe(1);
+});
+
+test('the cell under a resident full tile is preloaded hidden and covers the square the moment the tile leaves', async () => {
+  const { scenery, request, load, nearby } = setup();
+  const key = 'a'.repeat(64);
+  request.mockImplementation(async url => new Response(JSON.stringify(url.includes('/scenery?')
+    ? { tiles: [{ tile: 't0_0_0', key, h: [0, 20], source_sha256: 'same' }], missing: [] }
+    : { coarse: true, tile: 't0_0_0', pass_kind: 'full', visual: { t0_0_0: { url: 'scene.glb', sha256: 'same' } } })));
+  const full: Entry = { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() };
+  nearby.set('t0_0_0', full);
+  scenery.setRadius(4000, { x: 125, y: 5, z: 125, dx: 1, dz: 0, halfAngle: .5 }); await settle();
+  for (let now = 1000; now < 1010; now++) { scenery.update(125, 125, now); await settle(); }
+  expect(load).toHaveBeenCalledTimes(1);
+  const cell = await load.mock.results[0].value as THREE.Group;
+  expect(cell.parent).not.toBeNull(); expect(cell.visible).toBe(false);
+  expect(scenery.progress.total).toBe((scenery as unknown as { wanted: string[] }).wanted.length);
+  // The full tile leaves: the prepared cell takes the square back without another request.
+  const requests = request.mock.calls.length;
+  full.model = undefined;
+  scenery.update(125, 125, 1100); await settle();
+  expect(cell.visible).toBe(true);
+  expect(request.mock.calls.filter(([url]) => !url.includes('/scenery?')).length)
+    .toBe(request.mock.calls.slice(0, requests).filter(([url]) => !url.includes('/scenery?')).length);
 });

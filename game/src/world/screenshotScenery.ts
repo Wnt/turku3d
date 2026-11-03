@@ -8,6 +8,7 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 import { distToL0, startupDraftTiles } from './coarseRegion';
 import { sceneryTiles, regionalTiles, groundHalfAngle, sceneryBounds, sceneryDistance, sceneryContains, skylinePriority, type SceneryView, type ScenerySource } from './sceneryView';
 import type { TreePlacements } from './treePlacements';
+import { lodFades } from '../render/lodFade';
 
 interface Scenery { model?: THREE.Object3D; hash?: string; treesReady?: boolean; complete?: boolean; busy?: boolean; next: number; seen: number; error?: string }
 class TreePlacementsPending extends Error {}
@@ -43,8 +44,22 @@ export class ScreenshotScenery {
   /** Apply ownership synchronously when a near visual or prepared scenery model becomes resident. */
   nearbyChanged(id: string) {
     const model = this.entries.get(id)?.model;
-    if (model && this.detailed(id)) model.visible = false;
+    if (model && this.detailed(id)) this.handOver(model);
     this.updateCoverage();
+  }
+
+  /** A detailed tile took over this cell: a drawn cell dissolves away on top of it instead of vanishing.
+   *  It leaves its merged batch so that its own meshes carry the dissolve; the next cut releases it. */
+  private handOver(model: THREE.Object3D) {
+    if (model.userData.lodHandover) return;
+    if (!model.visible) return;
+    model.userData.lodHandover = true;
+    this.batches.invalidate(model);
+    lodFades.start(model, 1, 0, () => {
+      model.userData.lodHandover = false;
+      model.visible = false;
+      this.batches.invalidate(model);
+    }, this.clock);
   }
 
   private updateCoverage() {
@@ -65,6 +80,8 @@ export class ScreenshotScenery {
   }
 
   private retireModel(model: THREE.Object3D, id: string) {
+    lodFades.cancel(model);
+    model.userData.lodHandover = false;
     model.removeFromParent();
     this.batches.retireModel(model, () => this.dispose(model, id));
   }
@@ -93,6 +110,9 @@ export class ScreenshotScenery {
   private active = 0;
   private clock = 0;
   private wanted: string[] = [];
+  /** L0 cells of the live footprint under resident full tiles: loaded but hidden, so a leaving tile's cell is
+   *  already prepared when it takes the square back (no hole while it would otherwise fetch). */
+  private standby = new Set<string>();
   private view: SceneryView | null = null;
   private footprint: string[] = [];
   private sources = new Map<string, ScenerySource>();
@@ -114,13 +134,14 @@ export class ScreenshotScenery {
   }
 
   setRadius(radius: number, view?: SceneryView) {
+    for (const e of this.entries.values()) if (e.model?.userData.lodHandover) { lodFades.cancel(e.model); e.model.userData.lodHandover = false; }
     this.radius = Number.isFinite(radius) ? Math.max(0, Math.min(15000, radius)) : 0;
     ++this.selection;
     this.batches.clear(); this.cutState.clear(); this.committed.clear(); this.nextCutExpiry = Infinity; this.batchModels = [];
     for (const [id, e] of this.entries) this.release(id,e);
     for (const entry of this.nearby.values()) if (entry.preview && entry.model) entry.model.visible = true;
     this.coverage.update([]);
-    this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = [];
+    this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = []; this.standby.clear();
     this.catalogueError = false; this.cataloguePending = false; this.unavailable.clear();
     this.footprintView = null; this.nextView = 0; this.catalogueRetry = 0;
     this.catalogueExpires = 0; this.generation = undefined;
@@ -152,6 +173,12 @@ export class ScreenshotScenery {
     }));
     this.footprint.sort((a, b) => priorities.get(b)! - priorities.get(a)!);
     this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
+    this.refreshStandby();
+  }
+
+  private refreshStandby() {
+    this.standby.clear();
+    for (const id of this.footprint) if (sceneryBounds(id).level === 0 && !this.unavailable.has(id) && this.detailed(id)) this.standby.add(id);
   }
 
   private readMissingSources() {
@@ -235,6 +262,7 @@ export class ScreenshotScenery {
       .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z));
     if (this.view) {
       this.wanted = this.footprint.filter(id => !this.unavailable.has(id) && !this.detailed(id));
+      this.refreshStandby();
       this.readMissingSources();
     }
     if (now >= this.nextCutExpiry || this.cutState.changed(this.wanted, this.entries, this.nearby, this.sources))
@@ -251,8 +279,11 @@ export class ScreenshotScenery {
     const due = this.wanted.filter(id => !this.detailed(id)
       && (this.view ? this.sources.has(id) : demand.has(id) || this.entries.get(id)?.complete))
       .sort((a, b) => this.view ? 0 : (this.entries.get(a)?.next ?? 0) - (this.entries.get(b)?.next ?? 0));
+    // Visible work first; standby cells fill the remaining slots.
+    for (const id of this.standby) if (this.sources.has(id) && !this.entries.get(id)?.model) due.push(id);
     for (const id of due) {
       if (this.active >= concurrency) break;
+      if (this.detailed(id) && !this.standby.has(id)) continue;
       let e = this.entries.get(id);
       if (!e) { e = { next: 0, seen: now }; this.entries.set(id, e); }
       if (e.busy || now < e.next) continue;
@@ -267,14 +298,15 @@ export class ScreenshotScenery {
     const outside: [string, Scenery][] = [];
     // Keep the old cut during refinement AND coarsening until its replacement is ready.
     const fallback = new Set<string>();
-    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id)
+    // A cell under a resident full tile (standby or dissolving) never stands in as a fallback: HD already draws there.
+    for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id) && !this.detailed(id)
       && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
         && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
     for (const [id, e] of this.entries) {
       // Stable cuts no longer touch seen every frame. Preserve the last frame
       // that still owned this tile, including long suspended-tab time gaps.
       if (this.committed.has(id)) e.seen = previousUpdate;
-      if (keep.has(id) || fallback.has(id)) e.seen = now;
+      if (keep.has(id) || fallback.has(id) || this.standby.has(id) || e.model?.userData.lodHandover) e.seen = now;
       else if (this.view && !this.detailed(id) && now - e.seen < 5000) outside.push([id, e]);
       else { this.release(id,e); this.entries.delete(id); }
     }
@@ -286,7 +318,7 @@ export class ScreenshotScenery {
     }
     for (const [, e] of outside.slice(0,128)) this.nextCutExpiry = Math.min(this.nextCutExpiry, e.seen + 5000);
     const parents = [...fallback];
-    for (const [id, e] of this.entries) if (e.model) {
+    for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodHandover) {
       const hiddenByParent = parents.some(parent => sceneryContains(parent, id) && parent !== id);
       e.model.visible = !hiddenByParent && (keep.has(id) || fallback.has(id));
     }
@@ -322,7 +354,8 @@ export class ScreenshotScenery {
         await this.prepareTrees(id,e,model,distance,source);
         await this.host.prepareGraphics?.(model);
       } else { await this.host.style?.(model); this.style(model); await this.host.styled?.(model); }
-      if (this.entries.get(id) !== e || this.detailed(id) || (source && this.sources.get(id)?.key !== source.key)) return;
+      if (this.entries.get(id) !== e || (this.detailed(id) && !this.standby.has(id))
+        || (source && this.sources.get(id)?.key !== source.key)) return;
       if (e.model) this.retireModel(e.model, id);
       if (this.view) model.visible = false; // Visibility is committed with the cut on the next update.
       this.host.scene.add(model); this.host.trackModel?.(model, id);

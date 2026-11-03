@@ -5,6 +5,7 @@ import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
 import { PreparationBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
+import { lodFades, type LodFades } from '../render/lodFade';
 
 type Vec3 = [number, number, number];
 export interface BuildingModel {
@@ -50,8 +51,9 @@ export function validateBuildingPlacements(data: BuildingPlacements) {
   }
 }
 
-/** Swap state of one block LOD parent, kept on the tile model's userData. */
-interface BlockState { lod: THREE.Object3D; bounds: BuildingBlock['bounds']; hdDistance: number; near: boolean }
+/** Swap state of one block LOD parent, kept on the tile model's userData. `near` is the band the camera is in;
+ *  `hd` whether the HD children draw: it lags `near` while the LOD shell dissolves in over them. */
+interface BlockState { lod: THREE.Object3D; bounds: BuildingBlock['bounds']; hdDistance: number; near: boolean; hd: boolean; settled: boolean }
 /** Metres of hysteresis around a block's HD distance, so a camera on the threshold never flickers. */
 const SWAP_BAND = 10;
 
@@ -159,7 +161,7 @@ export class BuildingModelCache {
       wrapper.position.fromArray(block.position);
       wrapper.userData = { blockLod: block.id };
       wrapper.add(root); owner.add(wrapper);
-      states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: block.hdDistance, near: true });
+      states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: block.hdDistance, near: true, hd: true, settled: false });
     }
     if (states.size) {
       owner.userData.blockLods = states;
@@ -200,22 +202,30 @@ function mergeBlockLods(owner: THREE.Object3D, wrappers: THREE.Object3D[]) {
 
 /** Cull complete placements against their own expanded bounds, never their container square. */
 export function updateBuildingDistances(root: THREE.Object3D, x: number, z: number,
-  visibility: PlacementVisibility = placementVisibility) {
+  visibility: PlacementVisibility = placementVisibility, fades: LodFades = lodFades) {
   // Only a model that is actually in the scene may occlude or be culled by the visibility worker.
   const shown = root.visible && root.parent !== null;
-  // GTA-style parent swap per block: every child of a block switches together, with hysteresis.
+  // GTA-style parent swap per block: every child of a block switches together, with hysteresis. The LOD shell
+  // dissolves (render/lodFade.ts) on top of the opaque HD children in both directions, so neither pops.
   const blocks = root.userData.blockLods as Map<string, BlockState> | undefined;
   if (blocks) {
-    let anyNear = false;
+    let merged = true;
     for (const state of blocks.values()) {
       const { min, max } = state.bounds;
       const d = Math.hypot(Math.max(min[0] - x, 0, x - max[0]), Math.max(min[2] - z, 0, z - max[2]));
-      state.near = d <= state.hdDistance + (state.near ? SWAP_BAND : -SWAP_BAND);
-      anyNear ||= state.near;
+      const near = d <= state.hdDistance + (state.near ? SWAP_BAND : -SWAP_BAND);
+      if (!state.settled) { state.settled = true; state.near = state.hd = near; }
+      else if (near !== state.near) {
+        state.near = near;
+        if (!shown) { fades.cancel(state.lod); state.hd = near; }
+        else if (near) { state.hd = true; fades.start(state.lod, 1, 0); }
+        else fades.start(state.lod, 0, 1, () => { state.hd = state.near; });
+      }
+      merged &&= !state.near && !state.hd && !fades.has(state.lod);
     }
-    // All far: the merged tile parent alone; otherwise each far block's own parent beside its near neighbours.
-    for (const state of blocks.values()) state.lod.visible = anyNear && !state.near;
-    for (const mesh of root.userData.blockLodTile as THREE.Object3D[] ?? []) mesh.visible = !anyNear;
+    // All far and settled: the merged tile parent alone; otherwise each far or dissolving block's own parent.
+    for (const state of blocks.values()) state.lod.visible = !merged && (!state.near || fades.has(state.lod));
+    for (const mesh of root.userData.blockLodTile as THREE.Object3D[] ?? []) mesh.visible = merged;
   }
   for (const child of root.children) {
     if (!child.userData.archetype) continue;
@@ -225,7 +235,7 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
     const dz = Math.max(child.position.z + bounds.min[2] - z, 0, z - child.position.z - bounds.max[2]);
     // With an LOD parent the block swap alone decides: a small child's own view distance (as low as 282 m) must
     // not open a hole inside the swap band before its parent appears.
-    child.visible = block ? block.near : dx * dx + dz * dz <= child.userData.viewDistance ** 2;
+    child.visible = block ? block.hd : dx * dx + dz * dz <= child.userData.viewDistance ** 2;
     visibility.setActive(child.userData.visibilitySlot as number | undefined, shown && child.visible);
   }
   updateStaticBatchVisibility(root);

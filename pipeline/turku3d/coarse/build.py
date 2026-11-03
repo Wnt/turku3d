@@ -990,12 +990,22 @@ def build(
         inputs=inputs.key,
         seconds={k: round(v, 3) for k, v in seconds.items()},
     )
+    # Tile migrations edit finished products; a fresh build applies the same chain, so a
+    # regeneration equals the farm's migrated products (turku3d.migrations).
+    from turku3d.migrations import apply_in_place
+
+    manifest = apply_in_place(out, manifest)
+    if manifest["visual"][tile.id]["url"] != visual_url:
+        _write(out / "vis.glb", (out / manifest["visual"][tile.id]["url"]).read_bytes())
+    if roads is not None and manifest["roads"]["url"] != roads_url:
+        _write(out / "roads.json", (out / manifest["roads"]["url"]).read_bytes())
     _write(out / "manifest.json", (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode())
     _write(out / "collision.json", json.dumps(manifest).encode())
     from .audit import submit_all
 
     submit_all(out, [manifest["visual"][tile.id], *[
-        {"url": model["uri"], "sha256": model["id"]} for model in building_placements["models"]
+        {"url": model["uri"], "sha256": model["id"]}
+        for model in manifest["buildingPlacements"]["models"]
     ]], require_snapshot=True)
     cache.metrics.update(json.loads((stage / "package-times.json").read_text()))
     cache.report(out / "stage-times.json")

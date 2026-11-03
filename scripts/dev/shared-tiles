@@ -7,14 +7,12 @@ Usage: scripts/dev/shared-tiles register --alias ground [--ref HEAD]
 """
 import argparse
 import json
-import os
 from pathlib import Path
-import shlex
 import subprocess
-import tempfile
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from shared_tile_identity import generation as generator_identity
+from shared_tile_snapshot import upload
 
 
 def command(*args, **kwargs):
@@ -71,25 +69,8 @@ def main():
     generation = generator_identity(revision)
     metadata = dict(revision=revision, generation=generation,
                     branch=command('git', 'rev-parse', '--abbrev-ref', 'HEAD'))
-    target = args.root + '/revisions/' + revision
-    q = shlex.quote
     # Immutable snapshots are atomically installed; failed uploads are never registered.
-    exists = subprocess.run(['ssh', args.host, 'test -f ' + q(target + '/revision.json')]).returncode == 0
-    if not exists:
-        temp = target + '.upload-' + str(os.getpid())
-        subprocess.run(['ssh', args.host, 'mkdir -p ' + q(temp + '/repo')], check=True)
-        archive = subprocess.Popen(['git', 'archive', revision], stdout=subprocess.PIPE)
-        unpack = subprocess.run(['ssh', args.host, 'tar -x -C ' + q(temp + '/repo')], stdin=archive.stdout)
-        archive.stdout.close()
-        if archive.wait() or unpack.returncode:
-            raise RuntimeError('snapshot upload failed')
-        with tempfile.NamedTemporaryFile('w') as file:
-            json.dump(metadata, file)
-            file.flush()
-            subprocess.run(['scp', '-q', file.name, args.host + ':' + temp + '/revision.json'], check=True)
-        subprocess.run(['ssh', args.host,
-                        'mv -T ' + q(temp) + ' ' + q(target) + ' 2>/dev/null || { test -f ' +
-                        q(target + '/revision.json') + ' && rm -rf ' + q(temp) + '; }'], check=True)
+    upload(revision, metadata, host=args.host, root=args.root)
     body = json.dumps(dict(revision=revision, alias=args.alias, source_version=args.source_version)).encode()
     response = urlopen(Request(args.url + '/register', data=body,
                               headers={'Content-Type': 'application/json'}))

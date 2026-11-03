@@ -909,5 +909,178 @@ class FarmTests(unittest.TestCase):
             thread.join()
 
 
+DREV = 'e' * 64
+DGEN = 'f' * 64
+
+
+def register_migrated(root):
+    farm_module.atomic_json(root / 'revisions' / DREV / 'revision.json', dict(
+        kind='migrated', revision=DREV, generation=DGEN, commit=REV, code_revision=REV2,
+        base_revision=REV, base_generation=GEN, parents=[GEN],
+        migrations=[dict(name='chain-record', version=1, generation=DGEN)]))
+
+
+def fake_migrate(revision, tile, meta, farm):
+    """Hard links of the base tile plus the chain record, like tile_migrate.py."""
+    base, target = farm.output(meta['base_generation']) / tile, farm.output(meta['generation']) / tile
+    target.mkdir(parents=True)
+    for name in ('mesh.glb', 'ground.col'):
+        os.link(base / name, target / name)
+    manifest = farm_module.read_json(base / 'manifest.json')
+    manifest.update(migrations=[dict(name='chain-record', version=1)],
+                    migration_base=dict(revision=REV, generation=GEN))
+    farm_module.atomic_json(target / 'manifest.json', manifest)
+    farm_module.atomic_json(target / 'ready.json', dict(revision=revision, generation=meta['generation'],
+                                                        applied=['chain-record@1'], written=0))
+    return {'returncode': 0}
+
+
+class MigratedRevisionTests(unittest.TestCase):
+    setUp, tearDown, farm, wait, pinned_farm = (
+        FarmTests.setUp, FarmTests.tearDown, FarmTests.farm, FarmTests.wait, FarmTests.pinned_farm)
+
+    def migrated_farm(self, **kw):
+        register_migrated(self.root)
+        holder = {}
+        farm = self.farm(migrate=lambda r, t, m: fake_migrate(r, t, m, holder['farm']), **kw)
+        holder['farm'] = farm
+        return farm
+
+    def test_missing_base_builds_at_the_base_revision_then_migrates(self):
+        farm = self.migrated_farm()
+        farm.register(DREV, 'bulk+mffffffff')
+        status, value = farm.request(DREV, 't0_0_0')
+        self.assertEqual((status, value['state']), (202, 'base-queued'))
+        self.assertIn((GEN, 't0_0_0'), farm.jobs)
+        self.wait(farm)
+        self.assertTrue((farm.output(GEN) / 't0_0_0/ready.json').exists())
+        self.assertEqual(farm.request(DREV, 't0_0_0')[0], 202)
+        self.wait(farm)
+        self.assertEqual(farm.request(DREV, 't0_0_0')[0], 200)
+        self.assertEqual(farm.metrics['migrations'], 1)
+        migrated = farm.output(DGEN) / 't0_0_0/mesh.glb'
+        self.assertEqual(migrated.stat().st_ino, (farm.output(GEN) / 't0_0_0/mesh.glb').stat().st_ino)
+
+    def test_migrations_run_beside_busy_build_workers(self):
+        release = threading.Event()
+        def build(revision, tile, root):
+            if tile != 't0_0_0':
+                release.wait(3)
+            return fake_build(revision, tile, root)
+        farm = self.migrated_farm(workers=1, execute=build)
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        farm.request(REV, 't0_1_0')  # Holds the only build worker.
+        farm.request(DREV, 't0_0_0')
+        deadline = time.monotonic() + 2
+        while not (farm.output(DGEN) / 't0_0_0/ready.json').exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue((farm.output(DGEN) / 't0_0_0/ready.json').exists())
+        release.set()
+        self.wait(farm)
+
+    def test_pending_migrated_tile_serves_its_own_base_with_the_chain_after(self):
+        gate = threading.Event()
+        def migrate(revision, tile, meta):
+            gate.wait(3)
+            return fake_migrate(revision, tile, meta, farm)
+        register_migrated(self.root)
+        farm = self.farm(migrate=migrate)
+        farm.register(DREV, 'bulk+mffffffff')
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        fake_build(REV2, 't0_0_0', farm.output(GEN2))  # A newer unrelated product.
+        farm_module.atomic_json(farm.output(GEN2) / 't0_0_0/ready.json', dict(revision=REV2, generation=GEN2))
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            stale = json.load(urlopen(base + '/v/bulk+mffffffff/coarse/t0_0_0/manifest.json'))
+            self.assertTrue(stale['stale'])
+            self.assertEqual((stale['source_kind'], stale['revision']), ('base', REV))
+            self.assertEqual(urlopen(base + stale['visual']['t0_0_0']['url']).read(), b'mesh')
+            gate.set()
+            self.wait(farm)
+            fresh = json.load(urlopen(base + '/v/bulk+mffffffff/coarse/t0_0_0/manifest.json'))
+            self.assertFalse(fresh['stale'])
+            self.assertEqual(fresh['revision'], DREV)
+            self.assertEqual(fresh['migrations'], [dict(name='chain-record', version=1)])
+            self.assertEqual(fresh['migration_base']['generation'], GEN)
+            self.assertEqual(fresh['visual']['t0_0_0']['url'], f'/v/{DREV}/coarse/t0_0_0/mesh.glb')
+            self.assertEqual(urlopen(base + fresh['visual']['t0_0_0']['url']).read(), b'mesh')
+        finally:
+            gate.set()
+            server.shutdown(); server.server_close(); thread.join()
+
+    def test_migrated_generation_has_its_base_vintage(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        register_migrated(self.root)
+        farm.registrations_scanned = float('-inf')
+        farm.request(REV, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        release.set()
+        self.wait(farm)
+        # A test alias registered after the base stays newer than a switch to the base's edits.
+        self.assertFalse(farm.older(DGEN))
+        farm.pin.update(revision=DREV, generation=DGEN)
+        self.assertFalse(farm.older(GEN))
+        self.assertFalse(farm.older(GEN2))
+        self.assertEqual(farm.request(REV, 't0_1_0')[0], 202)
+        self.wait(farm)
+
+    def test_migrated_alias_pins_its_base_and_refuses_a_source_overlay(self):
+        free = [100 * farm_module.GIB]
+        farm = self.migrated_farm(free=lambda: free[0])
+        farm.register(DREV, 'bulk+mffffffff')
+        with self.assertRaisesRegex(ValueError, 'inherits'):
+            farm.register(DREV, 'bulk+mffffffff', 'a' * 64)
+        for gen in (GEN, GEN2, DGEN):
+            fake_build(REV, 't0_0_0', farm.output(gen))
+        free[0] = 24 * farm_module.GIB
+        farm.make_room(27 * farm_module.GIB)
+        self.assertTrue(farm.output(GEN).exists())
+        self.assertTrue(farm.output(DGEN).exists())
+        self.assertFalse(farm.output(GEN2).exists())
+
+
+    def test_unchanged_payloads_keep_their_base_urls_after_a_switch(self):
+        body, edited = b'hashed mesh', b'edited cell'
+        visual, cell = f'vis.{hashlib.sha256(body).hexdigest()}.glb', f'c.{hashlib.sha256(edited).hexdigest()}.col'
+        def build(revision, tile, root):
+            fake_build(revision, tile, root)
+            (root / tile / visual).write_bytes(body)
+            manifest = farm_module.read_json(root / tile / 'manifest.json')
+            manifest['visual'][tile] = dict(url=visual, bytes=len(body), sha256=hashlib.sha256(body).hexdigest())
+            farm_module.atomic_json(root / tile / 'manifest.json', manifest)
+            return {'returncode': 0}
+        def migrate(revision, tile, meta):
+            fake_migrate(revision, tile, meta, farm)
+            target = farm.output(meta['generation']) / tile
+            os.link(farm.output(GEN) / tile / visual, target / visual)
+            (target / cell).write_bytes(edited)
+            manifest = farm_module.read_json(target / 'manifest.json')
+            manifest['visual'][tile] = dict(url=visual, bytes=len(body), sha256=hashlib.sha256(body).hexdigest())
+            manifest['collision']['c_0_0'] = dict(url=cell, bytes=len(edited), sha256=hashlib.sha256(edited).hexdigest())
+            farm_module.atomic_json(target / 'manifest.json', manifest)
+            return {'returncode': 0}
+        register_migrated(self.root)
+        farm = self.farm(execute=build, migrate=migrate)
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        farm.request(DREV, 't0_0_0'); self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            m = json.load(urlopen(base + f'/v/{DREV}/coarse/t0_0_0/manifest.json'))
+            self.assertFalse(m['stale'])
+            self.assertEqual(m['visual']['t0_0_0']['url'], f'/v/{REV}/coarse/t0_0_0/{visual}')
+            self.assertEqual(m['collision']['c_0_0']['url'], f'/v/{DREV}/coarse/t0_0_0/{cell}')
+            self.assertEqual(m['collision']['c_0_1']['url'], f'/v/{DREV}/coarse/t0_0_0/ground.col')
+            self.assertEqual(urlopen(base + m['visual']['t0_0_0']['url']).read(), body)
+            self.assertEqual(urlopen(base + m['collision']['c_0_0']['url']).read(), edited)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+
+
 if __name__ == '__main__':
     unittest.main()

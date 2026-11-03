@@ -6,6 +6,7 @@ import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { CoarseTiles, cellsOf } from '../../src/world/coarseTiles';
 import type { Manifest } from '../../src/world/manifest';
 import { PreparationBudget } from '../../src/render/preparationBudget';
+import { LOD_FADE_SECONDS, LodFades, dissolveTwin, isDissolveTwin } from '../../src/render/lodFade';
 
 beforeAll(() => vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0)));
 afterAll(() => vi.unstubAllGlobals());
@@ -239,4 +240,66 @@ test('blocks swap all their HD children against one LOD parent, and an all-far t
   const tri = (merged as THREE.Mesh).geometry.index!.count / 3;
   expect(tri).toBe(12);
   release(); disposeModelResources(owner, shared);
+});
+
+test('a block LOD shell dissolves in over its HD children and out again, never popping either way', async () => {
+  const lodId = 'b'.repeat(64);
+  const lodRoot = () => {
+    const root = new THREE.Group(), geometry = new THREE.BoxGeometry(20, 10, 20); geometry.clearGroups();
+    root.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial())); return root;
+  };
+  const roots: Record<string, THREE.Object3D> = { [id]: prototype().root, [lodId]: lodRoot() };
+  const load = vi.fn(async (url: string) => roots[url.includes(lodId) ? lodId : id]), shared = new SharedMaterials();
+  const shell = new THREE.MeshStandardNodeMaterial();
+  const styled = (root: THREE.Object3D) => root.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = shell; });
+  const cache = new BuildingModelCache(load, root => disposeModelResources(root, shared), undefined, undefined, styled);
+  const input = data();
+  input.models.push({ id: lodId, uri: `../shared/${lodId}.glb`, bounds: { min: [-30, 0, -20], max: [30, 30, 20] } });
+  input.placements[0].block = 'b1';
+  input.blocks = [{ id: 'b1', position: [260, 0, 120], bounds: { min: [240, 0, 100], max: [280, 30, 140] }, hdDistance: 280,
+    children: ['building'], lod: lodId }];
+  const owner = new THREE.Group(), release = await cache.attach(owner, input, base);
+  new THREE.Scene().add(owner);
+  const fades = new LodFades(), slots = { setActive: () => {} } as unknown as Parameters<typeof updateBuildingDistances>[3];
+  const lod = owner.getObjectByName('block-lod:b1')!, merged = owner.getObjectByName('block-lod-tile')!;
+  const shellMesh = lod.getObjectByProperty('isMesh', true) as THREE.Mesh;
+  const house = owner.children.find(o => o.userData.archetype)!;
+  const at = (z: number) => updateBuildingDistances(owner, 260, z, slots, fades);
+  at(300); // 160 m: settles on HD without a dissolve
+  expect([house.visible, lod.visible, merged.visible, fades.size]).toEqual([true, false, false, 0]);
+  at(440); // 300 m: the shell dissolves in on top while HD keeps drawing
+  expect([house.visible, lod.visible, merged.visible]).toEqual([true, true, false]);
+  expect(isDissolveTwin(shellMesh.material as THREE.Material)).toBe(true);
+  expect(shellMesh.userData.lodCoverage).toBe(0);
+  const start = performance.now();
+  fades.update(start + LOD_FADE_SECONDS * 500);
+  expect(shellMesh.userData.lodCoverage).toBeGreaterThan(.3);
+  at(440);
+  expect(house.visible).toBe(true);
+  fades.update(start + LOD_FADE_SECONDS * 1000 + 50);
+  expect(shellMesh.material).toBe(shell);
+  at(440); // covered: HD hides and the all-far tile shows its merged parent
+  expect([house.visible, lod.visible, merged.visible]).toEqual([false, false, true]);
+  at(400); // 260 m: HD returns at once and the shell dissolves away on top of it
+  expect([house.visible, lod.visible, merged.visible]).toEqual([true, true, false]);
+  expect(shellMesh.userData.lodCoverage).toBe(1);
+  fades.update(performance.now() + LOD_FADE_SECONDS * 1000 + 50);
+  at(400);
+  expect([house.visible, lod.visible, merged.visible, fades.size]).toEqual([true, false, false, 0]);
+  at(440); fades.cancelWithin(owner); // a tile disposed mid-dissolve gets its own materials back
+  expect(shellMesh.material).toBe(shell); expect(fades.size).toBe(0);
+  release(); disposeModelResources(owner, shared);
+});
+
+test('dissolve twins keep their base program, add a dithered mask and a depth bias, and die with the base', () => {
+  const base = new THREE.MeshStandardNodeMaterial({ name: 'distant-city-buildings' });
+  const twin = dissolveTwin(base) as THREE.MeshStandardNodeMaterial;
+  expect(dissolveTwin(base)).toBe(twin);
+  expect([twin.name, twin.polygonOffset, twin.polygonOffsetUnits < 0, !!twin.maskNode, !!twin.maskShadowNode])
+    .toEqual(['distant-city-buildings:dissolve', true, true, true, true]);
+  expect(twin.positionNode).toBeNull(); // never the deformed velocity path (render/rigidVelocity.ts)
+  const disposed = vi.fn(); twin.addEventListener('dispose', disposed);
+  base.dispose();
+  expect(disposed).toHaveBeenCalledOnce();
+  expect(dissolveTwin(new THREE.MeshBasicMaterial()).name).not.toContain('dissolve');
 });

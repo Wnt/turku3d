@@ -57,7 +57,10 @@ const bucket = name => {
   if (!groups.has(name)) groups.set(name, { positions: [], colours: [], indices: [], fields: new Map() });
   return groups.get(name);
 };
-const groundColours = { asphalt: [.16, .17, .18], grass: [.22, .29, .12], gravel: [.36, .32, .25], water: [.10, .19, .24], concrete: [.43, .43, .40], stone: [.35, .34, .32] };
+// Far ground takes the near material's own distant colour (game/src/render/farGroundPalette.json), so the band edge
+// at the full-tile window shows no albedo step; the longest key contained in the material key wins.
+const groundColours = JSON.parse(fs.readFileSync(new URL('../../game/src/render/farGroundPalette.json', import.meta.url), 'utf8')).near;
+const groundKeys = Object.keys(groundColours).sort((a, b) => b.length - a.length);
 for (const node of input.getRoot().listNodes()) {
   const mesh = node.getMesh(); if (!mesh) continue;
   const extras = node.getExtras(), layer = extras.layer;
@@ -75,7 +78,7 @@ for (const node of input.getRoot().listNodes()) {
     const authored = primitive.getAttribute('_KIT_WALL') ?? primitive.getAttribute('COLOR_0');
     let colour = primitive.getMaterial()?.getBaseColorFactor().slice(0, 3) ?? [.6, .6, .6];
     if (ground) {
-      const key = Object.keys(groundColours).find(key => String(extras.material_key ?? extras.surface).includes(key));
+      const key = groundKeys.find(key => String(extras.material_key ?? extras.surface).includes(key));
       if (key) colour = groundColours[key];
     }
     if (vegetation) {
