@@ -58,6 +58,7 @@ import { drawCensus, uniformCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
 import { freezeModel } from './world/frozenTransforms';
+import { materialBandSort } from './render/drawSort';
 import { altitudeShadows } from './render/shadowAltitude';
 import { ReflectionScope } from './render/reflectionScope';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
@@ -242,6 +243,9 @@ if (renderer instanceof GameRenderer && new URLSearchParams(location.search).get
   tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => scope.remove(model));
 }
 
+// ?drawSort=material groups opaque draws by material within 25 m depth bands (render/drawSort.ts, A/B).
+if (new URLSearchParams(location.search).get('drawSort') === 'material')
+  (renderer as unknown as { setOpaqueSort(sort: ReturnType<typeof materialBandSort>): void }).setOpaqueSort(materialBandSort());
 /** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
 let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
