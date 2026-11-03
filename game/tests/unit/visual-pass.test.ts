@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CoarseTiles } from '../../src/world/coarseTiles';
+import { CoarseTiles, RETURN_CACHE_BYTES } from '../../src/world/coarseTiles';
+import { retainGeometry } from '../../src/world/modelGeometry';
 import type { CoarseFragment, CoarseHost, Entry } from '../../src/world/coarseContracts';
 import { cellsOf } from '../../src/world/coarseRegion';
 import { VisualPassComparison, type ComparisonEntry } from '../../src/world/visualPass';
@@ -65,6 +66,23 @@ test('the return cache bounds GPU residency and expires; mobile still releases f
   const mobile=returnCache(1,80);mobile.coarse.update(10000,10000,1000);
   expect(mobile.coarse.entries.has('t0_0_0')).toBe(false);
   expect(mobile.untrackModel).toHaveBeenCalledTimes(1);
+});
+
+test('the return cache keeps only the newest detached tiles within its heap budget of owned geometry', () => {
+  const {coarse,untrackModel}=returnCache(6);
+  // 40 MiB of owned arrays per tile: two fit in 96 MiB; a shared prototype geometry does not count.
+  const shared=new THREE.BufferGeometry();shared.setAttribute('position',new THREE.BufferAttribute(new Float32Array(2**22),3));
+  retainGeometry(shared);
+  for (const e of coarse.entries.values()) {
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(10*2**20),3));
+    e.model!.add(new THREE.Mesh(g),new THREE.Mesh(shared));
+  }
+  coarse.update(10000,10000,1000);
+  const cached=[...coarse.entries].filter(([,e])=>e.cachedAt!==undefined);
+  expect(cached).toHaveLength(2);
+  expect(cached.every(([,e])=>e.cachedBytes===40*2**20)).toBe(true);
+  expect(RETURN_CACHE_BYTES).toBe(96*2**20);
+  expect(untrackModel).toHaveBeenCalledTimes(4);
 });
 
 test('a refresh completing during cached residency stays detached until re-entry', async () => {

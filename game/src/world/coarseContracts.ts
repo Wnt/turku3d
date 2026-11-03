@@ -36,6 +36,8 @@ export interface Entry extends DraftFreshness {
   resident?: boolean; retries?: number;
   /** Recently detached GPU-ready full visual, retained briefly for reversals. */
   cachedAt?: number;
+  /** Typed-array bytes the cached visual alone owns (ownedGeometryBytes): its share of the return-cache budget. */
+  cachedBytes?: number;
   preview?: CoarseFragment;
   /** The full visual stays resident (collision too) but the camera is too far in 3D: distant scenery draws it. */
   distant?: boolean;

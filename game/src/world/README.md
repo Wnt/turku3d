@@ -25,7 +25,8 @@ While full geometry is preparing, a prepared city-scenery model owns the tile's 
 its collision preview stays hidden until that scenery is released. Full admission hides
 the scenery synchronously and keeps the existing collision/visual pair until preparation
 finishes. A retained full pass never downgrades to a producer's new first pass.
-Desktop keeps up to sixteen recently detached full visuals for thirty seconds, keyed by
+Desktop keeps up to sixteen recently detached full visuals for sixty seconds, within a
+96 MiB budget of the typed arrays they alone own (newest first; the newest always stays), keyed by
 their existing visual content hash and paired collision inventory. A quick return restores
 the prepared model before the next world scan, instead of briefly drawing a new first pass.
 Detached cached roots do not mask distant scenery; expiry releases their GPU resources.

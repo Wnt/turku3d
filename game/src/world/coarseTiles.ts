@@ -5,6 +5,7 @@ import { BuildingModelCache, updateBuildingDistances } from './buildingPlacement
 import { styleBlockLod } from '../render/sceneryMaterial';
 import { lodFades } from '../render/lodFade';
 import { streamTrace } from '../telemetry/streamTrace';
+import { ownedGeometryBytes } from './modelGeometry';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
@@ -38,6 +39,9 @@ const POLL_MS = 1000;
 /** A leaving full visual draws at most this long (ms) while its scenery cell loads and dissolves in over it. */
 const HOLD_MAX_MS = 4000;
 const RETURN_CACHE_TILES = 16;
+/** Cached visuals keep their decoded arrays in the JS heap (8-14 MiB of accessors per full tile GLB, plus facades and
+ *  merged block shells): the newest cached tiles within this many owned bytes stay, older ones are released. */
+export const RETURN_CACHE_BYTES = 96 * 2 ** 20;
 /** Hidden full visuals wait this long for a return: driving round a block often comes back within a minute. */
 const RETURN_CACHE_MS = 60_000;
 /** Ahead-only build acknowledgements own no model or collision resources. Keep them across quick turns. */
@@ -236,7 +240,8 @@ export class CoarseTiles {
     if (this.host.detailRadius !== undefined || !e.model || e.preview || e.pass !== 'full' || !e.visualHash) return false;
     if (e.cachedAt !== undefined) return true;
     e.cachedAt = this.clock;
-    streamTrace.event('tile.cache', id);
+    e.cachedBytes = ownedGeometryBytes(e.model);
+    streamTrace.event('tile.cache', id, { mib: Math.round(e.cachedBytes / 2 ** 16) / 16 });
     const model = e.model, shown = model.visible && !!model.parent;
     this.comparison.clear(e);
     model.visible = shown;
@@ -398,12 +403,19 @@ export class CoarseTiles {
       if (this.cacheFull(id, e)) continue;
       this.drop(e); this.entries.delete(id);
     }
-    const cached = [...this.entries].filter(([,e]) => e.cachedAt !== undefined)
-      .sort((a,b) => b[1].cachedAt! - a[1].cachedAt!);
-    for (let i=0;i<cached.length;i++) {
-      const [id,e] = cached[i];
-      if (i < RETURN_CACHE_TILES && now-e.cachedAt! <= RETURN_CACHE_MS) continue;
-      this.drop(e); this.entries.delete(id);
+    let anyCached = false;
+    for (const e of this.entries.values()) if (e.cachedAt !== undefined) { anyCached = true; break; }
+    if (anyCached) {
+      const cached = [...this.entries].filter(([,e]) => e.cachedAt !== undefined)
+        .sort((a,b) => b[1].cachedAt! - a[1].cachedAt!);
+      let bytes = 0;
+      for (let i=0;i<cached.length;i++) {
+        const [id,e] = cached[i];
+        bytes += e.cachedBytes ?? 0;
+        // The newest cached tile always stays (a U-turn); older ones within the count, age and heap budget.
+        if (i < RETURN_CACHE_TILES && now-e.cachedAt! <= RETURN_CACHE_MS && (i === 0 || bytes <= RETURN_CACHE_BYTES)) continue;
+        this.drop(e); this.entries.delete(id);
+      }
     }
     if (this.outage) {
       if (now >= this.outage.nextProbe && !this.outage.probing) void this.probe();
