@@ -8,8 +8,9 @@ import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { BASE_PAY, DOUBLE_BONUS, MAX_TIP, parSeconds } from '../../src/gameplay/economy';
 import { houseNumber } from '../../src/gameplay/minimap';
 import {
-  DOUBLE_EVERY, LADDER_MAX_M, LADDER_START_M, LADDER_STEP_M, drawOrder, isDouble, ladderMetres,
+  DOUBLE_EVERY, LADDER_MAX_M, LADDER_START_M, LADDER_STEP_M, drawOrder, isDouble, ladderMetres, openingOrder,
 } from '../../src/gameplay/missions/orders';
+import { freshSave } from '../../src/gameplay/missions/save';
 import { MissionSystem, lineSeconds, missionSummary, type MissionFrame } from '../../src/gameplay/missions/missions';
 
 /** 40 addresses east of the pizzeria, 20 m apart along one street: `foot` = x offset, cars drive 10 % farther. */
@@ -52,11 +53,12 @@ function game(saved: string | null = null, pool: readonly PoolAddress[] = POOL, 
 }
 
 describe('order generator', () => {
-  it('climbs a capped distance ladder and makes every fifth order a double', () => {
+  it('climbs a capped distance ladder and makes every third order a double', () => {
     expect(ladderMetres(0)).toBe(LADDER_START_M);
     expect(ladderMetres(3)).toBe(LADDER_START_M + 3 * LADDER_STEP_M);
     expect(ladderMetres(1000)).toBe(LADDER_MAX_M);
-    expect([0, 1, 2, 3, 4, 5, 9].map(isDouble)).toEqual([false, false, false, false, true, false, true]);
+    expect(DOUBLE_EVERY).toBe(3);
+    expect([0, 1, 2, 3, 4, 5, 8].map(isDouble)).toEqual([false, false, true, false, false, true, true]);
   });
 
   it('never repeats an address until the pool is exhausted, then starts over without the last order', () => {
@@ -106,6 +108,46 @@ describe('order generator', () => {
   });
 });
 
+describe('scripted opening order', () => {
+  const ids = (seed: number) => openingOrder(seed).map(d => d.id);
+
+  it('is a seeded permutation of the four: the same per seed, varied across seeds', () => {
+    const orders = Array.from({ length: 100 }, (_, seed) => ids(seed));
+    for (const order of orders) expect([...order].sort()).toEqual(DELIVERIES.map(d => d.id));
+    expect(ids(2027)).toEqual(ids(2027));
+    expect(new Set(orders.map(o => o[0])).size).toBe(DELIVERIES.length);
+    expect(new Set(orders.map(o => o.join())).size).toBeGreaterThan(12);
+  });
+
+  it('plays each game\'s own order and records it, so a reload continues it', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const g = game(null, POOL, seed);
+      const first = [g.deliver(), g.deliver()].flat();
+      expect(first).toEqual(ids(seed).slice(0, 2));
+      expect(g.saved().opening).toEqual(first);
+      const h = game(g.missions.serialize(), POOL, 99);
+      expect([h.deliver(), h.deliver()].flat()).toEqual(ids(seed).slice(2));
+      expect(h.deliver()[0]).toMatch(/^testikatu-/);
+    }
+  });
+
+  it('never repeats an opening address a save from before the seeded order has served', () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      // Such a save played DELIVERIES in list order and has no `opening` record.
+      const { opening: _, ...legacy } = { ...freshSave(seed), phase: 'at_pizzeria', permit: 5, delivery: 2,
+        shortDeliveries: 2, pizzas: 2 };
+      const g = game(JSON.stringify(legacy));
+      expect([g.deliver(), g.deliver()].flat().sort()).toEqual([DELIVERIES[2].id, DELIVERIES[3].id]);
+      expect(g.deliver()[0]).toMatch(/^testikatu-/);
+      // ... and one carrying the third scripted order goes on to the fourth.
+      const carried = game(JSON.stringify({ ...legacy, phase: 'carrying', order: [DELIVERIES[2].id], par: 200, permit: 4 }));
+      carried.at(near(carried.missions.currentStop.point), { interact: true });
+      for (let t = 0; t < 30; t += 0.5) carried.at(near(PIZZERIA.point), {}, 0.5);
+      expect(carried.deliver()).toEqual([DELIVERIES[3].id]);
+    }
+  });
+});
+
 describe('address pool asset', () => {
   const json = (origin: [number, number]) => ({ format: 'turku3d-addresses', version: 1, frame: 'engine-xz', origin,
     addresses: [
@@ -147,7 +189,7 @@ describe('pool orders in the mission system', () => {
     const g = game();
     const served: string[][] = [];
     for (let i = 0; i < DELIVERIES.length; i++) served.push(g.deliver());
-    expect(served.flat()).toEqual(DELIVERIES.map(d => d.id));
+    expect(served.flat()).toEqual(openingOrder(7).map(d => d.id));
     for (let i = 0; i < 10; i++) {
       if (g.missions.permit === 0) g.choose(MARKET.point, 'rent_permit');
       const before = g.missions.money;

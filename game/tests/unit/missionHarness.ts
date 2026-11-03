@@ -3,6 +3,7 @@ import type { MissionHudState, Router, WorldPoint } from '../../src/gameplay/con
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import type { OptionId } from '../../src/gameplay/content/shops';
 import { MissionSystem, type MissionFrame, type PaidDropoff } from '../../src/gameplay/missions/missions';
+import { openingOrder } from '../../src/gameplay/missions/orders';
 
 /** Synthetic router: an L-shaped path (x first, then z), so route length differs from the straight line. */
 export const lRouter: Router = {
@@ -14,9 +15,13 @@ export const lDistance = (a: WorldPoint, b: WorldPoint) => Math.abs(a.x - b.x) +
 export const near = (p: WorldPoint, dx = 1): WorldPoint => ({ x: p.x + dx, z: p.z });
 export const far: WorldPoint = { x: -500, z: -500 };
 
+/** The seed of every harness game and its scripted opening order. */
+export const SEED = 1;
+export const OPENING = openingOrder(SEED);
+
 /** A mission system, continued from a `serialize()` text when `saved` is given. */
 export function harness(saved: string | null = null, onPaid?: (drop: PaidDropoff) => void) {
-  const missions = new MissionSystem({ router: lRouter, onPaid });
+  const missions = new MissionSystem({ router: lRouter, onPaid, seed: SEED });
   if (saved !== null) missions.restore(saved);
   const states: MissionHudState[] = [];
   missions.subscribe(s => states.push(s));

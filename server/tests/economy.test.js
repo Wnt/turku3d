@@ -29,6 +29,10 @@ test('pay envelope matches mission hand-over including the second-stop bonus', (
     }
   }
   assert.ok(economy.validDelivery({ payout: 10, tip: 1, routeMeters: 100 }));
+  // The second landmark of a long double pays its own leg plus the double bonus, unless it earns no tip.
+  const leg = game.basePay(1400, 'long');
+  assert.ok(economy.validDelivery({ payout: leg + game.DOUBLE_BONUS, tip: 3, routeMeters: 1400, job: 'long' }));
+  assert.equal(economy.validDelivery({ payout: leg + game.DOUBLE_BONUS, tip: 0, routeMeters: 1400, job: 'long' }), false);
   assert.equal(economy.validDelivery({ payout: 60, tip: 1, routeMeters: 3000, job: 'unknown' }), false);
   assert.equal(economy.validDelivery({ payout: game.basePay(7001, 'long'), tip: 1, routeMeters: 7001, job: 'long' }), false);
   for (const bad of [{ payout: 7, tip: 0 }, { payout: 10, tip: 0 }, { payout: 6, tip: 9 },

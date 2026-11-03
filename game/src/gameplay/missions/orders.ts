@@ -1,9 +1,11 @@
-// Delivery orders after the scripted opening (docs/design/story.md, "Deliveries"): drawn from the published
-// address pool without repeats until it is exhausted, on a distance ladder that grows with the orders served, with
-// an occasional short hop and every fifth order a double (two pizzas, two addresses, one run). Pure and seeded:
+// Delivery orders (docs/design/story.md, "Deliveries"): the scripted opening in a seeded order, then draws from the
+// published address pool without repeats until it is exhausted, on a distance ladder that grows with the orders
+// served, with an occasional short hop and every third order a double (two pizzas, two addresses, one run). Long
+// jobs go to curated landmarks, every third one a double with a second landmark a real drive away. Pure and seeded:
 // the same seed, order number and delivered set always give the same order.
 import { LONG_MAX_METRES } from '../economy';
 import type { PoolAddress } from '../content/addresses';
+import { DELIVERIES, type Delivery } from '../content/deliveries';
 
 /** Route metres the ladder aims at for the first pool order, the step per order and the cap. */
 export const LADDER_START_M = 200;
@@ -13,12 +15,16 @@ export const LADDER_MAX_M = 900;
 const LADDER_BAND = 0.55;
 /** Chance that an order is a short hop from the nearest quarter of what is left. */
 const SHORT_CHANCE = 0.2;
-/** Every DOUBLE_EVERY-th pool order (1 in 5) carries two pizzas. */
-export const DOUBLE_EVERY = 5;
+/** Every DOUBLE_EVERY-th pool order and long job (1 in 3) carries two pizzas. */
+export const DOUBLE_EVERY = 3;
 /** The second address of a double is the nearest unused one to the first, within this straight distance ... */
 const DOUBLE_MAX_GAP_M = 250;
 /** ... but not the same door. */
 const DOUBLE_MIN_GAP_M = 15;
+/** The second landmark of a long double is a real drive from the first: this many route metres, never the next door
+ *  and never a second cross-town run. */
+export const LONG_LEG_MIN_M = 600;
+export const LONG_LEG_MAX_M = 2500;
 
 /** Deterministic 32-bit PRNG (mulberry32) returning [0, 1). */
 function rng(seed: number): () => number {
@@ -34,6 +40,17 @@ function rng(seed: number): () => number {
 
 /** The random stream of pool order `n` in a game with `seed`. */
 const orderRandom = (seed: number, n: number) => rng((seed ^ Math.imul(n + 1, 0x9e3779b1)) >>> 0);
+
+/** The scripted opening in this game's play order: a seeded permutation of DELIVERIES (Fisher-Yates). */
+export function openingOrder(seed: number): Delivery[] {
+  const random = rng(Math.imul(seed ^ 0x5bd1e995, 0x2c1b3c6d) >>> 0);
+  const order = [...DELIVERIES];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
 
 export const ladderMetres = (n: number) => Math.min(LADDER_MAX_M, LADDER_START_M + LADDER_STEP_M * n);
 export const isDouble = (n: number) => n % DOUBLE_EVERY === DOUBLE_EVERY - 1;
@@ -84,12 +101,26 @@ export function drawOrder(pool: readonly PoolAddress[], n: number, seed: number,
   return { stops, exhausted };
 }
 
-/** Long jobs never fall back to a nearby or undrivable address. */
-export function drawLongOrder(pool: readonly PoolAddress[], n: number, seed: number,
-  delivered: ReadonlySet<string>): PoolAddress | null {
+/** Straight metres between two drop-offs: the leg measure when no street router is given. */
+const straightLeg = (a: PoolAddress, b: PoolAddress) => Math.hypot(a.point.x - b.point.x, a.point.z - b.point.z);
+
+/**
+ * Draws long job `n` (counted by finished long jobs): one curated landmark, or for every third job two, the second an
+ * unused landmark whose `leg` (route metres from the first drop-off) is LONG_LEG_MIN_M–LONG_LEG_MAX_M; a single job
+ * when none is. Long jobs never fall back to a nearby or undrivable address. Null when no landmark is drivable.
+ */
+export function drawLongOrder(pool: readonly PoolAddress[], n: number, seed: number, delivered: ReadonlySet<string>,
+  leg: (from: PoolAddress, to: PoolAddress) => number = straightLeg): PoolAddress[] | null {
   const eligible = pool.filter(a => a.landmark && a.car !== null && a.car > 60 && a.car <= LONG_MAX_METRES)
     .sort((a, b) => a.id.localeCompare(b.id));
   const unused = eligible.filter(a => !delivered.has(a.id));
   const choices = unused.length ? unused : eligible;
-  return choices.length ? choices[Math.floor(orderRandom(seed, n)() * choices.length)] : null;
+  if (!choices.length) return null;
+  const random = orderRandom(seed, n);
+  const first = choices[Math.floor(random() * choices.length)];
+  if (!isDouble(n)) return [first];
+  const reach = (list: PoolAddress[]) => list.filter(a => a !== first && leg(first, a) >= LONG_LEG_MIN_M && leg(first, a) <= LONG_LEG_MAX_M);
+  const unusedSeconds = reach(unused);
+  const seconds = unusedSeconds.length ? unusedSeconds : reach(eligible);
+  return seconds.length ? [first, seconds[Math.floor(random() * seconds.length)]] : [first];
 }

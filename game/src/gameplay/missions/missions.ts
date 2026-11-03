@@ -13,10 +13,10 @@ import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
-import { drawOrder } from './orders';
+import { drawOrder, openingOrder } from './orders';
 import type { ShopView } from './shopView';
 export type { ShopView, ShopOptionView } from './shopView';
-import { longOrder, longQuote, orderQuote, metresFromPizzeria, type OrderQuote } from './quotes';
+import { legMetres, longOrder, orderQuote, type OrderQuote } from './quotes';
 export type { OrderQuote } from './quotes';
 import { freshSave, newSeed, parseSave, type MissionSave, type Phase } from './save';
 import { SCRIPTED_IDS, Stops, type OrderStop } from './stops';
@@ -110,6 +110,7 @@ export class MissionSystem implements MissionHudSource {
   private open: { shop: Shop; line: string; text?: string } | null = null;
   private view: ShopView | null = null;
   private quoteCache: { key: string; quote: OrderQuote; firstPar: number } | null = null;
+  private longQuoteCache: { key: string; quote: OrderQuote } | null = null;
   private readonly stops: Stops;
   private hintCache: { key: string; said: Said } | null = null;
   private phrase(kind: PhraseKind): string { return nextPhrase(kind, this.s.phrases ??= {}, this.s.seed); }
@@ -140,6 +141,7 @@ export class MissionSystem implements MissionHudSource {
     this.open = null;
     this.view = null;
     this.quoteCache = null;
+    this.longQuoteCache = null;
     this.checkpoint = null;
     this.emit();
   }
@@ -260,7 +262,7 @@ export class MissionSystem implements MissionHudSource {
    *  candidate (`Stops.relocate`); null when every candidate was rejected. */
   relocateDropoff(id: string, point: WorldPoint): WorldPoint | null {
     const next = this.stops.relocate(id, point);
-    this.quoteCache = null;
+    this.quoteCache = this.longQuoteCache = null;
     this.emit();
     return next;
   }
@@ -270,16 +272,23 @@ export class MissionSystem implements MissionHudSource {
     if (this.s.order.length === 0) {
       if (this.s.job === 'long') {
         const next = this.longOrder();
-        if (next) { this.s.order = [next.id]; this.s.stop = 0; return [this.stops.resolve(next.id)!]; }
+        if (next) { this.s.order = next; this.s.stop = 0; return next.map(id => this.stops.resolve(id)!); }
       }
       const n = this.s.shortDeliveries - DELIVERIES.length;
       const draw = n >= 0 ? drawOrder(this.stops.pool.filter(a => !a.landmark && a.foot <= 1200), n, this.s.seed, new Set(this.s.delivered), SCRIPTED_IDS,
         this.s.delivered.slice(-2)) : null;
       if (draw?.exhausted) this.s.delivered = [];
-      if (!this.s.order.length) this.s.order = draw ? draw.stops : [DELIVERIES[this.s.shortDeliveries % DELIVERIES.length].id];
+      if (!this.s.order.length) this.s.order = draw ? draw.stops : [this.nextOpening().id];
       this.s.stop = 0;
     }
     return this.s.order.map(id => this.stops.resolve(id)!);
+  }
+
+  /** The next scripted delivery: the first of this game's opening order not served yet; without a pool the opening
+   *  repeats in that order. */
+  private nextOpening() {
+    const order = openingOrder(this.s.seed);
+    return order.find(d => !this.s.opening.includes(d.id)) ?? order[this.s.shortDeliveries % order.length];
   }
 
   /** The action of the nearest target in range: enter a shop, or hand over the pizza at the drop-off. */
@@ -375,7 +384,7 @@ export class MissionSystem implements MissionHudSource {
       case 'sell_kidney': this.s.kidney = true; this.reply('market_sold_kidney'); break;
       case 'expiry_warning': this.s.warning = true; this.reply('market_sold_warning'); break;
       case 'take_long_order':
-        this.s.job = 'long'; this.s.order = [this.longOrder()!.id]; this.quoteCache = null;
+        this.s.job = 'long'; this.s.order = this.longOrder()!; this.quoteCache = null;
         this.pickUp(); this.open = null; break;
       case 'take_order': this.s.job = 'short'; this.pickUp(); this.open = null; break;
       case 'slice': this.energy = SLICE_SECONDS; this.reply('pizzeria_slice'); break;
@@ -399,9 +408,29 @@ export class MissionSystem implements MissionHudSource {
     this.say({ id, text });
   }
 
-  private longOrder() { return longOrder(this.stops.pool, this.s); }
+  /** Route metres between two landmarks' drop-offs, kept for the session so a quoted long double stays the one taken. */
+  private readonly landmarkLegs = new Map<string, number>();
+  private longOrder() {
+    return longOrder(this.stops.pool, this.s, (a, b) => {
+      const key = `${a.id}>${b.id}`;
+      let metres = this.landmarkLegs.get(key);
+      if (metres === undefined) this.landmarkLegs.set(key, metres = this.streetMetres(a.point, b.point));
+      return metres;
+    });
+  }
 
-  private longQuote(): OrderQuote | null { return longQuote(this.stops.pool, this.s, this.parVehicle()); }
+  /** The next long job's quote, single or double, priced like any order (missions/quotes.ts orderQuote). */
+  private longQuote(): OrderQuote | null {
+    const ids = this.longOrder();
+    if (!ids) return null;
+    const vehicle = this.parVehicle();
+    const key = `${ids.join(',')}|${vehicle}`;
+    if (this.longQuoteCache?.key !== key) {
+      const stops = ids.map(id => this.stops.resolve(id)!);
+      this.longQuoteCache = { key, quote: orderQuote(stops, vehicle, 'long', (a, b) => this.streetMetres(a, b)).quote };
+    }
+    return this.longQuoteCache.quote;
+  }
 
   private quote(): OrderQuote {
     const stops = this.ensureOrder();
@@ -413,8 +442,9 @@ export class MissionSystem implements MissionHudSource {
     return this.quoteCache.quote;
   }
 
-  private metresFromPizzeria(stop: OrderStop, vehicle: VehicleOwnership): number {
-    return metresFromPizzeria(stop, vehicle, this.s.job, (a, b) => this.streetMetres(a, b));
+  /** Route metres of the current order's legs (pizzeria to the first drop-off, then drop-off to drop-off). */
+  private legMetres(stops: OrderStop[]): number[] {
+    return legMetres(stops, this.parVehicle(), this.s.job, (a, b) => this.streetMetres(a, b));
   }
 
   /** Street-route metres between two points, or the straight line when either end is off the graph. */
@@ -448,12 +478,12 @@ export class MissionSystem implements MissionHudSource {
     const last = this.s.stop === stops.length - 1;
     const t = tip(this.s.elapsed, last ? this.s.par : this.s.firstPar);
     const bonus = stops.length > 1 && last && t > 0 ? DOUBLE_BONUS : 0;
-    const pay = basePay(this.metresFromPizzeria(stop, this.parVehicle()), this.s.job);
+    // Each pizza pays its own leg: the second of a long double pays for the drive between the two landmarks.
+    const metres = this.legMetres(stops)[this.s.stop];
+    const pay = basePay(metres, this.s.job);
     this.s.money += pay + t + bonus;
     this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
-      addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t,
-      routeMeters: this.s.stop === 0 ? this.metresFromPizzeria(stop, this.parVehicle())
-        : this.streetMetres(stops[this.s.stop - 1].point, stop.point) });
+      addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t, routeMeters: metres });
     this.s.pizzas += 1;
     if (!stop.scripted) this.s.delivered.push(stop.id);
     const band: TipBand = t >= 5 ? 'fast' : t >= 1 ? 'ok' : 'slow';
@@ -479,6 +509,7 @@ export class MissionSystem implements MissionHudSource {
 
   private finishOrder(result: 'delivered' | 'failed') {
     const stops = this.ensureOrder();
+    for (const stop of stops) if (stop.scripted && !this.s.opening.includes(stop.id)) this.s.opening.push(stop.id);
     this.s.lastAddress = stops[stops.length - 1].address;
     this.s.phase = result;
     this.s.delivery += 1;

@@ -29,9 +29,13 @@ export interface MissionSave {
   /** The permit expiry warning was bought back. */
   warning: boolean;
   vehicle: VehicleOwnership;
-  /** Orders served (delivered or cancelled). The first DELIVERIES.length are the scripted opening; later orders
-   *  come from the address pool (or repeat DELIVERIES when the build has no pool). */
+  /** Orders served (delivered or cancelled). The first DELIVERIES.length short orders are the scripted opening, in a
+   *  seeded order (missions/orders.ts openingOrder); later ones come from the address pool (or repeat the opening when
+   *  the build has no pool). */
   delivery: number;
+  /** Scripted opening ids served (delivered or cancelled), so a continued game never repeats one. Saves from before
+   *  the seeded opening played DELIVERIES in list order: they read as its first `shortDeliveries` entries. */
+  opening: string[];
   /** Pizzas handed over. */
   pizzas: number;
   /** Seeds the order draws and line picks of this game. */
@@ -90,9 +94,13 @@ export const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
 export function freshSave(seed: number): MissionSave {
   return { version: 4, job: 'short', shortDeliveries: 0, longDeliveries: 0, longAnnounced: false, phase: 'idle', money: START_MONEY, permit: 0, plates: false, kidney: false, warning: false,
-    vehicle: 'none', delivery: 0, pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
+    vehicle: 'none', delivery: 0, opening: [], pizzas: 0, seed, delivered: [], order: [], lastAddress: null, stop: 0, elapsed: 0,
     par: 0, firstPar: 0, devMoney: 0, phrases: {} };
 }
+
+/** The opening served by a save from before the seeded opening order: DELIVERIES in list order. */
+const listOpening = (served: number) => DELIVERIES.slice(0, Math.min(served, DELIVERIES.length)).map(d => d.id);
+const SCRIPTED_STOPS: ReadonlySet<string> = new Set(DELIVERIES.map(d => d.id));
 
 const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const bool = (v: unknown): v is boolean => typeof v === 'boolean';
@@ -124,7 +132,7 @@ function validV2(s: Partial<MissionSaveV2>): MissionSaveV2 | null {
 function migrateV2(s: MissionSaveV2, seed: number): MissionSave {
   const delivery = Math.floor(s.delivery);
   return { ...s, version: 4, job: 'short', shortDeliveries: delivery, longDeliveries: 0, longAnnounced: false, delivery, pizzas: delivery, seed, delivered: [], stop: 0, firstPar: 0, devMoney: 0,
-    order: s.phase === 'carrying' ? [DELIVERIES[delivery % DELIVERIES.length].id] : [],
+    order: s.phase === 'carrying' ? [DELIVERIES[delivery % DELIVERIES.length].id] : [], opening: listOpening(delivery),
     lastAddress: delivery > 0 ? DELIVERIES[(delivery - 1) % DELIVERIES.length].address : null, phrases: {} };
 }
 
@@ -152,6 +160,8 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
       longDeliveries: 0, longAnnounced: false });
     if (!['short', 'long'].includes(save.job) || !num(save.shortDeliveries) || !num(save.longDeliveries)
       || !bool(save.longAnnounced)) return freshSave(seed);
+    save.opening = ids(save.opening) ? [...new Set(save.opening.filter(id => SCRIPTED_STOPS.has(id)))]
+      : listOpening(Math.floor(save.shortDeliveries));
     // A finished delivery's result line is not replayed after a reload: the next step is the pizzeria.
     if (save.phase === 'delivered' || save.phase === 'failed' || (save.phase === 'carrying' && save.par <= 0)) {
       save.phase = save.permit > 0 ? 'at_pizzeria' : 'permit_needed';

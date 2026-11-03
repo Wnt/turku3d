@@ -5,6 +5,7 @@ import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { DropoffGuard, checkDropoff, type GroundRay } from '../../src/gameplay/missions/dropoffs';
 import { MissionSystem, type MissionFrame } from '../../src/gameplay/missions/missions';
+import { openingOrder } from '../../src/gameplay/missions/orders';
 import { MAT } from '../../src/shared/col/materials';
 
 /** Synthetic block outlines (rotated rectangles, x/z) around the four scripted addresses' buildings, in play order. */
@@ -43,6 +44,9 @@ const straight: Router = {
   distance: path => Math.hypot(path[1].x - path[0].x, path[1].z - path[0].z),
 };
 const near = (p: WorldPoint): WorldPoint => ({ x: p.x + 1, z: p.z });
+/** The opening of the seed-3 games below, and each of its stops' pool entry. */
+const OPENING = openingOrder(3);
+const poolOf = (i: number) => SCRIPTED_POOL[DELIVERIES.indexOf(OPENING[i])];
 
 function game(pool: readonly PoolAddress[], router: Router = straight) {
   const missions = new MissionSystem({ router, addresses: pool, seed: 3 });
@@ -80,23 +84,23 @@ describe('scripted drop-offs', () => {
 
   it('resolve every scripted address through the pool: its drop-off, route distance and par', () => {
     const { missions, at, pickUp, dropoff } = game(SCRIPTED_POOL);
-    DELIVERIES.forEach((d, i) => {
+    OPENING.forEach((d, i) => {
       const quote = pickUp();
-      expect(quote).toMatchObject({ address: d.address, metres: SCRIPTED_POOL[i].foot });
-      expect(missions.currentStop).toMatchObject({ id: d.id, point: SCRIPTED_POOL[i].point });
-      expect(dropoff().point).toEqual(SCRIPTED_POOL[i].point);
+      expect(quote).toMatchObject({ address: d.address, metres: poolOf(i).foot });
+      expect(missions.currentStop).toMatchObject({ id: d.id, point: poolOf(i).point });
+      expect(dropoff().point).toEqual(poolOf(i).point);
       at(near(d.point), { interact: true }); // the fallback point is 8 m off: no hand-over there
       expect(missions.phase).toBe('carrying');
-      at(near(SCRIPTED_POOL[i].point), { interact: true });
+      at(near(poolOf(i).point), { interact: true });
       expect(missions.phase).toBe('delivered');
     });
     expect(JSON.parse(missions.serialize()).delivered).toEqual([]); // the opening does not use up pool addresses
   });
 
   it('use the fallback point when the pool lacks the address', () => {
-    const { missions, pickUp } = game(SCRIPTED_POOL.slice(1));
-    expect(pickUp().address).toBe(DELIVERIES[0].address);
-    expect(missions.currentStop.point).toEqual(DELIVERIES[0].point);
+    const { missions, pickUp } = game(SCRIPTED_POOL.filter(a => a !== poolOf(0)));
+    expect(pickUp().address).toBe(OPENING[0].address);
+    expect(missions.currentStop.point).toEqual(OPENING[0].point);
   });
 });
 
@@ -121,16 +125,16 @@ describe('drop-off ground check', () => {
 
   it('moves a drop-off off a roof to the next candidate and never marks the roof', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // The pool puts Linnankatu 13a on the roof; the scripted fallback is on the sidewalk in front of it.
-    const pool: PoolAddress[] = [{ ...SCRIPTED_POOL[0], point: { x: 10, z: 10 }, street: { x: 10, z: 30 } }];
-    const fallback = DELIVERIES[0].point;
+    // The pool puts the first opening address on the roof; the scripted fallback is on the sidewalk in front of it.
+    const pool: PoolAddress[] = [{ ...poolOf(0), point: { x: 10, z: 10 }, street: { x: 10, z: 30 } }];
+    const fallback = OPENING[0].point;
     const { missions, at, pickUp, dropoff } = game(pool);
     const shifted: GroundRay = (x, z) => world(x - fallback.x + 10, z - fallback.z + 22.5);
     const guard = new DropoffGuard(async (x, z) => (x === 10 && z === 10 ? world(x, z) : shifted(x, z)),
       (id, p) => missions.relocateDropoff(id, p));
     pickUp();
     expect(await guard.ground(dropoff())).toBeNull();
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/Linnankatu 13a at 10, 10 rejected: inside a building footprint/));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`${OPENING[0].address} at 10, 10 rejected: inside a building footprint`));
     expect(dropoff().point).toEqual(fallback);
     expect(await guard.ground(dropoff())).toBe(2);
     at(near(fallback), { interact: true });

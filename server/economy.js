@@ -28,6 +28,7 @@ export function validDelivery({ payout, tip: gratuity, routeMeters, job = 'short
   return Number.isFinite(routeMeters) && routeMeters >= 0 && routeMeters <= 100_000
     && Number.isInteger(payout) && Number.isInteger(gratuity)
     && gratuity >= 0 && gratuity <= MAX_TIP
-    && (job === 'long' ? routeMeters > 60 && routeMeters <= 7000 && payout === basePay(routeMeters, 'long')
+    && (job === 'long' ? routeMeters > 60 && routeMeters <= 7000 && (payout === basePay(routeMeters, 'long')
+        || (payout === basePay(routeMeters, 'long') + DOUBLE_BONUS && gratuity > 0))
       : job === 'short' && (payout === BASE_PAY || (payout === BASE_PAY + DOUBLE_BONUS && gratuity > 0)));
 }

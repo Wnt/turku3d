@@ -128,14 +128,18 @@ every vehicle it uses the published driving distance.
 
 ## Deliveries
 
-The first four orders are the scripted opening below (their own hand-over and customer lines).
+The first four orders are the scripted opening below (their own hand-over and customer lines), in
+an order shuffled per game: `openingOrder(seed)` in `missions/orders.ts` is a seeded permutation, so
+a given save always replays the same order and a new game usually starts somewhere else. The save
+records which opening addresses were served (`opening`), so a continued game never repeats one; a
+save from before the shuffle played the list order and reads as having served its first entries.
 Each names its address; the mission system looks it up in the published address pool and takes the
 pool's drop-off (the sidewalk spot 2.5 m in front of the door, outside every footprint), route
 metres and par, like any pool order. The coordinates below are the fallback for a pool that lacks
 the address (and the synthetic tiles, which carry no pool): the same sidewalk rule applied to the
 buildings layer. Route is the walking distance on the road graph from the pizzeria.
 
-| # | Address | Fallback x, z | Route | Par on foot |
+| List # | Address | Fallback x, z | Route | Par on foot |
 |---|---|---|---|---|
 | 1 | Linnankatu 13a | 183.24, 116.26 | ~129 m | ~112 s |
 | 2 | Aurakatu 1 | 267.03, 156.12 | ~245 m | ~195 s |
@@ -163,23 +167,24 @@ addressed building in the published tiles with a street-side door, its drop-off 
 the door, and route metres from the pizzeria on foot and by car. The four core tiles give 78
 addresses (t0_0_0 31, t0_0_1 14, t0_1_0 16, t0_1_1 17); a new tile adds its own. Addresses in
 tiles the manifest does not carry are skipped. Without a pool (synthetic tiles) the opening
-four repeat.
+four repeat in the game's order.
 
 `game/src/gameplay/missions/orders.ts` draws each order, seeded per game:
 
 - **No repeats.** An address served (delivered or cancelled) is not drawn again until every pool
   address has been; then the set starts over, without the last order's addresses. The opening's
   four addresses come last.
-- **Distance ladder.** Pool order *n* (0 = the fifth order) aims at 200 + 40·*n* m on foot, capped
+- **Distance ladder.** Pool order *n* (0 = the fifth short order) aims at 200 + 40·*n* m on foot, capped
   at 900 m, and takes a random address between 55 % of that and the target (the three nearest to
   the target when none is left in the band). One order in five is instead a short hop from the
   nearest quarter of what is left.
-- **Doubles.** Every fifth pool order (the 9th, 14th, … order) carries two pizzas: the drawn
-  address and the nearest unused one 15–250 m from it. The timer covers both: par is the first
+- **Doubles.** Every third pool order (the 7th, 10th, 13th, … short order) carries two pizzas: the
+  drawn address and the nearest unused one 15–250 m from it. The timer covers both: par is the first
   leg's par plus the second leg's (router distance between the two drop-offs). Each pizza pays
-  6 € plus its tip, the first against the first leg's par, the second against the whole par; the
-  second also pays the double bonus of 4 € (`paid_double_bonus`) unless it earns no tip. Missing
-  the deadline cancels what is left. A double uses one permit delivery.
+  its leg's base pay (6 € on a short job) plus its tip, the first against the first leg's par, the
+  second against the whole par; the second also pays the double bonus of 4 € (`paid_double_bonus`)
+  unless it earns no tip. Missing the deadline cancels what is left. A double uses one permit
+  delivery. The quote's pay is both pizzas' base pay.
 - **Par.** The published walking distance on foot, the driving distance with a scooter or a car
   (the walking one when no car route exists), at the vehicle's par speed; tip bands as above.
 
@@ -193,6 +198,23 @@ draw counts are stored in the mission save. The HUD shows the complete address s
 `VoicePlayer` plays its phrase and address clips back to back. `make voice-build` reads every published
 address pool plus the four scripted stops, so a tile's new addresses receive clips on the next build.
 The large map labels the drop-off marker with its house number.
+
+### Long-range jobs
+
+After four short orders the pizzeria also offers a long-range job (a vehicle or forged plates
+needed) to a curated landmark (`game/src/gameplay/content/landmarks.json`, OSM identities that the
+navigation build turns into drop-offs beside a car-reachable street). The list favours drives that
+turn, climb and cross bridges over a straight run down Linnankatu or Hämeentie, and the client's
+list decides what is offered even when the served navigation metadata carries other landmarks.
+Long pay is 24 € plus 12 € per road kilometre of each leg; par uses 1.4 times the short-job speed
+(1.2 on the scooter).
+
+Every third long job (the 3rd, 6th, … by finished long jobs) is a double: the drawn landmark and
+another unused one 0.6–2.5 km by road from it, chosen from the save's seed; with none in reach it is
+a single job. It is quoted, timed and paid like a short double: par is the sum of both legs' pars,
+each pizza pays its own leg's long pay plus its tip, the second adds the 4 € double bonus unless it
+earns no tip, and after the first hand-over the dispatcher announces the second landmark
+(`second_address`). A single long job carried in an older save stays single.
 
 ## Mission state machine
 

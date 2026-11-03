@@ -1,6 +1,7 @@
 ## Long-range delivery jobs
 
-Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job` and `longAnnounced` per slot.
+Mission save format 4 tracks `shortDeliveries`, `longDeliveries`, `job`, `longAnnounced` and the served scripted
+`opening` ids per slot.
 Every ten finished short orders (successful or cancelled, including doubles as one order) complete a
 rented round. Four finished short deliveries unlock the pizzeria's long-range option. Renting ahead and picking up an
 order do not advance it. Formats 1–3 migrate historical completed orders as short deliveries.
@@ -11,13 +12,17 @@ residency. Its disk cache hashes source, OSM input identities and the spoken add
 Drop-offs are outside mapped buildings beside reachable public driving streets; runtime `DropoffGuard`
 checks actual collision too. Short draws stay within 1.2 km on foot and exclude landmarks. Long draws use the curated
 landmarks in `content/landmarks.json` (OSM feature and entrance identities), require reachable car routes
-and never substitute residential destinations. Nearer central landmarks are deliberately eligible too.
+and never substitute residential destinations. The curated list favours winding drives, hills, bridges and port
+streets over straight runs down one main road. Every third long job is a double: the second stop is another unused
+landmark 0.6–2.5 km by road from the first (a single job when none is in reach).
 Each landmark carries its published drop-off and city-wide route metres as `fallback`
-(`node game/scripts/landmark-fallbacks.mjs NAVIGATION.json` refreshes them from a served `/coarse/navigation.json`). A pool without landmarks, as from the shared local tile farm, which serves no
-navigation metadata, gets these entries (`content/landmarks.ts`), so long jobs never depend on resident street tiles.
+(`node game/scripts/landmark-fallbacks.mjs NAVIGATION.json` refreshes them from a served `/coarse/navigation.json`).
+`withLandmarks` (`content/landmarks.ts`) makes the curated list decide which landmarks are offered: a served landmark
+entry is kept (fresh metres) only when it is curated, and a curated landmark the served pool lacks, or a pool without
+navigation metadata, gets its fallback entry, so long jobs never depend on resident street tiles.
 The unlock notice waits until a long job can actually be drawn.
-`audio/voice/long-addresses.json` lists the twelve voiced landmark names; `make voice-build` includes them in the common spoken inventory.
-Long pay is €24 + ceil(€12/km), plus the existing tip. Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
+`audio/voice/long-addresses.json` lists the voiced landmark names; `make voice-build` includes them in the common spoken inventory.
+Long pay is €24 + ceil(€12/km) per leg, plus the existing tip; the second pizza of a long double adds the double bonus. Par uses 1.4 times the short-job speed (1.2 for the scooter, keeping full tips feasible); the existing late-tip curve and zero-pay cancellation deadline apply.
 `play.ts` sends the remaining minimap polyline through `CoarseTiles.setRouteHint`; the streaming
 scheduler owns its bounded 30-second look-ahead and request ordering.
 
@@ -43,12 +48,12 @@ Story, locations, economy and the state machine are specified in
 | `content/locations.ts` | Pizzeria, black market and dealer targets, and the bought-vehicle kerb spot |
 | `content/shops.ts` | The three shops: target, menu background, options in order with icons; zone label lines per kind and zone ground-ray heights |
 | `zones.ts` | `ZoneMarkers`: glowing ring, light wall and floating label at every HUD target, coloured like the minimap (`KIND_COLOURS`) |
-| `content/deliveries.ts` | The scripted opening: four deliveries in play order by address, each with a fallback sidewalk point for a pool that lacks it (they repeat only without an address pool) |
+| `content/deliveries.ts` | The scripted opening: four deliveries by address, each with a fallback sidewalk point for a pool that lacks it; each game plays them in its own seeded order (`openingOrder`), repeated only without an address pool |
 | `content/addresses.ts` | Loads `manifest.addresses` (the pool published by `pipeline/turku3d/content`: drop-off, street point, route metres), checks its origin is the pizzeria, skips addresses in tiles the manifest lacks |
 | `missions/stops.ts` | `Stops`: an order stop by id (`delivery_<n>` or a pool slug); a scripted delivery takes its address's pool drop-off and keeps its own point as the fallback; `relocate` moves a rejected drop-off to its next candidate |
 | `missions/dropoffs.ts` | Street-level check of a drop-off before its marker is placed (`DropoffGuard`, used by `ZoneMarkers`): a point on a building or more than 2 m off the street height around it is rejected with a console warning and moved by `MissionSystem.relocateDropoff` |
 | `missions/save.ts` | The mission save text (format 4, opaque to `core/save.ts`) and migrations of formats 1–3 |
-| `missions/orders.ts` | Seeded order draws after the opening: no repeats until the pool is exhausted, distance ladder, short hops, every fifth order a double |
+| `missions/orders.ts` | Seeded order draws: the opening's order per game, then no repeats until the pool is exhausted, distance ladder, short hops, every third order a double; long jobs to curated landmarks, every third one a double |
 | `content/dialogue.json` | Static intro, prompts, notices, pay lines and one-time character dialogue |
 | `content/dialogue.ts` | Typed lookup by static line id (`lineText(id)`, `dialogueLine`) |
 | `content/phrases.json`, `announcements.ts` | Twelve phrasings per active announcement type; seeded shuffled cycles with per-save draw counts; address sentence assembly |
@@ -95,7 +100,8 @@ again. To change the scripted opening:
    pool lacks, apply the pipeline's rule to the buildings layer: 2.5 m (`SIDEWALK_M`) out from the
    street-side door wall nearest the register point, outside every footprint.
 2. Append `delivery(<n>, '<address>', { x, z })` to `DELIVERIES` in `content/deliveries.ts`, keeping
-   the list ordered by route distance, and add the row to the table in `docs/design/story.md`.
+   the list ordered by route distance (each game shuffles the play order), and add the row to the table in
+   `docs/design/story.md`.
 3. Run `npx vitest run tests/unit/missions.test.ts` from `game/` to check the order and economy.
 4. Voice the new address: `make voice-setup` (once) and `make voice-build` from the repo root, then
    commit the clips in `game/public/assets/voice/` (see `audio/voice/README.md`). The gate fails on a

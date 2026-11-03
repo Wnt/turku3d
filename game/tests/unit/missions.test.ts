@@ -13,7 +13,7 @@ import { SHOPS, ZONE_LABELS, optionDetail, optionLabel } from '../../src/gamepla
 import {
   INTERACT_RADIUS, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, ownedVehicleId, lineSeconds, missionSummary, type PaidDropoff,
 } from '../../src/gameplay/missions/missions';
-import { far, harness, lDistance, lRouter, near } from './missionHarness';
+import { OPENING, far, harness, lDistance, lRouter, near } from './missionHarness';
 
 describe('contract', () => {
   it('emptyHudSource reports the empty state once and unsubscribes', () => {
@@ -198,7 +198,7 @@ describe('mission state machine', () => {
     expect(PHRASES.hint_pizzeria).toContain(h.last().message);
 
     h.press(near(PIZZERIA.point));
-    const d = DELIVERIES[0];
+    const d = OPENING[0];
     const metres = lDistance(PIZZERIA.point, d.point);
     const par = parSeconds(metres, 'none');
     expect(h.missions.shop).toMatchObject({ id: 'pizzeria', line: lineText('pizzeria_first') });
@@ -240,7 +240,7 @@ describe('mission state machine', () => {
     expect(h.last().message).toBe(lineText(`paid_tip_${expectedTip}`));
     h.wait(far, 15);
     expect(h.missions.phase).toBe('at_pizzeria');
-    expect(h.missions.currentStop.scripted).toBe(DELIVERIES[1]);
+    expect(h.missions.currentStop.scripted).toBe(OPENING[1]);
     h.press(near(PIZZERIA.point));
     expect(PHRASES.pizzeria_back).toContain(h.missions.shop!.line);
   });
@@ -313,11 +313,11 @@ describe('mission state machine', () => {
     h.choose(MARKET.point, 'rent_permit');
     h.leave(MARKET.point);
     h.choose(PIZZERIA.point, 'take_order');
-    const par = parSeconds(lDistance(PIZZERIA.point, DELIVERIES[0].point), 'none');
+    const par = parSeconds(lDistance(PIZZERIA.point, OPENING[0].point), 'none');
     h.wait(far, 2 * par + 1);
     expect(h.missions.phase === 'failed' || h.missions.phase === 'at_pizzeria').toBe(true);
     expect(h.last().money).toBe(START_MONEY - PERMIT_PRICE);
-    expect(h.missions.currentStop.scripted).toBe(DELIVERIES[1]);
+    expect(h.missions.currentStop.scripted).toBe(OPENING[1]);
     h.wait(far, 15);
     h.press(near(PIZZERIA.point));
     expect(PHRASES.pizzeria_after_fail).toContain(h.missions.shop!.line);
@@ -329,7 +329,7 @@ describe('mission state machine', () => {
     h.choose(MARKET.point, 'rent_permit');
     h.leave(MARKET.point);
     h.choose(PIZZERIA.point, 'take_order');
-    const d = DELIVERIES[0];
+    const d = OPENING[0];
     const par = parSeconds(lDistance(PIZZERIA.point, d.point), 'none');
     h.wait(far, 1.5 * par);
     const before = h.last().money;
@@ -338,7 +338,7 @@ describe('mission state machine', () => {
     expect(PHRASES.customer_slow).toContain(h.last().message);
   });
 
-  it('repeats the deliveries in order after the last one', () => {
+  it('repeats the opening in its seeded order after the last one', () => {
     const h = harness();
     h.missions.begin();
     h.choose(MARKET.point, 'rent_permit');
@@ -349,7 +349,7 @@ describe('mission state machine', () => {
       order.push(h.missions.currentStop.id);
       h.press(near(h.missions.currentStop.point));
     }
-    expect(order).toEqual([...DELIVERIES, DELIVERIES[0], DELIVERIES[1]].map(d => d.id));
+    expect(order).toEqual([...OPENING, OPENING[0], OPENING[1]].map(d => d.id));
   });
 
   it('sells the kidney once for a permanent run penalty that a slice lifts for a while', () => {
@@ -464,7 +464,7 @@ describe('mission state machine', () => {
     b.at(far, 0);
     expect(b.missions.phase).toBe('carrying');
     expect(b.last().timerSeconds).toBe(a.last().timerSeconds);
-    expect(b.last().activeTargetId).toBe(DELIVERIES[0].id);
+    expect(b.last().activeTargetId).toBe(OPENING[0].id);
   });
 
   it('restores over a running game: dialogue and the open shop are dropped, null starts a new game', () => {
