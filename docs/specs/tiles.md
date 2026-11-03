@@ -45,6 +45,22 @@ URLs are relative to `dist/tiles/` and use `/` separators. Ids are case-sensitiv
 - Vertex positions are tile-local (relative to the tile origin `(i·s, 0, j·s)`), float32.
 - The tile origin is carried as the **translation of a single root node** (doubles in JSON). Do not put the offset in `tileset.json` `transform`.
 - Steps: KTX2 first, then meshopt (no simplify, no join, no `KHR_mesh_quantization` on positions for L0).
+- `COLOR_0` remains authored linear RGB pigment. Optional `COLOR_1` carries baked static visibility as
+  float32 `VEC3`: R = local ambient visibility, G = sky visibility, B = bake coverage. All components
+  are finite and in `[0,1]`; visibility 1 means unoccluded, coverage 0 means unbaked and 1 fully baked.
+  These values are lighting data, not albedo or direct-sun shadows. Absence means unbaked, not dark.
+  Bake after final surface assembly; preserve both attributes through per-building extraction and packing.
+  Translation into model-local coordinates preserves visibility. Rotation or context changes require a new
+  bake; the upstream key must include occluder geometry and recipe, and the model key includes emitted bytes.
+  The transport contract alone does not enable runtime lighting or allow removal of SSAO/prepass coverage.
+- The offline `turku3d.baked_visibility.bake_meshes` kernel requires `pipeline[bake]` (pinned Embree).
+  Supply final static targets, explicitly opaque occluders and a complete XZ context extent in one metric
+  frame. Owned tile meshes alone cannot establish that completeness. Defaults are 64 fixed sphere directions,
+  cosine weights, 2 m local AO with linear distance falloff, and sky visibility bounded to 32 m.
+  Sampling origins inset into incident faces without changing shading normals; unresolved surface contacts
+  or incomplete context retain zero coverage. Cache the target positions/indices/normals, occluder geometry,
+  complete context extent, recipe and module source (including the enforced backend version).
+  This callable kernel is not yet wired into live generation or used to disable runtime passes.
 - Budget: L0 GLB ≤ 8 MB (brotli on the wire).
 - Node `extras`: `{ "tile": "t0_0_0", "objects": [...] }` is reserved for QA back-mapping (building/material ids).
 - Object nodes carry `extras: {kind, id, tile, material?}` (`kind` ∈ building | ground | prop | vegetation | water | other). The game's QA ID pass (`?pass=id`, qa/README.md §2) turns each distinct `(kind, id, tile)` into one flat ID colour and lists it in `window.__qaIdTable`.

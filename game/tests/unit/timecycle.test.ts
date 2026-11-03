@@ -42,11 +42,11 @@ test('night: no sun light below the horizon, artificial ambient on; day uses jud
   for (let e = 90; e >= -90; e -= 0.25) { const n = nightFactor(e); expect(n).toBeGreaterThanOrEqual(previous); previous = n; }
 });
 
-test('the lit-window share follows the hour: 15 to 60 %, peaking early evening, thinnest before dawn', () => {
+test('the lit-window share follows the hour: 8 to 42 %, peaking early evening, thinnest before dawn', () => {
   const hours = Array.from({ length: 24 * 60 }, (_, m) => m / 60);
   const shares = hours.map(litFraction);
-  expect(Math.min(...shares)).toBeCloseTo(0.15, 9);
-  expect(Math.max(...shares)).toBeCloseTo(0.6, 9);
+  expect(Math.min(...shares)).toBeCloseTo(0.08, 9);
+  expect(Math.max(...shares)).toBeCloseTo(0.42, 9);
   expect(hours[shares.indexOf(Math.max(...shares))]).toBe(20);
   expect(hours[shares.indexOf(Math.min(...shares))]).toBe(4);
   expect(litFraction(22)).toBeGreaterThan(litFraction(2));

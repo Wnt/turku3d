@@ -16,6 +16,21 @@ def test_key_tracks_content_and_type_not_mapping_order_or_array_strides():
     assert content_key(1) != content_key(1.0)
 
 
+def test_existing_key_bytes_survive_hash_optimization():
+    # Golden digests from the pre-optimization writer, including empty and
+    # strided arrays. Existing farm entries must remain addressable.
+    fixtures = [
+        (np.empty((0, 3)), '37d613cc47f16db8534b81bfabbb36aab232f6049c2ed880b48faf259367f55b'),
+        (np.array(5.), '9c2d41210ef4858ae1a1bb637e7c7da1912f4c25fe683e8af4f01be31b3e4ed0'),
+        (np.arange(60).reshape(10, 6)[:, ::2],
+         '7141ef17b65d735908e27fd468d048235886699a11f7026d0676c62d812883c4'),
+        ({'x': np.arange(12), 'nested': [{'same': i, 'key': b'abc'} for i in range(4)],
+          2: (True, 3.4)}, '165ee0f4ab8a79ce97ac51bd2a74cc2011e6e57d20c05404b98e1ac808fb3116'),
+    ]
+    for value, expected in fixtures:
+        assert content_key(value) == expected
+
+
 def test_stage_dag_stops_invalidation_when_upstream_output_is_identical(tmp_path):
     cache = StageCache(tmp_path)
     calls = []
@@ -440,6 +455,89 @@ def test_registering_unrelated_dataset_helper_preserves_existing_inputs(monkeypa
         return data.replace(b'HELPERS = {', b'HELPERS = {"new_dataset": ("new_helper",),') if path == source else data
     monkeypatch.setattr(Path, 'read_bytes', extra_helper)
     assert input_keys.producer_code('ground') == before
+
+
+def test_input_dependencies_follow_local_helpers_and_constants_not_mesh_emitters(tmp_path):
+    from turku3d.coarse.input_keys import dependency_code
+
+    source = tmp_path / 'attachments.py'
+    code = '''import numpy as np
+CELL = 0.25
+def measure(points, cell=CELL):
+    return np.floor(points / cell)
+def prepare(tile, points):
+    return measure(points)
+def produce(tile, records):
+    return records
+'''
+    source.write_text(code)
+    before = dependency_code(source, 'attachments')
+    source.write_text(code.replace('return records', 'return records[:1]'))
+    assert dependency_code(source, 'attachments') == before
+    for changed in (code.replace('0.25', '0.5'),
+                    code.replace('np.floor', 'np.ceil'),
+                    code.replace('import numpy as np', 'import other as np')):
+        source.write_text(changed)
+        assert dependency_code(source, 'attachments') != before
+
+
+def test_prepared_surveys_survive_mesh_only_edits(tmp_path, monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import inputs
+
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'cache'))
+    before = {name: inputs._key([], name) for name in
+              ('attachments', 'retaining', 'walkable', 'stairs', 'surfaces', 'markings',
+               'vegetation_canopy', 'ground', 'wfs')}
+    original = Path.read_bytes
+    def edited(path):
+        data = original(path)
+        if path.name in ('attachments.py', 'retaining.py', 'stairs.py'):
+            data = data.replace(b'def produce(', b'def unused_mesh_producer(')
+        if path.name == 'walkable.py':
+            data = data.replace(b'def grade(', b'def unused_mesh_grade(')
+        if path.name == 'surfaces.py':
+            data = data.replace(b'def split_boundaries(', b'def unused_mesh_split(')
+        if path.name == 'canopy_trees.py':
+            data = data.replace(b'def inventory(', b'def unused_inventory(')
+        if path.name == 'trees.py':
+            data = data.replace(b'def variant(', b'def unused_variant(')
+        if path.name == 'reconstruct.py':
+            data = data.replace(b'def selection_code(', b'def unused_selection_code(')
+        return data
+    monkeypatch.setattr(Path, 'read_bytes', edited)
+    assert {name: inputs._key([], name) for name in before} == before
+
+
+def test_stair_cache_tracks_attachment_sampler_but_not_mesh_producer(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import attachments, stairs
+
+    class Cache:
+        def __init__(self):
+            self.codes = {}
+
+        def run(self, name, code, inputs, operation):
+            self.codes[name] = code
+            return ([], []) if name == 'stairs' else (None, None)
+
+    def keys():
+        cache = Cache()
+        stairs.stage(cache, None, None, None, None, None, None, None)
+        return cache.codes
+
+    before = keys()
+    original = Path.read_bytes
+    monkeypatch.setattr(Path, 'read_bytes', lambda path: original(path) +
+                        (b'\n# unrelated attachment mesh edit\n' if path.name == 'attachments.py' else b''))
+    assert keys() == before
+
+    def sampler(sample, records):
+        return sample
+
+    monkeypatch.setattr(attachments, 'sampler', sampler)
+    after = keys()
+    assert all(after[name] != before[name] for name in before)
 
 
 def test_shared_preparation_reads_published_result_after_waiting_for_another_version(tmp_path):

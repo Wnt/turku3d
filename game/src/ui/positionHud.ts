@@ -23,6 +23,21 @@ export function buildingTarget(hit?: THREE.Intersection): string {
   return '';
 }
 
+/** Reference views of the camera position: Google 3D and Street View, Apple Look Around and 3D (heading/pitch where the
+ *  service takes them). Opened in a new tab from the position readout; nothing is fetched by the game. */
+export function referenceLinks(lat: number, lon: number, groundH: number, heading: number, pitch: number) {
+  const ll = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  const h = Math.round(heading), p = Math.round(pitch);
+  const tilt = Math.min(85, Math.max(0, Math.round(90 + pitch)));
+  const altitude = Math.round(Math.max(60, groundH + 80));
+  return [
+    { label: 'Google 3D', url: `https://www.google.com/maps/@${ll},${altitude}a,35y,${h}h,${tilt}t/data=!3m1!1e3` },
+    { label: 'Street View', url: `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${ll}&heading=${h}&pitch=${p}&fov=90` },
+    { label: 'Look Around', url: `https://maps.apple.com/look-around?coordinate=${ll}` },
+    { label: 'Apple 3D', url: `https://maps.apple.com/frame?map=explore&center=${ll}&distance=250&pitch=${Math.min(75, Math.max(0, 90 + p))}&heading=${h}` },
+  ];
+}
+
 export function positionReadout(position: THREE.Vector3, direction: THREE.Vector3, target = '') {
   const { E, N, H } = engineToEN(position.x, position.y, position.z);
   const { lat, lon } = enToLatLon(E, N);
@@ -40,6 +55,9 @@ export function positionReadout(position: THREE.Vector3, direction: THREE.Vector
 /** Developer-only camera pose and photo controls, independent of the debug HUD. */
 export class PositionHud {
   readonly element = Object.assign(document.createElement('div'), { id: 'position-hud' });
+  /** Clickable while the pointer is free (pause menu); rebuilt only when the rounded pose changes. */
+  private readonly links = Object.assign(document.createElement('div'), { className: 'position-links' });
+  private linksKey = '';
   visible = true;
   characterHidden = false;
   private lastUpdate = -Infinity;
@@ -65,6 +83,7 @@ export class PositionHud {
     private visibilityVersion: () => number = () => 0) {
     try { this.visible = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { /* Session default. */ }
     this.visible &&= this.enabled;
+    if (this.links.style) this.links.style.pointerEvents = 'auto';
     document.body.append(this.element);
     this.element.hidden = !this.visible;
   }
@@ -161,6 +180,23 @@ export class PositionHud {
     if (this.element.hidden || now - this.lastUpdate < 500) return;
     this.lastUpdate = now;
     this.element.textContent = [...this.lines(now), ...(now < this.noticeUntil ? [this.notice] : [])].join('\n');
+    // textContent drops children; re-attach the same link nodes (they are rebuilt only when the pose moves).
+    if (typeof this.element.append === 'function') { this.updateLinks(); this.element.append(this.links); }
+  }
+
+  private updateLinks() {
+    const { E, N, H } = engineToEN(this.camera.position.x, this.camera.position.y, this.camera.position.z);
+    const { lat, lon } = enToLatLon(E, N);
+    const heading = (Math.atan2(this.direction.x, -this.direction.z) * 180 / Math.PI - TRUE_NORTH_GRID_BEARING_DEG + 360) % 360;
+    const pitch = Math.atan2(this.direction.y, Math.hypot(this.direction.x, this.direction.z)) * 180 / Math.PI;
+    const key = `${lat.toFixed(5)},${lon.toFixed(5)},${Math.round(heading / 5)},${Math.round(pitch / 5)}`;
+    if (key === this.linksKey) return;
+    this.linksKey = key;
+    this.links.replaceChildren(...referenceLinks(lat, lon, H, heading, pitch).flatMap((link, i) => {
+      const a = Object.assign(document.createElement('a'), { href: link.url, target: '_blank', rel: 'noopener noreferrer', textContent: link.label });
+      a.style.color = '#9fd3ff';
+      return i ? [document.createTextNode(' · '), a] : [a];
+    }));
   }
 
   /** Called directly from the keyboard gesture so Clipboard API activation is retained. */

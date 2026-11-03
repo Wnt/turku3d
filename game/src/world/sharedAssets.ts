@@ -2,7 +2,11 @@ import type * as THREE from 'three/webgpu';
 
 /** Content identities survive differing relative paths; mutable URLs never enter these caches. */
 export function sharedAssetKey(url: string): string | undefined {
-  return /\/coarse\/(?:_v\/[^/]+\/)?shared\/([a-f0-9]{64}\.(?:ktx2|bin))(?:[?#].*)?$/.exec(url)?.[1];
+  let parsed: URL;
+  try { parsed = new URL(url, 'https://turku3d.invalid/'); } catch { return; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+  // GLTFLoader concatenates resourcePath + ../shared; match the path the browser actually fetches.
+  return /\/coarse\/(?:_v\/[^/]+\/)?shared\/([a-f0-9]{64}\.(?:ktx2|bin))$/.exec(parsed.pathname)?.[1];
 }
 
 /** Bounded session reuse and in-flight deduplication. Rejected loads are retryable. */
@@ -64,8 +68,8 @@ export function residentTexture(content: string): THREE.Texture | undefined {
 }
 /** Runs before upload: identical final glTF textures use one object and one GPU allocation. */
 export function shareModelTextures(model: THREE.Object3D) {
-  if (owners.has(model)) return;
-  const owned = new Set<Resident>(), materials = new Set<THREE.Material>();
+  const previous = owners.get(model);
+  const owned = new Set<Resident>(previous), materials = new Set<THREE.Material>();
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -88,7 +92,7 @@ export function shareModelTextures(model: THREE.Object3D) {
       }
     }
   });
-  for (const entry of owned) entry.users++;
+  for (const entry of owned) if (!previous?.has(entry)) entry.users++;
   owners.set(model, owned); trimTextures();
 }
 /** A tile release never destroys a texture still in use by another tile. */

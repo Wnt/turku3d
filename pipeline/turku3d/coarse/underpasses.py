@@ -185,7 +185,7 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
     The inner arch remains the passage ceiling. Its extrados is enclosed by
     stone, rather than exposed as a freestanding pipe through a grass bank.
     """
-    from turku3d.structures.geometry import Faces
+    from turku3d.structures.geometry import Faces, planar_uv
 
     radius = width / 2 + 0.3
     spring = floors + clearance - width / 2
@@ -196,27 +196,27 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
     # reproducing a lidar trough above the covered passage.
     top = np.maximum(top, np.linspace(top[0], top[-1], len(top)))
     faces = Faces()
-    for side in sides:
+    for side_index, side in enumerate(sides):
         for i in range(len(centres) - 1):
             j = i + 1
-            faces.face(
-                [
-                    [side[i, 0], spring[i], side[i, 1]],
-                    [side[j, 0], spring[j], side[j, 1]],
-                    [side[j, 0], top[j], side[j, 1]],
-                    [side[i, 0], top[i], side[i, 1]],
-                ]
-            )
+            wall = [
+                [side[i, 0], spring[i], side[i, 1]],
+                [side[j, 0], spring[j], side[j, 1]],
+                [side[j, 0], top[j], side[j, 1]],
+                [side[i, 0], top[i], side[i, 1]],
+            ]
+            faces.face(wall if side_index else wall[::-1])
     for i in range(len(centres) - 1):
         j = i + 1
-        faces.face(
-            [
-                [sides[0][i, 0], top[i], sides[0][i, 1]],
-                [sides[0][j, 0], top[j], sides[0][j, 1]],
-                [sides[1][j, 0], top[j], sides[1][j, 1]],
-                [sides[1][i, 0], top[i], sides[1][i, 1]],
-            ]
-        )
+        roof = [
+            [sides[1][i, 0], top[i], sides[1][i, 1]],
+            [sides[1][j, 0], top[j], sides[1][j, 1]],
+            [sides[0][j, 0], top[j], sides[0][j, 1]],
+            [sides[0][i, 0], top[i], sides[0][i, 1]],
+        ]
+        # Height-based facade V collapses on horizontal caps. World-metre UVs
+        # retain the stone pattern and agree across clipped tile boundaries.
+        faces.face(roof, planar_uv(roof))
     for k in (0, len(centres) - 1):
         angles = np.linspace(0, np.pi, 17)
         across = np.cos(angles) * radius
@@ -224,14 +224,13 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
         height = spring[k] + np.sin(angles) * radius
         for i in range(len(angles) - 1):
             j = i + 1
-            faces.face(
-                [
-                    [xz[i, 0], height[i], xz[i, 1]],
-                    [xz[j, 0], height[j], xz[j, 1]],
-                    [xz[j, 0], top[k], xz[j, 1]],
-                    [xz[i, 0], top[k], xz[i, 1]],
-                ]
-            )
+            cap = [
+                [xz[i, 0], height[i], xz[i, 1]],
+                [xz[j, 0], height[j], xz[j, 1]],
+                [xz[j, 0], top[k], xz[j, 1]],
+                [xz[i, 0], top[k], xz[i, 1]],
+            ]
+            faces.face(cap if k else cap[::-1])
     mesh = faces.mesh(f"tunnel:{key}:masonry", "wall")
     mesh.metadata["vault"] = True
     return mesh

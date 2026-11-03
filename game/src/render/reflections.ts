@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 
 /** Static large surfaces only; actor, vegetation, pole and small-prop work stays out of the river pass. */
 export const REFLECTION_LAYER = 2;
-const SURFACES = new Set(['ground', 'buildings', 'structures', 'massing', 'roads', 'boats']);
+const SURFACES = new Set(['ground', 'buildings', 'structures', 'massing', 'roads', 'boats', 'bridges']);
 export function reflectionSurface(mesh: THREE.Mesh): boolean {
   if (mesh.userData.reflection_surface === false) return false;
   if (mesh.userData.shadowBatch || (mesh as THREE.InstancedMesh).isInstancedMesh) return false;

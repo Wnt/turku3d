@@ -243,9 +243,11 @@ def reconstruct_changed(changed, buildings, established, cache, jobs):
 
 def class6(paths, cache: Path):
     """Class-6 points of whole LAZ tiles, cached per tile by content."""
+    from turku3d.tile_layer import identities
+
     arrays = []
     for path in paths:
-        key = sha256(path)
+        key = identities({"laz": path})["laz"]
         target = cache / f"{key}.class6.npy"
         with cache_lock(cache / "locks" / key):
             if not target.exists():

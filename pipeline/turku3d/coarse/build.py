@@ -26,7 +26,6 @@ from turku3d.col.format import ColTile, write_col
 from turku3d.col.materials import mat_id
 from turku3d.facade_kit import candidates, palette_sources, parameter_hash
 from turku3d.layers import write_visual
-from turku3d.package.gltf import GlbMesh
 from turku3d.stage_cache import StageCache, source_key
 from turku3d.wall_surfaces import paint_partition, trapezoids
 
@@ -34,7 +33,7 @@ from . import banks, boats, bridges, fences, gardens, kerbs, parked, road_top, s
 from .collision import collision_tiles, compact_collision  # noqa: F401 (producer API)
 from .collision_key import code_hash as collision_code_hash
 from .extrusion import extrude
-from .forests import draft_trees
+from .forests import draft_trees, structure_clearance
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .retention import managed_build
@@ -221,6 +220,11 @@ def build(
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
     grid_pos, grid_idx, materials, wet, level = cached_terrain(cache, tile, inputs, common)
+    # Retain the pre-bridge TIN so the later constrained apron uses the same
+    # absolute target as the initial grid repair, without compounding its blend.
+    from turku3d.ground.mesh import Mesh
+
+    bridge_base = Mesh(grid_pos.copy(), grid_idx, materials)
     from .bridge_access import cached_stage
 
     grid_pos, osm_decks, decks, bridge_roads = cached_stage(
@@ -260,7 +264,6 @@ def build(
     seconds["tunnels"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    origin = np.asarray(tile.origin)
     stage = out / ".stage"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
@@ -277,6 +280,7 @@ def build(
     )
     from . import stairs
 
+    source_ground = dry
     dry, river, bank, solid, stair_meshes, boat_meshes, structure_seconds = structures_stage(
         cache,
         tile,
@@ -342,7 +346,19 @@ def build(
                  street_profiles.constrain(solid, inputs.street_profiles)),
     )
     dry, solid = dry_surface.mesh, solid_surface.mesh
-    surface_sample = attachments.sampler(street_profiles.sampler(surface_sample, dry_surface), inputs.attachments)
+    from . import bridge_join
+
+    aprons = [patch for deck in osm_decks for patch in deck.aprons]
+    dry, solid = cache.run(
+        "bridge_aprons", source_key(Path(bridge_join.__file__), surfaces.split_boundaries,
+                                    Path(street_profiles.__file__), base / "ground/mesh.py"),
+        [dry, solid, aprons, bridge_base],
+        lambda: (bridge_join.constrain(dry, aprons, bridge_base),
+                 bridge_join.constrain(solid, aprons, bridge_base)),
+    )
+    surface_sample = street_profiles.sampler(surface_sample, dry_surface)
+    surface_sample = bridge_join.sampler(surface_sample, dry, aprons)
+    surface_sample = attachments.sampler(surface_sample, inputs.attachments)
     seconds["street_profiles_geometry"] = cache.metrics["street_profiles"]["seconds"]
     # The measured connected terrain replaces legacy raised strips in its area.
     kerb_lines = inputs.kerbs
@@ -399,6 +415,7 @@ def build(
                 Path(__file__).with_name("forests.py"),
                 Path(__file__).with_name("canopy_trees.py"),
                 Path(__file__).with_name("forest_paths.py"),
+                Path(__file__).with_name("fences.py"),
                 base / "vegetation/trees.py",
                 base / "vegetation/visual.py",
                 *sorted((base / "vegetation/assets").glob("*.glb")),
@@ -419,6 +436,8 @@ def build(
                 inputs.vegetation_paths,
                 inputs.vegetation_roads,
                 inputs.retaining,
+                inputs.barriers,
+                inputs.attachments,
                 inputs.trees,
                 shells,
                 carried_mask,
@@ -440,7 +459,7 @@ def build(
     def barrier_stage(directory):
         files = []
         value = fences.produce(
-            tile, inputs, directory, files, lambda x, z: grid_height(tile, grid_pos, x, z), measured_barriers
+            tile, inputs, directory, files, surface_sample, measured_barriers
         )
         return value
 
@@ -450,17 +469,29 @@ def build(
             barrier_stage,
             Path(fences.__file__),
             Path(__file__).with_name("tunnels.py"),
-            grid_height,
+            Path(bridge_join.__file__),
+            street_profiles.sampler,
+            attachments.sampler,
             base / "structures/geometry.py",
             base / "package/gltf.py",
             *common,
         ),
-        [tile, measured_barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos,
-         inputs.retaining, inputs.vegetation_roads],
+        [tile, measured_barriers, inputs.streets, inputs.water, inputs.tunnels, grid_pos, dry,
+         inputs.retaining, inputs.vegetation_roads, inputs.attachments],
         stage,
         barrier_stage,
     )
     seconds["fences"] = cache.metrics["fences"]["seconds"]
+    from . import surface_closure
+
+    closure_structures = [*stair_meshes, *kerb_meshes,
+                          *[m for m in tunnels.meshes if m.object_id != "tunnel:ground-edge"]]
+    closure_decks = [m for deck in osm_decks for m in deck.meshes]
+    dry, solid, closure_report = surface_closure.stage(
+        cache, source_ground, dry, solid, closure_structures, closure_decks,
+        tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
+    )
+    seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
     # Street furniture and lights (G1): before collision, which merges their static primitives.
     from . import furniture
 
@@ -519,6 +550,13 @@ def build(
             flags=col.computed_flags(),
         )
     seconds["collision"] = time.perf_counter() - t
+    from . import surface_audit
+
+    surface_report = surface_audit.gate(
+        out, tile, inputs, source_ground, tunnels.openings,
+        [dry, bank, *closure_structures, *closure_decks], navigation_cells
+    )
+    seconds["surface_audit"] = surface_report.get("seconds", 0.)
 
     for cid, data in cols.items():
         url = f"col/{cid}.{hashlib.sha256(data).hexdigest()}.col"
@@ -550,7 +588,7 @@ def build(
             cache=cache,
             gardens=gardens.stats(tile, inputs.gardens),
             boats=boats.stats(tile, inputs.boats, boat_meshes),
-            trees=draft_trees(tile, grid_pos, inputs.trees, water, shells),
+            trees=structure_clearance(draft_trees(tile, grid_pos, inputs.trees, water, shells), inputs),
         )
     facade_params = parameter_hash(b.facade_key for b in blds)
     t = time.perf_counter()
@@ -784,6 +822,8 @@ def build(
             sections=len(inputs.street_profiles),
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
+        surface_closure=closure_report,
+        surface_audit=surface_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),
         attachments=attachments.stats(tile, inputs.attachments),
         walkable=walkable.stats(tile, inputs.walkable),

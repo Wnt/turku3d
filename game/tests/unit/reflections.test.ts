@@ -6,7 +6,7 @@ import { Environment } from '../../src/render/environment';
 
 test('river pass includes large static surfaces and excludes water, props and vegetation', () => {
   const owner = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10)); owner.add(mesh);
-  for (const layer of ['ground', 'buildings', 'structures', 'massing', 'roads', 'boats']) {
+  for (const layer of ['ground', 'buildings', 'structures', 'massing', 'roads', 'boats', 'bridges']) {
     owner.userData.layer = layer; expect(reflectionSurface(mesh)).toBe(true);
   }
   for (const layer of ['props', 'vegetation']) {

@@ -62,7 +62,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   const compiled = loading.begin('GPU texture upload and pipeline warmup');
   const culled = new Map<THREE.Object3D, boolean>();
   // The character and own car must be warm even if a menu/save camera faces away from them.
-  // Other offscreen city materials are prepared when streaming or rendering first needs them.
+  // Other resident city materials join the paced graphics queue after the menu is ready.
   for (const actor of actors) actor.traverse(object => {
     culled.set(object, object.frustumCulled); object.frustumCulled = false;
   });

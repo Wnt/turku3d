@@ -13,7 +13,7 @@ from pathlib import Path
 
 from turku3d import profiling
 
-import laspy
+from .decoded import chunks as decoded_chunks
 import numpy as np
 from scipy.spatial import cKDTree
 from shapely import intersects_xy
@@ -107,6 +107,7 @@ class TileStore:
         self._cached_tile = lru_cache(maxsize=24)(self._read_tile)
         self.version = hashlib.sha256(
             Path(__file__).read_bytes()
+            + Path(__file__).with_name("decoded.py").read_bytes()
             + repr((C.ORIGIN, C.COLLISION_TILE_SIZE, POINT_DTYPE.descr)).encode()
         ).hexdigest()
 
@@ -131,30 +132,29 @@ class TileStore:
             tmp = Path(tempfile.mkdtemp(prefix=".points-", dir=dest.parent))
             try:
                 counts = {}
-                with laspy.open(source) as reader:
-                    for chunk in reader.chunk_iterator(1_000_000):
-                        records = np.empty(len(chunk), POINT_DTYPE)
-                        records["xyz"][:, 0] = np.asarray(chunk.x) - C.ORIGIN_E
-                        records["xyz"][:, 1] = np.asarray(chunk.z) - C.ORIGIN_H
-                        records["xyz"][:, 2] = C.ORIGIN_N - np.asarray(chunk.y)
-                        for name in POINT_DTYPE.names[1:]:
-                            records[name] = np.asarray(getattr(chunk, name))
-                        indices = np.floor(
-                            records["xyz"][:, [0, 2]] / C.COLLISION_TILE_SIZE
-                        ).astype(int)
-                        # Lexicographic sort makes each tile write contiguous, not 64 scans/chunk.
-                        order = np.lexsort((indices[:, 0], indices[:, 1]))
-                        sorted_indices = indices[order]
-                        starts = np.r_[
-                            0, np.flatnonzero(np.any(np.diff(sorted_indices, axis=0), axis=1)) + 1
-                        ]
-                        for a, b in zip(starts, np.r_[starts[1:], len(order)], strict=True):
-                            if a == b:
-                                continue
-                            name = C.CollisionTile(*sorted_indices[a]).id
-                            with (tmp / f"{name}.bin").open("ab") as out:
-                                records[order[a:b]].tofile(out)
-                            counts[name] = counts.get(name, 0) + int(b - a)
+                for chunk in decoded_chunks(source):
+                    records = np.empty(len(chunk), POINT_DTYPE)
+                    records["xyz"][:, 0] = np.asarray(chunk.x) - C.ORIGIN_E
+                    records["xyz"][:, 1] = np.asarray(chunk.z) - C.ORIGIN_H
+                    records["xyz"][:, 2] = C.ORIGIN_N - np.asarray(chunk.y)
+                    for name in POINT_DTYPE.names[1:]:
+                        records[name] = np.asarray(getattr(chunk, name))
+                    indices = np.floor(
+                        records["xyz"][:, [0, 2]] / C.COLLISION_TILE_SIZE
+                    ).astype(int)
+                    # Lexicographic sort makes each tile write contiguous, not 64 scans/chunk.
+                    order = np.lexsort((indices[:, 0], indices[:, 1]))
+                    sorted_indices = indices[order]
+                    starts = np.r_[
+                        0, np.flatnonzero(np.any(np.diff(sorted_indices, axis=0), axis=1)) + 1
+                    ]
+                    for a, b in zip(starts, np.r_[starts[1:], len(order)], strict=True):
+                        if a == b:
+                            continue
+                        name = C.CollisionTile(*sorted_indices[a]).id
+                        with (tmp / f"{name}.bin").open("ab") as out:
+                            records[order[a:b]].tofile(out)
+                        counts[name] = counts.get(name, 0) + int(b - a)
                 for name, count in counts.items():
                     raw = tmp / f"{name}.bin"
                     data = np.memmap(raw, mode="r", dtype=POINT_DTYPE, shape=(count,))

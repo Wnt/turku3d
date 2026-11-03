@@ -105,7 +105,7 @@ def laz_paths(bounds):
 def reduced_points(path):
     """One LAZ file's class-2 ground (first return per 0.5 m cell) and class-5 canopy (highest
     return per 0.5 m cell), cached by the file's content; immutable raw is read once."""
-    import laspy
+    from turku3d.lidar.decoded import chunks as decoded_chunks
 
     from turku3d.tile_layer import identities
 
@@ -119,13 +119,12 @@ def reduced_points(path):
         if not dest.exists():
             ground, canopy = [], []
             print(f"Reading {path.name}", flush=True)
-            with laspy.open(path) as f:
-                for p in f.chunk_iterator(1_000_000):
-                    cls = np.asarray(p.classification)
-                    x, y, z = C.en_to_local(np.asarray(p.x), np.asarray(p.y), np.asarray(p.z))
-                    xyz = np.column_stack((x, y, z))
-                    ground.append(first_per_cell(xyz[cls == 2]))
-                    canopy.append(highest_per_cell(xyz[cls == 5]))
+            for p in decoded_chunks(path):
+                cls = np.asarray(p.classification)
+                x, y, z = C.en_to_local(np.asarray(p.x), np.asarray(p.y), np.asarray(p.z))
+                xyz = np.column_stack((x, y, z))
+                ground.append(first_per_cell(xyz[cls == 2]))
+                canopy.append(highest_per_cell(xyz[cls == 5]))
             ground = first_per_cell(np.concatenate(ground)) if ground else np.empty((0, 3))
             canopy = highest_per_cell(np.concatenate(canopy)) if canopy else np.empty((0, 3))
             temporary = dest.with_suffix(".tmp.npz")

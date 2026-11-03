@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 // Validate expanded source boxes first; instance only intact canonical boxes after assembly.
 export function instanceFacadeComponents(doc, scene, tile, EXTMeshGPUInstancing) {
   const groups = new Map();
@@ -22,7 +24,13 @@ export function instanceFacadeComponents(doc, scene, tile, EXTMeshGPUInstancing)
     }
     // A wall assembler cut must never be undone by restoring its box prototype.
     if (local.some(v => Math.abs(Math.abs(v)-.5) > .003)) continue;
-    const key = materials.indexOf(prim.getMaterial());
+    // Visibility is placement-dependent even for identical boxes/materials. Only
+    // share a prototype when every baked value and its interpretation agree.
+    const visibility = prim.getAttribute('COLOR_1');
+    const values = visibility?.getArray();
+    const lighting = visibility ? [visibility.getType(), visibility.getComponentType(), visibility.getNormalized(),
+      createHash('sha256').update(Buffer.from(values.buffer, values.byteOffset, values.byteLength)).digest('hex')] : null;
+    const key = JSON.stringify([materials.indexOf(prim.getMaterial()), lighting]);
     if (!groups.has(key)) groups.set(key, { prim, local, normals, entries: [] });
     groups.get(key).entries.push({ node, box });
   }

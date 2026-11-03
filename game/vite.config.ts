@@ -18,6 +18,18 @@ export default defineConfig({
   // Dev server only: /tiles from the sandbox dist (or the localhost service's tile release, tools/dev/localhost-game),
   // POST /telemetry (also on `vite preview`, the browser checks' server) and the localhost build status.
   plugins: [wasm(), capturePlugin(), {
+    name: 'build-head',
+    configureServer(server) {
+      let cached = { at: 0, commit: '' };
+      server.middlewares.use('/__build', (_req, res) => {
+        if (Date.now() - cached.at > 3000) {
+          try { cached = { at: Date.now(), commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }; } catch { /* keep the last */ }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify({ commit: cached.commit }));
+      });
+    },
+  }, {
     name: 'preload-game-entry',
     transformIndexHtml: { order: 'post', handler(_html, context) {
       // bootstrap waits for isolation; discover the large dynamic entry during HTML parsing.
@@ -31,7 +43,9 @@ export default defineConfig({
   build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000 },
   optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
   // /coarse/* reaches the localhost coarse tile service (tools/dev/coarse-tiles) same-origin, as through serve-dist.
-  server: { port: port(), strictPort: true, headers: isolation, proxy: { '/coarse': { target: process.env.TURKU3D_COARSE_PROXY ?? `http://127.0.0.1:${port(5)}`, configure: (proxy) => proxy.on('error', (_err, req, res) => {
+  // No HMR: merges land in the served worktree every few minutes and each one used to reload Jonni's test session.
+  // The page polls /__build instead and shows a 'new build ready' notice (src/dev/buildNotice.ts); F5 loads it.
+  server: { hmr: false, port: port(), strictPort: true, headers: isolation, proxy: { '/coarse': { target: process.env.TURKU3D_COARSE_PROXY ?? `http://127.0.0.1:${port(5)}`, configure: (proxy) => proxy.on('error', (_err, req, res) => {
     // Same contract as serve-dist: an offline service is a 200 answer on /coarse/status, never a page console error.
     if (!('writeHead' in res) || res.headersSent) return;
     res.writeHead(req.url?.split('?')[0] === '/coarse/status' ? 200 : 503, { 'Content-Type': 'application/json' });

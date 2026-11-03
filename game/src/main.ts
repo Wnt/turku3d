@@ -29,7 +29,7 @@ import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
-import { afterRender } from './render/afterRender';
+import { GraphicsPreparation } from './render/graphicsPreparation';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
@@ -159,29 +159,22 @@ window.__render = { camera, environment: env, renderer, perf, post, setTime: (is
 let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass ? null : new PropLod();
-const tiles = new VisualTiles(!!idPass, release => retireAfterFrame(renderer, release));
+const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
+const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
   furniture?.remove(model);
   rain?.exposure.remove(model);
-  retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
+  graphics.retire(() => { vegetation?.remove(model); materials?.release(model); });
 });
-let graphicsReady = Promise.resolve();
 const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal) => {
-  // Startup warms the complete scene with real draws before Ready. Per-model async compilation
-  // repeats that work and yields once per material; reserve paced compilation for streaming during play.
-  if (!params.qa && worldLoad.snapshot().phase !== 'ready') return Promise.resolve();
-  const prepared = graphicsReady.then(async () => {
-    if (signal?.aborted) return;
-    // Jobs can be queued by coarse.update inside the animation callback. Start shader work in a task after the animation callbacks.
-    await new Promise<void>(resolve => afterRender(resolve));
-    if (signal?.aborted) return;
-    await prepare();
-    if (!signal?.aborted) await post?.prepare(model);
-  });
-  graphicsReady = prepared.catch(() => {});
-  return prepared;
+  // The menu warms its initial view only. Backfill other resident programs after it becomes ready.
+  if (!params.qa && worldLoad.snapshot().phase !== 'ready') {
+    graphics.defer(model, prepare, signal);
+    return Promise.resolve();
+  }
+  return graphics.enqueue(model, prepare, signal);
 };
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
   queueGraphics(model, () => materials?.prepare(model, scene, camera, signal), signal);
@@ -206,7 +199,7 @@ if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
   const previous = post;
   post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
   window.__render!.post = post;
-  retireAfterFrame(renderer, () => previous?.dispose());
+  graphics.retire(() => previous?.dispose());
 });
 if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   if (!next || !rain) return;
@@ -259,6 +252,7 @@ addEventListener('resize', () => {
 // Test clock: rendered frames and simulated seconds (60 Hz physics steps in play mode, frame time clamped like the
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
+if (import.meta.env.DEV) void import('./dev/buildNotice').then(m => m.startBuildNotice());
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
   lights, vegetation };
 
@@ -323,7 +317,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     previewCollision: collisionPreview,
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
-    retire: release => retireAfterFrame(renderer, release),
+    retire: release => graphics.retire(release),
     prepareGraphics: prepareSceneryGraphics,
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
@@ -570,6 +564,7 @@ async function runPlay() {
   const badge = import.meta.hot ? new BuildBadge(document.body) : null;
   let session = await startPlay(world, null);
   worldLoad.update({ phase: 'ready' });
+  graphics.flush(fail);
   if (import.meta.hot && badge) {
     const onStatus = (status: BuildStatus) => badge.set(status);
     import.meta.hot.on('turku3d:status', onStatus);
@@ -581,6 +576,7 @@ async function runPlay() {
       if (!next) return;
       swapping = swapping.then(async () => {
         session = await (next as unknown as { startPlay: typeof startPlay }).startPlay(world, session.dispose());
+        graphics.flush(fail);
         badge.applied('hot-swap');
       }).catch(fail);
     });

@@ -473,6 +473,56 @@ class FarmTests(unittest.TestCase):
         roots = farm.intermediate_roots(repo)
         self.assertEqual(roots['vegetation'], old_roots['vegetation'])
         self.assertNotEqual(roots['coarse-roofs'], old_roots['coarse-roofs'])
+        (base / 'lidar/decoded.py').write_text('shared decoder')
+        decoded_roots = farm.intermediate_roots(repo)
+        self.assertEqual(set(decoded_roots), set(roots))
+        for name in roots:
+            self.assertNotEqual(decoded_roots[name], roots[name])
+
+    def test_decoded_eviction_during_build_preserves_locked_and_mapped_sources(self):
+        import fcntl
+        import mmap
+
+        farm = self.farm(workers=0, free=lambda: 0)
+        farm.jobs[(GEN, 't0_0_0')] = REV
+        root = self.root / 'cache/raw-derived/decoded' / ('e' * 64)
+        root.mkdir(parents=True)
+        cold, locked = root / ('f' * 64 + '.npy'), root / ('a' * 64 + '.npy')
+        cold.write_bytes(b'exact source columns')
+        locked.write_bytes(b'decoding')
+        with cold.open('rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            with locked.with_suffix('.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                self.assertFalse(farm.make_room(farm_module.GIB))
+                self.assertTrue(locked.exists())
+            self.assertFalse(cold.exists())
+            self.assertEqual(data[:], b'exact source columns')
+        self.assertTrue(cold.with_suffix('.lock').exists())
+        self.assertEqual(farm.metrics['evicted_bytes'], len(b'exact source columns'))
+
+    def test_raw_reducers_ignore_unrelated_geometry_but_track_local_helpers(self):
+        farm = self.farm()
+        repo = self.root / 'revisions' / REV / 'repo'
+        base = repo / 'pipeline/turku3d'
+        for name, text in {
+            'config.py': 'ORIGIN = 0',
+            'source_code.py': (Path(__file__).parents[3] / 'pipeline/turku3d/source_code.py').read_text(),
+            'vegetation/trees.py': 'CELL = .5\ndef reduced_points(): return helper()\ndef helper(): return CELL\ndef placement(): return 1',
+            'buildings/reconstruct.py': 'def class6(): return 1\ndef unrelated(): return 1',
+            'buildings/inputs.py': 'def read_points(): return 1',
+            'lidar/cache.py': 'cache',
+        }.items():
+            path = base / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        before = farm.intermediate_roots(repo)
+        path = base / 'vegetation/trees.py'
+        path.write_text(path.read_text().replace('placement(): return 1', 'placement(): return 2'))
+        self.assertEqual(farm.intermediate_roots(repo), before)
+        path.write_text(path.read_text().replace('CELL = .5', 'CELL = .25'))
+        after = farm.intermediate_roots(repo)
+        self.assertNotEqual(after['vegetation'], before['vegetation'])
+        self.assertEqual(after['coarse-roofs'], before['coarse-roofs'])
 
     def test_game_polling_counts_only_its_requested_generation(self):
         entered, release = threading.Event(), threading.Event()
@@ -542,6 +592,24 @@ class FarmTests(unittest.TestCase):
                 farm.run_build(REV, tile, root)
             stop.assert_called_once_with(info, root / tile)
         farm.queue_info.clear()
+
+    def test_launch_keeps_thread_budget_when_bulk_admission_drains(self):
+        from unittest.mock import Mock, patch
+        farm = self.farm(execute=None)
+        root = farm.output(GEN)
+        root.mkdir(parents=True)
+        tile = 't0_0_0'
+        farm.queue_info[(GEN, tile)] = {}
+        farm.dispatched = {(GEN, f't0_{i}_0') for i in range(4)}
+        farm.workers = 0  # Memory pressure after pump(), before this worker launches.
+        process = Mock(pid=2147483647, returncode=0)
+        process.poll.return_value = 0
+        with patch.object(farm_module.os, 'cpu_count', return_value=16), \
+                patch.object(farm_module.subprocess, 'Popen', return_value=process) as launch:
+            farm.run_build(REV, tile, root)
+        self.assertEqual(launch.call_args.kwargs['env']['TURKU3D_THREADS_PER_WORKER'], '4')
+        farm.queue_info.clear()
+        farm.dispatched.clear()
 
     def test_recent_unpinned_payloads_get_a_grace_lease(self):
         farm = self.farm(grace_seconds=900)
@@ -663,6 +731,39 @@ class FarmTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+    def test_building_models_are_validated_and_pinned_with_their_manifest(self):
+        from urllib.parse import urljoin
+        digest = hashlib.sha256(b'building').hexdigest()
+        def build(revision, tile, root):
+            result = fake_build(revision, tile, root)
+            (root / 'shared').mkdir(exist_ok=True)
+            (root / 'shared' / (digest + '.glb')).write_bytes(b'building')
+            manifest = farm_module.read_json(root / tile / 'manifest.json')
+            manifest['buildingPlacements'] = dict(version=1,
+                models=[dict(id=digest, uri='../shared/' + digest + '.glb', bytes=8)],
+                placements=[dict(id='building', model=digest, position=[250,0,100], viewDistance=500)])
+            farm_module.atomic_json(root / tile / 'manifest.json', manifest)
+            return result
+        farm = self.farm(execute=build)
+        farm.register(REV, 'integration')
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            manifest = json.load(urlopen(base + '/v/integration/coarse/t0_0_0/manifest.json'))
+            model = manifest['buildingPlacements']['models'][0]
+            self.assertTrue(model['uri'].startswith(f'/v/{REV}/coarse/'))
+            farm.register(REV2, 'integration')
+            self.assertEqual(urlopen(urljoin(base, model['uri'])).read(), b'building')
+            original = farm_module.read_json(farm.output(GEN) / 't0_0_0/manifest.json')
+            (farm.output(GEN) / 'shared' / (digest + '.glb')).write_bytes(b'corrupt!')
+            with self.assertRaisesRegex(RuntimeError, 'hash mismatch'):
+                farm.validate(farm.output(GEN), 't0_0_0', original)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
 
     def test_http_pins_manifest_urls_and_serves_both_revisions(self):
         farm = self.farm()

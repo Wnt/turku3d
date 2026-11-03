@@ -1,3 +1,4 @@
+import { materialIdentity } from './materialIdentity';
 import { StyledMaterials } from './styledMaterials';
 import type * as THREE from 'three/webgpu';
 
@@ -11,9 +12,7 @@ export class SharedMaterials {
   acquire(material: THREE.Material, owner?: THREE.Object3D): THREE.Material {
     if (!(material as THREE.MeshStandardMaterial).isMeshStandardMaterial ||
         Object.values(material).some(value => value?.isTexture || value?.isNode)) return material;
-    const json = material.toJSON() as unknown as Record<string, unknown>;
-    for (const key of ['uuid', 'metadata']) delete json[key];
-    const key = JSON.stringify(json);
+    const key = materialIdentity(material);
     let entry = this.entries.get(key);
     if (!entry) {
       entry = { material, users: 0 };

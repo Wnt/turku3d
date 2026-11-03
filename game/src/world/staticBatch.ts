@@ -1,10 +1,23 @@
+import { sharedGeometry } from './modelGeometry';
 import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { interleaveProgram } from '../render/facadeProgramAttributes';
 import { disposeDraw } from '../render/sharedMaterials';
 import { PreparationBudget } from '../render/preparationBudget';
 
-interface Batch { mesh: THREE.Mesh; sources: THREE.Mesh[]; parent: THREE.Object3D }
+interface Batch { mesh: THREE.Mesh; sources: THREE.Mesh[]; parents: THREE.Object3D[]; placements: THREE.Object3D[] }
+const placementOwners = new WeakMap<THREE.Object3D, readonly THREE.Object3D[]>();
+/** A merged draw is occluded only when every contributing placement is occluded. */
+export function staticBatchPlacements(mesh: THREE.Object3D) { return placementOwners.get(mesh); }
+function placementOf(mesh: THREE.Object3D, model: THREE.Object3D): THREE.Object3D | undefined {
+  for (let node = mesh.parent; node && node !== model; node = node.parent)
+    if (node.userData.archetype && node.userData.placementId) return node;
+}
+/** Conservative visibility: mixed near/far clusters keep every silhouette until all owners leave. */
+export function updateStaticBatchVisibility(model: THREE.Object3D) {
+  for (const batch of owners.get(model) ?? []) if (batch.placements.length)
+    batch.mesh.visible = batch.placements.some(placement => placement.visible);
+}
 const owners = new WeakMap<THREE.Object3D, Batch[]>();
 const budget = new PreparationBudget();
 
@@ -59,6 +72,7 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
   model.updateWorldMatrix(true, true);
   const buckets = new Map<string, THREE.Mesh[]>(), center = new THREE.Vector3();
   const geometryUsers = new Map<THREE.BufferGeometry, number>();
+  const placements = new Map<THREE.Mesh, THREE.Object3D>();
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (mesh.isMesh) geometryUsers.set(mesh.geometry, (geometryUsers.get(mesh.geometry) ?? 0) + 1);
@@ -71,16 +85,26 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
     if (mesh.userData.prop_type || mesh.userData.objects?.some((row: Record<string, unknown>) => row.prop_type)) return;
     mesh.geometry.computeBoundingBox();
     mesh.geometry.boundingBox!.getCenter(center).applyMatrix4(mesh.matrixWorld);
+    const placement = placementOf(mesh, model);
+    if (placement) {
+      // Hidden subparts/debug masks are independent of placement visibility; never bake them into a visible draw.
+      for (let node: THREE.Object3D | null = mesh.parent; node && node !== placement; node = node.parent) if (!node.visible) return;
+      placements.set(mesh, placement);
+    }
+    const cellSize = placement ? 250 : 62.5;
+    if (placement) center.setFromMatrixPosition(placement.matrixWorld);
     const layout = Object.entries(mesh.geometry.attributes).map(([name, a]) => `${name}:${a.itemSize}:${a.normalized}`).sort();
-    const key = JSON.stringify([mesh.parent.uuid, mesh.material.uuid, mesh.userData.layer, mesh.layers.mask,
-      mesh.renderOrder, Math.floor(center.x / 62.5), Math.floor(center.z / 62.5), !!mesh.geometry.index, layout]);
+    const key = JSON.stringify([placement ? model.uuid : mesh.parent.uuid, !!placement, mesh.material.uuid, mesh.userData.layer, mesh.layers.mask,
+      mesh.renderOrder, Math.floor(center.x / cellSize), Math.floor(center.z / cellSize), !!mesh.geometry.index, layout]);
     const bucket = buckets.get(key) ?? []; bucket.push(mesh); buckets.set(key, bucket);
   });
   const batches: Batch[] = []; owners.set(model, batches);
   for (const sources of buckets.values()) {
     if (sources.length < 2) continue;
     yield;
-    const parent = sources[0].parent!, inverse = parent.matrixWorld.clone().invert();
+    const sourceParents = sources.map(source => source.parent!);
+    const sourcePlacements = [...new Set(sources.map(source => placements.get(source)).filter((p): p is THREE.Object3D => !!p))];
+    const parent = sourcePlacements.length ? model : sourceParents[0], inverse = parent.matrixWorld.clone().invert();
     const program = packedPrograms(sources);
     const packed = program ? new Float32Array(program.buffers.reduce((sum, buffer) => sum + buffer.array.length, 0)) : null;
     const geometries: THREE.BufferGeometry[] = [], rows: Record<string, unknown>[] = [];
@@ -109,7 +133,12 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
     } else interleaveProgram(geometry);
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, sources[0].material);
-    mesh.name = 'static-tile-batch'; mesh.userData = { layer: sources[0].userData.layer, objects: rows };
+    mesh.name = sourcePlacements.length ? 'static-placement-batch' : 'static-tile-batch';
+    mesh.userData = { layer: sources[0].userData.layer, objects: rows };
+    if (sourcePlacements.length) {
+      placementOwners.set(mesh, sourcePlacements);
+      mesh.userData.placementIds = sourcePlacements.map(p => p.userData.placementId);
+    }
     mesh.layers.mask = sources[0].layers.mask; mesh.renderOrder = sources[0].renderOrder;
     mesh.castShadow = mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
     if (program && packed) {
@@ -118,7 +147,7 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
       let start = 0;
       for (const [index, source] of sources.entries()) {
         const original = program.buffers[index], end = start + original.array.length;
-        if (geometryUsers.get(source.geometry) === 1 && original.usage === THREE.StaticDrawUsage
+        if (!sharedGeometry(source.geometry) && geometryUsers.get(source.geometry) === 1 && original.usage === THREE.StaticDrawUsage
           && !original.updateRanges.length && original.onUploadCallback === THREE.InterleavedBuffer.prototype.onUploadCallback) {
           const buffer = new THREE.InterleavedBuffer(packed.subarray(start, end), program.stride);
           for (const { name, itemSize, offset } of program.fields) {
@@ -131,15 +160,18 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
       }
     }
     for (const source of sources) source.removeFromParent();
-    parent.add(mesh); batches.push({ mesh, sources, parent });
+    parent.add(mesh); batches.push({ mesh, sources, parents: sourceParents, placements: sourcePlacements });
   }
+  updateStaticBatchVisibility(model);
 }
 export async function prepareStaticBatches(model: THREE.Object3D) {
   for (const _step of staticBatchSteps(model)) { void _step; const pending = budget.checkpoint(); if (pending) await pending; }
 }
 export function releaseStaticBatches(model: THREE.Object3D, retire: (release: () => void) => void = release => release()) {
-  for (const { mesh, sources, parent } of owners.get(model) ?? []) {
-    mesh.removeFromParent(); parent.add(...sources);
+  for (const { mesh, sources, parents } of owners.get(model) ?? []) {
+    mesh.removeFromParent();
+    sources.forEach((source, index) => parents[index].add(source));
+    placementOwners.delete(mesh);
     retire(() => { disposeDraw(mesh); mesh.geometry.dispose(); });
   }
   owners.delete(model);

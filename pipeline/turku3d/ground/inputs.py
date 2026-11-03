@@ -58,47 +58,45 @@ def laz_paths(bounds):
 
 def read_returns(paths, bounds, classes):
     """x/y/z and class of the returns of the given classes within bounds."""
-    import laspy
+    from turku3d.lidar.decoded import chunks as decoded_chunks
 
     points, labels = [], []
     for path in paths:
-        with laspy.open(path) as reader:
-            for chunk in reader.chunk_iterator(1_000_000):
-                x = np.asarray(chunk.x) - C.ORIGIN_E
-                z = C.ORIGIN_N - np.asarray(chunk.y)
-                cls = np.asarray(chunk.classification)
-                keep = (x >= bounds.xmin) & (x <= bounds.xmax) & (z >= bounds.zmin)
-                keep &= (z <= bounds.zmax) & np.isin(cls, classes)
-                points.append(np.c_[x[keep], np.asarray(chunk.z)[keep], z[keep]])
-                labels.append(cls[keep])
+        for chunk in decoded_chunks(path):
+            x = np.asarray(chunk.x) - C.ORIGIN_E
+            z = C.ORIGIN_N - np.asarray(chunk.y)
+            cls = np.asarray(chunk.classification)
+            keep = (x >= bounds.xmin) & (x <= bounds.xmax) & (z >= bounds.zmin)
+            keep &= (z <= bounds.zmax) & np.isin(cls, classes)
+            points.append(np.c_[x[keep], np.asarray(chunk.z)[keep], z[keep]])
+            labels.append(cls[keep])
     if not points:
         return np.empty((0, 3)), np.empty(0, np.uint8)
     return np.concatenate(points), np.concatenate(labels)
 
 
 def read_lidar(paths, bounds):
-    import laspy
+    from turku3d.lidar.decoded import chunks as decoded_chunks
 
     chunks, classes, water_heights = [], [], []
     for path in paths.values():
         if path.suffix != ".laz":
             continue
-        with laspy.open(path) as reader:
-            for chunk in reader.chunk_iterator(1_000_000):
-                x = np.asarray(chunk.x) - C.ORIGIN_E
-                z = C.ORIGIN_N - np.asarray(chunk.y)
-                cls = np.asarray(chunk.classification)
-                inside = (
-                    (x >= bounds.xmin)
-                    & (x <= bounds.xmax)
-                    & (z >= bounds.zmin)
-                    & (z <= bounds.zmax)
-                )
-                select = inside & np.isin(cls, [2, 12])
-                chunks.append(np.c_[x[select], np.asarray(chunk.z)[select], z[select]])
-                classes.append(cls[select])
-                wet = inside & (cls == 9)
-                water_heights.extend(np.asarray(chunk.z)[wet].tolist())
+        for chunk in decoded_chunks(path):
+            x = np.asarray(chunk.x) - C.ORIGIN_E
+            z = C.ORIGIN_N - np.asarray(chunk.y)
+            cls = np.asarray(chunk.classification)
+            inside = (
+                (x >= bounds.xmin)
+                & (x <= bounds.xmax)
+                & (z >= bounds.zmin)
+                & (z <= bounds.zmax)
+            )
+            select = inside & np.isin(cls, [2, 12])
+            chunks.append(np.c_[x[select], np.asarray(chunk.z)[select], z[select]])
+            classes.append(cls[select])
+            wet = inside & (cls == 9)
+            water_heights.extend(np.asarray(chunk.z)[wet].tolist())
     if not chunks or not any(len(c) for c in chunks):
         raise ValueError("No class-2/12 lidar in the build envelope")
     return np.concatenate(chunks), np.concatenate(classes), np.array(water_heights)

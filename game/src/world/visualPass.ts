@@ -1,6 +1,6 @@
 import type * as THREE from 'three/webgpu';
+import type { CoarseFragment } from './coarseContracts';
 import type { CoarseHost } from './coarseTiles';
-import type { TreePlacements } from './treePlacements';
 
 /** A retained full visual stays authoritative while a producer rebuilds its first pass. */
 export function acceptsVisualPass(current: 'first' | 'full' | undefined, incoming: 'first' | 'full' | undefined) {
@@ -18,7 +18,8 @@ export class VisualPassComparison {
   constructor(private host: CoarseHost, private entries: Map<string, ComparisonEntry>,
     private request: (url: string) => Promise<Response>, private load: (url: string) => Promise<THREE.Object3D>,
     private style: (model: THREE.Object3D) => void, private dispose: (model: THREE.Object3D) => void,
-    private root: string, private page: string) {}
+    private root: string, private page: string,
+    private loadFragment?: (id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>) => Promise<THREE.Object3D>) {}
   clock = 0;
   /** Developer display override; collision and normal streaming always keep their current owner. */
   pass: 'auto' | 'first' | 'full' = 'auto';
@@ -53,9 +54,9 @@ export class VisualPassComparison {
     try {
       const res = await this.request(`${this.root}${id}/${pass === 'first' ? 'first' : 'manifest'}.json`);
       if (!res.ok || res.status === 202) throw new Error(`${id}: ${pass} pass pending`);
-      const fragment = await res.json() as { pass_kind: string; vegetation?:TreePlacements; visual: Record<string, { url: string }> };
+      const fragment = await res.json() as CoarseFragment;
       if (fragment.pass_kind !== pass || !fragment.visual?.[id]) throw new Error(`${id}: ${pass} pass pending`);
-      model = await this.load(new URL(fragment.visual[id].url, new URL(`${this.root}${id}/`, this.page)).href);
+      model = this.loadFragment ? await this.loadFragment(id, fragment) : await this.load(new URL(fragment.visual[id].url, new URL(`${this.root}${id}/`, this.page)).href);
       if (fragment.vegetation) await this.host.prepareVegetation?.(model,fragment.vegetation);
       await this.host.style?.(model);
       this.style(model);

@@ -73,7 +73,7 @@ def cached_stage(cache, tile, grid_pos, grid_idx, materials, wet, inputs):
             Path(bridges.__file__),
             *(
                 Path(__file__).with_name(name + ".py")
-                for name in ("tunnels", "bridge_details", "bridge_kit", "bridge_join", "geometry")
+                for name in ("tunnels", "bridge_details", "bridge_kit", "bridge_join", "walkable", "geometry")
             ),
             base / "structures/geometry.py",
             base / "structures/layer.py",
@@ -87,6 +87,8 @@ def cached_stage(cache, tile, grid_pos, grid_idx, materials, wet, inputs):
             wet,
             inputs.points,
             inputs.roads,
+            inputs.water,
+            inputs.walkable,
             [b.footprint for b in inputs.buildings],
         ],
         lambda: deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs),
