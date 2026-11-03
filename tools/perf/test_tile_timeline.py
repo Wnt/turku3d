@@ -41,6 +41,7 @@ def capture(root: Path):
         {'t': times[45] - 20, 'k': 'cell.glb', 'id': 't0_5_0', 'ms': 30, 'bytes': 1000},
         {'t': times[45] + 5, 'k': 'cell.install', 'id': 't0_5_0', 'level': 0},
         {'t': 700, 'k': 'band.block', 'id': 't0_0_0', 'to': 'lod'},
+        {'t': times[30] + 1, 'k': 'band.swap', 'id': 't0_0_0', 'dir': 'out', 'reason': 'twin not compiled'},
         {'t': 800, 'k': 'coverage', 'i0': -1, 'j0': -1, 'n': 3, 'cells': 'CCC.FD' + 'CPU'},
     ])
 
@@ -60,6 +61,7 @@ class TileTimelineTest(unittest.TestCase):
             self.assertIn('1 hole cell-samples', text); self.assertIn('1 double-coverage samples', text)
             # t0_0_0 replaced its preview without a dissolve: a pop. t0_1_0 dissolved.
             self.assertIn('pop t0_0_0', text); self.assertNotIn('pop t0_1_0', text)
+            self.assertIn('swap: out twin not compiled', text)  # the code's own reason for the instant swap
             self.assertIn('hitches (> 50 ms): 2', text)
             # Hitches belong to what ran in the frame: the measured install slice, then the sampled shader build; the
             # cell GLB that finished nearby is context only.

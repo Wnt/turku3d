@@ -134,7 +134,9 @@ function layoutKey(mesh: THREE.Mesh) {
   if (Object.keys(geometry.morphAttributes).length) key += `morph:${mesh.uuid};`;
   const instanced = mesh as unknown as THREE.InstancedMesh;
   if (instanced.isInstancedMesh) key += `inst:${instanced.instanceMatrix.usage}:${instanced.instanceColor?.usage ?? '-'};`;
-  return `${key}|${mesh.receiveShadow}|${mesh.layers.mask}|${geometry.index ? 'i' : ''}`;
+  // No layers: they pick the passes a mesh draws in, not its builds, and SceneryBatches hides merged sources by
+  // clearing their mask (a batched cell must still find its compiled twins when it starts to dissolve).
+  return `${key}|${mesh.receiveShadow}|${geometry.index ? 'i' : ''}`;
 }
 const keeperKey = (twin: THREE.Material, mesh: THREE.Mesh) => `${twin.uuid}|${layoutKey(mesh)}`;
 
@@ -191,7 +193,7 @@ function keeperFor(mesh: THREE.Mesh, twin: THREE.Material | THREE.Material[]) {
   } else keeper = new THREE.Mesh(geometry, twin);
   keeper.name = `${mesh.name}:dissolve-keeper`;
   for (const [key, value] of Object.entries(mesh.userData)) if (typeof value !== 'object' || value === null) keeper.userData[key] = value;
-  keeper.layers.mask = mesh.layers.mask;
+  keeper.layers.mask = mesh.layers.mask || 1; // a source hidden in a batch still compiles for the main view
   // receiveShadow is part of r186's render-object cache key: match the live mesh, which casts nothing while it fades.
   keeper.receiveShadow = mesh.receiveShadow; keeper.castShadow = false;
   keeper.matrixAutoUpdate = false; keeper.frustumCulled = false;

@@ -412,6 +412,9 @@ test('compiled twins stay compiled until their base material goes: keepers are k
   fades.cancel(root);
   // Recompiling finds every layout kept; disposing the base releases its keepers, and the twins need compiling again.
   const again = vi.fn(); await precompileDissolve([root], [0], again); expect(again).not.toHaveBeenCalled();
+  // A source merged into a scenery batch is hidden by its layer mask: it still finds its compiled twins.
+  for (const child of root.children) child.layers.mask = 0;
+  expect(fades.canStart(root, 0)).toBe(true);
   base.dispose();
   expect(disposed).toHaveBeenCalledTimes(2);
   expect(fades.canStart(root, 0)).toBe(false);
