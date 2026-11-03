@@ -99,7 +99,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const devLayers = new DevLayers(scene, coarse, renderer, radius => { env.setScreenshotDistance(camera, radius); env.setCityDistance(camera, 15000); }, camera);
-  const positionHud = new PositionHud(camera, tiles, undefined, () => devLayers.filterRevision);
+  // The crosshair target comes from a collision ray (Rapier in the worker); only building meshes at its hit are raycast.
+  const positionHud = new PositionHud(camera, tiles, undefined, () => devLayers.filterRevision,
+    (origin, direction, far) => physics.raycast(origin, direction, far, 'solid'));
   const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
     if (!startScreen.active) void positionHud.copy();
   });
