@@ -149,6 +149,14 @@ def test_farm_migration_links_unchanged_payloads_and_validates(tmp_path, chain):
     assert tile_migrate.migrate_tile(root, meta, TILE)["state"] == "kept"
 
 
+def test_a_snapshot_with_other_transform_code_is_refused(tmp_path, chain):
+    chain(registry.CHAIN[0], TINT)
+    root, meta, _ = farm(tmp_path)
+    meta["migrations"][1]["code_hash"] = "0" * 64
+    with pytest.raises(RuntimeError, match="differs"):
+        tile_migrate.migrate_tile(root, meta, TILE)
+
+
 def test_chain_resumes_from_a_finished_prefix_generation(tmp_path, chain):
     chain(registry.CHAIN[0], TINT)
     root, first, _ = farm(tmp_path)
@@ -214,3 +222,32 @@ def test_parity_compares_a_generator_build_with_the_migrated_base(tmp_path, chai
     manifest["lights"] = dict(count=1)
     (built / TILE / "manifest.json").write_bytes(core.manifest_bytes(manifest))
     assert tile_migrate.parity(root, meta, generated_rev, TILE)["differing_content_keys"] == ["lights"]
+
+
+def test_watching_run_checks_only_new_base_tiles(tmp_path, chain, monkeypatch):
+    chain(registry.CHAIN[0])
+    root, meta, _ = farm(tmp_path)
+    calls = []
+    monkeypatch.setattr(tile_migrate, "ProcessPoolExecutor", lambda max_workers: _Inline())
+    monkeypatch.setattr(tile_migrate, "_worker", lambda args: calls.append(args[2]) or dict(
+        tile=args[2], state="migrated"))
+    passes = iter([0, 1])
+    def sleep(_):
+        if next(passes):
+            raise KeyboardInterrupt
+        shutil.copytree(root / "products" / BASE_GEN / TILE, root / "products" / BASE_GEN / "t0_1_0")
+    monkeypatch.setattr(tile_migrate.time, "sleep", sleep)
+    with pytest.raises(KeyboardInterrupt):
+        tile_migrate.run(root, meta, 2, watch=1)
+    assert calls == [TILE, "t0_1_0"]
+
+
+class _Inline:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def map(self, function, items, chunksize=1):
+        return map(function, items)

@@ -86,9 +86,26 @@ def products(root: Path, generation: str) -> Path:
     return root / 'products' / generation
 
 
+_VERIFIED = {}
+
+
+def verified_chain(meta: dict):
+    """This snapshot's chain, refused unless its keys and code hashes are the derived revision's."""
+    from turku3d.migrations import chain
+
+    theirs = tuple((f"{s['name']}@{s['version']}", s['code_hash']) for s in meta['migrations'])
+    if theirs not in _VERIFIED:
+        migrations = chain()
+        mine = tuple((m.key, m.code_hash()) for m in migrations)
+        if mine != theirs:
+            raise RuntimeError(f'snapshot chain {mine} differs from the derived revision {theirs}')
+        _VERIFIED[theirs] = migrations
+    return _VERIFIED[theirs]
+
+
 def migrate_tile(root: Path, meta: dict, tile: str) -> dict:
     """Migrate one finished base tile into the derived generation. Idempotent and resumable."""
-    from turku3d.migrations import chain, core
+    from turku3d.migrations import core
 
     if not TILE.fullmatch(tile):
         raise ValueError(f'invalid tile {tile}')
@@ -103,10 +120,8 @@ def migrate_tile(root: Path, meta: dict, tile: str) -> dict:
         ready = read_json(target_root / tile / 'ready.json', {})
         if ready.get('base_manifest_sha256') == base_sha and ready.get('generation') == generation:
             return dict(tile=tile, state='kept')
-        migrations = chain()
+        migrations = verified_chain(meta)
         keys = [m.key for m in migrations]
-        if keys != [f"{s['name']}@{s['version']}" for s in meta['migrations']]:
-            raise RuntimeError(f'snapshot chain {keys} differs from the derived revision')
         # Resume from the longest finished prefix generation of the same base product.
         source, done = base, 0
         for index in range(len(migrations) - 1, 0, -1):
@@ -169,21 +184,25 @@ def finished_base_tiles(root: Path, meta: dict) -> list[str]:
 def run(root: Path, meta: dict, jobs: int, tiles=None, watch=0, idle_exit=7200) -> dict:
     log_dir = root / 'migrations' / meta['generation']
     log_dir.mkdir(parents=True, exist_ok=True)
-    counts, last_new = {}, time.monotonic()
+    counts, last_new, finished = {}, time.monotonic(), set()
     with ProcessPoolExecutor(max_workers=max(1, min(MAX_JOBS, jobs))) as pool:
         while True:
-            todo = tiles or finished_base_tiles(root, meta)
+            # Base products are immutable: a watching pass checks only tiles it has not finished.
+            todo = tiles or [t for t in finished_base_tiles(root, meta) if t not in finished]
             started = time.monotonic()
             changed = 0
             with (log_dir / 'run.jsonl').open('a') as log:
                 for result in pool.map(_worker, [(str(root), meta, t) for t in todo], chunksize=8):
                     counts[result['state']] = counts.get(result['state'], 0) + 1
+                    if result['state'] in ('kept', 'migrated'):
+                        finished.add(result['tile'])
                     if result['state'] != 'kept':
                         changed += 1
                         log.write(json.dumps(dict(result, t=time.time())) + '\n')
                         log.flush()
             summary = dict(revision=meta['revision'], generation=meta['generation'],
                            base_generation=meta['base_generation'], tiles=len(todo), counts=counts,
+                           finished=len(finished),
                            pass_seconds=round(time.monotonic() - started, 1), updated=time.time(),
                            pid=os.getpid(), watching=bool(watch))
             atomic_json(log_dir / 'status.json', summary)
