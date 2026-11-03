@@ -15,6 +15,8 @@ dist/
 *.laz
 *.las
 *.copc.laz
+# Generated test points only (PDAL from random values, no survey data): render/pointCloud unit tests.
+!/game/tests/fixtures/pointcloud/synthetic.copc.laz
 *.ply
 *.tif
 *.tiff
