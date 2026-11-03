@@ -1,8 +1,8 @@
-import { PreparationBudget } from '../render/preparationBudget';
+import { streamingBudget } from '../render/preparationBudget';
 import { applyJsonRecords, type JsonPeek } from './glbRecords';
 export type { JsonPeek } from './glbRecords';
 
-const budget = new PreparationBudget();
+const budget = streamingBudget();
 let worker: Worker | undefined, sequence = 0;
 const pending = new Map<number, { objects: Record<string, unknown>[]; resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 

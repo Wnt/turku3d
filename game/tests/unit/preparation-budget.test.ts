@@ -31,3 +31,19 @@ test('preparation yields between atomic draws and shares one pending frame', asy
   expect(completed).toBe(2);
   now = 21; await budget.checkpoint(); expect(frames).toBe(1);
 });
+
+test('a streaming budget resumes a stale window after one task hop, not a drawn frame', async () => {
+  let now = 0, frames = 0, tasks = 0;
+  const frame = () => { frames++; return Promise.resolve(); }, task = () => { tasks++; return Promise.resolve(); };
+  const budget = new PreparationBudget(() => now, frame, task);
+  await budget.checkpoint(); now = 3;
+  await budget.checkpoint(); // A continuous burst past 2 ms still waits for the next frame.
+  expect([frames, tasks]).toEqual([1, 0]);
+  now = 100; // A worker reply long after the window opened.
+  await budget.checkpoint();
+  expect([frames, tasks]).toEqual([1, 1]);
+  now = 101; expect(budget.checkpoint()).toBeUndefined(); // the new window is open
+  const plain = new PreparationBudget(() => now, frame);
+  await plain.checkpoint(); now = 300; await plain.checkpoint();
+  expect([frames, tasks]).toEqual([2, 1]); // frame-aligned budgets (shader compiles) keep waiting for a frame
+});

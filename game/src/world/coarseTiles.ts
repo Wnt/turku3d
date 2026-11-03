@@ -119,6 +119,8 @@ export class CoarseTiles {
   private builtUntil = new Map<string, number>();
   private details = 0;
   private acking = 0;
+  /** The player position of the latest update, for install priority. */
+  private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
   private buildingModels: BuildingModelCache;
   private buildingLeases = new WeakMap<THREE.Object3D, () => void>();
@@ -358,6 +360,7 @@ export class CoarseTiles {
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true, y = NaN) {
     this.clock = now;
+    this.at.x = x; this.at.z = z;
     this.viewY = y;
     lodFades.update(now);
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
@@ -748,8 +751,13 @@ export class CoarseTiles {
 
   private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>) {
     const base = new URL(`${this.root}${id}/`, this.page);
+    // Building models read while the tile GLB loads, nearest tile first.
+    const priority = Number.isFinite(this.at.x) ? distToL0(id, this.at.x, this.at.z) : Infinity;
+    const prefetched = fragment.buildingPlacements ? this.buildingModels.prefetch(fragment.buildingPlacements, base, priority) : null;
     const glb = streamTrace.begin('tile.glb', id, { bytes: fragment.visual[id].bytes, tris: fragment.visual[id].tris });
-    const root = await this.load(new URL(fragment.visual[id].url, base).href);
+    let root: THREE.Object3D;
+    try { root = await this.load(new URL(fragment.visual[id].url, base).href); }
+    catch (error) { prefetched?.(); throw error; }
     glb();
     root.userData.traceId = id;
     try {
@@ -757,12 +765,13 @@ export class CoarseTiles {
         // Tile GLBs carry a translated root node. Placements are siblings in world-local coordinates.
         const buildings = streamTrace.begin('tile.buildings', id, { models: fragment.buildingPlacements.models.length,
           placements: fragment.buildingPlacements.placements.length, blocks: fragment.buildingPlacements.blocks?.length ?? 0 });
-        const release = await this.buildingModels.attach(root, fragment.buildingPlacements, base);
+        const release = await this.buildingModels.attach(root, fragment.buildingPlacements, base, priority);
         buildings();
         this.buildingLeases.set(root, release);
       }
       return root;
     } catch (error) { this.dispose(root); throw error; }
+    finally { prefetched?.(); }
   }
 
   /** Commit a validated visual/collision pair together after model preparation. */

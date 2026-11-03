@@ -54,6 +54,9 @@ function detailTexture() {
   return map;
 }
 
+/** Facade program packs in flight per styled model. */
+const PACKS_IN_FLIGHT = 8;
+
 export class MaterialStyler {
   readonly ground: GroundBindings | null;
   private detail = detailTexture();
@@ -75,8 +78,12 @@ export class MaterialStyler {
   async applyAsync(model: THREE.Object3D) {
     const geometries = new Set<THREE.BufferGeometry>();
     model.traverse(object => { if ((object as THREE.Mesh).isMesh) geometries.add((object as THREE.Mesh).geometry); });
-    // Serial admission bounds input copies as well as worker output retained before publication.
-    for (const geometry of geometries) await interleaveProgramAsync(geometry);
+    // Bounded admission (PACKS_IN_FLIGHT) bounds input copies and worker output retained before publication, while
+    // the pack worker never idles on one geometry's round trip: serial packs cost a frame per facade geometry.
+    const queue = [...geometries];
+    await Promise.all(Array.from({ length: Math.min(PACKS_IN_FLIGHT, queue.length) }, async () => {
+      for (let geometry = queue.shift(); geometry; geometry = queue.shift()) await interleaveProgramAsync(geometry);
+    }));
     return this.apply(model);
   }
 

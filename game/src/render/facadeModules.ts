@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { PreparationBudget } from './preparationBudget';
+import { streamingBudget } from './preparationBudget';
 import { attribute, cameraPosition, dot, modelWorldMatrixInverse, vec4 } from 'three/tsl';
 
 interface Opening {
@@ -136,7 +136,7 @@ export function rectangularOpenings(geometry: THREE.BufferGeometry) {
   let result=steps.next();while(!result.done)result=steps.next();return result.value;
 }
 
-const prepared=new WeakSet<THREE.Object3D>(), budget=new PreparationBudget();
+const prepared=new WeakSet<THREE.Object3D>(), budget=streamingBudget();
 /** Bench lab ablation (`?bench=...&off=facades`, qa/lab/ablate.ts): false builds no facade modules. */
 export const facadeModuleSwitch = { on: true };
 

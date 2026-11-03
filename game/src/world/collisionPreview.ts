@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { readCol } from '../shared/col/colFormat';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { PreparationBudget } from '../render/preparationBudget';
+import { streamingBudget } from '../render/preparationBudget';
 
 // A texture-free presentation of the exact cached collision surfaces. Full generated
 // facades replace it atomically; ground never waits for their textures or shader programs.
@@ -11,7 +11,7 @@ const palette = [0xaaa292, 0x55575a, 0xa7a399, 0xb9b5aa, 0xb9b5aa, 0x666768, 0x7
   0x99958b, 0xa4a098, 0xa4a098, 0x99958b, 0xb7afa2, 0x777773, 0x777773, 0xc2b8a6,
   0x8b8076, 0x777775, 0x777773, 0x706852, 0x777773, 0x928d80, 0x748357, 0x777773, 0x9a8969];
 const colors = palette.map(value => new THREE.Color(value));
-const budget = new PreparationBudget();
+const budget = streamingBudget();
 
 export async function collisionPreview(buffers: ReadonlyMap<string, ArrayBuffer>): Promise<THREE.Object3D> {
   await MeshoptDecoder.ready;
