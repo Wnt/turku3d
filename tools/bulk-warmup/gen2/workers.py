@@ -5,7 +5,8 @@ A one-shot build pays its interpreter start, imports, prepared-input key closure
 the EPYC. Each concurrent build instead takes an idle ``python -m turku3d.coarse worker`` of its
 revision and generation, sends it one tile and reads one result line. Products are byte-identical
 to one-shot builds. A worker is replaced after ``max_builds`` tiles, when its resident memory
-exceeds ``max_rss_gib`` after a tile, and after any failure, timeout or disk-floor stop. A worker
+exceeds ``max_rss_gib`` after a tile, and after any failure other than an expected NoCoverage
+exclusion, timeout or disk-floor stop. A worker
 retains about 0.5 GiB across tiles (peak 2.1-2.3 GiB after t0_0_0, t0_-7_7 and t0_-5_4, against
 1.8 GiB one-shot), so replacing it above 2 GiB keeps heavy tiles within the bulk admission
 reservation per worker.
@@ -165,6 +166,9 @@ class WarmWorkers:
             cpu = round(tree_cpu(worker.proc.pid) - cpu, 3)
             if result.get('code') != 0:
                 message = result.get('stderr') or result.get('stdout') or 'generator worker failure'
+                # An expected exclusion (open water without ground returns) leaves the worker ready
+                # for the next tile; any other failure replaces it.
+                healthy = 'NoCoverage' in message and worker.proc.poll() is None
                 # One log per tile, as a one-shot build leaves it (failure classification reads it).
                 with (self.farm.root / 'logs' / f'{revision}-{tile}.log').open('a') as log:
                     log.write(f'{message}\nworker log: {worker.log_path.name}\n')

@@ -20,8 +20,9 @@ for line in sys.stdin:
     tile = job["tile"]
     if tile == "slow":
         time.sleep(30)
-    if tile == "bad":
-        print(json.dumps({"code": 1, "stderr": "turku3d.ground.NoCoverage: 0 ground key points"}), flush=True)
+    if tile in ("bad", "water"):
+        message = "turku3d.ground.NoCoverage: 0 ground key points" if tile == "water" else "ValueError: broken"
+        print(json.dumps({"code": 1, "stderr": message}), flush=True)
         continue
     os.makedirs(job["out"], exist_ok=True)
     open(os.path.join(job["out"], "pid"), "w").write(str(os.getpid()))
@@ -64,11 +65,21 @@ class WarmWorkersTest(unittest.TestCase):
     def test_failure_writes_the_tile_log_and_replaces_the_worker(self):
         pool = WarmWorkers(self.farm, self.runner)
         pool("r1", "a", self.out)
-        with self.assertRaisesRegex(RuntimeError, "NoCoverage"):
+        with self.assertRaisesRegex(RuntimeError, "broken"):
             pool("r1", "bad", self.out)
-        self.assertIn("NoCoverage", (self.farm.root / "logs" / "r1-bad.log").read_text())
+        self.assertIn("broken", (self.farm.root / "logs" / "r1-bad.log").read_text())
         pool("r1", "b", self.out)
         self.assertNotEqual(self.pid("a"), self.pid("b"))
+        pool.close()
+
+    def test_an_expected_no_coverage_exclusion_keeps_the_worker(self):
+        pool = WarmWorkers(self.farm, self.runner)
+        pool("r1", "a", self.out)
+        with self.assertRaisesRegex(RuntimeError, "NoCoverage"):
+            pool("r1", "water", self.out)
+        self.assertIn("NoCoverage", (self.farm.root / "logs" / "r1-water.log").read_text())
+        pool("r1", "b", self.out)
+        self.assertEqual(self.pid("a"), self.pid("b"))
         pool.close()
 
     def test_concurrent_builds_get_separate_workers_per_revision(self):
