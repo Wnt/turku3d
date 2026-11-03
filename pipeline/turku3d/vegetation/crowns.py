@@ -1,7 +1,9 @@
 """Per-tree crowns of the drawn trees from the classified lidar's canopy cells.
 
 Input: the trees of one tile (trunk position, base height, the drawn height and crown radius) and the class-5 canopy,
-reduced to its highest return per 0.5 m cell (``trees.reduced_points``, the generator's own canopy input). Each
+reduced to its highest return per 0.5 m cell (as the generator's own canopy input, ``trees.reduced_points``, but
+streamed from the LAZ blocks with nothing cached: ``canopy_cells``). Class 12 (the second flight line, unclassified)
+adds only about 1 % to the class-5 crown top surface, so it is left out. Each
 canopy cell above 2.5 m goes to the tree whose crown it is nearest to relative to that tree's radius, within reach
 of it, and a crown keeps the cells connected to its trunk (``canopy_trees.connected_crown``). Supported crowns
 (12 cells, 0.35 m relief: the generator's rule) give:
@@ -25,6 +27,7 @@ from scipy.spatial import cKDTree
 from turku3d.coarse.canopy_trees import MIN_CROWN_RELIEF, connected_crown
 
 CELL = 0.5
+MARGIN = 12.0  # m of canopy beyond the tile: crowns of edge trees overhang it
 MIN_CELLS = 12
 REACH = (1.5, 2.0)  # a crown cell belongs within max(1.5 r, r + 2 m) of a trunk
 LEAN_HEIGHT, LEAN_RADIUS, LEAN_MAX, SHEAR_MAX = 0.6, 0.3, 2.5, 0.08
@@ -73,3 +76,35 @@ def measure(trees, canopy):
             shear *= SHEAR_MAX / slope
         result[i] = [round(height, 2), round(r, 2), round(float(shear[0]), 3), round(float(shear[1]), 3)]
     return result
+
+
+def canopy_cells(tile, margin=MARGIN):
+    """Class-5 returns around ``tile`` (engine frame), highest per 0.5 m cell, streamed from the tile's ``pistepilvi``
+    LAZ blocks once; None unless every block is on disk. Nothing is cached: a city migration must not keep decoded
+    copies on the farm's disk."""
+    import laspy
+
+    from turku3d import config as C
+    from turku3d.vegetation.trees import highest_per_cell
+
+    bbox = tile.bbox.buffered(margin)
+    paths = []
+    for block in C.laz_tiles_for_bbox(bbox):
+        path = C.raw_dir("laz") / "pistepilvi" / f"{block.name}.laz"
+        if not path.is_file():
+            return None
+        paths.append(path)
+    selection = laspy.DecompressionSelection.base().decompress_z().decompress_classification()
+    parts = []
+    for path in sorted(paths):
+        with laspy.open(path, decompression_selection=selection) as reader:
+            (sx, sy, sz), (ox, oy, oz) = reader.header.scales, reader.header.offsets
+            for chunk in reader.chunk_iterator(2_000_000):
+                x = np.asarray(chunk.X) * sx + ox - C.ORIGIN_E
+                z = C.ORIGIN_N - (np.asarray(chunk.Y) * sy + oy)
+                keep = ((np.asarray(chunk.classification) == 5) & (x >= bbox.xmin) & (x < bbox.xmax)
+                        & (z >= bbox.zmin) & (z < bbox.zmax))
+                if keep.any():
+                    y = np.asarray(chunk.Z)[keep] * sz + oz - C.ORIGIN_H
+                    parts.append(highest_per_cell(np.c_[x[keep], y, z[keep]]))
+    return highest_per_cell(np.concatenate(parts)) if parts else np.empty((0, 3))

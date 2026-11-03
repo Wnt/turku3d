@@ -1,7 +1,7 @@
 """trees-lidar@1: every drawn tree's crown from the classified lidar (``vegetation.crowns``).
 
 Reads the tile's vegetation instances (EXT_mesh_gpu_instancing TRANSLATION and SCALE of each variant's nodes) and the
-class-5 canopy of the LAZ files under the tile (``trees.reduced_points``, the generator's own canopy input), and
+class-5 canopy of the LAZ blocks under the tile (``crowns.canopy_cells``, streamed, nothing cached), and
 writes ``instance_crowns`` into the extras of every vegetation node: per instance ``[height, crown radius, shear x,
 shear z]`` or null where the lidar shows no crown. The game draws a tree with these instead of the instance scale and
 leans it by the shear (``game/src/world/vegetationLod.ts``). Only the visual GLB's JSON changes; trunk collision keeps
@@ -16,8 +16,6 @@ import numpy as np
 from turku3d import config as C
 
 from .core import Migration, Product, glb_chunks, glb_pack
-
-MARGIN = 12.0  # m of canopy beyond the tile: crowns of edge trees overhang it
 
 
 def accessor(document: dict, binary: bytes, product: Product, glb_url: str, index: int) -> np.ndarray:
@@ -58,18 +56,10 @@ def vegetation_nodes(document: dict) -> dict[str, list[int]]:
     return dict(sorted(groups.items()))
 
 
-def tile_canopy(tile: C.VisualTile) -> np.ndarray:
-    from turku3d.coarse.roofs import lidar_paths
-    from turku3d.vegetation.trees import reduced_points
+def tile_canopy(tile: C.VisualTile):
+    from turku3d.vegetation.crowns import canopy_cells
 
-    bounds = tile.bbox.buffered(MARGIN)
-    parts = []
-    for path in lidar_paths(tile):
-        _, canopy = reduced_points(path)
-        keep = ((canopy[:, 0] >= bounds.xmin) & (canopy[:, 0] < bounds.xmax)
-                & (canopy[:, 2] >= bounds.zmin) & (canopy[:, 2] < bounds.zmax))
-        parts.append(canopy[keep])
-    return np.concatenate(parts) if parts else np.empty((0, 3))
+    return canopy_cells(tile)
 
 
 def crowns(document: dict, binary: bytes, product: Product, glb_url: str, origin, canopy) -> dict[str, list]:
@@ -109,7 +99,7 @@ def transform(product: Product) -> None:
         return
     tile = C.VisualTile.parse(product.tile)
     canopy = tile_canopy(tile)
-    if not len(canopy):
+    if canopy is None or not len(canopy):
         return
     # Tile-local canopy, as the instances.
     per_variant = crowns(document, binary, product, entry["url"], (0.0, 0.0, 0.0),

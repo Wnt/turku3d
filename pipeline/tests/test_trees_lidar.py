@@ -100,3 +100,11 @@ def test_tile_without_lidar_or_trees_is_unchanged(tmp_path, monkeypatch):
 def test_registered_in_the_chain():
     assert trees_lidar.MIGRATION in registry.CHAIN
     assert trees_lidar.MIGRATION.key == "trees-lidar@1"
+
+
+def test_canopy_needs_every_laz_block_on_disk(tmp_path, monkeypatch):
+    from turku3d import config as C
+    from turku3d.vegetation.crowns import canopy_cells
+
+    monkeypatch.setattr(C, "raw_dir", lambda kind: tmp_path / kind)
+    assert canopy_cells(C.VisualTile.parse(TILE)) is None
