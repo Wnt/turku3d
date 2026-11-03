@@ -14,7 +14,8 @@ export interface BuildingModel {
 export interface BuildingPlacements {
   version: 1;
   models: BuildingModel[];
-  placements: { id: string; model: string; position: Vec3; viewDistance: number }[];
+  /** `block`: generator block of nearby buildings; placements batch and (later) swap to LOD per block. */
+  placements: { id: string; model: string; position: Vec3; viewDistance: number; block?: string }[];
 }
 
 export function validateBuildingPlacements(data: BuildingPlacements) {
@@ -30,7 +31,8 @@ export function validateBuildingPlacements(data: BuildingPlacements) {
   }
   for (const placement of data.placements) {
     if (typeof placement.id !== 'string' || ids.has(placement.id) || !models.has(placement.model)
-      || !vector(placement.position) || !Number.isFinite(placement.viewDistance) || placement.viewDistance <= 0)
+      || !vector(placement.position) || !Number.isFinite(placement.viewDistance) || placement.viewDistance <= 0
+      || (placement.block !== undefined && typeof placement.block !== 'string'))
       throw new Error('Invalid building placement');
     ids.add(placement.id);
   }
@@ -122,7 +124,7 @@ export class BuildingModelCache {
       const wrapper = new THREE.Group();
       wrapper.name = `building:${placement.id}`;
       wrapper.position.fromArray(placement.position);
-      wrapper.userData = { archetype: placement.model, placementId: placement.id,
+      wrapper.userData = { archetype: placement.model, placementId: placement.id, block: placement.block,
         viewDistance: placement.viewDistance, modelBounds: descriptor.bounds, occluders: descriptor.occluders };
       wrapper.add(root); owner.add(wrapper);
       slots.push(this.visibility.register(wrapper, descriptor.bounds, placement.viewDistance, descriptor.occluders));
