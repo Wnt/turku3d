@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { PreparationBudget, StreamingAllowance } from '../../src/render/preparationBudget';
+import { MainThreadIdle, PreparationBudget, StreamingAllowance } from '../../src/render/preparationBudget';
 import { afterRender } from '../../src/render/afterRender';
 
 test('preparation resumes after animation callbacks rather than inside the frame being drawn', async () => {
@@ -81,4 +81,48 @@ test('every streaming budget keeps its own window, so one stage cannot starve an
   a.checkpoint(); now = limit + 0.1; await a.checkpoint(); // a used its window
   expect(frames).toBe(1);
   b.checkpoint(); now += limit - 0.5; expect(b.checkpoint()).toBeUndefined(); // b still has its own
+});
+
+test('CPU-bound frames (busy main thread, no idle) steer the interval as before, whatever the GPU time', () => {
+  const account = new StreamingAllowance(() => 0);
+  account.urgent = true;
+  // M1 Max-like: 25 ms frames, callback 20 ms, GPU 24 ms, the main thread never idles.
+  for (let i = 0; i < 80; i++) { account.opened(); account.frame(20, 25, 0, 24); }
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // over the 24 ms target: the window's floor
+  for (let i = 0; i < 5; i++) { account.opened(); account.frame(20, 45, 0, 24); }
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // CPU-caused long frames halve (already at the floor)
+});
+
+test('GPU-bound frames spend the main thread idle time without halving on GPU-caused long frames', () => {
+  const account = new StreamingAllowance(() => 0);
+  account.urgent = true;
+  // Radeon Pro 560X-like: 37 ms frames held by a 33 ms GPU, callback 23 ms, about 12 ms of main-thread idle.
+  for (let i = 0; i < 80; i++) { account.opened(); account.frame(23, 37, 12, 33); }
+  expect(account.limit).toBe(6); // the idle is slack: streaming grows to its cap instead of sitting at the floor
+  for (let i = 0; i < 3; i++) { account.opened(); account.frame(23, 45, 12, 40); }
+  expect(account.limit).toBe(6); // a long frame the GPU caused does not halve the total
+  // Idle around the margin: no growth; it gives a little back below the margin, not the CPU-bound collapse.
+  for (let i = 0; i < 30; i++) { account.opened(); account.frame(27, 37, 3.5, 33); }
+  expect(account.limit).toBeGreaterThan(4);
+  // Streaming used the idle up: the frame is CPU-bound again and the interval controller takes it back.
+  for (let i = 0; i < 80; i++) { account.opened(); account.frame(30, 37, 1, 33); }
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS);
+  // Idle from a missed vsync (a fast GPU) is not free: CPU-bound control.
+  const vsync = new StreamingAllowance(() => 0); vsync.urgent = true;
+  for (let i = 0; i < 80; i++) { vsync.opened(); vsync.frame(14, 33, 15, 8); }
+  expect(vsync.limit).toBe(StreamingAllowance.BASE_MS);
+});
+
+test('the idle meter sums scheduler idle periods between frames', () => {
+  const callbacks: ((deadline: IdleDeadline) => void)[] = [];
+  const original = (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback;
+  (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback = (callback: (deadline: IdleDeadline) => void) => { callbacks.push(callback); return 1; };
+  try {
+    const idle = new MainThreadIdle(); idle.start(); idle.start();
+    expect(callbacks).toHaveLength(1);
+    callbacks.shift()!({ timeRemaining: () => 7, didTimeout: false });
+    callbacks.shift()!({ timeRemaining: () => 3, didTimeout: false });
+    expect(idle.take()).toBe(10);
+    expect(idle.take()).toBe(0);
+  } finally { (globalThis as { requestIdleCallback?: unknown }).requestIdleCallback = original; }
 });

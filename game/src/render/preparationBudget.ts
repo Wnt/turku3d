@@ -4,23 +4,47 @@ import { afterRender } from './afterRender';
 const STALE_MS = 16;
 const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
-/** Streaming windows from the measured frame interval (render/performance.ts reports each frame). The interval
- *  between frame callbacks includes everything the main thread did in between: post-frame streaming tasks, worker
- *  replies, fetch handling and GC, not only the callback. An integral controller steers the total streaming time
- *  per frame so the interval averages the 24 ms target (40 fps): it grows while frames come faster and streaming has
- *  work, shrinks while they come slower, and halves after an overlong frame. The budgets that worked in the last
- *  frame share it; each keeps a floor (2 ms while the current 3x3 window waits for installs, `urgent`, else 1 ms). */
+/** Main-thread idle time between frames, from the scheduler's idle periods (requestIdleCallback): each idle period's
+ *  remaining time when it starts, summed until the next frame reads it. A main thread that is busy all the time
+ *  (CPU-bound) reports none; one that waits on the GPU reports the wait. Zero where the API is missing. */
+export class MainThreadIdle {
+  private idle = 0;
+  private started = false;
+  start() {
+    if (this.started || typeof requestIdleCallback !== 'function') return;
+    this.started = true;
+    const sample = (deadline: IdleDeadline) => { this.idle += deadline.timeRemaining(); requestIdleCallback(sample); };
+    requestIdleCallback(sample);
+  }
+  /** Idle milliseconds since the previous call. */
+  take() { const idle = this.idle; this.idle = 0; return idle; }
+}
+
+/** Streaming windows from the measured frame (render/performance.ts reports each frame). The target is main-thread
+ *  work per frame: 24 ms while the current 3x3 window lacks full tiles (`urgent`), 20.5 ms for prefetch, wedge and
+ *  path work, so they only use what a frame leaves under about 48 fps.
+ *  - CPU-bound (the main thread is busy the whole interval, as on the M1 Max): the interval between frame callbacks
+ *    is the main thread's work, callback plus every post-frame task. An integral controller steers it to the target
+ *    and halves the total after an overlong frame.
+ *  - GPU-bound (the main thread idles while the GPU holds the interval, as on a Radeon Pro 560X): the scheduler's idle
+ *    time is slack that costs no FPS; streaming grows until only IDLE_MARGIN_MS of it is left, and an overlong frame
+ *    the GPU caused does not halve it.
+ *  The budgets that worked in the last frame share the total; each keeps a floor (2 ms while the window waits). */
 export class StreamingAllowance {
-  /** Target frame interval (ms): 24 (40 fps) only while the current 3x3 window lacks full tiles; prefetch, wedge and
-   *  path work get only what a frame leaves under 20.5 ms (about 48 fps), so they never pin the frame at 40 fps. */
   static readonly WINDOW_TARGET = 24;
   static readonly PREFETCH_TARGET = 20.5;
   get target() { return this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET; }
   static readonly MIN_MS = 0.5;
   static readonly BASE_MS = 2;
+  /** Idle the main thread keeps per frame: streaming grows into idle above IDLE_MARGIN_MS and gives back below it;
+   *  under GPU_BOUND_IDLE_MS of idle the frame counts as CPU-bound (the gap keeps the two modes from cycling). */
+  static readonly IDLE_MARGIN_MS = 4;
+  static readonly GPU_BOUND_IDLE_MS = 2.5;
   /** Streaming ms per frame across all budgets (controller state). */
   private total = 4;
   private interval = 20;
+  private idle = 0;
+  private gpu = 0;
   private frameAt = -Infinity;
   /** Budget windows opened since the last frame, and in the frame before: they share the total. */
   private windows = 0;
@@ -28,14 +52,21 @@ export class StreamingAllowance {
   /** The current 3x3 window still waits for full installs (coarseTiles). */
   urgent = false;
   constructor(private now = () => performance.now()) {}
-  frame(_cpuMs: number, intervalMs: number | null) {
+  /** `idleMs`: the main thread's idle time since the previous frame (MainThreadIdle); `gpuMs`: the latest GPU frame
+   *  time (0 without timestamp queries: CPU-bound control only). */
+  frame(_cpuMs: number, intervalMs: number | null, idleMs = 0, gpuMs = 0) {
     this.frameAt = this.now();
     const worked = this.windows > 0;
     this.lastWindows = Math.max(1, this.windows); this.windows = 0;
     if (intervalMs === null) return;
     this.interval += (intervalMs - this.interval) * 0.15;
-    if (intervalMs > this.target * 1.6) this.total *= 0.5;
+    this.idle += (Math.min(idleMs, intervalMs) - this.idle) * 0.15;
+    this.gpu += (gpuMs - this.gpu) * 0.15;
+    // The GPU, not a missed vsync, holds the interval while the main thread idles: that idle is free.
+    const gpuBound = this.idle >= StreamingAllowance.GPU_BOUND_IDLE_MS && this.gpu >= 0.8 * this.interval;
+    if (intervalMs > this.target * 1.6 && !gpuBound) this.total *= 0.5;
     // Grow only while streaming has work: no wind-up during quiet periods.
+    else if (gpuBound) { if (worked || this.idle < StreamingAllowance.IDLE_MARGIN_MS) this.total += 0.1 * (this.idle - StreamingAllowance.IDLE_MARGIN_MS); }
     else if (worked || this.interval > this.target) this.total += 0.1 * (this.target - this.interval);
     this.total = Math.min(this.urgent ? 12 : 6, Math.max(StreamingAllowance.MIN_MS, this.total));
   }
@@ -50,6 +81,7 @@ export class StreamingAllowance {
   }
 }
 export const streamingAllowance = new StreamingAllowance();
+export const mainThreadIdle = new MainThreadIdle();
 
 /** Shader preparation shares a frame budget across streamed models and render passes. Individual draws are atomic.
  *  `resumeStale`: sporadic work (a worker reply or fetch arriving long after the window opened) starts a new window
