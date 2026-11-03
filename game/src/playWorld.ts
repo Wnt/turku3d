@@ -13,6 +13,8 @@ import type { Environment } from './render/environment';
 import type { DayClock } from './render/dayClock';
 import type { PerformanceMonitor } from './render/performance';
 import type { MaterialStyler } from './render/materials';
+import type { VegetationLod } from './world/vegetationLod';
+import type { StreetLights } from './render/lights';
 import type { parseParams } from './core/params';
 
 type Pose = V3 & { yaw: number };
@@ -26,6 +28,9 @@ export interface PlayWorld {
   env: Environment;
   perf: PerformanceMonitor;
   tiles: VisualTiles;
+  /** The current vegetation renderer (replaceable on the dev server) and the street lights, for the object editor. */
+  vegetation: () => VegetationLod | null;
+  lights: StreetLights | null;
   materials: MaterialStyler | null;
   physics: PhysicsClient;
   rapier: string;

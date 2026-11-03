@@ -44,6 +44,7 @@ import { PauseMenu } from './ui/menu';
 import { DevMenuFlow } from './ui/devMenu';
 import { TimePanel } from './ui/timePanel';
 import { FlyMode } from './gameplay/flyMode';
+import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
@@ -106,6 +107,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (!startScreen.active) void positionHud.copy();
   });
   const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
+  // Developer object editor (localhost; dev/editor/README.md): visual previews and edit sessions, no simulation change.
+  const editor = new ObjectEditor({ scene, camera, renderer, tiles, vegetation: world.vegetation, lights: world.lights, physics, coarse,
+    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }) });
+  Object.assign(window.__game!, { editor });
   const audioGameplay = new GameplayAudio(event => {
     audio.emit(event);
     if (event.type === 'footstep') haptics.footstep(event.material);
@@ -368,6 +373,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     positionHud.handle(input, !startScreen.active);
     devLayers.handle(input, !startScreen.active);
     timePanel?.handle(input, !startScreen.active);
+    editor.handle(input, !startScreen.active && !paused && !shopMenu.open && !introDialog.open && !saveGame.loading, now);
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.
@@ -622,6 +628,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     walkers.update(dt, camera, now);
     const crowd = walkers.nearby(CROWD_RADIUS);
     if (crowd !== lastCrowd) { lastCrowd = crowd; audio.emit({ type: 'crowd', walkers: crowd }); }
+    editor.update(now);
     positionHud.update(now, !startScreen.active);
     devLayers.update();
     renderFrame();
@@ -668,6 +675,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       renderer.setAnimationLoop(null);
       multiplayer?.disconnect();
       capture?.dispose();
+      editor.dispose();
       devLayers.dispose();
       remotePlayers.dispose();
       audio.emit({ type: 'horns', vehicles: [] });
