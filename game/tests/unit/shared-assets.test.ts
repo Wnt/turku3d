@@ -76,3 +76,25 @@ test('a resident decoded source survives eviction from the bounded template cach
     expect(dispose).toHaveBeenCalledOnce(); // The now-idle oversize texture is evicted.
   } finally { load.mockRestore(); }
 });
+
+
+test('glTF dot segments preserve immutable identities across tile and generation paths', async () => {
+  const hash = 'd'.repeat(64), key = `${hash}.ktx2`;
+  const paths = [`https://example.com/coarse/_v/one/t0_1_0/../shared/${key}`, `/coarse/_v/two/t0_2_0/../shared/${key}?v=1`];
+  for (const path of paths) expect(sharedAssetKey(path)).toBe(key);
+  expect(sharedAssetKey(`/coarse/_v/one/t0_1_0/../shared/${hash}.bin`)).toBe(`${hash}.bin`);
+  expect(sharedAssetKey(`blob:https://example.com/coarse/shared/${key}`)).toBeUndefined();
+  expect(sharedAssetKey('/coarse/t0_1_0/../shared/mutable.ktx2')).toBeUndefined();
+  const template = new THREE.CompressedTexture([{ data: new Uint8Array(8), width: 4, height: 4 }], 4, 4);
+  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, done) => { queueMicrotask(() => done?.(template)); });
+  try {
+    const loader = new LoadingKtx();
+    const [first, second] = await Promise.all(paths.map(path => loader.loadAsync(path)));
+    expect(load).toHaveBeenCalledOnce();
+    expect(first.source).toBe(second.source);
+    const a = model(first), b = model(second);
+    shareModelTextures(a); shareModelTextures(b);
+    expect(map(a)).toBe(map(b));
+    releaseModelTextures(a, new Set([map(a)])); releaseModelTextures(b, new Set([map(b)]));
+  } finally { load.mockRestore(); }
+});
