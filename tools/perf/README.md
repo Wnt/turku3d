@@ -59,6 +59,7 @@ the engine runs its normal code path; the values in effect are echoed as `result
 | `cells=M` | scenery L0 cell refinement: `SCENERY_CELLS.distance` in `game/src/world/sceneryView.ts` replaces the pixel rule (350..2000 m); the floor past drawn full tiles (580 m) still applies |
 | `reflect=M` | `REFLECTION_RANGE.maxDistance` in `game/src/render/reflections.ts`: objects farther than M (horizontal, to their bounds) stay out of the river reflection (unlimited; only the water coverage test) |
 | `lodfade=S` | `LOD_FADE.seconds` in `game/src/render/lodFade.ts`: how long band hand-overs dissolve (cells, cut swaps, block shells, full tiles over previews or coarser nodes). 0 swaps at once, like GTA V's hand-over (techstudy §7 L2). Default 0.6 s until Jonni decides on the look |
+| `treefade=S` | scales the tree LOD cross-fade bands (`VEGETATION_FADE` in `game/src/world/nature/materials.ts`, 1 = default 24/16/10 % of the 50/180/650 m boundaries); 0 gives instant swaps, for an A/B of the fade's cost |
 | `cars=N`, `walkers=N` | population caps: `?traffic=` / `TRAFFIC_CAPS` in `game/src/traffic/constants.ts` (medium 30), `?walkers=` / `WALKER_CAPS` in `game/src/world/walkers/index.ts` (medium 60); `off=traffic,walkers` still wins |
 
 **Output.** `window.__bench` is `{mode, phase, done, error, progress, capture, result}`; phases are

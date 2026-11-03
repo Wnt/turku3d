@@ -37,8 +37,13 @@ Cached city scenery advertises small content-keyed `trees_url` sidecars for the 
 placements, extracted without loading textures or rebuilding geometry. Nearby scenery
 waits for those placements and the shared nature library before it becomes visible.
 Both paths use `VegetationLod`: cells cull and pack instances, while each tree's own
-3D camera distance chooses full mesh, reduced mesh or impostor. Exhausting the full-mesh
-budget uses reduced meshes within the mesh range, preserving nearby trees.
+3D camera distance chooses full mesh, reduced mesh or impostor. Each boundary (50/180/650 m
+at medium) cross-fades per tree over a band just inside it: a tree in the band draws both
+levels, and their materials (`NatureMaterials.lodVariant`) split its pixels with one per-frame
+screen-door threshold, which TRAA resolves into a blend. Each tree's band is offset by a hash
+of its tint, so a tile never switches at once, and distance moves the fade continuously, with
+no flipping. A full budget moves its boundary closer instead of dropping trees; near trees
+never fall to impostors.
 
 Distant building derivatives retain the same facade instructions (metric UVs, bays,
 floors, blank modules and measured patches) as detailed models. Both LODs call the

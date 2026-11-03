@@ -8,6 +8,7 @@ import { TILE_WINDOW } from '../../world/coarseRegion';
 import { SCENERY_CELLS, TILE_DETAIL, detailFloor } from '../../world/sceneryView';
 import { REFLECTION_RANGE } from '../../render/reflections';
 import { LOD_FADE } from '../../render/lodFade';
+import { VEGETATION_FADE, scaleVegetationFade } from '../../world/nature/materials';
 import { TRAFFIC_CAPS } from '../../traffic/constants';
 import { walkerCap } from '../../world/walkers';
 import { VISUAL_L0 } from '../../core/origin';
@@ -54,6 +55,7 @@ export function applyLodOverrides(lod: LodOverrides, tier: QualityTier, params: 
   if (lod.reflect !== null) REFLECTION_RANGE.maxDistance = lod.reflect;
   if (lod.cars !== null) params.traffic = lod.cars;
   if (lod.lodfade !== null) LOD_FADE.seconds = lod.lodfade;
+  if (lod.treefade !== null) scaleVegetationFade(lod.treefade);
 }
 
 /** The LOD distances and caps the engine runs with now, for the result. */
@@ -71,5 +73,6 @@ export function lodSettings(tier: QualityTier, params: { traffic: number | null;
     cars: params.traffic ?? TRAFFIC_CAPS[tier],
     walkers: walkerCap(tier, params.walkers),
     lodfade: LOD_FADE.seconds,
+    treefade: { width: [...VEGETATION_FADE.width], stagger: [...VEGETATION_FADE.stagger] },
   };
 }

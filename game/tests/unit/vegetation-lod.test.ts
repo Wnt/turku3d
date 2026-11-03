@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three/webgpu';
 import { VegetationLod, fadeReach, vegetationLevels } from '../../src/world/vegetationLod';
-import { VEGETATION_FADE } from '../../src/world/nature/materials';
+import { VEGETATION_FADE, scaleVegetationFade } from '../../src/world/nature/materials';
 import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
 import { batchTileShadows } from '../../src/world/shadowBatch';
@@ -486,4 +487,39 @@ it('a still camera over unchanged tiles does not select again; moving, turning o
   model.visible = false; lod.update(camera); expect(frustum).toHaveBeenCalledTimes(4); expect(drawn(batches)).toBe(0);
   model.visible = true; lod.update(camera); expect(drawn(batches)).toBe(count);
   lod.remove(model); lod.update(camera); expect(frustum).toHaveBeenCalledTimes(6);
+});
+
+it('cross-fades cost a few per cent of vegetation triangles at the riverside flight pose, no extra full meshes', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../public/assets/nature/nature.json', import.meta.url), 'utf8')) as
+    { assets: Record<string, { lods: { triangles: number }[] }> };
+  // Jonni's recording pose: 45 m above a dense riverside forest (one tree per 64 m^2 out to 700 m), heading 193 deg,
+  // pitch -13.6 deg. Draws and triangles of the colour passes, with the bands and with instant swaps (treefade=0).
+  const at = (i: number) => new THREE.Vector3((i % 176) * 8 - 700, 0, Math.floor(i / 176) * 8 - 700);
+  const camera = new THREE.PerspectiveCamera(60, 16 / 10, .1, 2000);
+  camera.position.set(0, 45, 0); camera.rotation.order = 'YXZ';
+  camera.rotation.set(-13.6 * Math.PI / 180, (180 - 193) * Math.PI / 180, 0); camera.updateMatrixWorld();
+  const measure = () => {
+    const { model, mesh } = tile(176 * 176, 'tree_detailed_fall', at);
+    const scene = new THREE.Scene(); scene.add(model);
+    const lod = new VegetationLod('medium', library); lod.add(model); settle(lod, camera, 12);
+    const visible = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy);
+    // Real per-LOD triangles of the shipped library (the fixture's geometry is a stand-in), split over the parts.
+    const real = (b: THREE.InstancedMesh) => manifest.assets[b.userData.nature]?.lods[b.userData.level]?.triangles ?? 0;
+    const triangles = (b: THREE.InstancedMesh) => base(b) === library.materials.bark ? 0 : b.count * real(b);
+    const byLevel = [0, 1, 2].map(level => visible.filter(b => b.userData.level === level && base(b) !== library.materials.bark).reduce((n, b) => n + b.count, 0));
+    const result = { draws: visible.length, triangles: visible.reduce((n, b) => n + triangles(b), 0), byLevel };
+    lod.dispose();
+    return result;
+  };
+  const saved = { width: [...VEGETATION_FADE.width], stagger: [...VEGETATION_FADE.stagger] };
+  for (const [height, pitch] of [[45, -13.6], [2, 0]]) {
+    camera.position.y = height; camera.rotation.x = pitch * Math.PI / 180; camera.updateMatrixWorld();
+    const faded = measure();
+    let instant: ReturnType<typeof measure>;
+    try { scaleVegetationFade(0); instant = measure(); } finally { Object.assign(VEGETATION_FADE, { width: [...saved.width], stagger: [...saved.stagger] }); }
+    process.stderr.write(JSON.stringify({ height, faded, instant }) + '\n');
+    expect(faded.byLevel[0]).toBeLessThanOrEqual(instant.byLevel[0]); // full meshes never reach farther
+    expect(faded.triangles).toBeLessThan(instant.triangles * 1.06);
+    expect(faded.draws).toBeLessThanOrEqual(instant.draws * 1.1);
+  }
 });

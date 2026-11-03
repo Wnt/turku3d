@@ -9,7 +9,11 @@ import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
  *  inside its boundary: the costlier level never draws farther than before; only the cheaper one starts earlier. */
-export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] } as const;
+export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] };
+/** Bench lab `treefade=S`: scale the bands before the materials are built; 0 gives the old instant swaps. */
+export function scaleVegetationFade(scale: number) {
+  for (let j = 0; j < 3; j++) { VEGETATION_FADE.width[j] = Math.max(1e-4, VEGETATION_FADE.width[j] * scale); VEGETATION_FADE.stagger[j] *= scale; }
+}
 
 /** ?leaves=single|alpha65|noshadow: cheaper leaf paths for the reduced tier (A/B, owner winperf). In-page probes on a
  *  Radeon Pro 560X (reduced, 910x569, riverside, beauty 11.0 ms) saved: single-sided cards 1.3 ms, unshadowed leaves

@@ -12,6 +12,7 @@ import { streamTrace } from '../../src/telemetry/streamTrace';
 import { applyLodOverrides, lodSettings, shadowSplits, tileDetailFor } from '../../src/qa/lab/overrides';
 import { parseLodOverrides } from '../../src/qa/lab/params';
 import { LOD_FADE, LodFades } from '../../src/render/lodFade';
+import { VEGETATION_FADE } from '../../src/world/nature/materials';
 import { BLOCK_LOD } from '../../src/world/buildingPlacements';
 import { PROP_LOD } from '../../src/world/propLod';
 import { TILE_WINDOW, wantedTiles } from '../../src/world/coarseRegion';
@@ -294,7 +295,7 @@ describe('bench lab install scenario', () => {
 
 describe('bench lab LOD overrides', () => {
   const snapshot = () => JSON.stringify({ q: QUALITY.medium, prop: PROP_LOD, block: BLOCK_LOD, window: TILE_WINDOW, detail: TILE_DETAIL,
-    cells: SCENERY_CELLS, reflect: REFLECTION_RANGE.maxDistance, fade: LOD_FADE });
+    cells: SCENERY_CELLS, reflect: REFLECTION_RANGE.maxDistance, fade: LOD_FADE, trees: VEGETATION_FADE });
   const original = snapshot();
   const restore = () => {
     const o = JSON.parse(original);
@@ -302,14 +303,14 @@ describe('bench lab LOD overrides', () => {
     Object.assign(q.vegetation, o.q.vegetation); q.splits = o.q.splits;
     Object.assign(PROP_LOD, o.prop); Object.assign(BLOCK_LOD, o.block); Object.assign(TILE_WINDOW, o.window);
     Object.assign(TILE_DETAIL, o.detail); Object.assign(SCENERY_CELLS, o.cells); REFLECTION_RANGE.maxDistance = Infinity;
-    Object.assign(LOD_FADE, o.fade);
+    Object.assign(LOD_FADE, o.fade); Object.assign(VEGETATION_FADE, o.trees);
   };
   afterEach(restore);
 
   it('parses every override and rejects malformed values', () => {
-    expect(parseLodOverrides('')).toEqual({ hd: null, props: null, trees: null, shadow: null, cascades: null, fullr: null, cells: null, reflect: null, cars: null, lodfade: null });
-    expect(parseLodOverrides('hd=150&props=60&trees=30/120/400&shadow=120&cascades=4&fullr=2&cells=900&reflect=300&cars=12&lodfade=0.15'))
-      .toEqual({ hd: 150, props: 60, trees: [30, 120, 400], shadow: 120, cascades: 4, fullr: 2, cells: 900, reflect: 300, cars: 12, lodfade: 0.15 });
+    expect(parseLodOverrides('')).toEqual({ hd: null, props: null, trees: null, shadow: null, cascades: null, fullr: null, cells: null, reflect: null, cars: null, lodfade: null, treefade: null });
+    expect(parseLodOverrides('hd=150&props=60&trees=30/120/400&shadow=120&cascades=4&fullr=2&cells=900&reflect=300&cars=12&lodfade=0.15&treefade=0'))
+      .toEqual({ hd: 150, props: 60, trees: [30, 120, 400], shadow: 120, cascades: 4, fullr: 2, cells: 900, reflect: 300, cars: 12, lodfade: 0.15, treefade: 0 });
     expect(() => parseLodOverrides('lodfade=5')).toThrow(/lodfade/);
     expect(parseLodOverrides('trees=30,120,400').trees).toEqual([30, 120, 400]);
     expect(() => parseLodOverrides('trees=200/100/400')).toThrow(/trees/);
@@ -327,7 +328,7 @@ describe('bench lab LOD overrides', () => {
     expect(params.traffic).toBeNull();
     expect(lodSettings('medium', params)).toMatchObject({ props: { hide: 125, show: 115 }, trees: [50, 180, 650],
       shadow: { far: 200, cascades: 3, splits: [16, 50, 200] }, fullr: { radius: 1, window: '3x3', tileDetail: 450 },
-      cellFloor: 580, cars: 30, walkers: 60, lodfade: 0.6 });
+      cellFloor: 580, cars: 30, walkers: 60, lodfade: 0.6, treefade: { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] } });
     expect(wantedTiles(125, 125)).toHaveLength(9);
   });
 
@@ -336,7 +337,7 @@ describe('bench lab LOD overrides', () => {
     applyLodOverrides(parseLodOverrides('hd=150&props=60&trees=30/120/400&shadow=120&fullr=2&cells=900&reflect=300&cars=12&lodfade=0.15'), 'medium', params);
     expect(lodSettings('medium', params)).toEqual({ hd: 150, props: { hide: 60, show: 50 }, trees: [30, 120, 400],
       shadow: { far: 120, cascades: 3, splits: [9.6, 30, 120] }, fullr: { radius: 2, window: '5x5', tileDetail: 803 },
-      cells: 900, cellFloor: 933, reflect: 300, cars: 12, walkers: 20, lodfade: 0.15 });
+      cells: 900, cellFloor: 933, reflect: 300, cars: 12, walkers: 20, lodfade: 0.15, treefade: { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] } });
     // Every dissolve the engine starts now runs for the override's length.
     const fades = new LodFades(), root = new THREE.Group();
     fades.start(root, 0, 1, undefined, 0); fades.update(100); expect(fades.has(root)).toBe(true);

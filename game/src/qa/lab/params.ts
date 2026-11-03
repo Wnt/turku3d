@@ -4,7 +4,7 @@
 //   ?bench=fly     [&tiles=...][&seconds=24][&height=40][&stream=1]
 // LOD and distance overrides for every scenario (qa/lab/overrides.ts; absent = the engine's own values):
 //   &hd=280 &props=125 &trees=50/180/650 &shadow=200 &cascades=3 &fullr=1 &cells=600 &reflect=400 &walkers=N &cars=N
-//   &lodfade=0.6 (band hand-over dissolve seconds; 0 swaps at once)
+//   &lodfade=0.6 (band hand-over dissolve seconds; 0 swaps at once) &treefade=1 (tree LOD band scale; 0 = instant)
 // Every scenario takes &off=<ablations>, &on=<ablations> (re-enables a scenario default), &record=0 (no capture
 // folder), &size=WxH and &dpr=N (fixed drawing buffer), and the ordinary &quality= &aa= &time= &traffic= &walkers=.
 import { VISUAL_L0 } from '../../core/origin';
@@ -35,6 +35,7 @@ export interface LodOverrides {
   /** River reflection max object distance (m). */ reflect: number | null;
   /** Moving-car cap (the existing ?traffic=; walkers keep ?walkers=). */ cars: number | null;
   /** Band hand-over dissolve length (s; render/lodFade.ts LOD_FADE), 0 for an instant swap. */ lodfade: number | null;
+  /** Tree LOD cross-fade band scale (world/nature/materials.ts VEGETATION_FADE), 0 for instant swaps. */ treefade: number | null;
 }
 
 export interface LabParams {
@@ -169,7 +170,7 @@ export function parseLodOverrides(search: string | URLSearchParams): LodOverride
   return { hd: optional(p, 'hd', 10, 5000), props: optional(p, 'props', 0, 2000), trees,
     shadow: optional(p, 'shadow', 10, 2000), cascades: optional(p, 'cascades', 1, 6, true), fullr: optional(p, 'fullr', 1, 3, true),
     cells: optional(p, 'cells', 100, 8000), reflect: optional(p, 'reflect', 0, 20000), cars: optional(p, 'cars', 0, 200, true),
-    lodfade: optional(p, 'lodfade', 0, 3) };
+    lodfade: optional(p, 'lodfade', 0, 3), treefade: optional(p, 'treefade', 0, 3) };
 }
 
 /** One line naming a run's configuration, for tables and logs. */
