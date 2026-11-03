@@ -43,6 +43,8 @@ export const REACT = {
   /** Knock-down timeline (s): falling, lying, getting up. Largest lean (rad) and the lift that keeps a lying body
    *  above the ground (m). */
   fall: 0.45, down: 4, rise: 0.9, lean: 1.42, lift: 0.12,
+  /** A standing walker turns to look at a player on foot this close (m). */
+  look: 2.5,
   /** A state unseen this long is dropped (s). */
   forget: 3,
 } as const;
@@ -136,8 +138,17 @@ export class Reactions {
     s.extra += step;
     const totalX = fx * base.speed + s.vx, totalZ = fz * base.speed + s.vz, total = Math.hypot(totalX, totalZ);
     const reacting = Math.hypot(s.vx, s.vz) > 0.5;
-    const result: Reaction = { x: base.x + s.dx, z: base.z + s.dz, yaw: reacting && total > 0.3 ? Math.atan2(totalX, totalZ) : null,
-      extra: s.extra, moving: reacting, tilt: 0, tiltYaw: 0, down: false };
+    let yaw = reacting && total > 0.3 ? Math.atan2(totalX, totalZ) : null;
+    // Standing still, a walker turns to look at the nearest player on foot who comes up close.
+    if (!reacting && base.speed === 0) {
+      let nearest: number = REACT.look;
+      for (const t of threats) {
+        if (t.car || t.personal !== undefined || Math.abs(t.y - base.y) > 2) continue;
+        const d = Math.hypot(t.x - px, t.z - pz);
+        if (d < nearest && d > 0.2) { nearest = d; yaw = Math.atan2(t.x - px, t.z - pz); }
+      }
+    }
+    const result: Reaction = { x: base.x + s.dx, z: base.z + s.dz, yaw, extra: s.extra, moving: reacting, tilt: 0, tiltYaw: 0, down: false };
     if (!threatened && Math.hypot(s.dx, s.dz) < 0.01 && Math.hypot(s.vx, s.vz) < 0.05) this.states.delete(base.id);
     return result;
   }
