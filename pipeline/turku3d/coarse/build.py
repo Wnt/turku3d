@@ -492,6 +492,19 @@ def build(
         tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
     )
     seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
+    from . import footings
+
+    passages = [line for _, line, _ in inputs.tunnels]
+    footing_meshes = cache.run(
+        "footings",
+        source_key(Path(footings.__file__), Path(__file__).with_name("walkable_audit.py"),
+                   base / "structures/geometry.py"),
+        [[(b.key, b.footprint.wkb, b.base) for b in inputs.buildings], dry,
+         [g.wkb for g in passages]],
+        lambda: footings.produce(inputs.buildings, dry, passages),
+    )
+    stair_meshes = [*stair_meshes, *footing_meshes]
+    seconds["footings"] = cache.metrics["footings"]["seconds"]
     # Street furniture and lights (G1): before collision, which merges their static primitives.
     from . import furniture
 
