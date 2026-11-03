@@ -161,6 +161,7 @@ def approach_patches(way, line, ramps, height_at, sample, blocked, feather, leve
                     lateral=lateral,
                     feather=feather,
                     blocked=guard,
+                    lower=lower,
                     area=area,
                 )
             )
@@ -301,13 +302,22 @@ def constrain(mesh, patches, base=None):
     from turku3d.col.materials import mat_id
 
     faces = Faces()
+    # Along a protected lower walk or flight the raised sheet ends at one clean
+    # open edge: the surface closure seals it with a single face down to the
+    # lower level. Per-edge quads there, on the cut's many short pieces, left a
+    # comb of slivers with gaps under the raised land (issue 023).
+    lower = shapely.union_all([q["lower"] for q in patches if not q.get("lower", shapely.Polygon()).is_empty])
     if active.any():
         _, vertex = np.unique(np.round(p, 8), axis=0, return_inverse=True)
         edges = np.concatenate([ix[active][:, side] for side in ([0, 1], [1, 2], [2, 0])])
         _, first, counts = np.unique(
             np.sort(vertex[edges], axis=1), axis=0, return_index=True, return_counts=True
         )
-        for a, b in edges[first[counts == 1]]:
+        edges = edges[first[counts == 1]]
+        if not lower.is_empty and len(edges):
+            middle = (p[edges[:, 0]] + p[edges[:, 1]]) / 2
+            edges = edges[~shapely.intersects_xy(lower.buffer(1e-4), middle[:, 0], middle[:, 2])]
+        for a, b in edges:
             if max(raised[a, 1] - p[a, 1], raised[b, 1] - p[b, 1]) > 1e-7:
                 faces.face([p[a], p[b], raised[b], raised[a]])
     if faces.indices:

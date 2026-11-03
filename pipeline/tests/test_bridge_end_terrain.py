@@ -202,11 +202,13 @@ def test_measured_lower_walk_beside_an_approach_keeps_its_level_and_a_vertical_a
     inside = shapely.contains_xy(walk["line"].buffer(1.75), *centres)
     slope = abs(normals[:, 1]) / np.linalg.norm(normals, axis=1)
     assert not (inside & (slope > 1e-6) & (np.ptp(triangles[:, :, 1], axis=1) > 1e-6)).any()
-    edge = shapely.contains_xy(walk["line"].buffer(1.85).difference(walk["line"].buffer(1.75)),
-                               *centres)
-    walls = edge & (slope < 1e-6)
-    assert mat_id("quay") in result.material[walls]
-    assert np.ptp(triangles[walls][:, :, 1]) > 2
+    # Along the protected walk the raised land ends at one clean open edge for the
+    # surface closure to seal: no per-edge vertical quads (a sliver comb, issue 023).
+    band = shapely.contains_xy(walk["line"].buffer(1.9), *centres)  # protected half width 1.8 m
+    assert not (band & (slope < 1e-6) & (np.ptp(triangles[:, :, 1], axis=1) > 1e-6)).any()
+    from turku3d.ground.mesh import HeightQuery as _H
+
+    assert abs(_H(result)([[22.0, 36.6]])[0] - 6.02) < 0.3  # raised land right up to the edge
 
 
 def test_walk_at_the_approach_level_is_still_graded_into_the_taper():
