@@ -56,6 +56,14 @@ export class TileBundle extends THREE.BundleGroup {
   private boundsWorld = new THREE.Matrix4().set(NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN);
   constructor() { super(); this.matrixAutoUpdate = false; this.userData.tileBundle = true; }
 
+  /** A disposed material or geometry (r186 rebuilds one still drawn) leaves its render objects disposed: record again. */
+  private readonly invalidate = () => { this.needsUpdate = true; };
+  watch(m: Pick<Member, 'material' | 'geometry'>, on = true) {
+    const method = on ? 'addEventListener' : 'removeEventListener';
+    m.material[method]('dispose', this.invalidate);
+    m.geometry[method]('dispose', this.invalidate);
+  }
+
   override updateMatrixWorld(force?: boolean) {
     const parent = this.parent;
     if (!this.matrixWorldNeedsUpdate && parent && this.parentWorld.equals(parent.matrixWorld)) return;
@@ -79,12 +87,12 @@ export class TileBundle extends THREE.BundleGroup {
     let changed = false;
     for (let i = this.members.length - 1; i >= 0; i--) {
       const m = this.members[i], o = m.object;
-      if (o.parent !== this) { this.members.splice(i, 1); changed = true; continue; }
+      if (o.parent !== this) { this.watch(m, false); this.members.splice(i, 1); changed = true; continue; }
       const material = o.material as THREE.Material;
       if (o.visible !== m.visible || material !== m.material || material.version !== m.version || o.geometry !== m.geometry
         || o.castShadow !== m.castShadow || o.receiveShadow !== m.receiveShadow || o.layers.mask !== m.layers
         || o.renderOrder !== m.renderOrder) {
-        Object.assign(m, snapshot(o)); changed = true;
+        this.watch(m, false); Object.assign(m, snapshot(o)); this.watch(m); changed = true;
       }
     }
     if (changed) { this.boundsWorld.elements[0] = NaN; this.needsUpdate = true; }
@@ -131,6 +139,7 @@ export class StaticBundles {
     if (!bundle) return;
     this.bundles.delete(model);
     for (const m of bundle.members) {
+      bundle.watch(m, false);
       if (m.object.parent !== bundle) continue;
       m.parent.add(m.object);
       for (const { node, frustumCulled, matrixAutoUpdate } of m.nodes) { node.frustumCulled = frustumCulled; node.matrixAutoUpdate = matrixAutoUpdate; }
@@ -171,7 +180,9 @@ export class StaticBundles {
         // Recording projects every member whatever the camera: the group culls as a whole.
         node.updateMatrix(); node.matrixAutoUpdate = false; node.frustumCulled = false;
       });
-      bundle.members.push({ object, parent: object.parent!, nodes, ...snapshot(object) });
+      const member = { object, parent: object.parent!, nodes, ...snapshot(object) };
+      bundle.members.push(member);
+      bundle.watch(member);
       bundle.add(object);
     }
     model.add(bundle);

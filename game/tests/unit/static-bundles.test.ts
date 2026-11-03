@@ -91,6 +91,13 @@ test('any member change records again; a removed member leaves the bundle', () =
   t.shadow.removeFromParent(); bundles.update(); expect(version()).toBe(v0 + 6);
   expect(bundle.members.map(m => m.object)).toEqual([t.ground, t.road, t.wall]);
   bundles.update(); expect(version()).toBe(v0 + 6);
+  // A disposed material or geometry still drawn records again; a released tile leaves no listener behind.
+  (t.wall.material as THREE.Material).dispose(); expect(version()).toBe(v0 + 7);
+  t.road.geometry.dispose(); expect(version()).toBe(v0 + 8);
+  const shared = t.ground.material as THREE.Material;
+  bundles.remove(t.model);
+  expect(shared.hasEventListener('dispose', (bundle as unknown as { invalidate: () => void }).invalidate)).toBe(false);
+  shared.dispose(); expect(version()).toBe(v0 + 8);
   bundles.dispose();
 });
 
