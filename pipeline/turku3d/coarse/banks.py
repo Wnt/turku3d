@@ -385,13 +385,13 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
         from . import water_levels
 
         roads = inputs.sources.get("roads", ())
-        steps = water_levels.step_lines(roads[0] if roads else None)
+        steps, rapids = water_levels.features(roads[0] if roads else None)
         level_paths = water_levels.lidar_paths(tile)
         levels = cache.run(
             "water_levels", source_key(Path(water_levels.__file__)),
-            [tile, inputs.water, steps,
+            [tile, inputs.water, steps, rapids,
              [(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in level_paths]],
-            lambda: water_levels.measure(tile, inputs.water, steps, level_paths),
+            lambda: water_levels.measure(tile, inputs.water, steps, level_paths, rapids),
         )
     centres = grid_pos[grid_idx].mean(axis=1)
     ids = surfaces.classify(centres, inputs.ortho, tile, inputs.streets, inputs.surfaces)

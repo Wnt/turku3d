@@ -76,3 +76,19 @@ def test_inland_ditch_meets_natural_banks_at_its_own_surface(monkeypatch):
     assert np.ptp(faces[:, :, 1], axis=1).max() < 0.5
     bed = solid.positions[solid.positions[:, 1] < 16.1, 1]
     assert 16.2 - 3.0 < bed.min() < 16.2 - 0.6
+
+
+def test_pier_inside_the_sea_outline_keeps_the_datum_but_mapped_rapids_climb(monkeypatch):
+    tile = C.VisualTile(0, 0, 0)
+    sea = shapely.box(-40, -40, 290, 140)
+    pier = shapely.box(40, 40, 70, 70)
+    rapids = shapely.box(180, -40, 290, 140)
+    def level_at(x):
+        return np.where(x > 180, 1.8, 0.15)
+    points = river_points(np.random.default_rng(4), sea, level_at, 20000)
+    on_pier = shapely.contains_xy(pier, points[:, 0], points[:, 2])
+    points[on_pier, 1] = 1.7
+    monkeypatch.setattr(water_levels, "key_points", lambda tile, paths: points)
+    levels = water_levels.measure(tile, [sea], [], [], [rapids])
+    assert levels.at([[55.0, 55.0]])[0] == 0
+    assert abs(levels.at([[240.0, 50.0]])[0] - 1.8) < 0.05

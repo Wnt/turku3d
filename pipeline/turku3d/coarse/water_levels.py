@@ -31,23 +31,31 @@ MIN_POINTS = 4
 # Measured surfaces up to 0.5 m belong to the sea datum; from 1 m the measurement holds.
 TIDAL = (0.5, 1.0)
 STEPS = ("dam", "weir", "waterfall", "lock_gate")
+RAPIDS_REACH = 25.0  # m around a mapped rapids line or point
 
 
 def step_lines(osm):
     """Mapped dam, weir, waterfall and lock-gate lines (OSM ``waterway``)."""
+    return features(osm)[0]
+
+
+def features(osm):
+    """(step lines, rapids areas) mapped in OSM."""
     if not osm:
-        return []
+        return [], []
     from turku3d.spatial import frame
 
-    lines = []
+    lines, rapids = [], []
     for row in frame(osm).itertuples():
         tags = json.loads(row.tags or "{}")
-        if tags.get("waterway") not in STEPS:
-            continue
         geometry = shapely.force_2d(row.geometry_local)
-        if geometry.geom_type in ("LineString", "MultiLineString"):
+        if tags.get("waterway") in STEPS and geometry.geom_type in ("LineString", "MultiLineString"):
             lines.append(geometry)
-    return lines
+        elif tags.get("water") == "rapids" and geometry.geom_type in ("Polygon", "MultiPolygon"):
+            rapids.append(geometry)
+        elif tags.get("waterway") == "rapids" or tags.get("whitewater"):
+            rapids.append(geometry.buffer(RAPIDS_REACH))
+    return lines, rapids
 
 
 def pieces(water, steps):
@@ -131,8 +139,13 @@ class Levels:
         return result
 
 
-def measure(tile, water, steps, paths):
-    """Level field of the tile's water pieces from canonical key points."""
+def measure(tile, water, steps, paths, rapids=()):
+    """Level field of the tile's water pieces from canonical key points.
+
+    A piece whose own measurement is tidal (the sea and the lower Aura) keeps the datum
+    everywhere except in mapped rapids, where its surface climbs to the pool above:
+    piers and pontoons inside a mapped sea outline never lift the sea.
+    """
     from scipy.spatial import cKDTree
 
     parts = pieces(water, steps)
@@ -173,6 +186,11 @@ def measure(tile, water, steps, paths):
                     values[n] = np.percentile(bank[ids, 1], 10) - 0.2
             if not np.isfinite(fallback[k]):
                 fallback[k] = np.percentile(bank[:, 1], 10) - 0.2
-        nodes[k] = datum(values).reshape(rows, cols)
+        values = datum(values)
+        if datum(fallback[k]) == LEVEL:
+            climbing = (shapely.contains_xy(shapely.union_all(rapids), grid[:, 0], grid[:, 1])
+                        if rapids else np.zeros(len(grid), bool))
+            values[~climbing & np.isfinite(values)] = LEVEL
+        nodes[k] = values.reshape(rows, cols)
     fallback = datum(fallback)
     return Levels(parts, (x0, z0), (rows, cols), nodes, fallback)
