@@ -590,6 +590,28 @@ class FarmTests(unittest.TestCase):
     def test_versions_with_live_demand_keep_explicit_precedence(self):
         self.assertEqual(self.superseded_order(old_demand=True), ['t0_0_0', 't0_1_0', 't0_2_0'])
 
+    def test_game_manifest_requests_mark_a_version_live(self):
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+        def build(revision, tile, root):
+            calls.append(tile)
+            if len(calls) == 1:
+                entered.set()
+                release.wait(3)
+            return fake_build(revision, tile, root)
+        now = time.time()
+        os.utime(self.root / 'revisions' / REV / 'revision.json', (now - 600, now - 600))
+        farm = self.farm(workers=1, execute=build)
+        farm.request(REV2, 't0_0_0')
+        self.assertTrue(entered.wait(2))
+        farm.request(REV, 't0_1_0')
+        self.assertEqual(farm.priority((GEN, 't0_1_0'))[0], 1)
+        farm.request(REV2, 't0_2_0', 300)
+        self.assertEqual(farm.priority((GEN, 't0_1_0'))[0], 4)
+        release.set()
+        self.wait(farm)
+        self.assertEqual(calls, ['t0_0_0', 't0_2_0', 't0_1_0'])
+
     def test_full_queue_drops_queued_superseded_checks_for_current_work(self):
         entered, release = threading.Event(), threading.Event()
         def build(revision, tile, root):

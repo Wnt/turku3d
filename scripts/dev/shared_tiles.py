@@ -133,6 +133,7 @@ class Farm:
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
         self.registrations, self.registrations_scanned = {}, float('-inf')
+        self.viewed = {}  # generation -> last game manifest request (carries a distance)
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
@@ -362,6 +363,8 @@ class Farm:
             return 422, dict(state='revision-retired', revision=revision, error=reason)
         with self.lock:
             self.metrics['requests'] += 1
+            if distance is not None:
+                self.viewed[generation] = time.time()
             root = self.output(generation)
             receipt = root / tile / 'ready.json'
             if receipt.exists():
@@ -412,8 +415,14 @@ class Farm:
         return self.registrations.get(generation)
 
     def superseded(self, generation):
-        """No client shows this generation, and one registered after it has live demand."""
-        live = {g for (g, _client), demand in self.demands.items() if time.time() - demand['seen'] < 120}
+        """No client shows this generation, and one registered after it has live demand.
+
+        Game clients report demand while playing and request manifests with a distance while
+        loading; CLI checks never carry a distance.
+        """
+        now = time.time()
+        live = {g for (g, _client), demand in self.demands.items() if now - demand['seen'] < 120}
+        live |= {g for g, seen in self.viewed.items() if now - seen < 120}
         own = self.registered(generation)
         if generation in live or own is None:
             return False
