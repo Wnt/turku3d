@@ -57,8 +57,8 @@ describe('economy', () => {
   it('buys vehicles back at half price', () => {
     expect(sellBackPrice('scooter')).toBe(30);
     expect(sellBackPrice('car')).toBe(175);
-    expect(VEHICLE_PRICE.truck).toBe(1000);
-    expect(sellBackPrice('truck')).toBe(500);
+    expect(VEHICLE_PRICE.truck).toBe(600);
+    expect(sellBackPrice('truck')).toBe(300);
   });
 });
 

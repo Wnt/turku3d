@@ -17,7 +17,7 @@ export const KIDNEY_PAYOUT = 400;
 export const KIDNEY_RUN_FACTOR = 0.85;
 export const SLICE_PRICE = 4;
 export const SLICE_SECONDS = 120;
-export const VEHICLE_PRICE: Record<Exclude<VehicleOwnership, 'none'>, number> = { scooter: 60, car: 350, truck: 1000 };
+export const VEHICLE_PRICE: Record<Exclude<VehicleOwnership, 'none'>, number> = { scooter: 60, car: 350, truck: 600 };
 /** The dealer buys a vehicle back at half its price, rounded down to whole euros. */
 export const sellBackPrice = (vehicle: Exclude<VehicleOwnership, 'none'>) => Math.floor(VEHICLE_PRICE[vehicle] / 2);
 export const BASE_PAY = 6;

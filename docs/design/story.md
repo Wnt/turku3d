@@ -80,8 +80,8 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Slice for yourself | 4 €: full run speed for 120 s (game time) after the kidney sale; no effect otherwise |
 | Scooter | 60 € |
 | Car | 350 € |
-| Trophy truck | 1000 € |
-| Vehicle sold back | half the price, rounded down: 30 € / 175 € / 500 € |
+| Trophy truck | 600 € |
+| Vehicle sold back | half the price, rounded down: 30 € / 175 € / 300 € |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
 | Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car, 10.5 m/s trophy truck |
@@ -104,7 +104,7 @@ another needs the current one sold back first.
 Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so on foot
 the permit eats most of the margin and a scooter takes some twenty deliveries. The kidney (+400 €) is
 the shortcut to a car, and the 15 % run penalty is what it costs for the rest of the game; the slice
-is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some hundred
+is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some sixty
 deliveries, or the kidney and a good run.
 
 **Scooter.** The 60 € vehicle is a 50 cc scooter with a red pizza case on the rack (physics vehicle
@@ -116,7 +116,7 @@ purchase parks it at the dealer's kerb (`DEALER_VEHICLE_SPOT`). A save slot stor
 vehicle for deliveries. Saves that owned the former bicycle (the speed-capped car) load as owning
 the scooter.
 
-**Trophy truck.** The 1000 € vehicle is a prerunner (physics vehicle `truck`, tuning `TRUCK`; model built
+**Trophy truck.** The 600 € vehicle is a prerunner (physics vehicle `truck`, tuning `TRUCK`; model built
 from Kenney's CC0 Car Kit pickup with an orange body, open cab, bed cage, light bar and big tyres): 4WD,
 long-travel suspension, 0–100 km/h in about 6 s, 120 km/h top speed, and it takes kerbs at speed with
 barely a jolt (12 cm at 40 km/h costs 2.6 % against the car's 17 %) and lands jumps on its wheels. Like
