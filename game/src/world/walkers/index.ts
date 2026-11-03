@@ -64,6 +64,7 @@ export class Walkers {
   private population: Population | null = null;
   private graphs: readonly RoadGraphJson[] = [];
   private trafficCrossings: { x: number; z: number }[] = [];
+  private crossingUsers: Walker[] = [];
   private heights: GroundHeights;
   private ring = new Ring<Walker>();
   private reactions = new Reactions();
@@ -274,12 +275,10 @@ export class Walkers {
   trafficObstacles(now = performance.now()): TrafficPedestrian[] {
     if (now - this.lastGraphPoll >= GRAPH_POLL_MS) { this.lastGraphPoll = now; this.syncGraphs(); }
     if (!this.population || !this.trafficCrossings.length) return [];
-    const xs = this.trafficCrossings.map(p => p.x), zs = this.trafficCrossings.map(p => p.z);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
     const utc = this.options.now(), result: TrafficPedestrian[] = [];
-    const lives = this.population.near((x0 + x1) / 2, (z0 + z1) / 2, Math.hypot(x1 - x0, z1 - z0) / 2 + 15, utc);
+    const lives = this.population.around(this.trafficCrossings, 15, utc, this.crossingUsers);
     for (const w of lives) {
-      if (w.fade < 0.2 || !this.trafficCrossings.some(p => (p.x - w.x) ** 2 + (p.z - w.z) ** 2 < 225)) continue;
+      if (w.fade < 0.2) continue;
       const future = this.population.at(w, utc + 200);
       const y = Number.isFinite(w.y) ? w.y : this.heights.height(this.population.network.chains[w.chain], w.s) ?? NaN;
       result.push({ id: w.id, x: w.x, y, z: w.z, waiting: !w.moving,

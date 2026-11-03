@@ -65,6 +65,8 @@ interface Leg {
   /** Lateral offset tapers to zero at a decision node at the leg's start/end. */
   taper0: boolean; taper1: boolean;
 }
+/** Route-box prefilter of a scan: one point, or several (x, z pairs). */
+type Near = { x: number; z: number; radius: number } | { spots: Float64Array; radius: number };
 interface Route { legs: Leg[]; known: number; speed: number; life: number; offset: number; box: [number, number, number, number];
   /** People in this life: 1, or 2 for a standing pair (the second faces the first, `WALKER.spacing` along the way). */
   group: number }
@@ -126,13 +128,57 @@ export class Population {
   /** Activity at the start of a birth's minute (the model samples it per minute, so a time edit never changes a
    *  life that began before it). */
   private birthActivity(bornSeconds: number): number {
-    return activityAt(this.clock(CYCLE_EPOCH + Math.floor(bornSeconds / 60) * 60_000));
+    const minute = Math.floor(bornSeconds / 60);
+    let activity = this.activities.get(minute);
+    if (activity === undefined) { activity = activityAt(this.clock(CYCLE_EPOCH + minute * 60_000)); this.activities.set(minute, activity); }
+    return activity;
+  }
+  /** Birth-minute activity within one scan (a scan's lives were born in a handful of minutes). */
+  private activities = new Map<number, number>();
+  /** Cells that can hold a life within `radius` of a spot, with those spots; rebuilt when the spots change. */
+  private spotCells: { spots: readonly { x: number; z: number }[]; radius: number; cells: { cell: Cell; spots: Float64Array }[] } | null = null;
+
+  /** Every walker whose route is known at `utcMs` within `radius` of any of `spots` (crossings: what drivers yield
+   *  to). Scans only the cells a life near a spot can come from, not the spots' bounding disc. */
+  around(spots: readonly { x: number; z: number }[], radius: number, utcMs: number, out: Walker[] = []): Walker[] {
+    out.length = 0;
+    if (!spots.length) return out;
+    this.generation++; this.activities.clear();
+    if (!this.spotCells || this.spotCells.spots !== spots || this.spotCells.radius !== radius) {
+      const reach = radius + MAX_TRAVEL, byCell = new Map<number, { cell: Cell; spots: number[] }>();
+      for (const p of spots) {
+        for (let cx = Math.floor((p.x - reach) / CELL_M); cx <= Math.floor((p.x + reach) / CELL_M); cx++) {
+          for (let cz = Math.floor((p.z - reach) / CELL_M); cz <= Math.floor((p.z + reach) / CELL_M); cz++) {
+            const key = cellKey(cx, cz), cell = this.network.cells.get(key);
+            if (!cell) continue;
+            const dx = Math.max(cx * CELL_M - p.x, 0, p.x - (cx + 1) * CELL_M), dz = Math.max(cz * CELL_M - p.z, 0, p.z - (cz + 1) * CELL_M);
+            if (dx * dx + dz * dz > reach * reach) continue;
+            let entry = byCell.get(key);
+            if (!entry) { entry = { cell, spots: [] }; byCell.set(key, entry); }
+            entry.spots.push(p.x, p.z);
+          }
+        }
+      }
+      this.spotCells = { spots, radius, cells: [...byCell.values()].map(e => ({ cell: e.cell, spots: Float64Array.from(e.spots) })) };
+    }
+    const t = (utcMs - CYCLE_EPOCH) / 1000, r2 = radius * radius;
+    for (const { cell, spots: near } of this.spotCells.cells) {
+      this.cell(cell, t, w => {
+        for (let i = 0; i < near.length; i += 2) if ((w.x - near[i]) ** 2 + (w.z - near[i + 1]) ** 2 < r2) { out.push(w); return; }
+      }, { spots: near, radius });
+    }
+    this.prune();
+    return out;
+  }
+
+  private prune() {
+    if (this.routes.size > 4096) for (const [id, r] of this.routes) if (this.generation - r.used > 8) this.routes.delete(id);
   }
 
   /** Every walker whose route is known at `utcMs` within `radius` of (x, z). */
   near(x: number, z: number, radius: number, utcMs: number, out: Walker[] = []): Walker[] {
     out.length = 0;
-    this.generation++;
+    this.generation++; this.activities.clear();
     const reach = radius + MAX_TRAVEL;
     const t = (utcMs - CYCLE_EPOCH) / 1000;
     for (let cx = Math.floor((x - reach) / CELL_M); cx <= Math.floor((x + reach) / CELL_M); cx++) {
@@ -144,12 +190,12 @@ export class Population {
         this.cell(cell, t, w => { if ((w.x - x) ** 2 + (w.z - z) ** 2 <= radius * radius) out.push(w); }, { x, z, radius });
       }
     }
-    if (this.routes.size > 4096) for (const [id, r] of this.routes) if (this.generation - r.used > 8) this.routes.delete(id);
+    this.prune();
     return out;
   }
 
   /** The walkers alive in one cell at t (seconds since CYCLE_EPOCH); `near` skips routes that never come close. */
-  cell(cell: Cell, t: number, visit: (walker: Walker) => void, near?: { x: number; z: number; radius: number }) {
+  cell(cell: Cell, t: number, visit: (walker: Walker) => void, near?: Near) {
     const expected = WALKER.density * cell.weighted;
     for (let k = 0; k < Math.ceil(expected); k++) {
       const slot = hash32(cell.cx, cell.cz, k);
@@ -177,7 +223,7 @@ export class Population {
   }
 
   private walker(cell: Cell, slot: number, id: number, life: number, born: number, t: number,
-    near?: { x: number; z: number; radius: number }, member = 0, linger = false): Walker | null {
+    near?: Near, member = 0, linger = false): Walker | null {
     const age = t - born;
     if (age < 0 || age >= (linger ? life + WALKER.linger : life)) return null;
     let entry = this.routes.get(id);
@@ -186,9 +232,18 @@ export class Population {
     const route = entry.route;
     if (age > route.known || !route.legs.length) return null;
     if (near) {
-      const [x0, z0, x1, z1] = route.box;
-      const dx = Math.max(x0 - near.x, 0, near.x - x1), dz = Math.max(z0 - near.z, 0, near.z - z1);
-      if (dx * dx + dz * dz > near.radius * near.radius) return null;
+      const [x0, z0, x1, z1] = route.box, r2 = near.radius * near.radius;
+      if ('spots' in near) {
+        let close = false;
+        for (let i = 0; i < near.spots.length && !close; i += 2) {
+          const dx = Math.max(x0 - near.spots[i], 0, near.spots[i] - x1), dz = Math.max(z0 - near.spots[i + 1], 0, near.spots[i + 1] - z1);
+          close = dx * dx + dz * dz <= r2;
+        }
+        if (!close) return null;
+      } else {
+        const dx = Math.max(x0 - near.x, 0, near.x - x1), dz = Math.max(z0 - near.z, 0, near.z - z1);
+        if (dx * dx + dz * dz > r2) return null;
+      }
     }
     let lo = 0, hi = route.legs.length - 1;
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (route.legs[mid].t0 <= age) lo = mid; else hi = mid - 1; }
