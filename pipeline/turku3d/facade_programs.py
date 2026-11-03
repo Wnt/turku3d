@@ -31,6 +31,7 @@ def source_paths():
         Path(__file__).with_name("facade_sections.py"),
         Path(__file__).with_name("facade_repetition.py"),
         Path(__file__).with_name("facade_modernist.py"),
+        Path(__file__).with_name("open_ground.py"),
         Path(__file__).with_name("facade_apertures.py"),
         Path(__file__).with_name("facade_components.py"),
         Path(__file__).with_name("facade_component_geometry.py"),

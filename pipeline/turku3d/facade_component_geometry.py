@@ -521,10 +521,14 @@ def collision_walls(building, walls):
     from turku3d.facade_programs import matching_wall, measured
 
     from turku3d.facade_apertures import cuts, volumes
+    from turku3d.open_ground import edge_plans, interior_quads
 
     observation = measured(building.facade_key)
     apertures = volumes(observation)
-    if not observation or not any(w.get("geometry_components") for w in observation["walls"]):
+    interior = interior_quads(building, walls)
+    if not interior and (
+        not observation or not any(w.get("geometry_components") for w in observation["walls"])
+    ):
         idx = (
             np.concatenate([TRI + i * 4 for i in range(len(walls) // 4)])
             if len(walls)
@@ -541,8 +545,9 @@ def collision_walls(building, walls):
         count += len(points)
 
     for vertices in walls.reshape(-1, 4, 3):
-        own = matching_wall(vertices, observation)
+        own = matching_wall(vertices, observation) if observation else None
         plans = (plan(vertices, own) if own else []) + cuts(vertices, apertures)
+        plans += edge_plans(vertices, building, plans)
         _, boxes = geometry(vertices, plans, building.facade_key, np.zeros(3))
         uv = np.zeros((4, 2))
         for points, _ in surface_parts(vertices, uv, plans, collision=True):
@@ -557,6 +562,9 @@ def collision_walls(building, walls):
             for mesh in only:
                 if mesh.extras.get("component_return"):
                     append(mesh.positions, mesh.indices)
+    # Soffits and inner closing walls of open ground floors are solid surfaces.
+    for quad in interior:
+        append(quad, TRI)
     return (
         (np.concatenate(positions), np.concatenate(indices))
         if positions

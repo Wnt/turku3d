@@ -224,6 +224,7 @@ def wall_meshes(b, walls, origin, layout=None):
     from turku3d.facade_relief import composed_parts
     from turku3d.facade_programs import compile_wall, resolve, measured
     from turku3d.facade_apertures import cuts, volumes
+    from turku3d.open_ground import edge_plans, interior_meshes
 
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
@@ -247,6 +248,7 @@ def wall_meshes(b, walls, origin, layout=None):
         vertices = walls[start : start + 4]
         wall = program["walls"][start // 4]
         plans = plan(vertices, wall) + cuts(vertices, apertures)
+        plans += edge_plans(vertices, b, plans)
         components, _ = geometry(vertices, plans, b.facade_key, origin)
         meshes.extend(components)
         wall["rendered_components"] = [p["kind"] for p in plans]
@@ -274,6 +276,7 @@ def wall_meshes(b, walls, origin, layout=None):
                     instructions.append(dict(start=len(program_parts) * 4, count=4, **instruction))
                     previous_instruction = instruction
                 program_parts.append((p, tex))
+    meshes.extend(interior_meshes(b, walls, origin))
     if program_parts:
         meshes.append(
             GlbMesh(

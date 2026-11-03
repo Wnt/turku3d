@@ -29,6 +29,7 @@ VISUAL_ONLY = {
     "facade_sections.py",
     "facade_repetition.py",
     "facade_modernist.py",
+    "open_ground.py",
     "facade_apertures.py",
     "facade_learning.py",
     "facade_monolith.py",

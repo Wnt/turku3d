@@ -787,10 +787,11 @@ def gather(
         if not pool_mask.is_empty
         else values["water"]
     )
-    from .register import enrich, period_evidence
+    from .register import enrich, open_ground_levels, period_evidence
 
     for building in wfs["buildings"]:
         enrich(building, values["register"], values["appearance"] or {})
+        open_ground_levels(building, ground["points"])
         period_evidence(
             building,
             (values["appearance"] or {}).get("dated_footprints", [])

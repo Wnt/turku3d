@@ -91,6 +91,7 @@ def read_osm(tile, path):
     from turku3d.spatial import rows
 
     buildings, shops, entrances, streets = [], [], [], []
+    raised, grounded = [], []
     window = shapely.box(*tile.bbox.buffered(100).as_tuple())
     classes = {
         "plaster": "render",
@@ -122,6 +123,16 @@ def read_osm(tile, path):
             streets.append(
                 (shapely.force_2d(row["geometry_local"]), tags.get("name"), tags["highway"])
             )
+        part = tags.get("building:part")
+        if tags.get("building") or part not in (None, "no"):
+            low = lower_edge(tags)
+            if low is not None or part not in (None, "no", "roof"):
+                shape = shapely.force_2d(row["geometry_local"])
+                if shape.geom_type == "LineString" and shape.is_ring:
+                    shape = shapely.Polygon(shape)
+                shape = shapely.make_valid(shape)
+                if shape.area >= 2 and shape.intersects(window):
+                    (raised.append((shape, low)) if low is not None else grounded.append(shape))
         if not any(tags.get(k) for k in ("building", "shop", "amenity", "office")):
             continue
         geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
@@ -193,11 +204,72 @@ def read_osm(tile, path):
         if tags.get("building") in ("shed", "garage", "garages"):
             d["blank"] = True
         buildings.append((geom, {k: v for k, v in d.items() if v is not None and v != "unknown"}))
-    return dict(buildings=buildings, shops=shops, entrances=entrances, streets=streets)
+    return dict(
+        buildings=buildings,
+        shops=shops,
+        entrances=entrances,
+        streets=streets,
+        open_ground=open_ground(raised, grounded),
+    )
+
+
+def open_ground_levels(building, points):
+    """Anchor each open piece's soffit to the measured terrain under and around it.
+
+    The LoD2 base is the lowest ground of the whole building, which on a slope
+    would put a pilotis soffit at head height. Lidar ground key points within
+    2 m of the piece give its local level; without any, the base is kept.
+    """
+    import numpy as np
+    import shapely
+
+    pieces = getattr(building, "open_ground", None)
+    if not pieces or points is None or not len(points):
+        return
+    result = []
+    for piece, low, *_ in pieces:
+        near = shapely.contains_xy(piece.buffer(2.0), points[:, 0], points[:, 2])
+        level = float(np.median(points[near, 1])) if near.sum() >= 3 else float(building.base)
+        result.append((piece, low, max(level, float(building.base))))
+    building.open_ground = result
+
+
+def lower_edge(tags):
+    """Height of a raised part's lower edge above ground from min_height or min_level."""
+
+    def number(value):
+        try:
+            return float(str(value).split()[0].replace(",", "."))
+        except (ValueError, IndexError):
+            return None
+
+    height = number(tags.get("min_height"))
+    if height is not None and 0.5 <= height <= 60:
+        return height
+    level = number(tags.get("building:min_level"))
+    if level is not None and 1 <= level <= 20:
+        return 3.0 * level  # Storey prior; OSM levels carry no measured height.
+    return None
+
+
+def open_ground(raised, grounded):
+    """Raised areas without a ground-level part beneath, lowest lower edge first."""
+    import shapely
+
+    covered = shapely.union_all(grounded) if grounded else shapely.Polygon()
+    result = []
+    for shape, low in sorted(raised, key=lambda r: r[1]):
+        piece = shapely.make_valid(shape.difference(covered))
+        if piece.area >= 4:
+            result.append((piece, low))
+        covered = covered.union(shape)
+    return result
 
 
 def enrich(building, registered, osm):
     """Spatially match appearance without changing shell identity or roof metadata."""
+    import shapely
+
     footprint = building.footprint
     candidates = []
     for polygon, attrs in osm.get("buildings", []):
@@ -242,6 +314,14 @@ def enrich(building, registered, osm):
             len({name for distance, name, _ in nearby_streets if name and distance < 15}) > 1
         )
     building.attributes = d
+    pieces = []
+    for polygon, low in osm.get("open_ground", []):
+        if footprint.intersects(polygon):
+            piece = shapely.make_valid(footprint.intersection(polygon))
+            if piece.area >= 4:
+                pieces.append((piece, float(low)))
+    if pieces:
+        building.open_ground = pieces
 
 
 def dated_footprints(tile, path, registered):
