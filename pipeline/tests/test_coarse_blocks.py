@@ -36,12 +36,14 @@ def test_lod_parent_is_shell_roofs_and_walls_in_the_block_frame_with_glazing_mar
     a, b = model('a', 0, 0, 20, 20), model('b', 30, 0, 50, 20, glazed=False)
     meshes = blocks.lod_meshes('bX', [(a[2], a[3]), (b[2], b[3])], np.array([25.0, 0, 10.0]))
     names = sorted(m.extras['lod'] for m in meshes)
-    assert names == ['roofs', 'walls', 'walls-glazed']
+    assert names == ['walls', 'walls-glazed']
     assert sum(len(m.indices) for m in meshes) == 8
-    roof = next(m for m in meshes if m.extras['lod'] == 'roofs')
-    assert roof.positions[:, 0].min() == -25 and roof.positions[:, 0].max() == 25
     glazed = next(m for m in meshes if m.extras['lod'] == 'walls-glazed')
+    assert glazed.positions[:, 0].min() == -25 and glazed.positions[:, 0].max() == -5
+    plain = next(m for m in meshes if m.extras['lod'] == 'walls')
+    assert plain.positions[:, 0].max() == 25
     np.testing.assert_allclose(glazed.colors[0], blocks._linear('#b8b394', None))
+    np.testing.assert_allclose(glazed.colors[4], blocks.ROOF)
     from turku3d.package.gltf import build_glb
     document, _ = read_glb(build_glb(meshes, root_translation=(0., 0., 0.)))
-    assert len(document['meshes']) == 3
+    assert len(document['meshes']) == 2

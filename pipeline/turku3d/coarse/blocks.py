@@ -86,14 +86,16 @@ def _appearance(meshes):
 
 def lod_meshes(identity, members, origin):
     """LoD2 shell surfaces of a block in its local frame. `members` are (meshes, parts) of each building."""
-    groups = {"walls-glazed": ([], [], []), "walls": ([], [], []), "roofs": ([], [], [])}
+    # One draw per block: roofs ride with their building's walls (the client's window term vanishes on
+    # horizontal faces); only windowless buildings need a second, plain surface set.
+    groups = {"walls-glazed": ([], [], []), "walls": ([], [], [])}
     for meshes, parts in members:
         wall, glazed = _appearance(meshes)
+        name = "walls-glazed" if glazed else "walls"
         for _, shell in parts:
             if not isinstance(shell, tuple) or len(shell) != 7:
                 continue
-            for name, points, faces, colour in (("walls-glazed" if glazed else "walls", shell[4], shell[6], wall),
-                                                ("roofs", shell[0], shell[1], ROOF)):
+            for points, faces, colour in ((shell[4], shell[6], wall), (shell[0], shell[1], ROOF)):
                 if points is None or faces is None:
                     continue
                 points, faces = np.asarray(points, float), np.asarray(faces, np.int64)
