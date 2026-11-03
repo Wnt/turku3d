@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { REFLECTION_LAYER, reflectionSurface, ReflectionShadows, ReflectionCadence } from '../../src/render/reflections';
+import { REFLECTION_LAYER, reflectionSurface, ReflectionShadows, ReflectionCadence, reflectionCadence } from '../../src/render/reflections';
 import { RiverMaterial } from '../../src/render/water';
 import { Environment } from '../../src/render/environment';
 
@@ -107,4 +107,19 @@ test('small opaque quay light strips participate in the actual river pass', () =
   expect(reflectionSurface(mesh)).toBe(true);
   mesh.userData.reflection_surface = false;
   expect(reflectionSurface(mesh)).toBe(false);
+});
+
+test('the alternate cadence (A/B) refreshes a moving view every second frame; still, forced and first frames as before', () => {
+  reflectionCadence.alternate = true;
+  try {
+    const cadence = new ReflectionCadence(12), camera = new THREE.PerspectiveCamera();
+    camera.updateMatrixWorld();
+    expect(cadence.shouldUpdate(camera, 0, false)).toBe(true);
+    const moving = [1, 2, 3, 4].map(x => { camera.position.x = x; camera.updateMatrixWorld(); return cadence.shouldUpdate(camera, x * 16, true); });
+    expect(moving).toEqual([false, true, false, true]);
+    camera.position.x = 9; camera.updateMatrixWorld();
+    expect(cadence.shouldUpdate(camera, 100, true, true)).toBe(true);
+    expect(cadence.shouldUpdate(camera, 116, true)).toBe(false);
+    expect(cadence.shouldUpdate(camera, 116 + 1000 / 12, true)).toBe(true);
+  } finally { reflectionCadence.alternate = false; }
 });

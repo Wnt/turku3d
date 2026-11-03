@@ -45,16 +45,24 @@ export class ReflectionShadows {
   }
 }
 
+/** A/B alternative (owner perf3; the losing path goes after Jonni's look): with `alternate`, a moving camera
+ * re-renders river reflections on every second frame only (?reflection=alternate). The pass is about 9 % of
+ * main-thread time (round 9 CPU trace: the reflector renders nested in the river's transparent draw). */
+export const reflectionCadence = { alternate: false };
+
 /** A moving camera re-renders the reflection every frame: an image from an older pose visibly trails
  * the view. Only a still camera reuses it, refreshing at `slowFps` for moving water and actors. */
 export class ReflectionCadence {
   private last = -Infinity;
   private pose = new THREE.Matrix4();
+  private skipped = false;
   constructor(private slowFps: number) {}
 
   shouldUpdate(camera: THREE.Camera, now: number, hasOutput: boolean, force = false): boolean {
     const moved = !camera.matrixWorld.equals(this.pose);
     if (hasOutput && !force && !moved && now - this.last < 1000 / this.slowFps) return false;
+    if (reflectionCadence.alternate && hasOutput && !force && moved && !this.skipped) { this.skipped = true; return false; }
+    this.skipped = false;
     this.last = now;
     this.pose.copy(camera.matrixWorld);
     return true;

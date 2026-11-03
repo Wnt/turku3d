@@ -57,6 +57,7 @@ import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
 import { freezeModel } from './world/frozenTransforms';
 import { altitudeShadows } from './render/shadowAltitude';
+import { reflectionCadence } from './render/reflections';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
 import { BenchLab } from './qa/lab/lab';
@@ -197,6 +198,8 @@ const bundles = idPass || backend !== 'WebGPU' || !bundlesWanted ? null : new St
 // GTA V's altitude rule: small casters leave the sun's cascades above about 100 m (render/shadowAltitude.ts).
 // ?altitudeShadows=0 keeps them, for the bench=fly A/B (owner perf3; the losing path goes after it).
 altitudeShadows.enabled = new URLSearchParams(location.search).get('altitudeShadows') !== '0';
+// ?reflection=alternate: river reflections refresh every second frame while the camera moves (A/B, render/reflections.ts).
+reflectionCadence.alternate = new URLSearchParams(location.search).get('reflection') === 'alternate';
 /** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
 let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
