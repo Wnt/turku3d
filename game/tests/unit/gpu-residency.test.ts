@@ -59,3 +59,21 @@ test('over its tier budget the streamer drops cached, then distant, then far til
   internals.applyGpuLimit(limit);
   expect(internals.overGpu).toBe(false);
 });
+
+test('Apple (unified memory) gets a later budget than a 4 GB discrete card on the same tier', () => {
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async () => new Response(null, { status: 404 })) as unknown as typeof fetch });
+  const limit = () => (coarse as unknown as { gpuLimit(): number | undefined }).gpuLimit();
+  setRenderTier({ tier: 'reduced', source: 'device', gpu: { vendor: 'amd', architecture: 'gcn-4' } });
+  expect(limit()).toBe(0.8 * 2 ** 30);
+  setRenderTier({ tier: 'reduced', source: 'device', gpu: { vendor: 'apple', architecture: 'metal-3' } });
+  expect(limit()).toBe(2 ** 30);
+  setRenderTier({ tier: 'medium', source: 'default', gpu: { vendor: 'apple', architecture: 'metal-3' } });
+  expect(limit()).toBeUndefined(); // medium: no budget
+  (coarse as unknown as { host: { gpuBudget?: number } }).host.gpuBudget = 0.6 * 2 ** 30; // ?gpuBudget=0.6
+  expect(limit()).toBe(0.6 * 2 ** 30);
+  (coarse as unknown as { host: { gpuBudget?: number } }).host.gpuBudget = 0; // ?gpuBudget=0
+  expect(limit()).toBeUndefined();
+});

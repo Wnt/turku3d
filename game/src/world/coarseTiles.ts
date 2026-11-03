@@ -100,6 +100,9 @@ const RELEASE_MS = 2000;
  *  90 % of it no lead or view tile starts a full install and the return cache keeps nothing; over it, hidden and far
  *  full tiles are dropped (never the current 3x3 window). Measured every GPU_MEASURE_MS, time-sliced. */
 const GPU_BUDGET_BYTES: Partial<Record<QualityTier, number>> = { reduced: 0.8 * 2 ** 30, low: 0.7 * 2 ** 30, mobile: 0.5 * 2 ** 30 };
+/** Apple GPUs share system memory (an 8 GB M1 Air detected as reduced): there the budget is relief for the swap,
+ *  not a hard VRAM wall, so it binds later than on a 4 GB discrete card and the view keeps more full tiles. */
+const UNIFIED_GPU_BUDGET_BYTES = 1.0 * 2 ** 30;
 const GPU_MEASURE_MS = 3000;
 /** A window tile still not loaded after this long (ms) shows as waiting in the tile status. */
 const WAITING_MS = 5000;
@@ -1248,7 +1251,11 @@ export class CoarseTiles {
   private lastWanted: string[] = [];
   private gpuBudget = streamingBudget();
   /** The budget of the session's tier; undefined (none) on medium and high. */
-  private gpuLimit() { const tier = renderTier()?.tier; return tier ? GPU_BUDGET_BYTES[tier] : undefined; }
+  private gpuLimit() {
+    if (this.host.gpuBudget !== undefined) return this.host.gpuBudget > 0 ? this.host.gpuBudget : undefined;
+    const tier = renderTier(), limit = tier ? GPU_BUDGET_BYTES[tier.tier] : undefined;
+    return limit !== undefined && tier?.gpu?.vendor?.toLowerCase() === 'apple' ? Math.max(limit, UNIFIED_GPU_BUDGET_BYTES) : limit;
+  }
   private measureGpu(now: number) {
     const limit = this.gpuLimit();
     if (limit === undefined || this.gpu.measuring || now < this.gpu.next) return;

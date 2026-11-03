@@ -437,6 +437,12 @@ function applyQaCamera() {
   camera.updateMatrixWorld();
 }
 
+/** `?gpuBudget=GiB` as bytes; undefined (the tier's budget) when absent or not a number. */
+function gpuBudgetParam(value: string | null) {
+  const gib = value === null || value.trim() === '' ? NaN : Number(value);
+  return Number.isFinite(gib) && gib >= 0 ? gib * 2 ** 30 : undefined;
+}
+
 /** What `__render.memory()` reads once the world exists. */
 const censusSources: { coarse: CoarseTiles | null; collision: CollisionStreamer | null; ground: GroundIndex | null } = { coarse: null, collision: null, ground: null };
 
@@ -465,6 +471,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m),
     // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
     keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
+    // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
+    gpuBudget: gpuBudgetParam(new URLSearchParams(location.search).get('gpuBudget')),
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),

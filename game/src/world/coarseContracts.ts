@@ -66,6 +66,8 @@ export interface CoarseHost {
   previewCollision?: (buffers: ReadonlyMap<string, ArrayBuffer>) => Promise<THREE.Object3D>;
   /** Keep CPU copies of uploaded geometry (id pass and other CPU readers of drawn meshes). */
   keepArrays?: boolean;
+  /** GPU residency budget in bytes instead of the tier's (0: none); the `?gpuBudget=GiB` measurement override. */
+  gpuBudget?: number;
   /** Compile and upload a collision preview outside the frame before it draws. */
   preparePreview?: (model: THREE.Object3D) => Promise<void>;
   /** After material styling and draft tint: register derived runtime geometry here. */
