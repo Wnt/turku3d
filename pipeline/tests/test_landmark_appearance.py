@@ -135,6 +135,27 @@ def test_reviewed_parameters_survive_automatic_reference_refresh(tmp_path, monke
     assert descriptions.resolve(building("new"))["colour"] == [7, 8, 9]
 
 
+def test_automatic_seed_yields_to_measured_masonry_class(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d import config as C
+    from turku3d.landmarks import descriptions
+
+    reviewed = tmp_path / "reviewed"
+    reviewed.mkdir()
+    monkeypatch.setattr(descriptions, "ROOT", reviewed)
+    data = C.data_root() / "landmark-descriptions"
+    data.mkdir(parents=True, exist_ok=True)
+    seed = dict(version=1, building_id="fort", reference_match="verified", reference_confidence=0.98)
+    (data / "fort.json").write_text(json.dumps(seed))
+    castle = SimpleNamespace(facade_key="fort", attributes=dict(construction_year=1280, footprint_m2=4193))
+    house = SimpleNamespace(facade_key="fort", attributes=dict(construction_year=1905, footprint_m2=400))
+    assert descriptions.resolve(castle) is None
+    assert descriptions.resolve(house)["building_id"] == "fort"
+    (reviewed / "fort.json").write_text(json.dumps(dict(version=1, building_id="fort", colour=[1, 2, 3])))
+    assert descriptions.resolve(castle)["colour"] == [1, 2, 3]
+
+
 def test_narrow_tower_wall_keeps_copper_above_its_stage():
     from turku3d.landmarks.appearance import material_wall_parts
     from turku3d.landmarks.descriptions import resolve

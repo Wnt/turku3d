@@ -35,6 +35,20 @@ class OverlayTests(unittest.TestCase):
             self.assertEqual((base / 'raw/laz/old.laz').read_bytes(), b'old')
             self.assertEqual(module.publish(base, overlay, [first, second]), b)
 
+    def test_description_store_is_content_versioned_at_the_data_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, owned, overlay = root / 'base', root / 'owned', root / 'overlay'
+            (base / 'raw').mkdir(parents=True)
+            source = owned / 'landmark-descriptions/castle.json'
+            source.parent.mkdir(parents=True)
+            source.write_text('{"version": 1}')
+            a = module.publish(base, overlay, [owned])
+            self.assertEqual((a / 'landmark-descriptions/castle.json').read_text(), '{"version": 1}')
+            self.assertFalse((base / 'landmark-descriptions').exists())
+            source.write_text('{"version": 2}')
+            self.assertNotEqual(module.publish(base, overlay, [owned]), a)
+
     def test_supplement_is_content_versioned_without_modifying_raw(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
