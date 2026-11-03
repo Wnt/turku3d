@@ -2,10 +2,11 @@
 
 Each entry runs at the end of every generator build and over existing farm products."""
 
-from . import chain_record, floodlights, stand_roofs
+from . import chain_record, floodlights, roof_classes, stand_roofs
 
 CHAIN = (
     chain_record.MIGRATION,
     stand_roofs.MIGRATION,
     floodlights.MIGRATION,
+    roof_classes.MIGRATION,
 )
