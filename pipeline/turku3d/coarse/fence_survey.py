@@ -154,8 +154,11 @@ def enrich(tile, records, osm, paths):
                 continue
             from .retaining_survey import ground_points, measure
 
+            # Equal spans of about 5 m: a short remainder would be too short to
+            # measure and keep the 1.8 m default as a stub beside a measured wall.
+            edges = np.linspace(0, line.length, max(1, int(round(line.length/5)))+1)
             spans = [line] if tags.get("_inferred_gap") else [
-                substring(line, start, min(start+5,line.length)) for start in np.arange(0,line.length,5)
+                substring(line, start, end) for start, end in zip(edges[:-1], edges[1:])
             ]
             for span in spans:
                 local = cloud.query(C.BBoxLocal(*span.buffer(2).bounds))
