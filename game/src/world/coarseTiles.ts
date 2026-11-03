@@ -52,13 +52,22 @@ const FRAGMENT_CACHE_BYTES = 16 * 1024 ** 2;
 /** While nothing is building, /coarse/want reports the position at most this often (ms) unless the player moved WANT_MOVE_M. */
 const WANT_IDLE_MS = 5000;
 const WANT_MOVE_M = 50;
-/** A driving player's next 3x3 window (this many seconds ahead) prepares full visuals before it is entered:
- *  a full install takes several seconds of budgeted work. Faster flight keeps previews only. */
-const DETAIL_LEAD_S = 12;
+/** A driving player prepares full visuals of every tile its 3x3 window will reach within DETAIL_LEAD_S along the
+ *  heading, or within DETAIL_LEAD_M, whichever is farther (an install takes several seconds of budgeted work).
+ *  Faster flight keeps previews only. */
+const DETAIL_LEAD_S = 28;
+const DETAIL_LEAD_M = 450;
+const DETAIL_LEAD_MAX_M = 700;
 const DETAIL_LEAD_MAX_SPEED = 40;
-/** Concurrent full-visual installs, and concurrent unconfirmed ahead acknowledgements. */
-const DETAIL_SLOTS = 3;
+/** Concurrent full-visual installs; tiles ahead may use all but one, which stays free for the current window. */
+const DETAIL_SLOTS = 5;
+const AHEAD_DETAIL_SLOTS = DETAIL_SLOTS - 1;
+/** Concurrent unconfirmed ahead acknowledgements, and concurrent collision previews being prepared. */
 const ACK_SLOTS = 4;
+const PREVIEW_SLOTS = 6;
+/** A preview or load started for the lead stays this long after the lead last covered it: reversals and heading
+ *  jitter must not drop and rebuild it. Full visuals leave through the heap-budgeted return cache instead. */
+const LEAD_KEEP_MS = 30_000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -119,6 +128,9 @@ export class CoarseTiles {
   private builtUntil = new Map<string, number>();
   private details = 0;
   private acking = 0;
+  private leadUntil = new Map<string, number>();
+  /** The latest scan's lead tiles (nextWindow). */
+  private lead: string[] = [];
   /** The player position of the latest update, for install priority. */
   private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
@@ -318,7 +330,9 @@ export class CoarseTiles {
   }
 
   private restoreCached(x: number, z: number) {
-    for (const id of this.wantedStarts(x,z)) {
+    // The lead ahead too: a cached full tile the heading reaches again draws (or hands over to its scenery cell when
+    // far) instead of expiring hidden and loading again.
+    for (const id of [...this.wantedStarts(x,z), ...this.lead]) {
       const e = this.entries.get(id);
       if (!e?.model || e.cachedAt === undefined) continue;
       this.endLeaving(e.model, false);
@@ -386,7 +400,9 @@ export class CoarseTiles {
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     const lookahead = this.startup ? [] : preparationTiles(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
-    const nextWindow = this.nextWindow(x, z, wanted).sort(byArrival);
+    const nextWindow = this.lead = this.nextWindow(x, z, wanted);
+    for (const [id, until] of this.leadUntil) if (until < now) this.leadUntil.delete(id);
+    for (const id of nextWindow) this.leadUntil.set(id, now + LEAD_KEEP_MS);
     const retain = (id: string) => this.host.detailRadius === undefined
       ? retainDraftTile(id, [{ x, z }, ...this.retainedStarts])
       : [{ x, z }, ...this.retainedStarts].some(p => distToL0(id, p.x, p.z) <= this.host.detailRadius! + 40);
@@ -401,6 +417,7 @@ export class CoarseTiles {
       // A prepared surface reserve tile stays while it is within the 5x5 reserve plus hysteresis, so ranking jitter
       // and boundary crossings do not drop and rebuild it.
       if (e.resident && e.preview && this.host.detailRadius === undefined && retainPreparedTile(id, [{ x, z }, ...this.retainedStarts])) continue;
+      if (e.resident && (e.preview || !e.model) && (this.leadUntil.get(id) ?? 0) >= now) continue;
       if (e.state === 'built' && now < (this.builtUntil.get(id) ?? 0)) continue;
       this.builtUntil.delete(id);
       if (this.cacheFull(id, e)) continue;
@@ -443,7 +460,7 @@ export class CoarseTiles {
     }
     // Core requests always start first. This separate slot limits speculative preparation only.
     for (const id of new Set([...nextWindow, ...lookahead])) {
-      if (this.preparing.size >= 4 || this.preparing.has(id)) continue;
+      if (this.preparing.size >= PREVIEW_SLOTS || this.preparing.has(id)) continue;
       const e = this.entry(id), distance = this.demandDistance(id, x, z);
       const task = due(e) ? this.poll(id, e, distance, true, 'lookahead') : null;
       if (task) {
@@ -452,10 +469,11 @@ export class CoarseTiles {
       }
     }
     // Detailed facades/textures cannot monopolize the network while ground is still arriving.
-    // The window ahead follows the current one, nearest arrival first.
+    // The current window strictly first; then the windows ahead in arrival order, leaving one slot for the current one.
     for (const id of [...wanted, ...nextWindow]) {
       const e = this.entries.get(id);
-      if (e?.preview && !e.refreshing && this.details < DETAIL_SLOTS && now >= e.nextPoll) {
+      const slots = wanted.includes(id) ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
+      if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
         e.refreshing = true; this.details++;
         void this.applyFragment(id, e, e.preview).catch(error => this.warn(`[coarse] ${id} detail: ${error}`))
           .finally(() => { e.refreshing = false; e.nextPoll = this.clock + 2000; this.details--; });
@@ -592,12 +610,18 @@ export class CoarseTiles {
     this.velocity = { x: 0.5 * this.velocity.x + 0.5 * vx, z: 0.5 * this.velocity.z + 0.5 * vz };
   }
 
-  /** The 3x3 window DETAIL_LEAD_S ahead of a driving player, minus the current one. */
+  /** Tiles the 3x3 window of a driving player reaches along its heading within the detail lead, minus the current
+   *  window, in the order the window reaches them (nearest arrival first). */
   private nextWindow(x: number, z: number, wanted: string[]) {
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.startup || this.host.detailRadius !== undefined || speed < 3 || speed > DETAIL_LEAD_MAX_SPEED) return [];
-    const lead = Math.min(DETAIL_LEAD_S * speed, 2 * VISUAL_L0) / speed;
-    return wantedTiles(x + this.velocity.x * lead, z + this.velocity.z * lead).filter(id => !wanted.includes(id));
+    const reach = Math.min(Math.max(DETAIL_LEAD_S * speed, DETAIL_LEAD_M), DETAIL_LEAD_MAX_M), step = VISUAL_L0 / 5;
+    const seen = new Set(wanted), order: string[] = [];
+    for (let s = step; s < reach + step; s += step) {
+      const at = Math.min(s, reach), px = x + this.velocity.x / speed * at, pz = z + this.velocity.z / speed * at;
+      for (const id of wantedTiles(px, pz)) if (!seen.has(id)) { seen.add(id); order.push(id); }
+    }
+    return order;
   }
 
   /** A full, non-stale fragment of the service's current generation never changes: no refresh polls or refetches. */
@@ -967,7 +991,8 @@ export class CoarseTiles {
     await this.applyFragment(id, e, fragment);
     e.manifestHash = hash;
     e.retries = 0; this.outageFailures = 0;
-    e.nextPoll = this.clock + 2000;
+    // A fresh preview may start its full install at once; a full visual revalidates on the normal schedule.
+    e.nextPoll = this.clock + (e.preview ? 0 : 2000);
   }
 
   /** Bench lab (qa/lab): false keeps update()'s per-frame work (fades, distances, scenery, holds) but requests and drops

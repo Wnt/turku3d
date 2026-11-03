@@ -206,9 +206,9 @@ test('a moving player gets builds ahead requested without loading them; they loa
   // Driving east at 25 m/s along z 100 from x 300.
   for (let t = 0; t <= 8; t++) { coarse.update(300 + 25 * t, 100, 1000 * t); await settle(); }
   expect(coarse.velocity.x).toBeCloseTo(25, 0);
-  expect(service.polls.get('t0_5_0')).toBeGreaterThan(0); // 750 m ahead of x 500
-  expect(coarse.entries.get('t0_5_0')?.state).toBe('built');
-  expect(loaded).not.toContain('t0_5_0');
+  expect(service.polls.get('t0_6_0')).toBeGreaterThan(0); // 1000 m ahead of x 500, beyond the detail lead
+  expect(coarse.entries.get('t0_6_0')?.state).toBe('built');
+  expect(loaded).not.toContain('t0_6_0');
   expect(loaded).toContain('t0_2_0');
   expect(coarse.status).toMatch(/drafts .*t0_2_0/);
   // A teleport is no speed: no prefetch from it.
@@ -219,7 +219,7 @@ test('a moving player gets builds ahead requested without loading them; they loa
 test('ahead metadata survives a quick heading reversal, expires, and revalidates before promotion', async () => {
   const manifest = { visual: {}, collision: {} } as unknown as Manifest;
   const service = fakeService(manifest), loaded: string[] = [];
-  const point = { x: 300, z: 100 }, id = 't0_5_0';
+  const point = { x: 300, z: 100 }, id = 't0_7_0'; // beyond the 700 m detail lead
   let generation = 'initial';
   const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest, pageUrl: 'http://localhost/',
     fetch: (async (url: string) => {
@@ -240,7 +240,7 @@ test('ahead metadata survives a quick heading reversal, expires, and revalidates
   await update(33_000, -25); await update(34_000, 25);
   expect(service.polls.get(id)).toBe(3); // Expired metadata is revalidated on return.
   generation = 'latest';
-  await update(35_000, 0, 1300);
+  await update(35_000, 0, 1800);
   expect(service.polls.get(id)).toBe(4); // A metadata hit never publishes stale model/collision inputs.
   expect(loaded).toContain(id);
   expect(coarse.entries.get(id)?.visualHash).toBe('latest');
@@ -810,6 +810,6 @@ test('a driving player gets full visuals for the next 3x3 window before entering
   }
   expect(shownBeforeEntry).toBe(true);
   expect(loaded).toContain('t0_2_0');
-  expect(loaded).not.toContain('t0_4_0'); // only the next window, not the whole prefetch corridor
-  expect(maxAcks).toBeLessThanOrEqual(4 + 4 + 9); // ack slots + preparation slots + the window itself
+  expect(loaded).not.toContain('t0_5_0'); // only the windows within the detail lead, not the whole prefetch corridor
+  expect(maxAcks).toBeLessThanOrEqual(4 + 6 + 9); // ack slots + preview slots + the window itself
 });
