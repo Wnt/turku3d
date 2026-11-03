@@ -70,6 +70,7 @@ OSM_DUPLICATE = 3.0  # m: an OSM item this close to a register item of its kind 
 # OSM tags of the furniture kinds the register may lack (bollards stay in the barrier layer).
 OSM_FURNITURE = {
     ("amenity", "bench"): "bench",
+    ("leisure", "picnic_table"): "table",
     ("amenity", "waste_basket"): "bin",
     ("amenity", "bicycle_parking"): "bike_rack",
     ("vending", "parking_tickets"): "parking_meter",

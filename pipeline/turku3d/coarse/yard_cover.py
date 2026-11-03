@@ -1,4 +1,5 @@
-"""Aerial lawn outlines and mapped play areas inside residential parcels."""
+"""Aerial lawn outlines inside residential parcels, and the mapped OSM play areas
+(their equipment is placed by ``coarse.playgrounds``)."""
 
 import json
 
@@ -70,50 +71,3 @@ def regions(tile, rgb, parcels, blocked):
                 if part.geom_type == 'Polygon' and part.area >= minimum:
                     patches.append((part, mat_id(material)))
     return sorted(patches, key=lambda p: (-p[0].area, p[0].wkb))
-
-
-def playgrounds(tile, records, sample, blocked):
-    """Small generic play equipment fits only inside explicitly mapped play areas."""
-    from turku3d.structures.geometry import Faces
-    from .bridge_details import tube, appearance, combine
-    from .geometry import clip_mesh
-
-    result = []
-    obstacles = shapely.union_all(blocked)
-    for identity, area in records:
-        safe = area.difference(obstacles).buffer(-.4)
-        inner = safe.buffer(-2.3)
-        if inner.is_empty:
-            continue
-        centre = np.asarray(inner.representative_point().coords[0])
-        ring = np.asarray(area.minimum_rotated_rectangle.exterior.coords)
-        edges = np.diff(ring, axis=0)
-        axis = edges[np.argmax(np.linalg.norm(edges, axis=1))]
-        axis /= np.linalg.norm(axis)
-        normal = np.array([-axis[1], axis[0]])
-        footprint = shapely.Polygon([centre+axis*a+normal*b
-                                    for a,b in [(-2,-1.4),(2,-1.4),(2,1.4),(-2,1.4)]])
-        if not safe.covers(footprint):
-            continue
-        key = 'playground:' + identity
-        parts = []
-        def at(a,b,h):
-            p=centre+axis*a+normal*b
-            return np.array([p[0],sample(*p)+h,p[1]])
-        for end in (-1.8,1.8):
-            top=at(end,0,2.3)
-            for side in (-1,1):
-                parts.append(tube(key,at(end,side,0),top,.055,'wood','wall'))
-        parts.append(tube(key,at(-1.9,0,2.3),at(1.9,0,2.3),.065,'paint','wall'))
-        for seat in (-.65,.65):
-            for side in (-.22,.22):
-                parts.append(tube(key,at(seat+side,0,.5),at(seat+side,0,2.3),.012,'steel'))
-            corners=[at(seat+a,b,.5) for a,b in [(-.25,-.18),(.25,-.18),(.25,.18),(-.25,.18)]]
-            faces=Faces();faces.face(corners[::-1]);faces.face(corners)
-            parts.append(appearance(faces.mesh(key,'wall'),'wood',collision=False))
-        for mesh in combine(parts,key):
-            mesh.metadata['kind']='playground'
-            clipped=clip_mesh(mesh,tile.bbox)
-            if clipped is not None:
-                result.append(clipped)
-    return result

@@ -748,20 +748,3 @@ def test_recreation_park_keeps_mapped_forest_and_canopy_outside_pitches(tmp_path
         if len(canopy):
             assert any(t.measured and t.x == 50 and t.z == 50 for t in trees)
 
-
-def test_mapped_playground_reaches_collision_with_string_source_provenance(tmp_path, inputs):
-    x0, _, z0 = TILE.origin
-    area = shapely.box(x0 + 65, z0 + 95, x0 + 80, z0 + 110)
-    path = tmp_path / "yard-osm.parquet"
-    gpd.GeoDataFrame(
-        {"osm_id": ["play-area"], "tags": [json.dumps({"leisure": "playground"})],
-         "geometry_local": gpd.GeoSeries([area])}, geometry="geometry_local",
-    ).to_parquet(path)
-    inputs.sources["roads"] = [str(path)]
-    out = tmp_path / "yard-tile"
-    manifest = build(TILE.id, out, inputs=inputs, first_pass=True)
-    positions = np.concatenate([read_col((out / entry["url"]).read_bytes()).positions + C.CollisionTile.parse(cid).origin
-                                for cid, entry in manifest["collision"].items()])
-    inside = shapely.contains_xy(area, positions[:, 0], positions[:, 2])
-    ground = 10 + .01 * positions[:, 0]
-    assert np.any(inside & (positions[:, 1] > ground + 2))

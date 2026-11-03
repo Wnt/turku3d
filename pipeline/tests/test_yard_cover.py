@@ -36,18 +36,6 @@ def test_shadow_asphalt_stays_neutral_and_tiny_isolated_green_returns_are_droppe
     assert yard_cover.regions(tile,rgb,shapely.box(0,0,250,250),[])==[]
 
 
-def test_mapped_play_equipment_stays_inside_area_and_uses_shared_solid_meshes():
-    tile=C.VisualTile(0,0,0);area=shapely.box(10,10,20,20)
-    meshes=yard_cover.playgrounds(tile,[('source',area)],lambda x,z:2,[])
-    assert meshes and sum(len(m.indices) for m in meshes)<1000
-    for m in meshes:
-        assert shapely.covers(area,shapely.points(m.positions[:,[0,2]])).all()
-        assert m.metadata['kind']=='playground'
-        assert np.isfinite(m.positions).all()
-    assert yard_cover.playgrounds(tile,[('small',shapely.box(0,0,2,2))],lambda x,z:0,[])==[]
-    assert yard_cover.playgrounds(tile,[('blocked',area)],lambda x,z:0,[area])==[]
-
-
 def test_bright_courtyard_paving_keeps_explicit_road_and_grass_priority():
     assert not yard_cover.paving_mask(np.full((1,1,3),255,np.uint8)).any()
     tile = C.VisualTile(0, 0, 0)

@@ -319,16 +319,6 @@ def build(
         lambda: yard_cover.features(tile, yard_source),
     ) if yard_source else (shapely.Polygon(), [])
     yard_blocked = [*water, *[b.footprint for b in [*blds, *inputs.wall_context]]]
-    play_blocked = [*yard_blocked, *[g for g, m in [*inputs.streets, *inputs.surfaces]
-                     if m in (mat_id("road"), mat_id("sidewalk"), mat_id("paving_slab"),
-                              mat_id("bridge_deck"))]]
-    play_meshes = cache.run(
-        "playgrounds", source_key(Path(yard_cover.__file__), base / "structures/geometry.py",
-                                  Path(__file__).with_name("bridge_details.py")),
-        [tile, play_areas, grid_pos, dry.positions, play_blocked],
-        lambda: yard_cover.playgrounds(tile, play_areas, surface_sample, play_blocked),
-    )
-    stair_meshes.extend(play_meshes)
     from . import street_profiles
 
     if inputs.retaining:
@@ -515,6 +505,15 @@ def build(
         else furniture.stage(cache, tile, inputs, grid_pos, carried_mask, common)
     )
     seconds["furniture"] = cache.metrics.get("furniture", {}).get("seconds", 0.0)
+    # Surveyed playground equipment (and a swing set in other mapped play areas).
+    from . import playgrounds as play_stage
+
+    play = (
+        play_stage.EMPTY
+        if first_pass
+        else play_stage.stage(cache, tile, inputs, grid_pos, trees, street["props"], play_areas, common)
+    )
+    seconds["playgrounds"] = cache.metrics.get("playgrounds", {}).get("seconds", 0.0)
     t = time.perf_counter()
     collision = {}
     cols = {}
@@ -536,6 +535,7 @@ def build(
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
         pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes], pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct] + street["collision"].get(ct.id, [])
+        primitives += play["collision"].get(ct.id, [])
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         compact_collision(col)
         navigation_cells.append(col)
@@ -732,6 +732,9 @@ def build(
     if street["glb"]:
         _write(stage / "props.vis.glb", street["glb"])
         layer_files.append(stage / "props.vis.glb")
+    if play["glb"]:
+        _write(stage / "playgrounds.vis.glb", play["glb"])
+        layer_files.append(stage / "playgrounds.vis.glb")
     from turku3d.facade_programs import source_paths as facade_program_sources
     from turku3d.landmarks.descriptions import (
         building_refs as landmark_refs,
@@ -887,6 +890,7 @@ def build(
         poles=len(poles),
         lights=street["lights"],
         furniture=street["stats"],
+        playgrounds=dict(play["stats"], sites=play["sites"]),
         barriers=barrier_stats,
         vegetation=dict(
             tree_cap=TREE_CAP,
