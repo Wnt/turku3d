@@ -32,6 +32,7 @@ export class ScenePopulation {
   private graphKey = '';
   private graphs: ReturnType<CoarseTiles['roadGraphs']> = [];
   private seconds = 0;
+  private pedestriansAt = -Infinity;
   private origin = 120;
   private utc = 0;
   private epoch = 0;
@@ -101,7 +102,7 @@ export class ScenePopulation {
     if (this.heightCache.size > 200_000) this.heightCache.clear();
   }
   reset(epochMs: number, seed: number) {
-    this.sync(); this.seconds = 0; this.epoch = this.utc = epochMs;
+    this.sync(); this.seconds = 0; this.pedestriansAt = -Infinity; this.epoch = this.utc = epochMs;
     this.origin = 120 + (seed >>> 0) % 3600;
     this.flow = new TrafficFlow(this.network, this.origin - 90);
     this.flow.update(this.origin);
@@ -127,7 +128,11 @@ export class ScenePopulation {
       const dt = Math.min(1 / 60, seconds - this.seconds); this.seconds += dt;
       this.utc = this.epoch + this.seconds * 1000;
       this.walkers.update(dt, this.camera, this.seconds * 1000);
-      this.flow.setPedestrians(this.walkers.trafficObstacles(this.seconds * 1000), this.origin + this.seconds);
+      // Crossing users at 4 Hz of scene time, as in play (TrafficClient.updatePedestrians); drivers extrapolate.
+      if (this.seconds - this.pedestriansAt >= 0.25 - 1e-9) {
+        this.pedestriansAt = this.seconds;
+        this.flow.setPedestrians(this.walkers.trafficObstacles(this.seconds * 1000), this.origin + this.seconds);
+      }
       if (this.cap) this.flow.update(this.origin + this.seconds);
     }
     this.walkers.update(0, this.camera, this.seconds * 1000);

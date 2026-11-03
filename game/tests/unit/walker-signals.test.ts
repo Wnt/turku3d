@@ -134,3 +134,20 @@ describe('lives past their end (rendering only)', () => {
     expect(checked).toBeGreaterThan(0);
   });
 });
+
+describe('crossing-scoped scans', () => {
+  test('around(spots) finds exactly the lives near() finds within the radius of each spot', () => {
+    const population = new Population(buildWalkNetwork([junction()]), () => 13);
+    const spots = [{ x: 115, z: 125 }, { x: 70, z: 118 }];
+    let found = 0;
+    for (let second = 0; second < 1200; second += 7) {
+      const utc = CYCLE_EPOCH + 3_600_000 + second * 1000;
+      const expected = new Set(spots.flatMap(p => population.near(p.x, p.z, 15, utc).filter(w => (w.x - p.x) ** 2 + (w.z - p.z) ** 2 < 225).map(w => w.id)));
+      const got = population.around(spots, 15, utc).map(w => w.id);
+      expect(new Set(got)).toEqual(expected);
+      expect(got.length).toBe(expected.size);
+      found += got.length;
+    }
+    expect(found).toBeGreaterThan(50);
+  });
+});
