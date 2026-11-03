@@ -20,6 +20,70 @@ Replay: `http://localhost:5220/?bench=drive&capture=drive-01&segment=1`. Segment
 
 The bench uses the QA render path, including deterministic traffic/walkers and a kinematic player car; it does not simulate live driving physics, input or HUD updates. Compare **replay against replay** to measure build changes. Original/live versus QA numbers describe different workloads. Viewport stats follow renderer resizes. Comparisons use the latest stats sample before each window, show source commit and render settings, and flag resolution changes or mismatches; host contention and cache state also affect results. Frame GPU timings are deduplicated by the associated renderer frame, since GPU readbacks can arrive late. JS values are sampled-time estimates, not complete call counts.
 
+## Bench lab: isolated scenarios
+
+Small, repeatable scenarios on the real engine (same streamer, materials, preparation queue, renderer and post
+pipeline as play), for testing approaches in seconds instead of replaying a whole drive. The drive replay stays the
+main proving ground. Code: `game/src/qa/lab/`; tests: `game/tests/unit/bench-lab.test.ts`,
+`tools/perf/run-bench.test.mjs`, `tools/perf/test_bench_matrix.py`.
+
+| URL | What it does |
+|---|---|
+| `?bench=install[&tiles=…][&quiet=1500]` | Camera fixed. Settles the scene (scenery only), measures a 120-frame baseline, then streams each tile through `CoarseTiles.benchInstall`: its collision preview, a quiet wait, its full model (the detail path of the same fragment), a quiet wait. Per tile: preview and full wall time, frames, longest frame, stall (sum of frame time above the baseline p50), callback ms, in-frame node-program builds, streaming slices, per-stage split (manifest, collision, glb, buildings, style, facades, vegetation, prepare, gfx.prepare, gfx.upload, idle: wall ms from the stream trace plus the frames that started inside the stage), long-animation-frame scripts, heap samples. Also the ten worst frames with their subsystem split. Tiles are installed nearest to the camera first unless `tiles=` is given. |
+| `?bench=static[&frames=600][&warm=120]` | Loads the tile set to full detail, settles (nothing streaming, resident set unchanged for `settle=` ms, default 5000), warms, then measures N frames. |
+| `?bench=fly[&seconds=24][&height=40][&stream=1]` | Loads the tile set, then flies a closed loop over it (low pass at camera height + `height`, climb by 300 m, high pass back, descent) with the tile scheduler paused (`stream=1` lets it run). Adds band/LOD switch counts and the frame times of frames that carried a switch against the others. |
+
+Common parameters: `tiles=t0_i_j,…` (default the 3×3 around `t0_0_0`), `cam=E,N,H,yaw,pitch,fov` or `id=<street camera>`
+(default `riverside`, Läntinen Rantakatu), `quality=`, `aa=`, `time=` (default the fixed 14:00 afternoon), `traffic=`,
+`walkers=`, `seed=` (population, default 20261102), `size=WxH` and `dpr=` (fixed drawing buffer), `record=0` (no
+capture folder), `settleLimit=` (ms, default 180000). Weather is fixed (partly cloudy); the river and reflection run
+at play cadence (`motion=0` freezes them).
+
+**Ablations** (`off=a,b,…`, every scenario): `shadows` (no shadow maps, the sun casts nothing), `reflection` (no river
+reflector), `traffic`, `walkers` (population caps 0), `vegetation` (no nature library), `scenery` (no distant city),
+`post` (direct `renderer.render`, no post pipeline; preparation warms no view passes), `bloom`, `traa` (AA off unless
+`aa=fxaa`), `lights` (no street lights or dynamic point lights), `facades` (no generated facade modules), `props` (no
+street furniture). Install and fly default to `off=traffic,walkers`; `on=traffic,walkers` re-enables them.
+
+**Output.** `window.__bench` is `{mode, phase, done, error, progress, capture, result}`; phases are
+loading, load, settle, warm/baseline, measure/install/fly, save, done (or error). Every result carries `summary`
+(fps; CPU callback, GPU and frame-interval p50/p95/p99/max; draws; tris; frames over 33/50/100/250 ms; the longest
+frame; in-frame program builds), `passes` (per-pass GPU distributions), `split.callback` (per-subsystem ms per frame:
+streaming = `CoarseTiles.update`, population, vegetation, props, lights, visibility, render = the post pipeline or
+`renderer.render`, other = the rest of the callback) and `split.slices` (stream-trace slices), `heap` (usedJSHeapSize
+samples; `precise: false` means Chrome bucketed them, run Chrome with `--enable-precise-memory-info` or use the trace
+counts), `marks` and the run's configuration. With `record` on (default) the ordinary capture recorder runs over the
+measured part and the result is appended to the capture's `meta.json` as `bench.result`, so `capture_summary.py` and
+`tile_timeline.py` read the same folder.
+
+**Runner** (the coordinator runs it against the headed Chrome on 127.0.0.1:5223; agents do not):
+
+```sh
+node tools/perf/run-bench.mjs 'bench=install&tiles=t0_0_0,t0_1_0' [--repeat 3] [--out DIR] [--no-trace] [--keep-tab]
+python3 tools/perf/bench_matrix.py 'bench=static' --off shadows,reflection,post,bloom,traa,vegetation,scenery,lights,facades,props --repeat 2
+python3 tools/perf/bench_matrix.py 'bench=install&tiles=t0_0_0' --variants 'quality=high' 'off=facades'
+python3 tools/perf/bench_matrix.py --results ~/turku3d/captures/bench-lab/*.json
+python3 tools/perf/tile_timeline.py ~/turku3d/captures/<capture id> --html /tmp/bench.html
+```
+
+`run-bench.mjs` opens a new tab at `http://localhost:5220/?<query>`, polls `__bench`, writes
+`~/turku3d/captures/bench-lab/<stamp>-<label>-r<n>.json` and closes the tab. From the first measuring phase it records
+a Chrome trace (`devtools.timeline`, `toplevel`, `blink.user_timing`, `disabled-by-default-v8.gc`); the page's
+`bench:*` user-timing marks delimit the measured window and each tile, and `result.trace` gives exact minor/major GC
+counts, GC ms, heap freed and main-thread busy time (sum of RunTask) per window and per tile. The trace adds a small,
+constant overhead; compare traced runs with traced runs. It prints, for example:
+
+```
+install/medium off=traffic,walkers: 38.4 fps  cpu 6.1/31.2/212.5  gpu 7.9/11.3/13.8  interval 16.7/48.2/290.1  max 2391 ms  draws 912  tris 4180232  gc 412+3 (310.4 ms)  main 18230.5 ms
+tile     preview  full  frames  longest  stall  builds  gc     main    worst stage
+t0_0_1   612      4810  402     2391.2   3301   14      188+1  6120.2  prepare 2650.1 ms
+t0_0_0   540      3920  351     812.4    1290   6       96+1   3550.7  style 640.3 ms
+```
+
+(illustrative numbers). `bench_matrix.py` prints one row per variant with fps, cpu/gpu/interval percentiles, max,
+frames over 50 ms, draws, Mtris, GC counts and ms, main-thread ms, and deltas of fps, cpu p95, gpu p50 and interval
+p99 against the first row (medians over `--repeat`).
+
 ## Tile / LOD streaming trace
 
 **Recording a tile/LOD debug session (Jonni):**
