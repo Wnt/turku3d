@@ -73,11 +73,14 @@ rsync -a --delete --exclude '*.map' "$BUILD/game/" "$SSH_HOST:$R/dist/"
 git -C "$REPO" archive "$SHA" tools/dev scripts/dev/shared-tile-proxy.mjs server tools/share | ssh "$SSH_HOST" "tar -x -C ~/$R/src"
 ssh "$SSH_HOST" "set -e; cd ~/$R/src; echo $SERVER_TREE > server.tree
   prev=\$(readlink ~/turku3d-local/city/mp 2>/dev/null || true); prev=~/turku3d-local/city/\$prev
-  if [ \"\$prev\" != ~/turku3d-local/city/ ] && [ -d \"\$prev/src/server/node_modules\" ] && cmp -s \"\$prev/src/server/package-lock.json\" server/package-lock.json; then
+  if [ -d server/node_modules ] && [ \"\$(cat server/node_modules/.lock.sha 2>/dev/null)\" = \"\$(sha256sum < server/package-lock.json)\" ]; then
+    :  # a redeploy of this release
+  elif [ \"\$prev\" != ~/turku3d-local/city/ ] && [ \"\$prev\" != ~/$R ] && [ -d \"\$prev/src/server/node_modules\" ] && cmp -s \"\$prev/src/server/package-lock.json\" server/package-lock.json; then
     cp -a \"\$prev/src/server/node_modules\" server/
   else
     npm ci --prefix server --ignore-scripts --omit=dev --no-audit --no-fund --loglevel=error
-  fi"
+  fi
+  sha256sum < server/package-lock.json > server/node_modules/.lock.sha"
 
 # 3. Tile pin (hot-read by city-tiles): the local game's version on the same farm; scenery from osgallery-dev itself.
 python3 - "$PIN" "$SCENERY" <<'PY' | ssh "$SSH_HOST" 'cat > ~/turku3d-local/city/tiles.json.tmp && mv ~/turku3d-local/city/tiles.json.tmp ~/turku3d-local/city/tiles.json'
