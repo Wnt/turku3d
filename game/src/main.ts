@@ -31,6 +31,7 @@ import { gpuProbe } from './render/gpuProbe';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
+import { crownMode } from './world/nature/crowns';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
@@ -240,7 +241,7 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
+let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion, crownMode(params.quality));
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));

@@ -664,9 +664,9 @@ export function* waterCells(model: THREE.Object3D): Generator<void, Set<string>>
   return cells;
 }
 
-/** Bounding sphere of an asset at scale 1 (base at the origin). */
+/** Bounding sphere of an asset at scale 1 (base at the origin), including its fitted crown's extent. */
 function assetSphere(asset: NatureAsset) {
-  return new THREE.Sphere(new THREE.Vector3(0, asset.height / 2, 0), Math.hypot(asset.radius, asset.height / 2));
+  return new THREE.Sphere(new THREE.Vector3(0, asset.height / 2, 0), Math.hypot(Math.max(asset.radius, asset.extent ?? 0), asset.height / 2));
 }
 
 // Update resident models without restarting the streamed world.
