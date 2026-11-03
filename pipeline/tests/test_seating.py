@@ -61,19 +61,21 @@ def test_backrest_names_the_back_without_barriers():
     assert angle(b.yaw, math.pi / 2) < 5
 
 
-def test_covered_point_without_bench_returns_is_dropped():
+def test_covered_point_without_bench_returns_is_only_counted():
     survey = cloud(ground(-8, -8, 8, 8))
     stats = Counter()
-    assert seating.place([bench(0, 0)], survey, stats=stats) == []
-    assert stats["bench_lidar_absent"] == 1
+    b = bench(0, 0)
+    assert seating.place([b], survey, stats=stats) == [b]
+    assert stats["bench_lidar_absent_candidate"] == 1
 
 
-def test_one_surveyed_bench_carries_one_record():
-    survey = cloud(ground(-8, -8, 12, 8), bench_returns(0.0, 0.0, 0.0), (np.array([[1.0, 0.5, 1.0]] * 6), np.full(6, 4)))
-    a, b = bench(0.5, 0.0, oid="GIS_Varusteet:a"), bench(1.2, 1.0, oid="osm:1")
+def test_a_bench_showing_at_its_point_holds_it_and_its_blob():
+    survey = cloud(ground(-8, -8, 12, 8), bench_returns(0.0, 0.0, 0.0))
+    here, other = bench(0.3, 0.1, oid="GIS_Varusteet:a"), bench(3.5, 0.0, oid="GIS_Varusteet:b")
     stats = Counter()
-    kept = seating.place([a, b], survey, stats=stats)
-    assert len(kept) == 1 and stats["bench_lidar_duplicate"] == 1
+    seating.place([here, other], survey, stats=stats)
+    assert (here.x, here.z) == (0.3, 0.1) and stats["bench_lidar_holds"] == 1
+    assert (other.x, other.z) == (3.5, 0.0) and "bench_lidar_snap" not in stats
 
 
 def test_tall_returns_above_are_not_a_bench():

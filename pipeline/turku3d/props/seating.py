@@ -7,17 +7,16 @@ hedges and faced distant streets (edit session 20261103-221501-zd82ho). These ru
 are shared by the furniture stage (``coarse.furniture.produce``) and the ``benches`` tile
 migration, so a regeneration and a migrated tile place every bench alike:
 
-1. ``lidar_snap``: where the classified survey point cloud covers a bench, it stands on the
-   nearest bench-shaped blob within SNAP_REACH: non-ground returns in BAND above the local ground
-   with nothing in CLEAR above them (a seat and backrest; not a bush, hedge, car, person or pole),
-   BLOB_LENGTH long and BLOB_WIDTH wide. One blob carries one bench (minimum-cost matching).
-   The long axis follows the blob, the back is on its taller (backrest) side, else on the side
-   of the nearest barrier, else the old heading's side.
-2. ``lidar_absent``: the cloud covers the point (GROUND_MIN ground returns within ABSENT_REACH),
-   shows at most ABSENT_MAX returns at bench height there and no blob within SNAP_REACH: nothing
-   stands there (removed or never built). The bench is dropped.
-   ``lidar_duplicate``: a covered bench left without a blob while every blob within SNAP_REACH
-   carries another bench is one more record (register or OSM) of a bench already placed: dropped.
+1. ``lidar_snap``: where the classified survey point cloud covers a bench but shows nothing at bench
+   height at its own point (within HOLD), the bench moves onto the nearest free bench-shaped blob
+   within SNAP_REACH: non-ground returns in BAND above the local ground with nothing in CLEAR
+   above them (a seat and backrest; not a bush, hedge, car, person or pole), BLOB_LENGTH long and
+   BLOB_WIDTH wide. Blobs at benches that show at their own point are theirs; one blob carries one
+   bench (minimum-cost matching). A barrier within reach sets the snapped bench's axis and back,
+   else the blob's backrest side, else the old heading's side.
+2. ``lidar_holds``: a bench with returns at its own point stays there.
+   Absence (covered, nothing at bench height, no free blob) is counted as a candidate only: Jonni
+   deleted such benches in one session and kept and turned such benches in the next.
 3. ``barrier_back``: otherwise a bench within BARRIER_REACH of a hedge, wall, fence, retaining
    wall or facade turns parallel to it, back to it, and steps out to BACK_GAP off its face when
    it overlaps the barrier.
@@ -48,6 +47,8 @@ BLOB_MIN = 15  # returns
 DENSITY_MIN = 10.0  # returns per m2 of the blob's box (seats are solid, racks and rails sparse)
 ABSENT_REACH = 1.5
 ABSENT_MAX = 4
+HOLD = 0.8  # m: bench-height returns this close to a register point are that bench
+HOLD_MIN = 8  # such returns (a seat gives 20-60 at the survey's ~80 points/m2)
 GROUND_MIN = 40  # class-2 returns within ABSENT_REACH: the cloud covers the point
 GROUND_REACH = 1.5  # m for a return's local ground height
 BACKREST = 0.62  # m above ground: backrest returns, above the seat
@@ -94,6 +95,7 @@ class Cloud:
             free = np.ones(len(self.band), bool)
         self.seat, self.seat_height = self.band[free], self.band_height[free]
         self.band_tree = cKDTree(self.band[:, [0, 2]]) if len(self.band) else None
+        self.seat_tree = cKDTree(self.seat[:, [0, 2]]) if len(self.seat) else None
 
     def _height(self, points):
         if self.ground_tree is None or not len(points):
@@ -110,8 +112,12 @@ class Cloud:
         return self.ground_tree is not None and len(
             self.ground_tree.query_ball_point([x, z], ABSENT_REACH)) >= GROUND_MIN
 
-    def band_near(self, x, z):
-        return 0 if self.band_tree is None else len(self.band_tree.query_ball_point([x, z], ABSENT_REACH))
+    def seat_near(self, x, z, reach=HOLD):
+        """Bench-height returns with nothing tall above them (not a hedge or bush) near a point."""
+        return 0 if self.seat_tree is None else len(self.seat_tree.query_ball_point([x, z], reach))
+
+    def band_near(self, x, z, reach=ABSENT_REACH):
+        return 0 if self.band_tree is None else len(self.band_tree.query_ball_point([x, z], reach))
 
     def blobs(self):
         """Bench-shaped blobs: (x, z, axis (ax, az), back sign along the axis normal or 0)."""
@@ -309,10 +315,15 @@ def place(benches, cloud, barriers=(), footprints=(), water=(), stats=None):
     tree = STRtree([g for g, _ in lines]) if lines else None
     blobs = cloud.blobs() if cloud is not None else []
     covered = [cloud is not None and cloud.covered(b.x, b.z) for b in benches]
-    matched = _matching([b for b, c in zip(benches, covered) if c],
-                        blobs)
-    index = [i for i, c in enumerate(covered) if c]
-    snapped = {index[r]: blobs[c] for r, c in matched.items()}
+    # A bench with returns at its own point is where the register says: it holds that spot, and
+    # the blobs there are its own. Only benches without their own evidence move onto a free blob.
+    holds = [c and cloud.seat_near(b.x, b.z) > HOLD_MIN for b, c in zip(benches, covered)]
+    free = [k for k, (x, z, *_) in enumerate(blobs)
+            if not any(h and math.hypot(b.x - x, b.z - z) <= HOLD + BLOB_LENGTH[1] / 2
+                       for b, h in zip(benches, holds))]
+    seekers = [i for i, (c, h) in enumerate(zip(covered, holds)) if c and not h]
+    matched = _matching([benches[i] for i in seekers], [blobs[k] for k in free])
+    snapped = {seekers[r]: blobs[free[c]] for r, c in matched.items()}
     kept = []
     for i, bench in enumerate(benches):
         if i in snapped:
@@ -320,13 +331,11 @@ def place(benches, cloud, barriers=(), footprints=(), water=(), stats=None):
             stats[f"bench_{bench.orientation}"] += 1
             kept.append(bench)
             continue
-        if covered[i] and cloud.band_near(bench.x, bench.z) <= ABSENT_MAX:
-            stats["bench_lidar_absent"] += 1
-            continue
-        if covered[i] and any(math.hypot(bench.x - x, bench.z - z) <= SNAP_REACH for x, z, *_ in blobs):
-            # Every bench the survey shows in reach already carries another record of it.
-            stats["bench_lidar_duplicate"] += 1
-            continue
+        if holds[i]:
+            stats["bench_lidar_holds"] += 1
+        elif covered[i] and cloud.band_near(bench.x, bench.z) <= ABSENT_MAX:
+            # Measured, not acted on: the sessions disagree on these (EDIT-FORMAT reasons).
+            stats["bench_lidar_absent_candidate"] += 1
         if tree is not None and _back_to(bench, lines, tree, footprints, water, stats):
             kept.append(bench)
             continue
