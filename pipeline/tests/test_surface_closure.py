@@ -111,3 +111,10 @@ def test_fold_over_a_lower_edge_is_closed_from_below():
     meshes, report = run(join(low, high))
     assert report['sealed_seams'] >= 1
     assert any(abs(m.positions[m.indices][..., 0] - 2.2).min() < 1e-9 for m in meshes)
+
+
+def test_hairline_crack_between_level_sheets_gets_a_skirt():
+    meshes, report = run(join(sheet(0, 2, 0), sheet(2.1, 4, .02)))
+    assert report['sealed_seams'] >= 1
+    assert min(m.positions[m.indices][..., 1].min() for m in meshes) < -.2
+    assert run(join(sheet(0, 2, 0), sheet(2, 4, .02)))[1]['sealed_seams'] == 0

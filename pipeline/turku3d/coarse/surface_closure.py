@@ -24,6 +24,8 @@ from .surface_audit import normals, triangles, Rays
 STEP = .08       # height differences below this are paving joints, not seams
 ACROSS = .2      # plan distance at which the neighbouring surface is sampled
 REACH = 6.       # vertical search window for the neighbouring surface
+CRACK = .03      # a neighbour this close in plan leaves no visible crack
+SKIRT = .25      # depth of the skirt hung below a hairline crack
 
 
 def clean(mesh):
@@ -113,6 +115,13 @@ def seams(dry, surfaces, walls, excluded, bounds, portals=None):
     across = rays.cast(mid, own, above=REACH)
     found = np.isfinite(across) & (abs(across - own) > STEP) & (own - across < REACH)
     holes = ~np.isfinite(across)
+    # A hairline crack: the neighbour is level 0.2 m out but nothing covers the
+    # first few centimetres, so grazing view rays slip under the edge. Hang a
+    # short skirt below the lower of the two sheets.
+    close = rays.cast((a + b)[:, [0, 2]] / 2 + n * CRACK, own, above=REACH)
+    crack = np.isfinite(across) & ~found & ~np.isfinite(close)
+    across = np.where(crack, np.minimum(across, own) - SKIRT, across)
+    found |= crack
     # The higher side owns the face. A lower dry edge facing a higher dry edge
     # leaves the face to that edge, but faces any higher structure itself, and a
     # higher dry sheet without a facing edge of its own (a fold overhanging the
@@ -141,8 +150,8 @@ def seams(dry, surfaces, walls, excluded, bounds, portals=None):
     end_b = b[ids][:, [0, 2]] - along * inset + n[ids] * ACROSS
     ha = rays.cast(end_a, a[ids, 1], above=REACH)
     hb = rays.cast(end_b, b[ids, 1], above=REACH)
-    ha = np.where(np.isfinite(ha), ha, across[ids])
-    hb = np.where(np.isfinite(hb), hb, across[ids])
+    ha = np.where(np.isfinite(ha) & ~crack[ids], ha, across[ids])
+    hb = np.where(np.isfinite(hb) & ~crack[ids], hb, across[ids])
     return a[ids], b[ids], ha, hb, length[ids], float(length[holes].sum())
 
 
