@@ -46,18 +46,25 @@ def measured_class(building):
     """Reference-measured facade classes outrank unreviewed automatic seeds.
 
     Precedence: local override > reviewed distributed description > measured class
-    (massive masonry, or a classical order named by the building's own reviewed walls
-    or vision description) > automatic description > generic archetype.
+    (massive masonry, a public monolith with photographed blank walls, or a classical
+    order named by the building's own reviewed walls or vision description) > automatic
+    description > generic archetype.
     """
     from turku3d.facade_kit import read_description, renderer
 
     renderer()
-    from turkutex.facade_archetypes import classical_order, massive_masonry
+    from turkutex.facade_archetypes import classical_order, massive_masonry, public_monolith
 
+    from turku3d import facade_monolith
     from turku3d.facade_programs import measured, order_evidence
 
     attrs = getattr(building, "attributes", {}) or {}
     if massive_masonry(attrs):
+        return True
+    footprint = getattr(building, "footprint", None)
+    area = float(getattr(footprint, "area", 0) or attrs.get("footprint_m2") or 0)
+    if public_monolith({**attrs, "footprint_m2": area, "monolith_blank": True}) and (
+            facade_monolith.evidence(building.facade_key, measured(building.facade_key))["blank"]):
         return True
     evidence = order_evidence(measured(building.facade_key), read_description(building.facade_key))
     return "pilaster" in evidence.lower() and classical_order(attrs, evidence)

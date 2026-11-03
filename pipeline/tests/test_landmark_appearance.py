@@ -233,3 +233,27 @@ def test_atlas_batches_all_pbr_maps_without_losing_geometry_or_bleeding_edges():
             x, y = (m.uvs[i * 3] * atlas.size).astype(int)
             assert atlas.getpixel((x, y)) == colour
             assert atlas.getpixel((x - 4, y - 4)) == colour
+
+
+def test_automatic_seed_yields_to_a_public_monolith_with_photographed_blank_walls(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d import config as C
+    from turku3d import facade_monolith
+    from turku3d.landmarks import descriptions
+
+    reviewed = tmp_path / "reviewed"
+    reviewed.mkdir()
+    monkeypatch.setattr(descriptions, "ROOT", reviewed)
+    data = C.data_root() / "landmark-descriptions"
+    data.mkdir(parents=True, exist_ok=True)
+    seed = dict(version=1, building_id="museum", reference_match="verified", reference_confidence=0.97)
+    (data / "museum.json").write_text(json.dumps(seed))
+    museum = SimpleNamespace(facade_key="museum", attributes=dict(
+        construction_year=1965, use="2120", osm_use="civic", entrance_use="cafe", footprint_m2=2083))
+    blank = dict(blank=True, panels=True)
+    monkeypatch.setattr(facade_monolith, "evidence", lambda key, observed: blank)
+    assert descriptions.resolve(museum) is None  # the measured monolith class owns its walls
+    blank = dict(blank=False, panels=False)
+    monkeypatch.setattr(facade_monolith, "evidence", lambda key, observed: blank)
+    assert descriptions.resolve(museum)["building_id"] == "museum"  # no blank evidence: seed applies
