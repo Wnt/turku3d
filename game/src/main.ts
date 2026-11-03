@@ -135,9 +135,10 @@ if (params.drive) {
   const detect = !given && (!params.qa || live);
   const adapter = params.backend === 'webgpu' ? await adapterInfo() : null;
   const gpu = adapter && { vendor: adapter.vendor, architecture: adapter.architecture };
-  const tier = detect ? deviceQuality(gpu, params.quality, adapter?.probe?.ms) : params.quality;
+  const cores = navigator.hardwareConcurrency ?? null;
+  const tier = detect ? deviceQuality(gpu, params.quality, adapter?.probe?.ms, cores) : params.quality;
   if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}${adapter?.probe ? ` (probe ${adapter.probe.ms.toFixed(2)} ms)` : ''}`);
-  setRenderTier({ tier, gpu, probe: adapter?.probe ?? undefined,
+  setRenderTier({ tier, gpu, cores, probe: adapter?.probe ?? undefined,
     source: given ? 'url' : params.drive && !live ? 'recorded' : tier !== params.quality ? 'device' : 'default' });
   params.quality = tier;
 }

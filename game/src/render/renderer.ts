@@ -2,7 +2,7 @@
 import { loading } from '../core/loading';
 import * as THREE from 'three/webgpu';
 import { GameRenderer } from './shadowMaterials';
-import { QUALITY, renderPixelRatio, type QualityTier } from './quality';
+import { APPLE_REDUCED_PROBE_MS, QUALITY, renderPixelRatio, type QualityTier } from './quality';
 import { GameLighting } from './lighting';
 import { retainRendererPrograms } from './programCache';
 import { gpuProbe, type GpuProbe } from './gpuProbe';
@@ -26,7 +26,16 @@ export async function adapterInfo(): Promise<{ vendor: string; architecture: str
     let probe: GpuProbe | null = null;
     if (info.vendor === 'apple') {
       const device = await adapter.requestDevice({ requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : [] });
-      try { probe = await gpuProbe(device); } finally { device.destroy(); }
+      try {
+        // A loaded host (other GPU clients, a hot chip) only makes the probe slower: when the first read is past the
+        // threshold, read twice more after short pauses and keep the fastest.
+        probe = await gpuProbe(device, 5);
+        for (let retry = 0; retry < 2 && probe && probe.ms > APPLE_REDUCED_PROBE_MS; retry++) {
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const again = await gpuProbe(device, 5);
+          if (again && again.ms < probe.ms) probe = again;
+        }
+      } finally { device.destroy(); }
     }
     return { vendor: info.vendor, architecture: info.architecture, probe };
   } catch { return null; }

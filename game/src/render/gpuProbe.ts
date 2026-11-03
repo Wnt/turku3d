@@ -20,7 +20,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
 export interface GpuProbe { ms: number; method: 'timestamp' | 'wall'; gflop: number }
 
-export async function gpuProbe(device: GPUDevice): Promise<GpuProbe | null> {
+/** `runs` dispatches; the fastest counts, so work from other processes on a loaded host only lengthens the slower ones. */
+export async function gpuProbe(device: GPUDevice, runs = 3): Promise<GpuProbe | null> {
   try {
     const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module: device.createShaderModule({ code: SHADER }), entryPoint: 'main' } });
     const sink = device.createBuffer({ size: THREADS * 4, usage: STORAGE });
@@ -31,7 +32,7 @@ export async function gpuProbe(device: GPUDevice): Promise<GpuProbe | null> {
     const read = timed ? device.createBuffer({ size: 16, usage: MAP_READ | COPY_DST }) : null;
     const times: number[] = [];
     try {
-      for (let run = 0; run < 3; run++) {
+      for (let run = 0; run < runs; run++) {
         const encoder = device.createCommandEncoder();
         const pass = encoder.beginComputePass(query ? { timestampWrites: { querySet: query, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : undefined);
         pass.setPipeline(pipeline); pass.setBindGroup(0, bind); pass.dispatchWorkgroups(THREADS / 64); pass.end();
