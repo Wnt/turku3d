@@ -14,7 +14,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const TRACE_CATEGORIES = ['devtools.timeline', 'toplevel', 'blink.user_timing', 'disabled-by-default-v8.gc'];
+const TRACE_CATEGORIES = ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'toplevel', 'blink.user_timing',
+  'disabled-by-default-v8.gc'];
+/** Top-level main-thread tasks: DevTools' RunTask, else the scheduler's own event (never both: they nest). */
+const TASKS = ['RunTask', 'ThreadControllerImpl::RunTask'];
 /** Phases after which the page measures: tracing starts on the first of them. */
 const MEASURING = new Set(['warm', 'baseline', 'measure', 'install', 'fly', 'save']);
 const GC_PRIMARY = { MinorGC: 'minor', MajorGC: 'major' };
@@ -35,8 +38,8 @@ export function collectTraceEvents(events, into = { marks: [], gc: [], tasks: []
       into.gc.push({ name: e.name, ts: e.ts, dur: e.dur ?? 0, thread,
         before: e.args?.usedHeapSizeBefore ?? e.args?.data?.usedHeapSizeBefore ?? null,
         after: e.args?.usedHeapSizeAfter ?? e.args?.data?.usedHeapSizeAfter ?? null });
-    } else if (e.ph === 'X' && e.name === 'RunTask' && String(e.cat).includes('toplevel')) {
-      into.tasks.push({ ts: e.ts, dur: e.dur ?? 0, thread });
+    } else if (e.ph === 'X' && TASKS.includes(e.name)) {
+      into.tasks.push({ name: e.name, ts: e.ts, dur: e.dur ?? 0, thread });
     }
   }
   return into;
@@ -50,8 +53,10 @@ export function traceWindow(collected, thread, from, to) {
   const kind = g => GC_PRIMARY[g.name] ?? GC_FALLBACK[g.name];
   const freed = counted.reduce((a, g) => a + (g.before != null && g.after != null ? Math.max(0, g.before - g.after) : 0), 0);
   let busy = 0, longest = 0;
-  for (const t of collected.tasks) {
-    if (t.thread !== thread) continue;
+  const own = collected.tasks.filter(t => t.thread === thread);
+  const task = TASKS.find(name => own.some(t => (t.name ?? 'RunTask') === name));
+  for (const t of own) {
+    if ((t.name ?? 'RunTask') !== task) continue;
     const start = Math.max(from, t.ts), end = Math.min(to, t.ts + t.dur);
     if (end > start) { busy += end - start; longest = Math.max(longest, t.dur); }
   }
@@ -59,7 +64,7 @@ export function traceWindow(collected, thread, from, to) {
     ms: r2((to - from) / 1000), source: primary ? 'MinorGC/MajorGC' : counted.length ? 'V8.GC_*' : 'none',
     gc: { minor: counted.filter(g => kind(g) === 'minor').length, major: counted.filter(g => kind(g) === 'major').length,
       ms: r2(counted.reduce((a, g) => a + g.dur, 0) / 1000), freedMB: r2(freed / 1048576) },
-    mainThread: { busyMs: r2(busy / 1000), longestTaskMs: r2(longest / 1000) },
+    mainThread: { busyMs: r2(busy / 1000), longestTaskMs: r2(longest / 1000), source: task ?? 'none' },
   };
 }
 

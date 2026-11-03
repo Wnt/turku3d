@@ -68,9 +68,11 @@ python3 tools/perf/tile_timeline.py ~/turku3d/captures/<capture id> --html /tmp/
 
 `run-bench.mjs` opens a new tab at `http://localhost:5220/?<query>`, polls `__bench`, writes
 `~/turku3d/captures/bench-lab/<stamp>-<label>-r<n>.json` and closes the tab. From the first measuring phase it records
-a Chrome trace (`devtools.timeline`, `toplevel`, `blink.user_timing`, `disabled-by-default-v8.gc`); the page's
+a Chrome trace (`devtools.timeline` with its disabled-by-default part, `toplevel`, `blink.user_timing`,
+`disabled-by-default-v8.gc`); the page's
 `bench:*` user-timing marks delimit the measured window and each tile, and `result.trace` gives exact minor/major GC
-counts, GC ms, heap freed and main-thread busy time (sum of RunTask) per window and per tile. The trace adds a small,
+counts (MinorGC/MajorGC, else the V8.GC_* phases; `source` says which), GC ms, heap freed and main-thread busy time
+(sum of top-level RunTask) per window and per tile. The trace adds a small,
 constant overhead; compare traced runs with traced runs. It prints, for example:
 
 ```

@@ -18,6 +18,7 @@ test('trace windows count GCs, heap freed and main-thread busy time on the page 
     gc('MajorGC', 3_500_000, 20000, 90 * 1048576, 60 * 1048576), gc('V8.GC_SCAVENGER', 1_100_000, 1500, null, null),
     gc('MinorGC', 1_150_000, 9000, 1, 0, other),
     task(900_000, 200_000), task(1_500_000, 2_000_000), task(3_600_000, 100_000, other),
+    { ...main, ph: 'X', cat: 'toplevel', name: 'ThreadControllerImpl::RunTask', ts: 1_500_000, dur: 2_000_000 },
     mark('tile:t0_9_9:start', 5, other),
   ]);
   const a = analyzeTrace(collected);
@@ -27,6 +28,10 @@ test('trace windows count GCs, heap freed and main-thread busy time on the page 
   assert.deepEqual(a.tiles.t0_1_0.gc, { minor: 0, major: 1, ms: 20, freedMB: 30 });
   assert.equal(a.tiles.t0_0_0.mainThread.busyMs, 1600);
   assert.equal(a.tiles.t0_0_0.mainThread.longestTaskMs, 2000);
+  assert.equal(a.tiles.t0_0_0.mainThread.source, 'RunTask');
+  const scheduler = collectTraceEvents([mark('static:measure:start', 0), mark('static:measure:end', 1_000_000),
+    { ...main, ph: 'X', cat: 'toplevel', name: 'ThreadControllerImpl::RunTask', ts: 100, dur: 3000 }]);
+  assert.deepEqual(analyzeTrace(scheduler).windows.static.mainThread, { busyMs: 3, longestTaskMs: 3, source: 'ThreadControllerImpl::RunTask' });
   assert.equal(a.tiles.t0_0_0.source, 'MinorGC/MajorGC');
   assert.equal(a.windows.install.gc.minor, 2);
   assert.equal(a.windows.install.gc.major, 1);
