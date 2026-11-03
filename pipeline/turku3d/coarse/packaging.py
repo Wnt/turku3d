@@ -32,6 +32,7 @@ PRODUCERS = (
     "build",
     "archetypes",
     "occluders",
+    "blocks",
     "basic",
     "area",
     "collision",

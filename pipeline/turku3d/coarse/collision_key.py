@@ -12,6 +12,7 @@ VISUAL_ONLY = {
     "quay_lighting_observations.json",
     "archetypes.py",
     "occluders.py",
+    "blocks.py",
     "bridge_materials.py",
     "ground_finishes.py",
     "street_materials.py",
