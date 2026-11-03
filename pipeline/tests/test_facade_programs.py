@@ -33,7 +33,7 @@ def test_seed_survives_order_and_unrelated_attributes_with_visible_neighbour_var
     neighbours = [program(key=str(i))["walls"][0] for i in range(30)]
     assert len({w["wall"]["colour"]["value"] for w in neighbours}) > 20
     assert len({tuple(w["windows"]["size_m"]["value"]) for w in neighbours}) == 30
-    assert len(ARCHETYPES) == 20
+    assert len(ARCHETYPES) == 22
 
 
 @pytest.mark.parametrize("levels", [None, 1, 4, 8, 30])
@@ -171,6 +171,43 @@ def test_program_edit_invalidates_only_its_buildings_tiles(tmp_path, monkeypatch
     altered["walls"][0]["windows"]["size_m"]["value"][0] += 0.1
     target.write_text(json.dumps(altered))
     assert after[0] != parameter_hash(["own"])
+
+
+def test_massive_pre_industrial_masonry_is_a_measured_class_without_shopfronts():
+    from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, early_year
+
+    castle = dict(construction_year=1280, historic="yes", osm_use="yes", use="2120",
+                  ground_floor="shops", levels=4, footprint_m2=4193, register_id="fort")
+    assert early_year("c. 1280") == 1280 and early_year(1700) is None
+    assert archetype(castle) == MASONRY
+    assert archetype(dict(osm_use="castle", footprint_m2=900)) == MASONRY
+    # Small dated sheds, timber and light cladding keep their ordinary rules.
+    assert archetype(dict(castle, footprint_m2=47)) != MASONRY
+    assert archetype(dict(castle, material_class="wood")) == "timber_traditional"
+    assert archetype(dict(construction_year=1733, footprint_m2=443)) == "empire"
+    p = sample("fort", castle, [dict(wall_id="w", width_m=40.0, height_m=21.0)])
+    wall = p["walls"][0]
+    assert wall["base"]["variant"]["value"] != "shops"
+    assert wall["wall"]["colour"]["source"] == MEASURED_PIGMENT
+    assert wall["doors"]["head_shape"]["value"] == "round-arch"
+    style = compile_wall(wall, p["storeys"]["value"])
+    assert style["module"] in (0, 1) and style["bands"] == [0, 0, 0, 0]
+    assert style["glazing"][:2] == [3, 3]
+    assert style["frame"] != style["trim"] and max(int(style["frame"][i:i + 2], 16) for i in (1, 3, 5)) < 120
+    assert min(int(style["wall"][i:i + 2], 16) for i in (1, 3, 5)) > 200
+
+
+def test_modern_civic_buildings_never_sample_arched_openings():
+    for i in range(40):
+        attrs = dict(construction_year=1965, use="2120", material_class="concrete", levels=3)
+        p = sample(f"museum-{i}", attrs, [dict(wall_id="w", width_m=30.0, height_m=12.0)])
+        assert p["archetype"] == "civic"
+        w = p["walls"][0]
+        assert {w[s]["head_shape"]["value"] for s in ("windows", "base", "doors")} == {"flat"}
+    old = {sample(f"hall-{i}", dict(construction_year=1905, use="2120"),
+                  [dict(wall_id="w", width_m=30.0, height_m=12.0)])["walls"][0]["windows"]["head_shape"]["value"]
+           for i in range(40)}
+    assert "round-arch" in old
 
 
 def test_fallback_periods_are_seeded_and_explicit_evidence_wins():
@@ -421,3 +458,131 @@ def test_reviewed_paint_stays_inside_sloping_overlap_remainder():
     for points, uv, _ in wall_parts(vertices, wall, style):
         assert np.all(points[:, 1] >= 4 + points[:, 0] / 23.3 * 3 - 1e-9)
         np.testing.assert_allclose(uv[:, 0], points[:, 0])
+
+
+def test_classical_order_is_chosen_from_evidence_or_civic_historicist_data():
+    from turkutex.facade_archetypes import classical_order
+
+    civic = dict(construction_year=1903, material_class="brick", use="2120", footprint_m2=1200)
+    assert classical_order(civic)
+    assert classical_order(dict(civic, use="1000", monumental=True))
+    assert not classical_order(dict(civic, use="1000"))  # Ordinary historicist housing.
+    assert not classical_order(dict(civic, construction_year=1958))
+    assert not classical_order(dict(civic, material_class="wood"))
+    assert not classical_order(dict(civic, construction_year=1280))  # Massive masonry.
+    housing = dict(civic, use="1000", construction_year=1888)
+    assert classical_order(housing, "giant pale pilasters between red brick bays")
+    assert not classical_order(dict(housing, material_class="glass"), "pilasters")
+
+
+def test_classical_order_keeps_supported_readings_and_existing_pilaster_details():
+    from turku3d.facade_programs import classical
+    from turkutex.facade_archetypes import ORDER, sample
+    from turkutex.facade_program import value
+
+    attrs = dict(levels=2, construction_year=1903, material_class="brick", use="2120",
+                 footprint_m2=1200)
+    geometry = [dict(wall_id=str(i), width_m=12, height_m=12) for i in range(2)]
+    program = sample("keep", attrs, geometry)
+    first, second = program["walls"]
+    first["windows"]["frame_colour"] = value("#123456", "photo", 0.9)
+    second["appearance_details"] = dict(pilasters=value(True, "historicist style prior", 0.4))
+    classical(program, attrs, "")
+    assert program["classical_order"]
+    assert first["windows"]["frame_colour"]["value"] == "#123456"
+    assert first["windows"]["divisions"]["value"] == ORDER["panes"]
+    assert first["corners"]["quoins"]["value"] == 0
+    assert "order" not in second  # Its reviewed pilasters are painted elsewhere.
+
+
+def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(monkeypatch):
+    import shapely
+    from types import SimpleNamespace
+
+    from turku3d import facade_learning, facade_monolith
+    from turku3d import facade_programs as fp
+    from turkutex.facade_archetypes import MONOLITH
+
+    library = dict(construction_year=2006, use="2120", osm_use="civic", entrance_use="library",
+                   levels=4, levels_source="register", material_class="render", footprint_m2=2774)
+    assert archetype(library) == "civic"  # register use alone never blanks a building
+    assert archetype(dict(library, monolith_blank=True)) == MONOLITH
+    assert archetype(dict(library, monolith_blank=True, construction_year=1912)) != MONOLITH
+    assert archetype(dict(library, monolith_blank=True, footprint_m2=300)) != MONOLITH
+    assert archetype(dict(library, monolith_blank=True, use="1000", osm_use="apartments",
+                          entrance_use=None)) != MONOLITH
+    # Evidence: a reviewed mostly-blank reading, and panel-joint text on any reviewed wall.
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [])
+    blank = dict(observation=dict(needs_review=False), structure=dict(facade_observations=dict(
+        sections=[dict(position="upper majority", kind="blank wall", material="pale smooth render"),
+                  dict(position="lower left", kind="localized retail glazing strip")])))
+    panels = dict(observation=dict(needs_review=False), structure=dict(
+        floors=[dict(bays=["blank"])], features=[dict(kind="large rectangular panel grid")]))
+    assert facade_monolith.evidence("k", dict(walls=[blank])) == dict(blank=True, panels=False)
+    assert facade_monolith.evidence("k", dict(walls=[panels])) == dict(blank=True, panels=True)
+    fragment = copy.deepcopy(blank)
+    fragment["structure"]["facade_observations"]["sections"][0]["position"] = "lower right"
+    assert facade_monolith.evidence("k", dict(walls=[fragment]))["blank"] is False
+    # Resolve: the wall with its own curtain-wall description glazes, the unobserved wall is blank.
+    curtain = dict(facade_id="f1", wall_visible=True, problem="", material="glass", wall_colour="#88abb3",
+                   trim_colour="#adb5af", storeys=3, window_columns=11, window_width=0.96,
+                   window_height=0.93, ground_floor="plain", ground_openings=0, roof_line="none",
+                   plinth=True, features=[])
+    facade = dict(coordinates=[[40 + C.ORIGIN_E, C.ORIGIN_N - 0], [40 + C.ORIGIN_E, C.ORIGIN_N - 30]],
+                  normal=None, base_height=0, metadata=dict(facade_id="f1", width_m=30))
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [(facade, curtain)])
+    monkeypatch.setattr(facade_monolith, "evidence", lambda key, observed: dict(blank=True, panels=False))
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    monkeypatch.setattr(facade_learning, "apply", lambda p: pytest.fail("donor layouts on a monolith"))
+    b = SimpleNamespace(key="lib", facade_key="lib", base=0, top=18, footprint=shapely.box(0, 0, 40, 30),
+                        attributes=library)
+    vertices = np.array([[0, 0, 0], [40, 0, 0], [40, 18, 0], [0, 18, 0],
+                         [40, 0, 0], [40, 0, 30], [40, 18, 30], [40, 18, 0]], float)
+    p = fp.resolve(b, vertices, {})
+    assert p["archetype"] == MONOLITH and p["monolith"]["walls"]["blank"] == 1
+    plain, glazed = [compile_wall(w, 4) for w in p["walls"]]
+    assert plain["module"] == 42 and plain["bands"] == [0, 0, 0, 0]
+    assert plain["base"] != plain["wall"]  # granite base course under the render
+    assert glazed["module"] // 6 == 5 and glazed["opening"][0] >= 0.97
+    assert glazed["opening"][1] + glazed["opening"][2] >= 0.98 and abs(glazed["bay"] - 2.14) < 0.05
+    # A panel-clad blank wall carries its joint grid in the opening slot.
+    p["walls"][0]["panel_grid"] = dict(value=[1.5, 1.4, 0.025], source="test", support=0.6)
+    assert compile_wall(p["walls"][0], 4)["opening"] == [1.5, 1.4, 0.025, -1.0]
+
+
+def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints():
+    from turku3d import facade_monolith
+    from turkutex.facade_program import value
+
+    m = lambda x, s: value(x, s, 0.6)  # noqa: E731
+    reading = dict(structure=dict(facade_observations=dict(sections=[
+        dict(position="upper majority", kind="blank grey rectangular panel cladding"),
+        dict(position="lower", kind="narrow recessed dark glazing strip behind pale supports"),
+        dict(position="foreground", kind="concrete boundary wall", belongs_to_facade=False),
+        dict(position="lower right", kind="small service door")])))
+    wall = dict(render_sections=[dict(index=0, bounds=[0, 1 / 3, 1, 2 / 3], kind="blank")])
+    facade_monolith.reviewed_wall(wall, reading, 2, True, m)
+    ribbon = wall["render_sections"][1]
+    assert ribbon["rhythm"] == "ribbon" and ribbon["count"] is None and ribbon["kind"] == "window"
+    assert ribbon["bounds"] == [0.0, 0.0, 1.0, 0.25]  # narrow strip at the base, full width
+    assert len(wall["render_sections"]) == 2  # doors and foreground structures are not glazing
+    assert wall["panel_grid"]["value"] == [1.5, 1.4, 0.025]
+
+
+def test_monolith_channel_glass_reading_becomes_tinted_profiled_cladding():
+    from turku3d import facade_monolith
+    from turkutex.facade_archetypes import MONOLITH_CHANNEL_GLASS
+    from turkutex.facade_program import value
+
+    m = lambda x, s: value(x, s, 0.6)  # noqa: E731
+    reading = dict(structure=dict(facade_observations=dict(sections=[
+        dict(position="left half", kind="blank wall", material="pale smooth render"),
+        dict(position="top left edge", kind="translucent channel glass panel", material="channel glass")])))
+    wall = dict(render_sections=[dict(index=0, bounds=[0, 0, .5, 1], kind="blank", material="render"),
+                                 dict(index=1, bounds=[0, .75, .12, .25], kind=None, material="glass")])
+    facade_monolith.reviewed_wall(wall, reading, 4, False, m)
+    channel = wall["render_sections"][1]
+    assert channel["kind"] == "blank" and channel["colour"] == MONOLITH_CHANNEL_GLASS["colour"]
+    assert channel["panel_grid"][0] == 0.33 and "panel_grid" not in wall  # render volume has no joints
+    assert wall["render_sections"][0].get("colour") is None

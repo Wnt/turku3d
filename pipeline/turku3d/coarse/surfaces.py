@@ -23,6 +23,7 @@ KEYS = (
     "gravel",
     "quay_stone",
     *street_materials.FINISH_KEYS.values(),
+    "granite_rock",
 )
 BINDINGS = {
     "road": 1,
@@ -36,8 +37,9 @@ BINDINGS = {
     "gravel": 6,
     "soil": 6,
     "sand": 6,
-    "rock": 6,
+    "rock": KEYS.index("granite_rock"),
     "quay": 7,
+    "wall": 7,
     "curb": 2,
 }
 SURFACES = {
@@ -107,7 +109,15 @@ def osm_surfaces(tile, path):
             path_finishes.append(SURFACES.get(tags["surface"]))
     park_index = shapely.STRtree(parks)
     path_index = shapely.STRtree(tagged_paths)
+    rocks = []
     for tags, geom in records:
+        if tags.get("natural") in ROCK_TAGS:
+            area = geom
+            if area.geom_type == "LineString" and area.is_ring:
+                area = shapely.make_valid(shapely.Polygon(area))
+            if area.geom_type in ("Polygon", "MultiPolygon", "GeometryCollection"):
+                rocks.append(area)
+            continue
         if tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") not in (
             "no",
             "building_passage",
@@ -183,8 +193,18 @@ def osm_surfaces(tile, path):
             geom = geom.buffer(width / 2, cap_style="flat")
         if geom.geom_type in ("Polygon", "MultiPolygon"):
             result.append((geom.intersection(window), mat_id(key)))
-    # Broad land cover first, smaller explicitly mapped areas/corridors last.
-    return sorted(result, key=lambda row: -row[0].area)
+    rock = mat_id("rock")
+    if rocks:
+        # Bare rock replaces land cover only: paths, paving and other mapped
+        # surfaces across an outcrop keep their own finish.
+        built = shapely.union_all([g for g, m in result if m != mat_id("grass")])
+        area = shapely.union_all(rocks).intersection(window).difference(built)
+        area = shapely.union_all([g for g in shapely.get_parts(area) if g.area > 0.5])
+        if not area.is_empty:
+            result.append((area, rock))
+    # Broad land cover first, smaller explicitly mapped areas/corridors last; bare
+    # rock (already clear of every built surface) after the cover it lies on.
+    return sorted(result, key=lambda row: (row[1] == rock, -row[0].area))
 
 
 def classify(centroids, rgb, tile, streets, regions=()):
@@ -206,16 +226,141 @@ def classify(centroids, rgb, tile, streets, regions=()):
         )
         order = np.argsort(pi, kind="stable")
         out[qi[order]] = np.asarray([m for _, m in polygons], np.uint8)[pi[order]]
+    # A mapped outcrop outline is coarse: bright lawn green in the ortho is a
+    # grassy hollow. Dark canopy over the rock does not say what lies under it.
+    rock = out == mat_id("rock")
+    if rock.any():
+        r, g, b = (rgb_mean(rgb, row, col, k) for k in range(3))
+        out[rock & lawn(r, g, b)] = mat_id("grass")
     return out
+
+
+ROCK_TAGS = ("bare_rock", "rock")
+
+
+def rgb_mean(rgb, row, col, channel, radius=3):
+    """Ortho channel averaged over a small window, so single pixels do not decide."""
+    from scipy.ndimage import uniform_filter
+
+    return uniform_filter(rgb[..., channel].astype(np.float32), 2 * radius + 1, mode="nearest")[row, col]
+
+
+def lawn(r, g, b):
+    return (g > 1.08 * r) & (g > 1.2 * b) & (g > 70)
+
+
+def bare_rock(materials, centroids, rgb, tile, positions, indices, water=()):
+    """Unmapped bare rock inside land cover, from the ortho and the lidar terrain.
+
+    Confidence is the product of an ortho score (grey or pink, low saturation,
+    not green, bright) and a lidar score (2 m grid roughness or curvature of
+    cracked, stepped bedrock), so neither a flat grey square nor a rough lawn
+    passes alone. Thresholds come from mapped Vartiovuori outcrops against its
+    park lawn. Isolated cells are dropped; paths and paving are never candidates,
+    nor is ground within 10 m of water, where quay steps and paved edges are
+    just as grey and rough (mapped shore rock still comes from OSM).
+    """
+    from scipy.ndimage import binary_opening, label
+
+    cover = materials == mat_id("grass")
+    n = int(round(np.sqrt(len(positions)))) if len(positions) else 0
+    if not cover.any() or n * n != len(positions) or 2 * (n - 1) ** 2 != len(indices):
+        return materials
+    px = rgb.shape[0]
+    col = np.clip(((centroids[:, 0] - tile.origin[0]) / tile.size * px).astype(int), 0, px - 1)
+    row = np.clip(((centroids[:, 2] - tile.origin[2]) / tile.size * px).astype(int), 0, px - 1)
+    r, g, b = (rgb_mean(rgb, row, col, k) for k in range(3))
+    high, low = np.maximum(np.maximum(r, g), b), np.minimum(np.minimum(r, g), b)
+    saturation = (high - low) / np.maximum(high, 1)
+    ortho = (np.clip((0.3 - saturation) / 0.15, 0, 1) * np.clip((1.12 - g / np.maximum(r, 1)) / 0.1, 0, 1)
+             * np.clip((high - 100) / 40, 0, 1))
+    h = positions[:, 1].reshape(n, n)
+    pad = np.pad(h, 1, mode="edge")
+    laplace = (pad[:-2, 1:-1] + pad[2:, 1:-1] + pad[1:-1, :-2] + pad[1:-1, 2:] - 4 * h) / 4
+    rough = np.abs(pad[:-2, :-2] + pad[2:, 2:] - pad[:-2, 2:] - pad[2:, :-2]) / 4
+    relief = np.maximum(rough, np.abs(laplace))
+    relief = ((relief[:-1, :-1] + relief[1:, 1:] + relief[:-1, 1:] + relief[1:, :-1]) / 4).ravel()
+    lidar = np.clip((relief - 0.05) / 0.08, 0, 1).repeat(2)
+    confident = cover & (ortho * lidar >= ROCK_CONFIDENCE)
+    if len(water):
+        shore = shapely.union_all(list(water)).buffer(10.0)
+        confident &= ~shapely.intersects_xy(shore, centroids[:, 0], centroids[:, 2])
+    mask = binary_opening(confident.reshape(-1, 2).any(axis=1).reshape(n - 1, n - 1), np.ones((2, 2), bool))
+    labels, count = label(mask)
+    if count:
+        mask &= np.bincount(labels.ravel())[labels] >= ROCK_MIN_CELLS
+    result = materials.copy()
+    result[np.repeat(mask.ravel(), 2) & cover] = mat_id("rock")
+    return result
+
+
+# Joint ortho x lidar confidence for unmapped rock, and the smallest outcrop (2 m cells).
+ROCK_CONFIDENCE = 0.6
+ROCK_MIN_CELLS = 8
+
+
+# A face steeper than this (|normal y| below it, about 63 degrees) is a wall,
+# quay, bank or step face, not ground a lawn or paving finish lies on.
+STEEP = 0.45
+
+
+def steep(triangles):
+    """Near-vertical faces of (n, 3, 3) triangles."""
+    face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    return np.abs(face[:, 1]) < STEEP * np.linalg.norm(face, axis=1)
+
+
+def walking_finishes():
+    """Lawn and paving finishes painted in plan, never onto a near-vertical face."""
+    names = ("grass", "soil", "sand", "gravel", "road", "sidewalk", "crossing", "cycleway",
+             "cobblestone", "paving_slab", "bridge_deck")
+    return np.asarray([*(mat_id(name) for name in names), *street_materials.FINISH_KEYS], np.uint8)
+
+
+# Terrain still this steep (rise over run) beyond a face continues as natural rock.
+ROCK_SLOPE = 0.5
+# Lower faces are kerb or step risers that edge their own paving.
+RISER = 0.25
+
+
+def steep_context(mesh, terrain, abutments=None, retaining=None, quays=None):
+    """Material from context for near-vertical faces that still carry a lawn or paving id.
+
+    Applied after the closure stage to the walking and the collision ground, so
+    both agree: quay stone within reach of water or a bridge abutment
+    (`abutments`), the wall material beside a mapped retaining wall
+    (`retaining`), quay stone beside a mapped quay (`quays`), natural rock where
+    the lidar `terrain` (a HeightQuery) keeps sloping past the face, otherwise soil.
+    """
+    triangles = mesh.positions[mesh.indices]
+    # Soil and sand are bare natural ground, the default here, not a finish.
+    finishes = np.setdiff1d(walking_finishes(), [mat_id("soil"), mat_id("sand")])
+    faces = (
+        steep(triangles)
+        & np.isin(mesh.material, finishes)
+        & (np.ptp(triangles[:, :, 1], axis=1) > RISER)
+    )
+    if not faces.any():
+        return mesh
+    ids = np.flatnonzero(faces)
+    centre = triangles[ids].mean(axis=1)[:, [0, 2]]
+    normal = np.cross(triangles[ids, 1] - triangles[ids, 0], triangles[ids, 2] - triangles[ids, 0])
+    across = normal[:, [0, 2]] / np.maximum(np.linalg.norm(normal[:, [0, 2]], axis=1, keepdims=True), 1e-12)
+    h = [np.nan_to_num(terrain(centre + s * across), nan=0.0) for s in (-3.5, -1.5, 1.5, 3.5)]
+    beyond = np.maximum(abs(h[1] - h[0]), abs(h[3] - h[2])) / 2
+    material = np.where(beyond >= ROCK_SLOPE, mat_id("rock"), mat_id("soil")).astype(np.uint8)
+    for zone, name in ((quays, "quay"), (retaining, "wall"), (abutments, "quay")):
+        if zone is not None and not zone.is_empty:
+            material[shapely.intersects_xy(zone, centre[:, 0], centre[:, 1])] = mat_id(name)
+    result = mesh.material.copy()
+    result[ids] = material
+    return type(mesh)(mesh.positions, mesh.indices, result)
 
 
 def slope_fallback(positions, indices, materials):
     """Avoid projecting pavement onto bare, near-vertical terrain faces."""
-    triangles = positions[indices]
-    face = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
-    steep = np.abs(face[:, 1]) < 0.45 * np.linalg.norm(face, axis=1)
     result = materials.copy()
-    result[steep & (materials == mat_id("paving_slab"))] = mat_id("rock")
+    result[steep(positions[indices]) & (materials == mat_id("paving_slab"))] = mat_id("rock")
     return result
 
 
@@ -230,6 +375,8 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
         channels[materials == mat_id(name)] = channel
     for material, name in street_materials.FINISH_KEYS.items():
         channels[materials == material] = KEYS.index(name)
+    rock = KEYS.index("granite_rock")
+    moss = rock_tint(positions, indices, keep & (channels == rock)) if (keep & (channels == rock)).any() else None
     meshes = []
     for channel in np.unique(channels[keep]):
         for projection in range(3):
@@ -253,6 +400,7 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
                     inverse.reshape(-1, 3).astype(np.uint32),
                     normals=normal[ids],
                     uvs=uv,
+                    colors=moss[ids] if channel == rock and moss is not None else None,
                     color=(1, 1, 1, 1),
                     extras=dict(
                         layer="ground",
@@ -262,6 +410,36 @@ def visuals(tile, positions, indices, materials, keep, normals=None):
                 )
             )
     return meshes
+
+
+def rock_tint(positions, indices, rock):
+    """Vertex tint of bare rock: moss toward its edges and in lidar hollows.
+
+    The terrain is the lidar surface, so its curvature at the 2 m grid tells
+    rounded knobs (clean, pale rock) from hollows and cracks (moss, thin grass).
+    The edge band softens the change from rock to the surrounding lawn.
+    """
+    from turku3d.ground.mesh import HeightQuery, Mesh
+
+    tint = np.ones((len(positions), 3), np.float32)
+    used = np.unique(indices[rock])
+    xz = positions[used][:, [0, 2]]
+    footprint = shapely.union_all(shapely.polygons(positions[indices[rock]][:, :, [0, 2]]).tolist())
+    edge = np.clip(1 - shapely.distance(footprint.boundary, shapely.points(xz)) / MOSS_EDGE, 0, 1)
+    height = HeightQuery(Mesh(positions, indices, np.zeros(len(indices), np.uint8)))
+    centre = height(xz)
+    around = [height(xz + offset) for offset in ([2, 0], [-2, 0], [0, 2], [0, -2])]
+    laplace = np.nan_to_num(np.mean(around, axis=0) - centre, nan=0.0)
+    hollow = np.clip(laplace / 0.25, 0, 1)
+    knob = np.clip(-laplace / 0.25, 0, 1)
+    weight = np.clip(0.7 * edge + 0.6 * hollow, 0, 0.85)[:, None]
+    tint[used] = (1 - weight) * (1 + 0.06 * knob[:, None]) + weight * np.asarray(MOSS, np.float32)
+    return tint
+
+
+# Linear tint of moss and lichen on granite, and the width of the edge band (m).
+MOSS = (0.55, 0.68, 0.38)
+MOSS_EDGE = 1.5
 
 
 def fallback(channel, size=256):
@@ -479,8 +657,15 @@ def split_boundaries(
     fallback_materials=None,
     *,
     preserve_materials=False,
+    keep_steep=False,
 ):
-    """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals."""
+    """Cut only vector-boundary triangles, keeping the measured terrain plane and smooth normals.
+
+    With `keep_steep` (the visual finish pass), near-vertical faces are not cut
+    and no lawn or paving region or ortho fallback repaints them: they keep the
+    material of the stage that made them, which collision uses too. A masonry
+    finish such as a mapped quay still applies.
+    """
     import mapbox_earcut
 
     def overlay(operation, left, right):
@@ -515,19 +700,33 @@ def split_boundaries(
     boundary = np.unique(boundary)
     # Vertical bank faces have no terrain plane in x/z. Preserve them exactly;
     # trying to invert their projected basis used to fail the entire tile.
-    boundary = boundary[shapely.area(footprints[boundary]) > 1e-12]
+    planar = shapely.area(footprints) > 1e-12
+    fixed = planar & steep(triangles) if keep_steep and not preserve_materials else np.zeros_like(planar)
+    boundary = boundary[planar[boundary] & ~fixed[boundary]]
     if not preserve_materials:
+        region_materials = np.asarray([m for _, m in regions], np.uint8)
+
+        def last_region(faces, predicate):
+            qi, pi = shapely.STRtree(polygons).query(
+                shapely.points(triangles[faces][:, :, [0, 2]].mean(axis=1)), predicate=predicate
+            )
+            winner = np.full(len(faces), -1, dtype=np.int64)
+            np.maximum.at(winner, qi, pi)
+            return winner
+
         # Interior triangles need the same last-region-wins classification as
         # cut pieces. A visual finish can differ from the physical input ids.
-        interior = np.flatnonzero((shapely.area(footprints) > 1e-12) & ~np.isin(np.arange(len(selected)), boundary))
-        qi, pi = shapely.STRtree(polygons).query(
-            shapely.points(triangles[interior][:, :, [0, 2]].mean(axis=1)), predicate="within"
-        )
-        winner = np.full(len(interior), -1, dtype=np.int64)
-        np.maximum.at(winner, qi, pi)
+        interior = np.flatnonzero(planar & ~fixed & ~np.isin(np.arange(len(selected)), boundary))
+        winner = last_region(interior, "within")
         matched = np.flatnonzero(winner >= 0)
         materials = materials.copy()
-        materials[selected[interior[matched]]] = np.asarray([m for _, m in regions], np.uint8)[winner[matched]]
+        materials[selected[interior[matched]]] = region_materials[winner[matched]]
+        faces = np.flatnonzero(fixed)
+        if len(faces):
+            winner = last_region(faces, "intersects")
+            masonry = np.flatnonzero(winner >= 0)
+            masonry = masonry[~np.isin(region_materials[winner[masonry]], walking_finishes())]
+            materials[selected[faces[masonry]]] = region_materials[winner[masonry]]
     if not len(boundary):
         return positions, indices[keep], materials[keep], normals
     uncut = np.ones(len(selected), bool)

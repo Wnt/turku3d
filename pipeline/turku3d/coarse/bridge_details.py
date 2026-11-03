@@ -553,6 +553,8 @@ def texture(surface):
         "rock": (127, 128, 122),
         "granite": (158, 153, 137),
         "bronze": (64, 91, 80),
+        "glass": (58, 72, 80),
+        "corten": (118, 60, 34),
     }
     noise = rng.normal(0, 4 if surface != "steel" else 1, (128, 128))
     if surface == "granite":
@@ -564,6 +566,10 @@ def texture(surface):
         noise += 4 * np.sin(x * np.pi / 2) - 24 * (x % 32 < 2)
     elif surface == "ballast":
         noise += np.repeat(np.repeat(rng.normal(0, 14, (32, 32)), 4, 0), 4, 1)
+    elif surface == "corten":
+        # Weathering steel: mottled rust with darker run-off streaks.
+        noise += np.repeat(np.repeat(rng.normal(0, 9, (16, 16)), 8, 0), 8, 1)
+        noise -= 10 * (np.abs(np.sin(x * np.pi / 11 + np.sin(y * np.pi / 40))) < 0.08)
     elif surface == "rock":
         noise += 9 * np.sin(x * np.pi / 32 + 2 * np.sin(y * np.pi / 64))
         noise -= 28 * (np.abs(np.sin((x + y) * np.pi / 64)) < 0.06)

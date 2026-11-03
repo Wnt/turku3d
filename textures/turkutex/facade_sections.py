@@ -35,9 +35,9 @@ def bounds(position, floors):
         return None
     x, y, w, h = 0.0, 0.0, 1.0, 1.0
     if "left" in p:
-        w = 0.33
+        w = 0.5 if "half" in p else 0.33
     elif "right" in p:
-        x, w = 0.67, 0.33
+        x, w = (0.5, 0.5) if "half" in p else (0.67, 0.33)
     elif "centre" in p or "center" in p:
         x, w = 0.33, 0.34
     if "edge" in p or "strip" in p and not any(k in p for k in ("upper", "lower", "top", "base")):

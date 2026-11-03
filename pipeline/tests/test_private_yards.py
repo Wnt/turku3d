@@ -108,3 +108,31 @@ def test_fence_above_a_retaining_edge_starts_at_the_higher_ground():
     batch=place(C.VisualTile(0,0,0),[(line,{"barrier":"fence","height":str(measured['height']),
                                            "_lidar_base":measured['base']},False)],[],lambda x,z:4)
     assert batch and all(abs(s.y-8)<.01 for s in batch)
+
+
+def test_low_cheek_wall_spans_its_sloping_lower_side_instead_of_a_default_wall():
+    from turku3d.coarse.fence_survey import low_profile
+
+    # A 0.3 m wide granite cheek wall: plaza 6.0 m (z < 20), sidewalk 5.6 m
+    # (z > 20), coping 6.2 m. Nothing stands 0.8-3.5 m above the plaza.
+    x, z = np.meshgrid(np.arange(0, 20.01, .2), np.arange(17, 23.01, .2))
+    x, z = x.ravel(), z.ravel()
+    keep = abs(z - 20) > .2
+    ground = np.c_[x[keep], np.where(z[keep] < 20, 6., 5.6), z[keep]]
+    xs, zs = np.meshgrid(np.arange(2, 18.01, .1), np.arange(19.85, 20.16, .1))
+    top = np.c_[xs.ravel(), np.full(xs.size, 6.2), zs.ravel()]
+    cloud = PointCloud.from_xyz(np.r_[ground, top])
+    cloud.records["classification"][len(ground):] = 4
+    line = shapely.LineString([(4, 20), (16, 20)])
+    assert profile(line, cloud) is None
+    measured = low_profile(line, cloud)
+    assert measured["low"] and abs(measured["base"] - 5.6) < .01
+    assert abs(measured["base"] + measured["height"] - 6.2) < .02
+    tags = {"barrier": "wall", "height": str(measured["height"]),
+            "_lidar_base": measured["base"], "_lidar_low": True}
+    batch = place(C.VisualTile(0, 0, 0), [(line, tags, False)], [], lambda x, z: 5.5)
+    assert batch and all(abs(s.y - 5.5) < .01 and abs(s.y + s.height - 6.2) < .02 for s in batch)
+    # A tall wall top is not a low wall.
+    tall = PointCloud.from_xyz(np.r_[ground, top + [0, 1.6, 0]])
+    tall.records["classification"][len(ground):] = 6
+    assert low_profile(line, tall) is None

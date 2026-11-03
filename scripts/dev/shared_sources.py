@@ -12,6 +12,11 @@ import time
 import uuid
 
 
+# Overlay-owned input sets. Description stores are read at the data root by the
+# generator (landmarks.descriptions); their file hashes enter the source version.
+DATASETS = ('raw', 'supplements', 'derived', 'landmark-descriptions')
+
+
 def merge_tree(base, destination, additions):
     """Clone only changed directory spines; all existing source files stay read-only links."""
     destination.mkdir(parents=True, exist_ok=True)
@@ -38,7 +43,7 @@ def publish(base, root, downloads):
     additions = {}
     hashes = {}
     for directory in downloads:
-        for source in sorted(p for name in ('raw', 'supplements') for p in (directory / name).rglob('*')):
+        for source in sorted(p for name in DATASETS for p in (directory / name).rglob('*')):
             if (not source.is_file() or source.name.startswith(".")
                     or source.name in ("MANIFEST.jsonl", "SHA256SUMS")):
                 continue

@@ -13,7 +13,7 @@ def source_paths():
     return [
         Path(__file__).with_name(name)
         for name in ("appearance.py", "atlas.py", "descriptions.py", "procedural.py", "elevations.py", "relief.py", "openings.py")
-    ]
+    ] + [C.REPO_ROOT / "textures/turkutex/facade_archetypes.py"]
 
 
 def building_refs(buildings):
@@ -42,6 +42,27 @@ def manifest_current(manifest):
     )
 
 
+def measured_class(building):
+    """Reference-measured facade classes outrank unreviewed automatic seeds.
+
+    Precedence: local override > reviewed distributed description > measured class
+    (massive masonry, or a classical order named by the building's own reviewed walls
+    or vision description) > automatic description > generic archetype.
+    """
+    from turku3d.facade_kit import read_description, renderer
+
+    renderer()
+    from turkutex.facade_archetypes import classical_order, massive_masonry
+
+    from turku3d.facade_programs import measured, order_evidence
+
+    attrs = getattr(building, "attributes", {}) or {}
+    if massive_masonry(attrs):
+        return True
+    evidence = order_evidence(measured(building.facade_key), read_description(building.facade_key))
+    return "pilaster" in evidence.lower() and classical_order(attrs, evidence)
+
+
 def resolve(building, automatic_root=None):
     key = str(building.facade_key)
     automatic_root = automatic_root or C.data_root() / "landmark-descriptions"
@@ -62,6 +83,7 @@ def resolve(building, automatic_root=None):
             if path.parent == automatic_root and (
                 candidate.get("reference_match") != "verified"
                 or candidate.get("reference_confidence", 0) < 0.5
+                or measured_class(building)
             ):
                 continue
             result = candidate

@@ -66,3 +66,86 @@ def test_reading_names_round_order_but_unnamed_or_square_columns_stay_boxes():
     assert shape("recessed glazed frontage behind round columns") == "round"
     assert shape("deep recessed glazing behind square columns") == "square"
     assert shape("recessed entrance/glazing behind columns") is None
+
+
+def modernist_wall():
+    v = np.array([[0, 0, 0], [20, 0, 0], [20, 30, 0], [0, 30, 0]], float)
+    from test_facade_components import fixture as base_fixture
+
+    _, w = base_fixture("bay")
+    w.update(width_m=20, height_m=30, geometry_components=[])
+    w.update(
+        windows={}, base={}, bays={"count": 0, "support": 0}, observation={"needs_review": False},
+        modernist=dict(
+            support=0.8,
+            margins_m=[0.5, 0.5],
+            ground=dict(height_m=4.5, pane_m=2.4),
+            glazed_floors_m=[[4.8, 8.4]],
+            bands=dict(first_m=8.4, pitch_m=3.2, count=6, sill_m=1.0, head_m=2.75, pane_m=1.3,
+                       slab=dict(depth_m=1.0, thickness_m=0.22, parapet_m=0.95, colour="#b9bbbc")),
+            top=dict(bottom_m=27.6, recess_m=1.5, roof_slab_m=0.6),
+            awnings=[dict(span_m=[1, 19], attach_m=4.4, depth_m=1.8, drop_m=0.6, colour="#5c5a55")],
+            panels=[dict(rect_m=[9, 8.4, 1.6, 19], outward_m=0.05, glass=True, colour="#6e8da6")],
+        ),
+    )
+    return v, w
+
+
+def test_modernist_profile_expands_ribbons_slabs_top_recess_shopfront_and_panels():
+    from turku3d.facade_modernist import expand
+
+    v, w = modernist_wall()
+    out = expand(w)
+    assert "modernist" not in out and "modernist" in w  # source reading unchanged
+    ribbons = out["windows"]["rectangles_m"]
+    assert len(ribbons) == 6 + 1 + 1 and all(r[2] == pytest.approx(19) for r in ribbons)
+    assert ribbons[0][1] == pytest.approx(9.4) and ribbons[0][3] == pytest.approx(1.75)
+    assert out["windows"]["divisions"]["value"] == [15, 1]
+    assert len(out["base"]["openings_m"]) == 8 and out["base"]["variant"]["value"] == "shops"
+    kinds = [c["kind"] for c in out["geometry_components"]]
+    assert kinds == ["slab_band", "recess", "slab_band", "awning", "panel"]
+    plans = plan(v, out)
+    assert [p["kind"] for p in plans] == kinds
+    meshes, boxes = geometry(v, plans, "test", np.zeros(3))
+    assert not boxes  # Upper slabs, awnings and panels are visual only.
+    slabs = [m for m in meshes if m.extras.get("component_box") and m.color == pytest.approx(linear_rgba("#b9bbbc"))]
+    assert len(slabs) == 7 * 2  # 7 levels, slab plus parapet each
+    # A fragment split at 12 m keeps every slab exactly once.
+    lower = np.array([[0, 0, 0], [20, 0, 0], [20, 12, 0], [0, 12, 0]], float)
+    upper = np.array([[0, 12, 0], [20, 12, 0], [20, 30, 0], [0, 30, 0]], float)
+    count = 0
+    for frag in (lower, upper):
+        ms, _ = geometry(frag, plan(frag, out), "test", np.zeros(3))
+        count += sum(1 for m in ms if m.extras.get("component_box") and m.color == pytest.approx(linear_rgba("#b9bbbc")))
+    assert count == 14
+
+
+def test_invalid_or_weak_modernist_profile_leaves_wall_unchanged():
+    from turku3d.facade_modernist import expand
+
+    v, w = modernist_wall()
+    w["modernist"]["support"] = 0.5
+    assert expand(w) is w
+    v, w = modernist_wall()
+    w["modernist"]["bands"]["count"] = 30  # Bands would leave the surveyed wall.
+    assert expand(w) is w
+
+
+def test_full_wall_reading_outranks_partial_characterization_of_same_frontage():
+    from turku3d import config as C
+    from turku3d.facade_programs import matching_wall
+
+    def wall(wid, scope, offset):
+        return dict(
+            wall_id=wid,
+            observation=dict(needs_review=False, scope=scope),
+            geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N - offset], p1=[C.ORIGIN_E + 20, C.ORIGIN_N - offset],
+                          normal=[0, 1], base_h=0),
+        )
+
+    v = np.array([[0, 0, 0], [20, 0, 0], [20, 10, 0], [0, 10, 0]], float)
+    partial = wall("partial", "partial-sections", 0.0)  # exactly on the shell line
+    full = wall("full", "full-wall", 0.3)
+    program = dict(needs_review=False, walls=[partial, full])
+    assert matching_wall(v, program)["wall_id"] == "full"
+    assert matching_wall(v, dict(needs_review=False, walls=[partial]))["wall_id"] == "partial"

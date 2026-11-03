@@ -29,18 +29,27 @@ COLOURS = {
 }
 
 
+def colour(surface):
+    """Palette surfaces, or measured livery paint named ``paint_rrggbb``."""
+    if surface.startswith("paint_"):
+        return tuple(int(surface[6 + i:8 + i], 16) for i in (0, 2, 4))
+    return COLOURS[surface]
+
+
 @cache
 def texture(surface):
     """Small metric steel grain, timber planks and canvas; no house facade atlas."""
     size = 128
-    rng = np.random.default_rng(590 + list(COLOURS).index(surface))
-    noise = rng.normal(0, 2 if surface in ("glass", "blue", "white") else 5, (size, size))
+    seed = list(COLOURS).index(surface) if surface in COLOURS else int(surface[6:], 16) % 9973
+    rng = np.random.default_rng(590 + seed)
+    paint = surface.startswith("paint_")
+    noise = rng.normal(0, 2 if paint or surface in ("glass", "blue", "white") else 5, (size, size))
     if surface == "wood":
         noise += np.sin(np.arange(size)[None, :] * 0.7) * 5
         noise[:, ::32] -= 18
     if surface == "deck":
         noise[::32] -= 15
-    pixels = np.clip(np.array(COLOURS[surface]) + noise[:, :, None], 0, 255).astype(np.uint8)
+    pixels = np.clip(np.array(colour(surface)) + noise[:, :, None], 0, 255).astype(np.uint8)
     out = BytesIO()
     Image.fromarray(pixels).save(out, format="PNG")
     return out.getvalue()
@@ -68,6 +77,7 @@ def extrusion(key, polygon, low, high, surface, material="wall", *, bottom_scale
 
 
 def rails(key, polygon, height, *, surface="white"):
+    level = height if callable(height) else (lambda xy: height)
     parts = []
     for ring in [polygon.exterior, *polygon.interiors]:
         line = shapely.LineString(ring.coords).simplify(0.12)
@@ -75,15 +85,17 @@ def rails(key, polygon, height, *, surface="white"):
         for a, b in zip(coords[:-1], coords[1:], strict=True):
             if np.linalg.norm(b - a) < 0.1:
                 continue
+            ha, hb = level(a), level(b)
             for lift in (0.35, 0.75, 1.05):
                 part = tube(
-                    key, [a[0], height + lift, a[1]], [b[0], height + lift, b[1]], 0.018, surface
+                    key, [a[0], ha + lift, a[1]], [b[0], hb + lift, b[1]], 0.018, surface
                 )
                 part.metadata["collision"] = False
                 parts.append(part)
         for distance in np.arange(0, line.length, 1.8):
             p = line.interpolate(float(distance))
-            part = tube(key, [p.x, height, p.y], [p.x, height + 1.05, p.y], 0.025, surface)
+            h = level(np.array([p.x, p.y]))
+            part = tube(key, [p.x, h, p.y], [p.x, h + 1.05, p.y], 0.025, surface)
             part.metadata["collision"] = False
             parts.append(part)
         # A thin continuous collision rail avoids thousands of tiny tube faces.
@@ -91,11 +103,12 @@ def rails(key, polygon, height, *, surface="white"):
         for a, b in zip(coords[:-1], coords[1:], strict=True):
             if np.linalg.norm(b - a) < 0.1:
                 continue
+            ha, hb = level(a), level(b)
             proxy = profile_wall(
                 key,
                 [a, b],
-                [height, height],
-                [height + 1.05] * 2,
+                [ha, hb],
+                [ha + 1.05, hb + 1.05],
                 thickness=0.06,
                 material="railing",
             )
@@ -108,7 +121,7 @@ def cabin(key, polygon, deck, top, surface="wood", fascia="blue"):
     """Measured roof outline; compact boat windows and blue horizontal fascia."""
     polygon = shapely.orient_polygons(polygon)
     parts = [extrusion(key, polygon, deck, top, surface, "building")]
-    levels = max(1, min(2, round((top - deck) / 2.4)))
+    levels = max(1, min(4, round((top - deck) / 2.5)))
     story = (top - deck) / levels
     coords = np.asarray(polygon.exterior.coords)
     for a, b in zip(coords[:-1], coords[1:], strict=True):
@@ -250,47 +263,33 @@ def produce(tile, records):
                     meshes.append(clipped)
             continue
         key = "boat:" + boat["id"]
-        deck = boat["deck"]
-        water = boat["water"]
-        parts = [extrusion(key, outline, water - 0.7, deck,
-                           boat["appearance"].get("hull_surface", "hull"), bottom_scale=0.88)]
-        deck_faces = Faces()
-        horizontal(deck_faces, outline.buffer(-0.08), deck + 0.015)
-        parts.append(appearance(deck_faces.mesh(key, "bridge_deck"), "deck"))
-        # Paint follows the flared hull skin; no horizontal waterline slab.
-        band = Faces()
-        ring = np.asarray(shapely.orient_polygons(outline).exterior.coords)
-        centre = np.asarray(outline.centroid.coords[0])
-        low, high = water + 0.05, water + 0.14
+        from . import vessels
 
-        scale = 0.88 + 0.12 * (np.array([low, high]) - (water - 0.7)) / (deck - (water - 0.7))
-        lo, hi = centre + (ring - centre) * (scale[:, None, None] + 0.001)
-        for i in range(len(ring) - 1):
-            band.face(
-                [
-                    [lo[i, 0], low, lo[i, 1]],
-                    [hi[i, 0], high, hi[i, 1]],
-                    [hi[i + 1, 0], high, hi[i + 1, 1]],
-                    [lo[i + 1, 0], low, lo[i + 1, 1]],
-                ]
-            )
-        parts.append(appearance(band.mesh(key, "wall"), "waterline", collision=False))
+        livery = boat["appearance"]
+        frame = vessels.Frame(boat)
+        parts = vessels.hull(key, boat, frame, livery)
+        parts.extend(vessels.deck(key, boat, frame))
+        parts.extend(vessels.portholes(key, boat, frame, livery))
         cabins = shapely.union_all([g for g, _ in boat["cabins"]])
-        for shape, top in boat["cabins"]:
-            for polygon in shapely.get_parts(shape):
-                if polygon.geom_type == "Polygon":
-                    parts.extend(cabin(key, polygon, deck, top, boat["appearance"]["cabin_surface"],
-                                       boat["appearance"].get("fascia_surface", "blue")))
+        for polygon, base, top in vessels.tiers(boat, frame):
+            parts.extend(cabin(key, polygon, base, top, livery["cabin_surface"],
+                               livery.get("fascia_surface", "blue")))
+        parts.extend(vessels.funnels(key, boat, frame, livery))
+        parts.extend(vessels.lifeboats(key, boat, frame, livery))
         # Separate blue bulwark and slim white bars around the open working deck.
         edge = outline.buffer(-0.12)
-        parts.extend(rails(key, edge, deck, surface=boat["appearance"].get("rail_surface", "blue")))
+        parts.extend(rails(key, edge, frame.top, surface=livery.get("rail_surface", "blue")))
         from .rigging import produce as produce_rigging
 
         parts.extend(produce_rigging(key, boat))
-        if boat["tags"].get("amenity") in ("restaurant", "bar", "cafe", "pub", "nightclub"):
-            from .night_accents import restaurant_bulbs
+        from .night_accents import dress_lights, restaurant_bulbs
+
+        parts.extend(dress_lights(key, boat, frame))
+        restaurant = boat["tags"].get("amenity") in ("restaurant", "bar", "cafe", "pub", "nightclub")
+        if restaurant:
             parts.extend(furniture(key, boat, outline.difference(cabins.buffer(0.6))))
             parts.extend(restaurant_bulbs(key, boat))
+        if restaurant or boat.get("occupied"):
             for part in parts:
                 if part.metadata.get("surface") == "glass":
                     part.metadata["surface"] = "night_cabin"
@@ -337,6 +336,11 @@ def stats(tile, records, meshes):
                 deck_m=b["deck"],
                 cabin_parts=len(b["cabins"]),
                 masts=len(b["masts"]),
+                funnels=len(b.get("funnels", [])),
+                lifeboats=len(b.get("lifeboats", [])),
+                sheer_m=[min(h for _, h in b["sheer"]), max(h for _, h in b["sheer"])] if b.get("sheer") else None,
+                bow=b.get("bow"),
+                rake_m=b.get("rake"),
                 source_buildings=b["building_keys"],
                 source_facades=b["source_facades"],
                 appearance=b["appearance"],
@@ -370,6 +374,7 @@ def stage(cache, tile, records):
             Path(__file__).with_name("gardens.py"),
             Path(__file__).with_name("harbour.py"),
             Path(__file__).with_name("rigging.py"),
+            Path(__file__).with_name("vessels.py"),
             Path(__file__).with_name("night_accents.py"),
             Path(__file__).parents[1] / "night_lighting.py",
             Path(__file__).parents[1] / "night_lighting.json",

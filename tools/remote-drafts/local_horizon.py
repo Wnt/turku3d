@@ -65,10 +65,11 @@ if __name__ == '__main__':
     parser.add_argument('--upstream', default='http://192.168.1.114:7835')
     parser.add_argument('--survey', action='store_true', help='Fill missing far tiles directly from cached survey inputs')
     parser.add_argument('--regional', help='Immutable public regional.npz terrain grid')
+    parser.add_argument('--lod-buildings', action='store_true', help='Distant buildings as LoD2 block parents (gen2arch)')
     args = parser.parse_args()
     survey = None
     if args.survey:
         from turku3d.coarse.horizon import SurveyScenery
         survey = SurveyScenery(args.regional)
-    scenery = Scenery(args.source, args.cache, survey=survey, preferred=args.preferred_source)
+    scenery = Scenery(args.source, args.cache, survey=survey, preferred=args.preferred_source, lod=args.lod_buildings)
     Server(('127.0.0.1', args.port), Handler).serve_forever()

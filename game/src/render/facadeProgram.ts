@@ -1,5 +1,5 @@
 // Program-sized windows reuse the kit's PBR cells; bands are painted in wall metres.
-import { float, floor, fract, fwidth, max, min, mix, sqrt, step, vec2, vec4 } from 'three/tsl';
+import { abs, float, floor, fract, fwidth, max, min, mix, smoothstep, sqrt, step, vec2, vec4 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { facadeAttribute, facadePaintAttributes } from './facadeProgramAttributes';
 import { metricGlazing } from './facadeGlazing';
@@ -105,6 +105,14 @@ export function programPigment(metres: Node<'vec2'>, bays: Node<'vec2'>, upper: 
     .mul(float(1).sub(bays.x.floor().mod(2))).mul(float(layout.x.lessThan(42)));
   const railing = balcony.mul(max(step(fract(metres.x.mul(5)), .12), step(.93, data.y.mul(layout.z))));
   const band = max(max(cornice, corner), max(course, surround)).mul(step(metres.y, data.size.y));
-  const pigment = mix(base, wall, upper).mul(mix(1, .67, plinth));
+  // Blank cladding modules carry their joint grid in the opening slot:
+  // [panel width m, panel height m, joint m, -1]. No extra varying is needed.
+  const panelled = float(layout.x.greaterThanEqual(42).and(data.opening.w.lessThan(0)));
+  const cell = max(data.opening.xy, vec2(.2));
+  const toJoint = abs(fract(metres.div(cell).add(.5)).sub(.5)).mul(cell);
+  const blur = max(max(fwidth(metres.x), fwidth(metres.y)), .0005);
+  const joint = float(1).sub(smoothstep(data.opening.z.mul(.5), data.opening.z.mul(.5).add(blur),
+    min(toJoint.x, toJoint.y))).mul(panelled).mul(upper);
+  const pigment = mix(base, wall, upper).mul(mix(1, .67, plinth)).mul(mix(1, .62, joint));
   return { pigment, band, trim:mix(trim, trim.mul(.65), railing), balcony:balcony.mul(.15).add(railing.mul(.65)).clamp() };
 }

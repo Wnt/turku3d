@@ -180,6 +180,20 @@ Ground support and kerb cross-slope checks:
 
 No inferred curbs, surveyed stairs, unique facade maps or LOD parents.
 
+### Playground equipment (`playgrounds.py`)
+
+The playground survey (Jonni's leikkipuistodata: 322 Turku and Kaarina register sites, located
+equipment outlines, equipment counts, lidar heights) is imported once into
+`$TURKU3D_DATA/derived/playgrounds/playgrounds.json` (`python -m turku3d.playgrounds import
+--survey ~/leikkipuistodata`; private data, never in git). On the farm the file belongs to the
+pinned source overlay (`scripts/dev/shared_sources.py` publishes `derived/` files too), so the
+prepared `playgrounds` input and every stage key change when it changes. The full pass places one
+parametric low-poly model (`turku3d.playgrounds.models`) per located outline, the unlocated counts on
+free cells inside the site, benches/tables where the register and OSM have too few, and safety
+surfacing pads; other OSM `leisure=playground` areas get a swing set and a sandbox. Items join the
+props palette batch (hidden beyond 125 m) and carry static collision boxes. The manifest's
+`playgrounds` entry counts items per category and source, per site.
+
 ## Service (`service.py`)
 
 `tools/dev/coarse-tiles` (localhost only, port `$TURKU3D_PORT_BASE + 5`, proxied at `/coarse/` by the dev and dist

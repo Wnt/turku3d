@@ -144,3 +144,63 @@ def test_structural_component_does_not_flatten_neighbouring_window():
     parts = list(composed_parts(points, uv, style, plans))
     assert len(parts) == 5
     assert np.allclose(parts[0][0][:, 2], .16)
+
+
+def _order_wall(width=15.36, height=14.0, bays=4, offset=0.0, bottom=0.0):
+    from turku3d.facade_program_geometry import wall_parts
+    from turku3d.facade_programs import classical, compile_wall
+    from turkutex.facade_archetypes import ORDER, sample
+
+    attrs = dict(levels=2, construction_year=1903, material_class="brick", use="2120",
+                 monumental=True, footprint_m2=1200)
+    program = sample("order-test", attrs, [dict(wall_id="w", width_m=width, height_m=height,
+                                                 uv_offset=offset)])
+    wall = program["walls"][0]
+    wall["bays"].update(count=bays, pitch_m=width / bays)
+    classical(program, attrs, "")
+    assert wall["order"] == ORDER
+    style = compile_wall(wall, 2)
+    style["origin"][1] = 0.0
+    a, b = np.array([0, bottom, 0.0]), np.array([width - offset, bottom, 0.0])
+    vertices = np.array([a, b, [b[0], height, 0], [0, height, 0]])
+    return style, list(wall_parts(vertices, wall, style))
+
+
+def test_classical_order_puts_pilasters_on_the_kit_bay_grid_with_frieze_and_dentils():
+    from turkutex.facade_archetypes import ORDER
+
+    style, parts = _order_wall()
+    assert style["glazing"][:2] == ORDER["panes"] and style["frame"] == ORDER["frame"]
+    assert style["module"] % 3 == 0  # Ordered ground storey: windows over a plinth.
+    bay = style["bay"]
+    shaft = min(ORDER["pilaster"] * bay, ORDER["pilaster_max_m"])
+    pilasters = [p for p, _, s in parts if s["wall"] == ORDER["trim"]
+                 and np.ptp(p[:, 1]) > 5 and np.ptp(p[:, 0]) <= shaft + 1e-6]
+    centres = sorted({round(float(p[:, 0].mean()), 3) for p in pilasters})
+    # Half pilasters at both corners and one at every interior bay boundary.
+    assert np.allclose(centres, [shaft / 4, bay, 2 * bay, 3 * bay, 4 * bay - shaft / 4], atol=2e-3)
+    # Windows centred in each bay never sit under a pilaster.
+    window = style["opening"][0] * bay
+    assert bay - window > shaft
+    plinth = [s for p, _, s in parts if s["wall"] == ORDER["plinth_colour"]]
+    assert plinth and plinth[0]["bands"][0] >= ORDER["plinth_m"]
+    dentils = [p for p, _, s in parts if s["wall"] == ORDER["trim"]
+               and abs(np.ptp(p[:, 0]) - ORDER["dentil_m"][0]) < 1e-6
+               and abs(np.ptp(p[:, 1]) - ORDER["dentil_m"][1]) < 1e-6]
+    dentil, _, pitch = ORDER["dentil_m"]
+    assert len(dentils) == len(np.arange(pitch / 2, style["size"][0] - dentil / 2, pitch))
+
+
+def test_classical_order_follows_fragment_offset_and_skips_roof_setbacks():
+    from turkutex.facade_archetypes import ORDER
+
+    style, parts = _order_wall(offset=5.0)
+    bay = style["bay"]
+    shaft = min(ORDER["pilaster"] * bay, ORDER["pilaster_max_m"])
+    centres = sorted({round(float(p[:, 0].mean()), 3) for p, _, s in parts
+                      if s["wall"] == ORDER["trim"] and np.ptp(p[:, 1]) > 5
+                      and np.ptp(p[:, 0]) <= shaft + 1e-6})
+    assert np.allclose(centres, [2 * bay - 5, 3 * bay - 5, 4 * bay - 5 - shaft / 4], atol=2e-3)
+    _, raised = _order_wall(bottom=6.0)
+    assert not [s for _, _, s in raised if s["wall"] == ORDER["plinth_colour"]]
+    assert not [p for p, _, s in raised if np.ptp(p[:, 1]) > 5 and s["wall"] == ORDER["trim"]]

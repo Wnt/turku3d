@@ -48,3 +48,37 @@ def test_extent_follows_named_mapped_bridges_and_curved_river_without_coordinate
     assert mask.covers(shapely.Point(50,20))
     assert not mask.covers(shapely.Point(-40,0))
     assert extent(records[:2],policy).is_empty
+
+
+def test_t0_0_1_cut_residue_and_malformed_wash_never_fail_the_tile(tmp_path):
+    # Farm t0_0_1 (pin vfix-243e981f): a facade cut through the zero-wash row of the lit
+    # quay wall left -1.1e-18 irradiance and build_glb rejected the whole tile.
+    from turku3d.package.gltf import GlbMesh, build_glb
+    from turku3d.wall_surfaces import layer_meshes
+    positions = np.array([[0, 1e-4, .0032], [.0054, .0859, 0], [.0054, 0, 0]])
+    night = np.array([[-1.0975871309839974e-18, -8.122144537444882e-19, -4.829383227291711e-19],
+                      [.04239926507269429, .03137545525821971, .018655676056259306], [np.nan, 0, 0]])
+    extras = dict(layer='ground', material_key='draft_quay_stone_lit', object_id='quay-lit:t0_0_1')
+    mesh = GlbMesh('quay-lit-stone', positions, np.array([[0, 1, 2]], np.uint32), night_irradiance=night, extras=extras)
+    path = tmp_path / 'ground.vis.glb'; path.write_bytes(build_glb([mesh]))
+    loaded = layer_meshes([path])[0].night_irradiance
+    assert np.isfinite(loaded).all() and loaded.min() == 0
+    np.testing.assert_allclose(loaded[1], night[1], rtol=1e-6)
+    malformed = GlbMesh('quay-lit-stone', positions, np.array([[0, 1, 2]], np.uint32), night_irradiance=night[:2], extras=extras)
+    path.write_bytes(build_glb([malformed]))  # dropped (renders unlit), not a failed tile
+    assert layer_meshes([path])[0].night_irradiance is None
+
+
+def test_wall_cut_keeps_quay_wash_non_negative():
+    from turku3d.wall_assembly import assemble_structures
+    from turku3d.package.gltf import GlbMesh
+    wall = GlbMesh('quay-lit-stone', np.array([[0., 0, 0], [10, 0, 0], [0, 2, 0], [10, 2, 0]]),
+                   np.array([[0, 1, 2], [1, 3, 2]], np.uint32),
+                   night_irradiance=np.array([[0., 0, 0], [0, 0, 0], [1, .74, .44], [1, .74, .44]]),
+                   extras=dict(layer='ground', material_key='draft_quay_stone_lit', object_id='quay-lit:t'))
+    facade = GlbMesh('facade', np.array([[3., 0, -.01], [3.7, 0, -.01], [3, 1.3, -.01], [3.7, 1.3, -.01]]),
+                     np.array([[0, 1, 2], [1, 3, 2]], np.uint32),
+                     extras=dict(layer='buildings', material_key='facade_kit', object_id='b'))
+    for mesh in assemble_structures([facade, wall]):
+        if mesh.night_irradiance is not None:
+            assert mesh.night_irradiance.min() >= 0 and np.isfinite(mesh.night_irradiance).all()

@@ -1,7 +1,7 @@
 // Night-only lit windows inside the existing facade graphs. Every term is scaled by uniforms, so day and night
 // share one pipeline per material: nothing compiles at dusk and no draw, asset or per-building attribute is added.
 import * as THREE from 'three/webgpu';
-import { dot, float, floor, fract, length, luminance, materialColor, materialRoughness, max, mix, normalWorldGeometry,
+import { dot, float, floor, fract, length, luminance, materialColor, materialRoughness, max, mix, normalViewGeometry, cameraViewMatrix,
   positionWorld, renderGroup, smoothstep, step, uint, uniform, vec2, vec3 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { WINDOW_LIGHT } from './timecycle';
@@ -77,7 +77,9 @@ export const glassMask = (roughness: Node<'float'>) => float(1).sub(smoothstep(0
 
 /** World-space wall frame for facades without per-wall attributes (v1 kit, non-kit walls). */
 export function wallFrame() {
-  const n = normalWorldGeometry;
+  // Derived from the view-space geometry normal every lit program already interpolates: a separate world-normal
+  // varying would exceed facade programs' 16 WebGPU inter-stage varyings once beauty also writes motion.
+  const n = normalViewGeometry.transformNormalByInverseViewMatrix(cameraViewMatrix).normalize();
   const horizontal = n.xz.div(max(length(n.xz), 1e-3));
   const along = dot(positionWorld.xz, vec2(horizontal.y.negate(), horizontal.x));
   const plane = facadeKey([floor(dot(positionWorld.xz, horizontal).div(8))], WINDOW_HASH.plane);

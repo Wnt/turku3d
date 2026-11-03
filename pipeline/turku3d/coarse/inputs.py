@@ -38,6 +38,7 @@ from . import roofs
 from .register import district as register_district
 from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 from .sources import permit_sources
+from turku3d.playgrounds import source_paths as playground_sources
 
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
@@ -48,7 +49,7 @@ DATASETS = (
     "ground", "water", "walkable", "wfs", "roads", "parking", "kerb_parking", "trees",
     "attachments", "retaining", "vegetation_canopy", "barriers", "forests", "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
-    "markings", "kerbs", "street_profiles", "appearance", "register", "poles",
+    "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
 )
 # Data files a producer opens by a computed path the static closure cannot see.
 RESOURCES = {
@@ -112,6 +113,7 @@ class Inputs:
     walkable: list = ()  # canonical lidar-fitted river paths and embankment cross sections
     attachments: list = ()  # supported exterior decks and tread levels from classified lidar
     retaining: list = ()  # raw-lidar two-sided WFS retaining tops, before path blending
+    playgrounds: list = ()  # surveyed playground sites reaching the tile (turku3d.playgrounds)
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -508,6 +510,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
             for name in ("kanta:Rakennus", "GIS:Rakennukset")
             if (p := sources.wfs_source(name, tile)[1])
         ],
+        "playgrounds": [] if first_pass else playground_sources(),
     }
 
 
@@ -566,6 +569,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .register import read_register
 
         return read_register(paths)
+    if dataset == "playgrounds":
+        from turku3d.playgrounds import prepare as prepare_playgrounds
+
+        return prepare_playgrounds(tile, paths[0]) if paths else []
     if dataset == "kerbs":
         from .kerbs import prepare as prepare_kerbs
 
@@ -714,6 +721,7 @@ def gather(
             "appearance",
             "register",
             "ortho",
+            "playgrounds",
         }:
             # Collision-safe structural coverage precedes decorative inputs. These
             # are all restored by the full pass, using their ordinary caches.
@@ -779,10 +787,11 @@ def gather(
         if not pool_mask.is_empty
         else values["water"]
     )
-    from .register import enrich, period_evidence
+    from .register import enrich, open_ground_levels, period_evidence
 
     for building in wfs["buildings"]:
         enrich(building, values["register"], values["appearance"] or {})
+        open_ground_levels(building, ground["points"])
         period_evidence(
             building,
             (values["appearance"] or {}).get("dated_footprints", [])
@@ -839,4 +848,5 @@ def gather(
         stairs=values["stairs"] or ((), ()),
         poles=values["poles"] or (),
         parking=values["parking"] or ((), ()),
+        playgrounds=values.get("playgrounds") or (),
     )

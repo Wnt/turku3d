@@ -30,10 +30,13 @@ def source_paths():
         Path(__file__).with_name("facade_relief.py"),
         Path(__file__).with_name("facade_sections.py"),
         Path(__file__).with_name("facade_repetition.py"),
+        Path(__file__).with_name("facade_modernist.py"),
+        Path(__file__).with_name("open_ground.py"),
         Path(__file__).with_name("facade_apertures.py"),
         Path(__file__).with_name("facade_components.py"),
         Path(__file__).with_name("facade_component_geometry.py"),
         Path(__file__).with_name("facade_learning.py"),
+        Path(__file__).with_name("facade_monolith.py"),
         C.REPO_ROOT / "textures/turkutex/facade_learning.py",
         C.REPO_ROOT / "textures/turkutex/facade_learned_layout.py",
         C.REPO_ROOT / "textures/turkutex/facade_sections.py",
@@ -114,10 +117,16 @@ def matching_wall(vertices, program):
     # Roof fragments may extend beyond the surveyed span. Match any meaningful
     # collinear overlap; wall_parts clips the observation and preserves the rest.
     length = float(np.linalg.norm(vertices[1] - vertices[0]))
-    match = match_prepared(
-        vertices, prepare_walls(facades), min_coverage=max(0.02, 0.1 / max(length, 0.1))
-    )
-    return match[0]["wall"] if match else None
+    # A complete reviewed wall outranks a partial characterization of the same
+    # frontage; partial readings still own walls no full-wall reading covers.
+    full = [f for f in facades if f["wall"].get("observation", {}).get("scope") == "full-wall"]
+    for group in (full, facades) if full and len(full) < len(facades) else (facades,):
+        match = match_prepared(
+            vertices, prepare_walls(group), min_coverage=max(0.02, 0.1 / max(length, 0.1))
+        )
+        if match:
+            return match[0]["wall"]
+    return None
 
 
 def described_blank_walls(key, vertices, description):
@@ -203,9 +212,61 @@ def describe(program, description, source_width, *, blank_walls=frozenset()):
         w["balconies"] = v([])  # Existing generated balcony maps remain bound before this painter.
 
 
+def order_evidence(observed, description):
+    """Reviewed feature names/notes and vision description features, as one text."""
+    text = []
+    for wall in (observed or {}).get("walls", []):
+        if wall.get("observation", {}).get("needs_review", True):
+            continue
+        form = wall.get("structure", {})
+        text += [str(f.get("kind", "")) for f in form.get("features", []) if isinstance(f, dict)]
+        text += [str(form.get("occluded_parts", "")), str(wall["observation"].get("notes", ""))]
+    if description:
+        text += [str(f) for f in description.get("features", [])]
+    return " ".join(text)
+
+
+def classical(program, attrs, evidence):
+    """Give a selected building's walls the measured classical order.
+
+    Supported readings, descriptions and same-wall pilaster details keep priority:
+    only unsupported fields take the order's measured priors.
+    """
+    from turkutex.facade_archetypes import ORDER, ORDER_SOURCE, classical_order
+    from turkutex.facade_program import value
+
+    from turku3d.facade_inference import supported
+
+    if not classical_order(attrs, evidence):
+        return
+    program["classical_order"] = ORDER_SOURCE
+    v = lambda x: value(x, ORDER_SOURCE, 0.6)  # noqa: E731
+    for wall in program["walls"]:
+        if field(wall.get("appearance_details", {}), "pilasters", False):
+            continue  # facade_style_geometry already paints this wall's pilasters.
+        wall["order"] = copy.deepcopy(ORDER)
+        windows, trim = wall["windows"], wall["trim"]
+        for section, key, item in (
+            (windows, "divisions", ORDER["panes"]),
+            (windows, "frame_colour", ORDER["frame"]),
+            (trim, "colour", ORDER["trim"]),
+            (trim, "window_surrounds", ORDER["surrounds_m"]),
+            (trim, "cornice", ORDER["cornice_m"]),
+        ):
+            if not supported(section.get(key)):
+                section[key] = v(item)
+        if not supported(wall["corners"].get("quoins")):
+            wall["corners"]["quoins"] = v(0)  # Corner pilasters replace painted quoins.
+        # An ordered ground storey is windows over a plinth; a sampled door in every
+        # bay is no observation. Observed doors and shopfronts keep their variant.
+        base = wall["base"]
+        if not supported(base.get("variant")) and field(base, "variant") == "doors":
+            base["variant"] = v("windows")
+
+
 def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
-    from turkutex.facade_archetypes import sample
+    from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, MONOLITH, sample
 
     geometry = []
     polygons = getattr(building.footprint, "geoms", [building.footprint])
@@ -284,6 +345,12 @@ def resolve(building, vertices, eaves, *, layout_height=None):
         compactness=float(4 * np.pi * area / building.footprint.length**2),
         frontage_m=max(g["width_m"] for g in geometry),
     )
+    from turku3d import facade_monolith
+    from turkutex.facade_archetypes import public_monolith
+
+    # Photographed blank walls select the public-monolith class (archetype owns the use/era rule).
+    if public_monolith({**attrs, "monolith_blank": True}):
+        attrs["monolith_blank"] = facade_monolith.evidence(building.facade_key, observed)["blank"]
     from turku3d.facade_learning import apply as apply_learned
 
     # Missing register data must not turn a known building shell into a blank wall.
@@ -306,12 +373,16 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     program = sample(building.facade_key, attrs, geometry)
     if visual_levels:
         program["storeys"].update(source=visual_levels, support=0.4)
-    if not d:
+    # Donor readings of ordinary city blocks are no prior for a reference-measured
+    # masonry class (they would restore shopfronts and thin-walled layouts).
+    if not d and program["archetype"] not in (MASONRY, MONOLITH):
         program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
     palettes = {}
     for wall in program["walls"]:
+        if wall["wall"]["colour"].get("source") == MEASURED_PIGMENT:
+            continue
         # A learned timber/brick family needs that material's pigment distribution,
         # rather than the generic blue-grey unknown-register palette.
         material = field(wall["wall"], "material", "plaster")
@@ -391,6 +462,10 @@ def resolve(building, vertices, eaves, *, layout_height=None):
                 ),
             )
         finish_material(wall, family, own, record, d, building.facade_key)
+    if program["archetype"] == MONOLITH:
+        facade_monolith.apply(program, building.facade_key, vertices, observed, d)
+    else:
+        classical(program, attrs, order_evidence(observed, d))
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
     if reviewed:
         program["source"] = "reviewed-overlay"
@@ -399,6 +474,15 @@ def resolve(building, vertices, eaves, *, layout_height=None):
 
 
 HEAD_SHAPES = {"flat": 0, "segmental-arch": 1, "round-arch": 2, "pointed-arch": 3}
+
+
+def panel_grid(wall):
+    """Blank cladding joints: [panel width m, panel height m, joint m, -1] (shader flag -1)."""
+    grid = field(wall, "panel_grid")
+    if (isinstance(grid, list) and len(grid) == 3 and all(isinstance(x, (int, float)) for x in grid)
+            and grid[0] > 0.2 and grid[1] > 0.2 and 0 < grid[2] < 0.2):
+        return [float(grid[0]), float(grid[1]), float(grid[2]), -1.0]
+    return None
 
 
 def compile_wall(wall, floors):
@@ -420,9 +504,11 @@ def compile_wall(wall, floors):
     upper = max(0.1, upper)
     window_size = field(wall["windows"], "size_m", [bay * 0.45, upper * 0.5])
     ww, wh = window_size
-    ww = min(0.90, max(0.15, ww / bay))
-    sill = min(0.6, max(0.03, field(wall["windows"], "sill_fraction", 0.21)))
-    wh = min(1 - sill - 0.04, max(0.15, wh / upper))
+    # A curtain wall is glazed edge to edge: only thin joints between its panes.
+    curtain = bool(field(wall["windows"], "curtain_wall", False))
+    ww = min(0.975 if curtain else 0.90, max(0.15, ww / bay))
+    sill = min(0.6, max(0.01 if curtain else 0.03, field(wall["windows"], "sill_fraction", 0.21)))
+    wh = min(1 - sill - (0.012 if curtain else 0.04), max(0.15, wh / upper))
     module = (
         MATERIALS.index(material) * 6
         + int(ww > 0.55) * 3
@@ -472,7 +558,8 @@ def compile_wall(wall, floors):
         plinth=False,
         size=[width, wall["height_m"]],
         origin=[-wall.get("uv_offset", 0), wall.get("base_h", 0)],
-        opening=[ww, wh, sill, dimension(wall["trim"], "window_surrounds", 0.04)],
+        opening=panel_grid(wall) if not count and panel_grid(wall)
+        else [ww, wh, sill, dimension(wall["trim"], "window_surrounds", 0.04)],
         bands=[
             dimension(wall["base"], "plinth_height_m"),
             dimension(wall["trim"], "cornice"),

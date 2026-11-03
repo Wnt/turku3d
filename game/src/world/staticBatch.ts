@@ -91,11 +91,16 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
       for (let node: THREE.Object3D | null = mesh.parent; node && node !== placement; node = node.parent) if (!node.visible) return;
       placements.set(mesh, placement);
     }
-    const cellSize = placement ? 250 : 62.5;
+    // Placements batch per generator block (nearby buildings), else per 125 m cell: small enough for frustum and
+    // occlusion culling to skip whole batches (two real tiles: 125 m cells -36 %, blocks -50 % street-level triangles
+    // against 250 m cells), large enough to keep draws low. Other static content keeps 62.5 m cells.
+    const cellSize = placement ? 125 : 62.5;
     if (placement) center.setFromMatrixPosition(placement.matrixWorld);
+    const block = placement?.userData.block;
+    const cell = typeof block === 'string' ? [block] : [Math.floor(center.x / cellSize), Math.floor(center.z / cellSize)];
     const layout = Object.entries(mesh.geometry.attributes).map(([name, a]) => `${name}:${a.itemSize}:${a.normalized}`).sort();
     const key = JSON.stringify([placement ? model.uuid : mesh.parent.uuid, !!placement, mesh.material.uuid, mesh.userData.layer, mesh.layers.mask,
-      mesh.renderOrder, Math.floor(center.x / cellSize), Math.floor(center.z / cellSize), !!mesh.geometry.index, layout]);
+      mesh.renderOrder, ...cell, !!mesh.geometry.index, layout]);
     const bucket = buckets.get(key) ?? []; bucket.push(mesh); buckets.set(key, bucket);
   });
   const batches: Batch[] = []; owners.set(model, batches);

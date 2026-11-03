@@ -165,3 +165,38 @@ def test_surveyed_ledge_edge_is_straight_and_parallel_while_lidar_sets_levels():
         # Levels follow the ramp smoothly; people never lift single sections.
         assert np.abs(np.diff(heights, 2, axis=0)).max() < 0.05
         np.testing.assert_allclose(heights[:, 0], 1.1 + 0.01 * centres[:, 0], atol=0.08)
+
+
+def test_measured_ledge_run_continues_to_an_adjacent_flight_only():
+    from turku3d.coarse.retaining import FLIGHT_REACH, reach_flights
+
+    x = np.arange(0, 10.1, 2.0)
+    centres = np.c_[x, np.zeros(len(x))]
+    profile = (centres, centres - [0, 2.5], centres + [0, 2.5])
+    levels = np.vstack([np.full(len(x), 1.2), np.full(len(x), 3.0)])
+    # The survey stopped 3 m short of a flight: the ledge runs on into it.
+    flight = shapely.box(13, -3, 16, 3)
+    (c, left, right), extended = reach_flights(profile, levels, flight)
+    assert len(c) == len(x) + 1 and flight.contains(shapely.Point(c[-1]))
+    np.testing.assert_allclose(c[-1], [13.5, 0])
+    np.testing.assert_allclose(left[-1], [13.5, -2.5])
+    np.testing.assert_allclose(extended[:, -1], [1.2, 3.0])
+    # Nothing within reach of either end: the measured run is unchanged.
+    far = shapely.box(10 + FLIGHT_REACH + 1, -3, 30, 3)
+    (c, _, _), same = reach_flights(profile, levels, far)
+    np.testing.assert_allclose(c, centres)
+    np.testing.assert_allclose(same, levels)
+
+
+def test_unsurveyed_wall_at_a_hill_foot_keeps_its_step_and_aprons_follow_the_slope():
+    # A mapped 1.5 m wall along a street, with a 40 degree slope rising behind it.
+    slope = np.tan(np.radians(40))
+    sample = lambda x, z: 0.0 if z < 0 else 1.5 + slope * z
+    record = (shapely.LineString([(5, 0), (25, 0)]), {"barrier": "retaining_wall"}, False)
+    meshes, _ = retaining.produce(VisualTile(0, 0, 0), [record], sample)
+    wall = next(m for m in meshes if not m.metadata.get("terrain"))
+    # Before, the upper rail 2.5 m up the slope set the wall top: a 3.6 m wall.
+    np.testing.assert_allclose(wall.positions[:, 1].max(), 1.5, atol=1e-9)
+    apron = next(m for m in meshes if m.metadata.get("terrain"))
+    upper = apron.positions[apron.positions[:, 2] > 1e-6]
+    np.testing.assert_allclose(upper[:, 1], [sample(x, z) for x, _, z in upper], atol=1e-9)

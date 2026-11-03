@@ -32,6 +32,7 @@ PRODUCERS = (
     "build",
     "archetypes",
     "occluders",
+    "blocks",
     "basic",
     "area",
     "collision",
@@ -80,12 +81,15 @@ PRODUCERS = (
     "fence_survey",
     "route_surface",
     "furniture",
+    "playgrounds",
     "tree_inputs",
     "geometry",
     "extrusion",
     "roofs",
     "register",
     "stored_facades",
+    "slope_buildings",
+    "funicular",
 )
 
 
@@ -119,6 +123,7 @@ def producer_paths():
             *sorted((Path(__file__).parents[1] / "parked/assets").glob("*")),
             props / "__init__.py",
             props / "models.py",
+            *sorted((Path(__file__).parents[1] / "playgrounds").glob("*.py")),
             props / "lights.py",
             Path(__file__).parents[1] / "night_lighting.py",
             Path(__file__).parents[1] / "night_lighting.json",

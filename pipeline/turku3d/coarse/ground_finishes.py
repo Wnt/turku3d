@@ -2,12 +2,19 @@
 
 import numpy as np
 
+from .street_materials import FINISH_KEYS
+
+# Metres covered by one texture repeat; the library records uv_scale = 1 / period.
+PERIODS = {"fieldstone": 4, "granite_rock": 4}
+PROCEDURAL = (*FINISH_KEYS.values(), "granite_rock")
+
+
 def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
     from scipy.ndimage import gaussian_filter, distance_transform_edt
 
-    size = size or (2048 if key == "fieldstone" else 512)
-    period = 4 if key == "fieldstone" else 2
+    size = size or (2048 if key == "fieldstone" else 1024 if key == "granite_rock" else 512)
+    period = PERIODS.get(key, 2)
     rng = np.random.default_rng(4817)
     grain = rng.normal(0, 1, (size, size))
     macro = gaussian_filter(grain, size / 32, mode="wrap")
@@ -84,6 +91,46 @@ def maps(key, size=None):
         height = crown * relief + gaussian_filter(grain, .8, mode="wrap") * .0008
         ao = .9 + .1 * crown
         roughness = .94 - .13 * crown
+    elif key == "granite_rock":
+        # Glacially polished Finnish granite: pink feldspar, grey quartz and dark
+        # biotite in a 2-6 mm grain, broad weathering tones, a few long joints,
+        # grey-green lichen rosettes and moss darkening the joints.
+        y, x = np.indices((size, size))
+        fine = gaussian_filter(grain, .8, mode="wrap")
+        crystals = gaussian_filter(rng.normal(0, 1, (size, size)), 1.2, mode="wrap")
+        crystals /= max(crystals.std(), 1e-6)
+        broad = gaussian_filter(rng.normal(0, 1, (size, size)), size / 10, mode="wrap")
+        broad /= max(broad.std(), 1e-6)
+        feldspar, quartz, biotite = np.array([168, 140, 128]), np.array([158, 156, 150]), np.array([64, 63, 62])
+        pink = np.clip(.5 + .6 * crystals, 0, 1)[..., None]
+        albedo = quartz + (feldspar - quartz) * pink
+        dark = (gaussian_filter(rng.normal(0, 1, (size, size)), .9, mode="wrap") > .55)[..., None]
+        albedo = np.where(dark, .6 * albedo + .4 * biotite, albedo) + fine[..., None] * 10
+        albedo = albedo * (1 + .07 * broad[..., None]) - 6 * np.clip(macro, 0, None)[..., None]
+        # Joints: a few long, irregular cracks. Periodic noise warps each straight
+        # line at two scales so it wanders and kinks like a real joint.
+        warp = [gaussian_filter(rng.normal(0, 1, (size, size)), sigma, mode="wrap") for sigma in (size / 12, size / 60)]
+        warp = [w / max(w.std(), 1e-6) for w in warp]
+        joints = np.zeros((size, size))
+        for k in range(4):
+            angle = rng.uniform(0, np.pi)
+            u = (np.cos(angle) * x + np.sin(angle) * y) / size
+            u = u + .035 * warp[0] * np.cos(k) + .006 * warp[1] * np.sin(k) + rng.random()
+            width = rng.uniform(.0025, .006)
+            line = np.abs((u % 1) - .5) * period
+            joints = np.maximum(joints, np.clip(1 - line / width, 0, 1) ** .7)
+        moss = gaussian_filter(joints, 6, mode="wrap")
+        moss = np.clip(moss / max(moss.max(), 1e-6) * 1.4 - .15, 0, 1)
+        spots = [gaussian_filter(rng.normal(0, 1, (size, size)), sigma, mode="wrap") for sigma in (size / 70, size / 220)]
+        lichen = sum(w / max(w.std(), 1e-6) * f for w, f in zip(spots, (1, .6)))
+        lichen = np.clip((lichen - 1.5) * 1.2, 0, 1) * np.clip(.6 + .4 * broad, 0, 1)
+        albedo = albedo * (1 - lichen[..., None]) + np.array([150, 156, 136]) * lichen[..., None]
+        albedo = albedo * (1 - .8 * moss[..., None]) + np.array([66, 78, 42]) * .8 * moss[..., None]
+        albedo = albedo * (1 - .7 * joints[..., None]) + np.array([46, 44, 42]) * .7 * joints[..., None]
+        # Rounded glacial swells, sunk joints and crystal-scale grain (metres).
+        height = broad * .004 - joints * .006 + crystals * .0003 + fine * .0002
+        ao = 1 - .45 * joints - .1 * moss
+        roughness = np.clip(.72 + .12 * lichen + .15 * moss + crystals * .02, .6, 1)
     else:
         raise ValueError(f"Unknown ground finish: {key}")
 

@@ -17,14 +17,13 @@ from PIL import Image
 
 from turku3d import config as C
 from turku3d.tile_layer import identities
-from . import ground_finishes, street_materials
+from . import ground_finishes
 from .surfaces import KEYS, fallback, neutral_asphalt
 
 
 def produce(stage, channel, source):
     finish_maps = (
-        ground_finishes.maps(KEYS[channel])
-        if KEYS[channel] in street_materials.FINISH_KEYS.values() else None
+        ground_finishes.maps(KEYS[channel]) if KEYS[channel] in ground_finishes.PROCEDURAL else None
     )
     for slot in ("albedo", "normal", "orm"):
         output = stage / f"{slot}.png"
@@ -65,7 +64,7 @@ def produce(stage, channel, source):
     (stage / "material.json").write_text(
         json.dumps(
             dict(
-                uv_scale=[0.25, 0.25] if KEYS[channel] == "fieldstone" else [0.5, 0.5],
+                uv_scale=[1 / ground_finishes.PERIODS.get(KEYS[channel], 2)] * 2,
                 source="procedural" if finish_maps or not source else "own ground library",
             )
         )
@@ -73,7 +72,7 @@ def produce(stage, channel, source):
 
 
 def key(channel, source):
-    procedural = KEYS[channel] in street_materials.FINISH_KEYS.values()
+    procedural = KEYS[channel] in ground_finishes.PROCEDURAL
     code = [inspect.getsource(produce)]
     if procedural:
         code.append(inspect.getsource(ground_finishes.maps))

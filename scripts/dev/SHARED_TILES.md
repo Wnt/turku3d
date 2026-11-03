@@ -4,6 +4,14 @@ The LAN service at `http://192.168.1.114:7950` builds committed local revisions 
 It never publishes to production. The server uses four workers (maximum twelve; `POST /limits {"workers": N}` changes it live), a bounded
 128-tile queue, and a shared content-addressed stage/input cache. Urgent camera tiles lead, then visible tiles, explicit CLI requests and background demand;
 revisions share turns within each category.
+The farm follows the game's version: game requests by distance from an address in
+`ROOT/pin-clients.json` (the game's tile proxy) set the pin, persisted in `ROOT/pin.json`. A
+later-registered version moves it at once; an earlier one only after a minute without requests
+for the current pin. When the pin moves, every queued and running build of an earlier-registered
+version is cancelled. The tiles games still demand are queued at the new version. Completed stages
+stay cached, so a restarted tile reruns only what changed. Requests for earlier-registered versions
+get `409 superseded`. A CLI request sees its rejection status, e.g. `429 queue-full`.
+Game manifests stay `200` and report `queue_status` and `queue_state`.
 Queued speculative requests expire after three minutes without requests or live demand. Identical requests join
 one job. Renderer-only revisions share completed products; generator edits reuse unchanged
 stage outputs, including packaging when emitted inputs are identical.

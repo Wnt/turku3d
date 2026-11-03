@@ -55,6 +55,16 @@ def test_clearance_requires_interior_transverse_crossing_below():
     assert not passes_under(deck, way("upper", [(40, -20), (40, 20)], layer=2))
 
 
+def test_indoor_corridor_below_a_roof_driveway_asks_no_headroom():
+    deck = way("driveway", [(0, 0), (20, 0)])
+    corridor = way("corridor", [(10, -5), (10, 5)], layer=0, bridge=False)
+    assert passes_under(deck, corridor)  # an ordinary footway would need headroom
+    corridor["tags"] = {"highway": "corridor", "indoor": "yes"}
+    assert not passes_under(deck, corridor)
+    corridor["tags"] = {"highway": "footway", "indoor": "yes"}
+    assert not passes_under(deck, corridor)
+
+
 def test_clipped_neighbour_decks_share_boundary_and_never_emit_full_duplicate():
     mesh = profile_wall("bridge", [[240, 10], [260, 10]], [4, 5], [4.4, 5.4], thickness=3)
     left = clip_mesh(mesh, C.VisualTile(0, 0, 0).bbox)

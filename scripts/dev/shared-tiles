@@ -12,6 +12,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from shared_tile_identity import generation as generator_identity
 
@@ -51,10 +52,13 @@ def main():
         return
     if args.action == 'build':
         for tile in args.tiles:
-            response = urlopen(f'{args.url}/v/{args.version}/coarse/{tile}/manifest.json')
-            value = json.load(response)
-            print(json.dumps(dict(tile=tile, status=response.status,
-                state='refreshing' if value.get('stale') else value.get('state', value.get('pass_kind')),
+            try:
+                response = urlopen(f'{args.url}/v/{args.version}/coarse/{tile}/manifest.json')
+                status, value = response.status, json.load(response)
+            except HTTPError as error:  # Rejections (queue full, superseded) are not builds.
+                status, value = error.code, json.load(error)
+            print(json.dumps(dict(tile=tile, status=status,
+                state=value.get('queue_state') or ('refreshing' if value.get('stale') else value.get('state', value.get('pass_kind'))),
                 requested_revision=value.get('requested_revision', value.get('revision')),
                 served_revision=value.get('revision'), generation=value.get('generation'),
                 source_kind=value.get('source_kind'))))

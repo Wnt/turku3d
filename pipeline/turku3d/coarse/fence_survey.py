@@ -60,6 +60,57 @@ def profile(line, cloud):
     return dict(height=round(centre,2),base=float(np.median(bases)))
 
 
+def low_profile(line, cloud):
+    """A low cheek or coping wall: returns on the line stay within 0.8 m of the higher side.
+
+    Stair cheek walls and plaza edges on a slope are mapped as plain walls. Their
+    granite top is a low coping just above the higher side (often classed as low or
+    medium vegetation), so the free-standing test above finds no top and the wall got
+    the 1.8 m default. Without returns 0.8-3.5 m above the higher side, the lidar
+    says the wall is low: it spans from the lower side to its measured top. A pure
+    retaining drop (no coping above the higher side) stays with the retaining stage.
+    """
+    classes = cloud.records["classification"]
+    ground = cloud.points[classes == 2]
+    above = cloud.points[np.isin(classes, [1, 3, 4, 6, 12, 17])]
+    if len(ground) < 8 or len(above) < 3 or line.length < 1:
+        return None
+    ground_index, index = cKDTree(ground[:, [0, 2]]), cKDTree(above[:, [0, 2]])
+    steps = np.unique(np.r_[np.arange(0, line.length, 2.5), line.length])
+    lows, highs, tops, tall = [], [], [], 0
+    for station in steps:
+        centre = np.asarray(line.interpolate(station).coords[0])
+        a = np.asarray(line.interpolate(max(0, station-0.1)).coords[0])
+        b = np.asarray(line.interpolate(min(line.length, station+0.1)).coords[0])
+        direction = (b-a)/max(np.linalg.norm(b-a), 1e-12)
+        normal = np.array([-direction[1], direction[0]])
+        g = ground[ground_index.query_ball_point(centre, 1.8)]
+        lateral = (g[:, [0, 2]]-centre) @ normal
+        sides = [g[(lateral*sign > 0.45) & (lateral*sign < 1.8), 1] for sign in (-1, 1)]
+        if min(len(v) for v in sides) < 4:
+            continue
+        low, high = sorted(float(np.median(v)) for v in sides)
+        p = above[index.query_ball_point(centre, 1.5)]
+        delta = p[:, [0, 2]]-centre
+        y = p[(abs(delta @ normal) < 0.35) & (abs(delta @ direction) <= 1.25), 1]
+        if ((y >= high+0.8) & (y <= high+3.5)).sum() >= 3:
+            tall += 1
+            continue
+        top = y[(y >= low+0.1) & (y < high+0.8)]
+        # An open-sky wall top 2.5 m long has dozens of returns; a few last returns
+        # under canopy or a bush are no measured top.
+        if len(top) >= 8:
+            lows.append(low)
+            highs.append(high)
+            tops.append(float(np.quantile(top, 0.75)))
+    if tall > len(steps)/3 or len(tops) < max(2, int(np.ceil(len(steps)*0.6))):
+        return None
+    base, high, top = (float(np.median(v)) for v in (lows, highs, tops))
+    if top-base < 0.15 or (high-base >= 0.6 and top-high < 0.35):
+        return None
+    return dict(height=round(top-base, 2), base=base, low=True)
+
+
 def enrich(tile, records, osm, paths):
     """Complete mapped enclosures only where raw lidar confirms an above-ground barrier."""
     source = [(r["geometry_local"], json.loads(r["tags"] or "{}"))
@@ -103,14 +154,20 @@ def enrich(tile, records, osm, paths):
                 continue
             from .retaining_survey import ground_points, measure
 
+            # Equal spans of about 5 m: a short remainder would be too short to
+            # measure and keep the 1.8 m default as a stub beside a measured wall.
+            edges = np.linspace(0, line.length, max(1, int(round(line.length/5)))+1)
             spans = [line] if tags.get("_inferred_gap") else [
-                substring(line, start, min(start+5,line.length)) for start in np.arange(0,line.length,5)
+                substring(line, start, end) for start, end in zip(edges[:-1], edges[1:])
             ]
             for span in spans:
                 local = cloud.query(C.BBoxLocal(*span.buffer(2).bounds))
                 measured = profile(span,local)
+                if measured is None and tags["barrier"] in ("wall","city_wall"):
+                    measured = low_profile(span,local)
                 fitted = ({**tags,"height":str(measured["height"]),"_lidar_base":measured["base"],
-                           "_lidar_height":True} if measured is not None else tags)
+                           "_lidar_height":True,**({"_lidar_low":True} if measured.get("low") else {})}
+                          if measured is not None else tags)
                 profiles = (measure(span,ground_points(local))
                             if tags["barrier"] in ("wall","city_wall") and span.length>=1.5 else [])
                 if profiles:

@@ -17,6 +17,7 @@ import shapely
 from turku3d import config as C
 from turku3d.layers import write_visual
 from turku3d.wall_surfaces import instanced_layer, layer_meshes
+from . import blocks as block_lods
 from .occluders import building_occluders
 from .packaging import package_visual, shared_package_inputs
 
@@ -83,7 +84,8 @@ def publish(tile, layer_files, shells, stage, work, library):
             all_bounds.extend([np.asarray(mesh.positions).min(axis=0) + tile.origin,
                                np.asarray(mesh.positions).max(axis=0) + tile.origin])
     shared = shared_package_inputs(library, work) if models else None
-    for key, origin, meshes, buildings in models:
+    block_ids = block_lods.assign(tile, models)
+    for index, (key, origin, meshes, buildings) in enumerate(models):
         identity = hashlib.sha256(key.encode()).hexdigest()
         directory = stage / "archetypes" / identity
         directory.mkdir(parents=True, exist_ok=True)
@@ -104,19 +106,60 @@ def publish(tile, layer_files, shells, stage, work, library):
             descriptor["occluders"] = occluders
         descriptors.append(descriptor)
         placements.append(dict(id=key, model=digest, position=origin.tolist(),
-                               viewDistance=view_distance(bounds)))
+                               viewDistance=view_distance(bounds), block=block_ids[index]))
         all_bounds.extend([origin + bounds[0], origin + bounds[1]])
         metrics[key] = dict(tris=stats["tris"], draws=stats["draws"], bytes=len(payload),
                             package=json.loads((directory / 'package-times.json').read_text()))
+    blocks = _publish_blocks(models, block_ids, descriptors, placements, work)
     points = np.asarray(all_bounds)
     relevance = [points.min(axis=0), points.max(axis=0)]
-    for model, placement in zip(descriptors, placements, strict=True):
+    by_id = {model["id"]: model for model in descriptors}
+    for placement in placements:
+        model = by_id[placement["model"]]
         distance = placement["viewDistance"]
         margin = np.array([distance, 0., distance])
         relevance.extend([np.asarray(placement["position"]) + model["bounds"]["min"] - margin,
                           np.asarray(placement["position"]) + model["bounds"]["max"] + margin])
     relevance = np.asarray(relevance)
-    result = dict(version=1, models=descriptors, placements=placements,
+    result = dict(version=1, models=descriptors, placements=placements, blocks=blocks,
                   bounds=dict(min=points.min(axis=0).tolist(), max=points.max(axis=0).tolist()),
                   streamingBounds=dict(min=relevance.min(axis=0).tolist(), max=relevance.max(axis=0).tolist()))
     return layers, result, metrics
+
+
+def _publish_blocks(models, block_ids, descriptors, placements, work):
+    """LOD parent per block: one content-addressed GLB of its LoD2 shells, listed among the models."""
+    from turku3d.package.gltf import build_glb
+    from .build import _write
+
+    by_id = {model["id"]: model for model in descriptors}
+    members = {}
+    for (key, origin, meshes, buildings), block, placement in zip(models, block_ids, placements, strict=True):
+        model = by_id[placement["model"]]
+        low = np.asarray(placement["position"]) + model["bounds"]["min"]
+        high = np.asarray(placement["position"]) + model["bounds"]["max"]
+        members.setdefault(block, []).append((key, meshes, buildings, low, high))
+    blocks = []
+    for block, rows in sorted(members.items()):
+        low = np.min([r[3] for r in rows], axis=0)
+        high = np.max([r[4] for r in rows], axis=0)
+        origin = np.array([(low[0] + high[0]) / 2, 0.0, (low[2] + high[2]) / 2])
+        meshes = block_lods.lod_meshes(block, [(r[1], r[2]) for r in rows], origin)
+        entry = dict(id=block, position=origin.tolist(), bounds=dict(min=low.tolist(), max=high.tolist()),
+                     hdDistance=block_lods.HD_DISTANCE, children=sorted(r[0] for r in rows))
+        if meshes:
+            payload = build_glb(meshes, root_translation=(0.0, 0.0, 0.0))
+            digest = hashlib.sha256(payload).hexdigest()
+            destination = work / "shared" / f"{digest}.glb"
+            if not destination.exists():
+                _write(destination, payload)
+            points = np.concatenate([m.positions for m in meshes])
+            if digest not in by_id:
+                descriptor = dict(id=digest, uri=f"../shared/{digest}.glb", bytes=len(payload),
+                                  tris=int(sum(len(m.indices) for m in meshes)), draws=len(meshes), kind="block-lod",
+                                  bounds=dict(min=points.min(axis=0).tolist(), max=points.max(axis=0).tolist()))
+                descriptors.append(descriptor)
+                by_id[digest] = descriptor
+            entry["lod"] = digest
+        blocks.append(entry)
+    return blocks

@@ -1,8 +1,9 @@
 """Conservative opaque occluder boxes for whole-building models (GTA-style box occluders).
 
-Boxes lie strictly inside the LoD2 volume: inset from the roofed footprint, from one
-storey above the base to below the lowest roof point, with surveyed through-passages
-removed as whole columns. A model only receives boxes when every emitted surface is
+Boxes lie strictly inside the LoD2 volume: inset from the roofed footprint and below every
+roof triangle above them. Buildings with any see-through facade component keep the street
+storey and the components' full height open, and surveyed through-passages are removed as
+whole columns; tunnel passages already split the footprint. A model only receives boxes when every emitted surface is
 opaque (no alpha, no glass), so no box can hide anything visible through a window,
 glazed facade, courtyard, passage or open ground storey. Model bounds never become
 occluders. Derived from the perfcpu draft (lod2-inset-boxes-v1).
@@ -31,6 +32,24 @@ def opaque(meshes):
         if "glass" in names.lower() or "glaz" in names.lower():
             return False
     return bool(meshes)
+
+
+def through_top(observation):
+    """Highest absolute top (m) of any see-through facade component, or None without one."""
+    top = None
+    for wall in (observation or {}).get("walls", []) if isinstance(observation, dict) else []:
+        g = wall.get("measured_geometry", wall.get("geometry", {})) or {}
+        size = wall.get("measured_size", [wall.get("width_m", 0), wall.get("height_m", 0)])
+        for component in wall.get("geometry_components", []) or []:
+            if not (component.get("through") or component.get("kind") in ("through_cut", "passage")):
+                continue
+            try:
+                _, y, _, h = component["bounds"]
+                value = float(g.get("base_h", 0)) + (y + h) * float(size[1])
+            except (KeyError, TypeError, ValueError):
+                value = math.inf
+            top = value if top is None else max(top, value)
+    return top
 
 
 def orientation(footprint):
@@ -92,7 +111,16 @@ def shell_boxes(building, shell, origin):
     use = str(getattr(building, "attributes", {}).get("use", "")).lower()
     if any(word in use for word in ("greenhouse", "canopy", "katos", "kasvihuone")):
         return []
-    bottom = float(building.base) + GROUND_STOREY + INSET
+    from turku3d.facade_apertures import volumes
+    from turku3d.facade_programs import measured
+
+    observation = measured(building.facade_key)
+    # Walls are rendered closed except tunnel splits (outside this footprint) and through-components; a building
+    # with any through-component, reviewed or not, keeps its whole street storey and every component's height open.
+    bottom = float(building.base) + INSET
+    opening = through_top(observation)
+    if opening is not None:
+        bottom = max(bottom, float(building.base) + GROUND_STOREY + INSET, opening + INSET)
     if not math.isfinite(bottom):
         return []
     origin = np.asarray(origin, float)
@@ -107,10 +135,7 @@ def shell_boxes(building, shell, origin):
     if not keep:
         return []
     interior = building.footprint.buffer(-INSET)
-    from turku3d.facade_apertures import volumes
-    from turku3d.facade_programs import measured
-
-    for polygon, _, _ in volumes(measured(building.facade_key)):
+    for polygon, _, _ in volumes(observation):
         interior = interior.difference(polygon.buffer(INSET))
     if interior.is_empty or not interior.is_valid:
         return []

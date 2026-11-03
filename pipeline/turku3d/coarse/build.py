@@ -214,6 +214,10 @@ def build(
         inputs = inputs or gather(tile, out.parent, sources, first_pass=first_pass)
     seconds = dict(inputs.seconds)
     seconds.update({"input_" + k: v for k, v in inputs.seconds.items()})
+    from . import slope_buildings
+
+    # Before terrain and shells: both read the base, and seam buildings must agree.
+    slope_buildings.apply([*inputs.buildings, *inputs.wall_context], inputs.points)
     seconds["inputs_total"] = time.perf_counter() - started
 
     base = Path(__file__).parents[1]
@@ -307,6 +311,18 @@ def build(
     solid = stairs.cut_ground(solid, attachment_openings)
     stair_meshes = [*stair_meshes, *attachment_meshes]
     seconds["attachments_geometry"] = cache.metrics["attachments"]["seconds"]
+    from . import funicular
+
+    t = time.perf_counter()
+    osm_path = (inputs.sources.get("roads") or [None])[0]
+    funicular_meshes, funicular_openings = funicular.produce(
+        tile, Path(osm_path) if osm_path else None, ground_sources, [*blds, *inputs.wall_context]
+    )
+    dry = stairs.cut_ground(dry, funicular_openings)
+    solid = stairs.cut_ground(solid, funicular_openings)
+    stair_meshes = [*stair_meshes, *funicular_meshes,
+                    *slope_buildings.railings(inputs.buildings, inputs.points)]
+    seconds["funicular"] = time.perf_counter() - t
     from . import yard_cover
     from turku3d.tile_layer import identities
 
@@ -319,16 +335,6 @@ def build(
         lambda: yard_cover.features(tile, yard_source),
     ) if yard_source else (shapely.Polygon(), [])
     yard_blocked = [*water, *[b.footprint for b in [*blds, *inputs.wall_context]]]
-    play_blocked = [*yard_blocked, *[g for g, m in [*inputs.streets, *inputs.surfaces]
-                     if m in (mat_id("road"), mat_id("sidewalk"), mat_id("paving_slab"),
-                              mat_id("bridge_deck"))]]
-    play_meshes = cache.run(
-        "playgrounds", source_key(Path(yard_cover.__file__), base / "structures/geometry.py",
-                                  Path(__file__).with_name("bridge_details.py")),
-        [tile, play_areas, grid_pos, dry.positions, play_blocked],
-        lambda: yard_cover.playgrounds(tile, play_areas, surface_sample, play_blocked),
-    )
-    stair_meshes.extend(play_meshes)
     from . import street_profiles
 
     if inputs.retaining:
@@ -487,11 +493,39 @@ def build(
     closure_structures = [*stair_meshes, *kerb_meshes,
                           *[m for m in tunnels.meshes if m.object_id != "tunnel:ground-edge"]]
     closure_decks = [m for deck in osm_decks for m in deck.meshes]
-    dry, solid, closure_report = surface_closure.stage(
-        cache, source_ground, dry, solid, closure_structures, closure_decks,
+    dry, solid, seam_meshes, closure_report = surface_closure.stage(
+        cache, tile, dry, solid, closure_structures, closure_decks, bank,
         tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
     )
+    stair_meshes = [*stair_meshes, *seam_meshes]
     seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
+    # Near-vertical faces never keep a lawn or paving id, in visuals and collision alike.
+    from turku3d.ground.mesh import HeightQuery
+
+    walls = [g for g, tags, *_ in inputs.barriers if (tags or {}).get("barrier") == "retaining_wall"]
+    walls += [g for g, *_ in inputs.retaining]
+    steep_args = dict(
+        abutments=shapely.union_all([*water, *[p["area"] for p in aprons]]).buffer(3.0),
+        retaining=shapely.union_all([g for g in walls if g is not None]).buffer(2.0),
+        quays=shapely.union_all(
+            [g for g, m in inputs.surfaces if m == mat_id("quay")]
+        ).buffer(3.0),
+    )
+    terrain_height = HeightQuery(bridge_base)
+    dry, solid = (surfaces.steep_context(m, terrain_height, **steep_args) for m in (dry, solid))
+    from . import footings
+
+    passages = [line for _, line, _ in inputs.tunnels]
+    footing_meshes = cache.run(
+        "footings",
+        source_key(Path(footings.__file__), Path(__file__).with_name("walkable_audit.py"),
+                   base / "structures/geometry.py"),
+        [[(b.key, b.footprint.wkb, b.base) for b in inputs.buildings], dry,
+         [g.wkb for g in passages]],
+        lambda: footings.produce(inputs.buildings, dry, passages),
+    )
+    stair_meshes = [*stair_meshes, *footing_meshes]
+    seconds["footings"] = cache.metrics["footings"]["seconds"]
     # Street furniture and lights (G1): before collision, which merges their static primitives.
     from . import furniture
 
@@ -501,6 +535,15 @@ def build(
         else furniture.stage(cache, tile, inputs, grid_pos, carried_mask, common)
     )
     seconds["furniture"] = cache.metrics.get("furniture", {}).get("seconds", 0.0)
+    # Surveyed playground equipment (and a swing set in other mapped play areas).
+    from . import playgrounds as play_stage
+
+    play = (
+        play_stage.EMPTY
+        if first_pass
+        else play_stage.stage(cache, tile, inputs, grid_pos, trees, street["props"], play_areas, common)
+    )
+    seconds["playgrounds"] = cache.metrics.get("playgrounds", {}).get("seconds", 0.0)
     t = time.perf_counter()
     collision = {}
     cols = {}
@@ -522,6 +565,7 @@ def build(
         pos, idx, mat = kerbs.collision(ct, kerb_meshes, pos, idx, mat)
         pos, idx, mat = stairs.collision(ct, [*stair_meshes, *boat_meshes], pos, idx, mat)
         primitives = trunks(trees, ct) + barrier_cols[ct] + street["collision"].get(ct.id, [])
+        primitives += play["collision"].get(ct.id, [])
         col = ColTile.for_tile(ct.i, ct.j, pos, idx, mat, primitives=primitives, aoi_border=False)
         compact_collision(col)
         navigation_cells.append(col)
@@ -554,7 +598,7 @@ def build(
 
     surface_report = surface_audit.gate(
         out, tile, inputs, source_ground, tunnels.openings,
-        [dry, bank, *closure_structures, *closure_decks], navigation_cells
+        [dry, bank, *closure_structures, *seam_meshes, *closure_decks], navigation_cells
     )
     seconds["surface_audit"] = surface_report.get("seconds", 0.)
 
@@ -630,7 +674,7 @@ def build(
         "surface_boundaries",
         source_key(surfaces.split_boundaries, base / "package/gltf.py", *common),
         surface_args,
-        lambda: surfaces.split_boundaries(*surface_args),
+        lambda: surfaces.split_boundaries(*surface_args, keep_steep=True),
     )
     seconds["surface_boundaries"] = time.perf_counter() - t_surface
     visual_args = (
@@ -718,6 +762,9 @@ def build(
     if street["glb"]:
         _write(stage / "props.vis.glb", street["glb"])
         layer_files.append(stage / "props.vis.glb")
+    if play["glb"]:
+        _write(stage / "playgrounds.vis.glb", play["glb"])
+        layer_files.append(stage / "playgrounds.vis.glb")
     from turku3d.facade_programs import source_paths as facade_program_sources
     from turku3d.landmarks.descriptions import (
         building_refs as landmark_refs,
@@ -737,6 +784,7 @@ def build(
             roof_fallback,
             valid_roof_pixels,
             Path(__file__).with_name("stored_facades.py"),
+            Path(__file__).with_name("metal_roofs.py"),
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
@@ -863,6 +911,8 @@ def build(
         },
         buildings=len(blds),
         building_keys=[b.facade_key for b in blds],
+        set_into_slope={b.facade_key: b.attributes["set_into_slope"]
+                        for b in blds if b.attributes.get("set_into_slope")},
         roof_heights=[
             dict(building=b.key, parts=len(b.roof_parts), evidence=b.height_evidence) for b in blds
         ],
@@ -873,6 +923,7 @@ def build(
         poles=len(poles),
         lights=street["lights"],
         furniture=street["stats"],
+        playgrounds=dict(play["stats"], sites=play["sites"]),
         barriers=barrier_stats,
         vegetation=dict(
             tree_cap=TREE_CAP,

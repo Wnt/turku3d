@@ -21,3 +21,23 @@ export async function readSource(source, images=true) {
   return io.readJSON({json,resources});
 }
 export const world=(m,p)=>[0,1,2].map(k=>m[k]*p[0]+m[k+4]*p[1]+m[k+8]*p[2]+m[k+12]);
+
+/** The tile visual plus its whole-building HD models translated to their placements (buildingPlacements). */
+export async function readComposed(source, placements, images=true) {
+  const document=await readSource(source,images);
+  if(!placements?.length)return document;
+  const { mergeDocuments }=require('@gltf-transform/functions');
+  const scene=document.getRoot().getDefaultScene()??document.getRoot().listScenes()[0];
+  for(const {path:file,position} of placements){
+    const model=await readSource(file,images);
+    const map=mergeDocuments(document,model);
+    for(const added of model.getRoot().listScenes()){
+      const copy=map.get(added);
+      const holder=document.createNode('building-placement').setTranslation(position);
+      for(const child of copy.listChildren()){copy.removeChild(child);holder.addChild(child);}
+      scene.addChild(holder);
+      copy.dispose();
+    }
+  }
+  return document;
+}

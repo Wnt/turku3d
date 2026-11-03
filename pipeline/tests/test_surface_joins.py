@@ -132,3 +132,41 @@ def test_join_changes_invalidate_both_visual_and_collision_artifacts(monkeypatch
     )
     assert packaging.code_hash() != before[0]
     assert collision_key.code_hash() != before[1]
+
+
+def test_bank_crest_ignores_floor_slivers_that_are_collinear_in_plan(monkeypatch):
+    # t0_2_0 (farm build 30bf0cb2): this floor triangle passes the slope test
+    # only through rounding noise; Linux LAPACK reports it as singular.
+    sliver = np.array([
+        [647.9223310179535, 11.474038265755487, 106.69282724168175],
+        [648.4375, 11.485384384867123, 105.72849962723546],
+        [648.3935322020116, 11.484416034887913, 105.81080148007261],
+    ])
+    solve = np.linalg.solve
+
+    def strict(a, b):
+        a = np.asarray(a, float)
+        det = a[..., 0, 0] * a[..., 1, 1] - a[..., 0, 1] * a[..., 1, 0]
+        if np.any(abs(det) <= 1e-9 * np.linalg.norm(a[..., 0, :], axis=-1)
+                  * np.linalg.norm(a[..., 1, :], axis=-1)):
+            raise np.linalg.LinAlgError("Singular matrix")
+        return solve(a, b)
+
+    monkeypatch.setattr(np.linalg, "solve", strict)
+    from turku3d.coarse.banks import join
+
+    target = join(
+        plane(shapely.box(646, 104, 650, 108), 11.48),
+        Mesh(sliver, np.array([[0, 1, 2]], np.uint32), np.zeros(1, np.uint8)),
+    )
+    base = plane(shapely.box(646, 104, 650, 108), 13)
+    (x0, _, z0), (x1, _, z1) = sliver[0], sliver[1]
+    bank = Mesh(
+        np.array([[x0, 13, z0], [x1, 13, z1], [x0, 8, z0], [x1, 8, z1]], float),
+        np.array([[0, 1, 2], [1, 3, 2]], np.uint32),
+        np.full(2, mat_id("quay"), np.uint8),
+    )
+    fixed = joins.align_upper(bank, base, target)
+    heights = fixed.positions[:, 1]
+    assert np.all(np.isfinite(heights))
+    np.testing.assert_allclose(np.sort(np.unique(np.round(heights, 6))), [8, 11.48])

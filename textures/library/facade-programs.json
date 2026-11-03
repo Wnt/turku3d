@@ -28583,6 +28583,104 @@
           "source": "unmeasured",
           "support": 0.0
         }
+      },
+      {
+        "wall_id": "103277359P_f7kauppias",
+        "width_m": 44.515,
+        "height_m": 18.329,
+        "geometry": {
+          "p0": [
+            23459852.5,
+            6704474.9
+          ],
+          "p1": [
+            23459877.6,
+            6704438.1
+          ],
+          "normal": [
+            -0.8252045457472063,
+            -0.5648340089602847
+          ],
+          "base_h": 4.339
+        },
+        "structure": {
+          "wall_id": "103277359P_f7kauppias",
+          "render_deferred": "Left half is the blank rendered volume returning from the north face; right half is a wing with a blank parapet band, two storeys of glazing behind vertical translucent glass fins, a slab band and a continuous lower glazing band. No punched window grid anywhere.",
+          "facade_observations": {
+            "sections": [
+              {
+                "position": "left half",
+                "kind": "blank wall",
+                "material": "pale smooth render",
+                "features": [
+                  "Sharp corner, no openings"
+                ]
+              },
+              {
+                "position": "top left edge",
+                "kind": "translucent channel glass panel",
+                "material": "channel glass",
+                "features": [
+                  "vertical U-profile glass strips",
+                  "one horizontal division at mid-height"
+                ]
+              },
+              {
+                "position": "right half middle",
+                "kind": "glazing ribbon behind vertical translucent glass fins",
+                "pane_count": null
+              },
+              {
+                "position": "right half top",
+                "kind": "blank parapet band",
+                "material": "pale smooth render"
+              },
+              {
+                "position": "right half lower",
+                "kind": "continuous glazing band",
+                "pane_count": null
+              },
+              {
+                "position": "foreground",
+                "kind": "street tree",
+                "belongs_to_facade": false
+              }
+            ],
+            "confidence": {
+              "blank_extent": 0.9,
+              "material": 0.85,
+              "glazing": 0.9,
+              "counts": 0
+            },
+            "occlusion": "A street tree hides the middle of the left half; parked cars hide the base."
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "windows": {
+          "rectangles_m": []
+        },
+        "base": {
+          "openings_m": []
+        },
+        "observation": {
+          "needs_review": true,
+          "scope": "characterized; renderer deferred",
+          "wall_share": 0,
+          "notes": "Left half is the blank rendered volume returning from the north face; right half is a wing with a blank parapet band, two storeys of glazing behind vertical translucent glass fins, a slab band and a continuous lower glazing band. No punched window grid anywhere.",
+          "colour_space": "unmeasured",
+          "source": "structure-only reading of a local Look Around crop (2026-06-23), vfix9"
+        }
       }
     ],
     "review": {
@@ -44896,12 +44994,1032 @@
           "notes": "Shopping-centre wall has an upper advertising field, a short window row and a deep terrace/retail base.",
           "colour_space": "unmeasured"
         }
+      },
+      {
+        "wall_id": "103286585A_vfix029_tower_se",
+        "width_m": 30.428,
+        "height_m": 37.89,
+        "geometry": {
+          "p0": [
+            23459788.2,
+            6704626.0
+          ],
+          "p1": [
+            23459763.1,
+            6704608.8
+          ],
+          "normal": [
+            0.5592,
+            -0.829
+          ],
+          "base_h": 2.79
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View 2024 / Look Around review 2026-11-03 (vfix 029)",
+          "reference_id": "local-only vfix029 refs",
+          "notes": "Tower long street face: glazed shopfront ground floor with a flat canopy, fully glazed first floor, eight storeys of ribbon windows behind continuous cantilevered balcony slabs with solid pale parapets, recessed glazed top storey with a thin roof slab. Storey levels from reference proportions scaled to the LoD2 shell height; layout priors between measured edges.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "concrete",
+            "source": "direct review",
+            "support": 0.8
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain modernist",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960-1979",
+          "source": "direct review: modernist department store/hotel",
+          "support": 0.6
+        },
+        "modernist": {
+          "support": 0.8,
+          "source": "metric storey profile from references scaled to the LoD2 shell height",
+          "margins_m": [
+            0.4,
+            1.6
+          ],
+          "ground": {
+            "height_m": 4.6,
+            "pane_m": 2.6
+          },
+          "glazed_floors_m": [
+            [
+              4.9,
+              8.6
+            ]
+          ],
+          "bands": {
+            "first_m": 8.6,
+            "pitch_m": 3.2,
+            "count": 8,
+            "sill_m": 1.0,
+            "head_m": 2.75,
+            "pane_m": 1.3,
+            "slab": {
+              "depth_m": 1.0,
+              "thickness_m": 0.22,
+              "parapet_m": 0.95,
+              "colour": "#b9bbbc"
+            }
+          },
+          "top": {
+            "bottom_m": 34.2,
+            "recess_m": 1.5,
+            "roof_slab_m": 0.6,
+            "colour": "#b9bbbc"
+          },
+          "awnings": [
+            {
+              "span_m": [
+                0.4,
+                28.8
+              ],
+              "attach_m": 4.7,
+              "depth_m": 1.6,
+              "drop_m": 0.1,
+              "colour": "#b9bbbc"
+            }
+          ]
+        }
+      },
+      {
+        "wall_id": "103286585A_vfix029_tower_sw_south",
+        "width_m": 11.15,
+        "height_m": 37.89,
+        "geometry": {
+          "p0": [
+            23459763.1,
+            6704608.8
+          ],
+          "p1": [
+            23459756.8,
+            6704618.0
+          ],
+          "normal": [
+            -0.8251,
+            -0.565
+          ],
+          "base_h": 2.79
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View 2024 / Look Around review 2026-11-03 (vfix 029)",
+          "reference_id": "local-only vfix029 refs",
+          "notes": "Narrow face to the Market Square: beige horizontal panel cladding, glazed shopfront and glazed first floor wrapping the corner, flush glazed top storey, a generic large screen panel, vertical blue stair glazing at the kink. Brand signs are not modelled. Storey levels from reference proportions scaled to the LoD2 shell height; layout priors between measured edges.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "metal",
+            "source": "direct review",
+            "support": 0.8
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain modernist",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960-1979",
+          "source": "direct review: modernist department store/hotel",
+          "support": 0.6
+        },
+        "modernist": {
+          "support": 0.8,
+          "source": "metric storey profile from references scaled to the LoD2 shell height",
+          "margins_m": [
+            0.3,
+            0.3
+          ],
+          "ground": {
+            "height_m": 4.6,
+            "pane_m": 2.6
+          },
+          "glazed_floors_m": [
+            [
+              4.9,
+              8.6
+            ]
+          ],
+          "top": {
+            "bottom_m": 33.4,
+            "roof_slab_m": 0.6,
+            "colour": "#b9bbbc"
+          },
+          "awnings": [
+            {
+              "span_m": [
+                0.3,
+                10.8
+              ],
+              "attach_m": 4.7,
+              "depth_m": 1.6,
+              "drop_m": 0.1,
+              "colour": "#b9bbbc"
+            }
+          ],
+          "panels": [
+            {
+              "rect_m": [
+                0.8,
+                10.8,
+                7.2,
+                13.5
+              ],
+              "outward_m": 0.25,
+              "colour": "#17191d",
+              "role": "generic screen"
+            },
+            {
+              "rect_m": [
+                9.6,
+                8.6,
+                1.5,
+                24.8
+              ],
+              "outward_m": 0.06,
+              "glass": true,
+              "colour": "#6e8da6",
+              "role": "stair glazing"
+            }
+          ]
+        }
+      },
+      {
+        "wall_id": "103286585A_vfix029_tower_sw_north",
+        "width_m": 6.963,
+        "height_m": 37.89,
+        "geometry": {
+          "p0": [
+            23459756.6,
+            6704617.9
+          ],
+          "p1": [
+            23459752.6,
+            6704623.6
+          ],
+          "normal": [
+            -0.8191,
+            -0.5737
+          ],
+          "base_h": 2.79
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View 2024 / Look Around review 2026-11-03 (vfix 029)",
+          "reference_id": "local-only vfix029 refs",
+          "notes": "Narrow face north segment above the wing: blank beige horizontal panel cladding, flush glazed top storey. Storey levels from reference proportions scaled to the LoD2 shell height; layout priors between measured edges.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "metal",
+            "source": "direct review",
+            "support": 0.8
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain modernist",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960-1979",
+          "source": "direct review: modernist department store/hotel",
+          "support": 0.6
+        },
+        "modernist": {
+          "support": 0.8,
+          "source": "metric storey profile from references scaled to the LoD2 shell height",
+          "margins_m": [
+            0.2,
+            0.2
+          ],
+          "top": {
+            "bottom_m": 33.4,
+            "roof_slab_m": 0.6,
+            "colour": "#b9bbbc"
+          }
+        }
+      },
+      {
+        "wall_id": "103286585A_vfix029_wing_sw",
+        "width_m": 51.343,
+        "height_m": 16.91,
+        "geometry": {
+          "p0": [
+            23459754.8,
+            6704616.6
+          ],
+          "p1": [
+            23459725.7,
+            6704658.9
+          ],
+          "normal": [
+            -0.8238,
+            -0.5668
+          ],
+          "base_h": 2.79
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View 2024 / Look Around review 2026-11-03 (vfix 029)",
+          "reference_id": "local-only vfix029 refs",
+          "notes": "Wing along the Market Square: glazed shopfront ground floor, glazed first floor under deep fabric awnings, blank beige panel band with one row of square windows. Storey levels from reference proportions scaled to the LoD2 shell height; layout priors between measured edges.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "metal",
+            "source": "direct review",
+            "support": 0.8
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain modernist",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960-1979",
+          "source": "direct review: modernist department store/hotel",
+          "support": 0.6
+        },
+        "modernist": {
+          "support": 0.8,
+          "source": "metric storey profile from references scaled to the LoD2 shell height",
+          "margins_m": [
+            0.5,
+            0.5
+          ],
+          "ground": {
+            "height_m": 4.4,
+            "pane_m": 3.0
+          },
+          "glazed_floors_m": [
+            [
+              4.8,
+              8.6
+            ]
+          ],
+          "windows": {
+            "first_m": 1.0,
+            "pitch_m": 2.6,
+            "count": 19,
+            "bottom_m": 12.2,
+            "width_m": 2.0,
+            "height_m": 2.0
+          },
+          "awnings": [
+            {
+              "span_m": [
+                1.0,
+                50.3
+              ],
+              "attach_m": 8.5,
+              "depth_m": 2.2,
+              "drop_m": 0.8,
+              "colour": "#b6b0a4"
+            }
+          ]
+        }
       }
     ],
     "review": {
       "method": "direct structure-only route survey; prior pilot retained",
       "scope": "matched walls only",
-      "independent": false
+      "independent": false,
+      "vfix029": {
+        "building_id": "103286585A",
+        "address": "Kauppatori 15 / Eerikinkatu 11 (Sokos Wiklund)",
+        "reference_source": "Google Street View Jun 2024 and Apple Look Around, local-only",
+        "images_private": true,
+        "observations": [
+          {
+            "scope": "tower street face",
+            "finding": "Continuous cantilevered balcony slabs with solid pale parapets and ribbon windows; glazed first floor; glazed shopfront with canopy; recessed glazed top storey. Uniform punched windows are wrong.",
+            "confidence": 0.9
+          },
+          {
+            "scope": "tower narrow face to the square",
+            "finding": "Beige horizontal panel cladding, blue vertical stair glazing, large screen, flush glazed top storey.",
+            "confidence": 0.9
+          },
+          {
+            "scope": "wing along the square",
+            "finding": "Glazed ground and first floors with deep awnings, one row of square windows in a blank beige panel band.",
+            "confidence": 0.8
+          }
+        ]
+      }
     }
   },
   {
@@ -177535,12 +178653,12 @@
       },
       {
         "wall_id": "103337874T_linnankatu_colonnade",
-        "width_m": 116.7775903171578,
+        "width_m": 200.07759031715779,
         "height_m": 7.2,
         "geometry": {
           "p0": [
-            23458235.696,
-            6703283.906
+            23458173.628,
+            6703228.35
           ],
           "p1": [
             23458322.708,
@@ -177558,7 +178676,7 @@
           "scope": "full-wall",
           "source": "direct panorama review 2026-11-03",
           "reference_id": "Bze2IDrv2c6HYDJekFvq8Q",
-          "notes": "Linnankatu north frontage: open colonnade, paired small upper windows. Columns and bay spacing from metric projection; through-depth follows the measured footprint strip width. Separate southern solid-window panels and end entrance remain unchanged.",
+          "notes": "Linnankatu north frontage: open colonnade, paired small upper windows. Columns and bay spacing from metric projection; through-depth follows the measured footprint strip width. Separate southern solid-window panels and end entrance remain unchanged. vfix033 2026-11-03: the same open pilotis colonnade and paired small windows continue 83.3 m (seven window pitches) SW along Stedingkinkatu (Street View Jul 2026, Look Around); extent extended with window and column phase preserved; round slender columns.",
           "excluded_rectangles_m": []
         },
         "split": {
@@ -177777,15 +178895,20 @@
               0.38888888888888884
             ],
             "rows": 1,
-            "count": 21,
+            "count": 35,
             "depth_m": 5.74284,
-            "dimensions_source": "open courtyard visible through panorama colonnade; depth from footprint strip width",
+            "dimensions_source": "open courtyard visible through panorama colonnade; depth from footprint strip width; vfix033: same pilotis continue SW, metric SV projection pitch 5.56-6.10 m, 012 phase kept",
             "head": "flat",
             "rise_m": null,
             "run_m": null,
             "direction": 1,
             "through": true,
-            "support": 0.9
+            "support": 0.9,
+            "first_column_m": 2.0837,
+            "column_pitch_m": 5.8169,
+            "column_shape": "round",
+            "column_width_m": 0.26,
+            "column_colour": "#a6a7a0"
           }
         ]
       }
@@ -177816,6 +178939,19 @@
           }
         ],
         "images_private": true
+      },
+      "vfix033": {
+        "building_id": "103337874T",
+        "address": "Stedingkinkatu 2",
+        "reference_source": "Google Street View Jul 2026 and Apple Look Around, local-only",
+        "images_private": true,
+        "observations": [
+          {
+            "scope": "Stedingkinkatu frontage SW of the 012 span",
+            "finding": "Long white render volume on slender round pilotis over an open walk-through ground floor to the plaza; paired small windows; enclosed brick/glass part only at the SW end beyond about 57 m.",
+            "confidence": 0.9
+          }
+        ]
       }
     }
   },

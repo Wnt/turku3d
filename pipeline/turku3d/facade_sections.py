@@ -11,12 +11,13 @@ def prepare(program):
     from turkutex.facade_sections import sections
     from turkutex.facade_structure import compile_structure
 
+    from turku3d.facade_modernist import expand as modernist
     from turku3d.facade_repetition import expand, through_arcade
     from turku3d.facade_components import components
     from turku3d.facade_inference import supported
 
     program = copy.deepcopy(program)
-    program["walls"] = [expand(w) for w in program.get("walls", [])]
+    program["walls"] = [modernist(expand(w)) for w in program.get("walls", [])]
     program["walls"] += [back for w in program["walls"] for back in through_arcade(w)]
     for wall in program["walls"]:
         form = wall.get("structure", {})
@@ -126,6 +127,13 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
                     confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround")
                                 + (("opening_counts",) if "opening_counts" in section else ())},
                 )
+                if section.get("rhythm") != "ribbon" else
+                # An uncounted continuous strip is one ribbon, never an invented bay grid.
+                dict(role="base" if i == 0 else "middle", bay_count=None, bays=["window"],
+                     head=section["head"], surround=section["surround"], rhythm="ribbon",
+                     opening_class="tall",
+                     confidence={k: 0.5 for k in ("bay_count", "bay_kinds", "head", "surround",
+                                                  "rhythm", "opening_class")})
                 for i in range(rows)
             ],
         )
@@ -144,8 +152,14 @@ def paint(vertices, wall, style, quad, offset, sign, y0):
         )
         compiled = compile_structure(row, form, rows, min_support=0)
         compiled.update(measured_geometry=compiled["geometry"], measured_size=[w, h])
+        if section["kind"] == "blank" and ("panel_grid" in section or "panel_grid" in wall):
+            grid = section.get("panel_grid")
+            compiled["panel_grid"] = (dict(value=grid, source="section cladding", support=0.6)
+                                      if grid else wall["panel_grid"])
         section_style = compile_wall(compiled, rows)
         section_style.update(wall=style["wall"], base=style["base"], trim=style["trim"])
+        if section.get("colour"):  # A measured cladding pigment (e.g. channel glass) owns its section.
+            section_style.update(wall=section["colour"], base=section["colour"])
         section_style["origin"] = [0, y0 + y]
         shift = max(0, ends[0])
         for points, uv, instruction, priority in _paint_layers(part[0], compiled, section_style):

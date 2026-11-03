@@ -243,7 +243,167 @@ ARCHETYPES = {
         corners=(0.20, 0.45),
         plinth=(0.50, 0.95),
     ),
+    # Massive pre-industrial masonry: castles, medieval stone churches, fortifications.
+    # Measured from local reference photographs of a lime-rendered castle (sunlit courtyard
+    # and overcast gate approach), shade cast removed: near-white lime render, ~4-5 m
+    # irregular bays, small 3x3-pane windows (0.24-0.32 of a bay, 0.30-0.38 of a storey,
+    # high sills) in dark green-black or oxblood frames, no cornice, string course, quoins
+    # or plinth band, round-arched ground openings. The shared atlas adds base grime and
+    # sill streaks. Reveals and surrounds stay in the render colour.
+    "massive_masonry": dict(
+        family(
+            ("plaster",),
+            (3.8, 5.2),
+            (0.24, 0.32),
+            (0.30, 0.38),
+            sill=(0.30, 0.40),
+            cornice=(0, 0),
+            courses=(0, 0),
+            corners=(0, 0),
+            surrounds=(0, 0.02),
+            ground=("windows", "doors"),
+            plinth=(0, 0),
+            trim=("#e4e2d9", "#dedcd2"),
+        ),
+        pigments={"plaster": ("#e4e2d9", "#dedcd2", "#e8e6de")},
+        frames=("#34402f", "#34402f", "#3a3d3f", "#6b3a30"),
+        heads=("flat", "flat", "segmental-arch"),
+        door_head="round-arch",
+        panes=[3, 3],
+        reveal_m=0.45,
+    ),
 }
+MASONRY = "massive_masonry"
+# Modern public monoliths (libraries, museums, halls) with photographed blank walls.
+# Measured from local reference photographs of a 2007 library (Look Around low sun and
+# Google overcast front light, sky cast removed) and a 1967 panel-clad art museum:
+# - smooth off-white render volumes (sunlit #ccc9c3, overcast #cbc3b9) with a granite
+#   base course 2.1-2.3 m high at 0.80-0.87 of the render luminance;
+# - full-height frameless curtain walls: panes 2.10-2.14 m wide, thin dark joints, the
+#   glazing above a granite plinth 2.8-5.1 m high (mean 3.9 m) along a sloping street;
+# - pale stone/concrete cladding panels about 1.5 m x 1.4 m with thin dark joints.
+# Blank walls carry no sampled grid, cornice, string course, quoins or arches.
+MONOLITH = "public_monolith"
+MONOLITH_RENDER = "#d9d6cf"
+MONOLITH_GRANITE = "#b6b3ac"
+MONOLITH_BASE_COURSE_M = 2.2
+MONOLITH_CURTAIN = dict(pane_m=2.12, glass=0.975, sill=0.012, plinth_m=3.9, mullion="#3f4447")
+MONOLITH_PANEL = dict(width_m=1.5, height_m=1.4, joint_m=0.025, colour="#d3cabb")
+# Channel (U-profile) glass measured on the library's translucent panel from the issue camera's
+# Look Around pano: sunlit #bdd4dc, profile lines every 0.15-0.175 m (paired flanges of
+# 0.33 m profiles), one horizontal division per panel half.
+MONOLITH_CHANNEL_GLASS = dict(profile_m=0.33, joint_m=0.012, colour="#bdd4dc")
+# Cultural and assembly uses (OSM building/amenity/tourism values), plus the register
+# function code carried by the library, art museum and city theatre. Schools, colleges and
+# hospitals abstain: their blank walls are local, not the building's composition.
+CULTURAL_USES = {"library", "museum", "theatre", "arts_centre", "concert_hall", "gallery",
+                 "exhibition_centre", "conference_centre", "cinema", "auditorium"}
+CULTURAL_CODES = {"2120"}
+ARCHETYPES[MONOLITH] = dict(
+    family(
+        ("plaster",),
+        (2.0, 2.3),
+        (0.96, 0.975),
+        (0.96, 0.975),
+        sill=(0.012, 0.02),
+        cornice=(0, 0),
+        courses=(0, 0),
+        corners=(0, 0),
+        surrounds=(0, 0),
+        ground=("plain",),
+        plinth=(0, 0),
+        trim=(MONOLITH_CURTAIN["mullion"],),
+    ),
+    pigments={"plaster": (MONOLITH_RENDER,), "concrete": (MONOLITH_PANEL["colour"],)},
+    blank_default=True,
+)
+# Wall colours from a reference-measured archetype are pigment estimates, not the
+# register's generic material palette.
+MEASURED_PIGMENT = "reference-measured archetype pigment"
+FORTIFICATION = {"castle", "fort", "fortress", "fortification", "citywalls", "city_gate"}
+
+
+def early_year(raw):
+    """Medieval and early-modern dates (1000-1699), which ``parsed_year`` ignores."""
+    match = re.search(r"(?<!\d)(1[0-6]\d{2})(?!\d)", str(raw or ""))
+    return int(match[0]) if match else None
+
+
+def massive_masonry(attrs):
+    """Large footprints dated before 1700, or mapped fortifications, are load-bearing masonry.
+
+    Turku's surviving pre-1700 fabric of this size is stone. Timber and light
+    cladding abstain, and small dated sheds keep their ordinary rules.
+    """
+    if attrs.get("blank") or attrs.get("material_class") in ("wood", "glass", "metal", "concrete"):
+        return False
+    if (attrs.get("footprint_m2") or 0) < 150:
+        return False
+    tags = {str(attrs.get(k) or "").lower() for k in ("historic", "osm_use")}
+    year = early_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    return bool(tags & FORTIFICATION) or year is not None
+
+
+# Classical order of a historicist masonry facade, measured on local references of a 1903
+# red-brick civic building (two storeys of 3.84 m bays): giant rendered pilasters ~0.26 of a
+# bay with ~0.1 m projection and a capital band, a plain frieze ~1.1 m under a heavy cornice,
+# dentils ~0.16 x 0.20 m at 0.34 m pitch, a granite plinth ~1.2 m, white frames and
+# 3 x 4 small-pane windows. Metres except ``pilaster`` (fraction of the bay pitch).
+ORDER = dict(
+    pilaster=0.26,
+    pilaster_max_m=1.05,
+    pilaster_relief_m=0.10,
+    capital_m=0.45,
+    frieze_m=1.1,
+    architrave_m=0.22,
+    cornice_m=0.55,
+    cornice_relief_m=0.30,
+    dentil_m=(0.16, 0.20, 0.34),
+    plinth_m=1.2,
+    plinth_colour="#8d8a84",
+    trim="#e4dfd5",
+    frame="#ebe8e1",
+    panes=[3, 4],
+    surrounds_m=0.12,
+)
+ORDER_SOURCE = "reference-measured classical order"
+CLASSICAL_MATERIALS = {"brick", "plaster", "render", "stone"}
+
+
+def classical_order(attrs, evidence=""):
+    """Pilastered classical orders, from reviewed/vision evidence or civic historicist data.
+
+    Evidence text naming pilasters selects the order on any masonry building. Without
+    it, only monumental or civic masonry dated before 1920 qualifies; ordinary
+    historicist housing keeps its archetype bands. Massive masonry never gets an order.
+    """
+    material = attrs.get("material_class")
+    if attrs.get("blank") or (material and material not in CLASSICAL_MATERIALS):
+        return False
+    if massive_masonry(attrs):
+        return False
+    if re.search(r"pilaster", str(evidence), re.I):
+        return True
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    civic = attrs.get("monumental") or USE.get(str(attrs.get("use")), "") == "civic" or str(
+        attrs.get("osm_use") or ""
+    ).lower() in ("civic", "library", "museum", "theatre", "university", "school", "townhall")
+    return bool(civic and year and year < 1920 and (attrs.get("footprint_m2") or 0) >= 200)
+
+
+def public_monolith(attrs):
+    """Modern cultural buildings whose photographs show blank walls (``monolith_blank``).
+
+    The evidence is set by the pipeline from reviewed readings or a wall's own
+    description; register use alone never blanks a building.
+    """
+    if not attrs.get("monolith_blank") or attrs.get("material_class") == "wood":
+        return False
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    if not year or year < 1945 or (attrs.get("footprint_m2") or 0) < 800:
+        return False
+    uses = {str(attrs.get(k) or "").lower() for k in ("osm_use", "use", "entrance_use")}
+    return bool(uses & (CULTURAL_USES | CULTURAL_CODES))
 
 
 # Central cadastral districts I–IX. These are architectural priors, not measured dates.
@@ -306,6 +466,10 @@ def archetype(attrs):
     year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
     levels = attrs.get("levels")
     area = attrs.get("footprint_m2", 0) or 0
+    if massive_masonry(attrs):
+        return MASONRY
+    if public_monolith(attrs):
+        return MONOLITH
     if use in ("warehouse", "shed", "garage", "garages") or attrs.get("blank"):
         return "warehouse"
     if use in ("industrial", "factory", "workshop"):
@@ -393,20 +557,25 @@ def recipe(building_id, attrs):
     }
     material = {"render": "plaster"}.get(attrs.get("material_class"), attrs.get("material_class"))
     material = material if material in PALETTES else rng("material").choice(spec["materials"])
+    pigments = spec.get("pigments", {}).get(material)
     result.update(
         archetype=name,
         material=material,
-        wall=_colour(rng("wall").choice(PALETTES[material]), rng("pigment")),
+        wall=_colour(rng("wall").choice(pigments or PALETTES[material]), rng("pigment")),
+        pigment_measured=bool(pigments),
         trim=rng("trim").choice(spec["trim"]),
         ground=rng("ground").choice(spec["ground"]),
         rhythm=rng("rhythm").choice(spec["rhythm"]),
         balcony=rng("balcony").random() < spec["balconies"],
     )
+    result["frame"] = rng("frame").choice(spec["frames"]) if "frames" in spec else result["trim"]
+    # Metre-thick load-bearing walls carry no shopfronts, whatever trades inside.
+    commerce = name not in (MASONRY, MONOLITH)
     # Use a separate, visible shop/frontage observation rather than guessing commerce by year.
-    if attrs.get("ground_floor") == "shops":
+    if commerce and attrs.get("ground_floor") == "shops":
         result["ground"] = "shops"
     # Register business use supports ground commerce, not an entirely glazed historic block.
-    if str(attrs.get("use")) in ("1050", "1080", "1150", "1240"):
+    if commerce and str(attrs.get("use")) in ("1050", "1080", "1150", "1240"):
         result["ground"] = "shops"
     # Shape/frontage adjust the rhythm inside the archetype's bounded distribution.
     if attrs.get("frontage_m", 0) > 25 and attrs.get("compactness", 1) < 0.55:
@@ -434,15 +603,31 @@ def sample(building_id, attrs, geometry):
     if attrs.get("levels_source") == "osm":
         floors = None
     floors = int(floors) if isinstance(floors, (int, float)) and floors > 0 else None
-    heads = ("flat", "segmental-arch", "round-arch") if r["archetype"] in (
+    spec = ARCHETYPES[r["archetype"]]
+    # Arched heads are period vocabulary. Use-selected civic buildings dated from
+    # functionalism onwards (a 1960s concrete museum) keep flat heads.
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    historic_heads = r["archetype"] in (
         "neo_renaissance", "jugend", "civic", "empire", "nordic_classicism"
-    ) else ("flat",)
+    ) and not (year and year >= 1930)
+    heads = spec.get("heads") or (
+        ("flat", "segmental-arch", "round-arch") if historic_heads else ("flat",)
+    )
     head = random.Random(stable_seed(seed_id, "head_shape")).choice(heads)
+    door_head = spec.get("door_head", head)
     v = lambda x: value(x, "rule sample")  # noqa: E731
+    # Reference-measured archetype values are priors with stated support, so the
+    # compiler uses them instead of the generic trim/pane/palette fallbacks.
+    measured = lambda x: value(x, MEASURED_PIGMENT, 0.6)  # noqa: E731
+    pigment = measured if r["pigment_measured"] else v
+    frame = measured(r["frame"]) if "frames" in spec else v(r["trim"])
+    panes = measured(spec["panes"]) if "panes" in spec else v(2)
+    recess = value(spec["reveal_m"], "massive wall reveal prior", 0.4) if "reveal_m" in spec else v(0.12)
     walls = []
     for g in geometry:
         width, height = g["width_m"], g.get("layout_height_m", g["height_m"])
-        count = max(1, round(width / r["bay"])) if width >= 1.6 and not attrs.get("blank") else 0
+        blank = attrs.get("blank") or spec.get("blank_default")
+        count = max(1, round(width / r["bay"])) if width >= 1.6 and not blank else 0
         pitch = width / count if count else width
         ground = height / floors if floors else None
         if floors and floors > 1 and r["ground"] == "shops":
@@ -467,7 +652,7 @@ def sample(building_id, attrs, geometry):
                     middle_repeats=max(0, floors - 2) if floors else None,
                     top_height_m=unknown(),
                 ),
-                wall=dict(colour=v(r["wall"]), material=v(r["material"])),
+                wall=dict(colour=pigment(r["wall"]), material=v(r["material"])),
                 bays=dict(
                     count=count,
                     centers_m=centers,
@@ -482,21 +667,21 @@ def sample(building_id, attrs, geometry):
                     aspect=v(pitch * r["window"] / wh),
                     rectangles_m=[],
                     sill_fraction=v(r["sill"]),
-                    frame_colour=v(r["trim"]),
-                    divisions=v(2),
-                    recess_m=v(0.12),
+                    frame_colour=frame,
+                    divisions=panes,
+                    recess_m=recess,
                 ),
                 base=dict(
-                    colour=v(r["wall"]),
+                    colour=pigment(r["wall"]),
                     material=v(r["material"]),
                     plinth_height_m=v(r["plinth"]),
                     glazing_share=unknown(),
                     shopfront=v(r["ground"] == "shops"),
                     variant=v(r["ground"]),
                     openings_m=[],
-                    head_shape=v(head),
+                    head_shape=v(door_head),
                 ),
-                doors=dict(candidates=[], type=v("single"), canopy=unknown(), head_shape=v(head)),
+                doors=dict(candidates=[], type=v("single"), canopy=unknown(), head_shape=v(door_head)),
                 trim=dict(
                     cornice=v(r["cornice"]),
                     string_courses=v(r["courses"]),

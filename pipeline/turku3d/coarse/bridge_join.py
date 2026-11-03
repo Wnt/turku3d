@@ -252,7 +252,7 @@ def constrain(mesh, patches, base=None):
     """Insert end/path edges before grading, preserving ground holes/materials."""
     import shapely
     from turku3d.ground.mesh import HeightQuery, Mesh
-    from .surfaces import split_boundaries
+    from .surfaces import split_boundaries, steep
 
     if not patches:
         return mesh
@@ -315,9 +315,18 @@ def constrain(mesh, patches, base=None):
         out_positions.append(np.asarray(faces.positions))
         out_indices.append(np.asarray(faces.indices, np.uint32) + offset)
         out_material.append(np.full(len(faces.indices), mat_id("quay"), np.uint8))
-    return Mesh(
-        np.concatenate(out_positions), np.concatenate(out_indices), np.concatenate(out_material)
-    ).compact()
+    positions, indices = np.concatenate(out_positions), np.concatenate(out_indices)
+    material = np.concatenate(out_material)
+    # Where the source terrain already steps down to a protected lower walk, its
+    # near-vertical faces are the same exposed abutment: masonry, not lawn or paving.
+    triangles = positions[indices]
+    exposed = steep(triangles) & (np.ptp(triangles[:, :, 1], axis=1) > 0.3)
+    if exposed.any():
+        centres = triangles[exposed].mean(axis=1)
+        near = shapely.intersects_xy(area.buffer(1.0), centres[:, 0], centres[:, 2])
+        material = material.copy()
+        material[np.flatnonzero(exposed)[near]] = mat_id("quay")
+    return Mesh(positions, indices, material).compact()
 
 
 def sampler(sample, mesh, patches):

@@ -551,3 +551,156 @@ def test_untagged_park_footway_inherits_only_connected_unambiguous_gravel(tmp_pa
     assert finish(20, 15) == mat_id("gravel")
     for x in (10, 30, 40, 120):
         assert finish(x, 15) == mat_id("paving_slab")
+
+
+def test_visual_finish_never_paints_lawn_or_paving_onto_near_vertical_faces():
+    from turku3d.coarse.surfaces import split_boundaries
+
+    # A flat lawn, a steep quay step across the lawn edge, a steep soil bank
+    # inside a lawn, and a steep cobbled step inside a mapped quay.
+    p = np.array([
+        [0.0, 0, 0], [4, 0, 0], [0, 0, 4],
+        [5, 0, 0], [5.2, 3, 0], [5, 0, 4],
+        [7, 0, 0], [7.2, 3, 0], [7, 0, 2],
+        [9, 0, 0], [9.2, 3, 0], [9, 0, 2],
+    ])
+    ix = np.arange(12, dtype=np.uint32).reshape(4, 3)
+    own = np.array([mat_id("cobblestone"), mat_id("quay"), mat_id("soil"), mat_id("cobblestone")])
+    lawn = shapely.box(-1, -1, 8, 2)
+    quay = shapely.box(8.5, -1, 10, 3)
+    regions = [(lawn, mat_id("grass")), (quay, mat_id("quay"))]
+    ortho = np.full(4, mat_id("road"), np.uint8)
+    pos, idx, mat, _ = split_boundaries(p, ix, own, np.ones(4, bool), regions, ortho, keep_steep=True)
+    # Steep faces are neither cut nor repainted with lawn, paving or the ortho fallback.
+    for face, expected in ((1, "quay"), (2, "soil"), (3, "quay")):
+        hits = [k for k, t in enumerate(pos[idx]) if np.allclose(np.sort(t, axis=0), np.sort(p[ix[face]], axis=0))]
+        assert len(hits) == 1 and mat[hits[0]] == mat_id(expected), face
+    # The flat face is still cut at the lawn edge with the usual precedence.
+    flat = shapely.polygons(pos[idx][:, :, [0, 2]])
+    inside = np.asarray([shapely.Polygon(p[ix[0]][:, [0, 2]]).covers(g) for g in flat])
+    assert set(mat[inside].tolist()) == {mat_id("grass"), mat_id("road")}
+    # Without the option the old repaint remains for other cut passes.
+    _, _, legacy, _ = split_boundaries(p, ix, own, np.ones(4, bool), regions, ortho)
+    assert mat_id("grass") in legacy[:3].tolist() or mat_id("road") in legacy.tolist()
+
+
+def test_near_vertical_lawn_and_paving_faces_take_their_material_from_context():
+    from turku3d.coarse.surfaces import steep_context
+    from turku3d.ground.mesh import HeightQuery, Mesh
+
+    # Four 2 m steps with lawn/paving ids, a low kerb riser and a soil bank face.
+    def step(x, z, rise=2.0):
+        return [[x, 0, z], [x + 0.1, rise, z], [x, 0, z + 1]]
+
+    p = np.array([*step(1, 1), *step(20, 1), *step(40, 1), *step(60, 1), *step(80, 1, 0.15), *step(1, 4)], float)
+    ix = np.arange(len(p), dtype=np.uint32).reshape(-1, 3)
+    own = np.array([mat_id(k) for k in ("grass", "cobblestone", "road", "grass", "road", "soil")], np.uint8)
+    # Lidar terrain: flat, except a 45 degree hillside around x = 60.
+    x, z = np.meshgrid(np.arange(0, 101.0), np.arange(-10, 11.0))
+    h = np.clip(x - 55, 0, 10)
+    grid = np.c_[x.ravel(), h.ravel(), z.ravel()]
+    cells = [(r * 101 + c) for r in range(20) for c in range(100)]
+    tris = [[a, a + 101, a + 1] for a in cells] + [[a + 1, a + 101, a + 102] for a in cells]
+    terrain = HeightQuery(Mesh(grid, np.asarray(tris, np.uint32), np.zeros(len(tris), np.uint8)))
+    result = steep_context(
+        Mesh(p, ix, own),
+        terrain,
+        abutments=shapely.box(-3, -3, 0, 3).buffer(3.0),  # 3 m reach from water beside step 1
+        retaining=shapely.LineString([(20, 0), (20, 3)]).buffer(2.0),
+    )
+    assert [int(m) for m in result.material] == [
+        mat_id("quay"), mat_id("wall"), mat_id("soil"), mat_id("rock"), mat_id("road"), mat_id("soil"),
+    ]
+
+
+def test_mapped_bare_rock_replaces_park_lawn_but_not_paths_or_grassy_hollows(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.surfaces import osm_surfaces
+
+    outcrop = shapely.box(50, 50, 150, 150).exterior  # mapped as a closed way, like OSM
+    rows = [
+        dict(tags=json.dumps(tags), geometry_local=geom.wkb)
+        for tags, geom in (
+            ({"leisure": "park"}, shapely.box(0, 0, 250, 250)),
+            ({"natural": "bare_rock"}, outcrop),
+            ({"highway": "footway", "surface": "gravel"}, shapely.LineString([(100, 0), (100, 250)])),
+        )
+    ]
+    path = tmp_path / "osm.parquet"
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    tile = C.VisualTile(0, 0, 0)
+    regions = osm_surfaces(tile, path)
+    points = np.array([[70, 0, 70], [100, 0, 120], [200, 0, 200], [130, 0, 60]], float)
+    rgb = np.full((250, 250, 3), (150, 140, 135), np.uint8)  # grey-pink rock in the ortho
+    rgb[55:65, 125:135] = (80, 140, 70)  # a bright grassy hollow inside the outline
+    assert classify(points, rgb, tile, [], regions).tolist() == [
+        mat_id(k) for k in ("rock", "gravel", "grass", "grass")
+    ]
+
+
+def test_unmapped_outcrop_needs_both_bare_ortho_and_lidar_relief():
+    from turku3d.coarse.build import grid_mesh
+    from turku3d.coarse.inputs import CELLS
+    from turku3d.coarse.surfaces import bare_rock
+
+    tile = C.VisualTile(0, 0, 0)
+    step = tile.size / CELLS
+    axis = np.arange(CELLS + 1) * step
+    gx, gz = np.meshgrid(axis, axis)
+    # A rounded 3 m knob at (60, 60) and a flat, equally grey square at (190, 190).
+    # Bedrock is cracked and stepped, not a smooth mound: 0.5 m terraces.
+    heights = np.round(6 * np.exp(-((gx - 60) ** 2 + (gz - 60) ** 2) / (2 * 8.0 ** 2)) / 0.5) * 0.5
+    positions, indices = grid_mesh(tile, heights)
+    centroids = positions[indices].mean(axis=1)
+    rgb = np.full((500, 500, 3), (70, 130, 60), np.uint8)  # lawn
+    rgb[100:140, 100:140] = rgb[360:400, 360:400] = (150, 141, 134)  # bare grey-pink patches
+    lawn = np.full(len(indices), mat_id("grass"), np.uint8)
+    result = bare_rock(lawn, centroids, rgb, tile, positions, indices)
+    rock = result == mat_id("rock")
+    near = lambda x, z, radius=8: np.hypot(centroids[:, 0] - x, centroids[:, 2] - z) < radius
+    assert rock[near(60, 60)].mean() > 0.3
+    assert not rock[near(190, 190)].any()
+    assert not rock[~near(60, 60, 20)].any()
+    # The same outcrop beside water is left to mapped evidence.
+    shore = [shapely.box(50, 50, 70, 70)]
+    assert not (bare_rock(lawn, centroids, rgb, tile, positions, indices, shore) == mat_id("rock")).any()
+    # Paths and paving are never candidates, whatever the ortho shows.
+    paved = np.full(len(indices), mat_id("paving_slab"), np.uint8)
+    assert (bare_rock(paved, centroids, rgb, tile, positions, indices) == paved).all()
+
+
+def test_granite_rock_finish_is_procedural_periodic_and_bound_to_rock():
+    from turku3d.coarse.ground_finishes import PERIODS, PROCEDURAL, maps
+    from turku3d.coarse.surfaces import BINDINGS, KEYS
+
+    assert "granite_rock" in PROCEDURAL and PERIODS["granite_rock"] == 4
+    assert BINDINGS["rock"] == KEYS.index("granite_rock")
+    first, second = maps("granite_rock", 128), maps("granite_rock", 128)
+    for slot in ("albedo", "normal", "orm"):
+        np.testing.assert_array_equal(first[slot], second[slot])
+    albedo = first["albedo"].astype(float)
+    # Pinkish grey: red above blue, not green, and visibly textured.
+    assert albedo[..., 0].mean() > albedo[..., 2].mean() and albedo[..., 1].mean() < albedo[..., 0].mean()
+    assert albedo.std() > 8
+
+
+def test_rock_visual_carries_moss_tint_toward_its_edges():
+    from turku3d.coarse.surfaces import visuals
+
+    tile = C.VisualTile(0, 0, 0)
+    x, z = np.meshgrid(np.arange(0, 21.0), np.arange(0, 21.0))
+    positions = np.c_[x.ravel(), np.zeros(x.size), z.ravel()]
+    cells = [r * 21 + c for r in range(20) for c in range(20)]
+    indices = np.asarray([[a, a + 21, a + 1] for a in cells] + [[a + 1, a + 21, a + 22] for a in cells], np.uint32)
+    centre = positions[indices].mean(axis=1)
+    material = np.where((abs(centre[:, 0] - 10) < 6) & (abs(centre[:, 2] - 10) < 6), mat_id("rock"), mat_id("grass"))
+    meshes = visuals(tile, positions, indices, material.astype(np.uint8), np.ones(len(indices), bool))
+    rock = [m for m in meshes if m.extras["material_key"] == "draft_granite_rock"]
+    assert rock and all(m.colors is not None for m in rock)
+    p, tint = rock[0].positions + tile.origin, rock[0].colors
+    middle, edge = np.hypot(p[:, 0] - 10, p[:, 2] - 10) < 1, (abs(p[:, 0] - 10) > 5.5) | (abs(p[:, 2] - 10) > 5.5)
+    assert tint[middle].mean() > tint[edge].mean() + 0.1
+    assert all(m.colors is None for m in meshes if m.extras["material_key"] == "draft_grass")

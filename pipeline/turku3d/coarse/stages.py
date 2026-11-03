@@ -11,6 +11,7 @@ from .stored_facades import assemble_walls, facade_layouts, wall_meshes
 
 def building_visual(tile, shells, ortho, first_pass, wall_context=()):
     from .build import jpeg, ortho_uv
+    from .metal_roofs import mesh as metal_roof
     from turku3d.landmarks.appearance import roof_mesh, wall_meshes as landmark_walls
 
     if not shells:
@@ -25,6 +26,10 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
         custom_roof = roof_mesh(b, roof, ridx, origin)
         if custom_roof is not None:
             meshes.append(custom_roof)
+            continue
+        metal = metal_roof(tile, b, roof, ridx, origin, photo)
+        if metal is not None:
+            meshes.append(metal)
             continue
         uv = ortho_uv(tile, roof)
         # OSM material/heritage tags must never bypass usable roof imagery.
@@ -160,6 +165,7 @@ def terrain_stage(tile, inputs):
     materials = surfaces.classify(centroids, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     # A bridge deck stays solid where a water polygon runs under it.
     separate_decks = bool(inputs.roads and inputs.roads.get("bridge_ways"))
+    materials = surfaces.bare_rock(materials, centroids, inputs.ortho, tile, grid_pos, grid_idx, water)
     wet = water_mask(centroids, water)
     if not separate_decks:
         wet &= materials != mat_id("bridge_deck")

@@ -116,7 +116,7 @@ MAX_WORKERS = 12
 
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
-                 reserve_gib=2, grace_seconds=900, execute=None, free=None):
+                 reserve_gib=2, grace_seconds=900, execute=None, free=None, stop=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers, self.queue_limit = workers, queue_limit
@@ -132,6 +132,10 @@ class Farm:
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
+        self.registrations, self.registrations_scanned = {}, float('-inf')
+        # The game's version: the generation its proxy requests by distance from a pin client.
+        self.pin = read_json(self.root / 'pin.json', {})
+        self.stop = stop or self.stop_worker
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
@@ -197,6 +201,7 @@ class Farm:
                 self.aliases[alias] = revision
                 atomic_json(self.root / 'aliases.json', self.aliases)
                 self.version += 1
+            self.registrations_scanned = float('-inf')
         self.event('register', revision=revision, alias=alias, generation=meta['generation'])
         return dict(revision=revision, commit=meta.get('commit', revision),
                     generation=meta['generation'], source_version=meta.get('source_version'), alias=alias)
@@ -326,6 +331,7 @@ class Farm:
                         version=self.version, aliases=self.aliases.copy(),
                         uptime_seconds=round(time.time() - self.started),
                         workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
+                        pin=dict(self.pin),
                         building=[k[1] for k in self.dispatched],
                         active=[dict(revision=self.jobs[k], generation=k[0], tile=k[1],
                                      pid=self.queue_info[k].get('pid'),
@@ -348,7 +354,7 @@ class Farm:
                         revision=revision, generation=generation,
                         queued=len(queued), building=building, failures=failures[-10:])
 
-    def request(self, revision, tile, distance=None):
+    def request(self, revision, tile, distance=None, client=None):
         if not TILE.fullmatch(tile):
             raise ValueError('invalid tile')
         meta = self.revision(revision)
@@ -360,6 +366,8 @@ class Farm:
             return 422, dict(state='revision-retired', revision=revision, error=reason)
         with self.lock:
             self.metrics['requests'] += 1
+            if distance is not None:
+                self.observe(revision, generation, client)
             root = self.output(generation)
             receipt = root / tile / 'ready.json'
             if receipt.exists():
@@ -378,6 +386,9 @@ class Farm:
             failed = self.failures.get(key)
             if failed and time.time() - failed['t'] < 60:
                 return 422, failed
+            if self.older(generation):
+                return 409, dict(state='superseded', revision=revision, generation=generation,
+                                 pin=self.pin.get('revision'))
             if len(self.jobs) >= self.queue_limit:
                 return 429, dict(state='queue-full')
             # Reservation covers concurrent builders as well as the hard free-space floor.
@@ -397,6 +408,96 @@ class Farm:
             atomic_json(self.root / 'pending.json', list(self.queue_info.values()))
             self.last_saved = time.monotonic()
 
+    def registered(self, generation):
+        """Latest registration of any revision that produces this generation."""
+        if time.monotonic() - self.registrations_scanned > 10:
+            times = {}
+            for path in (self.root / 'revisions').glob('*/revision.json'):
+                produced = read_json(path, {}).get('generation')
+                if produced:
+                    times[produced] = max(times.get(produced, 0), path.stat().st_mtime)
+            self.registrations, self.registrations_scanned = times, time.monotonic()
+        return self.registrations.get(generation)
+
+    def pin_clients(self):
+        """Addresses whose game requests carry the pinned version (the game's tile proxy)."""
+        return set(read_json(self.root / 'pin-clients.json', []))
+
+    def older(self, generation):
+        """Registered before the game's current version: never built or kept queued."""
+        pin = self.pin.get('generation')
+        if not pin or generation == pin:
+            return False
+        own, current = self.registered(generation), self.registered(pin)
+        return own is not None and current is not None and own < current
+
+    def observe(self, revision, generation, client):
+        """Follow the game's version. A newer registration replaces it at once; an earlier one
+        only after the current version had no game request for a minute (a deliberate revert)."""
+        if client is None or client not in self.pin_clients():
+            return
+        now = time.time()
+        if generation == self.pin.get('generation'):
+            self.pin['seen'] = now
+            return
+        if self.pin.get('generation') and not (
+                (self.registered(generation) or 0) > (self.registered(self.pin['generation']) or 0)
+                or now - self.pin.get('seen', 0) > 60):
+            return
+        previous = self.pin.get('generation')
+        self.pin = dict(revision=revision, generation=generation, seen=now, since=now)
+        atomic_json(self.root / 'pin.json', self.pin)
+        self.retarget(previous, revision, generation)
+
+    def retarget(self, previous, revision, generation):
+        """A new game version cancels every queued and running build of older versions.
+
+        Completed stages stay in the shared stage and input caches, so the demanded tiles
+        restart at the new version and rerun only the stages it changed.
+        """
+        now = time.time()
+        demanded, distances = {}, {}
+        for (g, _client), demand in self.demands.items():
+            if self.older(g) and now - demand['seen'] < 120:
+                for tile, category in demand['tiles'].items():
+                    demanded[tile] = min(demanded.get(tile, 9), category)
+        cancelled, stopping = [], []
+        for key in list(self.jobs):
+            if not self.older(key[0]):
+                continue
+            info = self.queue_info[key]
+            if not info.get('explicit') and now - info.get('seen', 0) < 180:
+                demanded.setdefault(key[1], 3)
+                distances[key[1]] = info.get('distance', 0)
+            cancelled.append(key[1])
+            if key in self.dispatched:
+                info['cancelled'] = True
+                stopping.append((info, self.output(key[0]) / key[1]))
+            else:
+                self.jobs.pop(key)
+                self.queue_info.pop(key)
+        for tile, category in demanded.items():
+            key = (generation, tile)
+            if key in self.jobs or (self.output(generation) / tile / 'ready.json').exists():
+                continue
+            self.jobs[key] = revision
+            self.queue_info[key] = dict(revision=revision, generation=generation, tile=tile,
+                                       requested=now, seen=now, distance=distances.get(tile, 0),
+                                       explicit=False)
+        self.event('cancelled', revision=revision, previous=previous, reason='pin moved',
+                   tiles=cancelled, running=len(stopping), requeued=sorted(demanded))
+        for info, output in stopping:
+            threading.Thread(target=self.cancel_running, args=(info, output), daemon=True).start()
+        self.save_queue(force=True)
+        self.pump()
+
+    def cancel_running(self, info, output):
+        try:
+            if info.get('pid'):
+                self.stop(info, output)
+        except Exception as error:  # A changed process identity is never stopped.
+            self.event('cancel-failed', tile=info.get('tile'), error=str(error)[-300:])
+
     def priority(self, key):
         info = self.queue_info[key]
         if info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
@@ -407,9 +508,10 @@ class Farm:
                 category = min(category, demand['tiles'][key[1]])
         return (category, max(self.turns.get(key[0], 0), info['requested']), distance, info['requested'])
 
-    def demand(self, revision, client, tiles, urgent, visible):
+    def demand(self, revision, client, tiles, urgent, visible, address=None):
         generation = self.revision(revision)['generation']
         with self.lock:
+            self.observe(revision, generation, address)
             self.demands[(generation, client[:128])] = dict(seen=time.time(),
                 tiles={tile: -1 if tile in urgent else 0 if tile in visible else 2 for tile in tiles})
             self.demands = {k:v for k,v in self.demands.items() if time.time() - v['seen'] < 120}
@@ -421,6 +523,11 @@ class Farm:
             return
         for key in list(self.jobs):
             info = self.queue_info[key]
+            if key not in self.dispatched and not info.get('pid') and self.older(key[0]):
+                self.event('dropped', revision=self.jobs[key], tile=key[1], reason='superseded by the game version')
+                self.jobs.pop(key)
+                self.queue_info.pop(key)
+                continue
             if (key not in self.dispatched and not info.get('explicit') and not info.get('pid')
                     and time.time() - info['seen'] > 180 and self.priority(key)[0] == 3):
                 self.event('dropped', revision=self.jobs[key], tile=key[1], reason='no recent demand')
@@ -509,11 +616,15 @@ class Farm:
                            stage_hits=hit, stage_misses=miss, stages=stages,
                            input_hits=input_hits, input_misses=input_misses, prepared=prepared)
         except Exception as error:
-            row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
-            with self.lock:
-                self.failures[key] = row
-                self.metrics['failed'] += 1
-            self.event('failed', **row)
+            if self.queue_info.get(key, {}).get('cancelled'):
+                self.event('cancelled-build', revision=revision, tile=tile, generation=generation,
+                           seconds=round(time.monotonic() - started, 3))
+            else:
+                row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
+                with self.lock:
+                    self.failures[key] = row
+                    self.metrics['failed'] += 1
+                self.event('failed', **row)
         finally:
             info = self.queue_info.get(key, {})
             # Never release product/cache pins while a preserved worker can still write.
@@ -1035,7 +1146,7 @@ class Handler(BaseHTTPRequestHandler):
             def tiles(name):
                 return [t for t in query.get(name, [''])[0].split(',')[:128] if TILE.fullmatch(t)]
             farm.demand(revision, query.get('client', ['anonymous'])[0], tiles('tiles'),
-                        set(tiles('urgent')), set(tiles('visible')))
+                        set(tiles('urgent')), set(tiles('visible')), self.client_address[0])
         if rel[0] in ('status', 'health', 'want', 'demand'):
             return self.json(200, farm.version_status(revision))
         if TILE.fullmatch(rel[0]) and rel[1:] in (['manifest.json'], ['collision.json']):
@@ -1047,7 +1158,11 @@ class Handler(BaseHTTPRequestHandler):
         return self.file(farm.output(meta['generation']), rel)
 
     def fragment(self, farm, revision, meta, tile, distance):
-        status, value = farm.request(revision, tile, distance)
+        status, value = farm.request(revision, tile, distance, self.client_address[0])
+        queue = dict(queue_status=status, queue_state=value.get('state'))
+        if distance is None and status >= 400:
+            # A CLI check must see its rejection; games keep the retained tile below.
+            return status, {**value, **queue}
         stale = status != 200
         provenance = dict(revision=revision, generation=meta['generation'], source_kind='requested')
         prefix = f'/v/{revision}/coarse/{tile}/'
@@ -1071,7 +1186,7 @@ class Handler(BaseHTTPRequestHandler):
         bundle = farm.collision_bundle(source_root, tile, manifest)
         if bundle:
             value['collision_bundle'] = bundle
-        value.update(**provenance, requested_revision=revision, stale=stale)
+        value.update(**provenance, requested_revision=revision, stale=stale, **queue)
         return 200, value
 
     def file(self, root, rel):

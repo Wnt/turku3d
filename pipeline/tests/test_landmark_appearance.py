@@ -135,6 +135,49 @@ def test_reviewed_parameters_survive_automatic_reference_refresh(tmp_path, monke
     assert descriptions.resolve(building("new"))["colour"] == [7, 8, 9]
 
 
+def test_automatic_seed_yields_to_measured_masonry_class(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d import config as C
+    from turku3d.landmarks import descriptions
+
+    reviewed = tmp_path / "reviewed"
+    reviewed.mkdir()
+    monkeypatch.setattr(descriptions, "ROOT", reviewed)
+    data = C.data_root() / "landmark-descriptions"
+    data.mkdir(parents=True, exist_ok=True)
+    seed = dict(version=1, building_id="fort", reference_match="verified", reference_confidence=0.98)
+    (data / "fort.json").write_text(json.dumps(seed))
+    castle = SimpleNamespace(facade_key="fort", attributes=dict(construction_year=1280, footprint_m2=4193))
+    house = SimpleNamespace(facade_key="fort", attributes=dict(construction_year=1905, footprint_m2=400))
+    assert descriptions.resolve(castle) is None
+    assert descriptions.resolve(house)["building_id"] == "fort"
+    (reviewed / "fort.json").write_text(json.dumps(dict(version=1, building_id="fort", colour=[1, 2, 3])))
+    assert descriptions.resolve(castle)["colour"] == [1, 2, 3]
+
+
+def test_automatic_seed_yields_to_a_classical_order_named_by_reviewed_walls(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from turku3d import config as C
+    from turku3d.landmarks import descriptions
+
+    reviewed = tmp_path / "reviewed"
+    reviewed.mkdir()
+    monkeypatch.setattr(descriptions, "ROOT", reviewed)
+    data = C.data_root() / "landmark-descriptions"
+    data.mkdir(parents=True, exist_ok=True)
+    attrs = dict(construction_year=1903, material_class="brick", use="2120", footprint_m2=1200)
+    for key in ("103277355K", "civic-seed"):
+        seed = dict(version=1, building_id=key, reference_match="verified", reference_confidence=0.96)
+        (data / f"{key}.json").write_text(json.dumps(seed))
+    # The library's reviewed wall names giant pale pilasters: its measured order wins.
+    assert descriptions.resolve(SimpleNamespace(facade_key="103277355K", attributes=attrs)) is None
+    # A rule-only civic order is a prior, not a measurement: the verified seed still applies.
+    plain = SimpleNamespace(facade_key="civic-seed", attributes=attrs)
+    assert descriptions.resolve(plain)["building_id"] == "civic-seed"
+
+
 def test_narrow_tower_wall_keeps_copper_above_its_stage():
     from turku3d.landmarks.appearance import material_wall_parts
     from turku3d.landmarks.descriptions import resolve

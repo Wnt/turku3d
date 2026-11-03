@@ -2,6 +2,7 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -559,6 +560,66 @@ class FarmTests(unittest.TestCase):
         release.set()
         self.wait(farm)
         self.assertEqual(calls, ['t0_0_0', 't0_3_0', 't0_2_0', 't0_1_0'])
+
+    def pinned_farm(self):
+        entered, release = threading.Event(), threading.Event()
+        calls, stopped = [], []
+        def build(revision, tile, root):
+            calls.append((revision, tile))
+            if len(calls) == 1:
+                entered.set()
+                release.wait(3)
+            return fake_build(revision, tile, root)
+        now = time.time()
+        os.utime(self.root / 'revisions' / REV / 'revision.json', (now - 600, now - 600))
+        farm_module.atomic_json(self.root / 'pin-clients.json', ['proxy'])
+        farm = self.farm(workers=1, execute=build, stop=lambda info, output: stopped.append(output.name))
+        return farm, entered, release, calls, stopped
+
+    def test_new_game_version_cancels_older_builds_and_requeues_demanded_tiles(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.request(REV, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        farm.queue_info[(GEN, 't0_0_0')]['pid'] = 1  # A running generator to stop.
+        farm.request(REV, 't0_1_0', 50, 'proxy')
+        farm.request(REV, 't0_2_0')
+        self.assertEqual(farm.pin['generation'], GEN)
+        farm.request(REV2, 't0_5_0', 0, 'proxy')
+        self.assertEqual(farm.pin['generation'], GEN2)
+        self.assertTrue(farm.queue_info[(GEN, 't0_0_0')]['cancelled'])
+        deadline = time.monotonic() + 2
+        while not stopped and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertEqual(stopped, ['t0_0_0'])
+        queued = {k for k in farm.jobs if k not in farm.dispatched}
+        self.assertEqual(queued, {(GEN2, 't0_0_0'), (GEN2, 't0_1_0'), (GEN2, 't0_5_0')})
+        farm.queue_info[(GEN, 't0_0_0')].pop('pid')
+        release.set()
+        self.wait(farm)
+        self.assertNotIn((REV, 't0_2_0'), calls)
+        self.assertEqual(farm.request(REV, 't0_3_0'), (409, dict(
+            state='superseded', revision=REV, generation=GEN, pin=REV2)))
+
+    def test_a_lagging_game_request_does_not_revert_the_version(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.request(REV2, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        self.assertEqual(farm.request(REV, 't0_1_0', 0, 'proxy')[0], 409)
+        self.assertEqual(farm.pin['generation'], GEN2)
+        self.assertEqual(farm.request(REV, 't0_1_0', 0, 'other-browser')[0], 409)
+        release.set()
+        self.wait(farm)
+        self.assertEqual(stopped, [])
+
+    def test_explicit_checks_of_newer_registrations_build_without_moving_the_version(self):
+        farm, entered, release, calls, stopped = self.pinned_farm()
+        farm.request(REV, 't0_0_0', 0, 'proxy')
+        self.assertTrue(entered.wait(2))
+        self.assertEqual(farm.request(REV2, 't0_1_0')[0], 202)
+        self.assertEqual(farm.pin['generation'], GEN)
+        release.set()
+        self.wait(farm)
+        self.assertEqual([tile for _, tile in calls], ['t0_0_0', 't0_1_0'])
 
     def test_completed_orphan_is_adopted_without_running_a_second_generator(self):
         fake_build(REV, 't0_0_0', self.root / 'products' / GEN)
