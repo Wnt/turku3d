@@ -147,7 +147,7 @@ def produce(tile, linework, height_at, water, buildings, markings):
 
 def terrain_patches(corners, step, bounds=None):
     """Convex strip pieces inside the same regular triangles as visual/collision ground."""
-    strip = shapely.make_valid(shapely.Polygon(corners))
+    strip = shapely.make_valid(corners if hasattr(corners, "geom_type") else shapely.Polygon(corners))
     if bounds is not None:
         strip = strip.intersection(shapely.box(*bounds))
     if strip.is_empty:
@@ -162,7 +162,16 @@ def terrain_patches(corners, step, bounds=None):
     pieces = shapely.get_parts(clipped)
     pieces = pieces[(shapely.get_type_id(pieces) == 3) & (shapely.area(pieces) > 1e-9)]
     for piece in pieces:
-        yield np.asarray(shapely.geometry.polygon.orient(piece, 1).exterior.coords)[:-1]
+        if not piece.interiors and piece.equals(piece.convex_hull):
+            yield np.asarray(shapely.geometry.polygon.orient(piece, 1).exterior.coords)[:-1]
+        else:
+            import mapbox_earcut
+
+            rings = [np.asarray(r.coords)[:-1] for r in [piece.exterior, *piece.interiors]]
+            vertices = np.concatenate(rings)
+            indices = mapbox_earcut.triangulate_float64(
+                vertices, np.cumsum([len(r) for r in rings]).astype(np.uint32))
+            yield from vertices[indices.reshape(-1, 3)]
 
 
 def terrain_edge(a, b, step):

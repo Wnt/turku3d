@@ -51,7 +51,7 @@ def _areas(geometry):
     return parts[0] if len(parts) == 1 else shapely.MultiPolygon(parts)
 
 
-def produce(tile, records, sample, stairs=(), water=(), paving=()):
+def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None):
     from .tunnels import _polygon_faces
 
     meshes, openings = [], []
@@ -83,8 +83,11 @@ def produce(tile, records, sample, stairs=(), water=(), paving=()):
             # The new edge owns the discontinuity, but its aprons must meet the
             # surrounding ground exactly. Extrapolating the near-edge plane all
             # the way across a curved bank would leave a seam at the outer rail.
-            outer_levels = (np.array([[sample(*p) for p in side] for side in (left, right)])
+            outer_levels = (np.array([[(surface or sample)(*p) for p in side] for side in (left, right)])
                             if measured else levels)
+            # An outer rail can lie in the river. Keep its measured dry-side
+            # plane to the shoreline, rather than sloping the paving to water.
+            outer_levels = np.where(np.isfinite(outer_levels), outer_levels, levels)
             for j, (p, q) in enumerate(zip(centres[:-1], centres[1:], strict=True)):
                 segment = shapely.LineString([p, q])
                 if not segment.intersects(window) or segment.length < 1e-7:
