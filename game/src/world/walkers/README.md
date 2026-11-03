@@ -34,6 +34,12 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
   with a 0.35–0.7 m keep-right offset that tapers to zero at junctions and dead ends. At a junction the exit is
   `hash(walker, node, step) % exits`, exits ordered by departure direction; 12% of junctions add a 2–6 s pause;
   dead ends turn round. Turn decisions use integers only, so float rounding cannot fork two clients.
+- **Signalised crossings.** A chain passing within 1.5 m of a signalised crossing on a car edge, across it, carries a
+  gate: the controller and approach axis the drivers on that road use (nearest signalised node within 40 m, named as
+  `traffic/tileNetwork.ts` names a lane's signal). A walker stops 0.5–1.7 m before the carriageway, keeping its
+  offset, and waits until the drivers there have been red for 4 s (phase 25 s of their 60 s plan); it starts only
+  if it can clear the road by 56 s. 6% cross against the light. The plan runs on the traffic clock: `trafficTime`
+  supplies it, and a shifted clock (a single-player pause) plans routes again.
 - **Animation.** Walk phase is metres walked divided by the variant's measured stride (1.42–1.47 m per loop:
   the median ground speed of baked shoe vertices in contact), so feet stay planted; idle cycles its 2.5 s loop.
 - **Lifecycle fade.** 0.8 s at birth and at the end of life, part of the shared state.
@@ -82,7 +88,7 @@ planned for Phase 3 traffic would gate it). Walkers have no physics; they react 
 
 ```sh
 cd game
-npx vitest run tests/unit/walkers.test.ts tests/unit/walker-reactions.test.ts tests/unit/audio.test.ts
+npx vitest run tests/unit/walkers.test.ts tests/unit/walker-reactions.test.ts tests/unit/walker-signals.test.ts tests/unit/audio.test.ts
 npx tsc --noEmit -p tsconfig.json
 ```
 

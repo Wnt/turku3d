@@ -4,7 +4,9 @@
 // resident tiles see the same walkers without any network traffic. Rendering (ring, caps, fades) is local.
 import { HUMAN_MODELS } from './appearance';
 import { CYCLE_EPOCH, cycleHour } from '../../core/dayCycle';
-import { CELL_M, cellKey, hash32, pointAt, unit, type Cell, type WalkNetwork } from './network';
+import { CELL_M, cellKey, hash32, pointAt, unit, type Cell, type Gate, type WalkNetwork } from './network';
+import { TRAFFIC } from '../../traffic/constants';
+import { hash01, mod } from '../../traffic/hash';
 
 export const WALKER = {
   /** Walkers per weighted metre of FOOT way at the busiest hour. */
@@ -19,6 +21,10 @@ export const WALKER = {
   /** Keep-right offset from the way's centreline, tapered to zero at junctions and dead ends. */
   keepRight: [0.35, 0.7] as const, taper: 1.5,
   variants: HUMAN_MODELS.length,
+  /** At a signalised crossing: the walk phase of the crossed road's approach axis (seconds of its 60 s plan, where
+   *  drivers on that road are red from 21 s and their left arrows end at 24 s), the kerb distance from the
+   *  carriageway, how far back a waiting walker may stand, and the share who cross against the light. */
+  walkFrom: 25, walkUntil: 56, kerb: 0.5, queue: 1.2, jaywalk: 0.06,
 };
 /** The farthest a walker can be from its birth point. */
 export const MAX_TRAVEL = WALKER.life[1] * WALKER.speed[1];
@@ -48,6 +54,8 @@ interface Leg {
   /** Metres walked before this leg. */
   d0: number;
   idle: boolean;
+  /** Lateral offset of an idle leg (waiting at a kerb keeps the walker's offset; other pauses stand on the line). */
+  side?: number;
   /** Lateral offset tapers to zero at a decision node at the leg's start/end. */
   taper0: boolean; taper1: boolean;
 }
@@ -86,7 +94,24 @@ const beforeTurn = { ...tmp }, afterTurn = { ...tmp };
 export class Population {
   private routes = new Map<number, { route: Route; used: number }>();
   private generation = 0;
+  /** Traffic clock seconds minus walker seconds: the drivers' signal plan runs on the traffic clock. Equal clocks
+   *  (multiplayer, single player before any pause) give the epoch difference. */
+  private signalOffset = (CYCLE_EPOCH - TRAFFIC.epochMs) / 1000;
   constructor(readonly network: WalkNetwork, private readonly clock: BirthClock = sharedHour) {}
+
+  /** Follow a shifted traffic clock (a single-player pause): routes are planned again with the new signal phases. */
+  setSignalOffset(seconds: number) {
+    if (Math.abs(seconds - this.signalOffset) < 0.5) return;
+    this.signalOffset = seconds; this.routes.clear();
+  }
+
+  /** Seconds to wait at a gate reached at walker time `t` (s since CYCLE_EPOCH) before crossing at `speed`. */
+  private signalWait(gate: Gate, t: number, speed: number): number {
+    const phase = mod(t + this.signalOffset + hash01('signal-clock', gate.signal) * 60 - gate.group * 30, 60);
+    const cross = (2 * gate.half + 2 * WALKER.kerb) / speed;
+    const until = Math.max(WALKER.walkFrom + 3, WALKER.walkUntil - cross);
+    return phase >= WALKER.walkFrom && phase < until ? 0 : mod(WALKER.walkFrom - phase, 60);
+  }
 
   /** Activity at the start of a birth's minute (the model samples it per minute, so a time edit never changes a
    *  life that began before it). */
@@ -139,7 +164,7 @@ export class Population {
     const age = t - born;
     if (age < 0 || age >= life) return null;
     let entry = this.routes.get(id);
-    if (!entry) { entry = { route: this.route(cell, id, life), used: 0 }; this.routes.set(id, entry); }
+    if (!entry) { entry = { route: this.route(cell, id, life, born), used: 0 }; this.routes.set(id, entry); }
     entry.used = this.generation;
     const route = entry.route;
     if (age > route.known || !route.legs.length) return null;
@@ -166,7 +191,7 @@ export class Population {
       const length = (leg.t1 - leg.t0) * route.speed;
       if (leg.taper0) side *= Math.min(1, walked / WALKER.taper);
       if (leg.taper1) side *= Math.min(1, (length - walked) / WALKER.taper);
-    } else side = 0;
+    } else side = leg.side ?? 0;
     return {
       id, slot, variant: hash32(id, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(id, 8) % WALKER.variants].height,
       x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz), chain: leg.chain, s,
@@ -177,7 +202,7 @@ export class Population {
 
   /** Birth on a hashed point of the cell's pieces (weighted), then hashed turns at junctions until the life ends or
    *  the walker reaches a node whose tiles are not all resident (beyond it the route is unknown here). */
-  private route(cell: Cell, id: number, life: number): Route {
+  private route(cell: Cell, id: number, life: number, born: number): Route {
     const { chains, nodes } = this.network;
     const speed = WALKER.speed[0] + (WALKER.speed[1] - WALKER.speed[0]) * unit(hash32(id, 6));
     const offset = WALKER.keepRight[0] + (WALKER.keepRight[1] - WALKER.keepRight[0]) * unit(hash32(id, 7));
@@ -193,6 +218,19 @@ export class Population {
     const pause = (duration: number) => { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + duration, d0: d, idle: true, taper0: false, taper1: false }); t += duration; };
     pause(WALKER.birthIdle * unit(hash32(id, 10)));
     for (let guard = 0; t < life && guard < 256; guard++) {
+      // Signalised crossings ahead on this chain: walk to the kerb, wait for the walk phase, then cross.
+      const gates = chains[c].gates;
+      for (let g = dir > 0 ? 0 : gates.length - 1; g >= 0 && g < gates.length && t < life; g += dir) {
+        const gate = gates[g], back = WALKER.queue * unit(hash32(id, g, 14));
+        const kerb = gate.s - dir * (gate.half + WALKER.kerb + back);
+        if ((kerb - s) * dir < 0.2 || (gate.s - s) * dir <= 0) continue;
+        const reach = Math.abs(kerb - s);
+        legs.push({ chain: c, dir, s0: s, t0: t, t1: t + reach / speed, d0: d, idle: false, taper0, taper1: false });
+        t += reach / speed; d += reach; s = kerb; taper0 = false;
+        const wait = unit(hash32(id, g, 15)) < WALKER.jaywalk ? 0 : this.signalWait(gate, born + t, speed);
+        if (wait > 0 && t < life) { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + wait, d0: d, idle: true, side: offset, taper0: false, taper1: false }); t += wait; }
+      }
+      if (t >= life) break;
       const length = dir > 0 ? chains[c].length - s : s;
       const nodeIndex = dir > 0 ? chains[c].b : chains[c].a, node = nodes[nodeIndex];
       legs.push({ chain: c, dir, s0: s, t0: t, t1: t + length / speed, d0: d, idle: false, taper0, taper1: true });
