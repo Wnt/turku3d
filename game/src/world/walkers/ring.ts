@@ -35,6 +35,8 @@ export class Ring<T extends Placed> {
   private entries = new Map<number, Drawn<T> & { leaving: boolean }>();
 
   get size() { return this.entries.size; }
+  /** This walker is drawn (or fading out). */
+  has(id: number) { return this.entries.has(id); }
 
   /** The walkers to draw this frame; `walkers` are every candidate whose position (and ground) is known now. */
   select(walkers: readonly T[], view: RingView, cap: number, dt: number): Drawn<T>[] {
