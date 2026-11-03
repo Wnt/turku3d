@@ -31,12 +31,16 @@ export class AltitudeShadows {
   /** Whether the camera is high enough that small casters are skipped. */
   high = false;
   enabled = true;
+  /** Small casters skip the sun shadows at any height (the setting governor's last step, render/settingGovernor.ts). */
+  forced = false;
   private small = new WeakMap<THREE.Object3D, boolean>();
+  private aloft = false;
 
   /** Once per frame: the camera's height above the ground under it (m). */
   update(height: number) {
-    this.high = this.enabled && Number.isFinite(height)
-      && (this.high ? height > ALTITUDE_SHADOWS.onM : height > ALTITUDE_SHADOWS.offM);
+    this.aloft = this.enabled && Number.isFinite(height)
+      && (this.aloft ? height > ALTITUDE_SHADOWS.onM : height > ALTITUDE_SHADOWS.offM);
+    this.high = this.forced || this.aloft;
   }
 
   /** Whether a sun-shadow draw of `object` is skipped this frame. */

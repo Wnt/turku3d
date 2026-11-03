@@ -5,6 +5,7 @@ import { GameRenderer } from './shadowMaterials';
 import { QUALITY, renderPixelRatio, type QualityTier } from './quality';
 import { GameLighting } from './lighting';
 import { retainRendererPrograms } from './programCache';
+import { gpuProbe, type GpuProbe } from './gpuProbe';
 
 /**
  * Mobile performance guard: without an explicit ?backend=, touch devices (phones, tablets) use WebGL2 unless
@@ -15,10 +16,20 @@ export async function defaultBackend(want: 'webgpu' | 'webgl', given: boolean): 
   try { return await navigator.gpu?.requestAdapter() ? 'webgpu' : 'webgl'; } catch { return 'webgl'; }
 }
 
-/** The WebGPU adapter's vendor and architecture before the renderer exists (render/quality.ts deviceQuality). */
-export async function adapterInfo(): Promise<{ vendor: string; architecture: string } | null> {
-  try { const info = (await navigator.gpu?.requestAdapter())?.info; return info ? { vendor: info.vendor, architecture: info.architecture } : null; }
-  catch { return null; }
+/** The WebGPU adapter's vendor and architecture before the renderer exists (render/quality.ts deviceQuality). On Apple
+ *  GPUs, whose adapter info does not tell the chip apart, the startup probe also runs here on a short-lived device. */
+export async function adapterInfo(): Promise<{ vendor: string; architecture: string; probe: GpuProbe | null } | null> {
+  try {
+    const adapter = await navigator.gpu?.requestAdapter();
+    const info = adapter?.info;
+    if (!adapter || !info) return null;
+    let probe: GpuProbe | null = null;
+    if (info.vendor === 'apple') {
+      const device = await adapter.requestDevice({ requiredFeatures: adapter.features.has('timestamp-query') ? ['timestamp-query'] : [] });
+      try { probe = await gpuProbe(device); } finally { device.destroy(); }
+    }
+    return { vendor: info.vendor, architecture: info.architecture, probe };
+  } catch { return null; }
 }
 
 interface RendererInfo { renderer: THREE.WebGPURenderer; backend: 'WebGPU' | 'WebGL2' }

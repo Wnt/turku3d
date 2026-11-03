@@ -29,8 +29,8 @@ test('GCN and Intel gen GPUs default to reduced; explicit and mobile tiers are k
 });
 
 test('reduced changes rendering only: simulation caps and the rest of the tier are medium', () => {
-  const { vegetation, reflectionScale, reflectionSlowFps, riverReflection, maxPixels, grass, splits, lights, ...rest } = QUALITY.reduced;
-  const { vegetation: v, reflectionScale: _r, reflectionSlowFps: _s, riverReflection: _m, maxPixels: _p, grass: g, splits: sp, lights: l, ...medium } = QUALITY.medium;
+  const { vegetation, reflectionScale, reflectionSlowFps, riverReflection, maxPixels, governor: _g, grass, splits, lights, ...rest } = QUALITY.reduced;
+  const { vegetation: v, reflectionScale: _r, reflectionSlowFps: _s, riverReflection: _m, maxPixels: _p, governor: _h, grass: g, splits: sp, lights: l, ...medium } = QUALITY.medium;
   expect(rest).toEqual(medium);
   expect({ grass, splits, lights }).toEqual({ grass: g, splits: sp, lights: l });
   expect(vegetation).toEqual({ ...v, mid: 100 });
@@ -79,4 +79,48 @@ test('leaf A/B variants parse strictly', async () => {
   expect(parseLeafVariant('single')).toBe('single');
   expect(parseLeafVariant('noshadow')).toBe('noshadow');
   expect(() => parseLeafVariant('cheap')).toThrow();
+});
+
+test('Apple GPUs take reduced only when the startup probe reads like a base M1: the M1 Max stays medium', async () => {
+  const { APPLE_REDUCED_PROBE_MS } = await import('../../src/render/quality');
+  const apple = { vendor: 'apple', architecture: 'metal-3' };
+  // M1 Max 1.76-1.86 ms, +18 % when hot; M1 Air 5.96 ms cool, 7.01 ms throttled (airperf).
+  for (const ms of [1.76, 1.86, 1.86 * 1.18, 2.8, null, undefined]) expect(deviceQuality(apple, 'medium', ms)).toBe('medium');
+  for (const ms of [5.96, 7.01, 4]) expect(deviceQuality(apple, 'medium', ms)).toBe('reduced');
+  expect(APPLE_REDUCED_PROBE_MS).toBeGreaterThan(1.86 * 1.18 * 1.5);
+  expect(deviceQuality(apple, 'high', 7)).toBe('high');
+  expect(deviceQuality({ vendor: 'nvidia', architecture: 'ampere' }, 'medium', 9)).toBe('medium');
+});
+
+test('the setting governor runs below medium only, steps down on sustained slow frames at the floor and back up', async () => {
+  const { SettingGovernor } = await import('../../src/render/settingGovernor');
+  expect([QUALITY.medium.governor, QUALITY.high.governor, QUALITY.mobile.governor]).toEqual([false, false, false]);
+  expect([QUALITY.reduced.governor, QUALITY.low.governor]).toEqual([true, true]);
+  const applied: string[] = [];
+  const steps = ['a', 'b'].map(name => ({ name, apply: () => applied.push(`+${name}`), undo: () => applied.push(`-${name}`) }));
+  const governor = new SettingGovernor(steps);
+  let t = 0;
+  const run = (ms: number, seconds: number, atFloor = true) => { for (const end = t + seconds * 1000; t < end;) governor.update(t += ms, atFloor); };
+  run(33, 30, false); expect(applied).toEqual([]); // slow but resolution can still drop
+  const slowFrom = t;
+  run(33, 60); expect(applied).toEqual(['+a', '+b']); // then no more steps
+  const [first, second] = governor.log;
+  expect(first.t - slowFrom).toBeGreaterThanOrEqual(5000); // two slow windows first
+  expect(first.t - slowFrom).toBeLessThan(15500);
+  expect(second.t - first.t).toBeGreaterThanOrEqual(10000); // ten seconds between changes
+  run(25, 60); expect(governor.level).toBe(2); // 40 FPS: neither slow nor fast
+  const fastFrom = t;
+  run(16.7, 80); expect(applied).toEqual(['+a', '+b', '-b', '-a']);
+  expect(governor.log[2].t - fastFrom).toBeGreaterThanOrEqual(25000); // six fast windows
+  run(16.7, 10); governor.update(t += 2000, true); expect(governor.level).toBe(0);
+});
+
+test('small casters can be forced out of the sun shadows at street level', async () => {
+  const { AltitudeShadows } = await import('../../src/render/shadowAltitude');
+  const shadows = new AltitudeShadows();
+  shadows.update(2); expect(shadows.high).toBe(false);
+  shadows.forced = true; shadows.update(2); expect(shadows.high).toBe(true);
+  shadows.forced = false; shadows.update(2); expect(shadows.high).toBe(false);
+  shadows.update(150); expect(shadows.high).toBe(true);
+  shadows.update(95); expect(shadows.high).toBe(true); // hysteresis kept
 });

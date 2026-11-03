@@ -28,6 +28,7 @@ import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { QUALITY, deviceQuality, renderPixelRatio, renderTier, setRenderTier } from './render/quality';
 import { gpuProbe } from './render/gpuProbe';
+import { SettingGovernor } from './render/settingGovernor';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
@@ -132,9 +133,12 @@ if (params.drive) {
 {
   const given = new URLSearchParams(location.search).has('quality'), live = params.drive?.view === 'live';
   const detect = !given && (!params.qa || live);
-  const gpu = params.backend === 'webgpu' ? await adapterInfo() : null, tier = detect ? deviceQuality(gpu, params.quality) : params.quality;
-  if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}`);
-  setRenderTier({ tier, gpu, source: given ? 'url' : params.drive && !live ? 'recorded' : tier !== params.quality ? 'device' : 'default' });
+  const adapter = params.backend === 'webgpu' ? await adapterInfo() : null;
+  const gpu = adapter && { vendor: adapter.vendor, architecture: adapter.architecture };
+  const tier = detect ? deviceQuality(gpu, params.quality, adapter?.probe?.ms) : params.quality;
+  if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}${adapter?.probe ? ` (probe ${adapter.probe.ms.toFixed(2)} ms)` : ''}`);
+  setRenderTier({ tier, gpu, probe: adapter?.probe ?? undefined,
+    source: given ? 'url' : params.drive && !live ? 'recorded' : tier !== params.quality ? 'device' : 'default' });
   params.quality = tier;
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
@@ -174,10 +178,10 @@ const perf = new PerformanceMonitor(renderer, backend);
 // releases the device and coming back from the cache reloads.
 addEventListener('pagehide', event => { if (event.persisted) (renderer.backend as { device?: GPUDevice }).device?.destroy(); });
 addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
-// Startup GPU throughput probe: recorded in renderTier() and captures to calibrate tiering across machines whose
-// adapter info is identical (M1 Air and M1 Max both report apple/metal-3); it chooses nothing yet.
+// Startup GPU throughput probe for the GPUs adapterInfo() did not probe (Apple's chooses the tier there): recorded in
+// renderTier() and captures, to calibrate tiering on other vendors.
 const probeDevice = (renderer.backend as { device?: GPUDevice }).device;
-if (probeDevice && (!params.qa || params.drive?.view === 'live')) void gpuProbe(probeDevice).then(probe => {
+if (probeDevice && !renderTier()?.probe && (!params.qa || params.drive?.view === 'live')) void gpuProbe(probeDevice).then(probe => {
   const tier = renderTier();
   if (tier) setRenderTier({ ...tier, probe });
   if (probe) loading.note(`GPU probe ${probe.ms.toFixed(2)} ms (${probe.method})`);
@@ -317,6 +321,18 @@ const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, a
 // when frames miss the goal (at 60 every desktop sits at the 0.5 floor). A/B, owner winperf: decided by M1 Max and
 // Radeon 560X ?view=live replays; the losing path goes within ten merges.
 const resolution = new AdaptiveResolution(params.mobile ? 30 : new URLSearchParams(location.search).get('resolutionTarget') === '40' ? 40 : 60);
+// Rendering-only steps for tiers below medium when frames miss the goal at the resolution floor (render/settingGovernor.ts),
+// least visible first. ?governor=0 keeps the tier fixed: A/B, owner winperf, decided by Windows and Air live replays;
+// the losing path goes within ten merges.
+const sceneryRadius = params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000;
+const governedVegetation = QUALITY[params.quality].vegetation as { near: number; mid: number };
+const vegetationAsConfigured = { ...governedVegetation };
+const governor = QUALITY[params.quality].governor && new URLSearchParams(location.search).get('governor') !== '0' ? new SettingGovernor([
+  { name: 'distant city 2500 m', apply: () => distantCity?.setRadius(Math.min(sceneryRadius, 2500)), undo: () => distantCity?.setRadius(sceneryRadius) },
+  { name: 'trees to impostors sooner', apply: () => Object.assign(governedVegetation, { near: Math.min(vegetationAsConfigured.near, 35), mid: Math.min(vegetationAsConfigured.mid, 70) }),
+    undo: () => Object.assign(governedVegetation, vegetationAsConfigured) },
+  { name: 'small casters drop sun shadows', apply: () => { altitudeShadows.forced = true; }, undo: () => { altitudeShadows.forced = false; } },
+]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
@@ -348,6 +364,8 @@ const renderFrame = () => {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
     const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
+    const stepped = governor?.update(performance.now(), scale <= 0.5 + 1e-9);
+    if (stepped) console.info(`[governor] level ${governor!.level}: ${stepped.name}`);
   }
   dayClock.update();
   const weatherSample = weather.update();
@@ -396,7 +414,7 @@ addEventListener('resize', () => {
 // play loop's dt in QA mode). Browser checks budget their waits in these units, so a starved host makes a run
 // slower instead of failing it (tests/e2e/waits.ts).
 if (import.meta.env.DEV) void import('./dev/buildNotice').then(m => m.startBuildNotice());
-window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
+window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, governor, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
   lights, vegetation };
 
 // Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
@@ -485,7 +503,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   lights?.attach(coarse);
   if (!idPass) {
     distantCity = coarse.screenshotScenery;
-    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
+    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
     if (params.qa) distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
