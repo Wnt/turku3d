@@ -38,6 +38,22 @@ export function leanTree(matrix: THREE.Matrix4, shearX: number, shearZ: number) 
   return matrix;
 }
 
+/** Shape a placed tree to its lidar crown (`[height, radius, shear x, shear z, stretch, angle]`, sizes already in the
+ *  scale): an area-preserving ellipse around the trunk axis (`stretch` along the major axis at `angle` from +x towards
+ *  +z, its inverse across it), then the lean. Affine, base fixed. */
+export function shapeTree(matrix: THREE.Matrix4, crown: readonly number[]) {
+  const stretch = crown[4] ?? 1, angle = crown[5] ?? 0;
+  if (stretch !== 1) {
+    const c = Math.cos(angle), s = Math.sin(angle), k = 1 / stretch, e = matrix.elements;
+    const xx = stretch * c * c + k * s * s, zz = stretch * s * s + k * c * c, xz = (stretch - k) * s * c;
+    for (const column of [0, 4, 8]) {
+      const x = e[column], z = e[column + 2];
+      e[column] = xx * x + xz * z; e[column + 2] = xz * x + zz * z;
+    }
+  }
+  return leanTree(matrix, crown[2] ?? 0, crown[3] ?? 0);
+}
+
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
@@ -235,13 +251,14 @@ export class VegetationLod {
         const id = ids?.[i] ?? `${variant}:${i}`;
         inModel.copy(t).applyMatrix4(toModel);
         const nearWater = owner.userData.instance_near_water?.[i] ?? water.has(waterCell(inModel.x, inModel.z));
-        // trees-lidar@1 (pipeline migrations/trees_lidar.py): the lidar's crown, [height, radius, shear x, shear z].
+        // trees-lidar@1 (pipeline migrations/trees_lidar.py): the lidar's crown, [height, radius, shear x, shear z,
+        // stretch, angle].
         const crown = crowns?.[i];
         const height = crown ? crown[0] : s.y, radius = crown ? crown[1] : Math.max(s.x, s.z);
         const asset = library.variant(natureAsset(variant, String(id), height, nearWater, owner.userData.instance_species?.[i] ?? ""), String(id)), name = asset.name;
         const scale = natureScale(height, radius, asset.height, asset.radius);
         const placed = new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz));
-        if (crown) leanTree(placed, crown[2], crown[3]);
+        if (crown) shapeTree(placed, crown);
         place(byAsset, name, placed, natureTint(String(id)), ids?.[i]);
       }
       yield* this.commit(data, mesh, owner, byAsset, library, true);

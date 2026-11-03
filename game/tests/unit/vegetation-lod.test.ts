@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three/webgpu';
-import { VegetationLod, fadeReach, leanTree, vegetationLevels } from '../../src/world/vegetationLod';
+import { VegetationLod, fadeReach, leanTree, shapeTree, vegetationLevels } from '../../src/world/vegetationLod';
 import { VEGETATION_FADE, scaleVegetationFade } from '../../src/world/nature/materials';
 import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
@@ -636,4 +636,18 @@ it('draws trees-lidar crowns: the lidar height and radius instead of the instanc
   const m = leanTree(new THREE.Matrix4().makeRotationZ(0.3), 0.1, 0.2).elements;
   expect(m[0]).toBeCloseTo(Math.cos(0.3) + 0.1 * Math.sin(0.3), 6); expect(m[2]).toBeCloseTo(0.2 * Math.sin(0.3), 6);
   lod.remove(model);
+});
+
+it('stretches a tree footprint to its lidar ellipse, preserving the area, before the lean', () => {
+  const unit = (angle: number) => shapeTree(new THREE.Matrix4(), [10, 4, 0, 0, 1.25, angle]).elements;
+  const along = unit(0);
+  expect(along[0]).toBeCloseTo(1.25, 6); expect(along[10]).toBeCloseTo(0.8, 6); expect(along[5]).toBe(1);
+  const turned = unit(Math.PI / 2);
+  expect(turned[0]).toBeCloseTo(0.8, 6); expect(turned[10]).toBeCloseTo(1.25, 6);
+  const diagonal = new THREE.Matrix4().fromArray(unit(Math.PI / 4));
+  expect(diagonal.determinant()).toBeCloseTo(1, 6);
+  expect(new THREE.Vector3(1, 0, 1).normalize().applyMatrix4(diagonal).length()).toBeCloseTo(1.25, 6);
+  // The lean is applied after the ellipse: the crown offset per metre of height is the measured shear.
+  const both = shapeTree(new THREE.Matrix4(), [10, 4, 0.05, 0, 1.25, 0]).elements;
+  expect(both[4]).toBeCloseTo(0.05, 6);
 });

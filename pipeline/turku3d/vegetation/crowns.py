@@ -12,7 +12,10 @@ of it, and a crown keeps the cells connected to its trunk (``canopy_trees.connec
 - crown radius: 90th-percentile cell distance from the trunk, 1-9 m;
 - lean: the crown centroid's offset from the trunk beyond a dead zone (0.25 m + 0.1 of the radius: segmentation noise
   and trunks not quite under the crown's middle), within 0.3 of the radius and 2.5 m, as a shear per metre of height
-  taken at 0.6 of the height (where the centroid of a broadleaf crown sits), at most 0.08 (4.6 degrees).
+  taken at 0.6 of the height (where the centroid of a broadleaf crown sits), at most 0.08 (4.6 degrees);
+- footprint: an area-preserving ellipse from the principal axes of the crown cells about their centroid (crowns
+  pruned along a facade, squeezed in a row): the major axis's stretch (the minor axis takes its inverse) and the
+  major axis's angle from +x towards +z. Crowns of 40+ cells with an axis ratio under 0.85; the ratio is at least 0.75.
 
 The generator measured surveyed and lidar-found trees the same way, but never OSM-area scatter (random heights) or
 unsupported register trees (planting-year heights); here every drawn tree with a supported crown takes its measured
@@ -32,12 +35,14 @@ MIN_CELLS = 12
 REACH = (1.5, 2.0)  # a crown cell belongs within max(1.5 r, r + 2 m) of a trunk
 LEAN_HEIGHT, LEAN_RADIUS, LEAN_MAX, SHEAR_MAX = 0.6, 0.3, 2.5, 0.08
 LEAN_DEAD = (0.25, 0.1)  # m + fraction of the radius
+ELLIPSE_CELLS, ELLIPSE_ROUND, ELLIPSE_MIN = 40, 0.85, 0.75  # cells; axis ratios: round enough, flattest (neighbours sharing canopy also squeeze the cells)
 
 
 def measure(trees, canopy):
     """``trees``: (n, 5) x, z, base y, height, crown radius. ``canopy``: (m, 3) x, y, z cells.
 
-    Returns per tree ``[height, radius, shear_x, shear_z]`` (rounded to cm and 1e-3), or None without support."""
+    Returns per tree ``[height, radius, shear_x, shear_z, stretch, angle]`` (rounded to cm and 1e-3), or None without
+    support. A round crown has stretch 1 and angle 0."""
     trees = np.asarray(trees, dtype=float).reshape(-1, 5)
     canopy = np.asarray(canopy, dtype=float).reshape(-1, 3)
     result = [None] * len(trees)
@@ -74,7 +79,15 @@ def measure(trees, canopy):
         slope = float(np.hypot(*shear))
         if slope > SHEAR_MAX:
             shear *= SHEAR_MAX / slope
-        result[i] = [round(height, 2), round(r, 2), round(float(shear[0]), 3), round(float(shear[1]), 3)]
+        stretch, angle = 1.0, 0.0
+        if len(crown) >= ELLIPSE_CELLS:
+            values, vectors = np.linalg.eigh(np.cov((offsets - offsets.mean(axis=0)).T))
+            ratio = float(np.sqrt(max(values[0], 0.0) / values[1])) if values[1] > 0 else 1.0
+            if ratio < ELLIPSE_ROUND:
+                stretch = 1 / np.sqrt(max(ratio, ELLIPSE_MIN))
+                angle = float(np.arctan2(vectors[1, 1], vectors[0, 1]) % np.pi)
+        result[i] = [round(height, 2), round(r, 2), round(float(shear[0]), 3), round(float(shear[1]), 3),
+                     round(float(stretch), 3), round(angle, 3)]
     return result
 
 

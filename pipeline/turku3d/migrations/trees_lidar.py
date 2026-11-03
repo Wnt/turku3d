@@ -3,8 +3,9 @@
 Reads the tile's vegetation instances (EXT_mesh_gpu_instancing TRANSLATION and SCALE of each variant's nodes) and the
 class-5 canopy of the LAZ blocks under the tile (``crowns.canopy_cells``, streamed, nothing cached), and
 writes ``instance_crowns`` into the extras of every vegetation node: per instance ``[height, crown radius, shear x,
-shear z]`` or null where the lidar shows no crown. The game draws a tree with these instead of the instance scale and
-leans it by the shear (``game/src/world/vegetationLod.ts``). Only the visual GLB's JSON changes; trunk collision keeps
+shear z, stretch, angle]`` or null where the lidar shows no crown. The game draws a tree with these instead of the
+instance scale, leans it by the shear and stretches its footprint to the crown's ellipse
+(``game/src/world/vegetationLod.ts`` ``shapeTree``). Only the visual GLB's JSON changes; trunk collision keeps
 the generator's placement. A tile without lidar on disk is not changed."""
 
 from __future__ import annotations

@@ -27,9 +27,20 @@ def test_measure_sizes_unmeasured_trees_and_leans_offset_crowns():
                              crown_cells(60, 10, 0.3, 2)])  # a hedge-high patch is no crown
     trees = [[10, 10, 0, 9, 2.5], [30, 10, 0, 12, 3], [60, 10, 0, 8, 2], [90, 10, 0, 10, 3]]
     big, lean, low, bare = measure(trees, canopy)
-    assert 17.5 < big[0] <= 18 and 4.2 < big[1] < 5.1 and big[2:] == [0, 0]
+    assert 17.5 < big[0] <= 18 and 4.2 < big[1] < 5.1 and big[2:] == [0, 0, 1, 0]
     assert 11 < lean[0] <= 12 and 0 < lean[2] <= SHEAR_MAX and lean[3] == 0
     assert low is None and bare is None
+
+
+def test_measure_fits_an_elliptic_footprint():
+    # A crown squeezed to 0.6 of its width along z (a facade or a row): stretched along x.
+    cells = crown_cells(10, 10, 15, 5)
+    cells = cells[np.abs(cells[:, 2] - 10) <= 3]
+    (crown,) = measure([[10, 10, 0, 15, 4]], cells)
+    assert 1.1 < crown[4] <= 1 / np.sqrt(0.75) + 1e-3 and (crown[5] < 0.05 or crown[5] > np.pi - 0.05)
+    turned = cells[:, [2, 1, 0]]
+    (crown,) = measure([[10, 10, 0, 15, 4]], turned)
+    assert abs(crown[5] - np.pi / 2) < 0.05
 
 
 def float_view(blob: bytearray, values) -> tuple[int, int]:
