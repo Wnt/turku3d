@@ -344,12 +344,44 @@ selecting one the player cannot afford makes the shopkeeper refuse (`*_no_money`
 
 | Shop | Greeting | Options (menu order) |
 |---|---|---|
-| Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Rent a permit on credit (only with no permit and under 80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Leave |
+| Black market | `market_greet`; `market_greet_expired` once the permit has run out | Rent a courier working permit (80 €), Rent a permit on credit (only with no permit and under 80 €), Forged license plates (120 €), Sell your kidney (+400 €), Buy back the permit expiry warning (10 €), Steal the trophy truck (free, the truck heist below), Abandon the truck job, Leave |
 | Pizzeria Linnanportti | `pizzeria_first`, `pizzeria_back`, `pizzeria_after_fail`, `pizzeria_no_permit`, `pizzeria_carrying` or `pizzeria_greet` | Take the next delivery order (shows address, route metres and par time; ends the visit), Long-range delivery, Bring my vehicle here (free, `pizzeria_bring_vehicle`: the own vehicle to the kerb outside), A slice for yourself (4 €), Ask about the tip rules (free, `pizzeria_tip_rules`), Leave |
 | Rantakadun Kulkine (dealer) | `dealer_greet`; `dealer_no_permit` before the first permit, with every option greyed | Scooter (60 €), Car (350 €) (both end the visit; the vehicle waits at the kerb), Sell your vehicle back (+half), Leave |
 
 The drop-off has no menu: the button hands over the pizza, the customer's line and the pay line
 play, and the zone disappears until the next order.
+
+### Truck heist
+
+A black-market job whose reward is the forged plates (`job_truck_heist`; places in
+`content/locations.ts`, state in `MissionSystem.heist`, the world side in `play.ts`):
+
+- **Offer.** Free, and offered only while the player has no plates and does not own the trophy
+  truck; greyed while a pizza is carried. Taking it plays the briefing (`heist_briefing`) and marks
+  the inner yard of Rettigin palatsi (Itäinen Rantakatu 4–6, engine 546.9, 122.7) with a `job`
+  zone ("Truck job"). While it runs, pizza orders and buying the truck are refused
+  (`reason_heist_active`). "Abandon the truck job" at the market ends it (`heist_abandoned`; not
+  while sitting in the truck) and it can be started again.
+- **Truck.** The trophy truck (`TRUCK_ID`) is placed in the yard, nose to the exit, once the
+  yard's collision cell is resident and the spot passes the vehicle ground check. The yard's
+  collision has open sky over the spot and a 4–11 m wide drivable lane straight south to
+  Hämeenkatu past the private driveways; their OSM gates carry no collision. The private ways are
+  not in the street graph, so the route to the yard ends where the graph reaches it (the service
+  way to its north-east gate). Getting in plays `heist_in_truck` and moves the target to the
+  drop-off.
+- **Drop-off.** The road under Aninkaistensilta (engine 243.4, −873.5; ground y 9.67 under the
+  deck at 14.6–15.5). The zone's ray starts below the deck, the route ends on Ratapihankatu south
+  of the bridge (`approach`), and the job counts only when the player gets out of the truck within
+  8 m at the road's level (2.5 m), never on the bridge above.
+- **Reward.** `plates = true`, `heist_done` plays and the checkpoint autosaves. The truck is taken
+  out of the world (truck ownership is unchanged), and the start car (the player's own car, when
+  they bought the car) is parked for them at the nearest road-graph kerb spot 10–30 m from the
+  drop-off (60 m if none) that passes the vehicle ground check at the road's level. With the
+  plates any car may deliver.
+- **Save.** The optional `heist` field (`pickup` / `deliver`); a reload resumes a running job with
+  the truck back in the yard. It is per player. In multiplayer the truck is shared like an owned
+  truck while the job runs (`net/sharedVehicles.ts` registers the local `truck`); taking it away
+  at the end is not yet announced to other players.
 
 ## Dialogue
 

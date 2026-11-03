@@ -74,7 +74,13 @@ export interface MissionSave {
   loaner?: boolean;
   /** Euros still owed for permits rented on credit (economy.ts debtRepayment). Missing: 0. */
   debt?: number;
+  /** The black market's truck heist: the trophy truck waits in the yard (`pickup`) or is being driven to the bridge
+   *  (`deliver`). Missing or null: no job running. A reload puts a running job back to `pickup` with the truck in the
+   *  yard. */
+  heist?: HeistStage | null;
 }
+
+export type HeistStage = 'pickup' | 'deliver';
 
 /** The save format of main e323e39 (four looping deliveries, no address pool). */
 interface MissionSaveV2 {
@@ -184,6 +190,7 @@ export function parseSave(raw: string | null, seed: number): MissionSave {
     const offer = save.limited as Partial<LimitedOffer> | undefined;
     save.limited = offer && num(offer.n) && ids(offer.stops) && num(offer.left)
       ? { n: Math.floor(offer.n), stops: offer.stops, left: offer.left } : freshOffer();
+    save.heist = save.heist === 'pickup' || save.heist === 'deliver' ? 'pickup' : null;
     // A finished delivery's result line is not replayed after a reload: the next step is the pizzeria.
     if (save.phase === 'delivered' || save.phase === 'failed' || (save.phase === 'carrying' && save.par <= 0)) {
       save.phase = save.permit > 0 ? 'at_pizzeria' : 'permit_needed';

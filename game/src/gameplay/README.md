@@ -126,6 +126,17 @@ again. To change the scripted opening:
 A saved game stores scripted stops by id (`delivery_<n>`) and pool stops by address slug, so a
 rebuilt pool keeps existing saves valid; an order whose address left the pool is dropped on load.
 
+### Truck heist
+
+The black market's `job_truck_heist` (`docs/design/story.md`, "Truck heist"): `MissionSystem.heist` is
+`pickup` / `deliver` / null, `update()` reports `heist: 'started' | 'delivered' | 'abandoned'`, and `play.ts` keeps the
+world in step: it places the trophy truck (`TRUCK_ID`) at `HEIST_TRUCK_SPOT` once the yard's collision cell is resident
+and the spot passes `vehicleGround`, removes it when the job ends or a game is loaded, and on `delivered` parks the
+start car at the nearest ground-checked `kerbSpots` spot near `HEIST_DROP`. `job` targets (`HEIST_YARD`, `HEIST_DROP`)
+are probed from `ZONE_RAY_TOP` like the market, never checked as delivery drop-offs; `RouteTarget.approach` ends the
+route on the street when the marker is off the graph or under a bridge.
+Verify: `npx vitest run tests/unit/truck-heist.test.ts tests/unit/missions.test.ts` from `game/`.
+
 ### Adding a shop option
 
 Add the id to `OptionId` and the shop's `options` in `content/shops.ts` (with an icon from

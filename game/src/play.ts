@@ -49,7 +49,7 @@ import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
 import { LOANER_ID, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary } from './gameplay/missions/missions';
-import { DEALER_VEHICLE_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
+import { DEALER_VEHICLE_SPOT, HEIST_DROP, HEIST_TRUCK_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
 import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
 import { vehicleGround } from './gameplay/vehicleSave';
@@ -87,6 +87,9 @@ import { CROWD_RADIUS } from './audio/mix';
 const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
 /** Seconds between attempts to put a missing loaner scooter at the pizzeria kerb. */
 const LOANER_RETRY_MS = 2000;
+/** The truck heist's reward car parks at a road-graph kerb spot this far from the drop-off (first within the near
+ *  radius, else the far one), out of the drop zone and at the drop-off's road level, not on the bridge above. */
+const HEIST_CAR_MIN_M = 10, HEIST_CAR_NEAR_M = 30, HEIST_CAR_FAR_M = 60, HEIST_CAR_LEVEL_M = 1.5;
 const rideKind = (id: string): VehicleKind => (id === SCOOTER_ID ? 'scooter' : id === TRUCK_ID ? 'truck' : 'car');
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
@@ -397,6 +400,31 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
   let loanerRetryAt = 0;
+  // The truck heist's trophy truck (TRUCK_ID; offered only to a player who owns no truck): placed in the yard once its
+  // collision cell is resident, taken away when the job ends. After a game is loaded it is placed again.
+  let heistTruck = false, heistRetryAt = 0, wasLoading = saveGame.loading;
+  const heistTile = collisionTileAt(HEIST_TRUCK_SPOT.x, HEIST_TRUCK_SPOT.z);
+  const placeHeistTruck = async () => {
+    const y = await vehicleGround(physics, HEIST_TRUCK_SPOT, { kind: 'truck' }, SPAWN_HEIGHT.truck, false);
+    if (y === null) return false;
+    await parkRide(TRUCK_ID, HEIST_TRUCK_SPOT, y);
+    return true;
+  };
+  /** The reward car: the start car (the player's own car when they bought it) at the nearest ground-checked kerb. */
+  const parkHeistCar = async () => {
+    const drop = HEIST_DROP.point;
+    for (const radius of [HEIST_CAR_NEAR_M, HEIST_CAR_FAR_M]) {
+      const spots = kerbSpots(router.graph, drop, VEHICLES.car.halfExt.z, radius)
+        .filter(spot => Math.hypot(spot.x - drop.x, spot.z - drop.z) >= HEIST_CAR_MIN_M);
+      for (const spot of spots.slice(0, BRING_CHECKS)) {
+        const y = await vehicleGround(physics, { ...spot, y: drop.y! }, { kind: 'car' }, SPAWN_HEIGHT.car, false);
+        if (y === null || Math.abs(y - drop.y!) > HEIST_CAR_LEVEL_M) continue;
+        await parkRide(OWN_VEHICLE_ID, spot, y);
+        return;
+      }
+    }
+    console.warn('[missions] truck heist: no kerb spot for the reward car near the drop-off');
+  };
   const framePacer = new FramePacer(params.mobile ? 30 : 0);
   Object.assign(window.__game!, { framePacer });
   document.addEventListener('visibilitychange', () => {
@@ -534,6 +562,25 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       rideAt: ride ? { x: ride.pos.x, y: ride.pos.y, z: ride.pos.z } : null,
     });
     if (mission.park && !heldElsewhere(missions.rideId)) void parkRide(missions.rideId, PIZZERIA_VEHICLE_SPOT).catch(fail);
+    if (mission.heist === 'delivered') void parkHeistCar().catch(fail);
+    const heistWanted = missions.heist !== null && missions.vehicle !== 'truck';
+    if (wasLoading && !saveGame.loading && heistTruck && missions.vehicle !== 'truck') {
+      physics.removeVehicle(TRUCK_ID); heistTruck = false; // a loaded game places its own
+    }
+    wasLoading = saveGame.loading;
+    if (heistWanted && !heistTruck && !saveGame.loading && now >= heistRetryAt && physics.loaded.has(`c_${heistTile.i}_${heistTile.j}`)) {
+      heistRetryAt = now + LOANER_RETRY_MS;
+      void placeHeistTruck().then(placed => {
+        if (!placed) return;
+        if (missions.heist !== null) heistTruck = true;
+        else physics.removeVehicle(TRUCK_ID); // the job ended while the truck was being placed
+      }).catch(fail);
+    }
+    if (!heistWanted && heistTruck && missions.vehicle !== 'truck') {
+      if (drivenId === TRUCK_ID) leaveCar(null);
+      physics.removeVehicle(TRUCK_ID);
+      heistTruck = false;
+    }
     const carrying = missions.phase === 'carrying';
     if (wasCarrying && !carrying && missions.phase === 'delivered') audio.resolveDelivery();
     else if (wasCarrying && !carrying) audio.setMusicDeadline(0);

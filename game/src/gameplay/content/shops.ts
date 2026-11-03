@@ -1,11 +1,11 @@
 // The three shops a player can enter (docs/design/story.md, "Shops"): their zone, menu art and options in menu
 // order. Labels and details are dialogue line ids; availability and effects live in missions/missions.ts.
 import type { RouteTarget, TargetKind } from '../contract';
-import { DEALER, MARKET, PIZZERIA } from './locations';
+import { DEALER, HEIST_DROP, MARKET, PIZZERIA } from './locations';
 
 export type ShopId = 'market' | 'pizzeria' | 'dealer';
 export type OptionId = 'rent_permit' | 'permit_on_credit' | 'forged_plates' | 'sell_kidney' | 'expiry_warning' | 'take_order' | 'slice'
-  | 'take_long_order' | 'take_limited_order' | 'tip_rules' | 'bring_vehicle' | 'buy_scooter' | 'buy_car' | 'buy_truck' | 'sell_vehicle'
+  | 'take_long_order' | 'take_limited_order' | 'job_truck_heist' | 'abandon_truck_heist' | 'tip_rules' | 'bring_vehicle' | 'buy_scooter' | 'buy_car' | 'buy_truck' | 'sell_vehicle'
   | 'leave';
 
 export interface ShopOption {
@@ -27,7 +27,8 @@ const option = (id: OptionId, icon: string | null): ShopOption => ({ id, icon })
 export const SHOPS: Record<ShopId, Shop> = {
   market: { id: 'market', target: MARKET, background: 'bg_market', options: [
     option('rent_permit', 'icon_permit'), option('permit_on_credit', 'icon_permit'), option('forged_plates', 'icon_plates'), option('sell_kidney', 'icon_kidney'),
-    option('expiry_warning', 'icon_warning'), option('leave', null)] },
+    option('expiry_warning', 'icon_warning'), option('job_truck_heist', 'icon_truck'),
+    option('abandon_truck_heist', 'icon_truck'), option('leave', null)] },
   pizzeria: { id: 'pizzeria', target: PIZZERIA, background: 'bg_pizzeria', options: [
     option('take_order', 'icon_pizza_box'), option('take_long_order', 'icon_pizza_box'),
     option('take_limited_order', 'icon_pizza_box'), option('bring_vehicle', 'icon_scooter'), option('slice', 'icon_slice'),
@@ -45,12 +46,13 @@ export const optionDetail = (id: OptionId) => (id === 'take_order' || id === 'le
 
 /** Floating zone label per target kind; every kind has exactly one place or the current drop-off. */
 export const ZONE_LABELS: Record<TargetKind, string> = {
-  market: 'zone_market', pickup: 'zone_pizzeria', shop: 'zone_dealer', dropoff: 'zone_dropoff',
+  market: 'zone_market', pickup: 'zone_pizzeria', shop: 'zone_dealer', dropoff: 'zone_dropoff', job: 'zone_job',
 };
 
 /** Height (engine metres) from which a downward ray finds a zone's ground. The black market sits on the
- *  lower quay under the Auransilta deck, so its ray starts below the deck. */
-export const ZONE_RAY_TOP: Partial<Record<string, number>> = { [MARKET.id]: 2 };
+ *  lower quay under the Auransilta deck, so its ray starts below the deck; so does the truck heist's drop-off on the road
+ *  under Aninkaistensilta. */
+export const ZONE_RAY_TOP: Partial<Record<string, number>> = { [MARKET.id]: 2, [HEIST_DROP.id]: 12 };
 export const DEFAULT_ZONE_RAY_TOP = 40;
 
 /** Compact indoor marker fits beneath the quay passage vault. */
