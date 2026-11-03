@@ -219,3 +219,18 @@ def test_short_connector_cannot_inherit_a_higher_landing_beyond_its_end():
     np.testing.assert_allclose(patch['heights'][:, 2:5], 1.2, atol=1e-8)
     query = np.c_[np.linspace(0, 4.5, 31), np.zeros(31), np.zeros(31)]
     np.testing.assert_allclose(walkable.grade(query, [patch])[:, 1], 1.2, atol=1e-8)
+
+
+def test_area_strips_describe_strip_areas_only():
+    from turku3d.coarse.walkable import area_strips
+
+    # A 40 x 6 m paved strip keeps one axis strip with its own width.
+    (key, line, width), = area_strips("7", shapely.box(0, 0, 40, 6))
+    assert key == "7:0:0" and abs(width - 6) < 1e-9 and abs(line.length - 40) < 1e-9
+    # A 3 m sidewalk ring around a block is not a 30 m wide ruled strip over
+    # the block interior (plazas, stairs and terraces inside the ring).
+    ring = shapely.box(0, 0, 100, 120).difference(shapely.box(3, 3, 97, 117))
+    for _, line, width in area_strips("8", ring):
+        strip = line.buffer(width / 2, cap_style="flat")
+        assert strip.intersection(ring).area >= 0.75 * strip.area
+        assert width <= 4 * ring.area / ring.length + 1e-9
