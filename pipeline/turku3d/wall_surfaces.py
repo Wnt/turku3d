@@ -428,6 +428,8 @@ def layer_meshes(paths):
                         colors=accessor_array(document, binary, attrs["COLOR_0"])
                         if "COLOR_0" in attrs
                         else None,
+                        night_irradiance=accessor_array(document, binary, attrs["_NIGHT_IRRADIANCE"])
+                        if "_NIGHT_IRRADIANCE" in attrs else None,
                         baked_visibility=accessor_array(document, binary, attrs["COLOR_1"])
                         if "COLOR_1" in attrs
                         else None,
