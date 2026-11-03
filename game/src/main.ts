@@ -300,7 +300,10 @@ const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, a
   const tiers = model.userData.dissolveTiers as number[] | undefined;
   if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
 }, undefined, 'scenery');
-const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
+// ?resolutionTarget=40: desktop AdaptiveResolution aims at the 40 FPS goal instead of 60, so it lowers resolution only
+// when frames miss the goal (at 60 every desktop sits at the 0.5 floor). A/B, owner winperf: decided by M1 Max and
+// Radeon 560X ?view=live replays; the losing path goes within ten merges.
+const resolution = new AdaptiveResolution(params.mobile ? 30 : new URLSearchParams(location.search).get('resolutionTarget') === '40' ? 40 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;

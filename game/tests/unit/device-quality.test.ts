@@ -59,3 +59,23 @@ test('the resolved tier is readable for streaming residency', async () => {
   setRenderTier({ tier: 'reduced', source: 'device', gpu });
   expect(renderTier()).toEqual({ tier: 'reduced', source: 'device', gpu });
 });
+
+test('a 40 FPS resolution target keeps full resolution at the goal and steps down only below it', () => {
+  const run = (target: number, ms: number, count = 900) => {
+    const controller = new AdaptiveResolution(target);
+    let time = 0;
+    for (let n = 0; n < count; n++) controller.update(time += ms);
+    return controller.scale;
+  };
+  expect(run(60, 24)).toBe(0.5); // today's desktop target: 41 FPS still reads as slow
+  expect(run(40, 24)).toBe(1);
+  expect(run(40, 32)).toBe(0.5);
+});
+
+test('leaf A/B variants parse strictly', async () => {
+  const { parseLeafVariant } = await import('../../src/world/nature/materials');
+  expect(parseLeafVariant(null)).toBe(null);
+  expect(parseLeafVariant('single')).toBe('single');
+  expect(parseLeafVariant('noshadow')).toBe('noshadow');
+  expect(() => parseLeafVariant('cheap')).toThrow();
+});

@@ -4,6 +4,7 @@ import { PreparationBudget } from '../render/preparationBudget';
 import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
 import { fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './nature/species';
 import { GrassField } from './nature/grass';
+import { leafVariant } from './nature/materials';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
 import { shareInstanceProgram } from '../render/instancePrograms';
@@ -474,7 +475,8 @@ export class VegetationLod {
       mesh.userData = { ...userData, instance_object_ids: pool.objectIds };
       shareInstanceProgram(mesh, true); // the tile draws' prepared programs, also after the pool grows
       mesh.name = `vegetation-pool:${part.userData.nature}:${part.userData.level}`;
-      mesh.receiveShadow = part.receiveShadow; mesh.castShadow = part.castShadow; mesh.layers.mask = part.layers.mask;
+      mesh.receiveShadow = part.receiveShadow && !(leafVariant === 'noshadow' && (part.material as THREE.Material).name === 'nature-leaves');
+      mesh.castShadow = part.castShadow; mesh.layers.mask = part.layers.mask;
       mesh.count = 0; mesh.visible = false;
       this.poolRoot!.add(mesh);
       return mesh;
