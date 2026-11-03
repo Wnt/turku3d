@@ -55,6 +55,7 @@ import { GroundIndex } from './world/groundIndex';
 import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
+import { freezeModel } from './world/frozenTransforms';
 import { altitudeShadows } from './render/shadowAltitude';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
@@ -200,6 +201,13 @@ altitudeShadows.enabled = new URLSearchParams(location.search).get('altitudeShad
 let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.add(model));
+// The world root never moves, so it does not force every object's matrices each frame; published models freeze their
+// static transforms (world/frozenTransforms.ts). ?frozen=0 keeps the old per-frame recompose, for the A/B.
+const frozenModels = new URLSearchParams(location.search).get('frozen') !== '0';
+if (frozenModels) {
+  scene.updateMatrix(); scene.matrixAutoUpdate = false;
+  tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => freezeModel(model));
+}
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.remove(model));
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);

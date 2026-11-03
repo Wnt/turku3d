@@ -96,6 +96,7 @@ export class RiverMaterial {
     target.position.fromBufferAttribute(p, 0);
     target.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
       n ? new THREE.Vector3().fromBufferAttribute(n, 0).normalize() : new THREE.Vector3(0, 1, 0));
+    target.matrixAutoUpdate = true; // never frozen with a tile (freezeModel): it moves between reaches
     mesh.add(target);
   }
 

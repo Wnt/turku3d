@@ -25,3 +25,24 @@ export class StaticGroup extends THREE.Group {
     updateMatrixWorld.call(this, true);
   }
 }
+
+/** Props (breakable poles, signs, bus stops: world/poles.ts moves their nodes when they break) keep updating. */
+const movable = (object: THREE.Object3D) => !!object.userData.prop_type
+  || (object.userData.objects as Record<string, unknown>[] | undefined)?.some(row => row.prop_type) === true;
+
+/** A published tile or scenery model's local transforms never change: compose each once and stop recomposing them
+ *  every frame (round 9 CPU trace: updateMatrixWorld 7.3 % of main-thread time). With the scene root not forcing
+ *  (`scene.matrixAutoUpdate = false`), the per-frame world update then visits frozen nodes without any matrix work,
+ *  while every automatic node (added later: pole pivots, attached placements) still composes and updates its own
+ *  subtree. Kept automatic: prop subtrees, non-mesh leaves (the river's reflection target, which moves between
+ *  reaches) and StaticGroups (their own freeze). */
+export function freezeModel(model: THREE.Object3D) {
+  model.updateMatrixWorld(true);
+  const visit = (object: THREE.Object3D) => {
+    if (movable(object) || object instanceof StaticGroup) return;
+    if (object !== model && !(object as THREE.Mesh).isMesh && !object.children.length) return;
+    if (object.matrixAutoUpdate) { object.updateMatrix(); object.matrixAutoUpdate = false; }
+    for (const child of object.children) visit(child);
+  };
+  visit(model);
+}
