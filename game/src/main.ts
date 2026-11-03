@@ -23,6 +23,7 @@ import { Environment, tileShadows } from './render/environment';
 import { riverClock } from './render/riverWaves';
 import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
+import { PointCloudOverlay, pointCloudParam } from './render/pointCloud';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
 import { QUALITY, deviceQuality, renderPixelRatio, renderTier, setRenderTier } from './render/quality';
@@ -209,7 +210,13 @@ const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Came
   return { color: lightLayer ? weatherLayer.color.add(lightLayer.color) : weatherLayer.color,
     resource: { dispose() { weatherLayer.resource.dispose(); lightLayer?.resource.dispose(); } } };
 } } : lights?.sprites;
-let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+// LiDAR overlay (render/pointCloud): built hidden in desktop play for the editor to show; ?pointcloud=1 shows it at
+// startup (also in QA views), ?pointcloud=0 leaves it out of the pipeline.
+const pointCloudWanted = pointCloudParam();
+const pointCloud = idPass || !pointCloudWanted.build || (!pointCloudWanted.show && (params.qa || params.mobile || params.lab || params.drive))
+  ? null : new PointCloudOverlay(params.quality);
+if (pointCloud && pointCloudWanted.show) { pointCloud.setColorMode(pointCloudWanted.mode); pointCloud.setVisible(true); }
+let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay, pointCloud);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
   census: () => {
@@ -324,7 +331,7 @@ function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
 if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
   if (!next || idPass) return;
   const previous = post;
-  post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+  post = new next.PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay, pointCloud);
   window.__render!.post = post;
   graphics.retire(() => previous?.dispose());
 });
@@ -363,6 +370,7 @@ const renderFrame = () => {
   vegetation?.update(camera);
   furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation, weather: weatherSample, fogFar: env.sample.fogFar });
+  pointCloud?.update(camera, renderer);
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
   const ground = groundBelow(camera.position.x, camera.position.z);

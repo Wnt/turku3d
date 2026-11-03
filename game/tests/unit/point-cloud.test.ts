@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createLazPerf } from 'laz-perf';
-import { HEADER_BYTES, childKeys, decodeRecords, decompressChunk, nodeAnchor, nodeBounds, parseHeader, parseHierarchyPage,
+import { HEAD_READ, childKeys, decodeRecords, decompressChunk, nodeAnchor, nodeBounds, parseHeader, parseHierarchyPage,
   type LazPerfModule } from '../../src/render/pointCloud/copc';
 import { shufflePoints } from '../../src/render/pointCloud/shuffle';
 import { drawnPoints, selectNodes, type LodNode, type LodView } from '../../src/render/pointCloud/lod';
@@ -14,12 +14,15 @@ const bytes = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLeng
 const slice = (offset: number, size: number) => bytes.slice(offset, offset + size);
 
 describe('COPC reading', () => {
-  const header = parseHeader(slice(0, HEADER_BYTES));
+  const header = parseHeader(slice(0, HEAD_READ));
   const page = parseHierarchyPage(slice(header.rootPage.offset, header.rootPage.size));
 
   it('parses the LAS 1.4 header and COPC info', () => {
     expect(header.pointFormat).toBe(7);
-    expect(header.recordLength).toBe(36);
+    expect(header.recordLength).toBe(39);
+    expect(header.extraBytes.map(e => e.name)).toEqual(['OrthoRed', 'OrthoGreen', 'OrthoBlue']);
+    expect(header.orthoOffset).toBe(36);
+    expect(header.pointOffset).toBeLessThanOrEqual(HEAD_READ);
     expect(header.pointCount).toBe(6001);
     expect(header.scale).toEqual([0.01, 0.01, 0.01]);
     expect(header.min[0]).toBeCloseTo(23459658, 0);
@@ -47,21 +50,28 @@ describe('COPC reading', () => {
 
   it('decodes every node; the marker point lands on the pilot address in the engine frame', async () => {
     const laz = await (createLazPerf as unknown as () => Promise<LazPerfModule>)();
-    let total = 0, found: number[] | null = null;
+    let total = 0, found: number[] | null = null, orthoColoured = 0, surveyColoured = 0;
     for (const node of page.nodes) {
       const records = decompressChunk(laz, new Uint8Array(slice(node.offset, node.byteSize)), node.pointCount, header.pointFormat, header.recordLength);
       const anchor = nodeAnchor(header, node);
       const points = decodeRecords(records, node.pointCount, header, anchor);
       total += points.count;
       for (let i = 0; i < points.count; i++) {
-        const [r, g, b, cls] = points.colors.subarray(i * 4, i * 4 + 4);
+        const [r, g, b] = points.survey.subarray(i * 4, i * 4 + 3), cls = points.colors[i * 4 + 3];
+        const x = points.positions[i * 3] + anchor[0];
+        // The fixture's ortho bytes are (10, 200, 30) east of E 23459662 (engine x 162) and 0 (none) west of it.
+        const colour = [...points.colors.subarray(i * 4, i * 4 + 3)];
+        if (x >= 162.01) { expect(colour).toEqual([10, 200, 30]); expect(points.extra[i * 4 + 3]).toBe(1); orthoColoured++; }
+        if (x < 161.99) { expect(colour).toEqual([r, g, b]); expect(points.extra[i * 4 + 3]).toBe(0); surveyColoured++; }
         if (r === 255 && g === 0 && b === 0 && cls === 6)
-          found = [points.positions[i * 3] + anchor[0], points.positions[i * 3 + 1] + anchor[1], points.positions[i * 3 + 2] + anchor[2]];
+          found = [x, points.positions[i * 3 + 1] + anchor[1], points.positions[i * 3 + 2] + anchor[2]];
       }
       expect(points.minY).toBeGreaterThanOrEqual(1.99);
       expect(points.maxY).toBeLessThanOrEqual(8.01);
     }
     expect(total).toBe(6001);
+    expect(orthoColoured).toBeGreaterThan(3000);
+    expect(surveyColoured).toBeGreaterThan(1000);
     // The fixture writes the marker at E 23459668, N 6704254, H 3.69 (game/src/qa/street-cameras.json: engine (168, 246)).
     const expected = enToEngine(OFFICE_EN.E, OFFICE_EN.N, 3.69);
     expect(found).not.toBeNull();
@@ -75,9 +85,9 @@ describe('COPC reading', () => {
   it('shuffles all columns with one permutation, deterministically', () => {
     const count = 1000;
     const make = () => {
-      const positions = new Float32Array(count * 3), colors = new Uint8Array(count * 4), extra = new Uint8Array(count * 4);
-      for (let i = 0; i < count; i++) { positions[i * 3] = i; colors[i * 4] = i & 255; colors[i * 4 + 1] = i >> 8; extra[i * 4] = i & 255; }
-      return { count, positions, colors, extra };
+      const positions = new Float32Array(count * 3), colors = new Uint8Array(count * 4), extra = new Uint8Array(count * 4), survey = new Uint8Array(count * 4);
+      for (let i = 0; i < count; i++) { positions[i * 3] = i; colors[i * 4] = i & 255; colors[i * 4 + 1] = i >> 8; extra[i * 4] = i & 255; survey[i * 4 + 2] = i & 255; }
+      return { count, positions, colors, extra, survey };
     };
     const a = make(), b = make();
     shufflePoints(a, '3-1-2-0'); shufflePoints(b, '3-1-2-0');
@@ -87,6 +97,7 @@ describe('COPC reading', () => {
       const id = a.positions[i * 3];
       expect(a.colors[i * 4] | (a.colors[i * 4 + 1] << 8)).toBe(id);
       expect(a.extra[i * 4]).toBe(id & 255);
+      expect(a.survey[i * 4 + 2]).toBe(id & 255);
       if (id !== i) moved++;
     }
     expect(moved).toBeGreaterThan(count * 0.9);
@@ -147,5 +158,15 @@ describe('point-cloud LOD', () => {
     const node = tile(0, 0);
     expect(drawnPoints(node, 2, 1.25)).toBe(67_000);
     expect(drawnPoints(node, 0.625, 1.25)).toBe(Math.ceil(67_000 / 4));
+  });
+});
+
+describe('point-cloud URL switch', () => {
+  it('builds hidden by default, shows with ?pointcloud=1 or a colour mode, and leaves the pipeline with =0', async () => {
+    const { pointCloudParam } = await import('../../src/render/pointCloud');
+    expect(pointCloudParam('')).toEqual({ build: true, show: false, mode: 'rgb' });
+    expect(pointCloudParam('?pointcloud=1')).toEqual({ build: true, show: true, mode: 'rgb' });
+    expect(pointCloudParam('?pointcloud=classification')).toEqual({ build: true, show: true, mode: 'classification' });
+    expect(pointCloudParam('?pointcloud=0')).toEqual({ build: false, show: false, mode: 'rgb' });
   });
 });

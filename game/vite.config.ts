@@ -52,7 +52,8 @@ export default defineConfig({
     telemetryDir: process.env.TURKU3D_TELEMETRY_DIR ?? path.join(workRoot, 'telemetry') })],
   worker: { format: 'es', plugins: () => [wasm()] },
   build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000 },
-  optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
+  // laz-perf (the point-cloud worker's LAZ decoder) is CommonJS: pre-bundle it at startup, never on first use.
+  optimizeDeps: { exclude: ['@dimforge/rapier3d'], include: ['laz-perf/lib/worker/laz-perf.js'] },
   // /coarse/* reaches the localhost coarse tile service (tools/dev/coarse-tiles) same-origin, as through serve-dist.
   // No HMR: merges land in the served worktree every few minutes and each one used to reload Jonni's test session.
   // The page polls /__build instead and shows a 'new build ready' notice (src/dev/buildNotice.ts); F5 loads it.
@@ -60,6 +61,12 @@ export default defineConfig({
     // Same contract as serve-dist: an offline service is a 200 answer on /coarse/status, never a page console error.
     if (!('writeHead' in res) || res.headersSent) return;
     res.writeHead(req.url?.split('?')[0] === '/coarse/status' ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end('{"state":"offline"}\n');
+  }) },
+  // /pointcloud/* is the LiDAR overlay's COPC product (tools/pointcloud/serve.py on osgallery-dev; range requests).
+  '/pointcloud': { target: process.env.TURKU3D_POINTCLOUD ?? 'http://192.168.1.114:7960', configure: (proxy) => proxy.on('error', (_err, _req, res) => {
+    if (!('writeHead' in res) || res.headersSent) return;
+    res.writeHead(503, { 'Content-Type': 'application/json' });
     res.end('{"state":"offline"}\n');
   }) } } },
   preview: { port: port(1), strictPort: true, headers: isolation },

@@ -9,8 +9,8 @@ function seed(key: string): number {
 
 /** Deterministic in-place Fisher-Yates over all point columns: any prefix is then a uniform subsample of the node,
  *  which distance thinning draws (lod.ts drawnPoints) without a second buffer. */
-export function shufflePoints(points: Pick<DecodedPoints, 'count' | 'positions' | 'colors' | 'extra'>, key: string) {
-  const { positions: p, colors: c, extra: e } = points;
+export function shufflePoints(points: Pick<DecodedPoints, 'count' | 'positions' | 'colors' | 'survey' | 'extra'>, key: string) {
+  const { positions: p, colors: c, survey: v, extra: e } = points;
   let s = seed(key);
   for (let i = points.count - 1; i > 0; i--) {
     // xorshift32
@@ -20,6 +20,7 @@ export function shufflePoints(points: Pick<DecodedPoints, 'count' | 'positions' 
     for (let k = 0; k < 4; k++) {
       const t = c[i * 4 + k]; c[i * 4 + k] = c[j * 4 + k]; c[j * 4 + k] = t;
       const u = e[i * 4 + k]; e[i * 4 + k] = e[j * 4 + k]; e[j * 4 + k] = u;
+      const w = v[i * 4 + k]; v[i * 4 + k] = v[j * 4 + k]; v[j * 4 + k] = w;
     }
   }
 }

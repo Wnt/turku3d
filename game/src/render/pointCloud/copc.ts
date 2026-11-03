@@ -5,6 +5,10 @@ import { E0, N0 } from '../../core/origin';
 
 /** Bytes that hold the LAS 1.4 header plus the COPC info VLR, which the spec requires first. */
 export const HEADER_BYTES = 375 + 54 + 160;
+/** First read of a tile: the header and, in practice, every VLR (COPC info, LASzip, extra bytes, WKT). */
+export const HEAD_READ = 16384;
+/** Point record bytes before any extra bytes, per COPC format. */
+const BASE_LENGTH: Record<number, number> = { 6: 30, 7: 36, 8: 38 };
 
 export interface CopcHeader {
   pointFormat: number;
@@ -19,6 +23,36 @@ export interface CopcHeader {
   cube: { centre: [number, number, number]; half: number };
   spacing: number;
   rootPage: { offset: number; size: number };
+  /** Offset of the point data: the header read must reach it to see every VLR. */
+  pointOffset: number;
+  /** Extra-bytes dimensions (LAS 1.4 VLR LASF_Spec/4) and their byte offsets in a record. */
+  extraBytes: { name: string; offset: number; size: number }[];
+  /** Record offset of the OrthoRed, OrthoGreen, OrthoBlue bytes (tools/pointcloud/build_copc.py), or -1. */
+  orthoOffset: number;
+}
+
+/** Bytes of one extra-bytes value by LAS data type (1..10); 0 is undocumented with `options` bytes. */
+const EB_SIZE = [0, 1, 1, 2, 2, 4, 4, 8, 8, 4, 8];
+
+function parseExtraBytes(buffer: ArrayBuffer, headerSize: number, count: number, base: number) {
+  const view = new DataView(buffer), text = new TextDecoder();
+  const out: CopcHeader['extraBytes'] = [];
+  for (let i = 0, at = headerSize; i < count && at + 54 <= buffer.byteLength; i++) {
+    const userId = text.decode(new Uint8Array(buffer, at + 2, 16)).replace(/\0[\s\S]*$/, '');
+    const recordId = view.getUint16(at + 18, true), length = view.getUint16(at + 20, true);
+    if (userId === 'LASF_Spec' && recordId === 4 && at + 54 + length <= buffer.byteLength) {
+      let offset = base;
+      for (let d = at + 54; d + 192 <= at + 54 + length; d += 192) {
+        const type = view.getUint8(d + 2), options = view.getUint8(d + 3);
+        const name = text.decode(new Uint8Array(buffer, d + 4, 32)).replace(/\0[\s\S]*$/, '');
+        const size = type === 0 ? options : EB_SIZE[type] ?? 0;
+        out.push({ name, offset, size });
+        offset += size;
+      }
+    }
+    at += 54 + length;
+  }
+  return out;
 }
 
 export interface CopcNode {
@@ -45,7 +79,12 @@ export function parseHeader(buffer: ArrayBuffer): CopcHeader {
   const pointFormat = view.getUint8(104) & 0x3f;
   const f64 = (at: number) => view.getFloat64(at, true);
   const info = 375 + 54;
+  const extraBytes = parseExtraBytes(buffer, view.getUint16(94, true), view.getUint32(100, true), BASE_LENGTH[pointFormat] ?? 0);
+  const ortho = ['OrthoRed', 'OrthoGreen', 'OrthoBlue'].map(name => extraBytes.find(e => e.name === name));
+  const orthoOffset = ortho.every((e, i) => e && e.size === 1 && e.offset === ortho[0]!.offset + i) ? ortho[0]!.offset : -1;
   return {
+    pointOffset: view.getUint32(96, true),
+    extraBytes, orthoOffset,
     pointFormat,
     recordLength: view.getUint16(105, true),
     pointCount: u64(view, 247),
@@ -96,9 +135,11 @@ export interface DecodedPoints {
   count: number;
   /** Engine-frame positions relative to `anchor`, xyz per point. */
   positions: Float32Array;
-  /** Per point: r, g, b (8-bit sRGB) and the LAS classification. */
+  /** Per point: r, g, b (8-bit sRGB: the true ortho's colour where the tile has it, else the survey's) and the LAS class. */
   colors: Uint8Array;
-  /** Per point: intensity (top 8 bits), return number, number of returns, flags (bit 0 synthetic, 1 key point, 2 withheld, 3 overlap). */
+  /** Per point: the survey's own r, g, b and flags (bit 0 synthetic, 1 key point, 2 withheld, 3 overlap). */
+  survey: Uint8Array;
+  /** Per point: intensity (top 8 bits), return number, number of returns, 1 if the colour is the ortho's. */
   extra: Uint8Array;
   /** Engine-frame anchor the positions are relative to (the node's centre). */
   anchor: [number, number, number];
@@ -107,13 +148,15 @@ export interface DecodedPoints {
 }
 
 /** Point data record formats 6, 7 and 8 (COPC requires one of them); 7 and 8 carry RGB at byte 30. */
-export function decodeRecords(records: Uint8Array, count: number, header: Pick<CopcHeader, 'pointFormat' | 'recordLength' | 'scale' | 'offset'>,
+export function decodeRecords(records: Uint8Array, count: number,
+  header: Pick<CopcHeader, 'pointFormat' | 'recordLength' | 'scale' | 'offset'> & { orthoOffset?: number },
   anchor: [number, number, number]): DecodedPoints {
   const { pointFormat, recordLength: stride, scale: [sx, sy, sz], offset: [ox, oy, oz] } = header;
+  const orthoAt = header.orthoOffset ?? -1;
   if (pointFormat < 6 || pointFormat > 8) throw new Error(`point format ${pointFormat} is not COPC`);
   const rgb = pointFormat >= 7;
   const view = new DataView(records.buffer, records.byteOffset, records.byteLength);
-  const positions = new Float32Array(count * 3), colors = new Uint8Array(count * 4), extra = new Uint8Array(count * 4);
+  const positions = new Float32Array(count * 3), colors = new Uint8Array(count * 4), survey = new Uint8Array(count * 4), extra = new Uint8Array(count * 4);
   const [ax, ay, az] = anchor;
   let minY = Infinity, maxY = -Infinity;
   for (let i = 0, at = 0; i < count; i++, at += stride) {
@@ -126,17 +169,25 @@ export function decodeRecords(records: Uint8Array, count: number, header: Pick<C
     const returns = view.getUint8(at + 14), flags = view.getUint8(at + 15);
     if (rgb) {
       // LAS colour is 16-bit; the survey stores 8-bit values times 256.
-      colors[i * 4] = view.getUint16(at + 30, true) >> 8;
-      colors[i * 4 + 1] = view.getUint16(at + 32, true) >> 8;
-      colors[i * 4 + 2] = view.getUint16(at + 34, true) >> 8;
-    } else colors.fill(160, i * 4, i * 4 + 3);
+      survey[i * 4] = view.getUint16(at + 30, true) >> 8;
+      survey[i * 4 + 1] = view.getUint16(at + 32, true) >> 8;
+      survey[i * 4 + 2] = view.getUint16(at + 34, true) >> 8;
+    } else survey.fill(160, i * 4, i * 4 + 3);
+    survey[i * 4 + 3] = flags & 0x0f;
+    const r = orthoAt >= 0 ? view.getUint8(at + orthoAt) : 0, g = orthoAt >= 0 ? view.getUint8(at + orthoAt + 1) : 0,
+      b = orthoAt >= 0 ? view.getUint8(at + orthoAt + 2) : 0;
+    // 0,0,0 is the build's "no ortho here".
+    const ortho = (r | g | b) !== 0;
+    colors[i * 4] = ortho ? r : survey[i * 4];
+    colors[i * 4 + 1] = ortho ? g : survey[i * 4 + 1];
+    colors[i * 4 + 2] = ortho ? b : survey[i * 4 + 2];
     colors[i * 4 + 3] = view.getUint8(at + 16);
     extra[i * 4] = view.getUint16(at + 12, true) >> 8;
     extra[i * 4 + 1] = returns & 0x0f;
     extra[i * 4 + 2] = returns >> 4;
-    extra[i * 4 + 3] = flags & 0x0f;
+    extra[i * 4 + 3] = ortho ? 1 : 0;
   }
-  return { count, positions, colors, extra, anchor, minY: count ? minY : 0, maxY: count ? maxY : 0 };
+  return { count, positions, colors, survey, extra, anchor, minY: count ? minY : 0, maxY: count ? maxY : 0 };
 }
 
 /** The node's engine-frame centre: the anchor its positions are stored relative to (float32 keeps millimetres). */

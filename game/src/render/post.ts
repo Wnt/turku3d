@@ -27,6 +27,12 @@ export interface PostOverlay {
   overlay(renderer: THREE.WebGPURenderer, camera: THREE.Camera, sceneDepth: THREE.Texture): { color: THREE.Node<'vec3'>; resource: { dispose(): void } };
 }
 
+/** A display-referred layer mixed over the tone-mapped, graded frame: rgb, and its coverage in alpha (render/pointCloud).
+ *  It tests its own fragments against `sceneDepth`; with one, the pipeline applies the output transform itself. */
+export interface PostComposite {
+  composite(renderer: THREE.WebGPURenderer, camera: THREE.Camera, sceneDepth: THREE.Texture): { color: THREE.Node<'vec4'>; resource: { dispose(): void } };
+}
+
 export class PostProcessing {
   private pipeline: THREE.RenderPipeline;
   private pre: ReturnType<typeof pass> | null;
@@ -47,7 +53,7 @@ export class PostProcessing {
   private historyCamera: { view: THREE.Matrix4; projection: THREE.Matrix4 } | null = null;
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
-    overlay: PostOverlay | null = null) {
+    overlay: PostOverlay | null = null, composite: PostComposite | null = null) {
     // ?taafix=0: r186's build-time velocity projection, for the A/B of render/rigidVelocity.ts.
     installRigidVelocity(new URLSearchParams(globalThis.location?.search ?? '').get('taafix') === '0');
     const q = QUALITY[tier];
@@ -158,10 +164,13 @@ export class PostProcessing {
     const saturation = mix(this.dimSaturation, q.saturation, smoothstep(MESOPIC.luminance[0], MESOPIC.luminance[1], luminance));
     const graded = mix(vec3(luminance), hdr, saturation).mul(vec3(1.012, 1, 0.99));
     const output = vec4(graded, 1);
+    // The composite layer (survey point colours) joins after tone mapping and grading: its colours are display sRGB.
+    const layer = composite?.composite(renderer, camera, geometry.getTexture('depth'));
+    const display = layer ? vec4(mix(renderOutput(output).rgb, layer.color.rgb, layer.color.a), 1) : null;
     // FXAA's contrast thresholds require display-referred sRGB, unlike temporal HDR resolve.
-    const spatial = aa === 'fxaa' ? fxaa(renderOutput(output)) : null;
-    this.pipeline = new THREE.RenderPipeline(renderer, spatial ?? output);
-    this.pipeline.outputColorTransform = !spatial;
+    const spatial = aa === 'fxaa' ? fxaa(display ?? renderOutput(output)) : null;
+    this.pipeline = new THREE.RenderPipeline(renderer, spatial ?? display ?? output);
+    this.pipeline.outputColorTransform = !spatial && !display;
     this.resources = [beauty, this.pipeline];
     if (pre) this.resources.push(pre);
     if (ambient) this.resources.push(ambient);
@@ -171,6 +180,7 @@ export class PostProcessing {
     if (temporal) this.resources.push(temporal);
     if (spatial) this.resources.push(spatial);
     if (lights) this.resources.push(lights.resource);
+    if (layer) this.resources.push(layer.resource);
   }
 
   /** Models prepared before any shadow pass had drawn, so with no cascade state to compile their casters against. */
