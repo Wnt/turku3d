@@ -119,3 +119,28 @@ def test_canopy_needs_every_laz_block_on_disk(tmp_path, monkeypatch):
 
     monkeypatch.setattr(C, "raw_dir", lambda kind: tmp_path / kind)
     assert canopy_cells(C.VisualTile.parse(TILE)) is None
+
+
+def test_block_canopy_keeps_the_highest_class5_return_per_cell_and_caches_it(tmp_path, monkeypatch):
+    import laspy
+
+    from turku3d import config as C
+    from turku3d.vegetation.crowns import block_canopy
+
+    monkeypatch.setattr(C, "cache_dir", lambda name: tmp_path / "cache" / name)
+    monkeypatch.delenv("TURKU3D_SHARED_CACHE", raising=False)
+    header = laspy.LasHeader(point_format=3, version="1.2")
+    header.scales, header.offsets = [0.01, 0.01, 0.01], [C.ORIGIN_E, C.ORIGIN_N - 500, 0]
+    las = laspy.LasData(header)
+    # Engine (x, z) = (E - ORIGIN_E, ORIGIN_N - N): two returns in one 0.5 m cell, a lower class-2 return, another cell.
+    e = C.ORIGIN_E + np.array([10.1, 10.3, 10.2, 20.0])
+    n = C.ORIGIN_N - np.array([5.1, 5.2, 5.3, 7.0])
+    las.x, las.y, las.z = e, n, np.array([12.0, 15.5, 30.0, 9.0])
+    las.classification = np.array([5, 5, 2, 5], np.uint8)
+    path = tmp_path / "block.laz"
+    las.write(path)
+    cells = block_canopy(path)
+    assert sorted(map(tuple, np.round(cells, 2))) == [(10.3, 15.5, 5.2), (20.0, 9.0, 7.0)]
+    cached = list((tmp_path / "cache" / "crown-canopy").glob("*.npz"))
+    assert len(cached) == 1
+    assert np.array_equal(block_canopy(path), cells)

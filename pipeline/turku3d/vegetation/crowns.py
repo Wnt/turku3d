@@ -2,7 +2,7 @@
 
 Input: the trees of one tile (trunk position, base height, the drawn height and crown radius) and the class-5 canopy,
 reduced to its highest return per 0.5 m cell (as the generator's own canopy input, ``trees.reduced_points``, but
-streamed from the LAZ blocks with nothing cached: ``canopy_cells``). Class 12 (the second flight line, unclassified)
+streamed from each LAZ block once into a 3 MB per-block cell cache, with no decoded copy: ``canopy_cells``). Class 12 (the second flight line, unclassified)
 adds only about 1 % to the class-5 crown top surface, so it is left out. Each
 canopy cell above 2.5 m goes to the tree whose crown it is nearest to relative to that tree's radius, within reach
 of it, and a crown keeps the cells connected to its trunk (``canopy_trees.connected_crown``). Supported crowns
@@ -91,14 +91,72 @@ def measure(trees, canopy):
     return result
 
 
-def canopy_cells(tile, margin=MARGIN):
-    """Class-5 returns around ``tile`` (engine frame), highest per 0.5 m cell, streamed from the tile's ``pistepilvi``
-    LAZ blocks once; None unless every block is on disk. Nothing is cached: a city migration must not keep decoded
-    copies on the farm's disk."""
+def block_canopy(path):
+    """One LAZ block's class-5 returns, highest per 0.5 m cell, as exact LAZ integers (X, Y, Z) and the header's
+    scales and offsets. Streamed once (xyz and classification only) and cached by the block's content: about 3 MB,
+    where a decoded copy of the block is 270-410 MB. Tiles share blocks (4-8 tiles read each with the margin)."""
+    import fcntl
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+
     import laspy
 
+    from turku3d import config as C, profiling
+    from turku3d.tile_layer import identities
+
+    identity = identities({"laz": Path(path)})["laz"]
+    if identity is None:
+        raise FileNotFoundError(path)
+    recipe = hashlib.sha256(repr((identity, C.ORIGIN, CELL, "crown-canopy-v1")).encode()).hexdigest()
+    shared = os.environ.get("TURKU3D_SHARED_CACHE")
+    root = Path(shared) / "raw-derived" / "crown-canopy" if shared else C.cache_dir("crown-canopy")
+    root.mkdir(parents=True, exist_ok=True)
+    dest = root / f"{recipe}.npz"
+    with dest.with_suffix(".lock").open("a") as lock:
+        profiling.flock(lock, fcntl.LOCK_EX, "crown-canopy")
+        if not dest.exists():
+            selection = laspy.DecompressionSelection.base().decompress_z().decompress_classification()
+            parts = []
+            with laspy.open(path, decompression_selection=selection) as reader:
+                header = reader.header
+                for chunk in reader.chunk_iterator(2_000_000):
+                    keep = np.asarray(chunk.classification) == 5
+                    if keep.any():
+                        parts.append(_highest(np.c_[np.asarray(chunk.X)[keep], np.asarray(chunk.Y)[keep],
+                                                    np.asarray(chunk.Z)[keep]].astype(np.int64), header))
+            cells = _highest(np.concatenate(parts), header) if parts else np.empty((0, 3), np.int64)
+            temporary = dest.with_suffix(".tmp.npz")
+            np.savez_compressed(temporary, xyz=cells.astype(np.int32), meta=np.frombuffer(json.dumps(
+                dict(scales=[float(v) for v in header.scales], offsets=[float(v) for v in header.offsets])).encode(), np.uint8))
+            temporary.replace(dest)
+        with np.load(dest) as data:
+            xyz, meta = data["xyz"].astype(np.int64), json.loads(data["meta"].tobytes())
+    (sx, sy, sz), (ox, oy, oz) = meta["scales"], meta["offsets"]
+    x = xyz[:, 0] * sx + ox - C.ORIGIN_E
+    z = C.ORIGIN_N - (xyz[:, 1] * sy + oy)
+    y = xyz[:, 2] * sz + oz - C.ORIGIN_H
+    return np.c_[x, y, z]
+
+
+def _highest(xyz, header):
+    """Rows of LAZ integers, the highest per 0.5 m engine cell (ties: the first in file order)."""
     from turku3d import config as C
-    from turku3d.vegetation.trees import highest_per_cell
+
+    (sx, sy, _), (ox, oy, _) = header.scales, header.offsets
+    i = np.floor((xyz[:, 0] * sx + ox - C.ORIGIN_E) / CELL).astype(np.int64)
+    j = np.floor((C.ORIGIN_N - (xyz[:, 1] * sy + oy)) / CELL).astype(np.int64)
+    order = np.lexsort((np.arange(len(xyz)), -xyz[:, 2], j, i))
+    first = np.ones(len(order), bool)
+    first[1:] = (i[order][1:] != i[order][:-1]) | (j[order][1:] != j[order][:-1])
+    return xyz[np.sort(order[first])]
+
+
+def canopy_cells(tile, margin=MARGIN):
+    """Class-5 returns around ``tile`` (engine frame), highest per 0.5 m cell, from the tile's ``pistepilvi`` LAZ blocks
+    (``block_canopy``); None unless every block is on disk."""
+    from turku3d import config as C
 
     bbox = tile.bbox.buffered(margin)
     paths = []
@@ -107,17 +165,10 @@ def canopy_cells(tile, margin=MARGIN):
         if not path.is_file():
             return None
         paths.append(path)
-    selection = laspy.DecompressionSelection.base().decompress_z().decompress_classification()
     parts = []
     for path in sorted(paths):
-        with laspy.open(path, decompression_selection=selection) as reader:
-            (sx, sy, sz), (ox, oy, oz) = reader.header.scales, reader.header.offsets
-            for chunk in reader.chunk_iterator(2_000_000):
-                x = np.asarray(chunk.X) * sx + ox - C.ORIGIN_E
-                z = C.ORIGIN_N - (np.asarray(chunk.Y) * sy + oy)
-                keep = ((np.asarray(chunk.classification) == 5) & (x >= bbox.xmin) & (x < bbox.xmax)
-                        & (z >= bbox.zmin) & (z < bbox.zmax))
-                if keep.any():
-                    y = np.asarray(chunk.Z)[keep] * sz + oz - C.ORIGIN_H
-                    parts.append(highest_per_cell(np.c_[x[keep], y, z[keep]]))
-    return highest_per_cell(np.concatenate(parts)) if parts else np.empty((0, 3))
+        cells = block_canopy(path)
+        keep = ((cells[:, 0] >= bbox.xmin) & (cells[:, 0] < bbox.xmax)
+                & (cells[:, 2] >= bbox.zmin) & (cells[:, 2] < bbox.zmax))
+        parts.append(cells[keep])
+    return np.concatenate(parts) if parts else np.empty((0, 3))
