@@ -113,11 +113,11 @@ const drivableLandmarks = (pool: readonly PoolAddress[]) => pool
 const withinReach = (leg: number) => leg >= LONG_LEG_MIN_M && leg <= LONG_LEG_MAX_M;
 
 /**
- * Draws long job `n` (counted by finished long jobs): one curated landmark, or for every third job two, the second an
- * unused landmark whose `leg` (route metres from the first drop-off) is LONG_LEG_MIN_M–LONG_LEG_MAX_M. The whole car
- * route stays below LIMITED_MIN_METRES (longer runs are the LIMITED TIME job): a double that would reach it takes a
- * closer second landmark or stays single. Long jobs never fall back to a nearby or undrivable address. Null when no
- * landmark qualifies.
+ * Draws long job `n` (counted by finished long jobs): one curated landmark, or for every third job two. A double's
+ * landmarks are a pair whose `leg` (route metres between the drop-offs) is LONG_LEG_MIN_M–LONG_LEG_MAX_M; it prefers
+ * a pair of unused landmarks, then an unused first with any partner, then any pair, and is a single job only when no
+ * pair qualifies. The whole car route stays below LIMITED_MIN_METRES (longer runs are the LIMITED TIME job). Long jobs
+ * never fall back to a nearby or undrivable address. Null when no landmark qualifies.
  */
 export function drawLongOrder(pool: readonly PoolAddress[], n: number, seed: number, delivered: ReadonlySet<string>,
   leg: Leg = straightLeg): PoolAddress[] | null {
@@ -128,11 +128,15 @@ export function drawLongOrder(pool: readonly PoolAddress[], n: number, seed: num
   const random = orderRandom(seed, n);
   const first = choices[Math.floor(random() * choices.length)];
   if (!isDouble(n)) return [first];
-  const reach = (list: PoolAddress[]) => list.filter(a => a !== first && withinReach(leg(first, a))
-    && first.car! + leg(first, a) < LIMITED_MIN_METRES);
-  const unusedSeconds = reach(unused);
-  const seconds = unusedSeconds.length ? unusedSeconds : reach(eligible);
-  return seconds.length ? [first, seconds[Math.floor(random() * seconds.length)]] : [first];
+  // Firsts in a seeded order; the first one with a qualifying partner makes the double (legs are routed lazily).
+  const shuffled = (list: PoolAddress[]) => list.map(a => ({ a, key: random() })).sort((x, y) => x.key - y.key).map(x => x.a);
+  for (const [firsts, partners] of [[unused, unused], [unused, eligible], [eligible, eligible]]) {
+    for (const a of shuffled(firsts)) {
+      const seconds = partners.filter(b => b !== a && withinReach(leg(a, b)) && a.car! + leg(a, b) < LIMITED_MIN_METRES);
+      if (seconds.length) return [a, seconds[Math.floor(random() * seconds.length)]];
+    }
+  }
+  return [first];
 }
 
 /**

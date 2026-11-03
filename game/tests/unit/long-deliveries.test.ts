@@ -193,10 +193,10 @@ describe('long-range deliveries', () => {
       for (let n = 0; n < 9; n++) {
         const stops = drawLongOrder(ring, n, seed, new Set(), lLeg)!;
         if (n % DOUBLE_EVERY !== DOUBLE_EVERY - 1) { expect(stops).toHaveLength(1); continue; }
-        // d has no landmark within reach and f none within 3 km in all: they stay single.
-        expect(stops[0].id).not.toBe('e');
-        expect(stops).toHaveLength(['d', 'f'].includes(stops[0].id) ? 1 : 2);
-        if (stops.length < 2) continue;
+        // Some pair qualifies, so every double turn is a double; d (no landmark within reach) and f (none within 3 km
+        // in all) only ever go single.
+        expect(stops).toHaveLength(2);
+        expect(['a', 'b', 'c']).toContain(stops[0].id);
         const leg = lLeg(stops[0], stops[1]);
         expect(leg).toBeGreaterThanOrEqual(LONG_LEG_MIN_M);
         expect(leg).toBeLessThanOrEqual(LONG_LEG_MAX_M);
@@ -205,12 +205,15 @@ describe('long-range deliveries', () => {
       }
     }
     expect([...seconds].sort()).toEqual(['a>b', 'b>a', 'b>c', 'b>f', 'c>b']);
-    // The second is an unused landmark when one is in reach.
+    // A pair of unused landmarks comes first: with a served, b–c and b–f are left.
     for (let seed = 0; seed < 20; seed++) {
       const stops = drawLongOrder(ring, 2, seed, new Set(['a']), lLeg)!;
-      if (stops[0].id === 'c') expect(stops[1].id).toBe('b');
-      if (stops[0].id === 'b') expect(['c', 'f']).toContain(stops[1].id);
+      expect(['b>c', 'b>f', 'c>b']).toContain(stops.map(x => x.id).join('>'));
     }
+    // With every partner of the unused ones served, a served partner still makes the double ...
+    expect(drawLongOrder(ring, 2, 1, new Set(['a', 'c', 'f']), lLeg)!.map(x => x.id)).toEqual(['b', expect.stringMatching(/^[acf]$/)]);
+    // ... and only a pool without any pair gives a single on a double turn.
+    expect(drawLongOrder([ring[0], ring[3], ring[4]], 2, 1, new Set(), lLeg)).toHaveLength(1);
     expect(drawLongOrder(ring.slice(0, 1), 2, 1, new Set(), lLeg)).toHaveLength(1);
   });
 
