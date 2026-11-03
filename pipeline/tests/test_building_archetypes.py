@@ -60,6 +60,7 @@ def test_one_building_edit_reuses_other_models_and_preserves_terrain(tmp_path, m
     before_by_id = {p['id']: p['model'] for p in before['placements']}
     assert len(before_by_id) == 2
     assert before['bounds']['max'][0] > tile.bbox.xmax
+    assert before['streamingBounds']['max'][0] > before['bounds']['max'][0]
     for model in before['models']:
         assert (work / tile.id / model['uri']).stat().st_size == model['bytes']
         js, _ = read_glb((work / tile.id / model['uri']).read_bytes())

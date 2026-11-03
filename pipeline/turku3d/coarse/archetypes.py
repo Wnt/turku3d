@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import math
 import json
+import math
 
 import numpy as np
 import shapely
@@ -103,6 +103,14 @@ def publish(tile, layer_files, shells, stage, work, library):
         metrics[key] = dict(tris=stats["tris"], draws=stats["draws"], bytes=len(payload),
                             package=json.loads((directory / 'package-times.json').read_text()))
     points = np.asarray(all_bounds)
+    relevance = [points.min(axis=0), points.max(axis=0)]
+    for model, placement in zip(descriptors, placements, strict=True):
+        distance = placement["viewDistance"]
+        margin = np.array([distance, 0., distance])
+        relevance.extend([np.asarray(placement["position"]) + model["bounds"]["min"] - margin,
+                          np.asarray(placement["position"]) + model["bounds"]["max"] + margin])
+    relevance = np.asarray(relevance)
     result = dict(version=1, models=descriptors, placements=placements,
-                  bounds=dict(min=points.min(axis=0).tolist(), max=points.max(axis=0).tolist()))
+                  bounds=dict(min=points.min(axis=0).tolist(), max=points.max(axis=0).tolist()),
+                  streamingBounds=dict(min=relevance.min(axis=0).tolist(), max=relevance.max(axis=0).tolist()))
     return layers, result, metrics

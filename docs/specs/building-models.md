@@ -44,3 +44,14 @@ material ownership before entering the existing material/texture pools. Prototyp
 resources remain live through the last placement. Collision validation and all
 model preparation complete before a replacement becomes visible. Placement changes
 trigger a swap even when the terrain GLB hash does not change.
+
+The installed-game study (local `~/turku3d/research/gta-map/FINDINGS.md`,
+2026-11-03) supports irregular object/relevance bounds rather than irregularizing
+our scheduling grid. `streamingBounds` separately expands content bounds by each
+placement's view distance. The hierarchy implementation should target the measured
+HD band (p10/p50/p90 112/171/299 m), LOD around 400 m, district SLOD around
+600–1500 m, and city representations beyond that, subject to Turku render evidence.
+Those are tuning references, not a prescription to hide unparented HD buildings.
+Only 16% of sampled drawables carry an internal medium LOD; explicit aggregate
+parent entities are the primary replacement contract, rather than requiring every
+GLB to embed all detail levels. Collision and navigation keep independent grids.
