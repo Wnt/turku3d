@@ -178555,12 +178555,12 @@
       },
       {
         "wall_id": "103337874T_linnankatu_colonnade",
-        "width_m": 116.7775903171578,
+        "width_m": 200.07759031715779,
         "height_m": 7.2,
         "geometry": {
           "p0": [
-            23458235.696,
-            6703283.906
+            23458173.628,
+            6703228.35
           ],
           "p1": [
             23458322.708,
@@ -178578,7 +178578,7 @@
           "scope": "full-wall",
           "source": "direct panorama review 2026-11-03",
           "reference_id": "Bze2IDrv2c6HYDJekFvq8Q",
-          "notes": "Linnankatu north frontage: open colonnade, paired small upper windows. Columns and bay spacing from metric projection; through-depth follows the measured footprint strip width. Separate southern solid-window panels and end entrance remain unchanged.",
+          "notes": "Linnankatu north frontage: open colonnade, paired small upper windows. Columns and bay spacing from metric projection; through-depth follows the measured footprint strip width. Separate southern solid-window panels and end entrance remain unchanged. vfix033 2026-11-03: the same open pilotis colonnade and paired small windows continue 83.3 m (seven window pitches) SW along Stedingkinkatu (Street View Jul 2026, Look Around); extent extended with window and column phase preserved; round slender columns.",
           "excluded_rectangles_m": []
         },
         "split": {
@@ -178797,15 +178797,20 @@
               0.38888888888888884
             ],
             "rows": 1,
-            "count": 21,
+            "count": 35,
             "depth_m": 5.74284,
-            "dimensions_source": "open courtyard visible through panorama colonnade; depth from footprint strip width",
+            "dimensions_source": "open courtyard visible through panorama colonnade; depth from footprint strip width; vfix033: same pilotis continue SW, metric SV projection pitch 5.56-6.10 m, 012 phase kept",
             "head": "flat",
             "rise_m": null,
             "run_m": null,
             "direction": 1,
             "through": true,
-            "support": 0.9
+            "support": 0.9,
+            "first_column_m": 2.0837,
+            "column_pitch_m": 5.8169,
+            "column_shape": "round",
+            "column_width_m": 0.26,
+            "column_colour": "#a6a7a0"
           }
         ]
       }
@@ -178836,6 +178841,19 @@
           }
         ],
         "images_private": true
+      },
+      "vfix033": {
+        "building_id": "103337874T",
+        "address": "Stedingkinkatu 2",
+        "reference_source": "Google Street View Jul 2026 and Apple Look Around, local-only",
+        "images_private": true,
+        "observations": [
+          {
+            "scope": "Stedingkinkatu frontage SW of the 012 span",
+            "finding": "Long white render volume on slender round pilotis over an open walk-through ground floor to the plaza; paired small windows; enclosed brick/glass part only at the SW end beyond about 57 m.",
+            "confidence": 0.9
+          }
+        ]
       }
     }
   },
