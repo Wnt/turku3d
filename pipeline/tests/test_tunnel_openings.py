@@ -91,3 +91,35 @@ def test_oblique_t0_1_0_passage_remains_free_after_retaining_apron():
     ct = C.CollisionTile.at(291.32, 210.84)
     p, ix, _ = collision(ct, protected, np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
     assert blockers(p[ix]) < 1e-8
+
+
+def test_skipping_separated_volumes_keeps_every_carved_bit(monkeypatch):
+    from turku3d.coarse import openings as module
+
+    # A curving passage floor of many small triangles under a fine terrain grid,
+    # with float32 vertices, UVs and a vertical wall: pieces fragment across volumes.
+    faces = Faces()
+    for k in range(12):
+        x0, x1 = k * 1.0, (k + 1) * 1.0
+        z0, z1 = np.sin(k * .4) * 2, np.sin((k + 1) * .4) * 2
+        faces.face([[x0, .1 * k, z0 - 1], [x0, .1 * k, z0 + 1],
+                    [x1, .1 * (k + 1), z1 + 1], [x1, .1 * (k + 1), z1 - 1]])
+    passage = Openings()
+    passage.add(faces.mesh('floor', 'road'), 2.5)
+    grid = Faces()
+    for i in range(-2, 14):
+        for j in range(-4, 4):
+            y = .3 + .05 * i
+            grid.face([[i, y, j * .7], [i, y, j * .7 + .7], [i + 1, y, j * .7 + .7], [i + 1, y, j * .7]],
+                      [[i, j], [i, j + 1], [i + 1, j + 1], [i + 1, j]])
+    grid.face([[5.5, -1, -3], [5.5, -1, 3], [5.5, 4, 3], [5.5, 4, -3]], [[0, 0], [1, 0], [1, 1], [0, 1]])
+    mesh = grid.mesh('terrain', 'grass')
+    for positions in (mesh.positions, mesh.positions.astype(np.float32)):
+        fast = passage.carve(positions, mesh.indices, mesh.uvs)
+        with monkeypatch.context() as patch:
+            patch.setattr(module, 'separated', lambda t, owners, *_: np.zeros(len(owners), bool))
+            patch.setattr(module, 'unchanged', lambda pieces, planes: np.zeros((len(pieces), len(planes)), bool))
+            every = passage.carve(positions, mesh.indices, mesh.uvs)
+        assert len(fast[1]) > len(mesh.indices)
+        for a, b in zip(fast, every, strict=True):
+            assert a.dtype == b.dtype and np.array_equal(a, b)

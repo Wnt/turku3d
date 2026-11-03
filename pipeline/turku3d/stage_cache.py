@@ -43,18 +43,102 @@ def _string_key(value):
     return content_key(value)
 
 
+_LENGTH = struct.Struct("<Q").pack
+_SCALARS = {bool: b"bool", int: b"int", float: b"float", str: b"str"}
+_SEQUENCES = {list: b"list", tuple: b"tuple"}
+_NONE = b"none" + _LENGTH(0)
+_ORDERS = {}
+_KEYS = {}
+
+
+def _ordered(mapping):
+    """Mapping keys in digest order; all-string key sets repeat, so their order is reused."""
+    keys = tuple(mapping)
+    if not all(type(k) is str for k in keys):
+        return sorted(keys, key=lambda k: _string_key(k) if type(k) is str else content_key(k))
+    order = _ORDERS.get(keys)
+    if order is None:
+        order = sorted(keys, key=_string_key)
+        if len(_ORDERS) > 4096:
+            _ORDERS.clear()
+            _KEYS.clear()
+        _ORDERS[keys] = order
+    return order
+
+
 def content_key(value) -> str:
-    """Hash typed values, array layout and geometry bytes; mapping insertion order is irrelevant."""
+    """Hash typed values, array layout and geometry bytes; mapping insertion order is irrelevant.
+
+    The digest covers the stream of (tag, length, data) parts. Exact builtin types are
+    written to one buffer without a call per part; every other type keeps the generic
+    dispatch, so digests equal those of the original one-update-per-part writer.
+    """
     h = hashlib.sha256()
+    buffer = bytearray()
+    write = buffer.extend
 
     def part(tag, data=b""):
-        h.update(tag)
-        h.update(struct.pack("<Q", len(data)))
-        h.update(data)
+        write(tag)
+        write(_LENGTH(len(data)))
+        if len(data) > 1 << 16:
+            h.update(buffer)
+            buffer.clear()
+            h.update(data)
+        else:
+            write(data)
 
     def visit(v):
-        if v is None:
-            part(b"none")
+        t = type(v)
+        tag = _SCALARS.get(t)
+        if tag is not None:
+            data = repr(v).encode()
+            write(tag)
+            write(_LENGTH(len(data)))
+            write(data)
+            return
+        tag = _SEQUENCES.get(t)
+        if tag is not None:
+            data = str(len(v)).encode()
+            write(tag)
+            write(_LENGTH(len(data)))
+            write(data)
+            for item in v:
+                tag = _SCALARS.get(type(item))
+                if tag is None:
+                    visit(item)
+                else:
+                    data = repr(item).encode()
+                    write(tag)
+                    write(_LENGTH(len(data)))
+                    write(data)
+            return
+        if t is dict:
+            data = str(len(v)).encode()
+            write(b"dict")
+            write(_LENGTH(len(data)))
+            write(data)
+            for key in _ordered(v):
+                if type(key) is str:
+                    data = _KEYS.get(key)
+                    if data is None:
+                        if len(_KEYS) > 1 << 16:
+                            _KEYS.clear()
+                        data = repr(key).encode()
+                        data = _KEYS[key] = b"str" + _LENGTH(len(data)) + data
+                    write(data)
+                else:
+                    visit(key)
+                item = v[key]
+                tag = _SCALARS.get(type(item))
+                if tag is None:
+                    visit(item)
+                else:
+                    data = repr(item).encode()
+                    write(tag)
+                    write(_LENGTH(len(data)))
+                    write(data)
+        elif v is None:
+            write(_NONE)
         elif isinstance(v, (bool, str, int, float)):
             part(type(v).__name__.encode(), repr(v).encode())
         elif isinstance(v, bytes):
@@ -68,7 +152,7 @@ def content_key(value) -> str:
             visit(np.asarray(v))
         elif isinstance(v, dict):
             part(b"dict", str(len(v)).encode())
-            for key in sorted(v, key=lambda k: _string_key(k) if type(k) is str else content_key(k)):
+            for key in _ordered(v):
                 visit(key)
                 visit(v[key])
         elif isinstance(v, (list, tuple)):
@@ -85,8 +169,12 @@ def content_key(value) -> str:
             visit(vars(v))
         else:
             raise TypeError(f"unsupported stage key type: {type(v)}")
+        if len(buffer) > 1 << 20:
+            h.update(buffer)
+            buffer.clear()
 
     visit(value)
+    h.update(buffer)
     return h.hexdigest()
 
 
