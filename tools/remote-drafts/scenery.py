@@ -13,6 +13,20 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 TILE = re.compile(r'^t[024]_-?\d+_-?\d+$')
 KEY = re.compile(r'^[a-f0-9]{64}$')
 VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
+MODEL = re.compile(r'^[a-f0-9]{64}\.glb$')
+
+
+def placement_sources(data):
+    """HD building placements a derivative must compose; LOD parents (kind block-lod) are not sources."""
+    if not isinstance(data, dict):
+        return []
+    models = {m.get('id'): m for m in data.get('models', []) if isinstance(m, dict) and m.get('kind') != 'block-lod'}
+    rows = []
+    for placement in data.get('placements', []):
+        model = models.get(placement.get('model'))
+        if model and isinstance(model.get('uri'), str):
+            rows.append(dict(model=model['id'], uri=model['uri'], position=placement['position']))
+    return rows
 
 
 class Scenery:
@@ -41,7 +55,7 @@ class Scenery:
         for tile in dict.fromkeys(tiles):
             if not TILE.fullmatch(tile):
                 continue
-            source = None
+            source, chosen = None, {}
             source_root = self.root
             for root in self.roots:
                 for name in ('manifest.json', 'last-full.json'):
@@ -51,7 +65,7 @@ class Scenery:
                         if fragment.get('pass_kind', 'full') != 'full' or not VISUAL.fullmatch(entry['url']):
                             continue
                         if (root / tile / entry['url']).is_file():
-                            source, source_root = entry, root
+                            source, source_root, chosen = entry, root, fragment
                             break
                     except (OSError, ValueError, KeyError, TypeError):
                         continue
@@ -66,9 +80,17 @@ class Scenery:
                 else:
                     missing.append(tile)
                 continue
-            key = hashlib.sha256(f"{self.recipe}:{tile}:{source['sha256']}".encode()).hexdigest()
+            # Whole-building HD models (docs/specs/building-models.md) are part of the source: a derivative
+            # composes them at their placements, and any placement change is a new derivative.
+            placements = placement_sources(chosen.get('buildingPlacements'))
+            identity = f"{self.recipe}:{tile}:{source['sha256']}"
+            if placements:
+                identity += ':' + hashlib.sha256(json.dumps(placements, sort_keys=True).encode()).hexdigest()
+            key = hashlib.sha256(identity.encode()).hexdigest()
             row = dict(tile=tile, key=key, source_sha256=source['sha256'], source_url=source['url'],
                        source_root=str(source_root), h=source.get('h', [0, 0]), recipe=self.recipe)
+            if placements:
+                row['placements'] = placements
             mapping = self.cache / f'{key}.source.json'
             if not mapping.exists():
                 self._write(mapping, json.dumps(row).encode())
@@ -157,8 +179,21 @@ class Scenery:
             raise ValueError('Derivative source changed')
         output = self.cache / f'lod.{key}.glb'
         temporary = self.cache / f'lod.{key}.{os.getpid()}.{threading.get_ident()}.glb'
+        command = ['node', str(self.script), str(source), str(temporary)]
+        if row.get('placements'):
+            spec = self.cache / f'{key}.placements.json'
+            models = []
+            for placement in row['placements']:
+                path = (source.parent / placement['uri']).resolve()
+                if not any(path.is_relative_to(r.resolve()) for r in self.roots) or not MODEL.fullmatch(path.name):
+                    raise ValueError('Unconfigured building model path')
+                if hashlib.sha256(path.read_bytes()).hexdigest() != placement['model']:
+                    raise ValueError('Building model changed')
+                models.append(dict(path=str(path), position=placement['position']))
+            self._write(spec, json.dumps(models).encode())
+            command.append(str(spec))
         try:
-            result = subprocess.run(['node', str(self.script), str(source), str(temporary)],
+            result = subprocess.run(command,
                                     check=True, capture_output=True, text=True, timeout=90)
             stats = json.loads(result.stdout.strip().splitlines()[-1])
             temporary.replace(output)

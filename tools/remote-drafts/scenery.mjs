@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import { nightKey, nightEmission } from './scenery-night.mjs';
 import path from 'node:path';
-import { require, io, readSource, world } from './scenery-source.mjs';
+import { require, io, readComposed, world } from './scenery-source.mjs';
 import { openingKind, openingAtlas, programFields, transformedUv, reduceFacade } from './scenery-openings.mjs';
 const { Document } = require('@gltf-transform/core');
 const { reorder, quantize } = require('@gltf-transform/functions');
@@ -11,10 +11,10 @@ const { MeshoptEncoder, MeshoptSimplifier } = await import(require.resolve('mesh
 const sharp = require('sharp');
 await Promise.all([MeshoptEncoder.ready, MeshoptSimplifier.ready]);
 io.registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
-const [source, output] = process.argv.slice(2);
+const [source, output, placements] = process.argv.slice(2);
 if (!source || !output || path.resolve(source) === path.resolve(output)) throw new Error('Distinct source and derivative output required');
 const started = performance.now(), raw = fs.readFileSync(source);
-const input = await readSource(source);
+const input = await readComposed(source, placements);
 const doc = new Document(), buffer = doc.createBuffer(), scene = doc.createScene('distant-scenery');
 const material = doc.createMaterial('scenery').setBaseColorFactor([1, 1, 1, 1]).setRoughnessFactor(1).setMetallicFactor(0);
 const groups = new Map();
