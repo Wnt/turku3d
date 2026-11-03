@@ -21,6 +21,9 @@ import time
 from pathlib import Path
 
 GIB = 2**30
+# Working set a tile adds above what its worker already holds; a reused worker must fit the
+# tile's memory reservation with this margin (calibrate with result.worker_rss_gib).
+TILE_MARGIN_GIB = 0.5
 
 
 def tree_cpu(pid):
@@ -103,17 +106,22 @@ class Worker:
 
 
 class WarmWorkers:
-    def __init__(self, farm, runner, *, max_builds=40, max_rss_gib=2.0, timeout=1800):
-        self.farm, self.runner = farm, runner
+    def __init__(self, farm, runner, *, reserve=None, max_builds=40, max_rss_gib=2.0, timeout=1800):
+        """``reserve(tile)`` is the GiB the admission reserved for the tile's build (None: no limit)."""
+        self.farm, self.runner, self.reserve = farm, runner, reserve
         self.max_builds, self.max_rss, self.timeout = max_builds, max_rss_gib * GIB, timeout
         self.idle, self.lock, self.started, self.busy = [], threading.Lock(), 0, 0
 
-    def _take(self, revision, root):
+    def _take(self, revision, root, tile):
         key = (revision, str(root))
+        limit = self.reserve(tile) if self.reserve else None
         with self.lock:
             self.busy += 1
             for i, worker in enumerate(self.idle):
-                if worker.key == key and worker.proc.poll() is None:
+                # A worker's retained memory plus the tile's own working set must fit its reservation;
+                # otherwise a fresh worker (the one-shot peak) builds it.
+                if (worker.key == key and worker.proc.poll() is None
+                        and (limit is None or resident(worker.proc.pid) + TILE_MARGIN_GIB * GIB <= limit * GIB)):
                     return self.idle.pop(i)
             self.started += 1
             number = self.started
@@ -158,7 +166,7 @@ class WarmWorkers:
                 return 'cancelled'
             return None
 
-        worker = self._take(revision, root)
+        worker = self._take(revision, root, tile)
         healthy = False
         try:
             cpu = tree_cpu(worker.proc.pid)

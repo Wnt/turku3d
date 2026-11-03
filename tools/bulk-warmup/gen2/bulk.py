@@ -112,7 +112,7 @@ def main():
         farm=BulkFarm(root/'farm',root/'run.sh',workers=0,queue_limit=maximum,
                       floor_gib=a.floor_gib,reserve_gib=a.reserve_gib,grace_seconds=60)
         # Warm workers: imports, key closures, area indexes and the packager once per worker, not per tile.
-        pool=WarmWorkers(farm,root/'run.sh');farm.execute=pool
+        pool=WarmWorkers(farm,root/'run.sh',reserve=need);farm.execute=pool
         registered=farm.register(commit,alias='bulkgen2',source_version=sources['version'])
         revision,generation=registered['revision'],registered['generation']
         descriptor={**registered,'selected':selected,'workers':a.workers}
