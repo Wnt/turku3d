@@ -10,6 +10,8 @@ import { StaticGroup } from './frozenTransforms';
 import { streamTrace } from '../telemetry/streamTrace';
 
 type Vec3 = [number, number, number];
+/** Bench lab `hd=`: one HD-to-block-shell switch distance (m) for every block; null keeps each block's own. */
+export const BLOCK_LOD = { hdDistance: null as number | null };
 export interface BuildingModel {
   id: string; uri: string; bounds: { min: Vec3; max: Vec3 };
   /** Conservative opaque volumes, never inferred from display bounds. Owned by perfcpu. */
@@ -217,7 +219,7 @@ export class BuildingModelCache {
       wrapper.position.fromArray(block.position);
       wrapper.userData = { blockLod: block.id };
       wrapper.add(root); owner.add(wrapper); wrapper.freeze();
-      states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: block.hdDistance, near: true, hd: true, settled: false });
+      states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: BLOCK_LOD.hdDistance ?? block.hdDistance, near: true, hd: true, settled: false });
     }
     if (states.size) {
       owner.userData.blockLods = states;

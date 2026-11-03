@@ -33,7 +33,10 @@ export function sceneryContains(parent: string, child: string) {
 /** Project a 1.5 m facade feature into drawing-buffer pixels. Survey kilometre
  * nodes retain roof silhouettes; authored facade detail refines only while it
  * occupies two pixels. The near reserve covers the playable neighbourhood. */
+/** Bench lab `cells=`: a fixed L0 cell refinement distance (m) instead of the pixel rule; null keeps the rule. */
+export const SCENERY_CELLS = { distance: null as number | null };
 export function sceneryDetailDistance(view: SceneryView) {
+  if (SCENERY_CELLS.distance !== null) return SCENERY_CELLS.distance;
   return Math.max(350, Math.min(2000, (view.focalPixels ?? 600) * 1.5 / 2));
 }
 
@@ -42,7 +45,7 @@ export function sceneryDetailDistance(view: SceneryView) {
 export const TILE_DETAIL = { distance: 450, band: 40 } as const;
 /** L0 refinement always reaches past any full tile still drawing (horizontal distance never exceeds the 3D one;
  *  the slack covers rounding at the band edge), so a 1 km node never draws over HD squares. */
-const DETAIL_FLOOR = TILE_DETAIL.distance + TILE_DETAIL.band + 90;
+const detailFloor = () => TILE_DETAIL.distance + TILE_DETAIL.band + 90;
 
 /** Non-overlapping quadtree cut: authored shells nearby, source-built kilometre groups farther out. */
 export function sceneryTiles(radius: number, view: SceneryView, previous: readonly string[] = []) {
@@ -65,7 +68,7 @@ export function sceneryTiles(radius: number, view: SceneryView, previous: readon
     // the viewed middle distance; the old cut remains until all replacements load.
     // A 20% hysteresis band avoids switching whole city blocks back and forth
     // as adaptive resolution or a moving camera crosses the pixel threshold.
-    const detailLimit = Math.max(DETAIL_FLOOR, detailDistance * (detailedParents.has(id) ? 1.2 : 1));
+    const detailLimit = Math.max(detailFloor(), detailDistance * (detailedParents.has(id) ? 1.2 : 1));
     // Refinement stays horizontal: a 1 km node has no streets and raw survey shells, far poorer than the 250 m
     // cells, so a high camera keeps the cells under it (height-aware detail is the full-tile -> cell swap instead).
     const refine = level === 4 ? distance < 4500 : level === 2 ? distance < detailLimit && inView : false;

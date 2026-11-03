@@ -37,6 +37,8 @@ export interface LabHost {
   /** Append the result to the saved capture's meta.json. */
   saveResult: (id: string, result: Record<string, unknown>) => Promise<void>;
   info: () => Record<string, unknown>;
+  /** The LOD distances and caps in effect (qa/lab/overrides.ts). */
+  lod?: () => Record<string, unknown>;
 }
 
 export interface LabStatus {
@@ -283,6 +285,7 @@ export class BenchLab {
       settle: this.settleInfo, capture: this.status.capture,
       summary: frameSummary(frames, elapsedMs), passes: passSummary(frames), split: subsystemSplit(frames),
       heap: heapStats(frames.map(f => f.heap)), marks: this.marks,
+      lod: this.host.lod?.() ?? null, lodOverrides: Object.fromEntries(Object.entries(lab.lod).filter(([, v]) => v !== null)),
       ...this.host.info(),
     };
   }

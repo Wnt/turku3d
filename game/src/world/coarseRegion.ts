@@ -33,9 +33,12 @@ function parse(id: string): { level: number; i: number; j: number } | null {
 }
 
 /** Nearest-first 3x3 window around the player, including the former starting area. */
+/** The full-tile window around the camera's tile: `radius` tiles each way (1: the 3x3). Bench lab `fullr=` sets it. */
+export const TILE_WINDOW = { radius: 1 };
+
 export function wantedTiles(x: number, z: number, radius = Infinity): string[] {
-  const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0);
-  return Array.from({ length: 9 }, (_, k) => l0(ci - 1 + k % 3, cj - 1 + Math.floor(k / 3)))
+  const ci = Math.floor(x / VISUAL_L0), cj = Math.floor(z / VISUAL_L0), r = TILE_WINDOW.radius, n = 2 * r + 1;
+  return Array.from({ length: n * n }, (_, k) => l0(ci - r + k % n, cj - r + Math.floor(k / n)))
     .filter(id => distToL0(id, x, z) <= radius)
     .sort((a, b) => distToL0(a, x, z) - distToL0(b, x, z) || a.localeCompare(b));
 }
@@ -51,7 +54,7 @@ function withinSquare(id: string, points: readonly { x: number; z: number }[], r
 
 /** Retain the normal window plus 75 m of boundary hysteresis, at most 4x4 per start. */
 export function retainDraftTile(id: string, points: readonly { x: number; z: number }[]) {
-  return withinSquare(id, points, VISUAL_L0 + 75);
+  return withinSquare(id, points, TILE_WINDOW.radius * VISUAL_L0 + 75);
 }
 
 /** Retain a prepared surface tile of the 5x5 reserve (preparationTiles) plus 75 m of hysteresis, at most 6x6 per

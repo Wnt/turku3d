@@ -56,6 +56,7 @@ import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
+import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
 import { BenchLab } from './qa/lab/lab';
 import { saveLabResult, startLabRecording } from './qa/lab/record';
 
@@ -92,7 +93,8 @@ try {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
 }
-// Lab ablations switch quality-tier fields and AA before anything reads them.
+// Lab LOD overrides and ablations set engine constants, quality-tier fields and AA before anything reads them.
+if (params.lab) applyLodOverrides(params.lab.lod, params.quality, params);
 if (params.lab) ablateSettings(params.lab.off, params.quality, params, new URLSearchParams(location.search).has('aa'));
 let initialDrive: LoadedDrive | null = null;
 if (params.drive) {
@@ -615,6 +617,7 @@ async function runLab() {
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
     record: meta => startLabRecording(game, meta),
     saveResult: (id, result) => saveLabResult(id, result),
+    lod: () => lodSettings(params.quality, params),
     info: () => ({ backend, three: THREE.REVISION, commit: import.meta.env.VITE_COMMIT ?? null,
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio,
       drawingBuffer: [renderer.domElement.width, renderer.domElement.height], scenery: distantCity?.progress ?? null,

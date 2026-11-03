@@ -61,6 +61,9 @@ export class ReflectionCadence {
   }
 }
 
+/** Bench lab `reflect=`: objects farther than this (m, horizontal, to their bounds) from the eye stay out of the river
+ *  reflection. Infinity keeps the coverage test alone. */
+export const REFLECTION_RANGE = { maxDistance: Infinity };
 const FINE = 8, WAVE_MARGIN = 4;
 // Non-negative packed cell index for |x|, |z| < 32768 cells (262 km at 8 m).
 const cellKey = (x: number, z: number) => (x + 32768) * 65536 + (z + 32768);
@@ -127,7 +130,11 @@ export class WaterCoverage {
     const sphere = geometry.boundingSphere;
     if (!sphere || !Number.isFinite(sphere.radius)) return true;
     center.copy(sphere.center).applyMatrix4(object.matrixWorld);
-    return this.reflects(center, sphere.radius * object.matrixWorld.getMaxScaleOnAxis(), eyePosition.setFromMatrixPosition(eye.matrixWorld), level);
+    const radius = sphere.radius * object.matrixWorld.getMaxScaleOnAxis();
+    eyePosition.setFromMatrixPosition(eye.matrixWorld);
+    if (REFLECTION_RANGE.maxDistance < Infinity
+      && Math.hypot(center.x - eyePosition.x, center.z - eyePosition.z) - radius > REFLECTION_RANGE.maxDistance) return false;
+    return this.reflects(center, radius, eyePosition, level);
   }
 
   private any(x0: number, x1: number, z0: number, z1: number) {

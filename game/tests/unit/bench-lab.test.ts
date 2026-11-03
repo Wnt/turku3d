@@ -9,6 +9,13 @@ import { parseParams } from '../../src/core/params';
 import { QUALITY } from '../../src/render/quality';
 import { facadeModuleSwitch } from '../../src/render/facadeModules';
 import { streamTrace } from '../../src/telemetry/streamTrace';
+import { applyLodOverrides, lodSettings, shadowSplits, tileDetailFor } from '../../src/qa/lab/overrides';
+import { parseLodOverrides } from '../../src/qa/lab/params';
+import { BLOCK_LOD } from '../../src/world/buildingPlacements';
+import { PROP_LOD } from '../../src/world/propLod';
+import { TILE_WINDOW, wantedTiles } from '../../src/world/coarseRegion';
+import { SCENERY_CELLS, TILE_DETAIL, sceneryDetailDistance } from '../../src/world/sceneryView';
+import { REFLECTION_RANGE, WaterCoverage } from '../../src/render/reflections';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -281,5 +288,72 @@ describe('bench lab install scenario', () => {
     expect(result.summary.gpuMs.p50).toBe(4);
     expect(result.baseline.intervalMs.p50).toBe(16);
     expect(Object.keys(result.marks)).toContain('tile:t0_1_0:end');
+  });
+});
+
+describe('bench lab LOD overrides', () => {
+  const snapshot = () => JSON.stringify({ q: QUALITY.medium, prop: PROP_LOD, block: BLOCK_LOD, window: TILE_WINDOW, detail: TILE_DETAIL,
+    cells: SCENERY_CELLS, reflect: REFLECTION_RANGE.maxDistance });
+  const original = snapshot();
+  const restore = () => {
+    const o = JSON.parse(original);
+    const q = QUALITY.medium as unknown as { vegetation: Record<string, number>; splits: number[] };
+    Object.assign(q.vegetation, o.q.vegetation); q.splits = o.q.splits;
+    Object.assign(PROP_LOD, o.prop); Object.assign(BLOCK_LOD, o.block); Object.assign(TILE_WINDOW, o.window);
+    Object.assign(TILE_DETAIL, o.detail); Object.assign(SCENERY_CELLS, o.cells); REFLECTION_RANGE.maxDistance = Infinity;
+  };
+  afterEach(restore);
+
+  it('parses every override and rejects malformed values', () => {
+    expect(parseLodOverrides('')).toEqual({ hd: null, props: null, trees: null, shadow: null, cascades: null, fullr: null, cells: null, reflect: null, cars: null });
+    expect(parseLodOverrides('hd=150&props=60&trees=30/120/400&shadow=120&cascades=4&fullr=2&cells=900&reflect=300&cars=12'))
+      .toEqual({ hd: 150, props: 60, trees: [30, 120, 400], shadow: 120, cascades: 4, fullr: 2, cells: 900, reflect: 300, cars: 12 });
+    expect(parseLodOverrides('trees=30,120,400').trees).toEqual([30, 120, 400]);
+    expect(() => parseLodOverrides('trees=200/100/400')).toThrow(/trees/);
+    expect(() => parseLodOverrides('cascades=2.5')).toThrow(/cascades/);
+    expect(() => parseLodOverrides('fullr=4')).toThrow(/fullr/);
+    expect(() => parseLodOverrides('hd=abc')).toThrow(/hd/);
+    expect(parseLab('?bench=static&fullr=2')!.tiles).toHaveLength(25);
+    expect(parseLab('?bench=static&fullr=2&tiles=t0_0_0')!.tiles).toEqual(['t0_0_0']);
+  });
+
+  it('leaves every engine constant untouched when no override is given', () => {
+    const params = { traffic: null, walkers: null };
+    applyLodOverrides(parseLodOverrides(''), 'medium', params);
+    expect(snapshot()).toBe(original);
+    expect(params.traffic).toBeNull();
+    expect(lodSettings('medium', params)).toMatchObject({ props: { hide: 125, show: 115 }, trees: [50, 180, 650],
+      shadow: { far: 200, cascades: 3, splits: [16, 50, 200] }, fullr: { radius: 1, window: '3x3', tileDetail: 450 },
+      cellFloor: 580, cars: 30, walkers: 60 });
+    expect(wantedTiles(125, 125)).toHaveLength(9);
+  });
+
+  it('sets the engine constants the normal code paths read, and echoes them', () => {
+    const params = { traffic: null as number | null, walkers: 20 };
+    applyLodOverrides(parseLodOverrides('hd=150&props=60&trees=30/120/400&shadow=120&fullr=2&cells=900&reflect=300&cars=12'), 'medium', params);
+    expect(lodSettings('medium', params)).toEqual({ hd: 150, props: { hide: 60, show: 50 }, trees: [30, 120, 400],
+      shadow: { far: 120, cascades: 3, splits: [9.6, 30, 120] }, fullr: { radius: 2, window: '5x5', tileDetail: 803 },
+      cells: 900, cellFloor: 933, reflect: 300, cars: 12, walkers: 20 });
+    expect(wantedTiles(125, 125)).toHaveLength(25);
+    expect(sceneryDetailDistance({ x: 0, y: 0, z: 0, dx: 0, dz: -1, halfAngle: 1, focalPixels: 2000 })).toBe(900);
+  });
+
+  it('generates log-spaced cascades for a new count and keeps tier ratios otherwise', () => {
+    expect(shadowSplits([16, 50, 200], 240, null)).toEqual([19.2, 60, 240]);
+    expect(shadowSplits([16, 50, 200], null, 4)).toEqual([14, 34, 82.4, 200]);
+    expect(shadowSplits([16, 50, 200], 300, 1)).toEqual([300]);
+    expect(tileDetailFor(1, 450)).toBe(450);
+    expect(tileDetailFor(3, 450)).toBe(1157);
+  });
+
+  it('keeps objects beyond the reflection range out of the river reflection', () => {
+    const coverage = new WaterCoverage();
+    const eye = new THREE.Object3D(); eye.position.set(0, 10, 0); eye.updateMatrixWorld();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2)); mesh.position.set(500, 5, 0); mesh.updateMatrixWorld();
+    expect(coverage.reflectsObject(mesh, eye, 0)).toBe(true); // empty coverage draws everything
+    REFLECTION_RANGE.maxDistance = 300;
+    expect(coverage.reflectsObject(mesh, eye, 0)).toBe(false);
+    mesh.position.set(200, 5, 0); mesh.updateMatrixWorld();
+    expect(coverage.reflectsObject(mesh, eye, 0)).toBe(true);
   });
 });
