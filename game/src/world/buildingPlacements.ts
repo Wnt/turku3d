@@ -6,6 +6,7 @@ import { retainGeometry } from './modelGeometry';
 import { PreparationBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
 import { lodFades, type LodFades } from '../render/lodFade';
+import { StaticGroup } from './frozenTransforms';
 
 type Vec3 = [number, number, number];
 export interface BuildingModel {
@@ -141,12 +142,12 @@ export class BuildingModelCache {
         };
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map(cloneMaterial) : cloneMaterial(mesh.material);
       });
-      const wrapper = new THREE.Group();
+      const wrapper = new StaticGroup();
       wrapper.name = `building:${placement.id}`;
       wrapper.position.fromArray(placement.position);
       wrapper.userData = { archetype: placement.model, placementId: placement.id, block: placement.block,
         viewDistance: placement.viewDistance, modelBounds: descriptor.bounds, occluders: descriptor.occluders };
-      wrapper.add(root); owner.add(wrapper);
+      wrapper.add(root); owner.add(wrapper); wrapper.freeze();
       slots.push(this.visibility.register(wrapper, descriptor.bounds, placement.viewDistance, descriptor.occluders));
     }
     // Block LOD parents: one clone per block, swapped against its HD children by camera distance.
@@ -156,11 +157,11 @@ export class BuildingModelCache {
       const root = templates.get(block.lod)!.clone(true);
       root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
       this.styleLod(root, owner);
-      const wrapper = new THREE.Group();
+      const wrapper = new StaticGroup();
       wrapper.name = `block-lod:${block.id}`;
       wrapper.position.fromArray(block.position);
       wrapper.userData = { blockLod: block.id };
-      wrapper.add(root); owner.add(wrapper);
+      wrapper.add(root); owner.add(wrapper); wrapper.freeze();
       states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: block.hdDistance, near: true, hd: true, settled: false });
     }
     if (states.size) {
