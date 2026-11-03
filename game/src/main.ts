@@ -59,7 +59,6 @@ import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
 import { freezeModel } from './world/frozenTransforms';
 import { altitudeShadows } from './render/shadowAltitude';
-import { reflectionCadence } from './render/reflections';
 import { ReflectionScope } from './render/reflectionScope';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
@@ -242,8 +241,7 @@ if (renderer instanceof GameRenderer && new URLSearchParams(location.search).get
   tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => scope.add(model));
   tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => scope.remove(model));
 }
-// ?reflection=alternate: river reflections refresh every second frame while the camera moves (A/B, render/reflections.ts).
-reflectionCadence.alternate = new URLSearchParams(location.search).get('reflection') === 'alternate';
+
 /** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
 let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
