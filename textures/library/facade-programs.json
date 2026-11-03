@@ -169460,12 +169460,336 @@
           "notes": "Loading-dock frontage contains irregular glazing and service openings with equipment obscuring the base.",
           "colour_space": "unmeasured"
         }
+      },
+      {
+        "wall_id": "103440010H_vfix041_slab_north",
+        "width_m": 114.5,
+        "height_m": 46.47,
+        "geometry": {
+          "p0": [
+            23460823.9,
+            6704789.5
+          ],
+          "p1": [
+            23460932.2,
+            6704826.8
+          ],
+          "normal": [
+            -0.3256,
+            0.9453
+          ],
+          "base_h": 17.53
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View Jul 2026 review (vfix 041)",
+          "reference_id": "local-only vfix041 refs",
+          "notes": "North long face of the 13-storey slab: storey ribbon windows between pale concrete spandrels; dark slatted stair-hall glazing in stepped sections at 7.9-20.3 m and 21.4-33.6 m from the west end (top three storeys, lower edge stepping in toward the west), and near the east end. Edges from a metric projection of the panorama onto the LoD2 face.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "concrete",
+            "source": "direct review",
+            "support": 0.8
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "none",
+            "source": "direct review: plain modernist",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "1960-1979",
+          "source": "register year 1968",
+          "support": 0.8
+        },
+        "modernist": {
+          "support": 0.8,
+          "source": "storey pitch from register 13 storeys over the LoD2 slab roof; panels from metric projection",
+          "margins_m": [
+            0.8,
+            0.8
+          ],
+          "bands": {
+            "first_m": 0.0,
+            "pitch_m": 3.5746,
+            "count": 13,
+            "sill_m": 0.95,
+            "head_m": 3.025,
+            "pane_m": 1.25
+          },
+          "panels": [
+            {
+              "rect_m": [
+                7.9,
+                42.895,
+                12.4,
+                3.545
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            },
+            {
+              "rect_m": [
+                10.0,
+                39.321,
+                10.3,
+                3.545
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            },
+            {
+              "rect_m": [
+                14.0,
+                35.746,
+                6.3,
+                3.545
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            },
+            {
+              "rect_m": [
+                21.4,
+                42.895,
+                12.2,
+                3.545
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            },
+            {
+              "rect_m": [
+                24.1,
+                39.321,
+                9.5,
+                3.545
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            },
+            {
+              "rect_m": [
+                26.8,
+                35.746,
+                6.8,
+                3.545
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            },
+            {
+              "rect_m": [
+                89.6,
+                32.171,
+                13.5,
+                10.694
+              ],
+              "outward_m": 0.04,
+              "glass": true,
+              "colour": "#363d42",
+              "role": "stair-hall glazing"
+            }
+          ]
+        }
       }
     ],
     "review": {
       "method": "direct structure-only route survey; prior pilot retained",
       "scope": "matched walls only",
-      "independent": false
+      "independent": false,
+      "vfix041": {
+        "building_id": "103440010H",
+        "address": "Kiinamyllynkatu 4 (TYKS U-hospital)",
+        "reference_source": "Google Street View Jul 2026, Google 3D, Look Around; local-only",
+        "images_private": true,
+        "observations": [
+          {
+            "scope": "main slab long faces",
+            "finding": "Storey ribbons between pale spandrels; dark stepped stair-hall glazing in the upper storeys near both ends. Uniform small punched grid is wrong.",
+            "confidence": 0.9
+          }
+        ]
+      }
     }
   },
   {

@@ -785,5 +785,39 @@
         }
       }
     }
+  },
+  "103440010H": {
+    "walls": {
+      "103440010H_vfix041_slab_north": {
+        "wall": {
+          "colour": {
+            "value": "#b8b9b4",
+            "source": "reviewed same-wall spandrel patch (overcast); uncalibrated photo appearance prior",
+            "support": 0.65
+          }
+        },
+        "provenance": {
+          "crop_sha256": "e43d87f816d2b3d6d4a24cd937547d907b91f7fe58fa317b4b9028b699b280df",
+          "patches": {
+            "spandrel": [
+              [
+                0.6,
+                0.4462,
+                0.02,
+                0.0096
+              ]
+            ],
+            "dark": [
+              [
+                0.5275,
+                0.3705,
+                0.0475,
+                0.0239
+              ]
+            ]
+          }
+        }
+      }
+    }
   }
 }

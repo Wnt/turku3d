@@ -189,3 +189,22 @@ def test_parking_garage_walls_get_slanted_parapet_bands_and_open_levels_not_a_gr
     assert slanted and not boxes  # leaning parapet faces; visual only
     b.attributes = {"osm_use": "parking", "parking": "underground"}
     assert not is_garage(b)
+
+
+def test_post_war_slab_gets_storey_ribbons_and_older_or_small_buildings_do_not():
+    import shapely
+    from turku3d.coarse.inputs import Building
+    from turku3d.facade_slab import is_slab, slab_wall
+
+    b = Building("s", shapely.box(0, 0, 100, 20), 17.5, 64.0, "facade_plaster")
+    b.attributes = {"construction_year": 1968, "osm_use": "hospital", "levels": 13}
+    assert is_slab(b, {})
+    assert not is_slab(b, {"description_source": "existing"})  # existing descriptions win
+    v = np.array([[0, 17.5, 0], [100, 17.5, 0], [100, 64.0, 0], [0, 64.0, 0]], float)
+    w = slab_wall(dict(width_m=100, height_m=46.5, windows={}, base={}, bays={"count": 40, "support": 0},
+                       wall={}, observation={}), v, b, 46.5 / 13)
+    ribbons = w["windows"]["rectangles_m"]
+    assert len(ribbons) == 13 and w["bays"]["count"] == 0
+    assert all(r[2] > 90 and 1.5 < r[3] < 2.6 for r in ribbons)  # storey-long, storey-sized
+    b.attributes["construction_year"] = 1955
+    assert not is_slab(b, {})

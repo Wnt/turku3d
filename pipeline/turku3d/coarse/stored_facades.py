@@ -241,6 +241,10 @@ def wall_meshes(b, walls, origin, layout=None):
             ring_start = end + 4
     owner, height = layout if layout is not None else (b, None)
     program = resolve(owner, walls, eaves, layout_height=height)
+    from turku3d.facade_slab import is_slab, slab_wall, storey_pitch
+
+    slab = not garage and is_slab(b, program)
+    pitch = storey_pitch(b, walls) if slab else None
     from turku3d.night_lighting import use_class
     night_use = use_class(getattr(owner, "attributes", {}))
     apertures = volumes(measured(b.facade_key))
@@ -252,6 +256,8 @@ def wall_meshes(b, walls, origin, layout=None):
         wall = program["walls"][start // 4]
         if garage and not wall.get("measured_wall_id"):
             wall = program["walls"][start // 4] = garage_wall(wall, vertices, b)
+        elif slab and not wall.get("measured_wall_id"):
+            wall = program["walls"][start // 4] = slab_wall(wall, vertices, b, pitch)
         plans = plan(vertices, wall) + cuts(vertices, apertures)
         plans += edge_plans(vertices, b, plans)
         components, _ = geometry(vertices, plans, b.facade_key, origin)
