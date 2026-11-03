@@ -96,3 +96,9 @@ test('rain rings build behind a uniform branch, so dry water skips their arithme
   expect(fragment).toMatch(/0\.55/);
   expect(fragment).toMatch(/if \( \( render\.\w+ > 0\.0 \) \)/);
 });
+
+test('?water=quarter renders the planar reflection at 0.25 with mipmaps and reads it a level down', () => {
+  const { fragment } = riverShader('medium', 'quarter', true);
+  expect(fragment).toMatch(/textureSampleLevel\( \w+, \w+_sampler, [^;]*, 1\.0 \)/);
+  expect(riverShader('medium', null, true).fragment).not.toMatch(/textureSampleLevel\( \w+, \w+_sampler, [^;]*, 1\.0 \)/);
+});

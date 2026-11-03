@@ -1,6 +1,6 @@
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
-import { mrt, reflector, vec4, velocity } from 'three/tsl';
+import { float, mrt, reflector, vec4, velocity } from 'three/tsl';
 import { labelGpuPass } from './gpuPasses';
 import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence, WaterCoverage, type WaterReflection } from './reflections';
 import { QUALITY, type QualityTier, type RiverReflection } from './quality';
@@ -30,6 +30,8 @@ export function waterSurface(mesh: THREE.Mesh): { point: THREE.Vector3; normal: 
   return { point, normal: normal.normalize() };
 }
 let activeSurface = riverSurface;
+/** Mip level the quarter-scale planar reflection is read at (?water=quarter). */
+export const RIVER_REFLECTION_BLUR = 1;
 
 /** How a reach reflects: the tier's way (`?water=planar|ssr|sky` for the A/B), the sky where the tier has no reflection
  *  (mobile, `?off=reflection`) and on sloped reaches (rapids, weirs: no single mirror plane, but a screen-space march
@@ -59,9 +61,13 @@ export class RiverMaterial {
   constructor(mesh: THREE.Mesh, private env: Environment, tier: QualityTier, private deterministic: boolean, renderer: THREE.WebGPURenderer) {
     const rgb = waterColour(mesh.userData);
     this.bodyColour = rgb ? new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace) : new THREE.Color(0.075, 0.062, 0.035);
-    const scale = QUALITY[tier].reflectionScale;
+    // W2 A/B (?water=quarter): GTA's planar reflection was 240x120; a quarter-scale target, mipmapped and sampled one
+    // level down, is soft and low-resolution like it.
+    const quarter = WATER_SWITCHES.quarter;
+    const scale = quarter ? Math.min(QUALITY[tier].reflectionScale, 0.25) : QUALITY[tier].reflectionScale;
     this.mode = riverReflection(tier, mesh.userData.water_slope === true);
-    const reflection = this.reflection = this.mode === 'planar' ? reflector({ bounces: false, samples: 0 }) : null;
+    const reflection = this.reflection = this.mode === 'planar' ? reflector({ bounces: false, samples: 0, generateMipmaps: quarter }) : null;
+    if (reflection && quarter) reflection.levelNode = float(RIVER_REFLECTION_BLUR);
     this.reflectionUV = reflection?.uvNode ?? null;
     // Reflections do not sample the main camera's screen-space GTAO context.
     const context = this.context = renderer.contextNode;
