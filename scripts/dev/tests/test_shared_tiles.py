@@ -714,6 +714,39 @@ class FarmTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_building_models_are_validated_and_pinned_with_their_manifest(self):
+        from urllib.parse import urljoin
+        digest = hashlib.sha256(b'building').hexdigest()
+        def build(revision, tile, root):
+            result = fake_build(revision, tile, root)
+            (root / 'shared').mkdir(exist_ok=True)
+            (root / 'shared' / (digest + '.glb')).write_bytes(b'building')
+            manifest = farm_module.read_json(root / tile / 'manifest.json')
+            manifest['buildingPlacements'] = dict(version=1,
+                models=[dict(id=digest, uri='../shared/' + digest + '.glb', bytes=8)],
+                placements=[dict(id='building', model=digest, position=[250,0,100], viewDistance=500)])
+            farm_module.atomic_json(root / tile / 'manifest.json', manifest)
+            return result
+        farm = self.farm(execute=build)
+        farm.register(REV, 'integration')
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        try:
+            manifest = json.load(urlopen(base + '/v/integration/coarse/t0_0_0/manifest.json'))
+            model = manifest['buildingPlacements']['models'][0]
+            self.assertTrue(model['uri'].startswith(f'/v/{REV}/coarse/'))
+            farm.register(REV2, 'integration')
+            self.assertEqual(urlopen(urljoin(base, model['uri'])).read(), b'building')
+            original = farm_module.read_json(farm.output(GEN) / 't0_0_0/manifest.json')
+            (farm.output(GEN) / 'shared' / (digest + '.glb')).write_bytes(b'corrupt!')
+            with self.assertRaisesRegex(RuntimeError, 'hash mismatch'):
+                farm.validate(farm.output(GEN), 't0_0_0', original)
+        finally:
+            server.shutdown(); server.server_close(); thread.join()
+
     def test_http_pins_manifest_urls_and_serves_both_revisions(self):
         farm = self.farm()
         farm.register(REV, 'integration')
