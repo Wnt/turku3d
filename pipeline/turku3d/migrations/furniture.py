@@ -70,12 +70,12 @@ def read_accessor(document, binary, product, glb_url, index):
                       strides=(stride, item)).copy()
 
 
-def _append_view(document, chunks, offset, data):
-    """A plain (uncompressed) buffer view in the GLB's BIN chunk; returns (view index, new offset)."""
+def _append_view(document, buffer, chunks, offset, data):
+    """A plain (uncompressed) vertex view at the end of ``buffer``; returns (view index, new offset)."""
     pad = -offset % 4
     chunks.append(b"\0" * pad)
     offset += pad
-    document["bufferViews"].append({"buffer": 0, "byteOffset": offset, "byteLength": len(data), "byteStride": 12,
+    document["bufferViews"].append({"buffer": buffer, "byteOffset": offset, "byteLength": len(data), "byteStride": 12,
                                     "target": 34962})
     chunks.append(data)
     return len(document["bufferViews"]) - 1, offset + len(data)
@@ -277,19 +277,29 @@ def transform(product: Product) -> None:
         del document["nodes"][i]["extras"]["objects"][k]
 
     if changed_nodes:
-        chunks, end = [binary], len(binary)
+        # The GLB's BIN chunk is buffers[0] only when that buffer has no uri; tiles whose buffers are all
+        # shared external files get one more content-addressed shared buffer for the rewritten views.
+        inline = "uri" not in document["buffers"][0]
+        target = 0 if inline else len(document["buffers"])
+        chunks, end = ([binary], len(binary)) if inline else ([], 0)
         for i in sorted(changed_nodes):
             primitive = decoded[i][0]
             data = positions[i].astype("<f4")
-            view, end = _append_view(document, chunks, end, data.tobytes())
+            view, end = _append_view(document, target, chunks, end, data.tobytes())
             acc = document["accessors"][primitive["attributes"]["POSITION"]]
             acc.update(bufferView=view, byteOffset=0, min=[float(v) for v in data.min(0)],
                        max=[float(v) for v in data.max(0)])
             if i in normals:
-                view, end = _append_view(document, chunks, end, normals[i].astype("<f4").tobytes())
+                view, end = _append_view(document, target, chunks, end, normals[i].astype("<f4").tobytes())
                 document["accessors"][primitive["attributes"]["NORMAL"]].update(bufferView=view, byteOffset=0)
-        binary = b"".join(chunks)
-        document["buffers"][0]["byteLength"] = len(binary)
+        if inline:
+            binary = b"".join(chunks)
+            document["buffers"][0]["byteLength"] = len(binary)
+        else:
+            extra = b"".join(chunks)
+            shared = product.put("../shared/{hash}.bin", extra)
+            uri = posixpath.relpath(shared, posixpath.dirname(entry["url"]) or ".")
+            document["buffers"].append({"byteLength": len(extra), "uri": uri})
     data = glb_pack(document, binary)
     product.replace(entry, data)
     if "brotli_bytes" in entry:
