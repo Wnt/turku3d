@@ -4,8 +4,8 @@ import { shareSceneryProgram } from './shareSceneryProgram';
 import { disposeDraw } from './sharedMaterials';
 import { sceneryBounds } from '../world/sceneryView';
 
-interface Source { mesh: THREE.Mesh; mask: number; revision?: number }
-interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; releaseProgram?: () => void; queuedAt: number; readyAt: number }
+interface Source { mesh: THREE.Mesh; mask: number; revision?: number; owner?: THREE.Object3D }
+interface Bucket { signature: string; sources: Source[]; mesh?: THREE.Mesh; releaseProgram?: () => void; queuedAt: number; readyAt: number; preparing?: boolean; cancelled?: boolean; finished?: Promise<void> }
 interface ModelSources { model: THREE.Object3D; visible: boolean; groups: Map<string, Source[]> }
 
 /** Bound merged allocations below WebGPU's default 256 MiB buffer limit. Facade
@@ -36,18 +36,32 @@ export class SceneryBatches {
   private invalid = new WeakSet<THREE.Object3D>();
   private waiting: Bucket[] = [];
   private revision = 0;
+  private preparing = new Set<Bucket>();
   pending = 0;
 
   /** Call after changing a resident model's children, geometry, material or transforms. */
   invalidate(model: THREE.Object3D) { this.invalid.add(model); }
 
-  constructor(private scene: THREE.Scene, private retire: (release: () => void) => void = release => release()) {}
+  /** A cancelled compile may still read borrowed source materials/textures until its await completes. */
+  retireModel(model: THREE.Object3D, release: () => void) {
+    const active = [...this.preparing].filter(bucket => bucket.sources.some(source => source.owner === model));
+    if (active.length) void Promise.allSettled(active.map(bucket => bucket.finished)).then(release);
+    else release();
+  }
+
+  constructor(private scene: THREE.Scene, private retire: (release: () => void) => void = release => release(),
+    private prepare?: (model: THREE.Object3D) => Promise<void>) {}
 
   private release(bucket: Bucket) {
+    bucket.cancelled = true;
     bucket.releaseProgram?.();
     for (const source of bucket.sources) source.mesh.layers.mask = source.mask;
+    if (!bucket.preparing) this.disposeMesh(bucket);
+  }
+  private disposeMesh(bucket: Bucket) {
     if (!bucket.mesh) return;
     const mesh = bucket.mesh; mesh.removeFromParent();
+    bucket.mesh = undefined;
     this.retire(() => { disposeDraw(mesh); mesh.geometry.dispose(); });
   }
   clear() { for (const bucket of this.buckets.values()) this.release(bucket); this.buckets.clear(); this.models.clear(); this.waiting = []; this.pending = 0; }
@@ -79,7 +93,7 @@ export class SceneryBatches {
           const layout = Object.entries(mesh.geometry.attributes).map(([name,a]) =>
             `${name}:${a.itemSize}:${a.normalized}:${a.array.constructor.name}`).sort().join(';');
           const key = `${cellSize}:${Math.floor(b.x/cellSize)},${Math.floor(b.z/cellSize)}:${mesh.material.uuid}:${!!mesh.geometry.index}:${layout}`;
-          const group = groups.get(key) ?? []; group.push({mesh,mask,revision}); groups.set(key,group);
+          const group = groups.get(key) ?? []; group.push({mesh,mask,revision,owner:model}); groups.set(key,group);
         });
       }
       this.models.set(id, {model, visible: model.visible, groups});
@@ -118,6 +132,7 @@ export class SceneryBatches {
   }
 
   private buildNext(now: number) {
+    if (this.preparing.size) { this.pending = this.waiting.length + this.preparing.size; return; }
     // Admit one eligible cell per frame. Pending sources stay visible, and a
     // frequently changing cell must not block ready cells later in the queue.
     const index = this.waiting.findIndex(bucket => bucket.readyAt <= now);
@@ -127,10 +142,30 @@ export class SceneryBatches {
       const mesh = new THREE.Mesh(geometry,bucket.sources[0].mesh.material);
       mesh.name = 'distant-city-cell'; mesh.userData.scenery = true;
       mesh.matrixAutoUpdate = false; mesh.castShadow = mesh.receiveShadow = false;
-      this.scene.add(mesh); bucket.mesh = mesh;
-      for (const source of bucket.sources) source.mesh.layers.mask = 0;
-      bucket.releaseProgram = shareSceneryProgram(bucket.sources.map(source => source.mesh), geometry);
+      bucket.mesh = mesh;
+      const commit = () => {
+        bucket.releaseProgram = shareSceneryProgram(bucket.sources.map(source => source.mesh), geometry);
+        this.scene.add(mesh);
+        for (const source of bucket.sources) source.mesh.layers.mask = 0;
+      };
+      if (!this.prepare) commit();
+      else {
+        bucket.preparing = true; this.preparing.add(bucket);
+        // Keep the already prepared sources visible while the replacement warms off the live draw path.
+        bucket.finished = Promise.resolve().then(() => this.prepare!(mesh)).then(() => {
+          if (!bucket.cancelled) commit();
+        }).catch(error => {
+          if (!bucket.cancelled) {
+            console.warn(`[scenery] batch preparation: ${error}`);
+            bucket.readyAt = performance.now() + 5000; this.waiting.push(bucket);
+          }
+        }).finally(() => {
+          bucket.preparing = false; this.preparing.delete(bucket);
+          if (bucket.cancelled || mesh.parent !== this.scene) this.disposeMesh(bucket);
+          this.pending = this.waiting.length + this.preparing.size;
+        });
+      }
     }
-    this.pending = this.waiting.length;
+    this.pending = this.waiting.length + this.preparing.size;
   }
 }

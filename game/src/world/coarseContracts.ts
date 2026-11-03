@@ -54,6 +54,8 @@ export interface CoarseHost {
   previewCollision?: (buffers: ReadonlyMap<string, ArrayBuffer>) => Promise<THREE.Object3D>;
   /** After material styling and draft tint: register derived runtime geometry here. */
   styled?: (model: THREE.Object3D) => void | Promise<void>;
+  /** Prepare final streaming draw programs/uploads before attaching visible geometry. */
+  prepareGraphics?: (model: THREE.Object3D) => Promise<void>;
   vegetationDistance?: number;
   prepareVegetation?: (model: THREE.Object3D, data: TreePlacements) => Promise<void>;
   trackModel?: (model: THREE.Object3D, id: string) => void;

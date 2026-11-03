@@ -28,6 +28,7 @@ import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
+import { modelTextures, textureUploads } from './render/textureUploads';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
@@ -166,18 +167,23 @@ tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE
   retireAfterFrame(renderer, () => { vegetation?.remove(model); materials?.release(model); });
 });
 let graphicsReady = Promise.resolve();
-const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) => {
+const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal) => {
   // Startup warms the complete scene with real draws before Ready. Per-model async compilation
   // repeats that work and yields once per material; reserve paced compilation for streaming during play.
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') return Promise.resolve();
   const prepared = graphicsReady.then(async () => {
     if (signal?.aborted) return;
-    await materials?.prepare(model, scene, camera, signal);
+    await prepare();
     if (!signal?.aborted) await post?.prepare(model);
   });
   graphicsReady = prepared.catch(() => {});
   return prepared;
 };
+const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
+  queueGraphics(model, () => materials?.prepare(model, scene, camera, signal), signal);
+// Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
+const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model,
+  () => Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map))));
 const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
@@ -314,6 +320,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => retireAfterFrame(renderer, release),
+    prepareGraphics: prepareSceneryGraphics,
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
