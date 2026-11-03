@@ -48,23 +48,23 @@ test('a streaming budget resumes a stale window after one task hop, not a drawn 
   expect([frames, tasks]).toEqual([2, 1]); // frame-aligned budgets (shader compiles) keep waiting for a frame
 });
 
-test('streaming windows steer the measured frame interval to 24 ms; the current window never drops below 2 ms', () => {
+test('the window steers the frame interval to 24 ms; prefetch only spends what frames leave under 20.5 ms', () => {
   let now = 0;
   const account = new StreamingAllowance(() => now);
   const frames = (n: number, interval: number, windows = 1) => {
     for (let i = 0; i < n; i++) { for (let w = 0; w < windows; w++) account.opened(); account.frame(8, interval); }
   };
-  frames(60, 16.7); // frames come faster than 40 fps while streaming has work
+  frames(60, 16.7); // frames come faster than 48 fps while prefetch has work
   expect(account.limit).toBe(3); // prefetch-only: capped
-  account.urgent = true; frames(60, 16.7);
-  expect(account.limit).toBe(6); // the 3x3 window waits: larger windows
-  frames(1, 16.7, 4);
-  expect(account.limit).toBe(3); // four budgets worked last frame: they share the 12 ms total
-  frames(80, 30); // the interval (callback + every post-frame task) runs over the target
-  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // shrinks to the window's floor
-  account.urgent = false; frames(5, 30);
+  frames(80, 22); // 45 fps: prefetch is over its 20.5 ms target and backs off to its floor
   expect(account.limit).toBe(StreamingAllowance.MIN_MS);
-  account.urgent = true; frames(60, 16.7, 4); const before = account.limit;
+  account.urgent = true; frames(60, 22); // the 3x3 window waits: the same frames are under the 24 ms target
+  expect(account.limit).toBe(6);
+  frames(1, 22, 4);
+  expect(account.limit).toBe(3); // four budgets worked last frame: they share the 12 ms total
+  frames(80, 30); // over the window target too
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // the window's floor
+  frames(60, 16.7, 4); const before = account.limit;
   frames(1, 60, 4); // one overlong frame halves the total at once
   expect(account.limit).toBeLessThan(before);
   now = 500; expect(account.limit).toBe(2); // no frame reports: the old fixed window

@@ -11,9 +11,12 @@ const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
  *  work, shrinks while they come slower, and halves after an overlong frame. The budgets that worked in the last
  *  frame share it; each keeps a floor (2 ms while the current 3x3 window waits for installs, `urgent`, else 1 ms). */
 export class StreamingAllowance {
-  /** Target frame interval (ms) for a 40 fps average. */
-  readonly target = 24;
-  static readonly MIN_MS = 1;
+  /** Target frame interval (ms): 24 (40 fps) only while the current 3x3 window lacks full tiles; prefetch, wedge and
+   *  path work get only what a frame leaves under 20.5 ms (about 48 fps), so they never pin the frame at 40 fps. */
+  static readonly WINDOW_TARGET = 24;
+  static readonly PREFETCH_TARGET = 20.5;
+  get target() { return this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET; }
+  static readonly MIN_MS = 0.5;
   static readonly BASE_MS = 2;
   /** Streaming ms per frame across all budgets (controller state). */
   private total = 4;
