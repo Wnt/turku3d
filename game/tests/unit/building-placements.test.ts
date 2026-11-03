@@ -336,15 +336,19 @@ test('block swap distance is 3D: a camera high above a near block sees its shell
   expect(lone.children.find(o => o.userData.archetype)!.visible).toBe(true);
 });
 
-test('every dissolve twin shares one mask, and preparation compiles twins with them swapped in only while it runs', async () => {
+test('every dissolve twin shares one mask, and preparation compiles twins on proxies, never touching the live model', async () => {
   const a = new THREE.MeshStandardNodeMaterial({ name: 'a' }), b = new THREE.MeshStandardNodeMaterial({ name: 'b' });
   const ta = dissolveTwin(a) as THREE.MeshStandardNodeMaterial, tb = dissolveTwin(b, 1) as THREE.MeshStandardNodeMaterial;
   expect(ta.maskNode).toBe(tb.maskNode); expect(ta.maskShadowNode).toBe(tb.maskShadowNode);
   const root = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry(), a); root.add(mesh);
-  const seen: THREE.Material[] = [];
-  await precompileDissolve([root], [0, 2], async r => { seen.push((r.children[0] as THREE.Mesh).material as THREE.Material); });
+  const seen: THREE.Material[] = [], live: THREE.Material[] = [];
+  await precompileDissolve([root], [0, 2], async r => {
+    const proxy = r.children[0] as THREE.Mesh;
+    seen.push(proxy.material as THREE.Material); live.push(mesh.material as THREE.Material);
+    expect(proxy).not.toBe(mesh); expect(proxy.geometry).toBe(mesh.geometry);
+  });
   expect(seen.map(m => m.name)).toEqual(['a:dissolve', 'a:dissolve-2']);
-  expect(mesh.material).toBe(a);
+  expect(live).toEqual([a, a]); expect(mesh.material).toBe(a);
   expect([dissolveReady(a, 0), dissolveReady(a, 1), dissolveReady(a, 2)]).toEqual([true, false, true]);
   const calls = vi.fn();
   await precompileDissolve([root], [0], calls); // already compiled: nothing to do

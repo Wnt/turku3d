@@ -91,22 +91,27 @@ function dissolvingMeshes(root: THREE.Object3D) {
 const materialsOf = (mesh: THREE.Mesh) => Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 
 /** Compile the dissolve twins of every mesh under `roots` for `tiers` through `compile` (the game's own preparation
- *  path: post.prepare), with the twins swapped in only while it runs. A fade only ever uses compiled twins, so no
- *  dissolve builds a shader or pipeline inside a frame, and none waits for an async pipeline with nothing drawn. */
+ *  path: post.prepare). The twins go onto detached proxy meshes sharing each mesh's geometry, layers and world
+ *  transform, never onto the live model, which may already draw (post-menu backfill). Programs and pipelines are
+ *  shared by material, geometry layout and pass, so a later fade finds them ready: no dissolve ever builds a shader or
+ *  pipeline inside a frame, and none waits on an async pipeline with nothing drawn. */
 export async function precompileDissolve(roots: readonly THREE.Object3D[], tiers: readonly number[],
   compile: (root: THREE.Object3D) => void | Promise<unknown>) {
   for (const tier of tiers) for (const root of roots) {
-    const swaps: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [], compiled: THREE.Material[] = [];
+    const proxies = new THREE.Group(), compiled: THREE.Material[] = [];
+    root.updateWorldMatrix(true, true);
     for (const mesh of dissolvingMeshes(root)) {
       const list = materialsOf(mesh).map(material => dissolveTwin(material, tier));
       if (list.every(twin => !isDissolveTwin(twin) || ready.has(twin))) continue;
-      swaps.push([mesh, mesh.material]);
-      mesh.material = Array.isArray(mesh.material) ? list : list[0];
+      const proxy = new THREE.Mesh(mesh.geometry, Array.isArray(mesh.material) ? list : list[0]);
+      proxy.name = mesh.name; proxy.layers.mask = mesh.layers.mask; proxy.userData = mesh.userData;
+      proxy.matrix.copy(mesh.matrixWorld); proxy.matrixAutoUpdate = false; proxy.frustumCulled = false;
+      proxies.add(proxy);
       compiled.push(...list.filter(isDissolveTwin));
     }
-    if (!swaps.length) continue;
-    try { await compile(root); for (const twin of compiled) ready.add(twin); }
-    finally { for (const [mesh, material] of swaps) mesh.material = material; }
+    if (!proxies.children.length) continue;
+    try { await compile(proxies); for (const twin of compiled) ready.add(twin); }
+    finally { for (const proxy of proxies.children) proxy.dispatchEvent({ type: 'dispose' } as never); proxies.clear(); }
   }
 }
 
