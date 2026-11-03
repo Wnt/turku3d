@@ -5,8 +5,10 @@
 // its offset and size (setVertexBuffer / setIndexBuffer through a per-draw encoder proxy around r186's _draw).
 // r186's own upload code still runs: its 16-bit widening and stride padding fill a mapped stand-in whose unmap writes
 // the slot. Updates go through r186's updateAttribute with the slot's offset added. Freed slots wait
-// QUARANTINE_FRAMES before reuse within their size class, so no write for a new owner reaches a draw that was encoded,
-// but not yet submitted, for the old one. Pages are never returned, so they stay at the high-water mark of pooled bytes.
+// QUARANTINE_FRAMES and a queue.onSubmittedWorkDone() issued after the free (gpuFence) before reuse within their size
+// class, so the GPU has finished every draw that read them. A new owner writes its whole range at creation. Pages are never returned, so they stay at the high-water mark of pooled bytes.
+
+import { gpuFence } from './gpuFence';
 
 const PAGE_BYTES = 4 << 20;
 const MAX_POOLED_BYTES = 64 << 10;
@@ -52,7 +54,8 @@ export function poolGeometryBuffers(backend: Backend, frame: () => number) {
   if (!device) return null;
   const stats: GeometryPoolStats = { pages: 0, slots: 0, free: 0, bytes: 0, slotBytes: 0 };
   let page: { buffer: GPUBuffer; used: number } | null = null;
-  const free = new Map<number, Slot[]>(), quarantine: { slot: Slot; frame: number }[] = [];
+  const free = new Map<number, Slot[]>(), quarantine: { slot: Slot; frame: number; epoch: number }[] = [];
+  const fence = gpuFence(device);
   // Size classes: 256-byte steps to 4 KB, then about 12 % geometric steps (rounded to 256), so reuse wastes little.
   const classOf = (bytes: number) => {
     let size = Math.ceil(bytes / ALIGN) * ALIGN;
@@ -63,7 +66,8 @@ export function poolGeometryBuffers(backend: Backend, frame: () => number) {
   };
   const allocate = (bytes: number): Slot => {
     const size = classOf(bytes), now = frame();
-    while (quarantine.length && now - quarantine[0].frame >= QUARANTINE_FRAMES) {
+    if (quarantine.length) fence.request();
+    while (quarantine.length && now - quarantine[0].frame >= QUARANTINE_FRAMES && fence.done(quarantine[0].epoch)) {
       const { slot } = quarantine.shift()!;
       let list = free.get(slot.size);
       if (!list) free.set(slot.size, list = []);
@@ -115,7 +119,8 @@ export function poolGeometryBuffers(backend: Backend, frame: () => number) {
   utils.destroyAttribute = attribute => {
     const target = utils._getBufferAttribute(attribute), data = backend.get(target);
     if (data.pooled) {
-      quarantine.push({ slot: data.pooled, frame: frame() }); stats.slots--; stats.free++; stats.slotBytes -= data.pooled.size;
+      quarantine.push({ slot: data.pooled, frame: frame(), epoch: fence.after() }); fence.request();
+      stats.slots--; stats.free++; stats.slotBytes -= data.pooled.size;
       pooledTargets.delete(target);
       data.pooled = undefined; data.buffer = undefined;
       backend.delete(attribute);

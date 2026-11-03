@@ -9,9 +9,18 @@ function setup() {
   const buffers: { size: number; label?: string }[] = [], writes: any[][] = [], groups: any[] = [];
   const device: any = {
     limits: { minUniformBufferOffsetAlignment: 256 },
-    createBuffer: (descriptor: { size: number; label?: string }) => { const buffer = { ...descriptor, id: buffers.length }; buffers.push(buffer); return buffer; },
+    createBuffer: (descriptor: { size: number; label?: string }) => {
+      const buffer = { ...descriptor, id: buffers.length, memory: new Uint8Array(descriptor.size) }; buffers.push(buffer); return buffer;
+    },
     createBindGroup: (descriptor: any) => { groups.push(descriptor.entries.map((e: any) => ({ ...e, resource: { ...e.resource } }))); return { id: groups.length }; },
-    queue: { writeBuffer: (...args: any[]) => writes.push(args) },
+    queue: { writeBuffer: (...args: any[]) => {
+      writes.push(args);
+      const [buffer, offset, data, dataOffset = 0, size] = args;
+      const element = ArrayBuffer.isView(data) ? (data as any).BYTES_PER_ELEMENT ?? 1 : 1;
+      const view = ArrayBuffer.isView(data) ? data : new Uint8Array(data);
+      const bytes = new Uint8Array(view.buffer, view.byteOffset + dataOffset * element, (size ?? view.byteLength / element - dataOffset) * element);
+      buffer.memory.set(bytes, offset);
+    } },
   };
   const data = new WeakMap<object, any>();
   const backend: any = {
@@ -46,6 +55,35 @@ test('uniform bindings share 1 MB pages in 256-byte slots; bind groups and write
   backend.bindingUtils.updateBinding(b);
   expect(writes.map(w => [w[1], w[3], w[4]])).toEqual([[256, 0, undefined], [256 + 16, 4, 8], [256 + 80, 20, 2]]);
   expect(pool.stats).toMatchObject({ pages: 2, slots: 3, dedicated: 1 });
+});
+
+test('a reused slot starts at zero: r186 never uploads a uniform still equal to its zero-initialised CPU copy', () => {
+  const { backend, uniform, advance, writes } = setup();
+  const old = uniform(64); backend.createUniformBuffer(old);
+  (old.buffer as Float32Array).fill(7); backend.bindingUtils.updateBinding(old); // the old owner's values
+  const slot = backend.get(old).pooled;
+  backend.destroyUniformBuffer(old);
+  advance(3);
+  const next = uniform(64); backend.createUniformBuffer(next);
+  expect(backend.get(next).pooled).toBe(slot);
+  // The new owner's uniforms are all 0, so r186 writes nothing for them; the slot must read zeros, not 7s.
+  expect([...slot.page.memory.subarray(slot.offset, slot.offset + 64)].every((b: number) => b === 0)).toBe(true);
+  expect(writes.at(-1)!.slice(1, 2)).toEqual([slot.offset]);
+});
+
+test('freed slots wait for a GPU completion fence issued after the free', async () => {
+  const { device, backend, uniform, advance } = setup();
+  let resolve!: () => void;
+  device.queue.onSubmittedWorkDone = () => new Promise<void>(r => { resolve = r; });
+  const a = uniform(64); backend.createUniformBuffer(a);
+  const slot = backend.get(a).pooled;
+  backend.destroyUniformBuffer(a);
+  advance(10);
+  const b = uniform(64); backend.createUniformBuffer(b);
+  expect(backend.get(b).pooled).not.toBe(slot); // frames passed, but the GPU has not confirmed
+  resolve(); await Promise.resolve();
+  const c = uniform(64); backend.createUniformBuffer(c);
+  expect(backend.get(c).pooled).toBe(slot);
 });
 
 test('a freed slot is reused only after the quarantine, never by a write that could reach an unsubmitted draw', () => {
