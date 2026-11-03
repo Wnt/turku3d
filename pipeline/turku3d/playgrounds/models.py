@@ -164,7 +164,7 @@ def tower(s, p):
         s.box((0, deck + 0.45, z), (lx - 0.3, 0.6, 0.04), RED if z < 0 else BLUE)
     s.box((-a, deck + 0.45, 0), (0.04, 0.6, lz - 0.3), GREEN)
     roof(s, lx, lz, h - 0.9, 0.9, RED)
-    bar(s, (a, deck, 0), (a + deck * 1.8, 0.3, 0), 0.6, 0.05, color=YELLOW)
+    # Slides are surveyed as outlines of their own; the open +x side is where they attach.
     for k in range(int(deck / 0.3)):
         bar(s, (-a - 0.05, 0.3 * (k + 1), -0.3), (-a - 0.05, 0.3 * (k + 1), 0.3), 0.04, color=STEEL)
 
@@ -251,7 +251,7 @@ def gym(s, p):
     for k in range(n):
         y = (2.2, 1.6, 1.0)[k % 3]
         bar(s, (xs[k], y, 0), (xs[k + 1], y, 0), 0.04, color=STEEL)
-    s.box((xs[0] - 0.7, 0.25, 0.6), (1.2, 0.08, 0.35), WOOD)
+    s.box((0, 0.25, 0.45), (min(1.2, length - 0.4), 0.08, 0.3), WOOD)
 
 
 def goal(s, x, width, facing, color=WHITE):

@@ -310,6 +310,14 @@ def _edge_benches(domain, blocked, count, inside):
     return [(x, z, yaw) for _, x, z, yaw, _ in chosen]
 
 
+def _near(region, geometries):
+    """The valid union of the geometries that reach the region."""
+    if not geometries:
+        return shapely.Polygon()
+    array = shapely.make_valid(np.asarray(geometries, dtype=object))
+    return shapely.union_all(array[shapely.intersects(array, region)])
+
+
 def bench_share(area):
     return 1 if area < 150 else 2 if area < 600 else 3 if area < 2000 else 4
 
@@ -324,9 +332,11 @@ def produce(tile, sites, play_areas, height_at, footprints, water, streets, path
     items = []
     box = shapely.box(*tile.bbox.as_tuple())
     inside = shapely.box(*tile.bbox.buffered(-0.5).as_tuple())
-    hard = shapely.union_all([*footprints, *water, *streets])
-    soft = shapely.union_all([*(shapely.buffer(p, PATH_CLEAR) for p in paths),
-                              *(shapely.Point(t).buffer(TREE_CLEAR) for t in trunks)])
+    # Obstacles only matter near the play areas; invalid survey rings are repaired first.
+    region = shapely.union_all([*(_domain(site) for site in sites), *(a for _, a in play_areas)]).buffer(5.0)
+    hard = _near(region, [*footprints, *water, *streets])
+    soft = _near(region, [*(shapely.buffer(p, PATH_CLEAR) for p in paths),
+                          *(shapely.Point(t).buffer(TREE_CLEAR) for t in trunks)])
     blocked_base = shapely.union_all([hard.buffer(0.3), soft])
 
     def add(site_id, category, source, oid, x, z, long, short, yaw, label="", height=None, surface=None):
