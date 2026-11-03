@@ -95,3 +95,14 @@ test('the twilight sky is black by day, deep blue in the blue hour and dark at n
   expect(MESOPIC.saturation).toBeLessThan(0.6);
   expect(MESOPIC.luminance[0]).toBeLessThan(MESOPIC.luminance[1]);
 });
+
+
+test('mapped building use separates office closing hours and restaurant evening activity', async () => {
+  const { windowUseLevels } = await import('../../src/render/timecycle');
+  const occupancy = (hour: number) => windowUseLevels(hour).map(level => level * litFraction(hour));
+  expect(occupancy(22)[0]).toBeLessThan(.06);
+  expect(occupancy(22)[1]).toBeGreaterThan(.6);
+  expect(occupancy(4)[1]).toBeLessThan(.04);
+  expect(windowUseLevels(24)).toEqual(windowUseLevels(0));
+  expect(windowUseLevels(-2)).toEqual(windowUseLevels(22));
+});

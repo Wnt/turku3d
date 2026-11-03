@@ -14,6 +14,7 @@ import { QUALITY, type QualityTier } from '../../src/render/quality';
 import { CYCLE_EPOCH, cycleAt } from '../../src/core/dayCycle';
 import { LampPools } from '../../src/render/lights/pools';
 import { DayClock } from '../../src/render/dayClock';
+import { sceneryMaterial } from '../../src/render/sceneryMaterial';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -27,7 +28,7 @@ const v4 = { _kit_layout: [42, 3, 4], _kit_origin: [0, 0], _kit_extent: [0, 0, 1
   _kit_wall: [.8, .7, .6], _kit_trim: [1, 1, 1], _kit_opening: [.45, .5, .2, .1], _kit_detail: [0, 0, 2, -3],
   _kit_bands: [.5, .2, .1, .2], _kit_base: [.7, .6, .5] };
 
-function wall(fields: Record<string, number[]> = {}) {
+function wall(fields: Record<string, readonly number[]> = {}) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
@@ -61,7 +62,7 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
   const add = (name: string, mesh: THREE.Mesh) => { mesh.name = name; mesh.receiveShadow = mesh.castShadow = true; meshes.push(mesh); scene.add(mesh); };
 
   // Facade kit v3 and v4, through the same binding code as streamed tiles.
-  for (const [name, version, fields] of [['kit-v3', 3, v3], ['kit-v4', 4, v4]] as const) {
+  for (const [name, version, fields] of [['kit-v3', 3, v3], ['kit-v4', 4, v4], ['kit-v6', 6, { ...v4, _kit_layout: [1, 3, 3.2, 1], _kit_frame: [1, 1, 1, 0], _kit_glazing: [0, 0, 0, -1] }]] as const) {
     const source = new THREE.MeshStandardMaterial({ map: atlas(), normalMap: atlas(), roughnessMap: atlas() });
     source.userData.facade_kit = { version };
     add(name, new THREE.Mesh(wall(fields), facadeKitMaterial(source, renderer)!));
@@ -79,12 +80,26 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
   // Styled road/grass surfaces and the river (sky-PMREM water on mobile, planar reflections elsewhere are their own pass).
   const styler = new MaterialStyler(renderer, env, 'mobile', true);
   const surfaces = new THREE.Group();
-  for (const key of ['draft_asphalt_worn', 'draft_grass', 'water']) {
+  for (const key of ['draft_asphalt_worn', 'draft_grass', 'water', 'night_bridge_rail', 'night_bridge_soffit', 'night_boat_cabin', 'night_boat_bulb', 'night_landmark_wall']) {
     const mesh = new THREE.Mesh(wall(), new THREE.MeshStandardMaterial({ map: atlas() }));
     mesh.userData.material_key = key; mesh.name = key; surfaces.add(mesh);
+    if (key.startsWith('night_')) {
+      mesh.material.emissive.setRGB(1, .7, .4);
+      if (key === 'night_landmark_wall') mesh.geometry.setAttribute('_night_irradiance', new THREE.Float32BufferAttribute([.3,.2,.1,.3,.2,.1,.3,.2,.1], 3));
+      tintDraft(mesh, renderer);
+    }
   }
   styler.apply(surfaces);
   for (const mesh of [...surfaces.children] as THREE.Mesh[]) add(mesh.name, mesh);
+  for (const layer of ['night-architecture', 'buildings-night-mapped', 'buildings-program-v6']) {
+    const fields: Record<string, readonly number[]> = layer === 'buildings-program-v6'
+      ? { ...v4, _kit_layout: [1, 3, 3.2, 2], _kit_frame: [1, 1, 1, 0], _kit_glazing: [0, 0, 0, -1] }
+      : { _night_irradiance: layer === 'night-architecture' ? [.5, .3, .1, 1] : [.5, .3, .1],
+          _far_rect: [0, 0, 1, 1], _far_repeat: [0, 0] };
+    const geometry = wall(fields);
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute([1,1,1,1,1,1,1,1,1], 3));
+    add(`far-${layer}`, new THREE.Mesh(geometry, sceneryMaterial(layer, undefined, atlas())));
+  }
   add('sky', env.sky);
 
   const lightSet = () => {
@@ -160,10 +175,10 @@ test('daylight IBL omits the solar disc and restores the visible sky even when a
 
 test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slots (WebGL=%s)', webgl => {
   const { env, meshes, at, keys, shaders, lamps } = world(webgl, 'medium');
-  expect(meshes.map(m => m.name)).toEqual(['kit-v3', 'kit-v4', 'draft-facade', 'ground-slabs', 'prop-car',
-    'draft_asphalt_worn', 'draft_grass', 'water', 'sky']);
+  expect(meshes.map(m => m.name)).toEqual(['kit-v3', 'kit-v4', 'kit-v6', 'draft-facade', 'ground-slabs', 'prop-car',
+    'draft_asphalt_worn', 'draft_grass', 'water', 'night_bridge_rail', 'night_bridge_soffit', 'night_boat_cabin', 'night_boat_bulb', 'night_landmark_wall', 'far-night-architecture', 'far-buildings-night-mapped', 'far-buildings-program-v6', 'sky']);
   // Window light is part of each wall's one graph; non-wall surfaces carry none.
-  for (const name of ['kit-v3', 'kit-v4', 'draft-facade']) {
+  for (const name of ['kit-v3', 'kit-v4', 'kit-v6', 'draft-facade']) {
     expect((meshes.find(m => m.name === name)!.material as THREE.MeshStandardNodeMaterial).emissiveNode, name).toBeTruthy();
   }
   expect((meshes.find(m => m.name === 'ground-slabs')!.material as THREE.MeshStandardNodeMaterial).emissiveNode).toBeFalsy();
@@ -275,10 +290,17 @@ const uniformBuffers = (code: string, webgl: boolean) => (code.match(webgl ? /\b
 
 test.each([false, true])('13:00, 23:30 and lit slots generate the same programs (WebGL=%s)', webgl => {
   const build = (hour: number, lit: boolean) => { const w = world(webgl, 'medium'); w.at(hour); if (lit) w.lamps(); return w.shaders(); };
+  // r186 lazily creates shared camera nodes on the first build. Prime those globals
+  // before comparing fresh worlds, so their allocation order cannot reorder UBO members.
+  build(13, false);
   const day = build(13, false);
-  expect(Object.keys(day)).toHaveLength(9);
+  expect(Object.keys(day)).toHaveLength(18);
   for (const [name, program] of Object.entries(day)) {
     expect(uniformBuffers(program.fragment, webgl), `${name} fragment uniform buffers`).toBeLessThanOrEqual(10);
+    if (!webgl && (name === 'kit-v6' || name.startsWith('night_') || name.startsWith('far-'))) {
+      const locations = [...program.fragment.matchAll(/@location\(\s*(\d+)\s*\)/g)].map(m => Number(m[1]));
+      expect(Math.max(-1, ...locations), `${name} WebGPU varying locations`).toBeLessThan(16);
+    }
     expect(uniformBuffers(program.vertex, webgl), `${name} vertex uniform buffers`).toBeLessThanOrEqual(10);
   }
   expect(build(23.5, false)).toEqual(day);

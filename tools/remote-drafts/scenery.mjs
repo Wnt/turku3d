@@ -1,5 +1,6 @@
 // Read-only source conversion. Derived distant geometry never replaces a source tile or its textures.
 import fs from 'node:fs';
+import { nightKey, nightEmission } from './scenery-night.mjs';
 import path from 'node:path';
 import { require, io, readSource, world } from './scenery-source.mjs';
 import { openingKind, openingAtlas, programFields, transformedUv, reduceFacade } from './scenery-openings.mjs';
@@ -30,7 +31,7 @@ for (const node of input.getRoot().listNodes()) {
   const mesh = node.getMesh(); if (!mesh) continue;
   const extras = node.getExtras(), layer = extras.layer;
   const vegetation = layer === 'vegetation', ground = layer === 'ground' || layer === 'basic';
-  if (!['ground', 'basic', 'buildings', 'buildings_outer', 'landmarks', 'bridges', 'vegetation'].includes(layer)) continue;
+  if (!['ground', 'basic', 'buildings', 'buildings_outer', 'landmarks', 'bridges', 'boats', 'vegetation'].includes(layer)) continue;
   if (vegetation && !String(extras.material_key).includes('foliage')) continue;
   const target = bucket(vegetation ? 'vegetation' : ground ? 'ground' : 'buildings');
   const matrix = node.getWorldMatrix(), instances = node.getExtension('EXT_mesh_gpu_instancing');
@@ -63,12 +64,30 @@ for (const node of input.getRoot().listNodes()) {
       }
       continue;
     }
+    const night=nightKey(primitive,extras);
+    if(night && night!=='night_landmark_wall') {
+      // Thin emitters and coarse slabs are already compact. Preserve their authored vertices
+      // so simplification cannot erase a light band or smear a top/soffit boundary.
+      const group=bucket('night-architecture'),base=group.positions.length/3;
+      if(!group.fields.has('_NIGHT_IRRADIANCE'))group.fields.set('_NIGHT_IRRADIANCE',{size:4,values:[]});
+      for(let i=0;i<position.getCount();i++) {
+        group.positions.push(...world(matrix,position.getElement(i,[])));
+        group.colours.push(...colour);
+        group.fields.get('_NIGHT_IRRADIANCE').values.push(...nightEmission(primitive,night,i,matrix));
+      }
+      const indices=primitive.getIndices()?.getArray() ?? Array.from({length:position.getCount()},(_,i)=>i);
+      for(const i of indices)group.indices.push(base+i);
+      continue;
+    }
     const kind = ground ? 'none' : openingKind(primitive, extras);
     if (kind !== 'none') {
       // Keep the wall's UV-to-world mapping and constant instructions intact.
       // Shell/terrain simplification must never move or re-phase an opening.
-      const group = bucket(`buildings-${kind}`), base=group.positions.length/3;
+      const nightMapped=night==='night_landmark_wall' && primitive.getAttribute('_NIGHT_IRRADIANCE');
+      const schema=kind==='program' && primitive.getAttribute('_KIT_LAYOUT').getElementSize()===4 ? '-v6' : '';
+      const group = bucket(`buildings-${nightMapped?'night-mapped':kind}${schema}`), base=group.positions.length/3;
       const fields=kind==='program' ? ['TEXCOORD_0',...programFields] : ['TEXCOORD_0','_FAR_RECT','_FAR_REPEAT'];
+      if(nightMapped)fields.push('_NIGHT_IRRADIANCE');
       const entry=atlas.byMaterial.get(primitive.getMaterial());
       const reduced=reduceFacade(primitive,matrix,MeshoptSimplifier);
       for(const i of reduced.vertices) {
@@ -123,7 +142,7 @@ for (const [layer, data] of groups) {
   const attr = (name, type, array) => doc.createAccessor(name).setBuffer(buffer).setType(type).setArray(array);
   const primitive = doc.createPrimitive().setAttribute('POSITION', attr('position', 'VEC3', new Float32Array(data.positions)))
     .setAttribute('COLOR_0', attr('colour', 'VEC3', new Float32Array(data.colours)))
-    .setIndices(attr('index', 'SCALAR', new Uint32Array(data.indices))).setMaterial(layer==='buildings-mapped'?atlas.material:material);
+    .setIndices(attr('index', 'SCALAR', new Uint32Array(data.indices))).setMaterial(['buildings-mapped','buildings-night-mapped'].includes(layer)?atlas.material:material);
   for(const [key,field] of data.fields)primitive.setAttribute(key,attr(key,`VEC${field.size}`,new Float32Array(field.values)));
   scene.addChild(doc.createNode(layer).setExtras({ layer, scenery: true }).setMesh(doc.createMesh(layer).addPrimitive(primitive)));
 }

@@ -1,6 +1,7 @@
 // Timecycle: one keyed table drives sun, sky ambient, fog, exposure, bloom and the night factor.
 // Values are our own (timecycle.json); GTA informs only the structure (keyed rows, an artificial ambient term).
 import table from './timecycle.json';
+import nightRules from '../../../pipeline/turku3d/night_lighting.json';
 
 export type Rgb = readonly [number, number, number];
 
@@ -86,3 +87,10 @@ export const MESOPIC = { saturation: table.mesopic.saturation, luminance: table.
 export const WINDOW_LIGHT = { warm: linearRgb(table.windows.warm), cool: linearRgb(table.windows.cool),
   coolShare: table.windows.coolShare, coolLevel: table.windows.coolLevel, paneLevel: table.windows.paneLevel,
   intensity: table.windows.intensity };
+
+/** Use-specific occupancy multipliers, interpolated on the CPU once per clock update. */
+export function windowUseLevels(hour: number): [number, number] {
+  const rows = nightRules.windows;
+  const [i, t] = bracket(rows.hour, ((hour % 24) + 24) % 24);
+  return [rows.office, rows.hospitality].map(row => row[i] + (row[i + 1] - row[i]) * t) as [number, number];
+}
