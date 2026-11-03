@@ -91,7 +91,7 @@ function schedule() {
         const used = pw.pumpInstalls(budget);
         busy('install', used);
         const { slowest, queued } = pw.installState;
-        if (slowest.ms > STALL.pieceMs) stall({ cause: 'install', ms: slowest.ms, cell: slowest.key, queued });
+        if (slowest.ms > STALL.pieceMs) stall({ cause: 'install', ms: slowest.ms, cell: slowest.key, phase: slowest.phase, queued });
         now = performance.now();
       }
       const gap = now - lastTick;

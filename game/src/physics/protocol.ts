@@ -42,7 +42,7 @@ export interface TileStats { curbTris?: number; id: string; tris: number; prims:
  *  the ambient traffic sim), or `install` (one collider piece of cell `cell` took `ms`). `wall` is the worker's
  *  epoch time (ms) of the event. Repeated in snapshots until acknowledged, like traffic claim events. */
 export interface PhysStall { id: number; revision: number; cause: 'gap' | 'step' | 'install'; ms: number; wall: number;
-  busy?: Record<string, number>; substeps?: number; traffic?: number; cell?: string; queued?: number }
+  busy?: Record<string, number>; substeps?: number; traffic?: number; cell?: string; phase?: string; queued?: number }
 
 /** Ambient traffic (physics/traffic.ts). A tile's road graph as CoarseTiles holds it, with its agreed hash. */
 export interface TrafficTile { tile: string; hash: string; bounds: [number, number, number, number]; roads: unknown }

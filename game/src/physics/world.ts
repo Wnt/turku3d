@@ -5,7 +5,7 @@ import { COLLISION_TILE, collisionTileAt, collisionTileId, distToCollisionTile, 
 import { collisionCovers, PlayerCoverageHold } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
-import { InstallQueue, planCell, type CellPlan, type Piece } from './tileInstall';
+import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
 import { CHARACTER, DT, MAX_SUBSTEPS, VEHICLES } from './constants';
@@ -21,6 +21,8 @@ import { chassisForward, type TrafficPedestrian, type TrafficVehicle } from '../
 type R = typeof RAPIER_NS;
 /** Install priority of decode-only checks and unparseable ids (as if this many metres away). */
 const CHECK_PRIORITY = 150;
+/** Triangle visits per planning piece (~1 ms). */
+const PLAN_WORK_PER_PIECE = 60_000;
 const parseCellId = (id: string) => parseCollisionId(id);
 
 export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
@@ -157,8 +159,8 @@ export class PhysicsWorld {
     const t0 = performance.now();
     const col = await readCol(buffer);
     const plan = planCell(col);
-    const colliders: RAPIER_NS.Collider[] = [];
-    try { for (const piece of plan.pieces) this.buildPiece(id, col, piece, colliders); }
+    const colliders: RAPIER_NS.Collider[] = [], remap = new Int32Array(col.positions.length / 3).fill(-1);
+    try { for (const piece of plan.pieces) this.buildPiece(id, col, piece, colliders, remap); }
     catch (error) { this.dropColliders(colliders); throw error; }
     return this.commitTile(id, col, plan, colliders, buffer.byteLength, performance.now() - t0);
   }
@@ -169,24 +171,31 @@ export class PhysicsWorld {
    *  error (also when unloadTile cancels it). A newer request for the same id replaces this one silently. */
   requestTile(id: string, buffer: ArrayBuffer, done: (result: TileStats | Error) => void) {
     const t0 = performance.now(), ij = parseCellId(id);
-    let col: ColTile | null = null, plan: CellPlan | null = null, next = 0, work = 0;
+    let col: ColTile | null = null, planner: CellPlanner | null = null, plan: CellPlan | null = null, remap: Int32Array | null = null;
+    let next = 0, work = 0;
     const built: RAPIER_NS.Collider[] = [];
+    const job: InstallJob = { key: id, priority: () => this.installPriority(ij), run: () => false, cancel: () => {} };
     const step = (): boolean => {
-      if (!col) { col = readColSync(buffer); return false; }
-      if (!plan) { plan = planCell(col); return false; }
+      if (!col) { job.phase = 'decode'; col = readColSync(buffer); planner = new CellPlanner(col); return false; }
+      if (!plan) {
+        job.phase = 'plan';
+        if (!planner!.advance(PLAN_WORK_PER_PIECE)) return false;
+        plan = planner!.plan!; remap = new Int32Array(col.positions.length / 3).fill(-1);
+        return false;
+      }
       if (next < plan.pieces.length) {
-        const from = built.length;
-        this.buildPiece(id, col, plan.pieces[next++], built);
+        const from = built.length, piece = plan.pieces[next++];
+        job.phase = piece.kind === 'mesh' ? `mesh:${piece.tris.length}` : `prims:${piece.to - piece.from}`;
+        this.buildPiece(id, col, piece, built, remap!);
         for (let k = from; k < built.length; k++) built[k].setEnabled(false);
         if (next < plan.pieces.length) return false;
       }
+      job.phase = 'commit';
       for (const c of built) c.setEnabled(true);
       done(this.commitTile(id, col, plan, built, buffer.byteLength, work, performance.now() - t0));
       return true;
     };
-    this.installs.add({
-      key: id,
-      priority: () => this.installPriority(ij),
+    Object.assign(job, {
       run: () => {
         const w0 = performance.now();
         try { const finished = step(); work += performance.now() - w0; return finished; }
@@ -198,6 +207,7 @@ export class PhysicsWorld {
       },
       cancel: () => { this.dropColliders(built); done(Object.assign(new Error(`${id}: unloaded before its collider was built`), { cancelled: true })); },
     });
+    this.installs.add(job);
   }
 
   /** Queues a decode-only check (draft tiles are drawn only after their collision passes it). */
@@ -260,11 +270,11 @@ export class PhysicsWorld {
   }
 
   /** One install piece: a trimesh of one collision class (with its curb helper) or a batch of primitives. */
-  private buildPiece(id: string, col: ColTile, piece: Piece, out: RAPIER_NS.Collider[]) {
+  private buildPiece(id: string, col: ColTile, piece: Piece, out: RAPIER_NS.Collider[], remap: Int32Array) {
     const R = this.R;
     const [ox, oy, oz] = col.origin;
     if (piece.kind === 'mesh') {
-      const { cls, positions, indices, materials: triMat } = piece;
+      const { cls, positions, indices, materials: triMat } = compactPiece(col, piece, remap);
       const flags = cls === 'solid' && (col.flags & COL_FLAG_FIX_INTERNAL_EDGES) !== 0 ? R.TriMeshFlags.FIX_INTERNAL_EDGES : undefined;
       const desc = R.ColliderDesc.trimesh(positions, indices, flags).setTranslation(ox, oy, oz);
       this.applyClass(desc, cls, 0.85);
