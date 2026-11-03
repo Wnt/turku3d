@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 from recipe import acquisition_recipe
-from runtime import Monitor, admission_cap, memory, memory_stalled, ordered, preserve_products, split_exclusions, target_workers, worker_limit
+from runtime import Monitor, admission_cap, admits, memory, memory_stalled, ordered, preserve_products, split_exclusions, target_workers, worker_limit
 
 
 def read(path,default=None):
@@ -74,8 +74,17 @@ def main():
         planned=read(state/'walk.json')
         if hashlib.sha256((state/'walk.json').read_bytes()).hexdigest()!=sources['walk_sha256'] or not set(selected)<=set(planned):
             raise RuntimeError('selection is outside the frozen acquisition plan')
+        raw=root/'farm/cache/raw-derived'
+        if raw.exists() and os.stat(raw).st_dev!=os.stat(root/'farm').st_dev:
+            # Disk-pressure eviction measures the farm root: it would delete these
+            # (pre-decoded) maps without freeing any space there.
+            raise RuntimeError('farm/cache/raw-derived must be on the farm root filesystem')
         order,timings=ordered([tile for tile in selected if tile not in outside],reports/'bulk-progress.jsonl',
                               read(state/'tile-classes.json',{}).get('tiles',{}),read(state/'class-seconds.json',{}))
+        # Measured per-stratum peak RSS (GiB) turns admission memory-aware; without
+        # it every build reserves the flat --worker-memory-gib.
+        peaks=read(state/'stratum-memory.json',{});strata=read(state/'pilot-strata.json',{}) if peaks else {}
+        def need(tile):return peaks.get(strata.get(tile,{}).get('stratum'),a.worker_memory_gib)
         wanted=deque(order if a.walk else [tile for tile in selected if tile not in outside])
         changed=threading.Event();stopping=threading.Event()
         def stop(*_):stopping.set();changed.set()
@@ -128,12 +137,19 @@ def main():
                 target,error=target_workers(control,target,maximum)
                 if error and error!=last_control_error:farm.event('control-rejected',error=error)
                 last_control_error=error
-                cap=admission_cap(target,a.worker_memory_gib,*memory())
+                total,available=memory()
+                if peaks:
+                    with farm.lock:reserved=sum(need(tile) for _,tile in farm.jobs);count=len(farm.jobs)
+                    fits=lambda:admits(target,count,reserved,need(wanted[0]),total,available)
+                    cap=target if not wanted or fits() or count else 0
+                else:
+                    cap=admission_cap(target,a.worker_memory_gib,total,available)
+                    fits=lambda:count<cap
                 with farm.lock:
                     farm.workers=cap;farm.queue_limit=maximum;farm.pump();count=len(farm.jobs)
                 monitor.record(target_workers=target,admission_cap=cap,active=count,remaining=len(wanted),
                                free_gib=round(farm.free()/2**30,3))
-                while wanted and count<cap:
+                while wanted and fits():
                     tile=wanted[0]
                     ack=read(root/'farm/exported'/generation/(tile+'.json'))
                     if ack and ack.get('generation')==generation and ack.get('verified'):
@@ -157,6 +173,7 @@ def main():
                         pressure=True;break
                     wanted.popleft()
                     if status>=400:failed.append(dict(tile=tile,result=result))
+                    elif peaks:reserved+=need(tile);available-=need(tile)*2**30
                     with farm.lock:count=len(farm.jobs)
                 with farm.lock:active=len(farm.jobs)
                 if memory_stalled(cap,active,wanted):

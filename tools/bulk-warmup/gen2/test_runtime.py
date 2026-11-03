@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from runtime import GIB, admission_cap, memory_stalled, ordered, split_exclusions, target_workers, worker_limit
+from runtime import GIB, admission_cap, admits, memory_stalled, ordered, split_exclusions, target_workers, worker_limit
 
 class Runtime(unittest.TestCase):
     def test_memory_pressure_drains_without_stopping_workers(self):
@@ -36,6 +36,15 @@ class Runtime(unittest.TestCase):
             groups=[units[k] for k in range(0,len(units),4)]
             self.assertTrue(all(len(set(units[k:k+4]))==1 for k in range(0,len(units),4)))
             self.assertTrue(all(abs(a[0]-b[0])+abs(a[1]-b[1])==1 for a,b in zip(groups,groups[1:])))
+    def test_memory_aware_admission_uses_predicted_peaks(self):
+        total=256*GIB
+        # Light suburb builds fit beyond the flat 3.2 GiB cap of 77 ...
+        self.assertTrue(admits(96,85,85*1.9,1.9,total,90*GIB))
+        self.assertEqual(admission_cap(96,3.2,total,90*GIB),77)
+        # ... while a dense front stops at the plan, and real pressure stops admission.
+        self.assertFalse(admits(96,80,80*3.1,3.1,total,90*GIB))
+        self.assertFalse(admits(96,10,10*1.9,1.9,total,9*GIB))
+        self.assertFalse(admits(85,85,10,1,total,200*GIB))
     def test_tiles_without_ground_returns_are_expected_exclusions(self):
         with tempfile.TemporaryDirectory() as tmp:
             logs=Path(tmp)
