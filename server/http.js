@@ -2,13 +2,14 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Room, LIMITS, VERSION } from './room.js';
 
-export function allowedOrigin(origin) {
-  if (origin === 'https://wnt.github.io') return true;
+/** Pages and localhost, plus the exact `extra` origins of a share host's own server (TURKU_MP_ORIGINS, index.js). */
+export function allowedOrigin(origin, extra = []) {
+  if (origin === 'https://wnt.github.io' || (typeof origin === 'string' && extra.includes(origin))) return true;
   if (typeof origin !== 'string' || !/^http:\/\/localhost(?::[0-9]+)?$/.test(origin)) return false;
   try { return new URL(origin).port !== '0'; } catch { return false; }
 }
 
-export function createServer({ store, now = Date.now, onConnection = () => {} }) {
+export function createServer({ store, now = Date.now, onConnection = () => {}, origins = [] }) {
   const room = new Room({ store, now });
   const sockets = new WebSocketServer({ noServer: true, maxPayload: LIMITS.messageBytes, perMessageDeflate: false });
   const server = http.createServer((req, res) => {
@@ -18,7 +19,7 @@ export function createServer({ store, now = Date.now, onConnection = () => {} })
     res.setHeader('Vary', 'Origin');
     const answer = (status, value) => { res.writeHead(status); res.end(JSON.stringify(value)); };
     if (req.headers.origin !== undefined) {
-      if (!allowedOrigin(req.headers.origin)) { answer(403, { error: 'origin' }); return; }
+      if (!allowedOrigin(req.headers.origin, origins)) { answer(403, { error: 'origin' }); return; }
       res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     }
@@ -54,7 +55,7 @@ export function createServer({ store, now = Date.now, onConnection = () => {} })
       room.reject();
       socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     };
-    if (!allowedOrigin(req.headers.origin)) { refuse(403, 'Forbidden'); return; }
+    if (!allowedOrigin(req.headers.origin, origins)) { refuse(403, 'Forbidden'); return; }
     if (req.url !== '/') { refuse(404, 'Not Found'); return; }
     if (sockets.clients.size >= LIMITS.connections) { refuse(503, 'Service Unavailable'); return; }
     sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws));

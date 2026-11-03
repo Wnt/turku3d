@@ -1,0 +1,18 @@
+# Installed by tools/share/deploy.sh. The share's own multiplayer room (never the published one), reached same-origin
+# through city-web; its own scores; no tile producer to notify.
+[Unit]
+Description=Turku3D city share: multiplayer server on 127.0.0.1:7782
+
+[Service]
+Type=simple
+WorkingDirectory=%h/turku3d-local/city/mp/src
+Environment=NODE_ENV=production TURKU_MP_PORT=7782 TURKU_MP_SCORES=%h/turku3d-local/city/mp-scores TURKU_MP_ORIGINS=https://city.lab.madekivi.fi TURKU_MP_PRODUCER_PORTS=
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

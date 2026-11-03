@@ -289,7 +289,8 @@ self pose when present, otherwise spawn.
   implementations answer pings automatically.
 - Slow readers with more than 256 KiB queued output are disconnected.
 - Upgrades require path `/` and an exact Origin of `https://wnt.github.io` or
-  `http://localhost` with an optional valid nonzero port. Missing Origin, `null`,
+  `http://localhost` with an optional valid nonzero port, or one of the exact origins in
+  `TURKU_MP_ORIGINS` (a share host's own server, tools/share/deploy.sh). Missing Origin, `null`,
   `127.0.0.1`, other hosts, schemes, paths and subdomains receive HTTP 403.
   Non-browser clients such as the probe must set Origin explicitly.
 

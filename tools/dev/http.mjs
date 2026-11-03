@@ -6,6 +6,7 @@
 //    <dir>/session-<YYYYMMDD>.jsonl (local date); 1 MB per request, 204
 //  - /coarse/* proxied to the localhost coarse tile service; when it is not running /coarse/status answers 200
 //    {"state":"offline"} and other paths 503
+//  - publicProxy: a public share's compressed GET/HEAD proxy (serve-dist.mjs --public)
 // No dependencies (Node >= 20).
 import http from 'node:http';
 import fs from 'node:fs';
@@ -134,6 +135,48 @@ export function telemetryHandler(dir) {
     }
     res.writeHead(204, cors);
     res.end();
+  };
+}
+
+const ENCODABLE = /^(?:model\/gltf-binary|application\/(?:json|octet-stream)|text\/)/;
+
+/** A public share's same-origin GET/HEAD access to `target` (a URL): the upstream answer with the isolation headers,
+ *  compressed for the browser (tile payloads shrink about 3x, which is what the tunnel carries). `reduce(json)` rewrites
+ *  a JSON answer, e.g. a service status to the fields a game reads. */
+export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'origin', 'if-none-match'] } = {}) {
+  return (req, res) => {
+    const headers = Object.fromEntries(forwarded.filter((h) => req.headers[h] !== undefined).map((h) => [h, req.headers[h]]));
+    const upstream = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers }, (up) => {
+      const out = { ...up.headers, ...ISOLATION };
+      for (const h of ['access-control-allow-origin', 'connection', 'keep-alive', 'transfer-encoding']) delete out[h]; // hop-by-hop or same-origin
+      if (reduce && /json/.test(up.headers['content-type'] ?? '')) {
+        const chunks = [];
+        up.on('data', (c) => chunks.push(c));
+        up.on('end', () => {
+          let body;
+          try { body = Buffer.from(JSON.stringify(reduce(JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null'))) + '\n'); }
+          catch { body = Buffer.from('{}\n'); }
+          res.writeHead(up.statusCode ?? 502, { ...out, 'content-length': body.length });
+          res.end(req.method === 'HEAD' ? undefined : body);
+        });
+        return;
+      }
+      const ae = String(req.headers['accept-encoding'] ?? '');
+      const encoding = req.method === 'GET' && up.statusCode === 200 && !up.headers['content-encoding'] && !req.headers.range
+        && ENCODABLE.test(up.headers['content-type'] ?? '') ? (/\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null) : null;
+      if (!encoding) { res.writeHead(up.statusCode ?? 502, out); return up.pipe(res); }
+      delete out['content-length'];
+      res.writeHead(up.statusCode, { ...out, 'content-encoding': encoding, vary: 'Accept-Encoding' });
+      up.pipe(encoding === 'br' ? zlib.createBrotliCompress({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })
+        : zlib.createGzip({ level: 6 })).pipe(res);
+    });
+    upstream.on('error', () => {
+      if (res.headersSent) return res.destroy();
+      res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '5', ...ISOLATION });
+      res.end('{"state":"offline"}\n');
+    });
+    res.on('close', () => { if (!res.writableFinished) upstream.destroy(); }); // the player moved on
+    upstream.end();
   };
 }
 
