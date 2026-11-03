@@ -129,3 +129,23 @@ def test_invalid_or_weak_modernist_profile_leaves_wall_unchanged():
     v, w = modernist_wall()
     w["modernist"]["bands"]["count"] = 30  # Bands would leave the surveyed wall.
     assert expand(w) is w
+
+
+def test_full_wall_reading_outranks_partial_characterization_of_same_frontage():
+    from turku3d import config as C
+    from turku3d.facade_programs import matching_wall
+
+    def wall(wid, scope, offset):
+        return dict(
+            wall_id=wid,
+            observation=dict(needs_review=False, scope=scope),
+            geometry=dict(p0=[C.ORIGIN_E, C.ORIGIN_N - offset], p1=[C.ORIGIN_E + 20, C.ORIGIN_N - offset],
+                          normal=[0, 1], base_h=0),
+        )
+
+    v = np.array([[0, 0, 0], [20, 0, 0], [20, 10, 0], [0, 10, 0]], float)
+    partial = wall("partial", "partial-sections", 0.0)  # exactly on the shell line
+    full = wall("full", "full-wall", 0.3)
+    program = dict(needs_review=False, walls=[partial, full])
+    assert matching_wall(v, program)["wall_id"] == "full"
+    assert matching_wall(v, dict(needs_review=False, walls=[partial]))["wall_id"] == "partial"

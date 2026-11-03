@@ -115,10 +115,16 @@ def matching_wall(vertices, program):
     # Roof fragments may extend beyond the surveyed span. Match any meaningful
     # collinear overlap; wall_parts clips the observation and preserves the rest.
     length = float(np.linalg.norm(vertices[1] - vertices[0]))
-    match = match_prepared(
-        vertices, prepare_walls(facades), min_coverage=max(0.02, 0.1 / max(length, 0.1))
-    )
-    return match[0]["wall"] if match else None
+    # A complete reviewed wall outranks a partial characterization of the same
+    # frontage; partial readings still own walls no full-wall reading covers.
+    full = [f for f in facades if f["wall"].get("observation", {}).get("scope") == "full-wall"]
+    for group in (full, facades) if full and len(full) < len(facades) else (facades,):
+        match = match_prepared(
+            vertices, prepare_walls(group), min_coverage=max(0.02, 0.1 / max(length, 0.1))
+        )
+        if match:
+            return match[0]["wall"]
+    return None
 
 
 def described_blank_walls(key, vertices, description):
