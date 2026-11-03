@@ -57,18 +57,20 @@ export class GameRenderer extends THREE.WebGPURenderer {
   }
   private releaseAttributes?: () => void;
   private instanceSharing?: ReturnType<typeof shareInstancePrograms>;
-  private releaseAsyncPipelines?: () => void;
+  private asyncPipelines?: ReturnType<typeof asyncFirstUsePipelines>;
+  /** Every first-use pipeline requested asynchronously so far is compiled. */
+  pipelinesSettled() { return this.asyncPipelines?.settled() ?? Promise.resolve(); }
   /** Set by PostProcessing.render around the per-frame pipeline: first-use draws compile their pipeline asynchronously. */
   liveFrame = false;
   override async init(): Promise<this> {
     await super.init();
     this.releaseAttributes ??= ownNodeAttributes(this);
     this.instanceSharing ??= shareInstancePrograms(this);
-    this.releaseAsyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
+    this.asyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
       () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
     return this;
   }
-  override dispose() { this.releaseAsyncPipelines?.(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  override dispose() { this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;

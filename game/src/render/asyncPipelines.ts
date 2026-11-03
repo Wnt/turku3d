@@ -11,9 +11,16 @@ interface Pipelines { updateForRender(renderObject: DrawObject): void; getForRen
 
 export function asyncFirstUsePipelines(pipelines: Pipelines, active: () => boolean) {
   const update = pipelines.updateForRender;
+  const pending = new Set<Promise<void>>();
   pipelines.updateForRender = function (this: Pipelines, renderObject: DrawObject) {
     if (!active() || renderObject.object?.isQuadMesh === true) { update.call(this, renderObject); return; }
-    this.getForRender(renderObject, []);
+    const promises: Promise<void>[] = [];
+    this.getForRender(renderObject, promises);
+    for (const promise of promises) { pending.add(promise); void promise.finally(() => pending.delete(promise)); }
   };
-  return () => { pipelines.updateForRender = update; };
+  return {
+    release: () => { pipelines.updateForRender = update; },
+    /** Resolves once every pipeline requested so far is compiled; the loading warmup awaits it (Dawn compiles them in parallel). */
+    settled: async () => { while (pending.size) await Promise.all([...pending]); },
+  };
 }

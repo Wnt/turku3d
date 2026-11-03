@@ -29,4 +29,5 @@ test('build log separates in-frame from preparation builds and stays bounded', (
   for (let i = 0; i < 500; i++) log.record(renderer, { material, object: new THREE.Mesh(), camera: new THREE.PerspectiveCamera() }, i % 5 === 0);
   expect(log.inFrameTotal).toBe(100); expect(log.preparedTotal).toBe(400); expect(log.entries).toHaveLength(400);
   expect(log.entries.at(-1)).toMatchObject({ pass: 'screen|persp', material: 'distant-city-buildings:dissolve', object: 'Mesh' });
+  expect(log.top().map(f => [f.key, f.count])).toEqual([['prep\tscreen|persp\tdistant-city-buildings:dissolve', 400], ['frame\tscreen|persp\tdistant-city-buildings:dissolve', 100]]);
 });

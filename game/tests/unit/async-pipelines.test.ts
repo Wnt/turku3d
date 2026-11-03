@@ -1,15 +1,19 @@
 import { expect, test } from 'vitest';
 import { asyncFirstUsePipelines } from '../../src/render/asyncPipelines';
 
-test('live-frame draws request first-use pipelines asynchronously; quads and other renders stay synchronous', () => {
+test('live-frame draws request first-use pipelines asynchronously; quads and other renders stay synchronous', async () => {
   const calls: (unknown[] | null | undefined)[] = [];
+  let finish: (() => void) | undefined;
   const pipelines = {
-    getForRender(_draw: object, promises: unknown[] | null = null) { calls.push(promises); },
+    getForRender(_draw: object, promises: Promise<void>[] | null = null) {
+      calls.push(promises);
+      promises?.push(new Promise<void>(resolve => { finish = resolve; }));
+    },
     updateForRender(draw: object) { this.getForRender(draw); },
   };
   const original = pipelines.updateForRender;
   let live = false;
-  const release = asyncFirstUsePipelines(pipelines, () => live);
+  const { release, settled } = asyncFirstUsePipelines(pipelines, () => live);
   const mesh = { object: {} }, quad = { object: { isQuadMesh: true } };
   pipelines.updateForRender(mesh);
   live = true;
@@ -17,6 +21,9 @@ test('live-frame draws request first-use pipelines asynchronously; quads and oth
   expect(calls[0]).toBeNull();          // outside the live frame (IBL bake, compileAsync): r186's synchronous path
   expect(Array.isArray(calls[1])).toBe(true); // live draw: createRenderPipelineAsync, drawn once isReady
   expect(calls[2]).toBeNull();          // fullscreen effect quads keep their first frame
+  let done = false; const waiting = settled().then(() => { done = true; });
+  await Promise.resolve(); expect(done).toBe(false); // the loading warmup waits for pending compiles
+  finish!(); await waiting; expect(done).toBe(true);
   release();
   expect(pipelines.updateForRender).toBe(original);
 });

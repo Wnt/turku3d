@@ -80,6 +80,9 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     const firstDraw = loading.begin('Initial shader and GPU warmup draw');
     stage = performance.now();
     renderFrame();
+    // First-use pipelines of the live frame compile asynchronously (render/asyncPipelines.ts): wait for them here,
+    // so the menu opens with the initial view's pipelines ready.
+    await (renderer as unknown as { pipelinesSettled?: () => Promise<void> }).pipelinesSettled?.();
     await drainGpu(renderer);
     worldLoad.update({ timings: { ...worldLoad.snapshot().timings, pipelineWarmupMs: performance.now() - stage },
       compile: { done: 1, total } });

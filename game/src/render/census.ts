@@ -6,17 +6,26 @@ import type * as THREE from 'three/webgpu';
  * is requested. */
 export interface BuildEntry { t: number; inFrame: boolean; pass: string; material: string; object: string }
 
-const LIMIT = 400;
+const LIMIT = 400, FAMILIES = 600;
+export interface BuildFamily { key: string; count: number; first: number; last: number }
 export class BuildLog {
   readonly entries: BuildEntry[] = [];
+  /** Every build since load by in-frame/prep, pass and material (bounded), so families survive the ring. */
+  readonly families = new Map<string, BuildFamily>();
   inFrameTotal = 0;
   preparedTotal = 0;
   record(renderer: THREE.WebGPURenderer, draw: { object?: THREE.Object3D; material?: THREE.Material; camera?: THREE.Camera }, inFrame: boolean) {
     if (inFrame) this.inFrameTotal++; else this.preparedTotal++;
-    this.entries.push({ t: Math.round(performance.now()), inFrame, pass: passLabel(renderer, draw.camera),
-      material: label(draw.material), object: objectLabel(draw.object) });
+    const entry = { t: Math.round(performance.now()), inFrame, pass: passLabel(renderer, draw.camera),
+      material: label(draw.material), object: objectLabel(draw.object) };
+    this.entries.push(entry);
     if (this.entries.length > LIMIT) this.entries.shift();
+    const key = `${inFrame ? 'frame' : 'prep'}\t${entry.pass}\t${entry.material.replace(/\d+/g, '#')}`;
+    const family = this.families.get(key);
+    if (family) { family.count++; family.last = entry.t; }
+    else if (this.families.size < FAMILIES) this.families.set(key, { key, count: 1, first: entry.t, last: entry.t });
   }
+  top(n = 60) { return [...this.families.values()].sort((a, b) => b.count - a.count).slice(0, n); }
 }
 
 function label(value?: { name?: string; type?: string } | null) { return (value?.name || value?.type || '?').slice(0, 80); }
@@ -38,7 +47,7 @@ type Direct = (object: THREE.Object3D, material: THREE.Material, scene: THREE.Sc
 export interface FrameEnds { install(each: () => void): void; uninstall(): void }
 /** One whole frame's draws and triangles by pass and object family, sorted by draws. */
 export function drawCensus(renderer: THREE.WebGPURenderer, frameEnds: FrameEnds, builds?: BuildLog) {
-  return new Promise<{ draws: number; rows: [string, number, number][]; builds?: { inFrame: number; prepared: number; recent: BuildEntry[] } }>(resolve => {
+  return new Promise<{ draws: number; rows: [string, number, number][]; builds?: { inFrame: number; prepared: number; families: BuildFamily[]; recent: BuildEntry[] } }>(resolve => {
     const host = renderer as unknown as { _renderObjectDirect: Direct };
     const original = host._renderObjectDirect;
     const rows = new Map<string, { draws: number; tris: number }>();
@@ -58,7 +67,7 @@ export function drawCensus(renderer: THREE.WebGPURenderer, frameEnds: FrameEnds,
       host._renderObjectDirect = original;
       const sorted = [...rows].map(([key, row]) => [key, row.draws, Math.round(row.tris)] as [string, number, number]).sort((a, b) => b[1] - a[1]);
       resolve({ draws: sorted.reduce((sum, row) => sum + row[1], 0), rows: sorted,
-        builds: builds && { inFrame: builds.inFrameTotal, prepared: builds.preparedTotal, recent: builds.entries.slice(-80) } });
+        builds: builds && { inFrame: builds.inFrameTotal, prepared: builds.preparedTotal, families: builds.top(), recent: builds.entries.slice(-80) } });
     });
   });
 }
