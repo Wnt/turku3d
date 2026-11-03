@@ -285,9 +285,9 @@ describe('drivers and players', () => {
 
 describe('incremental graph rebuilds', () => {
   const signature = (f: TrafficFlow) => {
-    const x = f as unknown as { movements: Map<Lane, Lane[]>; conflicts: Map<Lane, Set<Lane>> };
+    const x = f as unknown as { movements: Map<Lane, Lane[]> };
     const m = [...x.movements].map(([l, rs]) => `${l.tile}:${l.id}=` + rs.map(r => `${r.id}/${r.connector?.length.toFixed(6)}`).join(',')).sort().join('|');
-    const c = [...x.conflicts].map(([a, set]) => `${a.tile}:${a.id}>` + [...set].map(b => `${b.tile}:${b.id}`).join(',')).sort().join('|');
+    const c = [...f.allConflicts()].map(([a, set]) => `${a.tile}:${a.id}>` + [...set].map(b => `${b.tile}:${b.id}`).join(',')).sort().join('|');
     return `${m}#${c}`;
   };
   test('installing and releasing tiles keeps movements and conflicts equal to a fresh build, with cars kept', () => {

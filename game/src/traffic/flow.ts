@@ -4,7 +4,7 @@
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, pick } from './hash';
 import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
-import { connector, cumulative, type Lane } from './tileNetwork';
+import { connector, cumulative, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
@@ -67,6 +67,65 @@ export class TrafficFlow {
   private sources: Lane[] = [];
   private byLane = new Map<Lane, FlowCar[]>();
   private conflicts = new Map<Lane, Set<Lane>>();
+  /** The current build's movement index for conflict sets (built lazily by conflictsOf). */
+  private index: { movements: Lane[]; order: Map<Lane, number>; grid: Map<number, number[]>; keyOf: Map<Lane, string>;
+    kept: Set<Lane>; previous: Map<Lane, Set<Lane>>; samples: Map<Lane, PathSamples>; seen: Uint32Array; stamp: number } | null = null;
+
+  /** Movements whose paths conflict with `a` at its junction, built on first use and kept for this build. */
+  conflictsOf(a: Lane): Set<Lane> {
+    let set = this.conflicts.get(a);
+    if (set) return set;
+    set = new Set<Lane>();
+    this.conflicts.set(a, set);
+    const ix = this.index, i = ix?.order.get(a);
+    if (!ix || i === undefined || !a.connector) return set;
+    const near: number[] = [], stamp = ++ix.stamp;
+    for (let gx = Math.floor(a.bbox[0] / CONFLICT_CELL); gx <= Math.floor(a.bbox[2] / CONFLICT_CELL); gx++) {
+      for (let gz = Math.floor(a.bbox[1] / CONFLICT_CELL); gz <= Math.floor(a.bbox[3] / CONFLICT_CELL); gz++) {
+        for (const j of ix.grid.get(conflictCell(gx, gz)) ?? []) if (ix.seen[j] !== stamp) { ix.seen[j] = stamp; near.push(j); }
+      }
+    }
+    near.sort((p, q) => p - q);
+    const before = ix.kept.has(a) ? ix.previous.get(a) : undefined;
+    const sample = (m: Lane) => { let s = ix.samples.get(m); if (!s) { s = pathSamples(m); ix.samples.set(m, s); } return s; };
+    for (const j of near) {
+      const b = ix.movements[j];
+      if (a === b || a.bbox[0] > b.bbox[2] + 8 || a.bbox[2] < b.bbox[0] - 8
+        || a.bbox[1] > b.bbox[3] + 8 || a.bbox[3] < b.bbox[1] - 8) continue;
+      // Two kept movements: last build's answer stands.
+      if (before && ix.kept.has(b)) { if (before.has(b)) set.add(b); continue; }
+      if (a.next === b.next) { set.add(b); continue; }
+      const key = `${ix.keyOf.get(a)}|${ix.keyOf.get(b)}`;
+      let conflict = this.conflictCache.get(key);
+      if (conflict === undefined) {
+        // One sweep answers both directions (the swept-body margin pads the first path only).
+        const [ab, ba] = pathsConflict(sample(a), sample(b));
+        this.conflictCache.set(key, conflict = ab); this.conflictCache.set(`${ix.keyOf.get(b)}|${ix.keyOf.get(a)}`, ba);
+      }
+      if (conflict) set.add(b);
+    }
+    return set;
+  }
+
+  /** Every movement's conflict set (QA and tests; play builds them as cars reach junctions). */
+  allConflicts(): Map<Lane, Set<Lane>> {
+    for (const m of this.index?.movements ?? []) if (m.connector) this.conflictsOf(m);
+    return this.conflicts;
+  }
+
+  /** Connector curves by lane pair (pure geometry of the two lanes), and each tile's lanes in canonical order: kept
+   *  across graph rebuilds, so a rebuild only builds curves for lanes it has not seen. */
+  private connectors = new WeakMap<Lane, Map<Lane, Connector>>();
+  private sortedLanes = new WeakMap<object, Lane[]>();
+  /** Conflict-cache key of a movement (its tiles' road hashes and ids), per movement object. */
+  private movementKeys = new WeakMap<Lane, string>();
+  private link(a: Lane, b: Lane): Connector {
+    let byB = this.connectors.get(a);
+    if (!byB) { byB = new Map(); this.connectors.set(a, byB); }
+    let curve = byB.get(b);
+    if (!curve) { curve = connector(a, b); byB.set(b, curve); }
+    return curve;
+  }
   /** Lanes whose movements cross or reach a tile seam (they depend on the neighbour tile). */
   private seamBound = new Set<Lane>();
   /** Road hash of every enabled tile at the last movement build. */
@@ -215,8 +274,13 @@ export class TrafficFlow {
     const seamBound = new Set<Lane>();
     const previousMovements = this.movements, previousConflicts = this.conflicts;
     this.movements = new Map(); this.conflicts = new Map(); this.baseOf.clear();
+    this.index = null;
     this.builtTiles = tileKeys;
-    this.lanes = enabled.flatMap(tile => [...tile.lanes].sort((a, b) => cmp(a.id, b.id)));
+    this.lanes = enabled.flatMap(tile => {
+      let sorted = this.sortedLanes.get(tile);
+      if (!sorted) { sorted = [...tile.lanes].sort((a, b) => cmp(a.id, b.id)); this.sortedLanes.set(tile, sorted); }
+      return sorted;
+    });
     // Lanes leaving each junction node, in canonical lane order (one pass instead of a scan per lane).
     const startsAt = new Map<string, Lane[]>();
     for (const b of this.lanes) {
@@ -242,7 +306,7 @@ export class TrafficFlow {
       const routes: Lane[] = [];
       const fallback: Lane[] = [];
       for (const first of outgoing) {
-        let next = first, curve = connector(lane, next);
+        let next = first, curve = this.link(lane, next);
         let signal = lane.signal, priority = lane.priority;
         const visited = new Set<Lane>([lane]);
         // Crossings and signal heads split OSM roads into 2–5 m links. Those links cannot store a car.
@@ -255,20 +319,20 @@ export class TrafficFlow {
           const candidates = next.end.kind === 'seam' ? [this.network.successor(next)].filter((l): l is Lane => !!l)
             : startsAt.get(`${next.tile}|${next.end.node}`) ?? [];
           const onward = candidates.filter(b => !visited.has(b)).sort((a, b) => {
-            const ca = Math.abs(connector(next, a).turn), cb = Math.abs(connector(next, b).turn);
+            const ca = Math.abs(this.link(next, a).turn), cb = Math.abs(this.link(next, b).turn);
             return ca - cb || Math.abs(a.k - next.k) - Math.abs(b.k - next.k) || cmp(a.id, b.id);
           })[0];
           if (!onward || visited.has(onward)) break;
-          const bend = connector(next, onward);
+          const bend = this.link(next, onward);
           const points = Float64Array.from([...curve.points, ...next.points.slice(2), ...bend.points.slice(2)]);
           const cum = cumulative(points);
           curve = { points, cum, length: cum.at(-1)!, speed: Math.min(curve.speed, bend.speed), turn: curve.turn + bend.turn };
           next = onward;
         }
         // One physical junction gets one tangent arc; chaining stop-line splinters produced tight S bends.
-        if (visited.size > 1 && curve.length < 45) curve = connector(lane, next);
+        if (visited.size > 1 && curve.length < 45) curve = this.link(lane, next);
         const turn = Math.atan2(Math.sin(curve.turn), Math.cos(curve.turn));
-        curve.turn = turn;
+        if (curve.turn !== turn) curve = { ...curve, turn }; // cached connectors are shared, never mutated
         if (next.length < 12 && !next.end.seam) continue;
         if (Math.abs(turn) > 2.6 && outgoing.some(b => b.carriageway !== first.carriageway)) continue;
         // Conflict bounds cover the junction movement, not the entire incoming street.
@@ -295,52 +359,27 @@ export class TrafficFlow {
       for (const route of unique) { movements.push(route); this.baseOf.set(route, lane); }
       this.movements.set(lane, unique.length ? unique : [lane]);
     }
-    // Conflicts depend only on the two movements' geometry: candidate pairs come from a grid of their bounds, and
-    // each directed pair's answer is kept across rebuilds (keyed by both ends' tile road hashes), so a tile install
-    // or release only tests the pairs it creates.
-    const keyOf = new Map<Lane, string>(), grid = new Map<string, number[]>(), samples = new Map<Lane, PathSamples>();
+    // Conflicts depend only on the two movements' geometry. A rebuild only indexes the movements (a grid of their
+    // bounds); each movement's set is built when a car first needs it at a junction (conflictsOf), from last build's
+    // answer for two kept movements or a pair cache kept across rebuilds (keyed by both ends' tile road hashes). A
+    // tile install therefore costs nothing here, and the sets are the same whenever they are built.
+    const keyOf = new Map<Lane, string>(), grid = new Map<number, number[]>(), order = new Map<Lane, number>();
     const hashOf = (tile: string) => this.network.tiles.get(tile)?.hash ?? '';
     movements.forEach((m, i) => {
       if (!m.connector) return;
-      keyOf.set(m, `${m.tile}#${hashOf(m.tile)}:${m.id}:${m.next ? `${m.next.tile}#${hashOf(m.next.tile)}` : ''}`);
+      order.set(m, i);
+      let key = this.movementKeys.get(m);
+      if (!key) { key = `${m.tile}#${hashOf(m.tile)}:${m.id}:${m.next ? `${m.next.tile}#${hashOf(m.next.tile)}` : ''}`; this.movementKeys.set(m, key); }
+      keyOf.set(m, key);
       for (let gx = Math.floor((m.bbox[0] - 8) / CONFLICT_CELL); gx <= Math.floor((m.bbox[2] + 8) / CONFLICT_CELL); gx++) {
         for (let gz = Math.floor((m.bbox[1] - 8) / CONFLICT_CELL); gz <= Math.floor((m.bbox[3] + 8) / CONFLICT_CELL); gz++) {
-          const key = `${gx},${gz}`, list = grid.get(key);
+          const key = conflictCell(gx, gz), list = grid.get(key);
           if (list) list.push(i); else grid.set(key, [i]);
         }
       }
     });
-    const sample = (m: Lane) => { let s = samples.get(m); if (!s) { s = pathSamples(m); samples.set(m, s); } return s; };
     if (this.conflictCache.size > 400_000) this.conflictCache.clear();
-    const seen = new Uint32Array(movements.length);
-    movements.forEach((a, i) => {
-      if (!a.connector) return;
-      const near: number[] = [];
-      for (let gx = Math.floor(a.bbox[0] / CONFLICT_CELL); gx <= Math.floor(a.bbox[2] / CONFLICT_CELL); gx++) {
-        for (let gz = Math.floor(a.bbox[1] / CONFLICT_CELL); gz <= Math.floor(a.bbox[3] / CONFLICT_CELL); gz++) {
-          for (const j of grid.get(`${gx},${gz}`) ?? []) if (seen[j] !== i + 1) { seen[j] = i + 1; near.push(j); }
-        }
-      }
-      near.sort((p, q) => p - q);
-      const set = new Set<Lane>(), before = kept.has(a) ? previousConflicts.get(a) : undefined;
-      for (const j of near) {
-        const b = movements[j];
-        if (a === b || a.bbox[0] > b.bbox[2] + 8 || a.bbox[2] < b.bbox[0] - 8
-          || a.bbox[1] > b.bbox[3] + 8 || a.bbox[3] < b.bbox[1] - 8) continue;
-        // Two kept movements: last build's answer stands.
-        if (before && kept.has(b)) { if (before.has(b)) set.add(b); continue; }
-        if (a.next === b.next) { set.add(b); continue; }
-        const key = `${keyOf.get(a)}|${keyOf.get(b)}`;
-        let conflict = this.conflictCache.get(key);
-        if (conflict === undefined) {
-          // One sweep answers both directions (the swept-body margin pads the first path only).
-          const [ab, ba] = pathsConflict(sample(a), sample(b));
-          this.conflictCache.set(key, conflict = ab); this.conflictCache.set(`${keyOf.get(b)}|${keyOf.get(a)}`, ba);
-        }
-        if (conflict) set.add(b);
-      }
-      this.conflicts.set(a, set);
-    });
+    this.index = { movements, order, grid, keyOf, kept, previous: previousConflicts, samples: new Map(), seen: new Uint32Array(movements.length), stamp: 0 };
     this.seamBound = seamBound;
     this.changer = new LaneChangePlanner(this.lanes, this.movements);
     // Demand enters at directed graph boundaries. Conveyor matching cycles are not additional portals:
@@ -653,7 +692,7 @@ export class TrafficFlow {
       if (storage < car.length + 2 * GAP + 0.2) return blocked(`storage:${active.key}`);
     }
     if (storage < car.length + 2 * GAP + 0.2) return blocked('storage:lane-end');
-    const conflicts = this.conflicts.get(lane) ?? new Set<Lane>();
+    const conflicts = this.conflictsOf(lane);
     for (const active of reservations) if (active !== car && active.reservation && conflicts.has(active.reservation)) return blocked(`reservation:${active.key}`);
     const h = heading(lane);
     for (const otherLane of conflicts) {
@@ -694,16 +733,19 @@ function dataHeight(lane: Lane, s: number) {
   return lane.ys[i - 1] + (lane.ys[i] - lane.ys[i - 1]) * f;
 }
 
-/** Grid cell for conflict candidate pairs (m). */
+/** Grid cell for conflict candidate pairs (m), and its small-integer key. */
 const CONFLICT_CELL = 32;
+const conflictCell = (gx: number, gz: number) => ((gx & 0x7fff) << 15) | (gz & 0x7fff);
 /** A movement's path every metre from 6 m before its stop line to 6 m into its receiving lane. */
-interface PathSamples { x: Float64Array; z: Float64Array; hx: Float64Array; hz: Float64Array }
+interface PathSamples { x: Float64Array; z: Float64Array; hx: Float64Array; hz: Float64Array; box: [number, number, number, number] }
 function pathSamples(lane: Lane): PathSamples {
   const length = lane.connector!.length, n = Math.floor(length + 12 + 1e-9) + 1;
-  const out = { x: new Float64Array(n), z: new Float64Array(n), hx: new Float64Array(n), hz: new Float64Array(n) };
+  const out: PathSamples = { x: new Float64Array(n), z: new Float64Array(n), hx: new Float64Array(n), hz: new Float64Array(n),
+    box: [Infinity, Infinity, -Infinity, -Infinity] };
   for (let k = 0; k < n; k++) {
     const p = routePoint(lane, -6 + k + lane.length);
     out.x[k] = p.x; out.z[k] = p.z; out.hx[k] = p.hx; out.hz[k] = p.hz;
+    out.box[0] = Math.min(out.box[0], p.x); out.box[1] = Math.min(out.box[1], p.z); out.box[2] = Math.max(out.box[2], p.x); out.box[3] = Math.max(out.box[3], p.z);
   }
   return out;
 }
@@ -714,7 +756,9 @@ const poseA = { x: 0, z: 0, hx: 1, hz: 0 }, poseB = { x: 0, z: 0, hx: 1, hz: 0 }
 /** Whether a's padded swept body meets b's path, and b's padded body meets a's path. */
 function pathsConflict(a: PathSamples, b: PathSamples): [boolean, boolean] {
   // Centreline separation includes both half-widths plus a swept-body margin on corners. Build-time only.
-  const r2 = CONFLICT_REACH * CONFLICT_REACH;
+  const r2 = CONFLICT_REACH * CONFLICT_REACH, r = CONFLICT_REACH;
+  // Sample centres further apart than the reach everywhere: no body can touch the other path.
+  if (a.box[0] > b.box[2] + r || b.box[0] > a.box[2] + r || a.box[1] > b.box[3] + r || b.box[1] > a.box[3] + r) return [false, false];
   let ab = false, ba = false;
   for (let i = 0; i < a.x.length && !(ab && ba); i++) {
     const ax = a.x[i], az = a.z[i];
