@@ -732,3 +732,49 @@ test('a full tile leaving the window draws until its cell has dissolved in over 
   expect(disposed).toContain(hd);
   scenery.setRadius(0);
 });
+
+test('final fragments of the service generation are fetched once per tile: no refresh polls, ack promotions or re-entry refetches', async () => {
+  let generation = 'G';
+  const requests: string[] = [];
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation, stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: `${id}-${generation}`, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: `${cid}-${generation}`, bytes: 4 }])) });
+  const checkCollision = vi.fn(async () => {}), previewCollision = vi.fn(async () => new THREE.Group());
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision, previewCollision, retainCollision: () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname; requests.push(path);
+      if (path === '/coarse/want') return Response.json({ version: 1, generation });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 8; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  const json = (id: string) => requests.filter(p => p === `/coarse/${id}/collision.json` || p === `/coarse/${id}/manifest.json`).length;
+  // Drive east and back across the t0_0_0/t0_1_0 boundary for two minutes.
+  let t = 0;
+  for (let lap = 0; lap < 4; lap++) for (const [x, vx] of [[200, 12], [300, 12], [300, -12], [200, -12]] as const) {
+    for (let k = 0; k < 8; k++, t += 1000) { coarse.update(x + vx * k / 4, 125, t, { x: vx, z: 0 }); await settle(); }
+  }
+  const tiles = [...new Set(requests.flatMap(p => /^\/coarse\/(t0_[^/]+)\/(?:collision|manifest)\.json$/.exec(p)?.[1] ?? []))];
+  expect(tiles.length).toBeGreaterThan(10);
+  expect(Object.fromEntries(tiles.map(id => [id, json(id)]).filter(([, n]) => n !== 1))).toEqual({});
+  // Collision of every prepared tile was validated once: no evict-and-reload of the reserve.
+  const cols = requests.filter(p => p.endsWith('.col'));
+  expect(cols.length).toBeGreaterThan(16 * 4);
+  expect(cols.length).toBe(new Set(cols).size);
+  expect(checkCollision).toHaveBeenCalledTimes(cols.length);
+  // Standing still, the position report backs off while nothing builds.
+  const wants = requests.filter(p => p === '/coarse/want').length;
+  for (let k = 0; k < 30; k++, t += 1000) { coarse.update(250, 125, t, { x: 0, z: 0 }); await settle(); }
+  expect(requests.filter(p => p === '/coarse/want').length - wants).toBeLessThanOrEqual(7);
+  // A new generation revalidates every resident tile at once.
+  generation = 'H';
+  const before = requests.length;
+  for (let k = 0; k < 3; k++, t += 1000) { coarse.update(250, 125, t, { x: 0, z: 0 }); await settle(); }
+  t += 6000; coarse.update(250, 125, t, { x: 0, z: 0 }); await settle();
+  for (let k = 0; k < 3; k++, t += 1000) { coarse.update(250, 125, t, { x: 0, z: 0 }); await settle(); }
+  expect(requests.slice(before).filter(p => p === '/coarse/t0_0_0/manifest.json')).toHaveLength(1);
+  expect(coarse.entries.get('t0_0_0')?.visualHash).toBe('t0_0_0-H');
+});
