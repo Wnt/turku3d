@@ -23,6 +23,8 @@ const CSS = `
   border-radius:6px;white-space:nowrap;font-size:12px}
 #object-editor .oe-hints b{color:#ffd76a;font-weight:600}
 #object-editor .oe-status{position:absolute;right:12px;bottom:14px;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:4px;font-size:11px;opacity:.9}
+#object-editor .oe-counts{position:absolute;right:12px;top:12px;background:rgba(0,0,0,.6);padding:4px 10px;border-radius:5px;font-weight:600}
+#object-editor .oe-counts.pending{background:rgba(200,90,20,.9)}
 #object-editor .oe-toast{position:absolute;left:50%;top:22%;transform:translateX(-50%);background:rgba(0,0,0,.7);padding:5px 12px;border-radius:5px}
 #object-editor .oe-toast:empty{display:none}
 `;
@@ -40,6 +42,8 @@ export interface HudView {
   reasonGlyphs: string[];
   hints: [string, string][];
   status: string;
+  /** Edits the dev server holds and rows still waiting (always shown in the mode). */
+  counts: { saved: number; pending: number } | null;
 }
 
 export class EditorHud {
@@ -51,6 +55,7 @@ export class EditorHud {
   private hints = Object.assign(document.createElement('div'), { className: 'oe-hints' });
   private status = Object.assign(document.createElement('div'), { className: 'oe-status' });
   private toast = Object.assign(document.createElement('div'), { className: 'oe-toast' });
+  private counts = Object.assign(document.createElement('div'), { className: 'oe-counts' });
   private toastUntil = 0;
   private last = '';
 
@@ -59,7 +64,7 @@ export class EditorHud {
     style.textContent = CSS;
     this.bar.append(this.fill);
     this.element.append(style, Object.assign(document.createElement('div'), { className: 'oe-cross' }), this.label, this.bar,
-      this.reasons, this.toast, this.hints, this.status);
+      this.reasons, this.toast, this.hints, this.status, this.counts);
     parent.append(this.element);
   }
 
@@ -72,6 +77,9 @@ export class EditorHud {
     this.element.classList.toggle('hover', view.hover && view.mode === 'aim');
     this.element.classList.toggle('holding', view.mode === 'hold');
     if (this.label.textContent !== view.label) this.label.textContent = view.label;
+    const counts = view.counts ? `Edits saved ${view.counts.saved} · pending ${view.counts.pending}` : 'No session yet';
+    if (this.counts.textContent !== counts) this.counts.textContent = counts;
+    this.counts.classList.toggle('pending', !!view.counts?.pending);
     this.bar.hidden = view.deleting === null;
     if (view.deleting !== null) this.fill.style.width = `${Math.round(view.deleting * 100)}%`;
     const reasons = view.reasonLeft > 0 ? view.reasonGlyphs.map((g, i) => `${g}|${REASON_LABELS[i]}`).join(';') + `;${view.reasonLeft.toFixed(1)}` : '';

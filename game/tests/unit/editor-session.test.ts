@@ -99,6 +99,56 @@ describe('edit sessions', () => {
     expect(session.unsent).toBe(0);
   });
 
+  test('42 committed edits drain through a failing, size-capped, slow and reordering server, once each', async () => {
+    const s = store();
+    // The server as the page sees it: the first 3 requests fail, any body over 64 KiB is refused (the keepalive budget
+    // that stalled 20261103-222447-fnf9i8), and replies come back slowly and out of order.
+    const stored = new Map<string, SessionRow>();
+    let calls = 0;
+    const pendingReplies: (() => void)[] = [];
+    const t: SessionTransport = {
+      putJson: async () => true, putBlob: async () => true,
+      appendRows: (_s, rows) => new Promise(resolve => {
+        calls++;
+        const body = JSON.stringify(rows).length;
+        if (calls <= 3 || body > 64 * 1024) { resolve(false); return; }
+        pendingReplies.push(() => { for (const r of rows) { const old = stored.get(r.id) as EditRecord | undefined; if (!old || (old.rev ?? 0) <= ((r as EditRecord).rev ?? 0)) stored.set(r.id, r); } resolve(true); });
+      }),
+    };
+    const session = EditSession.start(s, t, { build: {}, tiles: {}, device: {} });
+    const big = { surfaces: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`m${i}`, { distance_m: i, bearing_deg: i }])), pad: 'x'.repeat(3000) };
+    for (let i = 0; i < 42; i++) {
+      session.commit(edit(session, `prop:t0_0_0:GIS_Penkit:${i}`, 1));
+      session.amend(session.rowId(session.nextSeq - 1), { context: { before: big, after: big } });
+    }
+    session.tag(session.rowId(6), 'does_not_exist');
+    let now = 1000;
+    for (let round = 0; round < 40 && session.unsent; round++) {
+      let done = false;
+      void session.flush(now += 2000).then(() => { done = true; });
+      // Reply to whatever is outstanding (newest first) until this flush settles.
+      while (!done) { await new Promise(r => setTimeout(r, 0)); while (pendingReplies.length) pendingReplies.pop()!(); }
+    }
+    expect(session.unsent).toBe(0); expect(session.closable).toBe(true);
+    expect(stored.size).toBe(43);
+    expect([...stored.values()].filter(r => r.action === 'move').every(r => (r as EditRecord).rev === 2)).toBe(true);
+    expect(session.saved).toBe(42);
+  });
+
+  test('a close is remembered across a reload until every row is saved', async () => {
+    const s = store(), t = transport(false);
+    const session = EditSession.start(s, t, { build: {}, tiles: {}, device: {} });
+    session.commit(edit(session, 'prop:t0_0_0:GIS_Penkit:1', 2));
+    session.closing = true;
+    expect(session.closable).toBe(false);
+    const reloaded = EditSession.restore(s, t)!;
+    expect(reloaded.closing).toBe(true); expect(reloaded.unsent).toBe(1);
+    t.ok = true; await reloaded.flush();
+    expect(reloaded.closable).toBe(true);
+    reloaded.end(); await reloaded.flush();
+    expect(EditSession.restore(s, t)).toBeNull();
+  });
+
   test('the dev server writes session.json, one line per row id in seq order, and shots; rejects bad paths', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'edits-'));
     const handle = editSessionsMiddleware(root);
@@ -136,6 +186,11 @@ describe('edit sessions', () => {
     expect((await call('POST', `/__edits/${id}/edits.jsonl`, [{ id: 'x', seq: 1, session: 'other' }])).status).toBe(400);
     expect((await call('PUT', `/__edits/${id}/session.json`, { id: 'other' })).status).toBe(400);
     expect((await call('GET', '/elsewhere')).status).toBe(404);
+    // Out-of-order batches and repeats (a recovered file plus the tab's queued copies) keep one line per row, by seq.
+    await call('POST', `/__edits/${id}/edits.jsonl`, [row(9), row(7)]);
+    await call('POST', `/__edits/${id}/edits.jsonl`, [row(7), row(8), row(9)]);
+    const all = (await fs.readFile(path.join(root, id, 'edits.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l));
+    expect(all.map(l => l.seq)).toEqual([1, 2, 3, 4, 7, 8, 9]);
     await fs.rm(root, { recursive: true });
   });
 });

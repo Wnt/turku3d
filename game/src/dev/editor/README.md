@@ -27,8 +27,11 @@ Dev server: `tools/dev/editSessions.mjs` stores `~/turku3d/edits/<session>/` (`T
 
 ## Mapping (DualSense names; Xbox in brackets)
 
-Toggle: **touchpad click** [L3 + R3 together] or F8. A short press enters or leaves; **holding it 1.5 s in the mode
-closes the session** (previews cleared, `session.json` gets `ended`). While a session is open its previews stay
+Toggle: **touchpad click** [L3 + R3 together] or Y / F8. A short press enters or leaves; **holding it 1.5 s in the
+mode closes the session once every edit is saved**: until then the previews stay and a badge says "N edit rows not
+saved, retrying"; then "Session saved: N edits · previews off until the generator incorporates them" and
+`session.json` gets `ended`. Entering again before that cancels the close. The HUD's top right always shows
+"Edits saved N · pending M" in the mode, and the badge warns outside it when rows wait more than 3 s. While a session is open its previews stay
 visible outside the mode and come back after a reload; if the mode was on, it comes back on too.
 
 The editor layer (`input/bindings.ts` `editorBindings`) takes ✕ ○ △ L1 R1 Create L3 and the D-pad from gameplay.

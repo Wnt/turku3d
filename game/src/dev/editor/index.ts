@@ -102,6 +102,7 @@ export class ObjectEditor {
   private readonly lidarPinned = (() => { const v = new URLSearchParams(location.search).get('pointcloud'); return v !== null && v !== '0'; })();
   private lidarWanted = this.lidarPinned || (() => { try { return localStorage.getItem(LIDAR_KEY) === 'on'; } catch { return false; } })();
   private unsentSince: number | null = null;
+  private toast: { text: string; until: number } | null = null;
   /** Props are indexed when the editor needs them; a model loading under open prop previews is indexed at once. */
   private onLoad = (e: { scene: THREE.Object3D }) => {
     const props = [...this.previews.states.values()].some(s => s.category === 'prop');
@@ -128,7 +129,8 @@ export class ObjectEditor {
     this.session = EditSession.restore(this.store, this.transport);
     if (this.session) {
       this.restorePreviews();
-      if (this.session.active) this.enter(performance.now());
+      // A close that had not finished saving (or an ended session with its session.json unsent) carries on.
+      if (!this.session.closing && this.session.active) this.enter(performance.now());
     }
   }
 
@@ -184,6 +186,7 @@ export class ObjectEditor {
 
   private enter(now: number) {
     if (!this.machine.active) this.machine.active = true;
+    if (this.session?.closing && !this.session.meta.ended) { this.session.closing = false; this.notify('Close cancelled: the session goes on', now, 2500); }
     this.hud ??= new EditorHud();
     this.hud.show(true);
     if (!this.session) this.session = EditSession.start(this.store, this.transport, {
@@ -204,14 +207,30 @@ export class ObjectEditor {
     void this.session?.flush();
   }
 
+  /** Close only once every row is saved: until then the previews stay and the badge shows what is retrying. */
   private closeSession(now: number) {
     if (this.held) this.cancel();
     const session = this.session;
-    if (session) { session.setActive(false); session.end(); void session.flush(); }
+    if (!session) return;
+    session.setActive(false);
+    session.closing = true;
+    void session.flush();
+    this.finishClose(now);
+  }
+
+  private finishClose(now: number) {
+    const session = this.session;
+    if (!session || !session.closing || !session.closable) return;
+    const edits = session.meta.counts.effective;
+    if (!session.meta.ended) session.end();
+    void session.flush();
     this.previews.clear();
     this.session = null;
-    this.hud?.notify('Edit session closed', now);
+    this.notify(`Session saved: ${edits} edit${edits === 1 ? '' : 's'} · previews off until the generator incorporates them`, now, 7000);
   }
+
+  /** A message that shows with or without the mode's HUD (the badge). */
+  private notify(text: string, now: number, ms: number) { this.toast = { text, until: now + ms }; }
 
   /** The effective editable: the catalog's original placement moved to its open preview. Deleted ones are null. */
   private effective(e: Editable): Editable | null {
@@ -443,6 +462,7 @@ export class ObjectEditor {
     this.previews.update();
     this.syncLidar();
     if (this.session && now >= this.flushAt) { this.flushAt = now + 2000; if (this.session.pending) void this.session.flush(); }
+    this.finishClose(now);
     this.showUnsaved(now);
     if (!this.machine.active) return;
     const camera = this.hosts.camera;
@@ -461,20 +481,25 @@ export class ObjectEditor {
     this.renderHud(now);
   }
 
-  /** "n unsaved" whenever rows wait more than 3 s for the dev server, also outside the mode (its HUD is hidden). */
+  /** The badge (outside the mode's HUD): a close still saving ("N edits not saved, retrying"), rows waiting more
+   *  than 3 s, or a notice such as the close result. */
   private showUnsaved(now: number) {
     const s = this.session, unsent = s?.unsent ?? 0;
     if (!unsent) this.unsentSince = null; else this.unsentSince ??= now;
-    const text = unsent && this.unsentSince !== null && now - this.unsentSince > 3000
-      ? `${unsent} edit row${unsent === 1 ? '' : 's'} unsaved${s?.error ? ` · ${s.error}` : ''}` : '';
+    const error = s?.error ? ` · ${s.error}` : '';
+    let text = '', warn = false;
+    if (s?.closing && unsent) { text = `Closing: ${unsent} edit row${unsent === 1 ? '' : 's'} not saved, retrying${error} · previews kept`; warn = true; }
+    else if (unsent && this.unsentSince !== null && now - this.unsentSince > 3000) { text = `${unsent} edit row${unsent === 1 ? '' : 's'} unsaved, retrying${error}`; warn = true; }
+    else if (this.toast && now < this.toast.until) text = this.toast.text;
     if (!text && !this.unsavedBadge) return;
     if (!this.unsavedBadge) {
       this.unsavedBadge = Object.assign(document.createElement('div'), { id: 'object-editor-unsaved' });
-      Object.assign(this.unsavedBadge.style, { position: 'fixed', right: '12px', bottom: '42px', zIndex: '41', pointerEvents: 'none',
-        background: 'rgba(200,90,20,.88)', color: '#fff', font: '600 12px/1.3 system-ui,sans-serif', padding: '4px 9px', borderRadius: '4px' });
+      Object.assign(this.unsavedBadge.style, { position: 'fixed', left: '50%', top: '14%', transform: 'translateX(-50%)', zIndex: '41',
+        pointerEvents: 'none', color: '#fff', font: '600 13px/1.35 system-ui,sans-serif', padding: '6px 12px', borderRadius: '5px', maxWidth: '80vw' });
       document.body.append(this.unsavedBadge);
     }
     if (this.unsavedBadge.textContent !== text) this.unsavedBadge.textContent = text;
+    this.unsavedBadge.style.background = warn ? 'rgba(200,90,20,.92)' : 'rgba(0,0,0,.72)';
     this.unsavedBadge.hidden = !text;
   }
 
@@ -540,10 +565,10 @@ export class ObjectEditor {
       [g('editLidar'), lidarState ? `LiDAR ${lidarState} (hold for settings)` : 'LiDAR: none loaded'], [g('editToggle'), 'exit · hold: close session'],
     ];
     const s = this.session;
-    const status = [s ? `${s.id} · ${s.meta.counts.effective} edits` : '', s?.unsent ? `${s.unsent} unsaved` : '', s?.error ?? '',
-      cloud ? `LiDAR ${lidarState}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
+    const status = [s ? s.id : '', s?.error ?? '', cloud ? `LiDAR ${lidarState}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
     hud.render({ mode: this.held ? 'hold' : 'aim', label, hover: !!current, deleting: this.machine.deleteHeld > 0 ? this.machine.deleteHeld / EDITOR.deleteHold : null,
-      reasonLeft: this.held ? 0 : this.machine.reasonLeft, reasonGlyphs: [g('editUp'), g('editRight'), g('editDown'), g('editLeft')], hints, status }, now);
+      reasonLeft: this.held ? 0 : this.machine.reasonLeft, reasonGlyphs: [g('editUp'), g('editRight'), g('editDown'), g('editLeft')], hints, status,
+      counts: s ? { saved: s.saved, pending: s.unsent } : null }, now);
   }
 
 

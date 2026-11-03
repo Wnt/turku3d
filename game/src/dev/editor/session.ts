@@ -92,7 +92,7 @@ export function newSessionId(now = new Date()) {
 }
 
 /** `outbox`: [row id, revision to send] (sessions stored before revisions: ids only). */
-interface Stored { meta: SessionMeta; active: boolean; rows: SessionRow[]; outbox: (string | [string, number])[]; metaDirty: boolean }
+interface Stored { meta: SessionMeta; active: boolean; rows: SessionRow[]; outbox: (string | [string, number])[]; metaDirty: boolean; closing?: boolean }
 
 /** One open session: its rows in order, the undo state and the unsent outbox. */
 export class EditSession {
@@ -111,13 +111,18 @@ export class EditSession {
     this.active = stored?.active ?? false;
     this.outbox = new Map((stored?.outbox ?? []).map(entry => typeof entry === 'string' ? [entry, 0] : entry));
     this.metaDirty = stored?.metaDirty ?? true;
+    this.closingRequested = stored?.closing ?? false;
   }
+  private closingRequested: boolean;
+  /** Jonni asked to close: the session ends once every row is saved (kept across reloads). */
+  get closing() { return this.closingRequested || !!this.meta.ended; }
+  set closing(on: boolean) { if (this.closingRequested !== on) { this.closingRequested = on; this.save(); } }
 
-  /** The stored open session, if any. */
+  /** The stored session: an open one, or an ended one that still has something to send. */
   static restore(store: KeyValue, transport: SessionTransport): EditSession | null {
     try {
       const stored = JSON.parse(store.getItem(STORE) ?? 'null') as Stored | null;
-      if (!stored?.meta?.id || stored.meta.ended) return null;
+      if (!stored?.meta?.id || (stored.meta.ended && !stored.outbox?.length && !stored.metaDirty)) return null;
       return new EditSession(stored.meta, stored, store, transport);
     } catch { return null; }
   }
@@ -186,7 +191,8 @@ export class EditSession {
   }
 
   save() {
-    const stored: Stored = { meta: this.meta, active: this.active, rows: this.rows, outbox: [...this.outbox.entries()], metaDirty: this.metaDirty };
+    const stored: Stored = { meta: this.meta, active: this.active, rows: this.rows, outbox: [...this.outbox.entries()], metaDirty: this.metaDirty,
+      closing: this.closingRequested };
     try {
       if (this.meta.ended && !this.outbox.size && !this.metaDirty) this.store.removeItem(STORE);
       else this.store.setItem(STORE, JSON.stringify(stored));
@@ -196,6 +202,10 @@ export class EditSession {
   get pending() { return this.outbox.size + (this.metaDirty ? 1 : 0); }
   /** Rows the dev server has not acknowledged (HUD "n unsaved"). */
   get unsent() { return this.outbox.size; }
+  /** Effective edits whose current revision the dev server holds. */
+  get saved() { return this.effective().filter(e => !this.outbox.has(e.id)).length; }
+  /** Nothing left to send but session.json: the session may close (previews may be cleared). */
+  get closable() { return this.outbox.size === 0; }
 
   /** Send every unacknowledged row (in batches, oldest first), then session.json. Rows are idempotent by id and
    *  revision on the server. A send started more than a minute ago no longer blocks (requests time out at 20 s). */
