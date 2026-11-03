@@ -63,6 +63,7 @@ import { altitudeShadows } from './render/shadowAltitude';
 import { ReflectionScope } from './render/reflectionScope';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
+import { applyWaterSwitches } from './render/waterSwitches';
 import { BenchLab } from './qa/lab/lab';
 import { saveLabResult, startLabRecording } from './qa/lab/record';
 
@@ -105,6 +106,8 @@ try {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
 }
+// ?water= river technique A/B switches (render/waterSwitches.ts), before any river material exists.
+try { applyWaterSwitches(location.search); } catch (e) { window.__qaError = String((e as Error).message ?? e); throw e; }
 // Lab LOD overrides and ablations set engine constants, quality-tier fields and AA before anything reads them.
 if (params.lab) applyLodOverrides(params.lab.lod, params.quality, params);
 if (params.lab) ablateSettings(params.lab.off, params.quality, params, new URLSearchParams(location.search).has('aa'));
