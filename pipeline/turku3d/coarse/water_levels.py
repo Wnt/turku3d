@@ -6,7 +6,8 @@ inland reaches above rapids and dams, streams and field ditches measure metres h
 
 A body is split at mapped dams, weirs, waterfalls and lock gates, so each pool measures
 only its own surface and the step stays at the structure. Within a piece the level is the
-median of its water key points within ``RADIUS`` of nodes on an absolute ``GRID``,
+lower quartile of its water key points (those clear of the shore when there are enough)
+within ``RADIUS`` of nodes on an absolute ``GRID``,
 interpolated bilinearly: flat across a channel and along a pool, gently sloped along a
 stream, and ramped over rapids where the measured surface falls. Nodes and their support
 are canonical (absolute grid, points read ``MARGIN`` beyond the tile), so both tiles of a
@@ -27,9 +28,12 @@ GRID = 8.0
 RADIUS = 30.0
 MARGIN = GRID + RADIUS + 4.0
 SHORE = 1.5  # m outside a piece: bank returns that bound an unmeasured surface
+OFFSHORE = 1.5  # m inside a piece: returns clear of ledges, quay feet and banks
 MIN_POINTS = 4
-# Measured surfaces up to 0.5 m belong to the sea datum; from 1 m the measurement holds.
-TIDAL = (0.5, 1.0)
+# Lower-quartile surface: bank, ledge and pier returns inside a mapped outline are higher.
+QUANTILE = 25
+# Measured surfaces up to 0.8 m belong to the sea datum; from 1.3 m the measurement holds.
+TIDAL = (0.8, 1.3)
 STEPS = ("dam", "weir", "waterfall", "lock_gate")
 RAPIDS_REACH = 25.0  # m around a mapped rapids line or point
 
@@ -171,11 +175,15 @@ def measure(tile, water, steps, paths, rapids=()):
         values = np.full(len(grid), np.nan)
         wet = points[inside]
         if len(wet) >= MIN_POINTS:
+            clear = shapely.distance(xy[inside], piece.boundary) >= OFFSHORE
             tree = cKDTree(wet[:, [0, 2]])
             for n, ids in zip(np.flatnonzero(near), tree.query_ball_point(grid[near], RADIUS)):
-                if len(ids) >= MIN_POINTS:
-                    values[n] = np.median(wet[ids, 1])
-            fallback[k] = np.median(wet[:, 1])
+                if len(ids) < MIN_POINTS:
+                    continue
+                ids = np.asarray(ids)
+                inner = ids[clear[ids]]
+                values[n] = np.percentile(wet[inner if len(inner) >= MIN_POINTS else ids, 1], QUANTILE)
+            fallback[k] = np.percentile(wet[clear, 1] if clear.sum() >= MIN_POINTS else wet[:, 1], QUANTILE)
         bank = points[shore]
         missing = near & ~np.isfinite(values)
         if len(wet) < MIN_POINTS and len(bank) >= MIN_POINTS:
