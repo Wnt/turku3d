@@ -8,6 +8,7 @@ import { BuildLog } from './census';
 import type { WaterReflection } from './reflections';
 import { executeBundles, renderBundle, type BundleDrawHook } from './bundleReplay';
 import { altitudeShadows } from './shadowAltitude';
+import type { ReflectionScope } from './reflectionScope';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -103,12 +104,17 @@ export class GameRenderer extends THREE.WebGPURenderer {
     for (const bundle of bundles) this._renderBundle(bundle, sceneRef, lightsNode);
     executeBundles(this);
   }
+  /** Subtrees a river reflection render skips without changing it (render/reflectionScope.ts); set by main.ts. */
+  reflectionScope: ReflectionScope | null = null;
   /** A nested render (shadow maps drawn from a receiver's updateBefore) never records into an outer bundle. */
   _renderScene(scene: THREE.Object3D, camera: THREE.Camera, useFrameBufferTarget = true) {
     const self = this as unknown as Internals, outer = self._currentRenderBundle;
     self._currentRenderBundle = null;
+    const water = (camera.userData as { waterReflection?: WaterReflection }).waterReflection;
+    const scope = water && (scene as THREE.Scene).isScene ? this.reflectionScope : null;
+    scope?.begin(scene, camera, water!);
     try { return base._renderScene.call(this, scene, camera, useFrameBufferTarget); }
-    finally { self._currentRenderBundle = outer; }
+    finally { scope?.end(); self._currentRenderBundle = outer; }
   }
   override dispose() { this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
