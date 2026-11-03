@@ -1,6 +1,6 @@
 import type { WebGPURenderer } from 'three/webgpu';
 
-export const GPU_PASSES = ['prepass', 'shadows', 'beauty', 'traa', 'ao', 'bloom', 'post', 'puddles', 'other'] as const;
+export const GPU_PASSES = ['prepass', 'shadows', 'beauty', 'reflection', 'traa', 'ao', 'bloom', 'post', 'puddles', 'other'] as const;
 export type GpuPass = typeof GPU_PASSES[number];
 export type GpuPassTimes = Partial<Record<GpuPass, number>>;
 const targets = new WeakMap<object, GpuPass>();

@@ -92,14 +92,16 @@ def plan(vertices, wall):
         ):
             continue
         occupied = occupied.union(rect)
+        through = bool(
+            desc.get("through") and desc.get("support", 0) >= 0.6 and 0 < desc["depth_m"] <= 12
+        )
+        # Ground-level through-colonnades use the terrain pavement. A flat
+        # component slab otherwise floats over its slope and hides the opening.
+        terrain_floor = through and desc["bounds"][1] == 0
         admitted.append(
             {
                 **desc,
-                "through": bool(
-                    desc.get("through")
-                    and desc.get("support", 0) >= 0.6
-                    and 0 < desc["depth_m"] <= 12
-                ),
+                "through": through,
                 "rect": rect,
                 "metric": [left, bottom, right, top],
                 "tangent": tangent,
@@ -110,7 +112,7 @@ def plan(vertices, wall):
                 else [
                     left == source_left,
                     right == source_right,
-                    bottom == source_bottom,
+                    bottom == source_bottom and not terrain_floor,
                     top == source_top,
                 ],
             }
@@ -131,8 +133,8 @@ def surface_parts(points, uv, plans, *, collision=False):
     cuts = [
         p
         for p in plans
-        if p["kind"] in {"bay", "recess", "loggia", "arcade"}
-        and (not collision or p["kind"] == "arcade")
+        if p["kind"] in {"bay", "recess", "loggia", "arcade", "through_cut"}
+        and (not collision or p["kind"] in {"arcade", "through_cut"})
     ]
     regions = [(surface.difference(shapely.union_all([p["rect"] for p in cuts])), 0)]
     for p in cuts:
@@ -355,7 +357,10 @@ def collision_walls(building, walls):
     """Open collision only for walkable arcades; passages remain tunnel-owned."""
     from turku3d.facade_programs import matching_wall, measured
 
+    from turku3d.facade_apertures import cuts, volumes
+
     observation = measured(building.facade_key)
+    apertures = volumes(observation)
     if not observation or not any(w.get("geometry_components") for w in observation["walls"]):
         idx = (
             np.concatenate([TRI + i * 4 for i in range(len(walls) // 4)])
@@ -374,7 +379,7 @@ def collision_walls(building, walls):
 
     for vertices in walls.reshape(-1, 4, 3):
         own = matching_wall(vertices, observation)
-        plans = plan(vertices, own) if own else []
+        plans = (plan(vertices, own) if own else []) + cuts(vertices, apertures)
         _, boxes = geometry(vertices, plans, building.facade_key, np.zeros(3))
         uv = np.zeros((4, 2))
         for points, _ in surface_parts(vertices, uv, plans, collision=True):

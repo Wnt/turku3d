@@ -222,7 +222,8 @@ def wall_meshes(b, walls, origin, layout=None):
     from turku3d.facade_component_geometry import geometry, plan, slots
     from turku3d.facade_program_geometry import wall_parts
     from turku3d.facade_relief import composed_parts
-    from turku3d.facade_programs import compile_wall, resolve
+    from turku3d.facade_programs import compile_wall, resolve, measured
+    from turku3d.facade_apertures import cuts, volumes
 
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
@@ -236,13 +237,14 @@ def wall_meshes(b, walls, origin, layout=None):
             ring_start = end + 4
     owner, height = layout if layout is not None else (b, None)
     program = resolve(owner, walls, eaves, layout_height=height)
+    apertures = volumes(measured(b.facade_key))
     instructions, program_parts = [], []
     previous_instruction = None
     # The extrusion contract emits four vertices and two triangles for each vertical wall.
     for start in range(0, len(walls), 4):
         vertices = walls[start : start + 4]
         wall = program["walls"][start // 4]
-        plans = plan(vertices, wall)
+        plans = plan(vertices, wall) + cuts(vertices, apertures)
         components, _ = geometry(vertices, plans, b.facade_key, origin)
         meshes.extend(components)
         wall["rendered_components"] = [p["kind"] for p in plans]

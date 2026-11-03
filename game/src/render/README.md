@@ -216,7 +216,7 @@ The normal/beauty/shadow/reflection passes share one scene-matrix update per ren
 Built-in per-pass timestamp tracking is disabled after feature negotiation: r186's asynchronous query pool can reuse
 query indices and drop frames while resolution is pending. Our frame-owned query sets now also timestamp each actual
 WebGPU render pass, including separate cascade layers. `__render.perf.passSnapshot()` reports per-frame GPU p50/p95
-for prepass, shadows, beauty, TRAA, AO, bloom, final post, puddles and other offscreen work. Repeated passes sum within
+for prepass, shadows, beauty, river reflection, TRAA, AO, bloom, final post, puddles and other offscreen work. Repeated passes sum within
 each frame; absent passes count as zero. Copy/compute work and GPU idle gaps remain in the separate whole-frame `gpuMs`.
 The latest pass totals and their originating frame are `lastGpuPasses` and `lastGpuPassFrame`. Pass percentiles are
 computed only on request, not on every HUD update. More than 128 passes discards that frame's partial pass totals and

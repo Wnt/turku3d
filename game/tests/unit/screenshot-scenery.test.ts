@@ -6,6 +6,27 @@ import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+
+test('incoming source scenery awaits shader preparation before attaching or claiming visual ownership', async () => {
+  const { scene, host, scenery, request, dispose } = setup();
+  let finish!: () => void;
+  host.prepareGraphics = vi.fn(model => {
+    expect(model.parent).toBeNull(); expect(model.userData.scenery).toBe(true);
+    return new Promise<void>(resolve => { finish = resolve; });
+  });
+  request.mockImplementation(async url => url.includes('/scenery?')
+    ? Response.json({ tiles: [{ tile: 't2_-2_1', h: [0, 107], key: 'source', source_sha256: 'base' }], missing: [] })
+    : Response.json({ coarse: true, tile: 't2_-2_1', pass_kind: 'full', visual: { 't2_-2_1': { url: 'scene.glb', sha256: 'visual' } } }));
+  scenery.setRadius(6000, { x: 3751, y: 164, z: 430, dx: -1, dz: 0, halfAngle: .8 });
+  await settle(); scenery.update(3751, 430, 1000); await settle();
+  expect(host.prepareGraphics).toHaveBeenCalledTimes(1);
+  expect(scene.children).toHaveLength(0);
+  expect(host.trackModel).not.toHaveBeenCalled();
+  finish(); await settle();
+  expect(scene.children).toHaveLength(1);
+  expect(host.trackModel).toHaveBeenCalledTimes(1);
+  expect(dispose).not.toHaveBeenCalled();
+});
 function setup() {
   const scene = new THREE.Scene(), nearby = new Map<string, Entry>();
   const host: CoarseHost = { scene, renderer: {} as THREE.WebGPURenderer, manifest: { collision: {} } as never,

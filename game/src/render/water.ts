@@ -1,6 +1,7 @@
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { reflector } from 'three/tsl';
+import { labelGpuPass } from './gpuPasses';
 import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
@@ -31,6 +32,12 @@ export class RiverMaterial {
     if (reflection) {
       reflection.reflector.resolutionScale = scale;
       const reflector = reflection.reflector;
+      const renderTarget = reflector.getRenderTarget.bind(reflector);
+      reflector.getRenderTarget = camera => {
+        const target = renderTarget(camera);
+        labelGpuPass(target, 'reflection');
+        return target;
+      };
       const virtualCamera = reflector.getVirtualCamera.bind(reflector);
       reflector.getVirtualCamera = camera => {
         const reflected = virtualCamera(camera);

@@ -169,3 +169,29 @@ test.each([false, true])('capture reports JS sampling support=%s while frame/pos
     expect(batches.flatMap(batch => batch.poses ?? [])).toHaveLength(1);
   } finally { control.dispose(); }
 });
+
+test.each([true, false])('GPU pass stats preserve frame ownership and snapshot supported=%s', async supported => {
+  class Observer { static supportedEntryTypes: string[] = []; }
+  const passes = { prepass: 1.5, beauty: 4.25 };
+  const render = { afterFrame: undefined as (() => void) | undefined,
+    renderer: { info: { frame: 301, memory: {} }, getPixelRatio: () => 1, backend: {} },
+    camera: { position: { toArray: () => [0, 2, 3] }, quaternion: { toArray: () => [0, 0, 0, 1] }, fov: 60 },
+    perf: { lastCpu: 2, lastGpu: 6, lastGpuFrame: 299, calls: 10, triangles: 20,
+      lastGpuPasses: supported ? passes : null, lastGpuPassFrame: 298 } };
+  vi.stubGlobal('window', { __render: render }); vi.stubGlobal('PerformanceObserver', Observer);
+  vi.stubGlobal('location', { href: 'http://localhost/' }); vi.stubGlobal('navigator', { userAgent: 'test' });
+  vi.stubGlobal('innerWidth', 800); vi.stubGlobal('innerHeight', 600);
+  vi.stubGlobal('addEventListener', vi.fn()); vi.stubGlobal('removeEventListener', vi.fn());
+  const fetch = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal('fetch', fetch);
+  const recorder = new DriveCapture({ state: () => ({ paused: false, feet: [0, 0, 0], vel: [0, 0, 0] }) });
+  render.afterFrame!();
+  passes.prepass = 99; // A later readback reusing the map cannot rewrite this queued sample.
+  await recorder.stop();
+  const batches = fetch.mock.calls.map(([, options]) => JSON.parse(options.body));
+  const stats = batches.flatMap(batch => batch.stats ?? []);
+  expect(stats[0].gpuPassMs).toEqual(supported ? { prepass: 1.5, beauty: 4.25 } : null);
+  expect(stats[0].gpuPassFrame).toBe(supported ? 298 : null);
+  const frames = batches.flatMap(batch => batch.frames ?? []);
+  expect(frames[0]).toHaveLength(7);
+  expect(frames[0].slice(1)).toEqual([301, 2, 6, 299, 10, 20]);
+});
