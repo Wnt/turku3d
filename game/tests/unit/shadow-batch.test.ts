@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { batchTileShadows, TILE_SHADOW_LAYER } from '../../src/world/shadowBatch';
+import { batchTileShadows, TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_LAYER, TILE_SHADOW_WHOLE_LAYER } from '../../src/world/shadowBatch';
+import { cascadeLayerMask } from '../../src/render/environment';
 
 const triangle = () => {
   const geometry = new THREE.BufferGeometry();
@@ -42,10 +43,20 @@ test('shadow chunks preserve buildings and instanced props without ground or veg
   expect(shadow.castShadow).toBe(true);
   const camera = new THREE.PerspectiveCamera();
   expect(shadow.layers.test(camera.layers)).toBe(false);
-  const shadowCamera = new THREE.OrthographicCamera();
-  shadowCamera.layers.enable(TILE_SHADOW_LAYER);
-  expect(shadow.layers.test(shadowCamera.clone().layers)).toBe(true);
-  expect(building.layers.test(shadowCamera.layers)).toBe(true);
+  // The outer cascades draw the whole-tile caster, the nearest one its chunks; both see layer 0 and the proxies.
+  const near = new THREE.OrthographicCamera(), outer = new THREE.OrthographicCamera();
+  near.layers.mask = cascadeLayerMask(0); outer.layers.mask = cascadeLayerMask(2);
+  const chunk = shadow.children[0] as THREE.Mesh;
+  expect([shadow.layers.test(outer.layers), shadow.layers.test(near.layers)]).toEqual([true, false]);
+  expect([chunk.layers.test(near.layers), chunk.layers.test(outer.layers)]).toEqual([true, false]);
+  expect(shadow.layers.isEnabled(TILE_SHADOW_WHOLE_LAYER) && chunk.layers.isEnabled(TILE_SHADOW_CHUNK_LAYER)).toBe(true);
+  for (const cascade of [near, outer]) {
+    expect(building.layers.test(cascade.layers)).toBe(true);
+    expect(cascade.layers.isEnabled(TILE_SHADOW_LAYER)).toBe(true);
+  }
+  // One shared vertex and index buffer: the chunk draws a range of the whole caster's buffers.
+  expect(chunk.geometry.getAttribute('position')).toBe(shadow.geometry.getAttribute('position'));
+  expect(chunk.geometry.getIndex()).toBe(shadow.geometry.getIndex());
   expect([building, props, trees, ground].map(mesh => mesh.castShadow)).toEqual([false, false, false, false]);
   const pos = shadow.geometry.getAttribute('position');
   expect([0, 3, 6].map(i => [pos.getX(i), pos.getY(i), pos.getZ(i)])).toEqual([
@@ -67,12 +78,19 @@ test('spatial shadow chunks retain every triangle and bound all vertices, includ
   ], 3));
   const source = new THREE.Mesh(geometry); model.add(source);
   const root = batchTileShadows(model)!;
-  const chunks: THREE.Mesh[] = []; root.traverse(object => chunks.push(object as THREE.Mesh));
+  const chunks = root.children as THREE.Mesh[];
   expect(chunks.length).toBeGreaterThan(1);
+  // The chunks' ranges tile the whole caster's index buffer exactly once.
+  const ranges = chunks.map(c => [c.geometry.drawRange.start, c.geometry.drawRange.count]).sort((a, b) => a[0] - b[0]);
+  let next = 0;
+  for (const [start, count] of ranges) { expect(start).toBe(next); next += count; }
+  expect(next).toBe(root.geometry.getIndex()!.count);
+  expect([root.geometry.drawRange.start, root.geometry.drawRange.count]).toEqual([0, next]);
+  for (const chunk of chunks) expect(root.geometry.boundingSphere!.containsPoint(chunk.geometry.boundingSphere!.center)).toBe(true);
   const triangleVertices: number[][] = [], point = new THREE.Vector3();
   for (const chunk of chunks) {
     const index = chunk.geometry.getIndex()!, positions = chunk.geometry.getAttribute('position');
-    for (let i = 0; i < index.count; i++) {
+    for (let i = chunk.geometry.drawRange.start; i < chunk.geometry.drawRange.start + chunk.geometry.drawRange.count; i++) {
 
       point.fromBufferAttribute(positions, index.getX(i));
       triangleVertices.push(point.toArray());
@@ -87,4 +105,5 @@ test('spatial shadow chunks retain every triangle and bound all vertices, includ
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   expect(frustum.intersectsObject(distant)).toBe(false);
   expect(frustum.intersectsObject(chunks[0])).toBe(true);
+  expect(frustum.intersectsObject(root)).toBe(true);
 });

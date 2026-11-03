@@ -5,6 +5,11 @@ import { streamingBudget } from '../render/preparationBudget';
 
 // Colour, normal and reflection cameras use layer 0; sun shadow cameras also enable this layer.
 export const TILE_SHADOW_LAYER = 1;
+/** A tile shadow batch's 62.5 m chunks, each culled on its own: only the nearest cascade sees them. */
+export const TILE_SHADOW_CHUNK_LAYER = 4;
+/** A tile shadow batch drawn whole, one draw per tile: the outer cascades see it instead of the chunks
+ *  (render/environment.ts cascadeLayers). Both share one vertex and one index buffer. */
+export const TILE_SHADOW_WHOLE_LAYER = 5;
 
 // The tile materials must stay separate for facades and object IDs. Shadows only
 // need their geometry. Spatial chunks retain the silhouette without drawing an entire 250 m tile per cascade.
@@ -92,18 +97,20 @@ function* shadowBatchSteps(model: THREE.Object3D): Generator<void, THREE.Mesh | 
     }
   }
   const material = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
-  const chunks = (yield* shadowChunkSteps(positions, indices, model.matrixWorld)).map(geometry => {
-    const proxy = new THREE.Mesh(geometry, material);
-    proxy.name = 'tile-shadow-batch';
-    proxy.castShadow = true;
-    proxy.layers.set(TILE_SHADOW_LAYER);
-    proxy.frustumCulled = true;
-    proxy.userData.shadowBatch = true;
-    return proxy;
-  });
-  // Children are independently frustum tested even when their parent's mesh is outside a cascade.
-  const proxy = chunks[0];
-  proxy.add(...chunks.slice(1));
+  const { whole, chunks } = yield* shadowChunkSteps(positions, indices, model.matrixWorld);
+  const caster = (geometry: THREE.BufferGeometry, layer: number) => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = 'tile-shadow-batch';
+    mesh.castShadow = true;
+    mesh.layers.set(layer);
+    mesh.frustumCulled = true;
+    mesh.userData.shadowBatch = true;
+    return mesh;
+  };
+  // The whole-tile caster is the root; the chunks are its children, frustum tested on their own (the nearest
+  // cascade), while the outer cascades draw the root once per tile. Shadow maps are unchanged: the same triangles.
+  const proxy = caster(whole, TILE_SHADOW_WHOLE_LAYER);
+  proxy.add(...chunks.map(geometry => caster(geometry, TILE_SHADOW_CHUNK_LAYER)));
   proxy.userData.shadowTriangles = indexCount / 3;
   model.add(proxy);
   return proxy;

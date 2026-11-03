@@ -7,7 +7,17 @@ import { sunPosition, sunVector } from '../core/sun';
 import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
 import { REFLECTION_LAYER } from './reflections';
-import { TILE_SHADOW_LAYER } from '../world/shadowBatch';
+import { TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_LAYER, TILE_SHADOW_WHOLE_LAYER } from '../world/shadowBatch';
+
+/** Layers a sun cascade's camera sees: everything on layer 0, the shadow-only layer (vegetation proxies), and of a
+ *  tile's shadow batch the per-chunk casters in the nearest cascade (fine culling in a 16 m map), the whole-tile
+ *  caster in every other one (one draw per tile instead of one per 62.5 m chunk). */
+export function cascadeLayerMask(cascade: number) {
+  const chunks = cascade === 0 || tileShadows.chunksEverywhere;
+  return 1 | 1 << TILE_SHADOW_LAYER | 1 << (chunks ? TILE_SHADOW_CHUNK_LAYER : TILE_SHADOW_WHOLE_LAYER);
+}
+/** A/B (?tileShadows=chunks, owner perf3): every cascade draws the per-chunk casters, as before 2026-11-03. */
+export const tileShadows = { chunksEverywhere: false };
 import { litFraction, sampleMoved, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
 import { WEATHER_PRESETS, type WeatherSample } from './weather/schedule';
@@ -96,6 +106,7 @@ export class Environment {
     this.sun.shadow.camera.far = 600;
     // CSM clones this camera into every cascade, retaining the shadow-only tile batches.
     this.sun.shadow.camera.layers.enable(TILE_SHADOW_LAYER);
+    this.sun.shadow.camera.layers.enable(TILE_SHADOW_CHUNK_LAYER);
     this.sun.shadow.bias = -0.00015;
     this.sun.shadow.normalBias = 0.025;
     const far = q.splits[q.splits.length - 1];
@@ -238,6 +249,9 @@ export class Environment {
     if (alternate) camera.updateMatrixWorld();
     for (let i = 0; i < lights.length; i++) {
       const shadow = lights[i].shadow!;
+      // CSM clones the sun's shadow camera into each cascade once it builds them.
+      const mask = cascadeLayerMask(i);
+      if (shadow.camera.layers.mask !== mask) shadow.camera.layers.mask = mask;
       const skip = alternate && i > 0 && (this.shadowFrame + i) % 2 === 0
         && cascadeCovers(shadow.camera as THREE.OrthographicCamera, camera, this.csm.frustums[i].vertices);
       shadow.autoUpdate = !this.shadowsFrozen && !skip;

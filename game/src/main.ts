@@ -19,7 +19,7 @@ import { parseParams } from './core/params';
 import { enToEngine, headingToYaw } from './core/origin';
 import { adapterInfo, createRenderer, defaultBackend } from './render/renderer';
 import { DayClock, type ClockMode } from './render/dayClock';
-import { Environment } from './render/environment';
+import { Environment, tileShadows } from './render/environment';
 import { riverClock } from './render/riverWaves';
 import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
@@ -246,6 +246,8 @@ if (renderer instanceof GameRenderer && new URLSearchParams(location.search).get
 // ?drawSort=material groups opaque draws by material within 25 m depth bands (render/drawSort.ts, A/B).
 if (new URLSearchParams(location.search).get('drawSort') === 'material')
   (renderer as unknown as { setOpaqueSort(sort: ReturnType<typeof materialBandSort>): void }).setOpaqueSort(materialBandSort());
+// ?tileShadows=chunks: every cascade draws tile shadows per 62.5 m chunk (the A/B against whole-tile outer cascades).
+tileShadows.chunksEverywhere = new URLSearchParams(location.search).get('tileShadows') === 'chunks';
 /** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
 let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
