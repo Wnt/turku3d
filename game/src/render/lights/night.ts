@@ -7,6 +7,9 @@ export interface NightInputs {
   time: Date;
   /** Elevation of the rendered sun, degrees (Environment.sunElevation). */
   sunElevation: number;
+  /** Shared weather (WeatherClock) and the scene's fog distance after it: the air over lit venues. */
+  weather?: { fog: number; rain: number; overcast: number };
+  fogFar?: number;
 }
 
 /** Artificial-light level 0 (day) to 1 (night), the timecycle's night factor. */

@@ -34,6 +34,15 @@ describe('floodlit area light', () => {
     expect(at(0, 0, 1, { x: 1, y: 0, z: 0 }).ambient).toBeGreaterThan(0.7);
     // A facade facing away from the venue gets only the unshadowed share.
     expect(at(0, 32 + 20, 10, { x: 0, y: 0, z: 1 }).direct).toBe(0);
+  });
+
+  test('the venue radiates a few hundred metres: facades facing it pick up a fading share', () => {
+    const facing = (r: number) => at(0, 32 + r, 10, { x: 0, y: 0, z: -1 }).direct;
+    expect(facing(150)).toBeGreaterThan(0.08);
+    expect(facing(200)).toBeGreaterThan(0.03);
+    expect(facing(200)).toBeLessThan(0.2);
+    expect(facing(300)).toBeGreaterThan(0.01);
+    expect(facing(300)).toBeLessThan(facing(200));
     expect(total(at(0, 32 + AREA.reach + 1))).toBe(0);
     // Roofs above the lamp heads get none from above.
     expect(at(0, 60, 2 * V.height + 1).direct).toBe(0);

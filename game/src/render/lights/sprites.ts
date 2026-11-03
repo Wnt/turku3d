@@ -56,7 +56,7 @@ export class LightSprites {
   private readonly focal = uniform(1);
   private readonly viewport = uniform(new THREE.Vector2(1, 1));
   /** The scene's resolved depth; bound by `overlay` (a placeholder keeps the material complete for prebuilds). */
-  private readonly sceneDepth = texture(new THREE.DepthTexture(1, 1));
+  readonly sceneDepth = texture(new THREE.DepthTexture(1, 1));
   private readonly centres: THREE.InstancedBufferAttribute;
   private readonly colors: THREE.InstancedBufferAttribute;
   private readonly profiles: THREE.InstancedBufferAttribute;

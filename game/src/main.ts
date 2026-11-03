@@ -359,7 +359,7 @@ const renderFrame = () => {
   if (vegetation) vegetation.screenshotDistance = env.screenshotDistance;
   vegetation?.update(camera);
   furniture?.update(camera);
-  lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
+  lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation, weather: weatherSample, fogFar: env.sample.fogFar });
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
   const ground = groundBelow(camera.position.x, camera.position.z);

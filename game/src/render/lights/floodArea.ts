@@ -29,7 +29,7 @@ export const AREA = {
   /** Spill length as a share of the lamp height: E halves this far outside the field (stands, track, fences). */
   spill: 1.0,
   /** The venue lights nothing beyond this distance outside its field (metres); the tail fades as (1 - (r/reach)^4)^2. */
-  reach: 120,
+  reach: 400,
   /** Field share between the centre and the point's projection where the light comes from. */
   source: 0.85,
   /** Rank distance (camera to field) beyond which a venue gets no slot, and the fade before a slot is handed on. */

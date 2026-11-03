@@ -12,6 +12,7 @@ import { nightLevel, type NightInputs } from './night';
 import { GroundLampField } from './groundField';
 import { FloodMasts, type FloodTile } from './floodlights';
 import { FloodArea, areaVenues } from './floodArea';
+import { FloodGlow, mistOf } from './glow';
 
 /** Main-thread budget per frame for placing newly streamed tiles' lamps, ms. */
 const STEP_MS = 1.5;
@@ -45,6 +46,8 @@ export class StreetLights {
   readonly masts: FloodMasts;
   /** Floodlit venues' light on everything around them (the light set's area light). */
   readonly area = new FloodArea();
+  /** The air over them: light domes and faint beams in the sprite overlay. */
+  readonly glow: FloodGlow;
   night = 0;
   private floodMasts = 0;
   private floodVenues = 0;
@@ -68,6 +71,7 @@ export class StreetLights {
     // The masts share the posts' material (and its prebuilt pipeline): no new shader at night.
     this.masts = new FloodMasts(this.posts.mesh.material as THREE.Material);
     scene.add(this.posts.mesh, this.masts.mesh);
+    this.glow = new FloodGlow(this.sprites.scene, this.sprites.sceneDepth);
     this.field.onTile = (id, lamps, footprint, flood) => {
       if (lamps) this.raw.set(id, lamps); else this.raw.delete(id);
       const drawn = lamps ? this.edited(lamps) : null;
@@ -127,7 +131,9 @@ export class StreetLights {
       this.ground.setLamps(all);
       const flood = [...this.flood.values()];
       const masts = flood.flatMap(f => f.masts);
-      this.area.setVenues(areaVenues(flood.flatMap(f => f.venues), masts));
+      const venues = areaVenues(flood.flatMap(f => f.venues), masts);
+      this.area.setVenues(venues);
+      this.glow.setVenues(venues, masts);
       this.floodMasts = this.masts.setMasts(masts);
       this.floodVenues = flood.reduce((n, f) => n + f.venues.length, 0);
       if (this.pools.size) this.pools.setLamps(all.map(poolLamp).filter((l): l is PoolLamp => l !== null));
@@ -136,6 +142,7 @@ export class StreetLights {
     this.posts.night.value = this.night;
     this.ground.update(camera.position.x, camera.position.z, this.night);
     this.area.update(camera.position.x, camera.position.z, this.night);
+    this.glow.update(camera, this.night, mistOf(inputs.weather), inputs.fogFar ?? 2600);
     this.posts.update(camera.position.x, camera.position.z, now);
     camera.getWorldDirection(this.forward);
     this.pools.update(camera.position.x, camera.position.z, this.forward.x, this.forward.z, this.night, now);
@@ -148,12 +155,12 @@ export class StreetLights {
     for (const list of this.tiles.values()) { lamps += list.length; posts += list.filter(l => l.post).length; }
     return { tiles: this.tiles.size, pending: this.field.pending() || this.ground.pending, lamps, posts, postsDrawn: this.posts.drawn,
       sprites: this.sprites.count, spriteCapacity: this.sprites.capacity, spritesDropped: this.sprites.dropped, night: this.night,
-      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts, floodLit: this.area.snapshot(),
+      pools: this.pools.snapshot(), floodVenues: this.floodVenues, floodMasts: this.floodMasts, floodLit: this.area.snapshot(), floodDomes: this.glow.domeCount, floodBeams: this.glow.beamCount,
       floodHeads: [...this.tiles.values()].reduce((n, list) => n + list.filter(l => l.kind === 'flood').length, 0) };
   }
 
   dispose() {
     this.posts.mesh.removeFromParent(); this.masts.mesh.removeFromParent();
-    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); this.area.dispose();
+    this.masts.dispose(); this.posts.dispose(); this.sprites.dispose(); this.ground.dispose(); this.area.dispose(); this.glow.dispose();
   }
 }
