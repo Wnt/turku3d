@@ -19,9 +19,15 @@ const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 export class LaneChangePlanner {
   private siblings = new Map<Lane, Lane[]>();
   constructor(lanes: readonly Lane[], private movements: ReadonlyMap<Lane, readonly Lane[]>) {
-    for (const lane of lanes) this.siblings.set(lane, lanes.filter(other => other.tile === lane.tile
-      && other.carriageway === lane.carriageway && other.start.node === lane.start.node && other.end.node === lane.end.node)
-      .sort((a, b) => a.k - b.k || cmp(a.id, b.id)));
+    const groups = new Map<string, Lane[]>();
+    for (const lane of lanes) {
+      const key = `${lane.tile}|${lane.carriageway}|${lane.start.node}|${lane.end.node}`, list = groups.get(key);
+      if (list) list.push(lane); else groups.set(key, [lane]);
+    }
+    for (const list of groups.values()) {
+      list.sort((a, b) => a.k - b.k || cmp(a.id, b.id));
+      for (const lane of list) this.siblings.set(lane, list);
+    }
   }
 
   intent(lane: Lane, key: string): -1 | 0 | 1 {

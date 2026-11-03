@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, type FlowCar } from '../../src/traffic/flow';
@@ -278,6 +279,37 @@ describe('drivers and players', () => {
     for (const { key, s } of queued) {
       const now = flow.cars.get(key);
       expect(!now || now.lane.id !== lane.id || now.s > s + 10).toBe(true);
+    }
+  });
+});
+
+describe('incremental graph rebuilds', () => {
+  const signature = (f: TrafficFlow) => {
+    const x = f as unknown as { movements: Map<Lane, Lane[]>; conflicts: Map<Lane, Set<Lane>> };
+    const m = [...x.movements].map(([l, rs]) => `${l.tile}:${l.id}=` + rs.map(r => `${r.id}/${r.connector?.length.toFixed(6)}`).join(',')).sort().join('|');
+    const c = [...x.conflicts].map(([a, set]) => `${a.tile}:${a.id}>` + [...set].map(b => `${b.tile}:${b.id}`).join(',')).sort().join('|');
+    return `${m}#${c}`;
+  };
+  test('installing and releasing tiles keeps movements and conflicts equal to a fresh build, with cars kept', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../fixtures/roads-v2-seam.json', import.meta.url), 'utf8')) as { a: RoadGraphJson; b: RoadGraphJson };
+    const shifted = (json: RoadGraphJson, dx: number, dz: number): RoadGraphJson => ({ ...json, bbox: [json.bbox[0] + dx, json.bbox[1] + dz, json.bbox[2] + dx, json.bbox[3] + dz],
+      nodes: json.nodes.map((v, i) => v + (i % 2 ? dz : dx)), edges: json.edges.map(row => row.map((v, i) => i < 4 ? v : v + (i % 2 ? dz : dx))) });
+    const tile = (id: string, json: RoadGraphJson) => buildTileTraffic(id, trafficRoads(json), json.bbox as [number, number, number, number], id);
+    const tiles = [tile('t0_0_0', fixture.a), tile('t0_1_0', fixture.b), tile('t0_0_1', shifted(fixture.a, 0, 250)), tile('t0_1_1', shifted(fixture.b, 0, 250)),
+      tile('t0_0_0', intersection(true, 2))];
+    const net = new TrafficNetwork(); net.density = { hourAt: () => 16, multiplier: 1 };
+    net.setTile(tiles[0]);
+    const flow = new TrafficFlow(net, 0); flow.reset(0);
+    let t = 0;
+    const changes: (() => void)[] = [() => net.setTile(tiles[1]), () => net.setTile(tiles[2]), () => net.setTile(tiles[3]),
+      () => net.removeTile('t0_1_0'), () => net.setTile(tiles[1]), () => net.setTile(tiles[4]), () => net.removeTile('t0_0_1')];
+    for (const change of changes) {
+      for (let k = 0; k < 100; k++) flow.update(t += 0.1);
+      const before = flow.cars.size;
+      change(); flow.update(t += 0.1);
+      const fresh = new TrafficFlow(net, 0); fresh.reset(t);
+      expect(signature(flow)).toBe(signature(fresh));
+      if (before) expect(flow.cars.size).toBeGreaterThan(0);
     }
   });
 });

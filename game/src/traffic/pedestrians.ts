@@ -54,8 +54,8 @@ export function chassisForward(rot: { x: number; y: number; z: number; w: number
 /** Separating-axis overlap of two oriented car footprints; `margin` pads the first one. */
 export function bodyOverlap(a: { x: number; z: number; hx: number; hz: number }, sizeA: { width: number; length: number },
   b: { x: number; z: number; hx: number; hz: number }, sizeB: { width: number; length: number }, margin = 0) {
-  const dx = b.x - a.x, dz = b.z - a.z;
-  const reach = Math.hypot(sizeA.length / 2 + margin, sizeA.width / 2 + margin) + Math.hypot(sizeB.length / 2, sizeB.width / 2);
+  const dx = b.x - a.x, dz = b.z - a.z, la = sizeA.length / 2 + margin, wa = sizeA.width / 2 + margin;
+  const reach = Math.sqrt(la * la + wa * wa) + Math.sqrt(sizeB.length * sizeB.length + sizeB.width * sizeB.width) / 2;
   if (Math.abs(dx) > reach || Math.abs(dz) > reach) return false;
   for (const [x, z] of [[a.hx, a.hz], [-a.hz, a.hx], [b.hx, b.hz], [-b.hz, b.hx]]) {
     const ra = Math.abs(a.hx * x + a.hz * z) * (sizeA.length / 2 + margin)

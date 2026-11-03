@@ -67,6 +67,12 @@ export class TrafficFlow {
   private sources: Lane[] = [];
   private byLane = new Map<Lane, FlowCar[]>();
   private conflicts = new Map<Lane, Set<Lane>>();
+  /** Lanes whose movements cross or reach a tile seam (they depend on the neighbour tile). */
+  private seamBound = new Set<Lane>();
+  /** Road hash of every enabled tile at the last movement build. */
+  private builtTiles = new Map<string, string>();
+  /** Directed movement pair → conflict, kept across graph rebuilds (keys carry the tiles' road hashes). */
+  private conflictCache = new Map<string, boolean>();
   private movements = new Map<Lane, Lane[]>();
   private baseOf = new Map<Lane, Lane>();
   private demand = new Map<Lane, number>();
@@ -190,15 +196,49 @@ export class TrafficFlow {
       for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
       return;
     }
-    this.conflicts.clear(); this.movements.clear(); this.baseOf.clear();
-    this.lanes = [...this.network.tiles.values()].filter(tile => this.network.isEnabled(tile.tile))
-      .sort((a, b) => cmp(a.tile, b.tile)).flatMap(tile => [...tile.lanes].sort((a, b) => cmp(a.id, b.id)));
+    // Incremental rebuild: a lane's movements depend on its own tile and, through seams, its neighbours'. Lanes
+    // whose tile and neighbours are unchanged keep their movement objects; conflicts between kept movements too.
+    const enabled = [...this.network.tiles.values()].filter(tile => this.network.isEnabled(tile.tile)).sort((a, b) => cmp(a.tile, b.tile));
+    const tileKeys = new Map(enabled.map(tile => [tile.tile, tile.hash]));
+    const affected = new Set<string>();
+    for (const [tile, hash] of tileKeys) if (this.builtTiles.get(tile) !== hash) affected.add(tile);
+    for (const tile of this.builtTiles.keys()) if (!tileKeys.has(tile)) affected.add(tile);
+    const neighbours = (tile: string) => {
+      const m = /^t0_(-?\d+)_(-?\d+)$/.exec(tile);
+      return m ? [-1, 0, 1].flatMap(i => [-1, 0, 1].map(j => `t0_${+m[1] + i}_${+m[2] + j}`)) : null;
+    };
+    let full = false;
+    const stale = new Set<string>();
+    for (const tile of affected) { const n = neighbours(tile); if (!n) full = true; else n.forEach(t => stale.add(t)); }
+    // A neighbour of a changed tile keeps the lanes whose movements never reached a seam.
+    const keep = (lane: Lane) => !full && !affected.has(lane.tile) && (!stale.has(lane.tile) || !this.seamBound.has(lane));
+    const seamBound = new Set<Lane>();
+    const previousMovements = this.movements, previousConflicts = this.conflicts;
+    this.movements = new Map(); this.conflicts = new Map(); this.baseOf.clear();
+    this.builtTiles = tileKeys;
+    this.lanes = enabled.flatMap(tile => [...tile.lanes].sort((a, b) => cmp(a.id, b.id)));
+    // Lanes leaving each junction node, in canonical lane order (one pass instead of a scan per lane).
+    const startsAt = new Map<string, Lane[]>();
+    for (const b of this.lanes) {
+      if (b.start.kind !== 'junction') continue;
+      const key = `${b.tile}|${b.start.node}`, list = startsAt.get(key);
+      if (list) list.push(b); else startsAt.set(key, [b]);
+    }
     const movements: Lane[] = [];
+    const kept = new Set<Lane>();
     for (const lane of this.lanes) {
+      const reuse = keep(lane) ? previousMovements.get(lane) : undefined;
+      if (reuse) {
+        if (reuse[0] !== lane) for (const route of reuse) { movements.push(route); this.baseOf.set(route, lane); kept.add(route); }
+        this.movements.set(lane, reuse);
+        if (this.seamBound.has(lane)) seamBound.add(lane);
+        continue;
+      }
+      if (lane.end.kind === 'seam') seamBound.add(lane);
       const seamNext = lane.end.kind === 'seam' ? this.network.successor(lane) : null;
       if (lane.end.kind === 'seam' && (!seamNext || seamNext.length >= 12)) { this.movements.set(lane, [lane]); continue; }
       const outgoing = seamNext ? [seamNext]
-        : this.lanes.filter(b => b.tile === lane.tile && b.start.kind === 'junction' && b.start.node === lane.end.node);
+        : startsAt.get(`${lane.tile}|${lane.end.node}`) ?? [];
       const routes: Lane[] = [];
       const fallback: Lane[] = [];
       for (const first of outgoing) {
@@ -209,10 +249,11 @@ export class TrafficFlow {
         // Treat them as part of one junction movement and reserve through to a usable receiving lane.
         for (let guard = 0; next.length < 12 && guard < 12 && !visited.has(next); guard++) {
           visited.add(next);
+          if (next.end.kind === 'seam') seamBound.add(lane);
           signal ??= next.signal;
           if (next.priority !== 'normal') priority = next.priority;
           const candidates = next.end.kind === 'seam' ? [this.network.successor(next)].filter((l): l is Lane => !!l)
-            : this.lanes.filter(b => b.tile === next.tile && b.start.node === next.end.node && b.start.kind === 'junction');
+            : startsAt.get(`${next.tile}|${next.end.node}`) ?? [];
           const onward = candidates.filter(b => !visited.has(b)).sort((a, b) => {
             const ca = Math.abs(connector(next, a).turn), cb = Math.abs(connector(next, b).turn);
             return ca - cb || Math.abs(a.k - next.k) - Math.abs(b.k - next.k) || cmp(a.id, b.id);
@@ -254,16 +295,53 @@ export class TrafficFlow {
       for (const route of unique) { movements.push(route); this.baseOf.set(route, lane); }
       this.movements.set(lane, unique.length ? unique : [lane]);
     }
-    for (const a of movements) {
-      if (!a.connector) continue;
-      const set = new Set<Lane>();
-      for (const b of movements) {
-        if (a === b || !b.connector || a.bbox[0] > b.bbox[2] + 8 || a.bbox[2] < b.bbox[0] - 8
+    // Conflicts depend only on the two movements' geometry: candidate pairs come from a grid of their bounds, and
+    // each directed pair's answer is kept across rebuilds (keyed by both ends' tile road hashes), so a tile install
+    // or release only tests the pairs it creates.
+    const keyOf = new Map<Lane, string>(), grid = new Map<string, number[]>(), samples = new Map<Lane, PathSamples>();
+    const hashOf = (tile: string) => this.network.tiles.get(tile)?.hash ?? '';
+    movements.forEach((m, i) => {
+      if (!m.connector) return;
+      keyOf.set(m, `${m.tile}#${hashOf(m.tile)}:${m.id}:${m.next ? `${m.next.tile}#${hashOf(m.next.tile)}` : ''}`);
+      for (let gx = Math.floor((m.bbox[0] - 8) / CONFLICT_CELL); gx <= Math.floor((m.bbox[2] + 8) / CONFLICT_CELL); gx++) {
+        for (let gz = Math.floor((m.bbox[1] - 8) / CONFLICT_CELL); gz <= Math.floor((m.bbox[3] + 8) / CONFLICT_CELL); gz++) {
+          const key = `${gx},${gz}`, list = grid.get(key);
+          if (list) list.push(i); else grid.set(key, [i]);
+        }
+      }
+    });
+    const sample = (m: Lane) => { let s = samples.get(m); if (!s) { s = pathSamples(m); samples.set(m, s); } return s; };
+    if (this.conflictCache.size > 400_000) this.conflictCache.clear();
+    const seen = new Uint32Array(movements.length);
+    movements.forEach((a, i) => {
+      if (!a.connector) return;
+      const near: number[] = [];
+      for (let gx = Math.floor(a.bbox[0] / CONFLICT_CELL); gx <= Math.floor(a.bbox[2] / CONFLICT_CELL); gx++) {
+        for (let gz = Math.floor(a.bbox[1] / CONFLICT_CELL); gz <= Math.floor(a.bbox[3] / CONFLICT_CELL); gz++) {
+          for (const j of grid.get(`${gx},${gz}`) ?? []) if (seen[j] !== i + 1) { seen[j] = i + 1; near.push(j); }
+        }
+      }
+      near.sort((p, q) => p - q);
+      const set = new Set<Lane>(), before = kept.has(a) ? previousConflicts.get(a) : undefined;
+      for (const j of near) {
+        const b = movements[j];
+        if (a === b || a.bbox[0] > b.bbox[2] + 8 || a.bbox[2] < b.bbox[0] - 8
           || a.bbox[1] > b.bbox[3] + 8 || a.bbox[3] < b.bbox[1] - 8) continue;
-        if (a.next === b.next || pathsConflict(a, b)) set.add(b);
+        // Two kept movements: last build's answer stands.
+        if (before && kept.has(b)) { if (before.has(b)) set.add(b); continue; }
+        if (a.next === b.next) { set.add(b); continue; }
+        const key = `${keyOf.get(a)}|${keyOf.get(b)}`;
+        let conflict = this.conflictCache.get(key);
+        if (conflict === undefined) {
+          // One sweep answers both directions (the swept-body margin pads the first path only).
+          const [ab, ba] = pathsConflict(sample(a), sample(b));
+          this.conflictCache.set(key, conflict = ab); this.conflictCache.set(`${keyOf.get(b)}|${keyOf.get(a)}`, ba);
+        }
+        if (conflict) set.add(b);
       }
       this.conflicts.set(a, set);
-    }
+    });
+    this.seamBound = seamBound;
     this.changer = new LaneChangePlanner(this.lanes, this.movements);
     // Demand enters at directed graph boundaries. Conveyor matching cycles are not additional portals:
     // injecting cars on every such loop accumulated traffic in cul-de-sacs and invented mid-block sources.
@@ -616,17 +694,41 @@ function dataHeight(lane: Lane, s: number) {
   return lane.ys[i - 1] + (lane.ys[i] - lane.ys[i - 1]) * f;
 }
 
-function pathsConflict(a: Lane, b: Lane) {
-  const ca = a.connector!, cb = b.connector!;
+/** Grid cell for conflict candidate pairs (m). */
+const CONFLICT_CELL = 32;
+/** A movement's path every metre from 6 m before its stop line to 6 m into its receiving lane. */
+interface PathSamples { x: Float64Array; z: Float64Array; hx: Float64Array; hz: Float64Array }
+function pathSamples(lane: Lane): PathSamples {
+  const length = lane.connector!.length, n = Math.floor(length + 12 + 1e-9) + 1;
+  const out = { x: new Float64Array(n), z: new Float64Array(n), hx: new Float64Array(n), hz: new Float64Array(n) };
+  for (let k = 0; k < n; k++) {
+    const p = routePoint(lane, -6 + k + lane.length);
+    out.x[k] = p.x; out.z[k] = p.z; out.hx[k] = p.hx; out.hz[k] = p.hz;
+  }
+  return out;
+}
+const CONFLICT_BODY = { length: 5, width: 2 }, CONFLICT_MARGIN = 0.6;
+/** Bodies further apart than this cannot overlap (sum of the padded and unpadded half diagonals). */
+const CONFLICT_REACH = Math.sqrt((2.5 + CONFLICT_MARGIN) ** 2 + (1 + CONFLICT_MARGIN) ** 2) + Math.sqrt(2.5 ** 2 + 1 ** 2);
+const poseA = { x: 0, z: 0, hx: 1, hz: 0 }, poseB = { x: 0, z: 0, hx: 1, hz: 0 };
+/** Whether a's padded swept body meets b's path, and b's padded body meets a's path. */
+function pathsConflict(a: PathSamples, b: PathSamples): [boolean, boolean] {
   // Centreline separation includes both half-widths plus a swept-body margin on corners. Build-time only.
-  for (let s = -6; s <= ca.length + 6; s += 1) {
-    const p = routePoint(a, s + a.length);
-    for (let u = -6; u <= cb.length + 6; u += 1) {
-      const q = routePoint(b, u + b.length);
-      if (bodyOverlap(p, { length: 5, width: 2 }, q, { length: 5, width: 2 }, 0.6)) return true;
+  const r2 = CONFLICT_REACH * CONFLICT_REACH;
+  let ab = false, ba = false;
+  for (let i = 0; i < a.x.length && !(ab && ba); i++) {
+    const ax = a.x[i], az = a.z[i];
+    for (let j = 0; j < b.x.length; j++) {
+      const dx = b.x[j] - ax, dz = b.z[j] - az;
+      if (dx * dx + dz * dz > r2) continue;
+      poseA.x = ax; poseA.z = az; poseA.hx = a.hx[i]; poseA.hz = a.hz[i];
+      poseB.x = b.x[j]; poseB.z = b.z[j]; poseB.hx = b.hx[j]; poseB.hz = b.hz[j];
+      ab ||= bodyOverlap(poseA, CONFLICT_BODY, poseB, CONFLICT_BODY, CONFLICT_MARGIN);
+      ba ||= bodyOverlap(poseB, CONFLICT_BODY, poseA, CONFLICT_BODY, CONFLICT_MARGIN);
+      if (ab && ba) break;
     }
   }
-  return false;
+  return [ab, ba];
 }
 
 /** A path point moved `offset` metres along its right-hand normal. */
