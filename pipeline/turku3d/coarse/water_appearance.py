@@ -69,9 +69,10 @@ def prepare(cache, inputs, sources):
 
 
 # One mirror plane serves a mesh: measured inland surfaces split into 0.5 m bands, and
-# reaches steeper than 0.5 % (rapids, weirs) form their own unmirrored mesh.
+# reaches steeper than 2 % (rapids, weirs) form their own unmirrored mesh; measured pools
+# undulate by a few centimetres between level nodes and stay mirrored.
 BAND = 0.5
-SLOPE = 0.005
+SLOPE = 0.02
 
 
 def visuals(tile, water, records):
