@@ -49,6 +49,7 @@ import { retireAfterFrame, frameSubmitted } from './render/retirement';
 import { CameraBench, benchPose } from './qa/bench';
 import { FrameClock } from './core/frameClock';
 import { ScenePopulation } from './world/scenePopulation';
+import { GroundIndex } from './world/groundIndex';
 import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 
@@ -365,15 +366,18 @@ async function runQa() {
   applyQaCamera();
   // Fixed cameras need the same validated world geometry, but no simulation worker or Rapier startup.
   const qaManifest = draftManifest(location.href);
+  // The decoded collision cells also give ambient cars and walkers their ground (world/groundIndex.ts).
+  const ground = new GroundIndex();
   const coarse = await draftVisuals(qaManifest, {
-    unloadCollision: () => {}, refreshCollision: () => {},
+    unloadCollision: id => ground.remove(id), refreshCollision: () => {},
     checkCollision: async buffer => {
       const col = await readCol(buffer);
       if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
+      ground.add(col);
     },
   });
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
-    ? new ScenePopulation(scene, coarse, camera, qaManifest, { quality: params.quality, traffic: params.traffic,
+    ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
   window.__game!.population = population;

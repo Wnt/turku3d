@@ -20,6 +20,7 @@ import { Walkers, walkerCap } from './walkers';
 import { populationFocus } from './populationFocus';
 import { fleetModel } from '../actors/fleet/catalog';
 import { sampleWheelGround } from '../vehicle/wheelGround';
+import type { GroundIndex } from './groundIndex';
 
 export class ScenePopulation {
   readonly root = new THREE.Group();
@@ -38,13 +39,14 @@ export class ScenePopulation {
   private first = true;
   private cars: (TrafficInstance & { id: string })[] = [];
   private cap: number;
-  private heightCache = new Map<string, number | null>();
-  private ray = new THREE.Raycaster();
+  /** Lane fallback heights by half-metre point, with the version of the collision cell they came from. */
+  private heightCache = new Map<string, { version: number; y: number | null }>();
   private forward = new THREE.Vector3();
-  private groundMeshes: THREE.Object3D[] = [];
 
+  /** `ground` indexes the collision cells this mode decodes (there is no physics worker): wheels, lane fallbacks and
+   *  walkers sample it with a grid lookup, never the visual meshes. */
   constructor(scene: THREE.Scene, private source: CoarseTiles, private camera: THREE.PerspectiveCamera,
-    private manifest: Manifest, private options: { quality: QualityTier; traffic: number | null; walkers: number | null;
+    private manifest: Manifest, private ground: GroundIndex, private options: { quality: QualityTier; traffic: number | null; walkers: number | null;
       density: number; hour: () => number; night: () => number }) {
     this.root.name = 'scene-population'; scene.add(this.root);
     this.cap = options.traffic ?? TRAFFIC_CAPS[options.quality];
@@ -54,18 +56,14 @@ export class ScenePopulation {
     this.walkers = new Walkers(this.root, { cap: walkerCap(options.quality, options.walkers),
       now: () => this.utc, birthHour: () => options.hour(), graphs: () => this.graphs,
       raycast: async (origin, direction, distance) => {
-        this.ray.set(new THREE.Vector3(origin.x, origin.y, origin.z), new THREE.Vector3(direction.x, direction.y, direction.z));
-        this.ray.far = distance;
-        const hit = this.groundHit();
-        return hit ? { toi: hit.distance, point: hit.point, normal: { x: 0, y: 1, z: 0 }, material: 0, tile: null } : null;
+        if (direction.y > -0.999) return null;
+        const y = this.ground.ground(origin.x, origin.y, origin.z, distance);
+        return y === null ? null : { toi: origin.y - y, point: { x: origin.x, y, z: origin.z }, normal: { x: 0, y: 1, z: 0 }, material: 0, tile: null };
       } });
   }
   async load() {
     await Promise.all([this.visuals.load({ ...this.manifest, vehicles: [] }),
       this.walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`)]);
-  }
-  private groundHit() {
-    return this.ray.intersectObjects(this.groundMeshes, false).find(h => h.face && h.face.normal.y > .5);
   }
   private height: LaneHeight = (lane, s) => {
     let i = 1; while (i < lane.cum.length - 1 && lane.cum[i] < s) i++;
@@ -73,12 +71,13 @@ export class ScenePopulation {
     if (lane.ys && Number.isFinite(lane.ys[i - 1]) && Number.isFinite(lane.ys[i])) return lane.ys[i - 1] + (lane.ys[i] - lane.ys[i - 1]) * f;
     const x = lane.points[(i - 1) * 2] + (lane.points[i * 2] - lane.points[(i - 1) * 2]) * f;
     const z = lane.points[(i - 1) * 2 + 1] + (lane.points[i * 2 + 1] - lane.points[(i - 1) * 2 + 1]) * f;
-    const key = `${Math.round(x * 2)},${Math.round(z * 2)}`;
-    if (!this.heightCache.has(key)) {
-      this.ray.set(new THREE.Vector3(x, 400, z), new THREE.Vector3(0, -1, 0)); this.ray.far = 800;
-      this.heightCache.set(key, this.groundHit()?.point.y ?? null);
+    const key = `${Math.round(x * 2)},${Math.round(z * 2)}`, version = this.ground.version(x, z);
+    let cached = this.heightCache.get(key);
+    if (!cached || cached.version !== version) {
+      cached = { version, y: version < 0 ? null : this.ground.ground(x, 400, z, 800) };
+      this.heightCache.set(key, cached);
     }
-    return this.heightCache.get(key)!;
+    return cached.y;
   };
   private sync() {
     // Only fully resident road generations participate. Canonical order removes fetch-order randomness.
@@ -94,13 +93,8 @@ export class ScenePopulation {
       if (this.network.tiles.get(id)?.hash === hash) continue;
       this.network.setTile(buildTileTraffic(id, trafficRoads(e.roads!), tileBounds(id)!, hash)); this.signals.setTile(id, e.roads!);
     }
-    this.graphs = entries.map(([, e]) => e.roads!); this.graphKey = key; this.heightCache.clear();
-    this.groundMeshes = [];
-    for (const [, e] of entries) e.model!.traverse(o => {
-      const mesh = o as THREE.Mesh; if (!mesh.isMesh) return;
-      const names = [mesh.name, ...(Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map(m => m.name)].join(' ');
-      if (/ground|road|surface|pavement|asphalt|cobble|concrete|bridge.deck/i.test(names)) this.groundMeshes.push(mesh);
-    });
+    this.graphs = entries.map(([, e]) => e.roads!); this.graphKey = key;
+    if (this.heightCache.size > 200_000) this.heightCache.clear();
   }
   reset(epochMs: number, seed: number) {
     this.sync(); this.seconds = 0; this.epoch = this.utc = epochMs;
@@ -160,10 +154,7 @@ export class ScenePopulation {
       const model = fleetModel(car.model, car.seed!);
       const yaw = 2 * Math.atan2(car.q.y, car.q.w);
       const ground = sampleWheelGround({ x: car.x, y: car.y - CHASSIS_LIFT, z: car.z }, yaw,
-        { wheelbase: model.wheelbase, track: model.width - .15, radius: model.wheel }, (x, top, z, depth) => {
-          this.ray.set(new THREE.Vector3(x, top, z), new THREE.Vector3(0, -1, 0)); this.ray.far = depth;
-          return this.groundHit()?.point.y ?? null;
-        });
+        { wheelbase: model.wheelbase, track: model.width - .15, radius: model.wheel }, (x, top, z, depth) => this.ground.ground(x, top, z, depth));
       if (ground) { car.y = ground.pos.y; car.q = ground.rot; car.wheelY = ground.wheelY; }
     }
     this.visuals.setView(this.camera, this.options.night()); this.visuals.setTraffic(this.cars); this.visuals.update([]);
