@@ -25,7 +25,8 @@ import { PostProcessing } from './render/post';
 import { StreetLights } from './render/lights';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { QUALITY, deviceQuality, renderPixelRatio, setRenderTier } from './render/quality';
+import { QUALITY, deviceQuality, renderPixelRatio, renderTier, setRenderTier } from './render/quality';
+import { gpuProbe } from './render/gpuProbe';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
@@ -161,6 +162,14 @@ const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
   { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
+// Startup GPU throughput probe: recorded in renderTier() and captures to calibrate tiering across machines whose
+// adapter info is identical (M1 Air and M1 Max both report apple/metal-3); it chooses nothing yet.
+const probeDevice = (renderer.backend as { device?: GPUDevice }).device;
+if (probeDevice && (!params.qa || params.drive?.view === 'live')) void gpuProbe(probeDevice).then(probe => {
+  const tier = renderTier();
+  if (tier) setRenderTier({ ...tier, probe });
+  if (probe) loading.note(`GPU probe ${probe.ms.toFixed(2)} ms (${probe.method})`);
+});
 const scene = new THREE.Scene();
 /** ?bench=drive&view=live: play's window and adaptive pixel ratio instead of the recorded ones. */
 const liveDrive = params.drive?.view === 'live';
@@ -282,7 +291,7 @@ const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, a
   const tiers = model.userData.dissolveTiers as number[] | undefined;
   if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
 }, undefined, 'scenery');
-const resolution = new AdaptiveResolution(params.mobile ? 30 : 60, QUALITY[params.quality].resolutionFloor);
+const resolution = new AdaptiveResolution(params.mobile ? 30 : 60);
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
@@ -312,7 +321,7 @@ if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
 const renderFrame = () => {
   if ((liveDrive || (!params.qa && worldLoad.snapshot().phase === 'ready')) && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
-    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile) * scale;
+    const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
   }
   dayClock.update();
@@ -352,7 +361,7 @@ addEventListener('resize', () => {
   camera.aspect = driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight;
   if (params.qa && !params.drive) applyQaCamera();
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile) * (params.qa && !liveDrive ? 1 : resolution.scale));
+  renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile, QUALITY[params.quality].maxPixels) * (params.qa && !liveDrive ? 1 : resolution.scale));
   renderer.setSize(driveViewport?.[0] ?? innerWidth, driveViewport?.[1] ?? innerHeight, !driveViewport);
   env.resize();
 });
@@ -580,7 +589,7 @@ async function runQa() {
     configure: drive => {
       if (liveDrive) drive.settings = { pixelRatio: null, viewport: null };
       driveViewport = drive.settings.viewport; drivePixelRatio = drive.settings.pixelRatio;
-      renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile) * (liveDrive ? resolution.scale : 1));
+      renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * (liveDrive ? resolution.scale : 1));
       renderer.setSize(driveViewport?.[0] ?? innerWidth, driveViewport?.[1] ?? innerHeight, false);
       camera.aspect = driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight; camera.updateProjectionMatrix();
       env.resize();
