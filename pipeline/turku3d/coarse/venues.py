@@ -11,8 +11,10 @@ A class rule for every mapped venue, from OSM and the building register (no per-
   minimum rotated rectangle, front = the long side nearest the field, seat depth = the median
   front-to-back depth of the footprint: a concrete podium with a board band, one or two tiers
   of seat rows split by white aisle stairs every ``AISLE_SPACING``, a back wall with a dark
-  glazed band behind the top row, stepped end walls, a flat roof slab following the LoD2 roof
-  plane on back columns and diagonal brackets, and floodlight heads along its front edge. A low
+  glazed band behind the top row, stepped end walls, a roof canopy on back columns and diagonal
+  brackets, and floodlight heads along its front edge. The canopy is one gently sloped plane
+  fitted to the LoD2 roof only where its parts cover the stand (a part's plane never extends
+  past its own polygon), at most ``ROOF_PITCH`` across and ``ROOF_LEVEL`` along the stand. A low
   stand (under ``ROOF_MIN`` tall) gets open bleacher rows without a roof. The rest of an
   irregular footprint (service wings) is plain concrete massing at its own LoD2 roof heights.
 * **Running tracks** (``leisure=track``): the rubber track finish on the ground, with white lane
@@ -60,6 +62,9 @@ BACK_AISLE = 1.5  # m walkway behind the top row
 ROOF_CLEAR = 3.2  # m above the top row
 ROOF_MIN = 4.5  # m: a lower stand is open bleachers
 ROOF_THICK = 0.7  # m fascia
+ROOF_PITCH = 0.12  # canopy rise per metre of seat depth: nearly flat, never a wedge
+ROOF_LEVEL = 0.01  # canopy rise per metre along the stand
+ROOF_OUTLIER = 2.0  # m: covered roof samples further than this from the fit (towers, wings)
 AISLE_SPACING = 11.0  # m between aisle stairs
 AISLE = 1.2  # m aisle width
 BAY = 9.5  # m between roof columns
@@ -381,13 +386,7 @@ def grandstand(b, fields, height_at):
 
     box = shapely.Polygon([world(u0, 0), world(u1, 0), world(u1, seat_depth), world(u0, seat_depth)])
     base = float(b.base)
-    parts = [(g, plane) for g, plane in b.roof_parts if g.intersects(box)]
-    big = [(g, plane) for g, plane in parts if g.intersection(box).area >= 0.2 * box.area] or parts
-
-    def roof_at(a, bb):
-        if not big:
-            return float(b.top)
-        return float(max(plane_height(plane, world(a, bb)) for _, plane in big))
+    roof_at = _canopy(b, box, world, u0, u1, seat_depth, plane_height)
 
     roof_mid = roof_at((u0 + u1) / 2, seat_depth / 2)
     podium, rows, roofed = _stand_profile(seat_depth, roof_mid - base)
@@ -475,6 +474,42 @@ def grandstand(b, fields, height_at):
     wings = footprint.difference(box.buffer(0.3, join_style="mitre"))
     meshes.extend(_massing(b, wings, base, f"venue:{b.key}:wing"))
     return meshes
+
+
+def _canopy(b, box, world, u0, u1, depth, plane_height):
+    """The stand roof height at (u, v): a plane fitted to the roof parts that cover the stand.
+
+    Each sample takes the topmost part covering it, so a small steep LoD2 facet cannot be
+    extrapolated across the stand. A stand without covering parts keeps a flat roof at its top."""
+    parts = [(g, plane) for g, plane in b.roof_parts if g.intersects(box)]
+    samples = []
+    for a in np.linspace(u0, u1, max(3, int((u1 - u0) / 4.0)) + 1):
+        for bb in np.linspace(0.0, depth, max(3, int(depth / 3.0)) + 1):
+            xz = world(a, bb)
+            point = shapely.Point(xz)
+            heights = [float(plane_height(plane, xz)) for g, plane in parts if g.covers(point)]
+            if heights:
+                samples.append((a, bb, max(heights)))
+    if len(samples) < 3:
+        top = float(b.top)
+        return lambda a, bb: top
+    a, bb, h = np.asarray(samples, float).T
+    am, bm = float(a.mean()), float(bb.mean())
+    keep = np.ones(len(h), bool)
+    for _ in range(2):
+        design = np.c_[a[keep] - am, bb[keep] - bm, np.ones(keep.sum())]
+        if np.linalg.matrix_rank(design) < 3:
+            su, sv = 0.0, 0.0
+        else:
+            su, sv, _ = np.linalg.lstsq(design, h[keep], rcond=None)[0]
+        su = float(np.clip(su, -ROOF_LEVEL, ROOF_LEVEL))
+        sv = float(np.clip(sv, -ROOF_PITCH, ROOF_PITCH))
+        level = float(np.median(h[keep] - su * (a[keep] - am) - sv * (bb[keep] - bm)))
+        residual = np.abs(h - (level + su * (a - am) + sv * (bb - bm)))
+        if (residual <= ROOF_OUTLIER).sum() < 3:
+            break
+        keep = residual <= ROOF_OUTLIER
+    return lambda u, v: level + su * (u - am) + sv * (v - bm)
 
 
 def _end_wall(s, outline, a, p3, outward):

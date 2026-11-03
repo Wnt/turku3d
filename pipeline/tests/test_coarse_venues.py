@@ -82,3 +82,23 @@ def test_track_lanes_and_pitch_stripes():
     assert (np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])[:, 1] > 0).all()
     meshes, count = V.goals(TILE, v, lambda x, z: 0.0)
     assert count == 2 and meshes
+
+
+def test_stand_roof_is_a_low_canopy_from_covering_parts_only():
+    """Small LoD2 facets (none covering a fifth of the stand) never extrapolate into a wedge."""
+    v = venue()
+    b = stand_building()
+    strips = [shapely.box(x, 40, x + 15, 56) for x in range(20, 110, 15)]
+    planes = [np.array([0.0, 0.0, 29.0])] * len(strips)
+    planes[0] = np.array([1.0, 0.0, 9.0])  # a 45-degree end facet: 29 m to 44 m across its strip
+    b.roof_parts = list(zip(strips, planes))
+    roof = {m.object_id.split(":", 2)[2]: m for m in V.grandstand(b, v.fields, lambda x, z: 10.0)}["roof:roof"]
+    seats = {m.object_id.split(":", 2)[2]: m for m in V.grandstand(b, v.fields, lambda x, z: 10.0)}["seat:stair_slope"]
+    assert roof.positions[:, 1].max() <= 29.0 + 0.5
+    assert roof.positions[:, 1].min() > seats.positions[:, 1].max() + 2.0
+
+    steep = stand_building()
+    steep.roof_parts = [(steep.footprint, np.array([0.0, -1.0, 29.0 + 56.0]))]  # 45 degrees across
+    roof = {m.object_id.split(":", 2)[2]: m for m in V.grandstand(steep, v.fields, lambda x, z: 10.0)}["roof:roof"]
+    top = roof.positions[:, 1]
+    assert top.max() - top.min() <= V.ROOF_PITCH * 16.5 + V.ROOF_THICK + 0.05
