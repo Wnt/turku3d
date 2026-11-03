@@ -130,3 +130,17 @@ describe('catalog and previews', () => {
     expect(new THREE.Vector3(1.6, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2).z).toBeCloseTo(-1.6);
   });
 });
+
+test('restoring a tree or post preview needs no resident editable (session close, undo off screen)', () => {
+  const trees: [string, unknown][] = [], posts: [string, unknown][] = [];
+  const previews = new Previews({ vegetation: () => ({ setEdit: (id, d) => { trees.push([id, d]); } }), lights: { setEdit: (k, e) => { posts.push([k, e]); } } });
+  const base = { tile: 't0_0_0', original: { x: 0, y: 0, z: 0 }, after: { x: 1, y: 0, z: 0 }, turnDeg: 30, deleted: false, originalYawDeg: 10 };
+  previews.set('tree:t0_0_0:puut:abc', { ...base, key: 'tree:t0_0_0:puut:abc', category: 'tree', objectId: 'puut:abc' });
+  previews.set('lamp:t0_0_0:post:12,34', { ...base, key: 'lamp:t0_0_0:post:12,34', category: 'lamp', objectId: 'post:12,34' });
+  previews.clear();
+  expect(trees.map(([id, d]) => [id, d === undefined ? 'restore' : 'edit'])).toEqual([['puut:abc', 'edit'], ['puut:abc', 'restore']]);
+  expect(posts[0]).toEqual(['12,34', { x: 1, y: 0, z: 0, yaw: 40 * Math.PI / 180 }]);
+  expect(posts[1]).toEqual(['12,34', undefined]);
+  previews.set('tree:t0_0_0:lidar:12.5:40.25', null);
+  expect(trees.at(-1)).toEqual(['lidar:12.5:40.25', undefined]);
+});

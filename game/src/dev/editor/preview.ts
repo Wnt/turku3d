@@ -68,9 +68,11 @@ export class Previews {
 
   /** Show `state` (or restore the placement when null). Props apply to `editable` when it is resident. */
   set(key: string, state: PreviewState | null, editable?: Editable) {
+    const previous = this.states.get(key);
     if (state) this.states.set(key, state); else this.states.delete(key);
-    const category = state?.category ?? key.split(':')[0];
-    const objectId = state?.objectId ?? editable?.objectId;
+    // Keys are `category:tile:objectId`: a restore needs no resident editable.
+    const category = state?.category ?? previous?.category ?? key.split(':')[0];
+    const objectId = state?.objectId ?? previous?.objectId ?? editable?.objectId ?? key.split(':').slice(2).join(':');
     if (category === 'tree' && objectId) this.hosts.vegetation()?.setEdit(objectId, state ? (state.deleted ? null : previewMatrix(state)) : undefined);
     else if (category === 'lamp') {
       const lampKey = (state?.objectId ?? objectId ?? '').replace(/^post:/, '');
