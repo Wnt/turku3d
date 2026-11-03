@@ -5,9 +5,14 @@ const STEP = 1 / 60;
  *  and character moving along their last velocity instead of freezing; beyond this they hold. Render only: the
  *  physics state (and so multiplayer) never sees it. */
 export const MAX_EXTRAPOLATION = 0.15;
+/** A snapshot counts as late only after this many fixed steps beyond its own: until then the pose interpolates
+ *  the latest pair and holds at its end (the behaviour before extrapolation), so ordinary delivery jitter never
+ *  extrapolates or blends. */
+const LATE_STEPS = 1;
 /** Teleports (resets, seat changes) are never smoothed. */
 const MAX_CORRECTION = 3;
-/** Fixed steps since the state was received: 0..1 interpolates the latest pair, above 1 extrapolates. */
+/** Fixed steps since the state was received: 0..1 interpolates the latest pair, 1..1+LATE_STEPS holds, beyond
+ *  that a late snapshot extrapolates. */
 const phase = (now: number, received: number, remainder: number) => Math.max(0, (now - received + remainder) / STEP);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const angle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
@@ -33,8 +38,12 @@ function scaleTurn(q: Quat, t: number): Quat {
   return { x: q.x * k, y: q.y * k, z: q.z * k, w: Math.cos(half * t) };
 }
 
-/** When a state arrives after the render pose ran ahead of the previous one, the difference fades out instead of
- *  snapping: at most half the actor's speed is spent closing it, so a correction never moves the car backwards. */
+/** Steps of extrapolation at phase t (0 while interpolating or within the late grace). */
+const lateSteps = (t: number) => Math.min(MAX_EXTRAPOLATION / STEP, Math.max(0, t - 1 - LATE_STEPS));
+
+/** When a state arrives after a late snapshot was extrapolated, the difference between where the drawn pose was
+ *  heading (its velocity and turn rate carried on) and the new pose fades out instead of snapping: at most half
+ *  the actor's speed is spent closing it, so a correction never moves the car backwards. */
 class Correction {
   private pos: V3 | null = null;
   private rot: Quat | null = null;
@@ -42,20 +51,22 @@ class Correction {
   private tau = 0.1;
   private pending = false;
   /** The latest drawn pose, when, at what velocity, and whether it was extrapolated. */
-  shown: { pos: V3; rot?: Quat; vel: V3; at: number; extrapolated: boolean } | null = null;
+  shown: { pos: V3; rot?: Quat; turn?: Quat; vel: V3; at: number; extrapolated: boolean } | null = null;
   arrived() { if (this.shown?.extrapolated) this.pending = true; }
   reset() { this.pos = this.rot = null; this.pending = false; }
   apply(now: number, pos: V3, rot: Quat | undefined, speed: number): { pos: V3; rot?: Quat } {
     if (this.pending && this.shown) {
       this.pending = false;
       // Where the drawn pose would be now had it kept going, against the new state's pose.
-      const was = ahead(this.shown.pos, this.shown.vel, Math.max(0, now - this.shown.at));
+      const since = Math.max(0, now - this.shown.at);
+      const was = ahead(this.shown.pos, this.shown.vel, since);
       const d = { x: was.x - pos.x, y: was.y - pos.y, z: was.z - pos.z };
       const size = Math.hypot(d.x, d.y, d.z);
       if (size < MAX_CORRECTION) {
         this.pos = d; this.at = now;
         this.tau = Math.min(0.4, Math.max(0.08, size / (0.5 * Math.max(speed, 1))));
-        this.rot = rot && this.shown.rot ? multiply(this.shown.rot, conjugate(rot)) : null;
+        const heading = this.shown.rot && this.shown.turn ? multiply(scaleTurn(this.shown.turn, since / STEP), this.shown.rot) : this.shown.rot;
+        this.rot = rot && heading ? multiply(heading, conjugate(rot)) : null;
       } else this.reset();
     }
     if (!this.pos) return { pos, rot };
@@ -89,11 +100,10 @@ export class CharacterInterpolation {
   sample(now: number, extrapolate = true): CharacterState | null {
     const c = this.current, p = this.previous;
     if (!c || !p) return c;
-    const t = extrapolate ? phase(now, this.received, this.remainder) : Math.min(1, phase(now, this.received, this.remainder));
-    const extra = Math.min(MAX_EXTRAPOLATION, (t - 1) * STEP);
-    const raw = t <= 1 ? vector(p.pos, c.pos, t) : ahead(c.pos, c.vel, extra);
+    const t = phase(now, this.received, this.remainder), late = extrapolate ? lateSteps(t) : 0;
+    const raw = late > 0 ? ahead(c.pos, c.vel, late * STEP) : vector(p.pos, c.pos, Math.min(1, t));
     const { pos } = this.correction.apply(now, raw, undefined, Math.hypot(c.vel.x, c.vel.z));
-    this.correction.shown = { pos, vel: c.vel, at: now, extrapolated: t > 1 };
+    this.correction.shown = { pos, vel: c.vel, at: now, extrapolated: late > 0 };
     return { ...c, pos };
   }
 }
@@ -121,21 +131,23 @@ export class VehicleInterpolation {
   sample(now: number, extrapolate = true): VehicleState | null {
     const c = this.current, p = this.previous;
     if (!c || !p) return c;
-    const t = extrapolate ? phase(now, this.received, this.remainder) : Math.min(1, phase(now, this.received, this.remainder));
+    const t = phase(now, this.received, this.remainder), late = extrapolate ? lateSteps(t) : 0;
+    const turn = multiply(c.rot, conjugate(p.rot));
     let pose: VehicleState;
-    if (t <= 1) {
-      pose = { ...c, pos: vector(p.pos, c.pos, t), rot: rotation(p.rot, c.rot, t),
-        wheels: c.wheels.map((w, i) => ({ ...w, pos: vector(p.wheels[i].pos, w.pos, t),
-          steer: angle(p.wheels[i].steer, w.steer, t), rotation: angle(p.wheels[i].rotation, w.rotation, t) })) };
+    if (!late) {
+      const a = Math.min(1, t);
+      pose = { ...c, pos: vector(p.pos, c.pos, a), rot: rotation(p.rot, c.rot, a),
+        wheels: c.wheels.map((w, i) => ({ ...w, pos: vector(p.wheels[i].pos, w.pos, a),
+          steer: angle(p.wheels[i].steer, w.steer, a), rotation: angle(p.wheels[i].rotation, w.rotation, a) })) };
     } else {
-      // The last step's turn and wheel spin continue at the same rate; wheel positions are chassis-local.
-      const steps = Math.min(MAX_EXTRAPOLATION, (t - 1) * STEP) / STEP;
-      const turn = multiply(c.rot, conjugate(p.rot));
+      // A late snapshot: the last step's turn and wheel spin continue at the same rate (wheel positions are
+      // chassis-local).
+      const steps = late;
       pose = { ...c, pos: ahead(c.pos, c.linvel, steps * STEP), rot: rotation(c.rot, multiply(scaleTurn(turn, steps), c.rot), 1),
         wheels: c.wheels.map((w, i) => ({ ...w, rotation: w.rotation + Math.atan2(Math.sin(w.rotation - p.wheels[i].rotation), Math.cos(w.rotation - p.wheels[i].rotation)) * steps })) };
     }
     const corrected = this.correction.apply(now, pose.pos, pose.rot, c.speed);
-    this.correction.shown = { pos: corrected.pos, rot: corrected.rot, vel: c.linvel, at: now, extrapolated: t > 1 };
+    this.correction.shown = { pos: corrected.pos, rot: corrected.rot, turn, vel: c.linvel, at: now, extrapolated: late > 0 };
     return { ...pose, pos: corrected.pos, rot: corrected.rot ?? pose.rot };
   }
 }

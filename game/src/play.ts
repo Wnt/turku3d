@@ -93,6 +93,9 @@ const HEIST_CAR_MIN_M = 10, HEIST_CAR_NEAR_M = 30, HEIST_CAR_FAR_M = 60, HEIST_C
 const rideKind = (id: string): VehicleKind => (id === SCOOTER_ID ? 'scooter' : id === TRUCK_ID ? 'truck' : 'car');
 
 /** Actions ignored while a shop or the pause menu is open (Escape and D-pad down are also pause and mute). */
+/** ?extrapolate=0: the player's car and character never extrapolate past the newest physics state (the A/B of
+ *  actors/interpolation.ts lateSteps; remove with it once the late-snapshot extrapolation is confirmed). */
+const RENDER_EXTRAPOLATION = new URLSearchParams(globalThis.location?.search ?? '').get('extrapolate') !== '0';
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** Starts a play session; `hot` continues a hot-swapped one (dev server only). */
@@ -627,11 +630,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
     const simulating = !paused && (!multiplayerPlaying || !!multiplayer?.state.connected);
+    const extrapolating = simulating && RENDER_EXTRAPOLATION;
     physics.updateInput(charIn, carIn, simulating);
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
     clock.simSeconds = (st?.tick ?? 0) * DT;
-    const renderVehicle = physics.vehicleRender.sample(now / 1000, simulating);
+    const renderVehicle = physics.vehicleRender.sample(now / 1000, extrapolating);
     if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
@@ -688,7 +692,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       if (vehicle) tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt, vehicle.speed);
     }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
-    const renderCharacter = physics.characterRender.sample(now / 1000, simulating);
+    const renderCharacter = physics.characterRender.sample(now / 1000, extrapolating);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
     }

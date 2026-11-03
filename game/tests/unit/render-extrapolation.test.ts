@@ -41,7 +41,9 @@ test('extrapolation stops at its limit, and teleports are not smoothed', () => {
   const at = (x: number): CharacterState => ({ pos: { x, y: 0, z: 0 }, vel: { x: 5, y: 0, z: 0 }, grounded: true, enabled: true, groundMaterial: 0 });
   walker.push(at(1), at(1 - 5 * STEP), 1, 0, 0);
   expect(walker.sample(STEP)!.pos.x).toBeCloseTo(1);
-  expect(walker.sample(STEP + 0.05)!.pos.x).toBeCloseTo(1 + 5 * 0.05);
+  // One step late it still holds; later it moves on at the last velocity.
+  expect(walker.sample(2 * STEP)!.pos.x).toBeCloseTo(1);
+  expect(walker.sample(STEP + 0.05)!.pos.x).toBeCloseTo(1 + 5 * (0.05 - STEP));
   expect(walker.sample(10)!.pos.x).toBeCloseTo(1 + 5 * MAX_EXTRAPOLATION);
   walker.push(at(40), at(1), 2, 0, 10);
   expect(walker.sample(10)!.pos.x).toBe(40);
@@ -51,4 +53,39 @@ test('extrapolation stops at its limit, and teleports are not smoothed', () => {
   const moved = car(1); moved.pos = { x: 500, y: 1, z: 0 };
   render.push(moved, car(1), 2, 0, 0.1);
   expect(render.sample(0.1)!.pos.x).toBe(500);
+});
+
+/** 60 Hz worker steps with timer jitter, each state reaching the renderer 0-4 ms after its step; a renderer at
+ *  `fps` with ±15% frame jitter samples the car on a steady 1 rad/s turn. Returns the render yaw per frame. */
+function steadyTurn(fps: number, extrapolate: boolean) {
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const turning = (s: number): VehicleState => ({ ...car(s), rot: yawQuat(s) });
+  const render = new VehicleInterpolation();
+  let wall = 0, physics = 0, tick = 0, nextStep = 0, previous = NaN;
+  const frames: { wall: number; yaw: number }[] = [];
+  for (let f = 0; f < 400; f++) {
+    wall += (1 / fps) * (0.85 + 0.3 * rnd());
+    while (nextStep + 0.006 <= wall) {
+      physics += STEP; tick++;
+      const published = nextStep + 0.004 * rnd();
+      if (published <= wall) render.push(turning(physics), turning(physics - STEP), tick, 0, published);
+      nextStep += STEP * (0.95 + 0.1 * rnd());
+    }
+    const raw = yawOf(render.sample(wall, extrapolate)!.rot);
+    const yaw = Number.isNaN(previous) ? raw : previous + Math.atan2(Math.sin(raw - previous), Math.cos(raw - previous));
+    frames.push({ wall, yaw }); previous = yaw;
+  }
+  return frames.slice(20);
+}
+
+test.each([35, 60, 120])('the render yaw turns every frame of a steady turn at %i fps, as plain interpolation does', fps => {
+  const frames = steadyTurn(fps, true), plain = steadyTurn(fps, false);
+  const rates = frames.slice(1).map((f, k) => (f.yaw - frames[k].yaw) / (f.wall - frames[k].wall));
+  // Never a stalled frame, never a step: no frame turns at under 15% or over 200% of the true 1 rad/s.
+  for (const rate of rates) { expect(rate).toBeGreaterThan(0.15); expect(rate).toBeLessThan(2); }
+  // Short holds (a snapshot up to one step late) are as rare as before extrapolation existed.
+  expect(rates.filter(r => r < 0.5).length).toBeLessThanOrEqual(Math.ceil(rates.length * 0.05));
+  // On-time snapshots never extrapolate or blend: the pose is exactly the interpolation between snapshots.
+  frames.forEach((f, k) => expect(f.yaw).toBeCloseTo(plain[k].yaw, 9));
 });
