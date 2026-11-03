@@ -361,3 +361,26 @@ test('every dissolve twin shares one mask, and preparation compiles twins on pro
   fades.update(2000);
   expect([mesh.material, mesh.castShadow]).toEqual([a, true]);
 });
+
+test('model reads start before the tile GLB, nearest tile first, and a prefetch lease alone keeps nothing resident', async () => {
+  const models = (prefix: string, count: number): BuildingPlacements => {
+    const ids = Array.from({ length: count }, (_, k) => `${prefix}${k}`.padEnd(64, '0'));
+    return { version: 1, models: ids.map(model => ({ id: model, uri: `../shared/${model}.glb`, bounds: { min: [-1, 0, -1], max: [1, 1, 1] } })),
+      placements: ids.map((model, k) => ({ id: `p${k}`, model, position: [10 * k, 0, 0], viewDistance: 300 })) };
+  };
+  const started: string[] = [], finish: (() => void)[] = [], shared = new SharedMaterials();
+  const disposed = vi.fn();
+  const cache = new BuildingModelCache(url => { started.push(url.slice(url.lastIndexOf('/') + 1, url.lastIndexOf('/') + 2));
+    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => { disposed(); disposeModelResources(root, shared); });
+  const far = cache.prefetch(models('f', 8), base, 400);
+  expect(started).toHaveLength(cache.reads); // reads begin at once, before any attach
+  const nearOwner = new THREE.Group(), near = cache.attach(nearOwner, models('e', 2), base, 20);
+  finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0));
+  expect(started.at(-1)).toBe('e'); // the nearer tile's read goes ahead of the far prefetch backlog
+  while (finish.length) { finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0)); }
+  const release = await near;
+  far(); await new Promise(resolve => setTimeout(resolve, 0));
+  expect(disposed).toHaveBeenCalledTimes(8); // released prefetch leases free their models
+  release(); await new Promise(resolve => setTimeout(resolve, 0));
+  expect(disposed).toHaveBeenCalledTimes(10);
+});

@@ -75,6 +75,17 @@ test('r186 per-object keys remain for non-opted meshes, velocity passes and diff
   expect(create).toHaveBeenCalledTimes(6);
 });
 
+test('still instances (vegetation) share one state in velocity passes too, without previous-frame instance data', () => {
+  const { nodes, mesh, draw } = fixture(), create = vi.spyOn(nodes, '_createNodeBuilder');
+  const velocity = { id: 2, mrt: new THREE.MRTNode({ output: THREE.TSL.output, velocity: THREE.TSL.velocity }) };
+  const trees = [mesh(2), mesh(9), mesh(64)];
+  for (const tree of trees) shareInstanceProgram(tree, true);
+  const states = trees.map(value => nodes.getForRender(draw(value, velocity)));
+  expect(new Set(states).size).toBe(1); expect(create).toHaveBeenCalledOnce(); // a grown pool reuses the program
+  const builder = create.mock.results[0].value as { needsPreviousData(): boolean };
+  expect(builder.needsPreviousData()).toBe(false);
+});
+
 test('shared draws follow their own instance updates and survive the build owner leaving', () => {
   const { nodes, mesh, draw, geometries, updated } = fixture();
   const owner = mesh(3), other = mesh(6), first = draw(owner), second = draw(other);

@@ -3,8 +3,9 @@
 
 tile_timeline.py CAPTURE_DIR [--html OUT.html] [--hitch 50] [--top 10]
 
-Prints a text summary: slowest tiles end to end and by stage, holes/double coverage/pops, hitches by cause and the
-recorder's own cost. --html writes one self-contained page (inline SVG, no network): frame-time strip with
+Prints a text summary: slowest tiles end to end and by stage, holes/double coverage/pops, HD coverage of the view
+(the share of the 3x3 window plus in-view tiles within 400 m drawing the full model, per second), hitches by cause and
+the recorder's own cost. --html writes one self-contained page (inline SVG, no network): frame-time strip with
 hitches attributed to the nearest streaming work, per-frame main-thread slices, band events, per-tile and
 per-cell Gantt rows, coverage over time and the camera path. Times are seconds from the first frame.
 """
@@ -173,6 +174,179 @@ def coverage_incidents(events):
     return holes, doubles
 
 
+TILE = 250.0
+VIEW_RADIUS = 400.0
+HD_CODES = set('FDh')
+BAND_NAMES = {'P': 'collision preview', 'C': 'scenery cell', 'c': 'scenery cell (fading)', 'U': 'coarser scenery cell',
+              '.': 'nothing', '?': 'no full model (cell or nothing)'}
+
+
+def _forward(cam):
+    """Horizontal view direction (x, z) of a pose camera [x, y, z, qx, qy, qz, qw, fov]: three.js looks down -Z."""
+    qx, qy, qz, qw = cam[3:7]
+    fx, fz = -2 * (qx * qz + qw * qy), -(1 - 2 * (qx * qx + qy * qy))
+    n = (fx * fx + fz * fz) ** .5
+    return (fx / n, fz / n) if n > 1e-3 else None
+
+
+def view_tiles(cam, half_angle, radius=VIEW_RADIUS):
+    """{tile id: 'window' | 'view'}: the 3x3 window around the camera's 250 m tile, plus tiles whose square comes within
+    `radius` of the camera horizontally and enters the horizontal view wedge (half_angle radians)."""
+    import math
+    x, z = cam[0], cam[2]
+    ci, cj = math.floor(x / TILE), math.floor(z / TILE)
+    out = {f't0_{ci + di}_{cj + dj}': 'window' for di in (-1, 0, 1) for dj in (-1, 0, 1)}
+    forward, reach = _forward(cam), math.ceil(radius / TILE) + 1
+    cos_half = math.cos(half_angle)
+    for i in range(ci - reach, ci + reach + 1):
+        for j in range(cj - reach, cj + reach + 1):
+            id = f't0_{i}_{j}'
+            if id in out:
+                continue
+            x0, z0, x1, z1 = i * TILE, j * TILE, (i + 1) * TILE, (j + 1) * TILE
+            if math.hypot(max(x0 - x, 0, x - x1), max(z0 - z, 0, z - z1)) > radius:
+                continue
+            if forward is None:
+                out[id] = 'view'
+                continue
+            # Sample the square's edges: a 250 m square can cross a narrow wedge between its corners.
+            steps = [k / 4 for k in range(5)]
+            points = [(x0 + (x1 - x0) * a, z0) for a in steps] + [(x0 + (x1 - x0) * a, z1) for a in steps] + \
+                     [(x0, z0 + (z1 - z0) * a) for a in steps] + [(x1, z0 + (z1 - z0) * a) for a in steps]
+            for px, pz in points:
+                dx, dz = px - x, pz - z
+                d = math.hypot(dx, dz)
+                if d <= radius and (dx * forward[0] + dz * forward[1]) / max(d, 1e-6) >= cos_half:
+                    out[id] = 'view'
+                    break
+    return out
+
+
+def _reconstruct(events, first_cam):
+    """Per-tile drawn band over time from lifecycle events, for captures without coverage snapshots. The window around
+    the first pose starts full (drive benches start once the 3x3 is detailed). Yields (t, state dict) after each event."""
+    import math
+    state = {}
+    if first_cam:
+        ci, cj = math.floor(first_cam[0] / TILE), math.floor(first_cam[2] / TILE)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                state[f't0_{ci + di}_{cj + dj}'] = 'F'
+    for e in events:
+        id, k = e.get('id'), e['k']
+        if not id or not id.startswith('t0_'):
+            continue
+        current = state.get(id, '?')
+        if k == 'tile.preview' and current not in HD_CODES:
+            state[id] = 'P'
+        elif k == 'tile.full':
+            state[id] = 'C' if e.get('distant') else 'F'
+        elif k == 'band.tile':
+            state[id] = 'F' if e.get('to') == 'full' else 'C'
+        elif k in ('tile.cache', 'tile.hold') and current in HD_CODES:
+            state[id] = 'h'
+        elif k == 'tile.release':
+            state[id] = 'C' if e.get('covered') else '.'
+        elif k == 'tile.restore':
+            state[id] = 'F'
+        elif k == 'tile.drop' and current != 'h':
+            state[id] = '?'
+        elif k == 'tile.fail' and current not in HD_CODES:
+            state[id] = '?'
+        elif k == 'cell.install' and current in ('?', '.'):
+            state[id] = 'C'
+        else:
+            continue
+        yield e['t'], state
+
+
+def hd_coverage(capture, radius=VIEW_RADIUS):
+    """Per second: the share of the 3x3 window plus the in-view tiles within `radius` that draw the full HD model ('F',
+    'D' or a held 'h'), as opposed to a collision preview, scenery cell or nothing. Uses the 1 Hz coverage snapshots;
+    without them, the drawn band is reconstructed from tile lifecycle events (source says which)."""
+    import bisect
+    import math
+    poses = [p for p in capture['poses'] if p.get('cam')]
+    if not poses:
+        return None
+    viewport = next((s['viewport'] for s in capture['stats'] if s.get('viewport')), [16, 9])
+    aspect = viewport[0] / viewport[1]
+    snaps = [e for e in capture['events'] if e['k'] == 'coverage']
+    source = 'coverage snapshots' if snaps else 'reconstructed from tile lifecycle events'
+    first = poses[0]['cam']
+    ci, cj = math.floor(first[0] / TILE), math.floor(first[2] / TILE)
+    seed = {f't0_{ci + di}_{cj + dj}': 'F' for di in (-1, 0, 1) for dj in (-1, 0, 1)}
+    timeline = [] if snaps else [(t, dict(state)) for t, state in _reconstruct(capture['events'], first)]
+    times = [t for t, _ in timeline]
+    snap_times = [e['t'] for e in snaps]
+    pose_times = [p['t'] for p in poses]
+    seconds = []
+    t = poses[0]['t']
+    while t <= poses[-1]['t']:
+        sample, pose = t, poses[bisect.bisect_right(pose_times, t) - 1]
+        t += 1000
+        if pose.get('paused'):
+            continue
+        cam = pose['cam']
+        half = math.atan(math.tan(math.radians(cam[7] if len(cam) > 7 else 60) / 2) * aspect) + math.radians(5)
+        wanted = view_tiles(cam, half, radius)
+        if snaps:
+            k = bisect.bisect_right(snap_times, sample) - 1
+            if k < 0:
+                continue
+            snap = snaps[k]
+            def code(id, snap=snap):
+                _, i, j = id.split('_')
+                di, dj = int(i) - snap['i0'], int(j) - snap['j0']
+                return snap['cells'][dj * snap['n'] + di] if 0 <= di < snap['n'] and 0 <= dj < snap['n'] else '?'
+        else:
+            k = bisect.bisect_right(times, sample) - 1
+            state = timeline[k][1] if k >= 0 else seed
+            code = lambda id, state=state: state.get(id, '?')
+        codes = {id: code(id) for id in wanted}
+        hd = [id for id, c in codes.items() if c in HD_CODES]
+        window = [id for id, role in wanted.items() if role == 'window']
+        seconds.append(dict(t=sample, share=len(hd) / len(codes), tiles=len(codes),
+                            window=sum(codes[id] in HD_CODES for id in window) / len(window),
+                            missing=sorted((id, c, wanted[id]) for id, c in codes.items() if c not in HD_CODES)))
+    return dict(source=source, radius=radius, seconds=seconds)
+
+
+def in_view(capture, id, t, radius=2000.0):
+    """Whether tile `id` was inside the horizontal view wedge at time t (None without poses)."""
+    import bisect
+    import math
+    poses = [p for p in capture['poses'] if p.get('cam')]
+    if not poses or not id:
+        return None
+    pose = poses[max(0, bisect.bisect_right([p['t'] for p in poses], t) - 1)]
+    viewport = next((x['viewport'] for x in capture['stats'] if x.get('viewport')), [16, 9])
+    cam = pose['cam']
+    half = math.atan(math.tan(math.radians(cam[7] if len(cam) > 7 else 60) / 2) * viewport[0] / viewport[1])
+    return view_tiles(cam, half, radius).get(id) == 'view' or id in view_tiles(cam, half, 0)
+
+
+def hd_lines(capture, s, top=10):
+    hd = hd_coverage(capture)
+    if not hd or not hd['seconds']:
+        return []
+    secs = hd['seconds']
+    mean = sum(x['share'] for x in secs) / len(secs)
+    window = sum(x['window'] for x in secs) / len(secs)
+    below = [x for x in secs if x['share'] < 1]
+    out = [f"\nHD coverage (3x3 window + view wedge <= {hd['radius']:.0f} m; {hd['source']}): mean {100 * mean:.1f} %, "
+           f"window {100 * window:.1f} %, {len(below)} of {len(secs)} s below 100 %"]
+    bands = Counter(BAND_NAMES.get(c, c) + (' in window' if role == 'window' else ' in view') for x in secs for _, c, role in x['missing'])
+    if bands:
+        out.append('  non-HD tile-seconds: ' + ', '.join(f'{k} {n}' for k, n in bands.most_common()))
+    for x in sorted(below, key=lambda x: (x['share'], x['t']))[:top]:
+        missing = ', '.join(f"{id} {c}{'*' if role == 'window' else ''}" for id, c, role in x['missing'])
+        out.append(f"    {s(x['t']):7.1f} s  {100 * x['share']:5.1f} % of {x['tiles']}  ({missing})")
+    if below:
+        out.append('    (* = in the 3x3 window; F/D/h full, P preview, C/c cell, U coarser cell, . nothing, ? no full model)')
+    return out
+
+
 def pops(events):
     """Full installs that replaced a collision preview or nothing (no dissolving cell drew there)."""
     fades = defaultdict(list)
@@ -220,7 +394,10 @@ def summary(capture, hitch=50.0, top=10):
     for t, id in holes[:top]:
         lines.append(f"    hole {id} at {s(t):.1f} s")
     for e in popped[:top]:
-        lines.append(f"    pop {e.get('id')} at {s(e['t']):.1f} s (replaced {e.get('replaced')}, d {e.get('d')} m)")
+        seen = in_view(capture, e.get('id'), e['t'])
+        where = '' if seen is None else ', in view' if seen else ', outside the view'
+        lines.append(f"    pop {e.get('id')} at {s(e['t']):.1f} s (replaced {e.get('replaced')}, d {e.get('d')} m{where})")
+    lines.extend(hd_lines(capture, s, top))
     bands = Counter(e['k'] + ('>' + str(e.get('to')) if e.get('to') else '') for e in events if e['k'].startswith('band.') or e['k'] == 'cut.commit')
     if bands:
         lines.append('band events: ' + ', '.join(f'{k} {n}' for k, n in sorted(bands.items())))

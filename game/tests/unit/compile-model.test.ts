@@ -2,6 +2,7 @@ import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { context, mrt, normalView, velocity } from 'three/tsl';
 import { compileModel } from '../../src/render/compileModel';
+import { GameRenderer } from '../../src/render/shadowMaterials';
 
 test('one-draw compilation preserves material arrays, children, visibility and renderer state across awaits', async () => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1; });
@@ -135,4 +136,62 @@ test('compiles in one frame share one light walk of the world; a new frame walks
   target.dispose();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+test('a live cascade shadow draw records its pass for preparation; precompiles and repeats do not', () => {
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const base = vi.spyOn(THREE.WebGPURenderer.prototype, 'renderObject').mockImplementation(() => {});
+  try {
+    const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(), target = new THREE.RenderTarget();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    const override = Object.assign(new THREE.NodeMaterial(), { isShadowPassMaterial: true, name: 'ShadowMaterial' });
+    scene.overrideMaterial = override; renderer.setRenderTarget(target);
+    const draw = () => renderer.renderObject(mesh, scene, camera, mesh.geometry, mesh.material, null, null as never);
+    draw();
+    const pass = renderer.shadowPasses.get(override)!;
+    expect(pass.camera).toBe(camera); expect(pass.target).toBe(target); expect(pass.override).toBe(override);
+    expect(scene.overrideMaterial).toBe(override); // restored after the draw
+    draw(); expect(renderer.shadowPasses.size).toBe(1); expect(renderer.shadowPasses.get(override)).toBe(pass);
+    const rebuilt = new THREE.RenderTarget(); renderer.setRenderTarget(rebuilt); draw();
+    expect(renderer.shadowPasses.get(override)!.target).toBe(rebuilt); // a rebuilt cascade map replaces the record
+    const other = Object.assign(new THREE.NodeMaterial(), { isShadowPassMaterial: true });
+    scene.overrideMaterial = other; (renderer as unknown as { _isPreCompiling: boolean })._isPreCompiling = true; draw();
+    expect(renderer.shadowPasses.has(other)).toBe(false);
+    target.dispose(); rebuilt.dispose();
+  } finally { base.mockRestore(); }
+});
+
+test('shadow preparation compiles casters only, with the cascade\'s override and context', async () => {
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  Object.assign(renderer, { _renderContexts: { get: () => ({}) } });
+  const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(), target = new THREE.RenderTarget(), shadowContext = context({});
+  const caster = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()), receiver = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+  caster.castShadow = true; scene.add(caster, receiver);
+  const override = Object.assign(new THREE.NodeMaterial(), { isShadowPassMaterial: true });
+  const compiled: THREE.Object3D[] = [];
+  vi.spyOn(renderer, 'compileAsync').mockImplementation(mesh => {
+    expect(scene.overrideMaterial).toBe(override); expect(renderer.contextNode).toBe(shadowContext); expect(renderer.getRenderTarget()).toBe(target);
+    compiled.push(mesh); return Promise.resolve();
+  });
+  await compileModel(renderer, scene, scene, camera, target, null, shadowContext, false, 2, override, true);
+  expect(compiled).toEqual([caster]); expect(scene.overrideMaterial).toBeNull();
+  target.dispose();
+});
+
+test('draws that share a program compile once per pass; object-specific instancing still compiles each', async () => {
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  Object.assign(renderer, { _renderContexts: { get: () => ({}) } });
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(), target = new THREE.RenderTarget();
+  const material = new THREE.MeshStandardMaterial(), geometry = new THREE.BoxGeometry();
+  const same = [new THREE.Mesh(geometry, material), new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), material)];
+  const receiver = new THREE.Mesh(geometry, material); receiver.receiveShadow = true;
+  const own = [new THREE.InstancedMesh(geometry, material, 4), new THREE.InstancedMesh(geometry, material, 4)];
+  const shared = [new THREE.InstancedMesh(geometry, material, 4), new THREE.InstancedMesh(geometry, material, 4)];
+  for (const mesh of shared) mesh.userData.sharedInstanceProgram = true;
+  scene.add(...same, receiver, ...own, ...shared);
+  const compiled: THREE.Object3D[] = [];
+  vi.spyOn(renderer, 'compileAsync').mockImplementation(mesh => { compiled.push(mesh); return Promise.resolve(); });
+  await compileModel(renderer, scene, scene, camera, target, null, renderer.contextNode);
+  expect(compiled).toEqual([same[0], receiver, ...own, shared[0]]);
+  target.dispose();
 });

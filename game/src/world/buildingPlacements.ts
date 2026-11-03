@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
-import { PreparationBudget } from '../render/preparationBudget';
+import { PreparationBudget, streamingBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
 import { lodFades, type LodFades } from '../render/lodFade';
 import { StaticGroup } from './frozenTransforms';
@@ -66,14 +66,20 @@ interface Lease { root: THREE.Object3D; release: () => void }
 export class BuildingModelCache {
   private entries = new Map<string, Resident>();
   private active = 0;
-  private queue: (() => void)[] = [];
+  /** Waiting reads, the nearest tile's first (`priority`: its distance in metres). */
+  private queue: { priority: number; start: () => void }[] = [];
+  /** Concurrent model reads: fetch, GLB decode and meshopt workers overlap. */
+  readonly reads = 6;
   constructor(private load: (url: string) => Promise<THREE.Object3D>,
-    private dispose: (root: THREE.Object3D) => void, private budget = new PreparationBudget(),
+    private dispose: (root: THREE.Object3D) => void, private budget: PreparationBudget = streamingBudget(),
     private visibility: PlacementVisibility = placementVisibility,
     private styleLod: (root: THREE.Object3D, owner: THREE.Object3D) => void = () => {}) {}
 
-  private async read(url: string) {
-    if (this.active >= 4) await new Promise<void>(resolve => this.queue.push(resolve));
+  private async read(url: string, priority: number) {
+    if (this.active >= this.reads) await new Promise<void>(start => {
+      const at = this.queue.findIndex(waiting => waiting.priority > priority);
+      this.queue.splice(at < 0 ? this.queue.length : at, 0, { priority, start });
+    });
     else this.active++;
     try {
       const root = await this.load(url);
@@ -83,15 +89,15 @@ export class BuildingModelCache {
       return root;
     } finally {
       const next = this.queue.shift();
-      if (next) next(); else this.active--;
+      if (next) next.start(); else this.active--;
     }
   }
 
-  private async acquire(model: BuildingModel, base: URL): Promise<Lease> {
+  private async acquire(model: BuildingModel, base: URL, priority = Infinity): Promise<Lease> {
     // Hashes are reusable across generation URL prefixes, but never across content hosts.
     const url = new URL(model.uri, base), key = `${url.origin}/${model.id}`;
     let entry = this.entries.get(key);
-    if (!entry) { entry = { users: 0, promise: this.read(url.href) }; this.entries.set(key, entry); }
+    if (!entry) { entry = { users: 0, promise: this.read(url.href, priority) }; this.entries.set(key, entry); }
     entry.users++;
     let released = false;
     const release = () => {
@@ -105,11 +111,23 @@ export class BuildingModelCache {
     catch (error) { release(); throw error; }
   }
 
-  async attach(owner: THREE.Object3D, data: BuildingPlacements, base: URL): Promise<() => void> {
+  /** Start reading a tile's models before its own GLB has loaded; release once `attach` holds them. */
+  prefetch(data: BuildingPlacements, base: URL, priority = Infinity): () => void {
     validateBuildingPlacements(data);
     const descriptors = new Map(data.models.map(model => [model.id, model]));
-    const needed = [...new Set([...data.placements.map(p => p.model), ...(data.blocks ?? []).flatMap(b => b.lod ? [b.lod] : [])])];
-    const results = await Promise.allSettled(needed.map(id => this.acquire(descriptors.get(id)!, base)));
+    const leases = this.needed(data).map(id => this.acquire(descriptors.get(id)!, base, priority).catch(() => null));
+    return () => { for (const lease of leases) void lease.then(held => held?.release()); };
+  }
+
+  private needed(data: BuildingPlacements) {
+    return [...new Set([...data.placements.map(p => p.model), ...(data.blocks ?? []).flatMap(b => b.lod ? [b.lod] : [])])];
+  }
+
+  async attach(owner: THREE.Object3D, data: BuildingPlacements, base: URL, priority = Infinity): Promise<() => void> {
+    validateBuildingPlacements(data);
+    const descriptors = new Map(data.models.map(model => [model.id, model]));
+    const needed = this.needed(data);
+    const results = await Promise.allSettled(needed.map(id => this.acquire(descriptors.get(id)!, base, priority)));
     const leases = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') { for (const lease of leases) lease.release(); throw failure.reason; }

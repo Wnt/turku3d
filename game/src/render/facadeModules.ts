@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
-import { PreparationBudget } from './preparationBudget';
+import { streamingBudget } from './preparationBudget';
+import { shareInstanceProgram } from './instancePrograms';
 import { attribute, cameraPosition, dot, modelWorldMatrixInverse, vec4 } from 'three/tsl';
 
 interface Opening {
@@ -136,7 +137,9 @@ export function rectangularOpenings(geometry: THREE.BufferGeometry) {
   let result=steps.next();while(!result.done)result=steps.next();return result.value;
 }
 
-const prepared=new WeakSet<THREE.Object3D>(), budget=new PreparationBudget();
+const prepared=new WeakSet<THREE.Object3D>(), budget=streamingBudget();
+/** Bench lab ablation (`?bench=...&off=facades`, qa/lab/ablate.ts): false builds no facade modules. */
+export const facadeModuleSwitch = { on: true };
 
 /** The +Z cap faces into the opaque wall/glazing behind every kit member. */
 export function facadeModuleGeometry() {
@@ -213,6 +216,9 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     cellGeometry.setAttribute('_facade_plane',planes);
     const mesh = new THREE.InstancedMesh(cellGeometry, material, rows.length);
     mesh.name = 'facade-frame-sill'; mesh.userData.facadeModules = true;
+    // Every cell of every tile draws one program per pass: r186 otherwise keys each InstancedMesh by its uuid, and
+    // these cells were the largest program family (replay c9n7my: 532 prepared builds, plus their shadow builds).
+    shareInstanceProgram(mesh, true);
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
       mesh.setMatrixAt(i,rows[i].matrix);mesh.setColorAt(i,rows[i].colour);
@@ -247,14 +253,14 @@ function recordPreparation(model: THREE.Object3D, cpuMs: number, maxSliceMs: num
 }
 
 export function addFacadeModules(model: THREE.Object3D) {
-  if(prepared.has(model)||model.userData.scenery)return;
+  if(!facadeModuleSwitch.on||prepared.has(model)||model.userData.scenery)return;
   const start=performance.now();for(const _ of moduleSteps(model))void _;
   const elapsed=performance.now()-start;recordPreparation(model,elapsed,elapsed,elapsed);
 }
 
 /** Streaming paths yield between bounded parser/construction slices while hidden. */
 export async function prepareFacadeModules(model: THREE.Object3D) {
-  if(prepared.has(model)||model.userData.scenery)return;
+  if(!facadeModuleSwitch.on||prepared.has(model)||model.userData.scenery)return;
   const start=performance.now(),steps=moduleSteps(model);let cpuMs=0,maxSliceMs=0;
   while(true){
     const before=performance.now(),result=steps.next(),elapsed=performance.now()-before;

@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { vegetationOwner } from './vegetationLod';
 import { drain, shadowChunkSteps } from './shadowChunks';
-import { PreparationBudget } from '../render/preparationBudget';
+import { streamingBudget } from '../render/preparationBudget';
 
 // Colour, normal and reflection cameras use layer 0; sun shadow cameras also enable this layer.
 export const TILE_SHADOW_LAYER = 1;
@@ -12,7 +12,7 @@ export function batchTileShadows(model: THREE.Object3D): THREE.Mesh | null {
   return drain(shadowBatchSteps(model));
 }
 
-const budget = new PreparationBudget();
+const budget = streamingBudget();
 export async function prepareTileShadows(model: THREE.Object3D): Promise<THREE.Mesh | null> {
   const steps = shadowBatchSteps(model);
   let next = steps.next();

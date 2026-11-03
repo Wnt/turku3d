@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { interleaveProgram } from '../render/facadeProgramAttributes';
 import { disposeDraw } from '../render/sharedMaterials';
-import { PreparationBudget } from '../render/preparationBudget';
+import { streamingBudget } from '../render/preparationBudget';
 
 interface Batch { mesh: THREE.Mesh; sources: THREE.Mesh[]; parents: THREE.Object3D[]; placements: THREE.Object3D[] }
 const placementOwners = new WeakMap<THREE.Object3D, readonly THREE.Object3D[]>();
@@ -19,7 +19,7 @@ export function updateStaticBatchVisibility(model: THREE.Object3D) {
     batch.mesh.visible = batch.placements.some(placement => placement.visible);
 }
 const owners = new WeakMap<THREE.Object3D, Batch[]>();
-const budget = new PreparationBudget();
+const budget = streamingBudget();
 
 /** Only the canonical, tightly packed facade layout can bypass the general attribute merger. */
 function packedPrograms(sources: THREE.Mesh[]) {

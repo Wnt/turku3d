@@ -8,6 +8,7 @@ import { GameLighting } from '../../src/render/lighting';
 import { Environment } from '../../src/render/environment';
 import { MaterialStyler } from '../../src/render/materials';
 import { modelTextures } from '../../src/render/textureUploads';
+import { PreparationBudget } from '../../src/render/preparationBudget';
 import { QUALITY } from '../../src/render/quality';
 import { SURFACE_LAYER } from '../../src/render/surfaceArrays';
 
@@ -167,4 +168,46 @@ test('growth past the capacity swaps in a complete uploaded set that every famil
   expect((after.mipmaps[0].data as Uint8Array)[32 * 32 * 16]).toBe((31 * 16) & 255); // layer 16: the twelfth new surface
   expectSampled(a.model, styler);
   expect(arraysOf(styler).every(t => t.layerUpdates.size === 0)).toBe(true);
+});
+
+/** A budget that is always spent: every checkpoint waits for a frame the test releases. */
+function frames(styler: MaterialStyler) {
+  const waiting: (() => void)[] = [];
+  let clock = 0;
+  (styler as unknown as { budget: PreparationBudget }).budget = new PreparationBudget(() => (clock += 5), () => new Promise<void>(resolve => waiting.push(resolve)));
+  return { waiting, async next() { waiting.shift()?.(); for (let i = 0; i < 5; i++) await Promise.resolve(); } };
+}
+
+test('async styling spreads a tile across frames and ends exactly like the synchronous path', async () => {
+  const { styler } = world(), frame = frames(styler);
+  const a = tile(), b = tile();
+  styler.apply(b.model);
+  const styled = styler.applyAsync(a.model);
+  let done = false; void styled.then(() => { done = true; });
+  for (let i = 0; i < 100 && !frame.waiting.length; i++) await Promise.resolve();
+  expect(done).toBe(false); expect(frame.waiting.length).toBe(1); // waiting for the next frame part-way
+  let count = 0;
+  while (!done && count++ < 200) await frame.next();
+  expect(done).toBe(true); expect(count).toBeGreaterThan(5);
+  const names = (model: THREE.Object3D) => (model.children[0] as THREE.Object3D).children.map(c => `${c.name}:${((c as THREE.Mesh).material as THREE.Material).name}`);
+  expect(names(a.model)).toEqual(names(b.model));
+  for (const [x, y] of a.root.children.map((c, i) => [c, b.root.children[i]] as const)) {
+    const [mx, my] = [(x as THREE.Mesh).material as THREE.Material, (y as THREE.Mesh).material as THREE.Material];
+    if (x.name.startsWith('surface-array')) expect(mx).toBe(my); // the city-wide array materials
+    else { expect(mx.type).toBe(my.type); expect(mx.userData.weatherWetness).toBe(my.userData.weatherWetness); } // per-source clones
+  }
+});
+
+test('a tile released part-way through async styling is restored and styling stops', async () => {
+  const { styler } = world(), frame = frames(styler);
+  const a = tile();
+  const originals = a.root.children.map(c => [c, (c as THREE.Mesh).material] as const);
+  const styled = styler.applyAsync(a.model);
+  for (let i = 0; i < 8; i++) await frame.next(); // some sources merged or styled
+  styler.release(a.model);
+  for (let i = 0; i < 200 && frame.waiting.length; i++) await frame.next();
+  await styled;
+  expect(a.root.children.some(c => c.name.startsWith('surface-array'))).toBe(false);
+  for (const [mesh, material] of originals) { expect(mesh.parent).toBe(a.root); expect((mesh as THREE.Mesh).material).toBe(material); }
+  expect((styler as unknown as { owned: Map<THREE.Object3D, unknown> }).owned.has(a.model)).toBe(false);
 });

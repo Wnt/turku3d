@@ -10,6 +10,8 @@ import { collisionPreview } from './world/collisionPreview';
 //   (vertical fov), no HUD/player/physics; sets window.__qaReady/__qaError/__qaPose/__qaInfo/__qaProject[/__qaIdTable]
 //   bench (?bench=camera&id=<street camera>[&at=HH:MM][&quality=]): QA with a street camera's pose at the play-mode
 //   pixel ratio; after settling, warms and measures fixed frames and sets window.__bench (qa/bench.ts)
+//   bench lab (?bench=static|install|fly[&tiles=][&cam=][&off=]): isolated scenarios over the real streamer and renderer;
+//   window.__bench is the lab status with .result (qa/lab, tools/perf/README.md)
 import { loading } from './core/loading';
 import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
@@ -52,6 +54,9 @@ import { ScenePopulation } from './world/scenePopulation';
 import { GroundIndex } from './world/groundIndex';
 import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
+import { ablateScene, ablateSettings } from './qa/lab/ablate';
+import { BenchLab } from './qa/lab/lab';
+import { saveLabResult, startLabRecording } from './qa/lab/record';
 
 declare global {
   interface Window {
@@ -86,6 +91,8 @@ try {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
 }
+// Lab ablations switch quality-tier fields and AA before anything reads them.
+if (params.lab) ablateSettings(params.lab.off, params.quality, params, new URLSearchParams(location.search).has('aa'));
 let initialDrive: LoadedDrive | null = null;
 if (params.drive) {
   window.__bench = { phase: 'loading', done: false, replayOf: params.drive.capture, segment: params.drive.segment };
@@ -100,7 +107,7 @@ if (params.drive) {
 const loadingScreen = new LoadingScreen(!!params.qa);
 /** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
 const benchFetches = new Map<number, number>();
-if (params.bench || params.drive) {
+if (params.bench || params.drive || params.lab) {
   const original = globalThis.fetch.bind(globalThis);
   let next = 0;
   globalThis.fetch = (...args: Parameters<typeof fetch>) => {
@@ -110,7 +117,7 @@ if (params.bench || params.drive) {
   };
 }
 /** QA renders 1:1 with the viewport; the bench probe measures at the play-mode pixel ratio (adaptive scale 1). */
-const qaCanvas = !!params.qa && !params.bench && !params.drive;
+const qaCanvas = !!params.qa && !params.bench && !params.drive && !params.lab;
 const hudEl = document.getElementById('hud')!;
 const errors: string[] = [];
 const fail = (e: unknown) => {
@@ -130,13 +137,14 @@ const { renderer, backend } = await loading.track('GPU renderer initialization',
   { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
-let driveViewport: number[] | null = initialDrive?.settings.viewport ?? null;
-let drivePixelRatio: number | null = initialDrive?.settings.pixelRatio ?? null;
+let driveViewport: number[] | null = initialDrive?.settings.viewport ?? params.lab?.size ?? null;
+let drivePixelRatio: number | null = initialDrive?.settings.pixelRatio ?? params.lab?.dpr ?? null;
 if (driveViewport) renderer.setSize(driveViewport[0], driveViewport[1], false);
 if (drivePixelRatio) renderer.setPixelRatio(drivePixelRatio);
 const camera = new THREE.PerspectiveCamera(60, driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight, 0.1, 6000);
 camera.rotation.order = 'YXZ';
 const env = new Environment(scene, renderer, params.quality);
+if (params.lab) ablateScene(params.lab.off, renderer, env.sun);
 /** QA and ?time= views stay fixed (local only); play follows the shared UTC cycle, which the server aligns. */
 const clockMode: ClockMode = initialDrive ? driveClockMode(initialDrive.meta) : params.hour !== null ? { kind: 'hour', hour: params.hour }
   : params.qa || params.timeGiven ? { kind: 'date', date: params.time } : { kind: 'cycle', periodMs: params.cycleMinutes * 60_000 };
@@ -148,13 +156,13 @@ window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.g
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
 if (!idPass) env.updateIBL();
-const lights = idPass ? null : new StreetLights(scene, params.quality, params.lights, env.lamps.point);
+const lights = idPass || params.lab?.off.has('lights') ? null : new StreetLights(scene, params.quality, params.lights, env.lamps.point);
 const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Camera, depth: THREE.Texture) => {
   const weatherLayer = rain!.overlay(r, c, depth), lightLayer = lights?.sprites.overlay(r, c, depth);
   return { color: lightLayer ? weatherLayer.color.add(lightLayer.color) : weatherLayer.color,
     resource: { dispose() { weatherLayer.resource.dispose(); lightLayer?.resource.dispose(); } } };
 } } : lights?.sprites;
-let post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
+let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
 window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
   census: () => {
@@ -171,9 +179,9 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-let natureLibrary = idPass ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
+let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
-const furniture = idPass ? null : new PropLod();
+const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
@@ -302,7 +310,8 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
 
 // QA has no play session to replace; actor edits are applied through its runtime inspection hooks.
 if (import.meta.hot && params.qa) import.meta.hot.accept('./play', () => {});
-if (params.qa) runQa().catch(fail);
+if (params.lab) runLab().catch(fail);
+else if (params.qa) runQa().catch(fail);
 else runPlay().catch(fail);
 
 // ------------------------------------------------------------------------------------------- QA mode
@@ -351,7 +360,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   lights?.attach(coarse);
   if (!idPass) {
     distantCity = coarse.screenshotScenery;
-    distantCity.setRadius(params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
+    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000);
     if (params.qa) distantCity.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
@@ -380,7 +389,8 @@ async function runQa() {
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
-  window.__game!.population = population;
+  // Drive-bench captures read the tile streamer here (stats.coarse, 1 Hz coverage snapshots), as in play sessions.
+  window.__game!.population = population; window.__game!.coarse = coarse;
   let replaySeed = 20261102;
   window.__game!.replay = {
     reset: async ({ epochMs, seed = 20261102, mode }: { epochMs: number; seed?: number; mode?: ClockMode }) => {
@@ -536,6 +546,83 @@ async function runQa() {
           groundTexturesPending: materials?.ground?.pending ?? 0, scenery: distantCity?.progress, status: coarse.status });
     }
   });
+}
+
+// ------------------------------------------------------------------------------------------- bench lab
+async function runLab() {
+  const lab = params.lab!;
+  document.body.classList.add('qa');
+  applyQaCamera();
+  // The QA world: validated draft tiles and scenery, no physics worker. The lab pauses the tile scheduler and
+  // installs its tiles through the streamer's own preview and detail paths (qa/lab/lab.ts).
+  const labManifest = draftManifest(location.href);
+  const ground = new GroundIndex();
+  const coarse = await draftVisuals(labManifest, {
+    unloadCollision: id => ground.remove(id), refreshCollision: () => {},
+    checkCollision: async buffer => {
+      const col = await readCol(buffer);
+      if (!col.indices.length && !col.prims.length) throw new Error(`${col.id}: no collision geometry`);
+      ground.add(col);
+    },
+  });
+  const population = !idPass && (params.traffic !== 0 || params.walkers !== 0)
+    ? new ScenePopulation(scene, coarse, camera, labManifest, ground, { quality: params.quality, traffic: params.traffic,
+      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
+  if (population) await population.load();
+  const game = window.__game!;
+  const pipelines = () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null;
+  let clockStart: number | null = null;
+  const look = new THREE.Vector3(), focus = new THREE.Vector3();
+  Object.assign(game, { coarse, population, orbit: { yaw: 0, pitch: 0 }, input: { actions: {}, lookX: 0, lookY: 0 },
+    state: () => {
+      const p = camera.position;
+      return { mode: 'bench', paused: false, drivenId: null, inputSource: 'bench', E: p.x + 23459500, N: 6704500 - p.z, H: p.y,
+        feet: [p.x, p.y, p.z], vel: [0, 0, 0], camera: { yaw: 0 }, vehicle: null, visModels: tiles.residentModels,
+        visTris: tiles.residentTris, tilesSettled: true, frameMs: null };
+    } });
+  const benchLab = new BenchLab({
+    lab, quality: params.quality, aa: params.aa, camera, coarse, renderer, perf,
+    inFrameBuilds: () => renderer instanceof GameRenderer ? renderer.builds.inFrameTotal : 0,
+    signature: () => `${renderer.info.memory.geometries}|${renderer.info.memory.textures}|${pipelines()}`,
+    busy: () => !!distantCity && !distantCity.progress.ready || !!materials?.ground?.pending
+      || [...benchFetches.values()].some(start => performance.now() - start > 1500),
+    resetWorld: async () => {
+      clock.reset(params.time.getTime()); clockStart = performance.now(); dayClock.resetTimeline();
+      await population?.prepare(clock.epochMs, lab.seed);
+      clockStart = performance.now();
+    },
+    subsystems: { streaming: [coarse, 'update'], population: population ? [population, 'update'] : undefined,
+      vegetation: vegetation ? [vegetation, 'update'] : undefined, props: furniture ? [furniture, 'update'] : undefined,
+      lights: lights ? [lights, 'update'] : undefined, visibility: [placementVisibility, 'update'],
+      render: post ? [post, 'render'] : [renderer, 'render'] },
+    pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
+    record: meta => startLabRecording(game, meta),
+    saveResult: (id, result) => saveLabResult(id, result),
+    info: () => ({ backend, three: THREE.REVISION, commit: import.meta.env.VITE_COMMIT ?? null,
+      pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio,
+      drawingBuffer: [renderer.domElement.width, renderer.domElement.height], scenery: distantCity?.progress ?? null,
+      pipelines: pipelines(), resident: { models: tiles.residentModels, tris: tiles.residentTris } }),
+  });
+  window.__bench = benchLab.status as unknown as Record<string, unknown>;
+  benchSettled = () => !['loading', 'load', 'settle'].includes(benchLab.status.phase);
+  renderer.setAnimationLoop(() => {
+    if (window.__render?.beforeFrame?.() === false) return;
+    const now = performance.now();
+    benchLab.before(now);
+    if (clockStart !== null) clock.seek((now - clockStart) / 1000);
+    clock.tick(now);
+    // The sun's cascades centre ahead of the camera, as play centres them on the player.
+    env.follow(focus.copy(camera.position).add(camera.getWorldDirection(look).multiplyScalar(40)));
+    perf.begin();
+    coarse.update(camera.position.x, camera.position.z, now, undefined, !lab.off.has('scenery'), camera.position.y);
+    population?.update(clock.simSeconds);
+    renderFrame();
+    perf.end();
+    window.__render?.afterFrame?.();
+    benchLab.after();
+  });
+  const status = await benchLab.run();
+  if (status.error) { console.error(`BENCH LAB ${status.error}`); window.__qaError = status.error; }
 }
 
 // ------------------------------------------------------------------------------------------- play mode

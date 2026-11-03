@@ -4,6 +4,7 @@ import { mobileDevice, parseQuality, type QualityTier } from '../render/quality'
 import type { Antialiasing } from '../render/post';
 import { benchPose, type BenchPose } from '../qa/bench';
 import { DAY_MS, cycleAt, parseClockHour } from './dayCycle';
+import { DEFAULT_CAMERA, LAB_MODES, parseLab, type LabParams } from '../qa/lab/params';
 
 /** QA camera pose, qa/README.md §2 + qa/qalib/camera.py: yaw = compass bearing, pitch + up, roll + = camera turned
  *  clockwise seen from behind, fov = VERTICAL degrees (three.js camera.fov), H = absolute camera height N2000. */
@@ -16,6 +17,8 @@ interface Params {
   /** ?bench=camera&id=<street camera>[&at=HH:MM]: the fixed-camera bench probe (qa/bench.ts); implies its QA pose. */
   bench: BenchPose | null;
   drive: { capture: string; segment: number } | null;
+  /** ?bench=static|install|fly: the bench lab scenarios (qa/lab/params.ts); they imply a QA pose (?cam=, ?id= or the riverside camera). */
+  lab: LabParams | null;
   /** QA render pass: 'color' (default) or 'id' (flat unlit object ids, qa/README.md §2). */
   pass: 'color' | 'id';
   time: Date;
@@ -61,9 +64,13 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   }
   let bench: BenchPose | null = null;
   let drive: Params['drive'] = null;
+  let lab: LabParams | null = null;
   if (p.has('bench')) {
-    if (!['camera', 'drive'].includes(p.get('bench')!)) throw new Error(`bad ?bench= (camera|drive): ${p.get('bench')}`);
-    if (p.get('bench') === 'drive') {
+    if (!['camera', 'drive', ...LAB_MODES].includes(p.get('bench')!)) throw new Error(`bad ?bench= (camera|drive|${LAB_MODES.join('|')}): ${p.get('bench')}`);
+    if ((LAB_MODES as readonly string[]).includes(p.get('bench')!)) {
+      lab = parseLab(p);
+      if (!qa) qa = benchPose(p.get('id') ?? DEFAULT_CAMERA, null).qa;
+    } else if (p.get('bench') === 'drive') {
       const capture = p.get('capture') ?? '', segment = Number(p.get('segment') ?? 1);
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(capture)) throw Error('bad ?capture=');
       if (!Number.isInteger(segment) || segment < 1) throw Error('bad ?segment= (integer >= 1)');
@@ -106,6 +113,7 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     qa,
     bench,
     drive,
+    lab,
     pass: passStr,
     time,
     timeGiven: timeStr !== null || bench !== null,
@@ -123,6 +131,7 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     traffic,
     trafficDensity,
     walkers,
-    motion: !!qa && p.get('motion') === '1',
+    // The lab measures play's cadences (river reflection, water clock), not the frozen screenshot contract.
+    motion: !!qa && (p.get('motion') === '1' || (lab !== null && p.get('motion') !== '0')),
   };
 }

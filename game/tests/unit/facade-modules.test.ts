@@ -86,6 +86,8 @@ it('pools five solid pieces with positive transforms and distance LOD without du
   }
   expect(lod.levels[1].distance).toBe(110);
   expect(lod.position.x).toBeGreaterThan(100);
+  // Still instances with an object-agnostic graph: one program per pass for all cells (render/instancePrograms.ts).
+  expect(mesh.userData.sharedInstanceProgram).toBe(true); expect(mesh.userData.staticInstances).toBe(true);
 });
 
 it('shares one instance draw across adjacent former cells without dropping profiles', () => {

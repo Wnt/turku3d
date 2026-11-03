@@ -373,6 +373,8 @@ describe('city-wide vegetation pools', () => {
     const parts = [...generated(a.model, a.mesh), ...generated(b.model, b.mesh)];
     const pools = scene.getObjectByName('vegetation-pools')!.children as THREE.InstancedMesh[];
     expect(parts.every(p => p.userData.pooledVegetation === true)).toBe(true);
+    // Tile draws and pools opt into shared instanced programs as still instances (render/instancePrograms.ts).
+    for (const mesh of [...parts, ...pools]) { expect(mesh.userData.sharedInstanceProgram).toBe(true); expect(mesh.userData.staticInstances).toBe(true); }
     const selected = parts.filter(p => p.visible), pooled = pools.filter(p => p.visible);
     expect(pooled.length).toBeGreaterThan(0);
     expect(selected.length).toBe(pooled.length * 2); // two tiles of the same species: half the draws

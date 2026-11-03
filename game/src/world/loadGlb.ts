@@ -1,6 +1,6 @@
 import { FileLoader, LoaderUtils } from 'three/webgpu';
 import type { GLTFLoader, GLTF, GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
-import { PreparationBudget } from '../render/preparationBudget';
+import { streamingBudget } from '../render/preparationBudget';
 import { applyJsonRecords } from './glbRecords';
 import type { decodeGlb } from './decodeGlb';
 import { AssetCache, sharedAssetKey, sharedBuffers } from './sharedAssets';
@@ -8,7 +8,7 @@ import { streamTrace } from '../telemetry/streamTrace';
 
 type Decoded = ReturnType<typeof decodeGlb>;
 let worker: Worker | undefined, sequence = 0;
-const budget = new PreparationBudget();
+const budget = streamingBudget();
 // Cache immutable visual bytes, not mutable glTF objects or their render resources.
 const visualBuffers = new AssetCache<ArrayBuffer>(256 * 1024 ** 2, buffer => buffer.byteLength);
 const pending = new Map<number, { objects: Record<string, unknown>[]; resolve: (decoded: Decoded) => void; reject: (error: Error) => void }>();

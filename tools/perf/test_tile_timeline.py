@@ -77,5 +77,55 @@ class TileTimelineTest(unittest.TestCase):
             self.assertIn('install 60.0 ms', page)
 
 
+class HdCoverageTest(unittest.TestCase):
+    # Camera at (375, 375) in tile t0_1_1 looking down +x (yaw -90 degrees about y), 60 degree fov, 16:9.
+    CAM = [375, 10, 375, 0, -0.7071068, 0, 0.7071068, 60]
+
+    def test_view_tiles_are_the_window_plus_the_wedge_ahead_within_400_m(self):
+        import math
+        tiles = timeline.view_tiles(self.CAM, math.atan(math.tan(math.radians(30)) * 16 / 9) + math.radians(5))
+        window = {id for id, role in tiles.items() if role == 'window'}
+        self.assertEqual(window, {f't0_{i}_{j}' for i in (0, 1, 2) for j in (0, 1, 2)})
+        view = {id for id, role in tiles.items() if role == 'view'}
+        self.assertIn('t0_3_1', view)       # straight ahead, nearest edge 375 m away
+        self.assertNotIn('t0_-1_1', view)   # behind
+        self.assertNotIn('t0_4_1', view)    # ahead but beyond 400 m
+
+    def capture(self, events, stats=None):
+        poses = [{'t': 1000 * k, 'cam': self.CAM} for k in range(4)]
+        return {'poses': poses, 'stats': stats or [{'viewport': [1600, 900]}], 'events': events}
+
+    def test_snapshots_give_the_share_drawing_full_models(self):
+        # A 9x9 grid around t0_1_1: everything full except t0_2_1 (preview, in the window) at the second snapshot.
+        full = 'F' * 81
+        grid = list(full)
+        grid[4 * 9 + 5] = 'P'
+        events = [{'t': 0, 'k': 'coverage', 'i0': -3, 'j0': -3, 'n': 9, 'cells': full},
+                  {'t': 1500, 'k': 'coverage', 'i0': -3, 'j0': -3, 'n': 9, 'cells': ''.join(grid)}]
+        hd = timeline.hd_coverage(self.capture(events))
+        self.assertEqual(hd['source'], 'coverage snapshots')
+        shares = [x['share'] for x in hd['seconds']]
+        self.assertEqual(shares[:2], [1, 1])
+        self.assertLess(shares[2], 1)
+        self.assertEqual(hd['seconds'][2]['missing'], [('t0_2_1', 'P', 'window')])
+        lines = '\n'.join(timeline.hd_lines(self.capture(events), lambda t: t / 1000))
+        self.assertIn('2 of 4 s below 100 %', lines)
+        self.assertIn('t0_2_1 P*', lines)
+
+    def test_without_snapshots_lifecycle_events_reconstruct_the_drawn_band(self):
+        # The start window is full; the column ahead shows previews, t0_3_1 until its full model at 2.5 s; t0_0_0 leaves
+        # the window's draw at 1.2 s (cached, then released to its covering cell).
+        events = [*({'t': 0, 'k': 'tile.preview', 'id': f't0_3_{j}'} for j in (0, 1, 2)),
+                  {'t': 1200, 'k': 'tile.cache', 'id': 't0_0_0'},
+                  {'t': 1300, 'k': 'tile.release', 'id': 't0_0_0', 'covered': True},
+                  {'t': 2500, 'k': 'tile.full', 'id': 't0_3_1', 'distant': False}]
+        hd = timeline.hd_coverage(self.capture(events))
+        self.assertEqual(hd['source'], 'reconstructed from tile lifecycle events')
+        missing = [x['missing'] for x in hd['seconds']]
+        self.assertEqual(missing[0], [(f't0_3_{j}', 'P', 'view') for j in (0, 1, 2)])
+        self.assertIn(('t0_0_0', 'C', 'window'), missing[2])
+        self.assertNotIn(('t0_3_1', 'P', 'view'), missing[3])
+
+
 if __name__ == '__main__':
     unittest.main()

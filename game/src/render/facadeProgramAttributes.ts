@@ -1,6 +1,6 @@
 import { BufferGeometry, InterleavedBuffer, InterleavedBufferAttribute } from 'three/webgpu';
 import { attribute, varying, vec3, vec4 } from 'three/tsl';
-import { PreparationBudget } from './preparationBudget';
+import { streamingBudget } from './preparationBudget';
 import { packProgram, type ProgramField } from './packProgram';
 
 /** Authored facade instructions are constant on each triangle, unlike the surface UVs.
@@ -47,7 +47,7 @@ export function interleaveProgram(geometry: BufferGeometry) {
 
 let worker: Worker | undefined, sequence = 0;
 const pending = new Map<number, { resolve: (packed: Float32Array) => void; reject: (error: Error) => void }>();
-const copyBudget = new PreparationBudget();
+const copyBudget = streamingBudget();
 async function packAsync(fields: ProgramField[]): Promise<Float32Array> {
   const copies: ProgramField[] = [];
   for (const field of fields) {
