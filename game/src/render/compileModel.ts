@@ -32,10 +32,30 @@ export function visibleLights(renderer: THREE.WebGPURenderer, scene: THREE.Objec
   return walk.lights;
 }
 
+/** What r186's program key reads from a draw beyond the pass: material, object kind, shadow flags and vertex layout.
+ * Draws with equal signatures share a program, so one compile covers them; null for object-specific keys (an
+ * unshared InstancedMesh, morph targets, batches). A missed difference only costs a build at first draw. */
+export function programSignature(mesh: THREE.Mesh, material: THREE.Material): string | null {
+  const instanced = mesh as THREE.InstancedMesh, other = mesh as unknown as { isBatchedMesh?: boolean; count?: number };
+  if ((instanced.isInstancedMesh && mesh.userData.sharedInstanceProgram !== true) || mesh.morphTargetInfluences
+    || other.isBatchedMesh || (!instanced.isInstancedMesh && (other.count ?? 1) > 1)) return null;
+  const geometry = mesh.geometry, skinned = mesh as THREE.SkinnedMesh;
+  const layout = Object.keys(geometry.attributes).sort().map(name => {
+    const attribute = geometry.attributes[name] as THREE.BufferAttribute | THREE.InterleavedBufferAttribute;
+    const interleaved = (attribute as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute
+      ? `${(attribute as THREE.InterleavedBufferAttribute).data.stride}/${(attribute as THREE.InterleavedBufferAttribute).offset}` : '';
+    return `${name}:${attribute.itemSize}:${attribute.normalized}:${attribute.array.constructor.name}:${interleaved}`;
+  }).join(',');
+  return [material.uuid, instanced.isInstancedMesh ? `i${instanced.instanceMatrix.usage}:${instanced.instanceColor?.usage ?? '-'}` : '',
+    skinned.isSkinnedMesh ? `s${skinned.skeleton?.bones.length}` : '', mesh.receiveShadow, mesh.castShadow,
+    geometry.index?.array.constructor.name ?? 'none', Object.keys(geometry.morphAttributes).join('+'), layout].join('|');
+}
+
 /** Compile hidden draws with stable pass state across r186's asynchronous shader stages. */
 export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.Object3D, scene: THREE.Scene,
-  camera: THREE.PerspectiveCamera, target: THREE.RenderTarget, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
-  context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false, passDepth = 0, override: THREE.Material | null = null) {
+  camera: THREE.Camera, target: THREE.RenderTarget | null, mrt: ReturnType<THREE.WebGPURenderer['getMRT']> | null,
+  context: THREE.WebGPURenderer['contextNode'], opaqueOnly = false, passDepth = 0, override: THREE.Material | null = null,
+  castersOnly = false) {
   const contexts = (renderer as unknown as { _renderContexts: RenderContexts | null })._renderContexts;
   if (!contexts) throw new Error('Streaming shader preparation requires an initialized renderer');
   let budget = budgets.get(renderer);
@@ -46,11 +66,15 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
   const meshes: THREE.Mesh[] = [];
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
-    if (mesh.isMesh && (mesh.visible || mesh.userData.vegetationLod) && mesh.layers.test(camera.layers)) meshes.push(mesh);
+    if (mesh.isMesh && (mesh.visible || mesh.userData.vegetationLod) && mesh.layers.test(camera.layers)
+      && (!castersOnly || mesh.castShadow)) meshes.push(mesh);
   });
+  const programs = new Set<string>();
   for (const mesh of meshes) {
     for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
       if (!material.visible || (opaqueOnly && material.transparent)) continue;
+      const signature = programSignature(mesh, material);
+      if (signature !== null) { if (programs.has(signature)) continue; programs.add(signature); }
       const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT(), oldContext = renderer.contextNode;
       const oldMaterial = mesh.material, children = mesh.children, visible = mesh.visible, culled = mesh.frustumCulled;
       const previousOverride = scene.overrideMaterial;

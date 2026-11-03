@@ -31,6 +31,8 @@ export class ShadowMaterials {
 }
 
 type Draw = Parameters<THREE.WebGPURenderer['renderObject']>;
+export interface ShadowPass { override: THREE.Material; camera: THREE.Camera; target: THREE.RenderTarget | null;
+  mrt: ReturnType<THREE.WebGPURenderer['getMRT']>; depth: number; context: THREE.WebGPURenderer['contextNode'] }
 /** r186 accepts count === 0; WebGPU warns on every pass. Reject empty range intersections before encoding. */
 export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) {
   const range = geometry.drawRange;
@@ -45,6 +47,10 @@ export class GameRenderer extends THREE.WebGPURenderer {
   readonly builds = new BuildLog();
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
+  /** Each live cascade's shadow draw state, keyed by three's per-light override material (its own node ids, so its
+   * own programs): preparation builds tiles' shadow programs ahead with it (render/post.ts) instead of each new
+   * caster building them inside a frame (147 of 397 in-frame builds in Jonni's replay light-1713). */
+  readonly shadowPasses = new Map<THREE.Material, ShadowPass>();
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
     super(parameters);
     this.debug.onNodeBuilderCreated = (builder, draw) => {
@@ -91,7 +97,13 @@ export class GameRenderer extends THREE.WebGPURenderer {
     // Puddles read this per-draw receiver flag from the prepass, or from beauty's MRT when there is no prepass.
     if (!original) material.userData.weatherReceiver = material.userData.weatherWetness ? 1 : 0;
     // Depth draws do not sample beauty-pass GTAO. Keep their context stable across beauty and reflection passes.
-    if ((original as ShadowMaterial | null)?.isShadowPassMaterial) this.contextNode = this.shadowContext;
+    if ((original as ShadowMaterial | null)?.isShadowPassMaterial) {
+      this.contextNode = this.shadowContext;
+      const pass = this.shadowPasses.get(original!), target = this.getRenderTarget();
+      // Refreshed when a cascade's map or camera is rebuilt, so preparation never binds a released target.
+      if (!precompiling && (pass?.target !== target || pass.camera !== camera)) this.shadowPasses.set(original!, { override: original!,
+        camera, target, mrt: this.getMRT(), depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
+    }
     scene.overrideMaterial = original?.userData.normalPrepass
       ? this.normalPrepass.select(material) : this.shadowMaterials.select(material, original);
     try { super.renderObject(object, scene, camera, geometry, material, group, lights, clipping, pass); }
