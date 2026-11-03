@@ -16,6 +16,19 @@ VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
 MODEL = re.compile(r'^[a-f0-9]{64}\.glb$')
 
 
+def lod_sources(data):
+    """Block LOD parents (docs/specs/building-models.md) at their block positions."""
+    if not isinstance(data, dict):
+        return []
+    models = {m.get('id'): m for m in data.get('models', []) if isinstance(m, dict) and m.get('kind') == 'block-lod'}
+    rows = []
+    for block in data.get('blocks', []) or []:
+        model = models.get(block.get('lod'))
+        if model and isinstance(model.get('uri'), str):
+            rows.append(dict(model=model['id'], uri=model['uri'], position=block['position']))
+    return rows
+
+
 def placement_sources(data):
     """HD building placements a derivative must compose; LOD parents (kind block-lod) are not sources."""
     if not isinstance(data, dict):
@@ -29,8 +42,27 @@ def placement_sources(data):
     return rows
 
 
+def survey_shells(tile, buildings):
+    """LoD2 roofs and walls of the tile's surveyed buildings, one node per building and part, world metres."""
+    import numpy as np
+    from turku3d import config as C
+    from turku3d.coarse import extrusion, inputs
+    from turku3d.package.gltf import GlbMesh, build_glb
+    meshes = []
+    for building in inputs.buildings(Path(buildings), C.VisualTile.parse(tile)):
+        roof, ri, _, _, walls, _, wi = extrusion.extrude(building)
+        for part, points, faces in (('roof', roof, ri), ('walls', walls, wi)):
+            if not len(faces):
+                continue
+            extras = dict(layer='survey-shell', part=part, key=str(building.key), facade_key=str(building.facade_key),
+                          object_id=f'{building.key}:{part}', material_key='building_lod')
+            meshes.append(GlbMesh(f'{building.key}:{part}', np.asarray(points, float), np.asarray(faces, np.uint32),
+                                  color=(1.0, 1.0, 1.0, 1.0), extras=extras))
+    return build_glb(meshes, root_translation=(0.0, 0.0, 0.0)) if meshes else b''
+
+
 class Scenery:
-    def __init__(self, root, cache=None, survey=None, preferred=None):
+    def __init__(self, root, cache=None, survey=None, preferred=None, lod=False):
         self.root = Path(root)
         self.roots = ([Path(preferred)] if preferred else []) + [self.root]
         self.cache = Path(cache) if cache else self.root / '.scenery'
@@ -44,6 +76,11 @@ class Scenery:
                         Path(__file__).parents[2] / 'pipeline/turku3d/package/facade_decode.mjs']
         self.recipe = hashlib.sha256(b''.join(path.read_bytes() for path in dependencies)).hexdigest()
         self.survey = survey
+        # Distant buildings as LoD2 block parents (terrain stays authored): farm block LODs on new-format tiles,
+        # survey shells coloured and glazed from the authored facade programs on older ones.
+        self.lod = lod
+        if lod:
+            self.recipe = hashlib.sha256((self.recipe + ':lod-v1').encode()).hexdigest()
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
         self.pending = {}
         self.lock = threading.Lock()
@@ -83,14 +120,28 @@ class Scenery:
             # Whole-building HD models (docs/specs/building-models.md) are part of the source: a derivative
             # composes them at their placements, and any placement change is a new derivative.
             placements = placement_sources(chosen.get('buildingPlacements'))
+            lods = lod_sources(chosen.get('buildingPlacements')) if self.lod else []
+            shells = None
+            # Survey shells only where the tile carries no buildings of its own format (old combined tiles).
+            if self.lod and not placements and not lods and self.survey and tile.startswith('t0_'):
+                described = self.survey.describe(tile)
+                if described and described.get('kind') == 'survey' and (described.get('inputs') or {}).get('buildings'):
+                    shells = dict(path=described['inputs']['buildings'], key=described['key'])
+            if lods:
+                placements = []
             identity = f"{self.recipe}:{tile}:{source['sha256']}"
-            if placements:
-                identity += ':' + hashlib.sha256(json.dumps(placements, sort_keys=True).encode()).hexdigest()
+            for part in (placements, lods, shells):
+                if part:
+                    identity += ':' + hashlib.sha256(json.dumps(part, sort_keys=True).encode()).hexdigest()
             key = hashlib.sha256(identity.encode()).hexdigest()
             row = dict(tile=tile, key=key, source_sha256=source['sha256'], source_url=source['url'],
                        source_root=str(source_root), h=source.get('h', [0, 0]), recipe=self.recipe)
             if placements:
                 row['placements'] = placements
+            if lods:
+                row['lods'] = lods
+            if shells:
+                row['shells'] = shells
             mapping = self.cache / f'{key}.source.json'
             if not mapping.exists():
                 self._write(mapping, json.dumps(row).encode())
@@ -180,17 +231,27 @@ class Scenery:
         output = self.cache / f'lod.{key}.glb'
         temporary = self.cache / f'lod.{key}.{os.getpid()}.{threading.get_ident()}.glb'
         command = ['node', str(self.script), str(source), str(temporary)]
-        if row.get('placements'):
+        if row.get('placements') or row.get('lods') or row.get('shells'):
+            def resolve(rows):
+                models = []
+                for placement in rows:
+                    path = (source.parent / placement['uri']).resolve()
+                    if not any(path.is_relative_to(r.resolve()) for r in self.roots) or not MODEL.fullmatch(path.name):
+                        raise ValueError('Unconfigured building model path')
+                    if hashlib.sha256(path.read_bytes()).hexdigest() != placement['model']:
+                        raise ValueError('Building model changed')
+                    models.append(dict(path=str(path), position=placement['position']))
+                return models
             spec = self.cache / f'{key}.placements.json'
-            models = []
-            for placement in row['placements']:
-                path = (source.parent / placement['uri']).resolve()
-                if not any(path.is_relative_to(r.resolve()) for r in self.roots) or not MODEL.fullmatch(path.name):
-                    raise ValueError('Unconfigured building model path')
-                if hashlib.sha256(path.read_bytes()).hexdigest() != placement['model']:
-                    raise ValueError('Building model changed')
-                models.append(dict(path=str(path), position=placement['position']))
-            self._write(spec, json.dumps(models).encode())
+            if row.get('placements') and not (row.get('lods') or row.get('shells')):
+                value = resolve(row['placements'])
+            else:
+                value = dict(models=resolve(row.get('placements', [])), lods=resolve(row.get('lods', [])), skipBuildings=True)
+                if row.get('shells'):
+                    shell_path = self.cache / f'{key}.shells.glb'
+                    self._write(shell_path, survey_shells(row['tile'], row['shells']['path']))
+                    value['shells'] = str(shell_path)
+            self._write(spec, json.dumps(value).encode())
             command.append(str(spec))
         try:
             result = subprocess.run(command,
