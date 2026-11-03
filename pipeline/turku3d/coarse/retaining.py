@@ -39,6 +39,33 @@ def sections(line, spacing=2.0, radius=2.5):
     return centres, centres - sides, centres + sides
 
 
+HILLSIDE = 0.5  # upper ground rising faster than this (27 deg) beyond the rail is a slope
+
+
+def wall_levels(centres, left, right, sample):
+    """Ground levels at an unsurveyed wall line and at its apron rails.
+
+    The rails sit 2.5 m out, clear of the TIN smearing across the step. At a hill
+    foot the upper rail lies far up the slope, so its height would build a wall
+    metres too tall with a flat shelf behind it. Where the upper ground keeps
+    rising steeply beyond its rail, that slope is extended back to the wall line
+    (never below the lower rail); the apron then follows the slope down to the
+    real wall top. Flat tops, embankment crests and the lower side keep the rails.
+    """
+    rails = np.array([[sample(*p) for p in side] for side in (left, right)])
+    beyond = np.array([[sample(*(2 * p - c)) for p, c in zip(side, centres, strict=True)]
+                       for side in (left, right)])
+    beyond = np.where(np.isfinite(beyond), beyond, rails)
+    levels = rails.copy()
+    upper = np.argmax(rails, axis=0)
+    columns = np.arange(rails.shape[1])
+    top, low = rails[upper, columns], rails[1 - upper, columns]
+    rise = beyond[upper, columns] - top
+    hillside = rise > HILLSIDE * float(np.linalg.norm(left[0] - centres[0]))
+    levels[upper, columns] = np.where(hillside, np.maximum(low, top - rise), top)
+    return levels, rails
+
+
 # A ledge survey drops the sections beside a mapped flight (their side windows
 # take stair returns), which leaves the old bank between the ledge end and the
 # flight. Real gaps reach 4.0-4.5 m (t0_1_0 quay stairs): three 2 m sections.
@@ -115,15 +142,16 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
             if profile is None:
                 continue
             centres, left, right = profile
-            levels = (np.asarray(measured["heights"]).T if measured else
-                      np.array([[sample(*p) for p in side] for side in (left, right)]))
             if measured:
+                levels = np.asarray(measured["heights"]).T
                 (centres, left, right), levels = reach_flights(profile, levels, flights)
-            # The new edge owns the discontinuity, but its aprons must meet the
-            # surrounding ground exactly. Extrapolating the near-edge plane all
-            # the way across a curved bank would leave a seam at the outer rail.
-            outer_levels = (np.array([[(surface or sample)(*p) for p in side] for side in (left, right)])
-                            if measured else levels)
+                # The new edge owns the discontinuity, but its aprons must meet the
+                # surrounding ground exactly. Extrapolating the near-edge plane all
+                # the way across a curved bank would leave a seam at the outer rail.
+                outer_levels = np.array([[(surface or sample)(*p) for p in side]
+                                         for side in (left, right)])
+            else:
+                levels, outer_levels = wall_levels(centres, left, right, sample)
             # An outer rail can lie in the river. Keep its measured dry-side
             # plane to the shoreline, rather than sloping the paving to water.
             outer_levels = np.where(np.isfinite(outer_levels), outer_levels, levels)

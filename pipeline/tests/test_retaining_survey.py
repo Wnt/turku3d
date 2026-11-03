@@ -186,3 +186,17 @@ def test_measured_ledge_run_continues_to_an_adjacent_flight_only():
     (c, _, _), same = reach_flights(profile, levels, far)
     np.testing.assert_allclose(c, centres)
     np.testing.assert_allclose(same, levels)
+
+
+def test_unsurveyed_wall_at_a_hill_foot_keeps_its_step_and_aprons_follow_the_slope():
+    # A mapped 1.5 m wall along a street, with a 40 degree slope rising behind it.
+    slope = np.tan(np.radians(40))
+    sample = lambda x, z: 0.0 if z < 0 else 1.5 + slope * z
+    record = (shapely.LineString([(5, 0), (25, 0)]), {"barrier": "retaining_wall"}, False)
+    meshes, _ = retaining.produce(VisualTile(0, 0, 0), [record], sample)
+    wall = next(m for m in meshes if not m.metadata.get("terrain"))
+    # Before, the upper rail 2.5 m up the slope set the wall top: a 3.6 m wall.
+    np.testing.assert_allclose(wall.positions[:, 1].max(), 1.5, atol=1e-9)
+    apron = next(m for m in meshes if m.metadata.get("terrain"))
+    upper = apron.positions[apron.positions[:, 2] > 1e-6]
+    np.testing.assert_allclose(upper[:, 1], [sample(x, z) for x, _, z in upper], atol=1e-9)
