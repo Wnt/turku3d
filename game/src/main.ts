@@ -47,6 +47,8 @@ import { retireAfterFrame, frameSubmitted } from './render/retirement';
 import { CameraBench, benchPose } from './qa/bench';
 import { FrameClock } from './core/frameClock';
 import { ScenePopulation } from './world/scenePopulation';
+import { drawCensus } from './render/census';
+import { GameRenderer } from './render/shadowMaterials';
 
 declare global {
   interface Window {
@@ -68,7 +70,9 @@ declare global {
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
-      beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility };
+      beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
+      /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
+      census?: () => Promise<unknown> };
   }
 }
 
@@ -149,7 +153,14 @@ const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Came
 } } : lights?.sprites;
 let post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility, setTime: (iso: string) => {
+window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
+  census: () => {
+    let previous: (() => void) | undefined;
+    return drawCensus(renderer, {
+      install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
+      uninstall: () => { window.__render!.afterFrame = previous; },
+    }, renderer instanceof GameRenderer ? renderer.builds : undefined);
+  }, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);

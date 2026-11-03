@@ -4,6 +4,7 @@ import { placementVisibility } from '../world/placementVisibility';
 import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
 import { asyncFirstUsePipelines } from './asyncPipelines';
+import { BuildLog } from './census';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -39,6 +40,8 @@ export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) 
 }
 export class GameRenderer extends THREE.WebGPURenderer {
   readonly normalPrepass = new NormalPrepass();
+  /** Every node-program build, for `__render.census()`. */
+  readonly builds = new BuildLog();
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
@@ -46,6 +49,9 @@ export class GameRenderer extends THREE.WebGPURenderer {
     this.debug.onNodeBuilderCreated = (builder, draw) => {
       instancePrograms(builder, (draw as InstanceDraw).object);
       this.instanceSharing?.builder(builder, draw as InstanceDraw);
+      // In-frame builds stall the frame; preparation builds run in budgeted tasks (render/census.ts).
+      this.builds.record(this, draw as Parameters<BuildLog['record']>[1],
+        this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
     };
   }
   private releaseAttributes?: () => void;
