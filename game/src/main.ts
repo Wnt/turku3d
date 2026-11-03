@@ -108,8 +108,11 @@ if (params.drive) {
   try {
     initialDrive = await loadDrive(params.drive.capture, params.drive.segment);
     params.qa = driveQaPose(initialDrive.poses[0]); params.motion = true;
+    // ?view=live replays the scene content but renders with this machine's own window, resolution path and tier.
+    const recorded = params.drive.view === 'live' ? ['traffic', 'walkers', 'trafficDensity'] as const
+      : ['traffic', 'walkers', 'trafficDensity', 'quality', 'aa'] as const;
     if (initialDrive.meta.params) {
-      for (const key of ['traffic', 'walkers', 'trafficDensity', 'quality', 'aa'] as const) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
+      for (const key of recorded) if (!new URLSearchParams(location.search).has(key)) (params as any)[key] = initialDrive.meta.params[key];
     }
   } catch (e) { window.__qaError = String(e); Object.assign(window.__bench!, { phase: 'error', error: String(e) }); throw e; }
 }
@@ -146,6 +149,9 @@ const { renderer, backend } = await loading.track('GPU renderer initialization',
   { qa: qaCanvas, idPass: !!idPass, mobile: params.mobile, quality: params.quality }));
 const perf = new PerformanceMonitor(renderer, backend);
 const scene = new THREE.Scene();
+/** ?bench=drive&view=live: play's window and adaptive pixel ratio instead of the recorded ones. */
+const liveDrive = params.drive?.view === 'live';
+if (liveDrive && initialDrive) initialDrive.settings = { pixelRatio: null, viewport: null };
 let driveViewport: number[] | null = initialDrive?.settings.viewport ?? params.lab?.size ?? null;
 let drivePixelRatio: number | null = initialDrive?.settings.pixelRatio ?? params.lab?.dpr ?? null;
 if (driveViewport) renderer.setSize(driveViewport[0], driveViewport[1], false);
@@ -290,7 +296,7 @@ if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   rain = replacement;
 });
 const renderFrame = () => {
-  if (!params.qa && worldLoad.snapshot().phase === 'ready' && document.visibilityState === 'visible') {
+  if ((liveDrive || (!params.qa && worldLoad.snapshot().phase === 'ready')) && document.visibilityState === 'visible') {
     const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
     const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
@@ -332,7 +338,7 @@ addEventListener('resize', () => {
   camera.aspect = driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight;
   if (params.qa && !params.drive) applyQaCamera();
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile) * (params.qa ? 1 : resolution.scale));
+  renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, qaCanvas, params.mobile) * (params.qa && !liveDrive ? 1 : resolution.scale));
   renderer.setSize(driveViewport?.[0] ?? innerWidth, driveViewport?.[1] ?? innerHeight, !driveViewport);
   env.resize();
 });
@@ -551,8 +557,9 @@ async function runQa() {
   };
   const driveBench = initialDrive ? new DriveBench({ scene, camera, game: window.__game!,
     configure: drive => {
+      if (liveDrive) drive.settings = { pixelRatio: null, viewport: null };
       driveViewport = drive.settings.viewport; drivePixelRatio = drive.settings.pixelRatio;
-      renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false));
+      renderer.setPixelRatio(drivePixelRatio ?? renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile) * (liveDrive ? resolution.scale : 1));
       renderer.setSize(driveViewport?.[0] ?? innerWidth, driveViewport?.[1] ?? innerHeight, false);
       camera.aspect = driveViewport ? driveViewport[0] / driveViewport[1] : innerWidth / innerHeight; camera.updateProjectionMatrix();
       env.resize();

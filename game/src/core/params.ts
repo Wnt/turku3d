@@ -16,7 +16,10 @@ interface Params {
   qa: QaCam | null;
   /** ?bench=camera&id=<street camera>[&at=HH:MM]: the fixed-camera bench probe (qa/bench.ts); implies its QA pose. */
   bench: BenchPose | null;
-  drive: { capture: string; segment: number } | null;
+  /** ?bench=drive&capture=<id>[&segment=N][&view=live]: replay a recorded drive. `view=live` renders at the live window
+   *  and play's resolution path (AdaptiveResolution) and the machine's own quality tier, instead of the recorded
+   *  viewport, pixel ratio and quality (`recorded`, the default, keeps replays comparable across machines). */
+  drive: { capture: string; segment: number; view: 'recorded' | 'live' } | null;
   /** ?bench=static|install|fly: the bench lab scenarios (qa/lab/params.ts); they imply a QA pose (?cam=, ?id= or the riverside camera). */
   lab: LabParams | null;
   /** QA render pass: 'color' (default) or 'id' (flat unlit object ids, qa/README.md §2). */
@@ -74,7 +77,9 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
       const capture = p.get('capture') ?? '', segment = Number(p.get('segment') ?? 1);
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(capture)) throw Error('bad ?capture=');
       if (!Number.isInteger(segment) || segment < 1) throw Error('bad ?segment= (integer >= 1)');
-      drive = { capture, segment };
+      const view = p.get('view') ?? 'recorded';
+      if (view !== 'recorded' && view !== 'live') throw Error('bad ?view= (recorded|live)');
+      drive = { capture, segment, view };
     } else {
     if (cam) throw new Error('?bench=camera takes its pose from ?id=, not ?cam=');
     bench = benchPose(p.get('id') ?? '', p.get('at'));
