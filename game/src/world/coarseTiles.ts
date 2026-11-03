@@ -38,7 +38,8 @@ const POLL_MS = 1000;
 /** A leaving full visual draws at most this long (ms) while its scenery cell loads and dissolves in over it. */
 const HOLD_MAX_MS = 4000;
 const RETURN_CACHE_TILES = 16;
-const RETURN_CACHE_MS = 30_000;
+/** Hidden full visuals wait this long for a return: driving round a block often comes back within a minute. */
+const RETURN_CACHE_MS = 60_000;
 /** Ahead-only build acknowledgements own no model or collision resources. Keep them across quick turns. */
 const BUILT_CACHE_TILES = 128;
 const BUILT_CACHE_MS = 30_000;
