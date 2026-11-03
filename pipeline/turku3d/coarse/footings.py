@@ -58,32 +58,44 @@ def produce(buildings, ground, passages=()):
         return []
     open_ways = [g for g in passages if g is not None and not g.is_empty]
     keep_open = shapely.union_all([g.buffer(PASSAGE) for g in open_ways]) if open_ways else None
-    out = []
+    edges = []
     for b in sorted(buildings, key=lambda b: b.key):
-        faces = Faces()
         for ring in rings(b.footprint):
             xz, normal = stations(ring)
-            if len(xz) < 2:
+            if len(xz) >= 2:
+                edges.append((b, xz, normal, xz + normal * OUTSIDE))
+    if not edges:
+        return []
+    # One ground index for every probe; each ray's nearest floor depends on its own target only.
+    probes = np.concatenate([probe for *_, probe in edges])
+    targets = np.concatenate([np.full(len(probe), b.base) for b, *_, probe in edges])
+    found = np.split(heights(triangles, probes, targets), np.cumsum([len(e[3]) for e in edges])[:-1])
+    out, faces, owner = [], None, None
+    for (b, xz, normal, probe), ground_y in zip(edges, found, strict=True):
+        if b is not owner:
+            if faces is not None and faces.indices:
+                out.append(_mesh(faces, owner))
+            faces, owner = Faces(), b
+        gap = b.base - ground_y
+        floating = np.isfinite(gap) & (gap > GAP) & (gap <= DEEPEST)
+        if keep_open is not None:
+            floating &= ~shapely.contains_xy(keep_open, probe[:, 0], probe[:, 1])
+        # Consecutive samples on one edge share a normal; a corner restarts.
+        same_edge = np.all(np.abs(normal[1:] - normal[:-1]) < 1e-9, axis=1)
+        for i in np.flatnonzero(same_edge & floating[:-1] & floating[1:]):
+            a, c = xz[i], xz[i + 1]
+            if np.hypot(*(c - a)) < 1e-6:
                 continue
-            probe = xz + normal * OUTSIDE
-            ground_y = heights(triangles, probe, np.full(len(probe), b.base))
-            gap = b.base - ground_y
-            floating = np.isfinite(gap) & (gap > GAP) & (gap <= DEEPEST)
-            if keep_open is not None:
-                floating &= ~shapely.contains_xy(keep_open, probe[:, 0], probe[:, 1])
-            # Consecutive samples on one edge share a normal; a corner restarts.
-            same_edge = np.all(np.abs(normal[1:] - normal[:-1]) < 1e-9, axis=1)
-            for i in np.flatnonzero(same_edge & floating[:-1] & floating[1:]):
-                a, c = xz[i], xz[i + 1]
-                if np.hypot(*(c - a)) < 1e-6:
-                    continue
-                low_a, low_c = ground_y[i] - BURY, ground_y[i + 1] - BURY
-                faces.face(
-                    [[a[0], b.base, a[1]], [c[0], b.base, c[1]],
-                     [c[0], low_c, c[1]], [a[0], low_a, a[1]]]
-                )
-        if faces.indices:
-            out.append(faces.mesh(f"footing:{b.key}", "wall",
-                                  metadata=dict(kind="footing", surface="concrete",
-                                                building=b.key)))
+            low_a, low_c = ground_y[i] - BURY, ground_y[i + 1] - BURY
+            faces.face(
+                [[a[0], b.base, a[1]], [c[0], b.base, c[1]],
+                 [c[0], low_c, c[1]], [a[0], low_a, a[1]]]
+            )
+    if faces.indices:
+        out.append(_mesh(faces, owner))
     return out
+
+
+def _mesh(faces, building):
+    return faces.mesh(f"footing:{building.key}", "wall",
+                      metadata=dict(kind="footing", surface="concrete", building=building.key))

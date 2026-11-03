@@ -87,7 +87,9 @@ def sample_domain(bounds, excluded, reference, spacing=0.5):
 def audit(visual, collision, query, expected, *, support=None, openings=None):
     started = time.perf_counter()
     visual, collision = (np.asarray(t, float).reshape(-1, 3, 3) for t in (visual, collision))
-    vy, cy = Rays(visual).cast(query, expected), Rays(collision).cast(query, expected)
+    # One index per mesh for every cast below; casts are independent per ray.
+    visual_rays, collision_rays = Rays(visual), Rays(collision)
+    vy, cy = visual_rays.cast(query, expected), collision_rays.cast(query, expected)
     vh = ~np.isfinite(vy) | (expected - vy > 1.5)
     ch = ~np.isfinite(cy) | (expected - cy > 1.5)
     mismatch = np.isfinite(vy) & np.isfinite(cy) & (abs(vy - cy) > .15)
@@ -96,7 +98,7 @@ def audit(visual, collision, query, expected, *, support=None, openings=None):
     defects = {}
     for name, mask in [('visual_holes', vh), ('collision_holes', ch), ('mismatch', mismatch)]:
         defects[name] = records(points[mask], visual_y=vy[mask], collision_y=cy[mask])
-    defects['open_seams'] = open_seams(visual, query, vy)
+    defects['open_seams'] = open_seams(visual, query, vy, rays=visual_rays)
     normal = normals(visual)
     twice_area = np.linalg.norm(normal, axis=1)
     edges = visual - np.roll(visual, 1, axis=1)
@@ -115,7 +117,7 @@ def audit(visual, collision, query, expected, *, support=None, openings=None):
     # A nearly vertical face crossing a supported floor above its foot is a
     # thin-wall candidate, rather than a buried foundation or shoreline face.
     ids = np.flatnonzero(tall)
-    floor = Rays(collision).cast(centre[ids][:, [0, 2]], centre[ids, 1])
+    floor = collision_rays.cast(centre[ids][:, [0, 2]], centre[ids, 1])
     free = np.isfinite(floor) & (floor >= visual[ids, :, 1].min(axis=1) - .15)
     free &= floor < visual[ids, :, 1].max(axis=1) - .35
     defects['thin_walls'] = records(centre[ids[free]])
@@ -136,7 +138,7 @@ def audit(visual, collision, query, expected, *, support=None, openings=None):
                 seconds=round(time.perf_counter() - started, 4), advisory=True)
 
 
-def open_seams(visual, query, height, step=.5, spacing=.5):
+def open_seams(visual, query, height, step=.5, spacing=.5, rays=None):
     """Adjacent samples over `step` apart in height with no face crossing between them.
 
     From the side such a seam shows the void under the higher sheet's edge.
@@ -162,7 +164,7 @@ def open_seams(visual, query, height, step=.5, spacing=.5):
     high = np.where(height[i] < height[j], j, i)
     # Stacked sheets are not seams: the lower sheet continues under the higher
     # one (a deck edge over a walkway), or the higher one continues over it.
-    rays = Rays(visual)
+    rays = rays or Rays(visual)
     under = rays.cast(query[high], height[low], above=.3)
     over = rays.cast(query[low], height[high], above=.3)
     stacked = (np.isfinite(under) & (abs(under - height[low]) < .3)) | \
