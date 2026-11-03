@@ -212891,5 +212891,725 @@
       "scope": "matched walls only",
       "independent": false
     }
+  },
+  {
+    "schema": "facade-program-prototype-1",
+    "building_id": "103446956K",
+    "seed": "025",
+    "source": "photographed",
+    "needs_review": false,
+    "attributes": {
+      "material": "",
+      "material_class": "wood",
+      "year": null,
+      "era": "pre-1850",
+      "levels": 1,
+      "address": "Vanha Suurtori 2",
+      "construction_year": null,
+      "levels_source": "reviewed references"
+    },
+    "storeys": {
+      "value": 1,
+      "source": "reviewed references: single-storey veranda wing",
+      "support": 0.8
+    },
+    "material": {
+      "value": "wood",
+      "source": "direct review",
+      "support": 0.85
+    },
+    "style_era": {
+      "value": "pre-1850",
+      "source": "direct review",
+      "support": 0.6
+    },
+    "representative_wall": "103446956K_riverside_colonnade",
+    "walls": [
+      {
+        "wall_id": "103446956K_riverside_colonnade",
+        "width_m": 28.596,
+        "height_m": 2.34,
+        "geometry": {
+          "p0": [
+            23460087.51,
+            6704582.47
+          ],
+          "p1": [
+            23460100.57,
+            6704607.91
+          ],
+          "normal": [
+            -0.8895,
+            0.4566
+          ],
+          "base_h": 5.09
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "full-wall",
+          "source": "direct Street View 2017 / Look Around review 2026-11-03 (vfix 025)",
+          "reference_id": "local-only vfix025 refs",
+          "notes": "Riverside front: continuous colonnade of 13 white Doric columns between end piers, deep veranda, painted timber back wall with glazed doors, pale entablature. Column centres and pitch from a metric projection of the 2017 panorama onto the LoD2 front line (solved heading 71.6 deg vs URL 72 deg). Veranda depth from the LoD2 pavilion wall plane 2.2 m behind the front.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": 2.34,
+            "source": "single-storey veranda wing; whole surviving shell height",
+            "support": 0.8
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "wood",
+            "source": "direct review: painted timber boarding and panels",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 14,
+          "centers_m": [],
+          "pitch_m": 1.96,
+          "symmetry": null,
+          "support": 0.8
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": "#2d3b18",
+            "source": "reviewed same-wall door-frame patch median; dark olive green family",
+            "support": 0.7
+          },
+          "divisions": {
+            "value": [
+              2,
+              3
+            ],
+            "source": "direct review: multi-pane glazed doors",
+            "support": 0.7
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": "doors",
+            "source": "direct review: glazed doors behind each intercolumniation",
+            "support": 0.8
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": 0.5,
+            "source": "metric projection: entablature about 0.6 m over 2.85 m order, scaled to surviving shell",
+            "support": 0.8
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": "low",
+            "source": "direct review: plain Doric order with mutule blocks",
+            "support": 0.8
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": "pre-1850",
+          "source": "direct review: neoclassical Doric pavilion",
+          "support": 0.6
+        },
+        "geometry_components": [
+          {
+            "section": 0,
+            "kind": "arcade",
+            "bounds": [
+              0.02798,
+              0,
+              0.94419,
+              0.78632
+            ],
+            "rows": 1,
+            "count": 13,
+            "depth_m": 2.15,
+            "dimensions_source": "metric panorama projection; depth from LoD2 pavilion wall plane offset 2.2 m",
+            "head": "flat",
+            "rise_m": null,
+            "run_m": null,
+            "direction": 1,
+            "through": false,
+            "support": 0.85,
+            "column_shape": "round",
+            "column_width_m": 0.55,
+            "column_pitch_m": 1.96,
+            "first_column_m": 2.78,
+            "column_colour": "#bcb5aa"
+          }
+        ]
+      },
+      {
+        "wall_id": "103446956K_pavilion_nw",
+        "width_m": 9.2,
+        "height_m": 5.45,
+        "geometry": {
+          "p0": [
+            23460099.49,
+            6704600.75
+          ],
+          "p1": [
+            23460103.72,
+            6704608.92
+          ],
+          "normal": [
+            -0.8895,
+            0.4566
+          ],
+          "base_h": 5.09
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "material-only",
+          "source": "direct Street View 2017 / Look Around review 2026-11-03 (vfix 025)",
+          "reference_id": "local-only vfix025 refs",
+          "notes": "Two-storey timber centre pavilion rising behind the colonnade roof: horizontal grey-beige boarding, hipped metal roof from LoD2.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "wood",
+            "source": "direct review: painted timber boarding and panels",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.0
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      },
+      {
+        "wall_id": "103446956K_pavilion_sw",
+        "width_m": 5.528,
+        "height_m": 6.03,
+        "geometry": {
+          "p0": [
+            23460104.25,
+            6704598.31
+          ],
+          "p1": [
+            23460099.33,
+            6704600.83
+          ],
+          "normal": [
+            -0.454,
+            -0.891
+          ],
+          "base_h": 5.09
+        },
+        "material_bands": [],
+        "observation": {
+          "needs_review": false,
+          "scope": "material-only",
+          "source": "direct Street View 2017 / Look Around review 2026-11-03 (vfix 025)",
+          "reference_id": "local-only vfix025 refs",
+          "notes": "Pavilion south-west face above the veranda roof: boarded timber with two small windows.",
+          "excluded_rectangles_m": []
+        },
+        "split": {
+          "base_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "middle_repeats": 0,
+          "top_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "wall": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": "wood",
+            "source": "direct review: painted timber boarding and panels",
+            "support": 0.85
+          }
+        },
+        "bays": {
+          "count": 0,
+          "centers_m": [],
+          "pitch_m": null,
+          "symmetry": null,
+          "support": 0.0
+        },
+        "windows": {
+          "rectangles_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "head_shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "size_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "aspect": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "sill_fraction": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "frame_colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "divisions": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "recess_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "opening_roles": []
+        },
+        "base": {
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "material": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "plinth_height_m": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "glazing_share": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shopfront": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "openings_m": [],
+          "head_shapes": [],
+          "surround_shapes": [],
+          "variant": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "doors": {
+          "candidates": [],
+          "type": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "canopy": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "trim": {
+          "cornice": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "string_courses": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "window_surrounds": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "colour": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "ornament_level": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "corners": {
+          "quoins": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "shape": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          },
+          "tower": {
+            "value": null,
+            "source": "unmeasured",
+            "support": 0.0
+          }
+        },
+        "balconies": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "bay_windows": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        },
+        "style_era": {
+          "value": null,
+          "source": "unmeasured",
+          "support": 0.0
+        }
+      }
+    ],
+    "review": {
+      "method": "direct reference review; metric projection onto LoD2",
+      "scope": "matched walls only",
+      "independent": false,
+      "vfix025": {
+        "building_id": "103446956K",
+        "address": "Vanha Suurtori 2 (Pinella)",
+        "reference_source": "Google Street View Sep 2017 and Apple Look Around (recent), local-only",
+        "images_private": true,
+        "observations": [
+          {
+            "scope": "riverside long front",
+            "finding": "Open Doric colonnade with end piers over the whole front, deep shaded veranda, timber back wall with glazed doors, pale entablature with mutules. The generic brick block with strip windows is wrong.",
+            "confidence": 0.95
+          },
+          {
+            "scope": "centre pavilion",
+            "finding": "Small two-storey boarded timber pavilion with hipped metal roof and chimney; LoD2 already carries the hipped roof.",
+            "confidence": 0.9
+          },
+          {
+            "scope": "roof terrace",
+            "finding": "Seasonal white marquee over the colonnade roof is not in LoD2; not modelled by this reading.",
+            "confidence": 0.8
+          }
+        ]
+      }
+    }
   }
 ]
