@@ -5,6 +5,7 @@ Usage: scripts/dev/tile-migrate register --base bulkgen2-3d1445b2 [--ref HEAD] [
        scripts/dev/tile-migrate apply --version ALIAS t0_0_0 t0_1_0     (foreground, a few tiles)
        scripts/dev/tile-migrate run --version ALIAS [--jobs 6] [--watch 60]   (background, city)
        scripts/dev/tile-migrate status --version ALIAS
+       scripts/dev/tile-migrate parity --version ALIAS --generated GENERATOR_ALIAS t0_12_-12
 
 ``register`` uploads the committed snapshot, derives the migrated generation from the base and
 the snapshot's chain (pipeline/turku3d/migrations/registry.py) and registers the alias
@@ -60,11 +61,14 @@ def main():
     register.add_argument('--base', required=True, help='alias or revision of the base generation')
     register.add_argument('--ref', default='HEAD')
     register.add_argument('--alias')
-    for name in ('apply', 'run', 'status'):
+    for name in ('apply', 'run', 'status', 'parity'):
         p = sub.add_parser(name)
         p.add_argument('--version', required=True, help='migrated alias or revision')
         if name != 'status':
             p.add_argument('tiles', nargs='*')
+        if name == 'parity':
+            p.add_argument('--generated', required=True,
+                           help='alias of the generator at the migration commit, same source version')
         if name == 'run':
             p.add_argument('--jobs', type=int, default=6)
             p.add_argument('--watch', type=float, default=0, help='rescan the base every N seconds')
@@ -99,6 +103,9 @@ def main():
         return remote(args, 'status', '--revision', revision)
     if args.action == 'apply':
         return remote(args, 'apply', '--revision', revision, *args.tiles)
+    if args.action == 'parity':
+        return remote(args, 'parity', '--revision', revision, '--generated',
+                      resolve(args, args.generated), *args.tiles)
     extra = ['--revision', revision, '--jobs', str(args.jobs), *args.tiles]
     if args.watch:
         extra += ['--watch', str(args.watch)]

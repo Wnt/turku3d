@@ -193,3 +193,23 @@ def test_payload_names_must_be_content_addressed(tmp_path):
         product.put("../../elsewhere/{hash}.glb", b"x")
     with pytest.raises(ValueError):
         product.replace(dict(url="vis.glb", bytes=1), b"x")
+
+
+def test_parity_compares_a_generator_build_with_the_migrated_base(tmp_path, chain):
+    chain(registry.CHAIN[0], TINT)
+    root, meta, base_manifest = farm(tmp_path)
+    tile_migrate.migrate_tile(root, meta, TILE)
+    generated_gen, generated_rev = "e" * 64, "f" * 40
+    built = root / "products" / generated_gen
+    shutil.copytree(root / "products" / BASE_GEN, built)
+    manifest = migrations.apply_in_place(built / TILE, dict(base_manifest, built="2026-11-04T00:00:00Z"))
+    (built / TILE / "manifest.json").write_bytes(core.manifest_bytes(manifest))
+    (root / "revisions" / generated_rev).mkdir()
+    (root / "revisions" / generated_rev / "revision.json").write_text(
+        json.dumps(dict(revision=generated_rev, generation=generated_gen)))
+    result = tile_migrate.parity(root, meta, generated_rev, TILE)
+    assert result["identical"], result
+    assert result["differing_provenance_keys"] == ["built", "migration_base"]
+    manifest["lights"] = dict(count=1)
+    (built / TILE / "manifest.json").write_bytes(core.manifest_bytes(manifest))
+    assert tile_migrate.parity(root, meta, generated_rev, TILE)["differing_content_keys"] == ["lights"]

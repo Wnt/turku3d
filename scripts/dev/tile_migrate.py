@@ -9,6 +9,7 @@ Runs on the farm host from a registered source snapshot, in the pipeline environ
   tile_migrate.py apply  --farm-root ROOT --revision DERIVED TILE...
   tile_migrate.py run    --farm-root ROOT --revision DERIVED [--jobs 6] [--watch SECONDS]
   tile_migrate.py status --farm-root ROOT --revision DERIVED
+  tile_migrate.py parity --farm-root ROOT --revision DERIVED --generated REVISION TILE...
 """
 from __future__ import annotations
 
@@ -204,14 +205,42 @@ def status(root: Path, meta: dict) -> dict:
                 run=read_json(root / 'migrations' / meta['generation'] / 'status.json'))
 
 
+# Build provenance: when and by which producer code, not what the tile contains.
+PROVENANCE = {'built', 'seconds', 'code', 'collision_code', 'migration_base'}
+
+
+def parity(root: Path, meta: dict, generated: str, tile: str) -> dict:
+    """A fresh generator build at the migration's commit versus the migrated base product."""
+    from turku3d.migrations import core
+
+    sides = {}
+    for name, generation in (('migrated', meta['generation']),
+                             ('generated', revision_meta(root, generated)['generation'])):
+        directory = products(root, generation) / tile
+        if not (directory / 'ready.json').exists():
+            raise MissingBase(f'{tile} is not finished in {name} generation {generation}')
+        manifest = json.loads((directory / 'manifest.json').read_bytes())
+        product = core.Product(directory, manifest)
+        sides[name] = (manifest, {p: hashlib.sha256((directory / p).read_bytes()).hexdigest()
+                                  for p in core.references(product)})
+    (left, a), (right, b) = sides['migrated'], sides['generated']
+    payloads = sorted(set(a) ^ set(b) | {p for p in set(a) & set(b) if a[p] != b[p]})
+    keys = sorted(k for k in set(left) | set(right) if left.get(k) != right.get(k))
+    content = [k for k in keys if k not in PROVENANCE]
+    return dict(tile=tile, identical=not payloads and not content, payloads=len(a),
+                differing_payloads=payloads[:20], differing_content_keys=content,
+                differing_provenance_keys=[k for k in keys if k in PROVENANCE])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('action', choices=('derive', 'apply', 'run', 'status'))
+    parser.add_argument('action', choices=('derive', 'apply', 'run', 'status', 'parity'))
     parser.add_argument('tiles', nargs='*')
     parser.add_argument('--farm-root', type=Path, required=True)
     parser.add_argument('--base')
     parser.add_argument('--code')
     parser.add_argument('--revision')
+    parser.add_argument('--generated', help='parity: generator alias or revision of the same tile')
     parser.add_argument('--jobs', type=int, default=MAX_JOBS)
     parser.add_argument('--watch', type=float, default=0, help='rescan the base every N seconds')
     parser.add_argument('--idle-exit', type=float, default=7200)
@@ -226,6 +255,11 @@ def main(argv=None):
     if args.action == 'status':
         print(json.dumps(status(root, meta)))
         return 0
+    if args.action == 'parity':
+        results = [parity(root, meta, args.generated, tile) for tile in args.tiles]
+        for result in results:
+            print(json.dumps(result))
+        return 0 if all(r['identical'] for r in results) else 1
     if args.action == 'apply':
         failed = 0
         for tile in args.tiles:
