@@ -440,6 +440,15 @@ export class PhysicsWorld {
         }
       }
     }
+    // Below the slide angle, Rapier's controller still leaks part of the grounded push down the slope: an idle
+    // player crept 1-3 mm/s downhill with millimetre pops on 8-35 degree hills, and the camera crept with it. A
+    // character that stays grounded with no input, moves less than a centimetre this step and stands on ground
+    // flatter than the slide angle holds its place; steeper ground still slides.
+    const idle = this.charGrounded && grounded && !input.jump && Math.hypot(input.vx, input.vz) <= 0.01;
+    if (idle && Math.hypot(m.x, m.y, m.z) < 0.01) {
+      const ground = this.raycast(p0, { x: 0, y: -1, z: 0 }, CHARACTER.halfHeight + CHARACTER.radius + 0.4, 'solid');
+      if (ground && ground.normal.y >= Math.cos(CHARACTER.minSlideDeg * Math.PI / 180)) m = { x: 0, y: 0, z: 0 };
+    }
     const p = { x: p0.x + m.x, y: p0.y + m.y, z: p0.z + m.z };
     col.setTranslation(p);
     this.charGrounded = grounded;
