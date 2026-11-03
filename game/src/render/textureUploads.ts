@@ -3,6 +3,7 @@ import type Node from 'three/src/nodes/core/Node.js';
 import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
 import { shareModelTextures } from '../world/sharedAssets';
+import { afterRender } from './afterRender';
 
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
 export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set<THREE.Texture> {
@@ -72,7 +73,7 @@ class TextureUploads {
   private schedule() {
     if (this.scheduled) return;
     this.scheduled = true;
-    requestAnimationFrame(() => {
+    afterRender(() => {
       this.scheduled = false;
       this.budget.drain();
       if (this.budget.pending) this.schedule();

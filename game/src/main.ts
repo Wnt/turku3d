@@ -29,6 +29,7 @@ import { loadNatureLibrary } from './world/nature/library';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
+import { afterRender } from './render/afterRender';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest } from './world/manifest';
@@ -172,6 +173,9 @@ const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unkn
   // repeats that work and yields once per material; reserve paced compilation for streaming during play.
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') return Promise.resolve();
   const prepared = graphicsReady.then(async () => {
+    if (signal?.aborted) return;
+    // Jobs can be queued by coarse.update inside the animation callback. Start shader work in a task after the animation callbacks.
+    await new Promise<void>(resolve => afterRender(resolve));
     if (signal?.aborted) return;
     await prepare();
     if (!signal?.aborted) await post?.prepare(model);
