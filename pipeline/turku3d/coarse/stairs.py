@@ -441,6 +441,7 @@ def stage(
     from turku3d.stage_cache import source_key
 
     from . import kerbs, retaining
+    from .attachments import sampler as attachment_sampler
 
     base = Path(__file__).parents[1]
     dependencies = [
@@ -454,7 +455,7 @@ def stage(
         Path(__file__).with_name("tunnels.py"),
         Path(retaining.__file__),
         Path(__file__).with_name("gardens.py"),
-        Path(__file__).with_name("attachments.py"),
+        attachment_sampler,
         base / "bridges/build.py",
         Path(C.__file__),
         base / "structures/geometry.py",

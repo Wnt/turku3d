@@ -509,6 +509,37 @@ def test_prepared_surveys_survive_mesh_only_edits(tmp_path, monkeypatch):
     assert {name: inputs._key([], name) for name in before} == before
 
 
+def test_stair_cache_tracks_attachment_sampler_but_not_mesh_producer(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import attachments, stairs
+
+    class Cache:
+        def __init__(self):
+            self.codes = {}
+
+        def run(self, name, code, inputs, operation):
+            self.codes[name] = code
+            return ([], []) if name == 'stairs' else (None, None)
+
+    def keys():
+        cache = Cache()
+        stairs.stage(cache, None, None, None, None, None, None, None)
+        return cache.codes
+
+    before = keys()
+    original = Path.read_bytes
+    monkeypatch.setattr(Path, 'read_bytes', lambda path: original(path) +
+                        (b'\n# unrelated attachment mesh edit\n' if path.name == 'attachments.py' else b''))
+    assert keys() == before
+
+    def sampler(sample, records):
+        return sample
+
+    monkeypatch.setattr(attachments, 'sampler', sampler)
+    after = keys()
+    assert all(after[name] != before[name] for name in before)
+
+
 def test_shared_preparation_reads_published_result_after_waiting_for_another_version(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
     import threading
