@@ -11,6 +11,7 @@ from .stored_facades import assemble_walls, facade_layouts, wall_meshes
 
 def building_visual(tile, shells, ortho, first_pass, wall_context=()):
     from .build import jpeg, ortho_uv
+    from .metal_roofs import mesh as metal_roof
     from turku3d.landmarks.appearance import roof_mesh, wall_meshes as landmark_walls
 
     if not shells:
@@ -25,6 +26,10 @@ def building_visual(tile, shells, ortho, first_pass, wall_context=()):
         custom_roof = roof_mesh(b, roof, ridx, origin)
         if custom_roof is not None:
             meshes.append(custom_roof)
+            continue
+        metal = metal_roof(tile, b, roof, ridx, origin, photo)
+        if metal is not None:
+            meshes.append(metal)
             continue
         uv = ortho_uv(tile, roof)
         # OSM material/heritage tags must never bypass usable roof imagery.

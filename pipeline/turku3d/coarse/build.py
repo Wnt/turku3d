@@ -754,6 +754,7 @@ def build(
             roof_fallback,
             valid_roof_pixels,
             Path(__file__).with_name("stored_facades.py"),
+            Path(__file__).with_name("metal_roofs.py"),
             base / "facade_assets.py",
             base / "facade_kit.py",
             *palette_sources(),
