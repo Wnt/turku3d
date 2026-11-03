@@ -149,14 +149,24 @@ def attribute(hitch_t, ms, events, slices_by_frame, frame_id, window=60, samples
             shares[f'js:{c}'] = shares.get(f'js:{c}', 0) + n * sample_ms
         sampled = sum(counts.values()) * sample_ms
         shares['native'] = max(0.0, ms - sampled - sum(v for k, v in shares.items() if k.startswith('slice:')))
-    near = [e for e in events if hitch_t - ms - window <= e['t'] <= hitch_t + 10 and e['k'] not in ('coverage', 'tile.new')]
+    # Programs built inside this frame (game/src/render/census.ts emits gfx.build for every in-frame build).
+    built = sorted({build_family(e) for e in events if e['k'] == 'gfx.build' and hitch_t - ms - 2 <= e['t'] <= hitch_t + 2})
+    near = [e for e in events if hitch_t - ms - window <= e['t'] <= hitch_t + 10 and e['k'] not in ('coverage', 'tile.new', 'gfx.build')]
     context = ', '.join(sorted({e['k'] + (f" {e['id']}" if e.get('id') else '') for e in near}))[:160]
     if not shares:
         best = max(near, key=lambda e: e.get('ms', 0)) if near else None
         return ('unattributed', f'no samples; near: {context}' if best else 'no streaming work within the frame')
     cause = max(shares, key=shares.get)
     parts = ', '.join(f'{k} {v:.0f}' for k, v in sorted(shares.items(), key=lambda kv: -kv[1]) if v >= 1)
-    return cause, f'{cause} ({parts} ms of {ms:.0f})' + (f'; near: {context}' if context else '')
+    return cause, f'{cause} ({parts} ms of {ms:.0f})' + (f'; built: {"; ".join(built)[:240]}' if built else '') \
+        + (f'; near: {context}' if context else '')
+
+
+def build_family(event):
+    """One in-frame program build: pass, material (digits folded) and object."""
+    import re
+    fold = lambda value: re.sub(r'\d+', '#', str(value))
+    return f"{event.get('pass', '?')} {fold(event.get('material', '?'))} [{fold(event.get('object', '?'))}]"
 
 
 def coverage_incidents(events):
@@ -418,6 +428,11 @@ def summary(capture, hitch=50.0, top=10):
         causes[attribute(t, ms, events, by_frame, f[1], samples=capture.get('samples'), sample_ms=capture.get('sample_ms'))[0]] += 1
     for cause, n in causes.most_common():
         lines.append(f"    {cause:<24} {n}")
+    builds = Counter(build_family(e) for e in events if e['k'] == 'gfx.build')
+    if builds:
+        lines.append(f'    in-frame program builds: {sum(builds.values())}, by family:')
+        for family, n in builds.most_common(12):
+            lines.append(f'      {n:4d}  {family}')
     # Does any streaming event predict hitches? Its rate in the second before each hitch against before every frame.
     if long:
         import bisect

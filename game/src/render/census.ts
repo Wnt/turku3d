@@ -1,4 +1,5 @@
 import type * as THREE from 'three/webgpu';
+import { streamTrace } from '../telemetry/streamTrace';
 
 /** Diagnostics for perf work without a profiler UI: which node programs get built (and whether inside a live frame,
  * where they stall the frame, or during streaming preparation), and one frame's draws/triangles per pass and group.
@@ -20,6 +21,9 @@ export class BuildLog {
       material: label(draw.material), object: objectLabel(draw.object) };
     this.entries.push(entry);
     if (this.entries.length > LIMIT) this.entries.shift();
+    // Live captures (telemetry/capture.ts) get every in-frame build as a timed event: tools/perf/tile_timeline.py
+    // names the shader-build hitches by these families.
+    if (inFrame) streamTrace.event('gfx.build', undefined, { pass: entry.pass, material: entry.material, object: entry.object });
     const key = `${inFrame ? 'frame' : 'prep'}\t${entry.pass}\t${entry.material.replace(/\d+/g, '#')}`;
     const family = this.families.get(key);
     if (family) { family.count++; family.last = entry.t; }
