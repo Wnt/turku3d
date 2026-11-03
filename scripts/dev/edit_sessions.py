@@ -40,10 +40,20 @@ def rows(session: Path) -> list[dict]:
     return sorted(out, key=lambda r: (r.get("seq", 0), r.get("id", "")))
 
 
+NOT_EDITS = ("undo", "tag")
+
+
 def effective(session_rows: list[dict]) -> list[dict]:
-    """Edits not undone, in order."""
+    """Edits not undone, in order, with the newest tag row of each folded in (`reason`)."""
     undone = {r["undoes"] for r in session_rows if r.get("action") == "undo"}
-    return [r for r in session_rows if r.get("action") != "undo" and r["id"] not in undone]
+    tags = {r["edit"]: r for r in session_rows if r.get("action") == "tag"}  # rows are in seq order: newest wins
+    out = []
+    for r in session_rows:
+        if r.get("action") in NOT_EDITS or r["id"] in undone:
+            continue
+        tag = tags.get(r["id"])
+        out.append({**r, "reason": tag["reason"]} if tag else r)
+    return out
 
 
 def final(session_rows: list[dict]) -> dict[str, dict]:

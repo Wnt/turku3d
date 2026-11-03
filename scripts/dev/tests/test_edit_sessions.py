@@ -35,10 +35,13 @@ class EditSessionTests(unittest.TestCase):
                      edit(2, "prop:t0_0_0:GIS_Penkit:a", move=3, reason="on_road_or_path"),
                      edit(3, "prop:t0_0_0:GIS_Penkit:b", action="delete", reason="does_not_exist"),
                      {"format": "turku3d-edit", "version": 1, "id": "s-0004", "seq": 4, "session": "s", "action": "undo", "undoes": "s-0002"},
-                     edit(5, "prop:t0_0_0:GIS_Penkit:c", move=1, reason="on_road_or_path")]
+                     edit(5, "prop:t0_0_0:GIS_Penkit:c", move=1),
+                     {"format": "turku3d-edit", "version": 1, "id": "s-0006", "seq": 6, "session": "s", "action": "tag", "edit": "s-0005", "reason": "wrong_facing"},
+                     {"format": "turku3d-edit", "version": 1, "id": "s-0007", "seq": 7, "session": "s", "action": "tag", "edit": "s-0005", "reason": "on_road_or_path"}]
             (session / "edits.jsonl").write_text("\n".join(json.dumps(r) for r in lines) + "\n{torn")
             rows = edit_sessions.rows(session)
             self.assertEqual([r["seq"] for r in edit_sessions.effective(rows)], [1, 3, 5])
+            self.assertEqual(edit_sessions.effective(rows)[2]["reason"], "on_road_or_path")  # the newest tag
             final = edit_sessions.final(rows)
             self.assertEqual(final["prop:t0_0_0:GIS_Penkit:a"]["delta"]["horizontal_m"], 2)
             out = io.StringIO()

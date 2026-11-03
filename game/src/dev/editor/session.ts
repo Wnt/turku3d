@@ -2,6 +2,9 @@
 // (~/turku3d/loops/editor/EDIT-FORMAT.md). The dev server stores them under ~/turku3d/edits/<session>/ (session.json,
 // edits.jsonl, shots/); the browser keeps the session, its effective edits and an outbox of unsent rows in
 // localStorage, so a reload restores the previews and resends what the server has not acknowledged.
+// Every request times out (a request that never settles once held the send lock for the rest of a session), rows
+// go in bounded batches ahead of session.json, and an outbox entry is acknowledged only for the revision sent, so an
+// amendment made while its row was in flight is sent again. Reason tags are their own append-only rows.
 
 export const EDIT_FORMAT = 'turku3d-edit';
 export const EDIT_VERSION = 1;
@@ -14,6 +17,8 @@ export interface Transform extends Frames { yaw_deg: number | null; heading_deg:
 export interface EditRecord {
   format: typeof EDIT_FORMAT; version: typeof EDIT_VERSION;
   id: string; seq: number; session: string; at: string;
+  /** Content revision: 1 at commit, +1 per amendment (context, pin, shots). The server keeps the highest. */
+  rev?: number;
   action: 'move' | 'rotate' | 'delete';
   changes: { translated: boolean; rotated: boolean; height: boolean };
   object: { key: string; category: string; type: string; tile: string; object_id: string; provenance: Record<string, unknown> };
@@ -34,7 +39,15 @@ export interface EditRecord {
   shots: { before: string | null; after: string | null };
 }
 export interface UndoRecord { format: typeof EDIT_FORMAT; version: typeof EDIT_VERSION; id: string; seq: number; session: string; at: string; action: 'undo'; undoes: string }
-export type SessionRow = EditRecord | UndoRecord;
+/** A later annotation of an edit (the D-pad reason): the reader folds the newest tag of an edit into it. */
+export interface TagRecord { format: typeof EDIT_FORMAT; version: typeof EDIT_VERSION; id: string; seq: number; session: string; at: string; action: 'tag'; edit: string; reason: string | null }
+export type SessionRow = EditRecord | UndoRecord | TagRecord;
+const isEdit = (r: SessionRow): r is EditRecord => r.action !== 'undo' && r.action !== 'tag';
+
+/** Rows per request and the request body budget: well inside any proxy or browser limit. */
+const BATCH_ROWS = 8, BATCH_BYTES = 48 * 1024;
+/** Request timeouts (ms): JSON and screenshot uploads. */
+const TIMEOUT_JSON = 10_000, TIMEOUT_BLOB = 20_000;
 
 export interface SessionMeta {
   format: 'turku3d-edit-session'; version: 1; id: string;
@@ -53,8 +66,12 @@ export interface SessionTransport {
 }
 
 export const httpTransport = (base = '/__edits/'): SessionTransport => {
+  // No keepalive (its in-flight body quota is shared with the page); every request settles within its timeout.
   const send = async (url: string, init: RequestInit) => {
-    try { return (await fetch(url, { ...init, keepalive: init.body instanceof Blob ? false : true, cache: 'no-store' })).ok; } catch { return false; }
+    try {
+      const timeout = init.body instanceof Blob ? TIMEOUT_BLOB : TIMEOUT_JSON;
+      return (await fetch(url, { ...init, cache: 'no-store', signal: AbortSignal.timeout(timeout) })).ok;
+    } catch { return false; }
   };
   return {
     putJson: (session, file, value) => send(`${base}${session}/${file}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value, null, 1) }),
@@ -74,15 +91,17 @@ export function newSessionId(now = new Date()) {
   return `${stamp}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-interface Stored { meta: SessionMeta; active: boolean; rows: SessionRow[]; outbox: string[]; metaDirty: boolean }
+/** `outbox`: [row id, revision to send] (sessions stored before revisions: ids only). */
+interface Stored { meta: SessionMeta; active: boolean; rows: SessionRow[]; outbox: (string | [string, number])[]; metaDirty: boolean }
 
 /** One open session: its rows in order, the undo state and the unsent outbox. */
 export class EditSession {
   readonly rows: SessionRow[];
   active: boolean;
-  private outbox: Set<string>;
+  private outbox: Map<string, number>;
   private metaDirty: boolean;
-  private sending = false;
+  /** Start time (ms) of the send in flight, null when idle. */
+  private sending: number | null = null;
   error: string | null = null;
   /** Rows acknowledged by the dev server (status line). */
   sent = 0;
@@ -90,7 +109,7 @@ export class EditSession {
   private constructor(readonly meta: SessionMeta, stored: Stored | null, private store: KeyValue, private transport: SessionTransport) {
     this.rows = stored?.rows ?? [];
     this.active = stored?.active ?? false;
-    this.outbox = new Set(stored?.outbox ?? []);
+    this.outbox = new Map((stored?.outbox ?? []).map(entry => typeof entry === 'string' ? [entry, 0] : entry));
     this.metaDirty = stored?.metaDirty ?? true;
   }
 
@@ -118,7 +137,7 @@ export class EditSession {
   /** Edits not undone, in commit order. */
   effective(): EditRecord[] {
     const undone = new Set(this.rows.flatMap(r => r.action === 'undo' ? [r.undoes] : []));
-    return this.rows.filter((r): r is EditRecord => r.action !== 'undo' && !undone.has(r.id));
+    return this.rows.filter((r): r is EditRecord => isEdit(r) && !undone.has(r.id));
   }
   /** The latest effective edit of each object. */
   latestByKey(): Map<string, EditRecord> {
@@ -127,28 +146,39 @@ export class EditSession {
     return out;
   }
 
-  commit(edit: EditRecord) { this.rows.push(edit); this.outbox.add(edit.id); this.touch(); }
-  /** Amend an unsent or sent edit before its reason window closes: rows are resent whole (the server keeps the last). */
-  amend(id: string, change: Partial<Pick<EditRecord, 'reason' | 'context' | 'shots' | 'tile_pin'>>) {
-    const edit = this.rows.find(r => r.id === id && r.action !== 'undo') as EditRecord | undefined;
+  commit(edit: EditRecord) { edit.rev = 1; this.rows.push(edit); this.queue(edit); this.touch(); }
+  /** Complete an edit (context, pin, shots): the row is resent whole with the next revision. */
+  amend(id: string, change: Partial<Pick<EditRecord, 'context' | 'shots' | 'tile_pin'>>) {
+    const edit = this.rows.find((r): r is EditRecord => r.id === id && isEdit(r));
     if (!edit) return;
     Object.assign(edit, change);
-    this.outbox.add(id); this.touch();
+    edit.rev = (edit.rev ?? 0) + 1;
+    this.queue(edit); this.touch();
   }
+  /** Tag an edit already committed (and perhaps already stored): an append-only tag row; the edit shows it locally. */
+  tag(id: string, reason: string | null, now = new Date()) {
+    const edit = this.rows.find((r): r is EditRecord => r.id === id && isEdit(r));
+    if (!edit) return;
+    edit.reason = reason;
+    const seq = this.nextSeq;
+    const row: TagRecord = { format: EDIT_FORMAT, version: EDIT_VERSION, id: this.rowId(seq), seq, session: this.id, at: now.toISOString(), action: 'tag', edit: id, reason };
+    this.rows.push(row); this.queue(row); this.touch(now);
+  }
+  private queue(row: SessionRow) { this.outbox.set(row.id, isEdit(row) ? row.rev ?? 0 : 0); }
   /** Undo the most recent effective edit: returns it, and appends the undo row. */
   undo(now = new Date()): EditRecord | null {
     const last = this.effective().at(-1);
     if (!last) return null;
     const seq = this.nextSeq;
     const row: UndoRecord = { format: EDIT_FORMAT, version: EDIT_VERSION, id: this.rowId(seq), seq, session: this.id, at: now.toISOString(), action: 'undo', undoes: last.id };
-    this.rows.push(row); this.outbox.add(row.id); this.touch(now);
+    this.rows.push(row); this.queue(row); this.touch(now);
     return last;
   }
   setActive(active: boolean) { if (this.active !== active) { this.active = active; this.save(); } }
   end(now = new Date()) { this.meta.ended = now.toISOString(); this.touch(now); }
 
   private touch(now = new Date()) {
-    const effective = this.effective().length, edits = this.rows.filter(r => r.action !== 'undo').length;
+    const effective = this.effective().length, edits = this.rows.filter(isEdit).length;
     this.meta.counts = { edits, undone: edits - effective, effective };
     this.meta.updated = now.toISOString();
     this.metaDirty = true;
@@ -156,7 +186,7 @@ export class EditSession {
   }
 
   save() {
-    const stored: Stored = { meta: this.meta, active: this.active, rows: this.rows, outbox: [...this.outbox], metaDirty: this.metaDirty };
+    const stored: Stored = { meta: this.meta, active: this.active, rows: this.rows, outbox: [...this.outbox.entries()], metaDirty: this.metaDirty };
     try {
       if (this.meta.ended && !this.outbox.size && !this.metaDirty) this.store.removeItem(STORE);
       else this.store.setItem(STORE, JSON.stringify(stored));
@@ -164,25 +194,37 @@ export class EditSession {
   }
 
   get pending() { return this.outbox.size + (this.metaDirty ? 1 : 0); }
+  /** Rows the dev server has not acknowledged (HUD "n unsaved"). */
+  get unsent() { return this.outbox.size; }
 
-  /** Send session.json and every unacknowledged row. Rows are idempotent by id (the server keeps one line per id). */
-  async flush(): Promise<boolean> {
-    if (this.sending) return false;
-    this.sending = true;
+  /** Send every unacknowledged row (in batches, oldest first), then session.json. Rows are idempotent by id and
+   *  revision on the server. A send started more than a minute ago no longer blocks (requests time out at 20 s). */
+  async flush(now = Date.now()): Promise<boolean> {
+    if (this.sending !== null && now - this.sending < 60_000) return false;
+    const token = this.sending = now;
     try {
-      if (this.metaDirty) {
-        if (!await this.transport.putJson(this.id, 'session.json', this.meta)) { this.error = 'edit server unreachable'; return false; }
-        this.metaDirty = false;
+      const queued = this.rows.filter(r => this.outbox.has(r.id));
+      for (let i = 0; i < queued.length;) {
+        const batch: SessionRow[] = [], sent: [string, number][] = [];
+        let bytes = 0;
+        while (i < queued.length && batch.length < BATCH_ROWS) {
+          const row = queued[i], text = JSON.stringify(row);
+          if (batch.length && bytes + text.length > BATCH_BYTES) break;
+          batch.push(JSON.parse(text)); sent.push([row.id, this.outbox.get(row.id)!]); bytes += text.length; i++;
+        }
+        if (!await this.transport.appendRows(this.id, batch)) { this.error = 'edit server unreachable'; return false; }
+        // Acknowledge only the revision sent: an amendment while in flight stays queued.
+        for (const [id, rev] of sent) if (this.outbox.get(id) === rev) this.outbox.delete(id);
+        this.sent += batch.length;
+        this.save();
       }
-      const rows = this.rows.filter(r => this.outbox.has(r.id));
-      if (rows.length) {
-        if (!await this.transport.appendRows(this.id, rows)) { this.error = 'edit server unreachable'; return false; }
-        for (const r of rows) this.outbox.delete(r.id);
-        this.sent += rows.length;
+      if (this.metaDirty) {
+        this.metaDirty = false;
+        if (!await this.transport.putJson(this.id, 'session.json', this.meta)) { this.metaDirty = true; this.error = 'edit server unreachable'; return false; }
       }
       this.error = null;
       return true;
-    } finally { this.sending = false; this.save(); }
+    } finally { if (this.sending === token) this.sending = null; this.save(); }
   }
 
   putShot(file: string, blob: Blob) { return this.transport.putBlob(this.id, file, blob); }

@@ -41,20 +41,22 @@ describe('edit sessions', () => {
     session.commit(edit(session, 'prop:t0_0_0:GIS_Penkit:1', 2));
     session.commit(edit(session, 'prop:t0_0_0:GIS_Penkit:1', 3));
     session.commit(edit(session, 'prop:t0_0_0:GIS_Penkit:2', 0, 'delete'));
-    session.amend(session.rowId(2), { reason: 'wrong_facing' });
+    session.tag(session.rowId(2), 'wrong_facing');
     expect(session.undo()?.id).toBe(session.rowId(3));
     expect(session.effective().map(e => e.seq)).toEqual([1, 2]);
     expect(session.latestByKey().get('prop:t0_0_0:GIS_Penkit:1')?.reason).toBe('wrong_facing');
     expect(session.meta.counts).toEqual({ edits: 3, undone: 1, effective: 2 });
     // Unreachable server: nothing acknowledged, everything stays in the outbox across a reload.
     expect(await session.flush()).toBe(false);
-    expect(session.pending).toBe(5);
+    expect(session.unsent).toBe(5); expect(session.pending).toBe(6);
     const reloaded = EditSession.restore(s, t)!;
-    expect(reloaded.id).toBe(session.id); expect(reloaded.active).toBe(true); expect(reloaded.pending).toBe(5);
+    expect(reloaded.id).toBe(session.id); expect(reloaded.active).toBe(true); expect(reloaded.unsent).toBe(5);
     t.ok = true;
     expect(await reloaded.flush()).toBe(true);
     expect(reloaded.pending).toBe(0);
-    expect(t.sent.rows[0].map(r => r.action)).toEqual(['move', 'move', 'delete', 'undo']);
+    expect(t.sent.rows[0].map(r => r.action)).toEqual(['move', 'move', 'delete', 'tag', 'undo']);
+    expect(t.sent.rows[0][3]).toMatchObject({ action: 'tag', edit: reloaded.rowId(2), reason: 'wrong_facing' });
+    expect(t.sent.meta.length).toBe(1); // session.json after the rows
     // A second undo removes the second move; the first remains the object's state.
     reloaded.undo();
     const state = stateOf(reloaded.latestByKey().get('prop:t0_0_0:GIS_Penkit:1')!);
@@ -63,6 +65,38 @@ describe('edit sessions', () => {
     reloaded.end(); await reloaded.flush();
     expect(EditSession.restore(s, t)).toBeNull();
     expect(s.map.size).toBe(0);
+  });
+
+  test('a send that never settles does not stall the queue; an amendment made in flight is sent again; batches stay small', async () => {
+    const s = store();
+    const hanging: SessionTransport & { calls: SessionRow[][]; hang: boolean; resolve?: (ok: boolean) => void } = {
+      calls: [], hang: true,
+      putJson: async () => true,
+      appendRows: (_s, rows) => { hanging.calls.push(structuredClone(rows)); return hanging.hang ? new Promise(r => { hanging.resolve = r; }) : Promise.resolve(true); },
+      putBlob: async () => true,
+    };
+    const session = EditSession.start(s, hanging, { build: {}, tiles: {}, device: {} });
+    session.commit(edit(session, 'prop:t0_0_0:GIS_Penkit:1', 2));
+    const first = session.flush(0);
+    expect(await session.flush(1000)).toBe(false); // in flight
+    // Context arrives while the commit's row is in flight: acknowledging the first send must not drop it.
+    session.amend(session.rowId(1), { context: { before: { surface: 'road' }, after: null } });
+    hanging.resolve!(true); await first;
+    expect(session.unsent).toBe(1);
+    hanging.hang = false;
+    expect(await session.flush(2000)).toBe(true);
+    expect(hanging.calls.at(-1)![0]).toMatchObject({ rev: 2, context: { before: { surface: 'road' } } });
+    // A request that never answers (the 22:17 stall) blocks for at most a minute; the transport itself times out.
+    hanging.hang = true;
+    for (let i = 0; i < 20; i++) session.commit(edit(session, `prop:t0_0_0:GIS_Penkit:${10 + i}`, 1));
+    void session.flush(10_000);
+    expect(await session.flush(20_000)).toBe(false);
+    hanging.hang = false; hanging.calls.length = 0;
+    expect(await session.flush(80_000)).toBe(true);
+    expect(session.unsent).toBe(0);
+    expect(hanging.calls.map(c => c.length)).toEqual([8, 8, 4]);
+    hanging.resolve!(true); // the abandoned request finally answering acknowledges nothing twice
+    expect(session.unsent).toBe(0);
   });
 
   test('the dev server writes session.json, one line per row id in seq order, and shots; rejects bad paths', async () => {
@@ -85,6 +119,12 @@ describe('edit sessions', () => {
     expect((await call('POST', `/__edits/${id}/edits.jsonl`, [row(2, { reason: 'wrong_facing' }), row(3, { action: 'undo' })])).status).toBe(200);
     const lines = (await fs.readFile(path.join(root, id, 'edits.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l));
     expect(lines.map(l => l.seq)).toEqual([1, 2, 3]); expect(lines[1].reason).toBe('wrong_facing');
+    // Idempotent by id and revision: a queued older copy neither duplicates nor clobbers the stored one.
+    await call('POST', `/__edits/${id}/edits.jsonl`, [row(4, { rev: 2, context: { full: true } })]);
+    const stale = await call('POST', `/__edits/${id}/edits.jsonl`, [row(4, { rev: 1, context: null }), row(4, { rev: 1 })]);
+    expect(JSON.parse(stale.text)).toMatchObject({ rows: 4, stale: 2 });
+    const after = (await fs.readFile(path.join(root, id, 'edits.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l));
+    expect(after.filter(l => l.seq === 4)).toEqual([expect.objectContaining({ rev: 2, context: { full: true } })]);
     expect((await call('PUT', `/__edits/${id}/shots/${id}-0001-before.jpg`, Buffer.from([0xff, 0xd8, 0xff]), 'image/jpeg')).status).toBe(200);
     expect((await fs.stat(path.join(root, id, 'shots', `${id}-0001-before.jpg`))).size).toBe(3);
     expect((await call('GET', `/__edits/${id}/session.json`)).text).toContain('"started"');

@@ -1,6 +1,8 @@
 // Local Vite/preview storage for the in-game object editor's edit sessions (game/src/dev/editor/session.ts).
-// ~/turku3d/edits/<session>/session.json, edits.jsonl (one line per row id, in seq order; a resent row replaces its
-// line) and shots/<edit>-before.jpg|after.jpg. Format: ~/turku3d/loops/editor/EDIT-FORMAT.md. No production endpoint.
+// ~/turku3d/edits/<session>/session.json, edits.jsonl and shots/<edit>-before.jpg|after.jpg.
+// Format: ~/turku3d/loops/editor/EDIT-FORMAT.md. No production endpoint.
+// edits.jsonl holds one line per row id, in seq order. Appends are idempotent: a row already stored is replaced only
+// by the same or a higher `rev` (a retried or queued older copy never clobbers a newer one or duplicates a line).
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -21,7 +23,9 @@ async function atomicWrite(file, data) {
   await fs.writeFile(temporary, data); await fs.rename(temporary, file);
 }
 
-/** Merge rows into edits.jsonl by id (last write wins), ordered by seq then id. */
+const rev = row => Number.isSafeInteger(row?.rev) ? row.rev : 0;
+
+/** Merge rows into edits.jsonl by id (the highest revision wins; equal ones take the incoming copy), by seq then id. */
 export async function mergeRows(file, rows) {
   const byId = new Map();
   try {
@@ -30,10 +34,15 @@ export async function mergeRows(file, rows) {
       try { const row = JSON.parse(line); if (row?.id) byId.set(row.id, row); } catch { /* keep going: a torn line is dropped */ }
     }
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  for (const row of rows) byId.set(row.id, row);
+  let kept = 0;
+  for (const row of rows) {
+    const stored = byId.get(row.id);
+    if (stored && rev(stored) > rev(row)) { kept++; continue; }
+    byId.set(row.id, row);
+  }
   const ordered = [...byId.values()].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || String(a.id).localeCompare(String(b.id)));
   await atomicWrite(file, ordered.map(row => JSON.stringify(row)).join('\n') + (ordered.length ? '\n' : ''));
-  return ordered.length;
+  return { rows: ordered.length, stale: kept };
 }
 
 export function editSessionsMiddleware(root = process.env.TURKU3D_EDITS ?? path.join(os.homedir(), 'turku3d/edits')) {
@@ -67,8 +76,8 @@ export function editSessionsMiddleware(root = process.env.TURKU3D_EDITS ?? path.
         const rows = JSON.parse((await body(req, MAX_JSON)).toString('utf8'));
         if (!Array.isArray(rows) || rows.some(r => !r || typeof r.id !== 'string' || r.session !== id || !Number.isSafeInteger(r.seq)))
           return reply(400, { error: 'Invalid rows' });
-        const count = await serial(id, () => mergeRows(path.join(dir, 'edits.jsonl'), rows));
-        return reply(200, { id, rows: count });
+        const { rows: count, stale } = await serial(id, () => mergeRows(path.join(dir, 'edits.jsonl'), rows));
+        return reply(200, { id, rows: count, stale });
       }
       if (req.method === 'PUT' && SHOT.test(file)) {
         const data = await body(req, MAX_SHOT);

@@ -92,6 +92,8 @@ export class ObjectEditor {
   private transport: SessionTransport;
   private raycast: Raycast;
   private input: Input | null = null;
+  private unsavedBadge: HTMLElement | null = null;
+  private unsentSince: number | null = null;
   /** Props are indexed when the editor needs them; a model loading under open prop previews is indexed at once. */
   private onLoad = (e: { scene: THREE.Object3D }) => {
     const props = [...this.previews.states.values()].some(s => s.category === 'prop');
@@ -390,7 +392,7 @@ export class ObjectEditor {
 
   private tag(index: number, now: number) {
     if (!this.session || !this.lastCommitted) return;
-    this.session.amend(this.lastCommitted, { reason: REASONS[index] });
+    this.session.tag(this.lastCommitted, REASONS[index]);
     this.hud?.notify(`Reason: ${REASONS[index].replace(/_/g, ' ')}`, now, 1000);
     void this.session.flush();
   }
@@ -418,6 +420,7 @@ export class ObjectEditor {
     if (!this.enabled) return;
     this.previews.update();
     if (this.session && now >= this.flushAt) { this.flushAt = now + 2000; if (this.session.pending) void this.session.flush(); }
+    this.showUnsaved(now);
     if (!this.machine.active) return;
     const camera = this.hosts.camera;
     camera.updateMatrixWorld();
@@ -433,6 +436,23 @@ export class ObjectEditor {
     }
     this.drawHighlight();
     this.renderHud(now);
+  }
+
+  /** "n unsaved" whenever rows wait more than 3 s for the dev server, also outside the mode (its HUD is hidden). */
+  private showUnsaved(now: number) {
+    const s = this.session, unsent = s?.unsent ?? 0;
+    if (!unsent) this.unsentSince = null; else this.unsentSince ??= now;
+    const text = unsent && this.unsentSince !== null && now - this.unsentSince > 3000
+      ? `${unsent} edit row${unsent === 1 ? '' : 's'} unsaved${s?.error ? ` · ${s.error}` : ''}` : '';
+    if (!text && !this.unsavedBadge) return;
+    if (!this.unsavedBadge) {
+      this.unsavedBadge = Object.assign(document.createElement('div'), { id: 'object-editor-unsaved' });
+      Object.assign(this.unsavedBadge.style, { position: 'fixed', right: '12px', bottom: '42px', zIndex: '41', pointerEvents: 'none',
+        background: 'rgba(200,90,20,.88)', color: '#fff', font: '600 12px/1.3 system-ui,sans-serif', padding: '4px 9px', borderRadius: '4px' });
+      document.body.append(this.unsavedBadge);
+    }
+    if (this.unsavedBadge.textContent !== text) this.unsavedBadge.textContent = text;
+    this.unsavedBadge.hidden = !text;
   }
 
   private probeOccluder(origin: THREE.Vector3, dir: THREE.Vector3) {
@@ -491,7 +511,7 @@ export class ObjectEditor {
     ];
     const s = this.session;
     const cloud = pointCloudOverlay();
-    const status = [s ? `${s.id} · ${s.meta.counts.effective} edits` : '', s?.pending ? `${s.pending} unsent` : '', s?.error ?? '',
+    const status = [s ? `${s.id} · ${s.meta.counts.effective} edits` : '', s?.unsent ? `${s.unsent} unsaved` : '', s?.error ?? '',
       cloud ? `LiDAR ${cloud.isVisible() ? `${Math.round(cloud.getOpacity() * 100)} %` : 'off'}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
     hud.render({ mode: this.held ? 'hold' : 'aim', label, hover: !!current, deleting: this.machine.deleteHeld > 0 ? this.machine.deleteHeld / EDITOR.deleteHold : null,
       reasonLeft: this.held ? 0 : this.machine.reasonLeft, reasonGlyphs: [g('editUp'), g('editRight'), g('editDown'), g('editLeft')], hints, status }, now);
@@ -506,6 +526,7 @@ export class ObjectEditor {
     void this.session?.flush();
     this.shots.dispose();
     this.hud?.dispose();
+    this.unsavedBadge?.remove();
     if (this.highlight) { this.highlight.removeFromParent(); this.highlight.geometry.dispose(); (this.highlight.material as THREE.Material).dispose(); }
     // Previews stay with the world until the session closes; a hot swap restores them from the store.
     this.previews.clear();
