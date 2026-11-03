@@ -415,6 +415,8 @@ test('far-band dissolve twins build on both backends in the beauty MRT, rigid an
     for (const layer of layers) {
       const geometry = wall();
       geometry.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+      // Far ground carries the near tile's baked sky visibility (tools/remote-drafts/scenery.mjs).
+      if (layer === 'ground') geometry.setAttribute('color_1', new THREE.BufferAttribute(new Uint8Array(12).fill(200), 4, true));
       const mesh = new THREE.Mesh(geometry, dissolveTwin(sceneryMaterial(layer, coverage)));
       mesh.name = `twin-${layer}`; mesh.castShadow = mesh.receiveShadow = true;
       w.meshes.push(mesh); w.scene.add(mesh); names.push(mesh.name);
@@ -423,6 +425,7 @@ test('far-band dissolve twins build on both backends in the beauty MRT, rigid an
       mesh.material = dissolveTwin(mesh.material as THREE.Material); names.push(mesh.name);
     }
     const programs = w.shaders(names);
+    expect(programs['twin-ground'].vertex + programs['twin-ground'].fragment).toMatch(/color_1|nodeVarying/);
     for (const [name, program] of Object.entries(programs)) {
       expect(program.fragment, `${name} dissolves`).toMatch(/discard/);
       if (webgl) continue;
