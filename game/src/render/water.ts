@@ -2,7 +2,7 @@ import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
 import { reflector } from 'three/tsl';
 import { labelGpuPass } from './gpuPasses';
-import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence } from './reflections';
+import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence, WaterCoverage, type WaterReflection } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 import { riverSurface } from './riverSurface';
@@ -13,6 +13,8 @@ let activeSurface = riverSurface;
 
 export class RiverMaterial {
   readonly material = new THREE.NodeMaterial();
+  /** Where this reach's mirror plane is real water: the reflection pass draws only what can land on it. */
+  readonly coverage = new WaterCoverage();
   private disposeSurface = () => {};
   private reflectionUV: ReturnType<typeof reflector>['uvNode'];
   private context: THREE.WebGPURenderer['contextNode'];
@@ -43,6 +45,7 @@ export class RiverMaterial {
       reflector.getVirtualCamera = camera => {
         const reflected = virtualCamera(camera);
         reflected.layers.set(REFLECTION_LAYER);
+        reflected.userData.waterReflection = { coverage: this.coverage, eye: camera, plane: reflection.target } satisfies WaterReflection;
         return reflected;
       };
       const update = reflector.updateBefore.bind(reflector);

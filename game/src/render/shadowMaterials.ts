@@ -5,6 +5,7 @@ import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
 import { asyncFirstUsePipelines } from './asyncPipelines';
 import { BuildLog } from './census';
+import type { WaterReflection } from './reflections';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -71,6 +72,10 @@ export class GameRenderer extends THREE.WebGPURenderer {
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
+    // River reflections draw only what can land on water (render/reflections.ts); preparation still compiles all.
+    const water = (camera.userData as { waterReflection?: WaterReflection }).waterReflection;
+    if (water && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling
+      && !water.coverage.reflectsObject(object, water.eye, water.plane.matrixWorld.elements[13])) return;
     const original = scene.overrideMaterial;
     // Worker occlusion skips the primary camera's beauty and normal-prepass draws together; shadows, reflections
     // and shader preparation keep their own visibility.

@@ -124,7 +124,7 @@ export class MaterialStyler {
             shared = { river: new RiverMaterial(mesh, this.env, this.tier, this.deterministic, this.renderer), meshes: new Set() };
             this.rivers.set(key, shared);
           }
-          shared.meshes.add(mesh); this.riverKeys.set(mesh, key);
+          shared.meshes.add(mesh); shared.river.coverage.add(mesh); this.riverKeys.set(mesh, key);
           rivers.push(mesh);
           mesh.castShadow = false;
           return shared.river.material;
@@ -190,7 +190,7 @@ export class MaterialStyler {
     for (const mesh of owned.rivers) {
       const key = this.riverKeys.get(mesh)!;
       const shared = this.rivers.get(key)!;
-      shared.meshes.delete(mesh); this.riverKeys.delete(mesh);
+      shared.meshes.delete(mesh); shared.river.coverage.remove(mesh); this.riverKeys.delete(mesh);
       if (shared.meshes.size) shared.river.attach(shared.meshes.values().next().value!);
       else { shared.river.dispose(); this.rivers.delete(key); }
       // CoarseTiles owns the glTF material; it must not dispose another tile's shared river.
