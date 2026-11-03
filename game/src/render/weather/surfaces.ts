@@ -9,7 +9,21 @@ export { weatherUniforms } from './surfaceState';
 let detail: THREE.DataTexture | undefined;
 const allMineral = float(1);
 type WetGraph = Pick<THREE.MeshStandardNodeMaterial, 'colorNode' | 'roughnessNode' | 'setupLightMap'>;
-let plainWetGraph: WetGraph | undefined;
+type WetRecipes = { textures: Map<string, WeakMap<THREE.Texture, WetRecipes>>; graph?: WetGraph };
+const wetRecipes: WetRecipes = { textures: new Map() };
+/** Exact sampler/UV variants already have canonical Texture identities. Weak keys leave ownership
+ * with the streamed models, including when only one map in a material's texture set changes. */
+function wetRecipe(material: THREE.MeshStandardNodeMaterial) {
+  let recipe = wetRecipes;
+  for (const [property, texture] of Object.entries(material).filter(([, value]) => value?.isTexture).sort(([a], [b]) => a.localeCompare(b))) {
+    let textures = recipe.textures.get(property);
+    if (!textures) { textures = new WeakMap(); recipe.textures.set(property, textures); }
+    let next = textures.get(texture);
+    if (!next) { next = { textures: new Map() }; textures.set(texture, next); }
+    recipe = next;
+  }
+  return recipe;
+}
 export function weatherNoise() {
   if (detail) return detail;
   const size = 64, data = new Uint8Array(size * size * 4);
@@ -57,10 +71,10 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   material.userData.weatherWetness = true;
   // These expressions read materialColor/materialRoughness at draw time. Reuse the graph,
   // while each material keeps its own uniforms and each object keeps its own bindings.
-  // Authored maps/graphs and terrain masks may affect shader layout; leave those independent.
-  const plain = !facade && mineral === allMineral &&
-    !Object.values(material).some(value => value?.isTexture || value?.isNode);
-  if (plain && plainWetGraph) { Object.assign(material, plainWetGraph); return material; }
+  // Authored graphs and terrain masks stay independent; mapped defaults share only exact texture sets.
+  const recipe = !facade && mineral === allMineral && !Object.values(material).some(value => value?.isNode)
+    ? wetRecipe(material) : null;
+  if (recipe?.graph) { Object.assign(material, recipe.graph); return material; }
   if (!facade) {
     // Streaming precompiles and beauty/reflection builders must see the same graph.
     const irradiance = new THREE.IrradianceNode(material.lightMap
@@ -88,6 +102,6 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   })();
   material.colorNode = surface.rgb;
   material.roughnessNode = surface.a;
-  if (plain) plainWetGraph = { colorNode: material.colorNode, roughnessNode: material.roughnessNode, setupLightMap: material.setupLightMap };
+  if (recipe) recipe.graph = { colorNode: material.colorNode, roughnessNode: material.roughnessNode, setupLightMap: material.setupLightMap };
   return material;
 }
