@@ -198,7 +198,8 @@ export class Walkers {
     if (frameNow - this.lastScan >= SCAN_MS) {
       this.lastScan = frameNow;
       const scan = performance.now();
-      this.wide = population.near(view.x, view.z, RING.inView + RING.keep + 15, utc);
+      // Walkers exist for this client only within the ring (GTA: peds on foot within about 100 m).
+      this.wide = population.near(view.x, view.z, RING.inView + RING.keep, utc);
       this.scanMs = performance.now() - scan;
     }
     const candidates = this.candidates;

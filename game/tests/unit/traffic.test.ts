@@ -635,39 +635,44 @@ describe('car simulation tiers', () => {
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null,
       character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 0, y: 0, z: 0 }), pushCharacter: () => {} };
     const sim = new TrafficSim(R, world, host);
-    const active = (sim as unknown as { active: Map<number, { tier: number; pose: { x: number; z: number }; handle: number }> }).active;
+    const active = (sim as unknown as { active: Map<number, unknown> }).active;
     const car = (handle: number, x: number, z: number) => {
-      const c = { handle, tier: 1, pose: { ...blankPose(), x, z } };
-      active.set(handle, c as never);
+      const c = { handle, tier: 1, pose: { ...blankPose(), x, z }, motion: { stopped: 0 } };
+      active.set(handle, c);
       return c;
     };
     return { sim, car };
   };
 
-  test('real within 70 m in view among the 8 nearest; kept to 80 m and the 12 nearest; far beyond 200 m, back inside 190 m', () => {
+  test('real: moving, in view, within 35 m, the 5 nearest (kept to 40 m / 6); stopped cars are dummies; far beyond 200 m', () => {
     const { sim, car } = setup();
-    const ahead = (d: number) => [0, -d] as const;
-    const near = Array.from({ length: 10 }, (_, i) => car(i + 1, ...ahead(10 + i * 5)));
-    const behind = car(20, 0, 20), edge = car(21, ...ahead(75)), far = car(22, ...ahead(205)), mid = car(23, ...ahead(150));
+    const near = Array.from({ length: 7 }, (_, i) => car(i + 1, 0, -(5 + i * 4)));
+    const behind = car(20, 0, 20), edge = car(21, 0, -37), far = car(22, 0, -205), mid = car(23, 0, -150);
     sim.assignTiers(view);
-    expect(near.map(c => c.tier)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 1, 1]);
+    expect(near.map(c => c.tier)).toEqual([0, 0, 0, 0, 0, 1, 1]);
     expect([behind.tier, edge.tier, far.tier, mid.tier]).toEqual([1, 1, 2, 1]);
-    // Hysteresis: a real car drifting to 75 m stays real; a newcomer at 75 m does not become one.
-    near[0].pose.z = -75; sim.assignTiers(view);
+    // Hysteresis: a real car drifting to 38 m stays real; at 42 m it is a dummy.
+    near[0].pose.z = -38; sim.assignTiers(view);
     expect(near[0].tier).toBe(0);
-    near[0].pose.z = -85; sim.assignTiers(view);
+    near[0].pose.z = -42; sim.assignTiers(view);
     expect(near[0].tier).toBe(1);
-    // Rank: a real car pushed to 9th-12th nearest keeps its tier; beyond 12th it drops.
-    near[1].pose.z = -58; sim.assignTiers(view);
+    // A real car pushed to 6th nearest keeps its tier.
+    near[1].pose.z = -26; sim.assignTiers(view);
     expect(near[1].tier).toBe(0);
+    // Waiting at a light (stopped half a second) is always a dummy, however close.
+    near[2].motion.stopped = 0.6; sim.assignTiers(view);
+    expect(near[2].tier).toBe(1);
+    near[2].motion.stopped = 0; sim.assignTiers(view);
+    expect(near[2].tier).toBe(0);
     // Far: 195 m keeps a far car far; 185 m brings it back; a dummy at 195 m stays a dummy.
     far.pose.z = -195; mid.pose.z = -195; sim.assignTiers(view);
     expect([far.tier, mid.tier]).toEqual([2, 1]);
     far.pose.z = -185; sim.assignTiers(view);
     expect(far.tier).toBe(1);
     // Out of view is never real.
-    near[2].pose.z = 15; sim.assignTiers(view);
-    expect(near[2].tier).toBe(1);
-    expect(sim.stats.tiers.reduce((a, b) => a + b, 0)).toBe(14);
+    near[3].pose.z = 15; sim.assignTiers(view);
+    expect(near[3].tier).toBe(1);
+    expect(sim.stats.tiers[0]).toBeLessThanOrEqual(6);
+    expect(sim.stats.tiers.reduce((a, b) => a + b, 0)).toBe(11);
   });
 });

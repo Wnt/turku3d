@@ -62,12 +62,14 @@ export interface TrafficHost {
   player(): V3 | null;
 }
 
-/** GTA-style car tiers (techstudy Brief 1). Real cars (in view, within 70 m and among the 8 nearest; kept to 80 m
- *  and the 12 nearest) sample their wheels on collision every substep. Dummies follow their lane's collision-sampled
- *  heights and pitch with no wheel rays. Far cars (beyond 200 m, back inside 190 m) take an exact pose at 5 Hz and
- *  drift along their heading in between. A real/dummy change blends wheel and lane poses over half a second.
- *  Rendering only: the shared flow, identities and bodies (within 70 m of the player) are untouched. */
-export const TIERS = { realIn: 70, realOut: 80, realCount: 8, realKeep: 12, farIn: 200, farOut: 190, farPeriod: 0.2, blend: 0.5 } as const;
+/** GTA-style car tiers (techstudy Brief 1; live GTA V, REPORT §7 L4: real physics for about five cars, the nearest
+ *  moving ones within 11-35 m; parked and waiting cars are dummies). Real cars (moving, in view, within 35 m and
+ *  among the 5 nearest such; kept to 40 m and the 6 nearest) sample their wheels on collision every substep. A car
+ *  stopped for half a second is a dummy. Dummies follow their lane's collision-sampled heights and pitch with no
+ *  wheel rays. Far cars (beyond 200 m, back inside 190 m) take an exact pose at 5 Hz and drift along their heading
+ *  in between. A real/dummy change blends wheel and lane poses over half a second. Rendering only: the shared flow,
+ *  identities and bodies (within 70 m of the player) are untouched. */
+export const TIERS = { realIn: 35, realOut: 40, realCount: 5, realKeep: 6, stopped: 0.5, farIn: 200, farOut: 190, farPeriod: 0.2, blend: 0.5 } as const;
 export type Tier = 0 | 1 | 2;
 
 interface ActiveCar {
@@ -409,7 +411,8 @@ export class TrafficSim {
     let real = 0, far = 0;
     for (const car of ranked) {
       const d = car.distance, wasReal = car.tier === 0, visible = inView(view, car.pose.x, car.pose.z);
-      if (visible && (d < TIERS.realIn || wasReal && d < TIERS.realOut) && (real < TIERS.realCount || wasReal && real < TIERS.realKeep)) {
+      const moving = !(car.motion.stopped >= TIERS.stopped);
+      if (moving && visible && (d < TIERS.realIn || wasReal && d < TIERS.realOut) && (real < TIERS.realCount || wasReal && real < TIERS.realKeep)) {
         car.tier = 0; real++;
       } else if (d > TIERS.farIn || car.tier === 2 && d > TIERS.farOut) { car.tier = 2; far++; }
       else car.tier = 1;

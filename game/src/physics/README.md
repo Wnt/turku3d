@@ -176,9 +176,10 @@ Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared 
   density change) is `deferred`: it drives on until it is out of view, so density changes never pop a car in
   sight. The density clock is the shared cycle in multiplayer; in single player the clock the player sees
   (`?time=`, `?cycle=`, the developer time menu).
-- Drawn cars have GTA-style tiers (`TIERS` in `physics/traffic.ts`, reassigned at the ring's 5 Hz):
-  - **real**: in view, within 70 m and among the 8 nearest (kept to 80 m and the 12 nearest); wheels sampled on
-    collision every substep;
+- Drawn cars have GTA-style tiers (`TIERS` in `physics/traffic.ts`, reassigned at the ring's 5 Hz; live GTA V keeps
+  real physics for about five cars, the nearest moving ones within 11-35 m):
+  - **real**: moving, in view, within 35 m and among the 5 nearest such (kept to 40 m and the 6 nearest); wheels
+    sampled on collision every substep. A car stopped for half a second (waiting at a light, queued) is a dummy;
   - **dummy**: everything else within 200 m; stands on the lane's collision samples (every 4 m, sampled once per
     lane; within 3.5 cm of the ground on t0_0_0 lanes, where the surveyed lane Y is off by up to 21 cm), pitch
     from the same samples, no wheel rays;
