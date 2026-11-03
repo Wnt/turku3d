@@ -96,4 +96,7 @@ test('overlapping pass timestamps (tile GPUs) are credited on the serialized tim
   // Summing each pass's own begin..end counted bloom as 12 x ~1.15 ms = 13.8 ms.
   expect(Object.values(times).reduce((a, b) => a! + b!, 0)).toBeLessThanOrEqual(16);
   expect(serialPassTimes(['beauty'], new BigUint64Array([0, 4, 3, 2].map(ms)))).toBeUndefined();
+  // Apple GPUs can run the frame's begin marker after its render passes: credit passes from the first pass on.
+  const late = serialPassTimes(['beauty', 'traa', 'post'], new BigUint64Array([40, 41, 10, 16, 15.5, 17, 40.5, 40.7].map(ms)))!;
+  expect(Object.fromEntries(Object.entries(late).map(([k, v]) => [k, Math.round(v! * 100) / 100]))).toEqual({ beauty: 6, traa: 1, post: 0.2 });
 });

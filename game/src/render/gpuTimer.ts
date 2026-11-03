@@ -24,16 +24,18 @@ const PASS_LIMIT = 128, QUERY_COUNT = 2 + PASS_LIMIT * 2;
  * its beginning timestamp, while earlier passes still shade: chained fullscreen passes then overlap, and summing
  * each pass's own begin..end counted bloom's 12 tiny passes as 20 ms of a 16 ms frame (capture 20261103-133034).
  * Each pass is credited only with the time its end extends past every earlier pass's end (never before its own
- * start), so the totals add up to at most the frame span; the remainder is idle, copy or compute time. */
+ * start), so the totals add up to at most the passes' span; the remainder is idle, copy or compute time. */
 export function serialPassTimes(passes: readonly GpuPass[], values: BigUint64Array): GpuPassTimes | undefined {
   const times: GpuPassTimes = {};
-  let covered = values[0];
+  // The timeline starts at the first pass, not the frame's begin marker: on Apple GPUs that dependency-free compute
+  // marker can execute after the frame's render passes (capture 20261103-134213 read 0 ms for every pass but post).
+  let covered: bigint | null = null;
   for (const [i, name] of passes.entries()) {
     const start = values[2 + i * 2], end = values[3 + i * 2];
     if (end < start) return undefined;
-    const from = start > covered ? start : covered;
+    const from = covered === null || start > covered ? start : covered;
     times[name] = (times[name] ?? 0) + (end > from ? Number(end - from) / 1e6 : 0);
-    if (end > covered) covered = end;
+    if (covered === null || end > covered) covered = end;
   }
   return times;
 }
