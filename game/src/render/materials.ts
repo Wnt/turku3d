@@ -223,6 +223,16 @@ export class MaterialStyler {
   /** Every surface layer handed out so far is uploaded and sampled (render/surfaceArrays.ts). */
   surfacesReady() { return this.surfaces.ready(); }
 
+  /** River-reflection programs of `model` only (dissolve keepers: render/lodFade.ts), in the same queue as prepare. */
+  prepareReflections(model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera): Promise<void> {
+    if (!this.env.csm.camera) return Promise.resolve();
+    const prepared = this.preparing.then(async () => {
+      for (const { river } of this.rivers.values()) await river.prepare(this.renderer, model, scene, camera);
+    });
+    this.preparing = prepared.catch(() => {});
+    return prepared;
+  }
+
   prepare(model: THREE.Object3D, scene: THREE.Scene, camera: THREE.PerspectiveCamera, signal?: AbortSignal): Promise<void> {
     // Initial residency precedes CSM setup; preloadWorld prepares the complete ring after its main compile.
     if (!this.env.csm.camera) return Promise.resolve();

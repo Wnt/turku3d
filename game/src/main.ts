@@ -213,7 +213,11 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
   queueGraphics(model, async () => {
     await materials?.prepare(model, scene, camera, signal);
     const roots = model.userData.dissolveIn ? [model] : blockLodRoots(model);
-    if (roots.length && post) await precompileDissolve(roots, [0], root => post!.prepare(root));
+    // Twins of surfaces the river reflects also draw there (in-frame reflection builds of landmark/roof twins).
+    if (roots.length && post) await precompileDissolve(roots, [0], async root => {
+      await post!.prepare(root);
+      await materials?.prepareReflections(root, scene, camera);
+    });
   }, signal);
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
 const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
@@ -279,6 +283,9 @@ const renderFrame = () => {
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
   if (post) post.render(); else renderer.render(scene, camera);
+  // Models prepared before the first shadow pass compile their casters now, in the paced preparation queue.
+  if (post) for (const model of post.takeShadowless())
+    graphics.enqueue(model, () => {}, undefined, true).catch(error => console.warn(`[shadow preparation] ${error}`));
   frameSubmitted(renderer);
 };
 
