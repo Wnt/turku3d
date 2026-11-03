@@ -10,8 +10,11 @@
 import * as THREE from 'three/webgpu';
 import { bool, dot, float, floor, fract, frameId, screenCoordinate, uniform, vec2 } from 'three/tsl';
 
-/** Seconds a far-band model takes to dissolve in or out. */
+/** Default seconds a band hand-over takes to dissolve in or out (Jonni: seamless blending). */
 export const LOD_FADE_SECONDS = 0.6;
+/** The dissolve length the engine runs with: LOD_FADE_SECONDS unless the bench lab's `lodfade=` sets another
+ *  (qa/lab/overrides.ts); 0 swaps at once, like GTA V's hand-over (techstudy REPORT §7 L2). */
+export const LOD_FADE = { seconds: LOD_FADE_SECONDS };
 /** Depth-bias tiers of the twin, chosen by the fading model's camera distance. A bias, not a vertex pull:
  *  positionNode would move facade programs onto r186's deformed velocity path and past the 16 inter-stage varyings
  *  (render/rigidVelocity.ts). With the 0.1 m near plane one unit is about 0.6e-6 * d^2 metres, so a fixed bias
@@ -275,7 +278,7 @@ export class LodFades {
   /** Start (or reverse from its current coverage) a dissolve of `root` towards `to`; `done` runs once it lands.
    *  Returns false, changing nothing, when a twin of `tier` is not compiled yet: the caller swaps at once instead.
    *  A running dissolve is always reversed on its own tier. */
-  start(root: THREE.Object3D, from: number, to: number, done?: () => void, now = performance.now(), seconds = LOD_FADE_SECONDS,
+  start(root: THREE.Object3D, from: number, to: number, done?: () => void, now = performance.now(), seconds = LOD_FADE.seconds,
     tier = 0): boolean {
     this.clock = now;
     const running = this.fades.get(root);

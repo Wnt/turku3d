@@ -3,7 +3,7 @@
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { styleBlockLod } from '../render/sceneryMaterial';
-import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
+import { LOD_FADE, lodFades } from '../render/lodFade';
 import { streamTrace, tileDistance } from '../telemetry/streamTrace';
 import { ownedGeometryBytes } from './modelGeometry';
 import { recordFreshness } from './coarseFreshness';
@@ -388,7 +388,7 @@ export class CoarseTiles {
     if (own === 'C' || own === 'c' || !model.visible || !model.parent) { if (under) this.dispose(under, id); return; }
     lodFades.cancelWithin(model);
     const started = lodFades.start(model, 0, 1, () => streamTrace.event('band.fadeEnd', id, { dir: 'in', band: 'full' }),
-      this.clock, LOD_FADE_SECONDS, 0);
+      this.clock, LOD_FADE.seconds, 0);
     streamTrace.event(started ? 'band.fade' : 'band.swap', id, { dir: 'in', band: 'full',
       over: under ? 'preview' : own === 'U' ? 'coarser' : 'nothing' });
     if (started && under) this.underFade.set(model, { id, under });
