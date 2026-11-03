@@ -52,7 +52,7 @@ import { CameraBench, benchPose } from './qa/bench';
 import { FrameClock } from './core/frameClock';
 import { ScenePopulation } from './world/scenePopulation';
 import { GroundIndex } from './world/groundIndex';
-import { drawCensus } from './render/census';
+import { drawCensus, uniformCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
 import { StaticBundles } from './render/staticBundles';
 import { freezeModel } from './world/frozenTransforms';
@@ -86,7 +86,9 @@ declare global {
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
       /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
-      census?: () => Promise<unknown>; bundles?: StaticBundles | null };
+      census?: () => Promise<unknown>; bundles?: StaticBundles | null;
+      /** One frame's uniform-buffer writes by pass, object family, group and uniform (render/census.ts). */
+      uniforms?: () => Promise<unknown> };
   }
 }
 
@@ -178,6 +180,12 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
       install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
       uninstall: () => { window.__render!.afterFrame = previous; },
     }, renderer instanceof GameRenderer ? renderer.builds : undefined);
+  }, uniforms: () => {
+    let previous: (() => void) | undefined;
+    return uniformCensus(renderer, {
+      install: each => { previous = window.__render!.afterFrame; window.__render!.afterFrame = () => { previous?.(); each(); }; },
+      uninstall: () => { window.__render!.afterFrame = previous; },
+    });
   }, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
