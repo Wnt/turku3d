@@ -380,7 +380,8 @@ class Farm:
             self.metrics['requests'] += 1
             if distance is not None:
                 self.observe(revision, generation, client)
-                if distance < 1:
+                # Boot checks name themselves (?tileClient=canary -> client=canary): never a player.
+                if distance < 1 and not str(player or '').startswith('canary'):
                     self.players.setdefault(player or client or 'anonymous', {})[tile] = time.time()
             root = self.output(generation)
             receipt = root / tile / 'ready.json'

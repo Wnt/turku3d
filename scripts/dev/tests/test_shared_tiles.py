@@ -583,6 +583,13 @@ class FarmTests(unittest.TestCase):
         self.wait(farm)
         self.assertEqual(calls, ['t0_0_0', 't0_5_0', 't0_5_1', 't0_6_1', 't0_9_9', 't0_3_0', 't0_8_8'])
 
+    def test_a_boot_check_client_is_never_taken_for_a_player(self):
+        farm = self.farm(workers=0)
+        farm.request(REV, 't0_0_0', 0, 'proxy', 'canary')
+        farm.request(REV, 't0_6_-14', 0, 'proxy')
+        self.assertEqual(farm.standing(), {(6, -14)})
+        self.assertLess(farm.priority((GEN, 't0_6_-14')), farm.priority((GEN, 't0_0_0')))
+
     def test_demand_the_player_left_ages_out_but_explicit_checks_stay(self):
         farm = self.farm(workers=0)
         farm.request(REV, 't0_20_0', 0, 'game')
