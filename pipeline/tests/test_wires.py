@@ -82,11 +82,12 @@ def test_span_wire_between_facades_carries_a_hung_lamp():
     assert all(len(w) == 8 for w in field["wires"])
 
 
-def test_a_crown_of_leafless_branches_holds_no_wire():
+def test_a_crown_of_overlap_returns_holds_no_wire():
     centre = np.array([20.0, 10.0, 20.0])
     crown = centre + RNG.normal(0, 2.0, (6000, 3))
     branches = [centre + np.outer(np.linspace(0, 3.5, 30), RNG.normal(0, 1, 3) / 1.7) for _ in range(12)]
-    xyz, classes = scene((ground(0, 0, 40, 40), 2), (crown, 5), (np.concatenate(branches), 5))
+    # Filed as strip overlap (12), so only the candidates' own crowding tells the crown from a wire.
+    xyz, classes = scene((ground(0, 0, 40, 40), 2), (crown, 12), (np.concatenate(branches), 12))
     found, lamps = W.detect(xyz, classes, (0, 0, 40, 40), search=0)
     assert found == [] and lamps == []
 

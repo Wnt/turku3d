@@ -1,4 +1,4 @@
-"""wires@1: overhead wires and the street lamps hung on them, from the survey lidar (``coarse.wires``).
+"""wires@2: overhead wires and the street lamps hung on them, from the survey lidar (``coarse.wires``).
 
 A pure data migration: the tile's own ``pistepilvi`` returns give span wires between facades with
 their hung lamps, and utility lines between poles. The list rides in the existing client-visible
@@ -21,4 +21,4 @@ def transform(product: Product) -> None:
     m["lights"] = {**(m.get("lights") or EMPTY_LIGHTS), "wires": record}
 
 
-MIGRATION = Migration("wires", 1, transform)
+MIGRATION = Migration("wires", 2, transform)

@@ -2,21 +2,19 @@
 
 A class rule over the city ``pistepilvi`` returns, with no per-street data:
 
-1. **Candidates** are returns of the classes a wire is filed under (unclassified, vegetation and
-   strip overlap, ``CLASSES``) between ``MIN_HEIGHT`` and ``MAX_HEIGHT`` above the ground (class 2
-   on a ``GROUND_CELL`` grid). Crowns and walls fill space: a return whose ``VOXEL`` neighbourhood
-   is crowded (``CROWDED``) is not a wire.
-2. **Linear** returns have a thin, straight neighbourhood (``LINEAR_RADIUS``): principal component
-   share ``LINEARITY`` and a cross-section under ``THICKNESS``.
-3. **Pieces** grow over neighbours along the same direction (``ALIGN``, ``ALIGN_OFFSET``); each
-   piece is a straight line in plan and a parabola (a catenary at small sag) in its vertical
-   plane, kept when ``MIN_LENGTH`` long with RMS residuals under ``RESIDUAL``.
-4. **Wires** join collinear pieces across gaps (``JOIN_GAP``) when one profile fits them all.
-5. **Ends** reach to what the wire hangs from: a facade (building returns ahead, ``REACH``), a pole
-   (a column of returns below the end) or another wire (a junction).
-6. **Lamps** hang where span wires meet in mid air (two or more wire ends at one point over the
-   street, ``KNOT``), or as a compact blob of returns just below a wire (``LAMP``).
-7. **Kind**: ``span`` wires cross the street between facades or carry lamps; ``utility`` wires run
+1. **Wire returns** come from the stage the point-cloud product's wire layer uses
+   (``turku3d.wire_points``: unclassified and overlap returns in free air, line-like and
+   near-horizontal, in connected stretches), with shorter stretches allowed (``STAGE``).
+2. **Pieces**: each stretch is a straight line in plan and a parabola (a catenary at small sag) in
+   its vertical plane, kept when ``MIN_LENGTH`` long with RMS residuals under ``RESIDUAL``; a
+   stretch that bends (a lamp's weight, a junction) is cut where two fits leave the least residual.
+3. **Wires** join collinear pieces across gaps (``JOIN_GAP``) when one profile fits them all.
+4. **Ends** reach to what the wire hangs from: a facade (building returns ahead, ``REACH`` and
+   ``FAR_REACH``), a pole (a column of returns below the end) or another wire (a knot). A wire
+   whose end hangs from nothing in open air is left out; one ending in a crown is kept.
+5. **Lamps** hang where span wires meet in mid air (facing ends, ``KNOT_GAP``, or a free end
+   carried on to another wire), or as a compact blob of returns just below a wire (``LAMP``).
+6. **Kind**: ``span`` wires cross the street between facades or carry lamps; ``utility`` wires run
    from pole to pole; ``power`` lines hang higher than ``POWER_HEIGHT`` over the ground.
 
 Each tile lists the wires whose middle it owns (half-open bounds) and the lamps standing in it,
@@ -32,6 +30,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from turku3d.wire_points import RECIPE, height_above_ground, wire_points
+
 FORMAT_VERSION = 1
 CLASSES = (1, 3, 4, 5, 12)  # unclassified, low/medium/high vegetation, overlap
 BUILDING = 6
@@ -39,14 +39,6 @@ GROUND = 2
 GROUND_CELL = 2.0  # m
 MIN_HEIGHT = 3.0  # m above ground: below it are vehicles, signs and people
 MAX_HEIGHT = 45.0
-VOXEL = 0.5  # m
-CROWDED = 6  # occupied voxels in the 3x3x3 neighbourhood of a wire return at most
-LINEAR_RADIUS = 1.0  # m
-LINEARITY = 0.85  # (l1 - l2) / l1 of the neighbourhood covariance
-THICKNESS = 0.08  # m: sqrt(l2) of a wire neighbourhood at most
-ALIGN = math.cos(math.radians(12.0))  # neighbour directions of one piece
-ALIGN_OFFSET = 0.2  # m off a neighbour's direction
-LINK = 1.5  # m between consecutive returns of one piece
 MIN_POINTS = 6
 MIN_LENGTH = 3.0  # m of a piece
 MIN_WIRE = 5.0  # m of a drawn wire (after ends are reached)
@@ -66,7 +58,9 @@ POWER_HEIGHT = 16.0  # m above ground
 SEARCH = 60.0  # m around the tile
 SPAN_MAX = 45.0  # m: a lighting span wire is shorter
 KINDS = ("span", "utility", "power")
-CLUTTER = {"radius": 1.0, "count": 3, "share": 0.5}  # other returns around a branch, not a wire
+# The shared wire-return stage (turku3d.wire_points) with shorter stretches (a span half from a facade to its lamp
+# is often under the point-cloud layer's 8 m) and the candidates' own crowding (overlap-strip roofs and crowns).
+STAGE = {**RECIPE, "min_extent": 4.0, "min_points": 8, "self_crowd": 6}
 CROWN_END = 2.0  # m from a free wire end to the crown it disappears into
 ROOF = 0.3  # share of a wire over building returns: roof edges, railings and antennas
 
@@ -138,53 +132,6 @@ class Ground:
         return self.grid[k, i]
 
 
-# -- candidates -------------------------------------------------------------------------------------
-def _voxel_keys(v):
-    return (v[:, 0] + (1 << 20)) * (1 << 42) + (v[:, 1] + (1 << 20)) * (1 << 21) + (v[:, 2] + (1 << 20))
-
-
-def sparse(points, voxel=VOXEL, crowded=CROWDED):
-    """Mask of returns in uncrowded space: at most ``crowded`` occupied voxels around theirs."""
-    if not len(points):
-        return np.zeros(0, bool)
-    v = np.floor(points / voxel).astype(np.int64)
-    keys = _voxel_keys(v)
-    unique, inverse = np.unique(keys, return_inverse=True)
-    cells = v[np.unique(keys, return_index=True)[1]]
-    count = np.zeros(len(unique), np.int64)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            for dz in (-1, 0, 1):
-                probe = _voxel_keys(cells + np.array([dx, dy, dz]))
-                i = np.clip(np.searchsorted(unique, probe), 0, len(unique) - 1)
-                count += unique[i] == probe
-    return count[inverse] <= crowded
-
-
-def linear(points, radius=LINEAR_RADIUS):
-    """(mask, unit directions) of returns whose neighbourhood is a thin line."""
-    from scipy.spatial import cKDTree
-
-    n = len(points)
-    directions = np.zeros((n, 3))
-    mask = np.zeros(n, bool)
-    if n < MIN_POINTS:
-        return mask, directions
-    tree = cKDTree(points)
-    for i, near in enumerate(tree.query_ball_point(points, r=radius)):
-        if len(near) < 4:
-            continue
-        q = points[near] - points[near].mean(0)
-        values, vectors = np.linalg.eigh(q.T @ q / len(near))
-        if values[2] <= 1e-9 or values[1] > THICKNESS**2:
-            continue
-        if (values[2] - values[1]) / values[2] >= LINEARITY:
-            mask[i] = True
-            d = vectors[:, 2]
-            directions[i] = d if (d[0], d[2]) >= (0, 0) else -d
-    return mask, directions
-
-
 # -- pieces -----------------------------------------------------------------------------------------
 def fit_profile(s, y):
     """Least-squares parabola of height over distance; a sag never hogs (c2 >= 0)."""
@@ -254,45 +201,6 @@ def _cost(points) -> float:
     profile = fit_profile(s, points[:, 1])
     vertical = points[:, 1] - (profile[0] + profile[1] * s + profile[2] * s * s)
     return float(values[0] + vertical @ vertical)
-
-
-def pieces(points, directions, clutter=None):
-    """Straight runs of linear returns: neighbours along one direction, then fits per run.
-
-    ``clutter`` (a KD-tree of the other candidate returns) drops runs inside crowns: leafless
-    branches are short straight runs too, but always among other returns."""
-    from scipy.sparse import coo_matrix
-    from scipy.sparse.csgraph import connected_components
-    from scipy.spatial import cKDTree
-
-    if len(points) < MIN_POINTS:
-        return []
-    pairs = cKDTree(points).query_pairs(r=LINK, output_type="ndarray")
-    if not len(pairs):
-        return []
-    i, j = pairs[:, 0], pairs[:, 1]
-    aligned = np.abs(np.einsum("ij,ij->i", directions[i], directions[j])) >= ALIGN
-    delta = points[j] - points[i]
-    off = np.linalg.norm(np.cross(delta, directions[i]), axis=1)
-    keep = aligned & (off <= ALIGN_OFFSET)
-    graph = coo_matrix((np.ones(keep.sum()), (i[keep], j[keep])), shape=(len(points), len(points)))
-    _, labels = connected_components(graph, directed=False)
-    out = []
-    for label in np.unique(labels):
-        members = points[labels == label]
-        if len(members) < MIN_POINTS:
-            continue
-        for piece in split(members):
-            if clutter is not None and _cluttered(piece, clutter):
-                continue
-            out.append(piece)
-    return out
-
-
-def _cluttered(piece: Piece, clutter) -> bool:
-    """Most of the piece's returns have other candidate returns around them."""
-    counts = np.array([len(n) for n in clutter.query_ball_point(piece.points, r=CLUTTER["radius"])])
-    return float(np.mean(counts > CLUTTER["count"])) > CLUTTER["share"]
 
 
 def _joinable(a: Piece, b: Piece) -> bool:
@@ -572,21 +480,22 @@ def detect(xyz, classes, bounds, search=SEARCH):
     inside = (xyz[:, 0] >= outer[0]) & (xyz[:, 0] < outer[2]) & (xyz[:, 2] >= outer[1]) & (xyz[:, 2] < outer[3])
     xyz, classes = xyz[inside], classes[inside]
     ground = Ground(xyz[classes == GROUND], outer)
-    height = xyz[:, 1] - ground(xyz[:, 0], xyz[:, 2])
+    # The wire returns: the stage the point-cloud product's wire layer uses (turku3d.wire_points), on a grid
+    # anchored at the search area's corner so that every tile's crop agrees where they overlap.
+    corner = (outer[0], outer[1])
+    height = height_above_ground(xyz[:, 0], xyz[:, 2], xyz[:, 1], classes, origin=corner)
+    index, stretch = wire_points(xyz[:, 0], xyz[:, 2], xyz[:, 1], classes, height, r=STAGE, origin=corner, workers=1)
+    found = xyz[index]
+    parts = join([p for label in np.unique(stretch) for p in split(found[stretch == label])])
     candidate = np.isin(classes, CLASSES) & (height >= MIN_HEIGHT) & (height <= MAX_HEIGHT)
-    points = xyz[candidate]
-    open_space = sparse(points)
-    loose = points[open_space]
-    mask, directions = linear(loose)
-    others = np.concatenate([points[~open_space], loose[~mask]])
-    clutter = cKDTree(others) if len(others) else None
-    parts = join(pieces(loose[mask], directions[mask], clutter))
+    candidate[index] = False
+    loose = xyz[candidate]
     buildings = Index(xyz[(classes == BUILDING) & (height >= MIN_HEIGHT - 1.0)])
     columns = Index(xyz[np.isin(classes, CLASSES) & (height >= 0.8)])
     wires = [to_wire(p, buildings, columns, ground) for p in parts]
     wires = [w for w in wires if not over_roof(w, buildings, ground)]
     found = knots(wires)
-    crowns = cKDTree(points[~open_space]) if (~open_space).any() else None
+    crowns = cKDTree(loose) if len(loose) else None
     kept = [i for i, w in enumerate(wires) if (w.length >= MIN_WIRE or "knot" in w.ends) and _held(w, crowns)]
     renumber = {old: new for new, old in enumerate(kept)}
     wires = [wires[i] for i in kept]
@@ -595,7 +504,7 @@ def detect(xyz, classes, bounds, search=SEARCH):
         owners = [renumber[j] for j in members if j in renumber]
         if owners:
             lamps.append((point, owners[0]))
-    for point, i, _ in blobs(np.concatenate([points[~open_space], loose[~mask]]), wires):
+    for point, i, _ in blobs(loose, wires):
         if all(np.linalg.norm(point[[0, 2]] - q[[0, 2]]) > 2.0 for q, _ in lamps):
             lamps.append((point, i))
     for point, i in lamps:
