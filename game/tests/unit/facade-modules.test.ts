@@ -88,6 +88,21 @@ it('pools five solid pieces with positive transforms and distance LOD without du
   expect(lod.position.x).toBeGreaterThan(100);
 });
 
+it('shares one instance draw across adjacent former cells without dropping profiles', () => {
+  const model = new THREE.Group();
+  for (const x of [8, 40]) { const source = new THREE.Mesh(patch()); source.position.x = x; model.add(source); }
+  addFacadeModules(model);
+  const root = model.getObjectByName('facade-modules')!;
+  expect(root.children).toHaveLength(1);
+  const lod = root.children[0] as THREE.LOD, mesh = lod.children[0] as THREE.InstancedMesh;
+  expect(mesh.count).toBe(10);
+  expect(lod.levels[1].distance).toBe(110);
+  const matrix = new THREE.Matrix4(), positions: number[] = [];
+  for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, matrix); positions.push(matrix.elements[12] + lod.position.x); }
+  expect(Math.min(...positions)).toBeLessThan(10);
+  expect(Math.max(...positions)).toBeGreaterThan(40);
+});
+
 it('cooperatively prepares the same instance transforms as synchronous construction', async () => {
   const models=[new THREE.Group(),new THREE.Group()];
   for(const model of models)for(let i=0;i<40;i++){

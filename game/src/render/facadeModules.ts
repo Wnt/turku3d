@@ -193,7 +193,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
         const position = origin.clone().addScaledVector(tangent, x).addScaledVector(up, y).addScaledVector(normal, z);
         const matrix = basis.clone().scale(scale.set(sx, sy, sz)).setPosition(position).premultiply(transform);
         const p = new THREE.Vector3().setFromMatrixPosition(matrix);
-        const key = `${Math.floor(p.x/32)}/${Math.floor(p.z/32)}`;
+        const key = `${Math.floor(p.x/64)}/${Math.floor(p.z/64)}`;
         const rows = cells.get(key) ?? []; if (!cells.has(key)) cells.set(key, rows);
         rows.push({matrix, colour:sill ? opening.trim : opening.frame,plane});
       }
