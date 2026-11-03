@@ -1,10 +1,12 @@
 """Content-addressed draft visual packaging, independent of generator source versions."""
 
+import fcntl
 import hashlib
 import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 from functools import lru_cache
 from pathlib import Path
@@ -249,6 +251,41 @@ def _package_visual(
     return (stage / "out" / "tile.glb").read_bytes(), stats
 
 
+def prepared_kit(root):
+    """The output root's facade kit; with a shared cache, one deterministic render for all roots.
+
+    Each product generation is a new root. Rendering the same kit there again costs about
+    30 s CPU, and every worker that starts at once would render its own copy.
+    """
+    from turku3d.facade_kit import code_hash
+
+    target = root / f"facade-kit-{code_hash()}"
+    if (target / "kit.json").exists():
+        return ensure_kit(root)
+    shared = os.environ.get("TURKU3D_SHARED_CACHE")
+    source = _kit_locked(Path(shared) / "facade-kits", ensure_kit) if shared else None
+
+    def materialise(root):
+        if source is not None and not (target / "kit.json").exists():
+            stage = Path(tempfile.mkdtemp(prefix="facade-kit-", dir=root))
+            maps = {}
+            for slot, path in source["maps"].items():
+                shutil.copyfile(path, stage / Path(path).name)
+                maps[slot] = str(target / Path(path).name)
+            (stage / "kit.json").write_text(json.dumps(dict(key=source["key"], maps=maps, version=3)))
+            os.rename(stage, target)
+        return ensure_kit(root)
+
+    return _kit_locked(root, materialise)
+
+
+def _kit_locked(root, operation):
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / ".facade-kit.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return operation(root)
+
+
 def shared_package_inputs(library, work, *, first_pass=False):
     """Material library identities and facade kit shared by every package of one build.
 
@@ -262,7 +299,7 @@ def shared_package_inputs(library, work, *, first_pass=False):
         for name in sorted(names):
             path = Path(directory) / name
             files["library/" + str(path.relative_to(library))] = path
-    kit = None if first_pass else ensure_kit(work / "shared")
+    kit = None if first_pass else prepared_kit(work / "shared")
     if kit:
         for slot, path in kit["maps"].items():
             files["kit/" + slot] = Path(path)
@@ -315,7 +352,6 @@ def package_visual(tile, layer_files, stage, work, library, *, first_pass=False,
         source_key(
             *package_sources(),
             *sorted((C.REPO_ROOT / "game/public/basis").glob("basis_transcoder.*")),
-            Path(__file__).parents[1] / "stage_cache.py",
             C.REPO_ROOT / "pipeline/env/package-lock.json",
             _package_visual,
         ),
