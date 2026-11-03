@@ -15,6 +15,7 @@ import { CYCLE_EPOCH, cycleAt } from '../../src/core/dayCycle';
 import { LampPools } from '../../src/render/lights/pools';
 import { DayClock } from '../../src/render/dayClock';
 import { sceneryMaterial } from '../../src/render/sceneryMaterial';
+import { PostProcessing } from '../../src/render/post';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -129,7 +130,7 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
   };
   const at = (hour: number) => { const c = cycleAt(hour); env.setSun(c.sun.azimuth, c.sun.elevation, c.hour); };
   const lamps = () => { env.lamps.point[0].intensity = env.lamps.point[1].intensity = 20; };
-  return { env, meshes, at, keys, shaders, lamps };
+  return { env, meshes, at, keys, shaders, lamps, renderer, scene, camera };
 }
 
 test('time edits move the shadow-casting sun with the sky while the camera stays still', () => {
@@ -367,4 +368,31 @@ test('separated solar occlusion keeps one atmosphere evaluation and three cloud 
     at(22);
     expect(shaders(['sky']).sky).toEqual(first);
   } finally { env.dispose(); }
+});
+
+test('facade and night programs fit 16 WebGPU varyings in the single-pass beauty MRT with baked visibility', () => {
+  const w = world(false, 'medium');
+  // Beauty writes colour, puddle normal/receiver and TRAA motion; baked tiles add COLOR_1.
+  const post = new PostProcessing(w.renderer, w.scene, w.camera, 'medium', 'taa');
+  const beauty = (post as unknown as { pre: unknown; beauty: THREE.PassNode; beautyContext: THREE.WebGPURenderer['contextNode'] });
+  expect(beauty.pre).toBeNull();
+  w.renderer.setMRT(beauty.beauty.getMRT());
+  const target = new THREE.RenderTarget(1, 1, { count: 3 });
+  ['output', 'normal', 'velocity'].forEach((name, i) => { target.textures[i].name = name; });
+  w.renderer.setRenderTarget(target);
+  w.renderer.contextNode = beauty.beautyContext;
+  // Only legacy v4 walls (no longer emitted: the generator writes v6, or v2/v3 without openings) stay unbaked.
+  for (const mesh of w.meshes.filter(m => m.name !== 'kit-v4')) mesh.geometry.setAttribute('color_1',
+    new THREE.BufferAttribute(new Uint8Array(mesh.geometry.getAttribute('position').count * 4).fill(200), 4, true));
+  const programs = w.shaders();
+  for (const [name, program] of Object.entries(programs)) {
+    if (!(name.startsWith('kit-') || name.startsWith('night_') || name.startsWith('far-') || name === 'draft-facade')) continue;
+    const varyings = program.vertex.slice(program.vertex.indexOf('struct VaryingsStruct'));
+    const locations = [...varyings.slice(0, varyings.indexOf('}')).matchAll(/@location\(\s*(\d+)\s*\)/g)].map(m => Number(m[1]));
+    expect(Math.max(-1, ...locations), `${name} WebGPU varying locations`).toBeLessThanOrEqual(15);
+    // Rigid surfaces derive motion from the view position: no per-vertex previous position.
+    expect(program.vertex, name).not.toMatch(/positionPrevious/);
+  }
+  expect(programs['kit-v6'].fragment).toMatch(/color_1|nodeVarying/);
+  post.dispose(); target.dispose();
 });

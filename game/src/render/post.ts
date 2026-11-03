@@ -1,5 +1,6 @@
 import { decodePrepassNormal } from './normalDecode';
 import { bakedAmbientContext } from './bakedVisibility';
+import { installRigidVelocity } from './rigidVelocity';
 import { labelGpuPass } from './gpuPasses';
 import { PuddleReflections } from './weather/puddleReflections';
 import { GameRenderer } from './shadowMaterials';
@@ -44,6 +45,7 @@ export class PostProcessing {
 
   constructor(private renderer: THREE.WebGPURenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, tier: QualityTier, aa: Antialiasing = 'taa',
     overlay: PostOverlay | null = null) {
+    installRigidVelocity();
     const q = QUALITY[tier];
     const taa = aa === 'taa', wet = tier === 'medium' || tier === 'high';
     // GTAO darkens beauty's indirect light, so it needs depth and normals before beauty: a second geometry pass.
