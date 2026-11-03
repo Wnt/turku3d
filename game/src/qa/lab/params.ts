@@ -13,7 +13,7 @@ export type LabMode = typeof LAB_MODES[number];
 
 /** Subsystems a run can switch off: `?off=shadows,post`. Each maps to one construction-time switch (qa/lab/ablate.ts). */
 export const ABLATIONS = ['shadows', 'reflection', 'traffic', 'walkers', 'vegetation', 'scenery', 'post', 'bloom', 'traa',
-  'lights', 'facades', 'props', 'bundles'] as const;
+  'lights', 'facades', 'props'] as const;
 export type Ablation = typeof ABLATIONS[number];
 
 /** Install and fly isolate streaming and LOD: no ambient population unless `on=traffic,walkers`. */

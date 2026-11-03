@@ -187,8 +187,11 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
-// Resident tiles' unchanging draws replay as static render bundles (WebGPU only; the WebGL2 fallback has none).
-const bundles = idPass || backend !== 'WebGPU' || params.lab?.off.has('bundles') ? null : new StaticBundles(scene);
+// Static render bundles (render/staticBundles.ts) are an A/B alternative, off by default: per-tile bundles measured a
+// net loss (bench=static: CPU p50 +0.9 ms, +120 draws). Opt in with ?bundles=1 (lab, drive replays and play).
+// Owner perf3; removed unless the per-cell variant wins its A/B. WebGPU only.
+const bundlesWanted = new URLSearchParams(location.search).get('bundles') === '1';
+const bundles = idPass || backend !== 'WebGPU' || !bundlesWanted ? null : new StaticBundles(scene);
 window.__render!.bundles = bundles;
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.add(model));
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.remove(model));

@@ -34,8 +34,9 @@ function tile() {
 
 test('only unchanging tile surfaces and shadow batches are bundled', () => {
   const t = tile();
-  expect([t.ground, t.road, t.wall, t.shadow].every(bundleable)).toBe(true);
-  expect([t.prop, t.glass, t.trees, t.shell, t.placements].some(bundleable)).toBe(false);
+  expect([t.ground, t.road, t.wall].every(bundleable)).toBe(true);
+  // Shadow batches stay culled chunk by chunk.
+  expect([t.shadow, t.prop, t.glass, t.trees, t.shell, t.placements].some(bundleable)).toBe(false);
   const cutout = surface(); (cutout.material as THREE.Material).alphaTest = 0.5; expect(bundleable(cutout)).toBe(false);
   const parent = surface(); parent.add(surface()); expect(bundleable(parent)).toBe(false);
   const callback = surface(); callback.onBeforeRender = () => {}; expect(bundleable(callback)).toBe(false);
@@ -43,34 +44,38 @@ test('only unchanging tile surfaces and shadow batches are bundled', () => {
   const rows = surface(); rows.userData.objects = [{ prop_type: 'bus_stop' }]; expect(bundleable(rows)).toBe(false);
 });
 
-test('a landed tile moves its static draws into one bundle and restores them unchanged', () => {
+test('a landed tile moves its static draws into per-cell bundles and restores them unchanged', () => {
   const scene = new THREE.Scene(), bundles = new StaticBundles(scene), t = tile();
   scene.add(t.model); scene.updateMatrixWorld(true);
-  const before = new Map([t.ground, t.road, t.wall, t.shadow, t.chunk].map(o => [o, o.matrixWorld.clone()]));
+  const wide = surface('ground'); wide.scale.set(20, 1, 20); t.model.add(wide); scene.updateMatrixWorld(true);
+  const before = new Map([t.ground, t.road, t.wall, wide].map(o => [o, o.matrixWorld.clone()]));
   // Not before its install dissolve lands.
   const start = vi.spyOn(lodFades, 'has').mockReturnValue(true);
   bundles.add(t.model); bundles.update();
   expect(bundles.bundles.size).toBe(0);
   start.mockReturnValue(false); bundles.update(); start.mockRestore();
-  const bundle = bundles.bundles.get(t.model)!;
+  const groups = bundles.bundles.get(t.model)!;
+  // 62.5 m cells: ground and road share x 1000-1020, the wall sits in the cell west of them; the 200 m surface is tile-wide.
+  expect(groups.map(g => g.children)).toEqual([[t.ground, t.road], [t.wall], [wide]]);
+  const bundle = groups[0];
   expect(bundle).toBeInstanceOf(TileBundle);
   expect((bundle as unknown as { isBundleGroup: boolean }).isBundleGroup).toBe(true);
-  expect(bundle.parent).toBe(t.model);
-  expect(bundle.children).toEqual([t.ground, t.road, t.wall, t.shadow]);
-  for (const o of [t.prop, t.glass, t.trees, t.shell, t.placements]) expect(o.parent).toBe(t.model);
-  expect([t.ground, t.shadow, t.chunk].every(o => !o.frustumCulled && !o.matrixAutoUpdate)).toBe(true);
+  expect(groups.every(g => g.parent === t.model)).toBe(true);
+  for (const o of [t.shadow, t.prop, t.glass, t.trees, t.shell, t.placements]) expect(o.parent).toBe(t.model);
+  expect(t.chunk.frustumCulled && t.chunk.parent === t.shadow).toBe(true);
+  expect([t.ground, t.wall, wide].every(o => !o.frustumCulled && !o.matrixAutoUpdate)).toBe(true);
   scene.updateMatrixWorld();
   for (const [o, m] of before) expect(o.matrixWorld.equals(m)).toBe(true);
   // A moved tile carries its bundle and bounds along.
   t.model.position.x += 500; scene.updateMatrixWorld(); bundles.update();
   expect(t.ground.matrixWorld.elements[12]).toBeCloseTo(1500);
-  expect(bundle.bounds.min.x).toBeCloseTo(1475);
-  expect(bundle.bounds.max.x).toBeCloseTo(1532.5);
+  expect(bundle.bounds.min.x).toBeCloseTo(1495);
+  expect(bundle.bounds.max.x).toBeCloseTo(1525);
   t.model.position.x -= 500; scene.updateMatrixWorld();
   bundles.remove(t.model);
-  expect(bundle.parent).toBeNull();
-  expect(t.model.children).toEqual(expect.arrayContaining([t.ground, t.road, t.wall, t.shadow]));
-  expect([t.ground, t.shadow, t.chunk].every(o => o.frustumCulled && o.matrixAutoUpdate)).toBe(true);
+  expect(groups.every(g => g.parent === null)).toBe(true);
+  expect(t.model.children).toEqual(expect.arrayContaining([t.ground, t.road, t.wall, wide]));
+  expect([t.ground, t.wall, wide].every(o => o.frustumCulled && o.matrixAutoUpdate)).toBe(true);
   scene.updateMatrixWorld();
   for (const [o, m] of before) expect(o.matrixWorld.equals(m)).toBe(true);
   bundles.dispose();
@@ -78,8 +83,11 @@ test('a landed tile moves its static draws into one bundle and restores them unc
 
 test('any member change records again; a removed member leaves the bundle', () => {
   const scene = new THREE.Scene(), bundles = new StaticBundles(scene), t = tile();
+  t.wall.position.x = 10;
   scene.add(t.model); bundles.add(t.model); bundles.update();
-  const bundle = bundles.bundles.get(t.model)!, version = () => bundle.version;
+  // Move every member into one cell, so one group holds them all.
+  scene.updateMatrixWorld(true);
+  const bundle = bundles.bundles.get(t.model)![0], version = () => bundle.version;
   const v0 = version();
   bundles.update(); expect(version()).toBe(v0);
   const twin = new THREE.MeshStandardNodeMaterial();
@@ -88,13 +96,13 @@ test('any member change records again; a removed member leaves the bundle', () =
   t.wall.castShadow = !t.wall.castShadow; bundles.update(); expect(version()).toBe(v0 + 3);
   t.road.visible = false; bundles.update(); expect(version()).toBe(v0 + 4);
   (t.road.material as THREE.Material).needsUpdate = true; bundles.update(); expect(version()).toBe(v0 + 5);
-  t.shadow.removeFromParent(); bundles.update(); expect(version()).toBe(v0 + 6);
-  expect(bundle.members.map(m => m.object)).toEqual([t.ground, t.road, t.wall]);
+  t.wall.removeFromParent(); bundles.update(); expect(version()).toBe(v0 + 6);
+  expect(bundle.members.map(m => m.object)).toEqual([t.ground, t.road]);
   bundles.update(); expect(version()).toBe(v0 + 6);
   // A disposed material or geometry still drawn records again; a released tile leaves no listener behind.
-  (t.wall.material as THREE.Material).dispose(); expect(version()).toBe(v0 + 7);
+  (t.ground.material as THREE.Material).dispose(); expect(version()).toBe(v0 + 7);
   t.road.geometry.dispose(); expect(version()).toBe(v0 + 8);
-  const shared = t.ground.material as THREE.Material;
+  const shared = t.road.material as THREE.Material;
   bundles.remove(t.model);
   expect(shared.hasEventListener('dispose', (bundle as unknown as { invalidate: () => void }).invalidate)).toBe(false);
   shared.dispose(); expect(version()).toBe(v0 + 8);
@@ -104,7 +112,7 @@ test('any member change records again; a removed member leaves the bundle', () =
 test('each pass culls bundles by its own camera, and river reflections by their water', () => {
   const scene = new THREE.Scene(), bundles = new StaticBundles(scene), t = tile();
   scene.add(t.model); bundles.add(t.model); bundles.update();
-  const bundle = bundles.bundles.get(t.model)!;
+  const bundle = bundles.bundles.get(t.model)![0];
   const toward = new THREE.PerspectiveCamera(60, 1, 0.1, 5000), away = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
   toward.position.set(1000, 10, 200); toward.lookAt(1000, 0, 0); toward.updateMatrixWorld();
   away.position.set(1000, 10, 200); away.lookAt(1000, 0, 400); away.updateMatrixWorld();
@@ -165,8 +173,9 @@ function bundleRenderer() {
 test('a bundle projects and records its members once, then replays them with no per-member projection', () => {
   const { renderer, context, pass, executed, objects, ready, get } = bundleRenderer();
   const scene = new THREE.Scene(), bundles = new StaticBundles(scene), t = tile();
+  t.wall.position.x = 10;
   scene.add(t.model); bundles.add(t.model); bundles.update();
-  const bundle = bundles.bundles.get(t.model)!;
+  const bundle = bundles.bundles.get(t.model)![0];
   const camera = new THREE.PerspectiveCamera();
   const project = vi.spyOn(renderer, '_projectObject');
   const frame = () => {
@@ -177,7 +186,7 @@ test('a bundle projects and records its members once, then replays them with no 
     executeBundles(renderer);
     return list;
   };
-  const members = [t.ground, t.road, t.wall, t.shadow, t.chunk];
+  const members = [t.ground, t.road, t.wall];
   const projected = () => members.filter(o => project.mock.calls.some(call => call[0] === o)).length;
   const list = frame();
   expect(list.bundles.length).toBe(1);
