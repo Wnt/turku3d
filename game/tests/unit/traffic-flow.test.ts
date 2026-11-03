@@ -149,7 +149,7 @@ describe('responsive traffic', () => {
     car.reservation = null; car.change = null; car.changeCooldown = 0;
     car.signal = { target, since: flow.tick - 20, reason: 'route' };
     car.route = movements.get(car.lane)![0];
-    car.previous = { route: car.route, s: car.s, speed: car.speed, change: null };
+    car.previous = { route: car.route, s: car.s, speed: car.speed, change: null, swerve: 0, swerveRate: 0 };
     flow.cars.clear(); flow.cars.set(car.key, car); net.density!.multiplier = 0;
     flow.stats.laneChanges = 0;
     flow.update(60);
@@ -196,7 +196,7 @@ describe('responsive traffic', () => {
       const speed = reservation ? 4 : 0;
       const car = { ...template, lane, route, s, speed, reservation, hops: 0, waiting: 0, stopped: 0,
         change: null, signal: null, changeCooldown: 0, pose: { ...template.pose },
-        previous: { route, s, speed, change: null } };
+        previous: { route, s, speed, change: null, swerve: 0, swerveRate: 0 } };
       sampleFlowPose(car, 0, () => 0, car.pose); return car;
     };
     const leader = driver(templates[0], lane.length + 2, route);
@@ -236,29 +236,44 @@ describe('responsive traffic', () => {
 });
 
 describe('drivers and players', () => {
-  test('a player car stopped in the lane holds the queue without contact, and the first driver honks', () => {
+  const blocked = () => {
     const flow = new TrafficFlow(flowNetwork(), 0);
     flow.reset(0);
     const lane = [...flowNetwork().tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
     const at = pointAt(lane.points, lane.cum, 70);
     const player = { id: 'local', x: at.x, y: 0, z: at.z, hx: at.hx, hz: at.hz, vx: 0, vz: 0, length: 4.2, width: 1.8 };
-    let honked = 0, held = 0;
-    for (let step = 1; step <= 1200; step++) {
+    return { flow, lane, player };
+  };
+
+  test('drivers stop behind a player car in the lane without contact, honk, then go round it and return', () => {
+    const { flow, lane, player } = blocked();
+    let honked = 0, held = 0, passed = new Set<string>(), swerved = 0;
+    for (let step = 1; step <= 1800; step++) {
       flow.setPlayers([], [player], step / 10);
       flow.update(step / 10);
-      for (const car of flow.cars.values()) {
-        const pose = sampleFlowPose(car, 0, () => 0);
-        if (overlap({ ...pose, length: car.length, width: car.width }, player)) throw new Error(`${car.key} drove into the player at ${step / 10}`);
-        if (car.lane.id === lane.id && car.blockedBy === 'player') held++;
-        if (honking(car)) honked++;
+      const cars = [...flow.cars.values()].map(c => ({ ...sampleFlowPose(c, 0, () => 0), length: c.length, width: c.width, car: c }));
+      for (const [i, a] of cars.entries()) {
+        if (overlap(a, player)) throw new Error(`${a.car.key} drove into the player at ${step / 10}`);
+        for (const b of cars.slice(i + 1)) if (overlap(a, b)) throw new Error(`${a.car.key} / ${b.car.key} overlap at ${step / 10}`);
+        if (a.car.lane.id === lane.id && a.car.blockedBy === 'player') held++;
+        if (honking(a.car)) honked++;
+        if (a.car.swerve) swerved++;
+        if (a.car.lane.id === lane.id && a.car.s > 80) passed.add(a.car.key);
+        // Back on the lane centre before the junction.
+        if (a.car.lane.id === lane.id && a.car.s > lane.length - 2) expect(Math.abs(a.car.swerve)).toBeLessThan(0.05);
       }
     }
-    expect(held).toBeGreaterThan(100);
+    expect(held).toBeGreaterThan(20);
     expect(honked).toBeGreaterThan(0);
-    const queued = [...flow.cars.values()].filter(c => c.lane.id === lane.id && c.s < 70).map(c => ({ key: c.key, s: c.s }));
-    expect(queued.length).toBeGreaterThan(1);
-    // The player drives off: the queue moves up and nobody keeps honking.
-    for (let step = 1201; step <= 1500; step++) { flow.setPlayers([], [], step / 10); flow.update(step / 10); }
+    expect(swerved).toBeGreaterThan(0);
+    expect(passed.size).toBeGreaterThan(3);
+  });
+
+  test('a queue held by a player car moves up once the player drives off', () => {
+    const { flow, lane, player } = blocked();
+    for (let step = 1; step <= 300; step++) { flow.setPlayers([], [player], step / 10); flow.update(step / 10); }
+    const queued = [...flow.cars.values()].filter(c => c.lane.id === lane.id && c.s < 70 && !c.swerveTarget).map(c => ({ key: c.key, s: c.s }));
+    for (let step = 301; step <= 600; step++) { flow.setPlayers([], [], step / 10); flow.update(step / 10); }
     expect([...flow.cars.values()].some(honking)).toBe(false);
     for (const { key, s } of queued) {
       const now = flow.cars.get(key);

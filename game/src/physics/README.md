@@ -166,8 +166,12 @@ Moving cars (street-richness plan §3.6, Phase 3) are a pure function of shared 
   character aside. Drivers brake for every player this client knows of (`TrafficHost.players`: the local
   character or driven car, remote players on foot or in vehicles, with velocity) by predicting their footprint
   along the car's path (`traffic/pedestrians.ts vehicleStop`), so a player's car stopped in a lane holds a queue
-  instead of being rear-ended. A driver held up by a player honks (`traffic/lights.ts honking`, the horn bit of the
-  published lamp field; `TrafficClient.horns` feeds the existing horn voices). `ClaimSet` follows each claimed slot across seams, so its continuation stays gone. A drawn
+  instead of being rear-ended. The car the player left in the street and cars this client claimed (crashes) within
+  150 m count too. A driver held up by a player honks (`traffic/lights.ts honking`, the horn bit of the
+  published lamp field; `TrafficClient.horns` feeds the existing horn voices). After 3–6 s behind a stopped one it
+  goes round (`TrafficFlow.passPlan`): a lateral offset of at most 3.8 m (left on a tie) when the corridor beside it
+  is clear for the pass plus 9 s of oncoming travel, indicating, steering back 3 m past it; a pass stalled for 3 s
+  pulls back in, and an oncoming driver blocked head-on by a passing car squeezes up to 1.6 m right. `ClaimSet` follows each claimed slot across seams, so its continuation stays gone. A drawn
   car whose slot stops carrying a car (a seam whose two chains anchor differently, a quieter street, a clock or
   density change) is `deferred`: it drives on until it is out of view, so density changes never pop a car in
   sight. The density clock is the shared cycle in multiplayer; in single player the clock the player sees
