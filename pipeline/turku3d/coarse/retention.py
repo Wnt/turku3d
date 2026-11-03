@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import functools
+import gc
 import json
 import re
 import shutil
@@ -113,11 +114,30 @@ def remember_full(out):
             write_json(out / "last-full.json", manifest)
 
 
+# A full pass of the cyclic collector rescans every live container of a build. Python 3.12 runs
+# one whenever the oldest generation has grown by a quarter: 10-21 passes of about 0.2 s each
+# were 15-25% of a warm suburb tile's CPU on the bulk host. Young passes keep their cadence.
+DEFERRED_FULL_COLLECTION = 1_000_000
+
+
+@contextmanager
+def deferred_full_collections():
+    """Run the oldest-generation pass once, after the build, instead of while its data grows."""
+    threshold = gc.get_threshold()
+    gc.set_threshold(threshold[0], threshold[1], DEFERRED_FULL_COLLECTION)
+    try:
+        yield
+    finally:
+        gc.set_threshold(*threshold)
+        # A persistent worker must not carry this tile's cyclic garbage into the next one.
+        gc.collect()
+
+
 def managed_build(operation):
     @functools.wraps(operation)
     def build(tile_id, out, **kwargs):
         out = Path(out)
-        with tile_lock(out):
+        with tile_lock(out), deferred_full_collections():
             remember_full(out)
             previous = current(out)
             remember(out, time.time(), previous)

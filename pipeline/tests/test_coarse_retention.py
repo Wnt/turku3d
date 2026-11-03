@@ -135,3 +135,24 @@ def test_first_pass_comparison_survives_full_upgrade_and_pruning(tmp_path):
     prune_tile(tmp_path, now=100000)
     assert (tmp_path / first).exists()
     assert current(tmp_path) == {first, full}
+
+
+def test_managed_build_defers_full_collections_and_restores_the_collector(tmp_path):
+    import gc
+
+    seen = []
+
+    @managed_build
+    def build(tile, out, fail=False):
+        seen.append(gc.get_threshold())
+        if fail:
+            raise RuntimeError("stage failed")
+        return "ok"
+
+    before = gc.get_threshold()
+    assert build("t0_0_0", tmp_path / "a") == "ok"
+    assert seen[-1][:2] == before[:2] and seen[-1][2] > 10**5
+    assert gc.get_threshold() == before
+    with pytest.raises(RuntimeError):
+        build("t0_0_0", tmp_path / "b", fail=True)
+    assert gc.get_threshold() == before
