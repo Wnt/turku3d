@@ -85,3 +85,17 @@ def test_raised_part_above_a_lower_shell_or_without_volume_above_stays_closed():
     assert interior_quads(b, low) == []
     b.top = 4.0  # only 1 m would remain above the soffit
     assert interior_quads(b, walls) == []
+
+
+def test_shallow_overhang_strip_is_a_covered_recess_not_an_open_ground_floor():
+    b, walls = building()
+    b.open_ground = [(shapely.box(0, 0, 20, 1.9), 3.0)]  # cantilever 1.9 m deep along the front
+    assert interior_quads(b, walls) == []
+    b.open_ground = [(shapely.box(0, 0, 6, 6), 3.0)]  # covered corner recess, two adjacent sides
+    assert interior_quads(b, walls) == []
+    # A cantilevered wing open on its long face and both ends: seen through only lengthwise.
+    wing = shapely.geometry.polygon.orient(shapely.Polygon([(0, 0), (20, 0), (20, 10), (14, 10), (14, 13), (4, 13), (4, 10), (0, 10)]), 1.0)
+    b.footprint = wing
+    b.open_ground = [(shapely.box(4, 10, 14, 13), 3.0)]
+    assert interior_quads(b, walls) == []
+    assert not any(edge_plans(q, b) for q in walls.reshape(-1, 4, 3))

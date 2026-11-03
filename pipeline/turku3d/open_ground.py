@@ -16,6 +16,7 @@ COLUMN_WIDTH = 0.32
 MIN_OPEN_HEIGHT = 2.1
 MIN_VOLUME_ABOVE = 2.5  # a raised part leaves at least one storey above its soffit
 MIN_AREA = 10.0
+MIN_SIDE = 2.0  # metres of open edge needed on each of two opposite sides
 CUTS = {"bay", "recess", "loggia", "arcade", "through_cut"}
 SOFFIT = (0.62, 0.61, 0.58, 1)
 
@@ -28,10 +29,47 @@ def pieces(building):
     for piece, low, *ground in getattr(building, "open_ground", None) or ():
         level = ground[0] if ground else building.base
         top = level + low
-        if (top - level >= MIN_OPEN_HEIGHT and building.top - top >= MIN_VOLUME_ABOVE
-                and piece.area >= MIN_AREA):
-            result.append((piece, top))
+        if top - level < MIN_OPEN_HEIGHT or building.top - top < MIN_VOLUME_ABOVE:
+            continue
+        through = [p for p in shapely.get_parts(piece) if p.area >= MIN_AREA and walk_through(p, building.footprint)]
+        if through:
+            result.append((shapely.union_all(through), top))
     return result
+
+
+def walk_through(polygon, footprint):
+    """Open straight through to the outside again, as pilotis and passages are.
+
+    From an open edge, a probe across the open space must leave it at the
+    footprint's outer edge on the far side. Under an overhang or cantilever the
+    probe ends at the enclosed recessed facade, so that strip keeps its own wall.
+    Most of the open edge must see through; a cantilevered wing seen only along
+    its length (from its short ends) is still a covered recess.
+    """
+    edge = footprint.exterior
+    through = total = 0.0
+    coords = np.asarray(polygon.exterior.coords)
+    for p, q in zip(coords[:-1], coords[1:], strict=True):
+        length = float(np.linalg.norm(q - p))
+        middle = (p + q) / 2
+        if length < 0.5 or edge.distance(shapely.Point(middle)) > 0.3:
+            continue
+        total += length
+        d = (q - p) / length
+        inward = np.array([d[1], -d[0]])
+        if not polygon.contains(shapely.Point(middle + 0.2 * inward)):
+            inward = -inward
+        for t in np.linspace(0.15, 0.85, 5):
+            start = p + t * (q - p) + 0.05 * inward
+            probe = shapely.LineString([start, start + 200 * inward])
+            inside = next((g for g in shapely.get_parts(polygon.intersection(probe))
+                           if g.geom_type == "LineString" and g.distance(shapely.Point(start)) < 0.1), None)
+            if inside is None or inside.length < 1.0:
+                continue
+            end = max((shapely.Point(c) for c in inside.coords), key=lambda c: c.distance(shapely.Point(start)))
+            if edge.distance(end) < 0.3:
+                through += length / 5
+    return through >= 2 * MIN_SIDE and through >= 0.5 * total
 
 
 def edge_plans(vertices, building, admitted=()):
