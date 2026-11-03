@@ -35,6 +35,7 @@ from turku3d.wire_points import RECIPE, height_above_ground, wire_points
 FORMAT_VERSION = 1
 CLASSES = (1, 3, 4, 5, 12)  # unclassified, low/medium/high vegetation, overlap
 BUILDING = 6
+OVERLAP = 12
 GROUND = 2
 GROUND_CELL = 2.0  # m
 MIN_HEIGHT = 3.0  # m above ground: below it are vehicles, signs and people
@@ -490,7 +491,10 @@ def detect(xyz, classes, bounds, search=SEARCH):
     candidate = np.isin(classes, CLASSES) & (height >= MIN_HEIGHT) & (height <= MAX_HEIGHT)
     candidate[index] = False
     loose = xyz[candidate]
-    buildings = Index(xyz[(classes == BUILDING) & (height >= MIN_HEIGHT - 1.0)])
+    # Walls and roofs: in a strip overlap they are filed as overlap (12) like everything else there.
+    built = np.isin(classes, (BUILDING, OVERLAP)) & (height >= MIN_HEIGHT - 1.0)
+    built[index] = False
+    buildings = Index(xyz[built])
     columns = Index(xyz[np.isin(classes, CLASSES) & (height >= 0.8)])
     wires = [to_wire(p, buildings, columns, ground) for p in parts]
     wires = [w for w in wires if not over_roof(w, buildings, ground)]
