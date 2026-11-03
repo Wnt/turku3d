@@ -15,6 +15,13 @@ import { slotShare } from './density';
 
 export const FLOW_STEP = 0.1;
 const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
+/** Going round a stopped player car (or a crashed one): the driver waits PASS_AFTER seconds (scaled by its honk
+ *  patience), keeps PASS_MARGIN metres beside it, never leaves the lane by more than PASS_MAX metres, and needs the
+ *  corridor clear for the pass plus PASS_LOOKAHEAD seconds of oncoming travel (pulling out and driving past from a
+ *  standstill takes about eight). */
+const PASS_AFTER = 4, PASS_MARGIN = 0.6, PASS_MAX = 3.8, PASS_LOOKAHEAD = 9;
+/** How far an oncoming driver squeezes right to let a passing car through (m). */
+const PASS_SQUEEZE = 1.6;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -25,9 +32,12 @@ export interface FlowCar {
   stopped: number; waiting: number;
   /** Seconds held up below walking pace by a player (on foot or in a vehicle) in its path: the driver honks. */
   held: number;
+  /** Lateral offset from the lane centre (m, + right) while going round a stopped car, its target, its rate (m/s)
+   *  the arc length at which the car steers back, and seconds a pass has stalled on something other than a player. */
+  swerve: number; swerveTarget: number; swerveRate: number; swerveEnd: number; swerveStall: number;
   blockedBy: string | null;
   change: LaneChange | null; signal: LaneSignal | null; changeCooldown: number;
-  previous: { route: Lane; s: number; speed: number; change: LaneChange | null };
+  previous: { route: Lane; s: number; speed: number; change: LaneChange | null; swerve: number; swerveRate: number };
   pose: CarPose;
 }
 
@@ -37,10 +47,12 @@ export interface TrafficCheckpoint {
   pedestrians: PedestrianFrame | null;
   demand: [string, number][];
   cars: { key: string; lane: string; route: string; reservation: string | null; n: number; s: number; speed: number;
-    born: number; stopped: number; waiting: number; held: number; changeCooldown: number; hops: number; demandDraw: number;
+    born: number; stopped: number; waiting: number; held: number; swerve: number; swerveTarget: number; swerveRate: number;
+    swerveEnd: number; swerveStall: number; changeCooldown: number; hops: number; demandDraw: number;
     change: (Omit<LaneChange, 'from'> & { from: string }) | null;
     signal: (Omit<LaneSignal, 'target'> & { target: string }) | null;
-    previous: { route: string; s: number; speed: number; change: (Omit<LaneChange, 'from'> & { from: string }) | null } }[];
+    previous: { route: string; s: number; speed: number; change: (Omit<LaneChange, 'from'> & { from: string }) | null;
+      swerve: number; swerveRate: number } }[];
 }
 
 const saveChange = (change: LaneChange | null) => change ? { ...change, from: `${change.from.tile}:${change.from.id}` } : null;
@@ -94,7 +106,8 @@ export class TrafficFlow {
       demand: [...this.demand].map(([lane, n]) => [`${lane.tile}:${lane.id}`, n]),
       cars: [...this.cars.values()].map(c => ({ key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
         reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
-        stopped: c.stopped, waiting: c.waiting, held: c.held, hops: c.hops, demandDraw: c.demandDraw,
+        stopped: c.stopped, waiting: c.waiting, held: c.held, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
+        swerveEnd: c.swerveEnd, swerveStall: c.swerveStall, hops: c.hops, demandDraw: c.demandDraw,
         change: saveChange(c.change), changeCooldown: c.changeCooldown,
         signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null,
         previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}`, change: saveChange(c.previous.change) } })) };
@@ -282,7 +295,8 @@ export class TrafficFlow {
     this.regroup();
     this.occupancy.clear();
     for (const car of this.cars.values()) {
-      car.previous = { route: car.route, s: car.s, speed: car.speed, change: car.change ? { ...car.change } : null };
+      car.previous = { route: car.route, s: car.s, speed: car.speed, change: car.change ? { ...car.change } : null,
+        swerve: car.swerve, swerveRate: car.swerveRate };
       sampleFlowPose(car, 0, () => 0, car.pose); this.occupy(car);
     }
     // Demand is tested on its original shared slot hour. A blocked source queues outside the resident area;
@@ -305,7 +319,7 @@ export class TrafficFlow {
     const reservations = ordered.filter(c => c.reservation !== null);
     for (const car of ordered) {
       car.blockedBy = null;
-      const target = this.changer?.target(car, this.tick, this.byLane);
+      const target = car.swerve || car.swerveTarget ? null : this.changer?.target(car, this.tick, this.byLane);
       if (target) this.beginChange(car, target);
       const lane = car.route, next = lane === car.lane && lane.end.kind === 'seam' ? this.network.successor(car.lane) : lane.next;
       let desired = lane.speed, stop = Infinity;
@@ -331,13 +345,17 @@ export class TrafficFlow {
         const timeLeft = car.change.duration * (1 - car.change.progress);
         desired = Math.min(desired, Math.max(3, (stop - car.s - 2) / Math.max(FLOW_STEP, timeLeft)));
       }
-      let playerStop = Infinity;
+      let playerStop = Infinity, blocker: TrafficVehicle | null = null;
       if (this.pedestrians?.people.length || this.players || this.playerVehicles) {
         const roadY = dataHeight(lane, car.s);
-        const path = (s: number) => car.change ? sampleFlowPose({ ...car, s }, 0, () => 0) : routePoint(lane, s);
+        // The path ahead eases from the current lateral offset to the target over eight metres.
+        const path = (s: number) => car.change ? sampleFlowPose({ ...car, s }, 0, () => 0)
+          : shifted(routePoint(lane, s), car.swerve + (car.swerveTarget - car.swerve) * Math.max(0, Math.min(1, (s - car.s) / 8)));
         stop = Math.min(stop, pedestrianStop(car.s, car.speed, car.length, car.width, roadY, t, this.pedestrians, path, lane.crossings, lane.roadWidth));
+        const vehicle = vehicleStop(car.s, car.speed, car.length, car.width, roadY, t, this.playerVehicles, path);
         playerStop = Math.min(pedestrianStop(car.s, car.speed, car.length, car.width, roadY, t, this.players, path, lane.crossings, lane.roadWidth),
-          vehicleStop(car.s, car.speed, car.length, car.width, roadY, t, this.playerVehicles, path).stop);
+          vehicle.stop);
+        if (vehicle.stop === playerStop && vehicle.id !== null) blocker = this.playerVehicles!.vehicles.find(v => v.id === vehicle.id) ?? null;
       }
       // Stay behind the actual predecessor, including its rear on the outgoing lane.
       const position = (c: FlowCar) => c.lane === car.lane ? c.s : c.s / c.lane.length * car.lane.length;
@@ -359,6 +377,12 @@ export class TrafficFlow {
       const byPlayer = playerStop < stop;
       stop = Math.min(stop, playerStop);
       if (byPlayer && stop - car.s < 0.5) car.blockedBy = 'player';
+      // Held up long enough behind a stopped car: go round it when the corridor beside it is clear.
+      if (byPlayer && blocker && !car.change && !car.swerveTarget && Math.hypot(blocker.vx, blocker.vz) < 0.5
+        && car.held > PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) {
+        const plan = this.passPlan(car, lane, blocker);
+        if (plan) { car.swerveTarget = plan.offset; car.swerveEnd = plan.end; car.swerveStall = 0; }
+      }
       const gap = Math.max(0, stop - car.s);
       desired = Math.min(desired, Math.sqrt(2 * BRAKE * gap));
       // A speed-dependent following headway avoids robotic bumper-to-bumper pursuit.
@@ -367,6 +391,17 @@ export class TrafficFlow {
       car.speed = Math.max(0, car.speed + Math.max(-BRAKE * FLOW_STEP, Math.min(ACCEL * FLOW_STEP, dv)));
       let step = Math.min(car.speed * FLOW_STEP, gap);
       const originalS = car.s;
+      if (car.swerve || car.swerveTarget) {
+        // Steer back once past; a pass that stalls beside oncoming traffic pulls back in and waits again.
+        car.swerveStall = car.swerveTarget && !byPlayer && car.stopped > 0 ? car.swerveStall + FLOW_STEP : 0;
+        if (car.swerveTarget && (car.s >= car.swerveEnd || car.swerveStall > 3)) { car.swerveTarget = 0; car.held = 0; }
+        const before = car.swerve, rate = Math.max(0.7, Math.min(1.4, car.speed * 0.3));
+        car.swerve += Math.max(-rate * FLOW_STEP, Math.min(rate * FLOW_STEP, car.swerveTarget - car.swerve));
+        if (Math.abs(car.swerve) < 1e-3 && !car.swerveTarget) car.swerve = 0;
+        const moved = sampleFlowPose(car, 0, () => 0);
+        if (this.obstructed(car, moved) || this.touchesPlayer(car, moved)) car.swerve = before;
+        car.swerveRate = (car.swerve - before) / FLOW_STEP;
+      } else car.swerveRate = 0;
       if (car.change) {
         const progress = car.change.progress;
         car.change.rate = Math.min(1, car.speed / 3) / car.change.duration;
@@ -390,6 +425,7 @@ export class TrafficFlow {
       }
       car.s = originalS + Math.max(0, step);
       if (step < car.speed * FLOW_STEP - 1e-6) car.speed = step / FLOW_STEP;
+      if (step < 0.01 && car.blockedBy?.startsWith('footprint:')) this.makeRoom(car, lane, this.cars.get(car.blockedBy.slice(10)));
       car.stopped = car.speed < 0.15 ? car.stopped + FLOW_STEP : 0;
       car.held = byPlayer && car.speed < 1 ? car.held + FLOW_STEP : byPlayer ? car.held : 0;
       car.waiting = remaining < 14 && car.speed < 0.5 ? car.waiting + FLOW_STEP : 0;
@@ -414,6 +450,33 @@ export class TrafficFlow {
     }
   }
 
+  /** Lateral offset that clears a stopped vehicle, and the arc length to steer back at; null when the pass would
+   *  leave the lane by more than PASS_MAX, run into the junction, or meet another car in the corridor. Prefers the
+   *  left (towards oncoming traffic) on a tie. */
+  private passPlan(car: FlowCar, lane: Lane, v: TrafficVehicle): { offset: number; end: number } | null {
+    const here = routePoint(lane, car.s);
+    const sv = car.s + (v.x - here.x) * here.hx + (v.z - here.z) * here.hz, at = routePoint(lane, sv);
+    let lo = Infinity, hi = -Infinity;
+    for (const a of [-0.5, 0.5]) for (const b of [-0.5, 0.5]) {
+      const x = v.x + v.hx * a * v.length - v.hz * b * v.width, z = v.z + v.hz * a * v.length + v.hx * b * v.width;
+      const across = -(x - at.x) * at.hz + (z - at.z) * at.hx;
+      lo = Math.min(lo, across); hi = Math.max(hi, across);
+    }
+    const left = lo - car.width / 2 - PASS_MARGIN, right = hi + car.width / 2 + PASS_MARGIN;
+    const offset = Math.abs(left) <= Math.abs(right) ? left : right;
+    const end = sv + v.length / 2 + car.length / 2 + 3;
+    if (Math.abs(offset) > PASS_MAX || end + 15 > lane.length) return null;
+    for (const other of this.cars.values()) {
+      if (other === car) continue;
+      const dx = other.pose.x - here.x, dz = other.pose.z - here.z;
+      const along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
+      const oncoming = Math.max(0, -(other.pose.hx * here.hx + other.pose.hz * here.hz) * other.speed);
+      if (along < -car.length || along > end - car.s + 10 + oncoming * PASS_LOOKAHEAD) continue;
+      if (Math.abs(across - offset) < (car.width + other.width) / 2 + 0.8) return null;
+    }
+    return { offset, end };
+  }
+
   private spawn(lane: Lane, n: number, t: number) {
     const key = `${lane.tile}:${lane.id}:${n}`;
     if (this.suppressed.has(key)) return;
@@ -424,8 +487,9 @@ export class TrafficFlow {
     const route = this.chooseRoute(lane, key);
     const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0,
       demandDraw: this.network.demandDraw(lane, n),
-      previous: { route, s: 0, speed: 0, change: null }, change: null, signal: null, changeCooldown: 0,
-      reservation: null, stopped: 0, waiting: 0, held: 0, blockedBy: null, pose: blankPose() };
+      previous: { route, s: 0, speed: 0, change: null, swerve: 0, swerveRate: 0 }, change: null, signal: null, changeCooldown: 0,
+      reservation: null, stopped: 0, waiting: 0, held: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
+      blockedBy: null, pose: blankPose() };
     sampleFlowPose(car, 0, () => 0, car.pose);
     if (this.obstructed(car, car.pose)) { this.stats.blocked++; return; }
     this.cars.set(key, car);
@@ -471,6 +535,23 @@ export class TrafficFlow {
       }
     }
     return false;
+  }
+
+  /** Blocked head-on by a car going round a stopped one: squeeze up to PASS_SQUEEZE metres to the right until past. */
+  private makeRoom(car: FlowCar, lane: Lane, other: FlowCar | undefined) {
+    if (!other || !other.swerve || car.swerveTarget || car.change) return;
+    const here = routePoint(lane, car.s);
+    if (other.pose.hx * here.hx + other.pose.hz * here.hz > -0.5) return;
+    const dx = other.pose.x - here.x, dz = other.pose.z - here.z;
+    const along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
+    const need = across + (car.width + other.width) / 2 + 0.4;
+    if (need <= 0 || need > PASS_SQUEEZE || car.s + along + 15 > lane.length) return;
+    car.swerveTarget = need; car.swerveEnd = car.s + Math.max(0, along) + (car.length + other.length) / 2 + 2; car.swerveStall = 0;
+  }
+
+  /** A pose overlapping a player's vehicle (a car steering back in beside the one it is passing). */
+  private touchesPlayer(car: FlowCar, pose: CarPose) {
+    return !!this.playerVehicles?.vehicles.some(v => bodyOverlap(pose, car, v, v, 0.25));
   }
 
   private mayEnter(car: FlowCar, heads: Map<Lane, FlowCar>, reservations: FlowCar[], t: number) {
@@ -548,6 +629,11 @@ function pathsConflict(a: Lane, b: Lane) {
   return false;
 }
 
+/** A path point moved `offset` metres along its right-hand normal. */
+function shifted(p: { x: number; z: number; hx: number; hz: number }, offset: number) {
+  return offset ? { x: p.x - p.hz * offset, z: p.z + p.hx * offset, hx: p.hx, hz: p.hz } : p;
+}
+
 function routePoint(lane: Lane, s: number) {
   if (s <= lane.length || !lane.connector) return pointAt(lane.points, lane.cum, s);
   if (s <= lane.length + lane.connector.length || !lane.next) return pointAt(lane.connector.points, lane.connector.cum, s - lane.length);
@@ -580,6 +666,13 @@ export function sampleFlowPose(car: FlowCar, _dt: number, height: LaneHeight, ou
     const sourceY = height(change.from, sourceS);
     if (sourceY !== null && Number.isFinite(out.y)) out.y = sourceY + (out.y - sourceY) * f;
     out.speed = v;
+  }
+  if (car.swerve) {
+    // Going round a stopped car: shifted off the lane centre, nose turned along the lateral motion.
+    out.x -= out.hz * car.swerve; out.z += out.hx * car.swerve;
+    const forward = Math.max(2, out.speed), hx = out.hx * forward - out.hz * car.swerveRate, hz = out.hz * forward + out.hx * car.swerveRate;
+    const d = Math.hypot(hx, hz);
+    out.hx = hx / d; out.hz = hz / d;
   }
   return out;
 }

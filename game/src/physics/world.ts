@@ -111,15 +111,24 @@ export class PhysicsWorld {
       },
       players: () => {
         const people: TrafficPedestrian[] = [], vehicles: TrafficVehicle[] = [];
+        const add = (id: string, vehicle: Vehicle) => {
+          const v = vehicle.body.linvel();
+          vehicles.push(trafficVehicle(id, vehicle.body.translation(), vehicle.body.rotation(), v.x, v.z, vehicle.halfExt));
+        };
+        const driven = this.vehicles.get(this.drivenId ?? '');
         if (this.charCollider && this.charEnabled) {
           const t = this.charCollider.translation();
           people.push({ id: -1, x: t.x, y: t.y - CHARACTER.halfHeight - CHARACTER.radius - CHARACTER.skin, z: t.z, vx: this.charVel.x, vz: this.charVel.z });
-        } else {
-          const driven = this.vehicles.get(this.drivenId ?? '');
-          if (driven) {
-            const v = driven.body.linvel();
-            vehicles.push(trafficVehicle('local', driven.body.translation(), driven.body.rotation(), v.x, v.z, driven.halfExt));
-          }
+        }
+        // The driven car, or the one the player just left in the street.
+        if (driven) add('local', driven);
+        // Cars this client claimed from traffic (crashed or abandoned) near the player: drivers go round them.
+        const at = this.charCollider && this.charEnabled ? this.charCollider.translation() : driven?.body.translation();
+        if (at) for (const id of this.claimedBodies.values()) {
+          const vehicle = this.vehicles.get(id);
+          if (!vehicle || id === this.drivenId) continue;
+          const p = vehicle.body.translation();
+          if (Math.hypot(p.x - at.x, p.z - at.z) < 150) add(id, vehicle);
         }
         let n = 0;
         for (const [id, r] of this.remotes) {
