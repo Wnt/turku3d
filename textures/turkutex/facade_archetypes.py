@@ -274,6 +274,45 @@ ARCHETYPES = {
     ),
 }
 MASONRY = "massive_masonry"
+# Modern public monoliths (libraries, museums, halls) with photographed blank walls.
+# Measured from local reference photographs of a 2007 library (Look Around low sun and
+# Google overcast front light, sky cast removed) and a 1967 panel-clad art museum:
+# - smooth off-white render volumes (sunlit #ccc9c3, overcast #cbc3b9) with a granite
+#   base course 2.1-2.3 m high at 0.80-0.87 of the render luminance;
+# - full-height frameless curtain walls: panes 2.10-2.14 m wide, thin dark joints, the
+#   glazing above a granite plinth 2.8-5.1 m high (mean 3.9 m) along a sloping street;
+# - pale stone/concrete cladding panels about 1.5 m x 1.4 m with thin dark joints.
+# Blank walls carry no sampled grid, cornice, string course, quoins or arches.
+MONOLITH = "public_monolith"
+MONOLITH_RENDER = "#d9d6cf"
+MONOLITH_GRANITE = "#b6b3ac"
+MONOLITH_BASE_COURSE_M = 2.2
+MONOLITH_CURTAIN = dict(pane_m=2.12, glass=0.975, sill=0.012, plinth_m=3.9, mullion="#3f4447")
+MONOLITH_PANEL = dict(width_m=1.5, height_m=1.4, joint_m=0.025, colour="#d3cabb")
+# Cultural and assembly uses (OSM building/amenity/tourism values), plus the register
+# function code carried by the library, art museum and city theatre. Schools, colleges and
+# hospitals abstain: their blank walls are local, not the building's composition.
+CULTURAL_USES = {"library", "museum", "theatre", "arts_centre", "concert_hall", "gallery",
+                 "exhibition_centre", "conference_centre", "cinema", "auditorium"}
+CULTURAL_CODES = {"2120"}
+ARCHETYPES[MONOLITH] = dict(
+    family(
+        ("plaster",),
+        (2.0, 2.3),
+        (0.96, 0.975),
+        (0.96, 0.975),
+        sill=(0.012, 0.02),
+        cornice=(0, 0),
+        courses=(0, 0),
+        corners=(0, 0),
+        surrounds=(0, 0),
+        ground=("plain",),
+        plinth=(0, 0),
+        trim=(MONOLITH_CURTAIN["mullion"],),
+    ),
+    pigments={"plaster": (MONOLITH_RENDER,), "concrete": (MONOLITH_PANEL["colour"],)},
+    blank_default=True,
+)
 # Wall colours from a reference-measured archetype are pigment estimates, not the
 # register's generic material palette.
 MEASURED_PIGMENT = "reference-measured archetype pigment"
@@ -348,6 +387,21 @@ def classical_order(attrs, evidence=""):
     return bool(civic and year and year < 1920 and (attrs.get("footprint_m2") or 0) >= 200)
 
 
+def public_monolith(attrs):
+    """Modern cultural buildings whose photographs show blank walls (``monolith_blank``).
+
+    The evidence is set by the pipeline from reviewed readings or a wall's own
+    description; register use alone never blanks a building.
+    """
+    if not attrs.get("monolith_blank") or attrs.get("material_class") == "wood":
+        return False
+    year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    if not year or year < 1945 or (attrs.get("footprint_m2") or 0) < 800:
+        return False
+    uses = {str(attrs.get(k) or "").lower() for k in ("osm_use", "use", "entrance_use")}
+    return bool(uses & (CULTURAL_USES | CULTURAL_CODES))
+
+
 # Central cadastral districts I–IX. These are architectural priors, not measured dates.
 CENTRE_DISTRICTS = {f"853{i:03d}" for i in range(1, 10)}
 CENTRE_PERIODS = ((1830, 1), (1885, 2), (1910, 3), (1925, 2), (1938, 2),
@@ -410,6 +464,8 @@ def archetype(attrs):
     area = attrs.get("footprint_m2", 0) or 0
     if massive_masonry(attrs):
         return MASONRY
+    if public_monolith(attrs):
+        return MONOLITH
     if use in ("warehouse", "shed", "garage", "garages") or attrs.get("blank"):
         return "warehouse"
     if use in ("industrial", "factory", "workshop"):
@@ -510,7 +566,7 @@ def recipe(building_id, attrs):
     )
     result["frame"] = rng("frame").choice(spec["frames"]) if "frames" in spec else result["trim"]
     # Metre-thick load-bearing walls carry no shopfronts, whatever trades inside.
-    commerce = name != MASONRY
+    commerce = name not in (MASONRY, MONOLITH)
     # Use a separate, visible shop/frontage observation rather than guessing commerce by year.
     if commerce and attrs.get("ground_floor") == "shops":
         result["ground"] = "shops"
@@ -566,7 +622,8 @@ def sample(building_id, attrs, geometry):
     walls = []
     for g in geometry:
         width, height = g["width_m"], g.get("layout_height_m", g["height_m"])
-        count = max(1, round(width / r["bay"])) if width >= 1.6 and not attrs.get("blank") else 0
+        blank = attrs.get("blank") or spec.get("blank_default")
+        count = max(1, round(width / r["bay"])) if width >= 1.6 and not blank else 0
         pitch = width / count if count else width
         ground = height / floors if floors else None
         if floors and floors > 1 and r["ground"] == "shops":

@@ -33,7 +33,7 @@ def test_seed_survives_order_and_unrelated_attributes_with_visible_neighbour_var
     neighbours = [program(key=str(i))["walls"][0] for i in range(30)]
     assert len({w["wall"]["colour"]["value"] for w in neighbours}) > 20
     assert len({tuple(w["windows"]["size_m"]["value"]) for w in neighbours}) == 30
-    assert len(ARCHETYPES) == 21
+    assert len(ARCHETYPES) == 22
 
 
 @pytest.mark.parametrize("levels", [None, 1, 4, 8, 30])
@@ -493,3 +493,59 @@ def test_classical_order_keeps_supported_readings_and_existing_pilaster_details(
     assert first["windows"]["divisions"]["value"] == ORDER["panes"]
     assert first["corners"]["quoins"]["value"] == 0
     assert "order" not in second  # Its reviewed pilasters are painted elsewhere.
+
+
+def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(monkeypatch):
+    import shapely
+    from types import SimpleNamespace
+
+    from turku3d import facade_learning, facade_monolith
+    from turku3d import facade_programs as fp
+    from turkutex.facade_archetypes import MONOLITH
+
+    library = dict(construction_year=2006, use="2120", osm_use="civic", entrance_use="library",
+                   levels=4, levels_source="register", material_class="render", footprint_m2=2774)
+    assert archetype(library) == "civic"  # register use alone never blanks a building
+    assert archetype(dict(library, monolith_blank=True)) == MONOLITH
+    assert archetype(dict(library, monolith_blank=True, construction_year=1912)) != MONOLITH
+    assert archetype(dict(library, monolith_blank=True, footprint_m2=300)) != MONOLITH
+    assert archetype(dict(library, monolith_blank=True, use="1000", osm_use="apartments",
+                          entrance_use=None)) != MONOLITH
+    # Evidence: a reviewed mostly-blank reading, and panel-joint text on any reviewed wall.
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [])
+    blank = dict(observation=dict(needs_review=False), structure=dict(facade_observations=dict(
+        sections=[dict(position="upper majority", kind="blank wall", material="pale smooth render"),
+                  dict(position="lower left", kind="localized retail glazing strip")])))
+    panels = dict(observation=dict(needs_review=False), structure=dict(
+        floors=[dict(bays=["blank"])], features=[dict(kind="large rectangular panel grid")]))
+    assert facade_monolith.evidence("k", dict(walls=[blank])) == dict(blank=True, panels=False)
+    assert facade_monolith.evidence("k", dict(walls=[panels])) == dict(blank=True, panels=True)
+    fragment = copy.deepcopy(blank)
+    fragment["structure"]["facade_observations"]["sections"][0]["position"] = "lower right"
+    assert facade_monolith.evidence("k", dict(walls=[fragment]))["blank"] is False
+    # Resolve: the wall with its own curtain-wall description glazes, the unobserved wall is blank.
+    curtain = dict(facade_id="f1", wall_visible=True, problem="", material="glass", wall_colour="#88abb3",
+                   trim_colour="#adb5af", storeys=3, window_columns=11, window_width=0.96,
+                   window_height=0.93, ground_floor="plain", ground_openings=0, roof_line="none",
+                   plinth=True, features=[])
+    facade = dict(coordinates=[[40 + C.ORIGIN_E, C.ORIGIN_N - 0], [40 + C.ORIGIN_E, C.ORIGIN_N - 30]],
+                  normal=None, base_height=0, metadata=dict(facade_id="f1", width_m=30))
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [(facade, curtain)])
+    monkeypatch.setattr(facade_monolith, "evidence", lambda key, observed: dict(blank=True, panels=False))
+    monkeypatch.setattr(fp, "measured", lambda _: None)
+    monkeypatch.setattr(fp, "read_description", lambda _: None)
+    monkeypatch.setattr(facade_learning, "apply", lambda p: pytest.fail("donor layouts on a monolith"))
+    b = SimpleNamespace(key="lib", facade_key="lib", base=0, top=18, footprint=shapely.box(0, 0, 40, 30),
+                        attributes=library)
+    vertices = np.array([[0, 0, 0], [40, 0, 0], [40, 18, 0], [0, 18, 0],
+                         [40, 0, 0], [40, 0, 30], [40, 18, 30], [40, 18, 0]], float)
+    p = fp.resolve(b, vertices, {})
+    assert p["archetype"] == MONOLITH and p["monolith"]["walls"]["blank"] == 1
+    plain, glazed = [compile_wall(w, 4) for w in p["walls"]]
+    assert plain["module"] == 42 and plain["bands"] == [0, 0, 0, 0]
+    assert plain["base"] != plain["wall"]  # granite base course under the render
+    assert glazed["module"] // 6 == 5 and glazed["opening"][0] >= 0.97
+    assert glazed["opening"][1] + glazed["opening"][2] >= 0.98 and abs(glazed["bay"] - 2.14) < 0.05
+    # A panel-clad blank wall carries its joint grid in the opening slot.
+    p["walls"][0]["panel_grid"] = dict(value=[1.5, 1.4, 0.025], source="test", support=0.6)
+    assert compile_wall(p["walls"][0], 4)["opening"] == [1.5, 1.4, 0.025, -1.0]
