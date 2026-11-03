@@ -122,18 +122,24 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   const fresnel = float(0.02).add(pow(grazing, 5).mul(0.98)).mul(float(1).sub(whitewater.mul(0.85)));
   if (reflection) reflection.uvNode = reflection.uvNode!.add(cameraViewMatrix.mul(vec4(normal.x, 0, normal.z, 0)).xy.mul(vec2(-1, 1)).mul(mix(0.012, 0.021, grazing)));
   const daylight = float(1).sub(nightUniforms.night.mul(0.9));
+  const sunDir = uniform(env.sunDir);
+  // The PMREM sky is baked at sky brightness 1 for the ambient light; the visible sky, and so the planar mirror, shows it
+  // at the atmosphere's display scale (0.45 by day). Sky-only reflections (fallbacks, mobile, sloped reaches) match it.
+  const skyScale = mix(float(1), env.atmosphere.skyBrightness, smoothstep(0.07, 0.26, sunDir.y));
   const sky = env.environmentMap
-    ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)) : vec3(0.18, 0.25, 0.3).mul(daylight);
-  // W1 (reduced): what last frame showed along the reflected ray, over the sky where the march finds nothing. Half the
-  // wave slope steers the ray: the full slope scatters grazing rays across whole facades.
+    ? pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.22)).mul(skyScale) : vec3(0.18, 0.25, 0.3).mul(daylight);
+  // W1 (reduced): what last frame showed along the reflected ray, over the sky where the march finds nothing. As the
+  // planar pass does, the march follows the flat mirror ray (wave-steered grazing rays dip below the horizon and leave
+  // pixel-wise hit/miss streaks) and the waves distort where the hit is read, by the planar pass's offset.
   const screen = screenReflection && history?.depth && history.color && history.camera
     ? riverScreenReflection({ ...history, depth: history.depth, color: history.color, camera: history.camera }, positionWorld,
-      reflect(view.negate(), normalize(vec3(slope.x.mul(0.5), 1, slope.y.mul(0.5)))), fresnel)
+      reflect(view.negate(), vec3(0, 1, 0)), fresnel,
+      cameraViewMatrix.mul(vec4(normal.x, 0, normal.z, 0)).xy.mul(mix(0.012, 0.021, grazing)))
     : null;
   const clear = reflection?.rgb ?? (screen ? mix(sky, screen.rgb, screen.a) : sky);
   // Rain dulls the mirror towards grey and weakens it.
   const reflected = mix(clear, vec3(luminance(clear)), rain.mul(RIVER_RAIN.dull)).mul(float(1).sub(rain.mul(RIVER_RAIN.dim)));
-  const sunDir = uniform(env.sunDir), sunIntensity = uniform('float').onRenderUpdate(() => env.sun.intensity);
+  const sunIntensity = uniform('float').onRenderUpdate(() => env.sun.intensity);
   const alignment = max(dot(reflect(sunDir.negate(), normal), view), 0);
   // Each body carries its measured water colour beneath the dynamic sky reflection.
   let sediment = uniform(bodyColour).mul(daylight);
@@ -150,7 +156,6 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
     // A screen-space hit is itself something standing between the water and the sky.
     let open: THREE.Node<'float'> = screen ? float(1).sub(screen.a) : float(1);
     if (reflection && env.environmentMap) {
-      const skyScale = mix(float(1), env.atmosphere.skyBrightness, smoothstep(0.07, 0.26, sunDir.y));
       const sky = luminance(pmremTexture(env.environmentMap, reflect(view.negate(), normal), float(0.3))).mul(skyScale);
       open = smoothstep(0.3, 0.75, luminance(reflection.rgb).div(max(sky, 0.001)));
     }

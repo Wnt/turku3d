@@ -110,3 +110,11 @@ test('sloped reaches flow downhill from their own triangles and break white wher
   expect(sloped.fragment).toMatch(/dpdx/);
   expect(flat.fragment).not.toMatch(/dpdx/);
 });
+
+test('sky fallbacks show the sky at its visible display scale, and screen-space hits are soft four-tap reads', () => {
+  // The visible sky's day display scale ramps over sun heights 0.07-0.26; the PMREM bake is at brightness 1.
+  for (const [tier, water] of [['mobile', null], ['medium', 'sky'], ['reduced', null]] as const)
+    expect(riverShader(tier, water, true).fragment).toMatch(/smoothstep\( 0\.07, 0\.26,/);
+  const ssr = riverShader('reduced', null, true).fragment;
+  expect((ssr.match(/textureSampleLevel/g) ?? []).length).toBeGreaterThanOrEqual(4);
+});
