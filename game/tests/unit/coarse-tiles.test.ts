@@ -972,3 +972,21 @@ test('tiles in the camera view wedge within 400 m install full detail after the 
   expect(loaded).not.toContain('t0_-2_0'); // behind the camera
   expect(loaded).not.toContain('t0_3_0'); // in view but beyond 400 m
 });
+
+test('the view wedge looks ahead of a driving camera and keeps its tiles 75 m past 400 m', () => {
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async () => new Response(null, { status: 404 })) as unknown as typeof fetch });
+  coarse.screenshotScenery.setRadius(4000);
+  const view = (x: number) => { coarse.screenshotScenery.setView({ x, y: 2, z: 125, dx: 1, dz: 0, halfAngle: 0.5 }, 0); };
+  const tiles = (x: number) => (coarse as unknown as { viewTiles(w: string[]): string[] }).viewTiles(wantedTiles(x, 125));
+  view(110); coarse.velocity = { x: 0, z: 0 };
+  expect(tiles(110)).toContain('t0_2_0'); // 390 m east
+  view(90);
+  expect(tiles(90)).toContain('t0_2_0'); // 410 m: kept
+  view(10);
+  expect(tiles(10)).not.toContain('t0_2_0'); // 490 m: released
+  coarse.velocity = { x: 20, z: 0 }; view(10);
+  expect(tiles(10)).toContain('t0_2_0'); // driving east: 8 s ahead it is within 400 m
+});
