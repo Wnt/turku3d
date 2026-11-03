@@ -1,5 +1,6 @@
 """Surveyed lower-quay lighting: mapped footways, measured crests, shared night schedule."""
 import json
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -43,9 +44,14 @@ def extent(records, policy):
     return substring(line, start, end).buffer(reach, cap_style=2)
 
 
-def prepare(tile, paths):
-    if not paths:
-        return []
+@lru_cache(maxsize=4)
+def _area(identities):
+    """The lit riverside reach of the complete city extract: one polygon for every tile.
+
+    ``identities`` are (path, size, mtime) of the OSM sources and then the policy, so a
+    persistent worker scans the city's rows once instead of once per tile.
+    """
+    paths = [Path(path) for path, _, _ in identities]
     policy = json.loads(paths[-1].read_text())
     context = {}
     for path in dict.fromkeys(paths[:-1]):
@@ -53,7 +59,15 @@ def prepare(tile, paths):
             tags = json.loads(row.get("tags") or "{}")
             if tags.get("waterway") == "river" or tags.get("bridge", "no") != "no":
                 context[str(row.get("osm_id", row.get("feature_key")))] = (tags, row["geometry_local"])
-    area = extent(context.values(), policy)
+    return extent(context.values(), policy), policy
+
+
+def prepare(tile, paths):
+    if not paths:
+        return []
+    area, policy = _area(tuple((str(p), (s := Path(p).stat()).st_size, s.st_mtime_ns) for p in paths))
+    if area.is_empty:
+        return []
     result = []
     for _, row in rows(paths[0], tile.bbox.buffered(12)):
         tags = json.loads(row.get("tags") or "{}")
