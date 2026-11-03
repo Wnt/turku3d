@@ -227,6 +227,9 @@ test('blocks swap all their HD children against one LOD parent, and an all-far t
   expect(houses.every(h => h.visible)).toBe(true); expect(lod.visible).toBe(false); expect(merged.visible).toBe(false);
   updateBuildingDistances(owner, 260, 425); // 285 m: inside the hysteresis band, still HD
   expect(houses.every(h => h.visible)).toBe(true);
+  houses[0].userData.viewDistance = 250; // A child's own shorter view distance never opens a hole before the swap.
+  updateBuildingDistances(owner, 260, 425);
+  expect(houses.every(h => h.visible)).toBe(true);
   updateBuildingDistances(owner, 260, 440); // 300 m: the only block is far, so the merged tile parent replaces it
   expect(houses.some(h => h.visible)).toBe(false); expect(lod.visible).toBe(false); expect(merged.visible).toBe(true);
   updateBuildingDistances(owner, 260, 425); // 285 m coming back: stays LOD until 270 m

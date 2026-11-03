@@ -223,7 +223,9 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
     const bounds = child.userData.modelBounds as BuildingModel['bounds'];
     const dx = Math.max(child.position.x + bounds.min[0] - x, 0, x - child.position.x - bounds.max[0]);
     const dz = Math.max(child.position.z + bounds.min[2] - z, 0, z - child.position.z - bounds.max[2]);
-    child.visible = (!block || block.near) && dx * dx + dz * dz <= child.userData.viewDistance ** 2;
+    // With an LOD parent the block swap alone decides: a small child's own view distance (as low as 282 m) must
+    // not open a hole inside the swap band before its parent appears.
+    child.visible = block ? block.near : dx * dx + dz * dz <= child.userData.viewDistance ** 2;
     visibility.setActive(child.userData.visibilitySlot as number | undefined, shown && child.visible);
   }
   updateStaticBatchVisibility(root);

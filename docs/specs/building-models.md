@@ -11,7 +11,7 @@ until the full model placements replace it atomically.
 retained fallback responses. Referenced textures and buffers are independently
 content addressed in the same shared directory. Model bounds use local metres.
 
-`placements` contains `{id, model, position: [x,y,z], viewDistance}`. The stable
+`placements` contains `{id, model, position: [x,y,z], viewDistance, block}`. The stable
 placement ID is the building facade key; `model` references the model hash. Engine
 coordinates follow COMMON: east/x, up/y, south/z. Buildings use translation only,
 centred on the complete footprint's centroid, with y=0. No building triangle is
@@ -23,6 +23,18 @@ View distance is the model diagonal projected to 24 pixels at 1080p and 60-degre
 vertical field of view, clamped to 250–2000 m for the HD-only phase. The runtime
 measures horizontal distance from each model AABB. These are provisional HD
 cutoffs; the hierarchy phase replaces disappearance with a resident-parent swap.
+
+Blocks (`coarse/blocks.py`): buildings whose footprints lie within 25 m form a block; blocks wider than
+160 m split on a 125 m grid of building centroids. `blocks` contains
+`{id, position, bounds: {min, max}, hdDistance, children: [placement ids], lod?}`; `lod` is a model id whose
+descriptor has `kind: "block-lod"`. The LOD parent is one GLB of the block's LoD2 shells (roofs and walls,
+no floors) in the block frame around `position`, with COLOR_0 pigment: each building's facade-program wall
+colour, roofs (.20,.23,.22). Mesh `walls-glazed` holds buildings whose facade program has windows (and their
+roofs); `walls` holds windowless buildings. The client batches placements per block, shows a block's HD
+children within `hdDistance` (280 m, 10 m hysteresis) of its bounds and its LOD parent beyond, and a tile whose
+blocks are all far draws one merged parent per material. Glazed LOD walls use the distant city's 2.6 m x 3.2 m
+window grid, darker by day and lit by the shared procedural window light at night. With an LOD parent the
+block swap alone decides child visibility.
 
 Occluders are optional and independent of bounds:
 `{version:1, provenance:"lod2-inset-boxes-v1", boxes:[{min:[u,y,v], max:[u,y,v], yaw}]}`.
