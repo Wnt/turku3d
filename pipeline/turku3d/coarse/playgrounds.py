@@ -64,6 +64,7 @@ TREE_CLEAR = 1.0  # m from a tree trunk
 FALLBACK = {"swing": 1, "sandbox": 1}  # an OSM playground the survey does not know
 TABLE_AREA = 600.0  # m²
 STEP = 1.0  # m: free-cell grid
+DUPLICATE = 0.3  # intersection over union: two sites' outlines of one object
 
 
 @dataclass
@@ -361,16 +362,34 @@ def produce(tile, sites, play_areas, height_at, footprints, water, streets, path
                 stats["pads"] += 1
 
     known = []
-    for site in sites:
+    # Overlapping register sites (a park and its sub-area) list the same outlines: the first
+    # site in id order keeps an outline, later near-identical ones are duplicates.
+    kept, everything, checked = [], [], {}
+    for site in sorted(sites, key=lambda s: s["id"]):
+        checked[site["id"]] = []
+        for o in site["objects"]:
+            polygon = shapely.make_valid(shapely.Polygon(o["polygon"]))
+            everything.append(polygon)
+            twin = any(polygon.intersection(k).area > DUPLICATE * polygon.union(k).area for k in kept
+                       if k.intersects(polygon))
+            checked[site["id"]].append((o, polygon, twin))
+            if not twin:
+                kept.append(polygon)
+    every_outline = shapely.union_all(everything) if everything else shapely.Polygon()
+    taken = shapely.Polygon()  # unlocated items placed for earlier sites
+    for site in sorted(sites, key=lambda s: s["id"]):
         domain = _domain(site)
         known.append(domain)
         tall = _tall(site, site["objects"])
         outlines = []
-        for o in site["objects"]:
-            polygon = shapely.make_valid(shapely.Polygon(o["polygon"]))
+        for o, polygon, twin in checked[site["id"]]:
             outlines.append(polygon)
             x, z, long, short, yaw = rectangle(polygon)
             if not tile.bbox.contains(x, z):
+                continue
+            if twin:
+                stats["duplicate_outline"] += 1
+                per_site[site["id"]][f"{o['category']}:duplicate"] += 1
                 continue
             point = shapely.Point(x, z)
             if hard.covers(point):
@@ -383,7 +402,7 @@ def produce(tile, sites, play_areas, height_at, footprints, water, streets, path
         if not owner:
             continue
         occupied = shapely.union_all(outlines) if outlines else shapely.Polygon()
-        blocked = shapely.union_all([blocked_base, occupied.buffer(CLEAR)]) if outlines else blocked_base
+        blocked = shapely.union_all([blocked_base, every_outline.buffer(CLEAR), taken.buffer(CLEAR)])
         _, _, _, _, axis = rectangle(domain) if not domain.is_empty else (0, 0, 0, 0, 0.0)
         wanted = [(c, n) for c, n in site["unlocated"].items() if c in KIND]
         order = sorted(((c, k) for c, n in wanted for k in range(n)),
@@ -400,6 +419,7 @@ def produce(tile, sites, play_areas, height_at, footprints, water, streets, path
                 surface=site.get("surface"))
             occupied = occupied.union(rect)
             blocked = blocked.union(rect.buffer(CLEAR))
+            taken = taken.union(rect)
         seat_points = [shapely.Point(x, z) for kind, x, z in seats]
         near = domain.buffer(4.0)
         located_seats = Counter(o["category"] for o in site["objects"] if o["category"] in ("bench", "table"))
