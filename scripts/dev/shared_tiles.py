@@ -52,7 +52,7 @@ RAW_PRODUCERS = {
     'buildings/inputs.py': ('read_points',),
 }
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
-          'lights', 'vehicle_models', 'generation')
+          'lights', 'vehicle_models', 'buildingPlacements', 'generation')
 GIB = 2**30
 
 
@@ -563,6 +563,8 @@ class Farm:
                         verify(path.parent / uri)
         for entry in entries:
             verify(root / tile / entry['url'], entry.get('bytes'), entry.get('sha256'))
+        for model in manifest.get('buildingPlacements', {}).get('models', []):
+            verify(root / tile / model['uri'], model['bytes'], model['id'])
         return len(checked)
 
     def run_build(self, revision, tile, root):
@@ -1056,7 +1058,7 @@ class Handler(BaseHTTPRequestHandler):
         value = {k: manifest[k] for k in PUBLIC if k in manifest}
         def pin(obj):
             if isinstance(obj, dict):
-                return {k: (prefix + v if k == 'url' and isinstance(v, str)
+                return {k: (prefix + v if k in ('url', 'uri') and isinstance(v, str)
                             else pin(v)) for k, v in obj.items()}
             if isinstance(obj, list):
                 return [pin(v) for v in obj]

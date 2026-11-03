@@ -425,6 +425,9 @@ def layer_meshes(paths):
                         colors=accessor_array(document, binary, attrs["COLOR_0"])
                         if "COLOR_0" in attrs
                         else None,
+                        baked_visibility=accessor_array(document, binary, attrs["COLOR_1"])
+                        if "COLOR_1" in attrs
+                        else None,
                         image=image,
                         normal_image=texture_image(material.get("normalTexture")),
                         orm_image=texture_image(pbr.get("metallicRoughnessTexture")),

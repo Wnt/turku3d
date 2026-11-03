@@ -33,3 +33,44 @@ def test_vault_floor_anchors_choose_lower_quay_not_parallel_upper_walk():
     levels, supported = floor_anchors(line, [patch("upper", 5, 6), patch("lower", 3, 1.2)], [7, 7])
     np.testing.assert_allclose(levels, 1.2)
     assert supported.all()
+
+
+def test_vault_masonry_faces_outward_on_top_sides_and_both_portals():
+    from turku3d.coarse.underpasses import enclosure
+
+    for reverse in (False, True):
+        centres = np.array([[2., 10.], [10., 10.], [18., 10.]])
+        if reverse:
+            centres = centres[::-1]
+        direction = centres[1] - centres[0]
+        direction /= np.linalg.norm(direction)
+        normal = np.array([-direction[1], direction[0]])
+        mesh = enclosure("test", centres, np.tile(normal, (3, 1)), np.full(3, 2.),
+                         2.4, 2.7, lambda x,z: 6.)
+        tri = mesh.positions[mesh.indices]
+        normals = np.cross(tri[:, 1]-tri[:, 0], tri[:, 2]-tri[:, 0])
+        middle = tri.mean(axis=1)
+        top = np.all(np.isclose(tri[:, :, 1], 6), axis=1)
+        assert top.sum() == 4
+        assert (normals[top, 1] > 0).all()
+        side = (np.all(np.isclose(abs(tri[:, :, 2]-10), 1.5), axis=1)
+                & (abs(normals[:, 1]) < 1e-10))
+        assert side.any()
+        assert (np.sum(normals[side][:, [0, 2]] * (middle[side][:, [0, 2]]-[10, 10]), axis=1) > 0).all()
+        for endpoint, outward in ((centres[0], -direction), (centres[-1], direction)):
+            cap = np.all(np.isclose(tri[:, :, 0], endpoint[0]), axis=1)
+            assert cap.any()
+            assert (normals[cap][:, [0, 2]] @ outward > 0).all()
+
+
+def test_vault_enclosure_source_invalidates_visual_and_collision_tiles(monkeypatch):
+    from pathlib import Path
+    from turku3d.coarse import underpasses, packaging, collision_key
+
+    source = Path(underpasses.__file__)
+    read = Path.read_bytes
+    before = packaging.code_hash(), collision_key.code_hash()
+    monkeypatch.setattr(Path, "read_bytes", lambda p: read(p) +
+                        (b"\n# changed enclosure\n" if p == source else b""))
+    assert packaging.code_hash() != before[0]
+    assert collision_key.code_hash() != before[1]
