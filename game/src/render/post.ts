@@ -163,12 +163,26 @@ export class PostProcessing {
     if (lights) this.resources.push(lights.resource);
   }
 
+  /** Models prepared before any shadow pass had drawn, so with no cascade state to compile their casters against. */
+  private shadowless = new Set<THREE.Object3D>();
+
   async prepare(model: THREE.Object3D) {
     if (this.pre) await compileModel(this.renderer, model, this.scene, this.camera, this.pre.renderTarget, this.pre.getMRT(), this.baseContext, true, this.preDepth, this.pre.overrideMaterial);
     await compileModel(this.renderer, model, this.scene, this.camera, this.beauty.renderTarget, this.beauty.getMRT(), this.beautyContext, false, this.beautyDepth);
-    // Shadow casters as each cascade last drew them (render/shadowMaterials.ts).
-    if (this.renderer instanceof GameRenderer) for (const shadow of [...this.renderer.shadowPasses.values()])
-      await compileModel(this.renderer, model, this.scene, shadow.camera, shadow.target, shadow.mrt, shadow.context, false, shadow.depth, shadow.override, true);
+    // Shadow casters as a cascade last drew them; the cascades share programs (render/shadowMaterials.ts).
+    const shadow = this.renderer instanceof GameRenderer ? this.renderer.shadowPasses.values().next().value : undefined;
+    if (shadow) await compileModel(this.renderer, model, this.scene, shadow.camera, shadow.target, shadow.mrt, shadow.context, false, shadow.depth, shadow.override, true);
+    else if (this.renderer instanceof GameRenderer) this.shadowless.add(model);
+  }
+
+  /** Once a shadow pass has drawn: the models `prepare` met before it, to prepare again (their casters only build
+   *  now). Startup preparation precedes the first shadow frame: in replay 20261103-160452 every fleet design built its
+   *  shadow program inside a frame on first entering a cascade (45 in-frame ShadowMap builds, 3 prepared). */
+  takeShadowless(): THREE.Object3D[] {
+    if (!this.shadowless.size || !(this.renderer instanceof GameRenderer) || !this.renderer.shadowPasses.size) return [];
+    const models = [...this.shadowless];
+    this.shadowless.clear();
+    return models;
   }
 
   /** The prepass and scene-pass render targets, so the bench probe (qa/bench.ts) can attribute draws to passes. */

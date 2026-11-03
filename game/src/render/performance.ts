@@ -1,3 +1,4 @@
+import { streamingAllowance } from './preparationBudget';
 import type { WebGPURenderer } from 'three/webgpu';
 import { GpuFrameTimer } from './gpuTimer';
 import { GPU_PASSES, type GpuPassTimes } from './gpuPasses';
@@ -54,8 +55,10 @@ export class PerformanceMonitor {
     this.lastCpu = cpu;
     this.calls = this.renderer.info.render.drawCalls;
     this.triangles = this.renderer.info.render.triangles;
-    this.samples.set(this.frame, { frame: this.frame, cpu,
-      interval: this.previousStart === null ? null : this.start - this.previousStart, gpu: null });
+    const interval = this.previousStart === null ? null : this.start - this.previousStart;
+    this.samples.set(this.frame, { frame: this.frame, cpu, interval, gpu: null });
+    // Streaming spends this frame's measured headroom (render/preparationBudget.ts).
+    streamingAllowance.frame(cpu, interval);
     this.previousStart = this.start;
     this.totalFrames++;
     if (this.samples.size > 600) this.samples.delete(this.samples.keys().next().value!);

@@ -1,7 +1,7 @@
 // Draft (coarse) tiles: which cells are wanted, the published-parent swap rule and the game hook against a fake service.
 import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { lodFades } from '../../src/render/lodFade';
+import { lodFades, precompileDissolve } from '../../src/render/lodFade';
 import { CoarseTiles, RESTARTING, aheadTiles, cellsOf, wantedTiles, type CoarseHost } from '../../src/world/coarseTiles';
 import { arrivalToL0 } from '../../src/world/coarseRegion';
 import { isLocalHost } from '../../src/core/localOnly';
@@ -733,6 +733,93 @@ test('a full tile leaving the window draws until its cell has dissolved in over 
   scenery.setRadius(0);
 });
 
+/** A tile behind a camera looking along -x: its 1 km parent t2_1_0 is out of view, so the footprint wants that parent
+ *  there (not the L0 cells) and has to load it. Coverage snapshots of the square are sampled every frame. */
+function leavingBehind(parentModel = false) {
+  const scene = new THREE.Scene();
+  const fetch = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch; // loads never land
+  const disposed: THREE.Object3D[] = [];
+  const coarse = new CoarseTiles({ scene, manifest: { collision: {} } as Manifest, pageUrl: 'http://localhost/', fetch,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2, detailRadius: undefined,
+    renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group(), untrackModel: m => disposed.push(m) });
+  const hd = new THREE.Group(); scene.add(hd);
+  coarse.entries.set('t0_5_0', { state: 'draft', model: hd, pass: 'full', h: [0, 30], nextPoll: Infinity, collision: new Map(), resident: true });
+  const scenery = coarse.screenshotScenery;
+  const view = { x: 125, y: 20, z: 125, dx: -1, dz: 0, halfAngle: .5 };
+  scenery.setRadius(4000, view);
+  const internal = scenery as unknown as { entries: Map<string, object>; sources: Map<string, object>; footprint: string[] };
+  expect(internal.footprint).toContain('t2_1_0'); expect(internal.footprint).not.toContain('t0_5_0');
+  for (const tile of ['t0_5_0', 't2_1_0']) internal.sources.set(tile, { tile, key: tile, h: [0, 30], source_sha256: tile });
+  // The square's own cell was loaded while the tile drew (now under it, hidden); the parent is not drawn yet.
+  const cell = new THREE.Group(); cell.visible = false; scene.add(cell);
+  if (!parentModel) internal.entries.set('t0_5_0', { model: cell, next: Infinity, seen: 0, complete: true });
+  internal.entries.set('t2_1_0', { next: Infinity, seen: 0, busy: true });
+  let now = 1000;
+  const codes: string[] = [];
+  const step = (ms = 20) => {
+    now += ms; coarse.update(125, 125, now, undefined, true, 20);
+    const snap = coarse.coverageSnapshot(125, 125, 6);
+    codes.push(snap.cells[(0 - snap.j0) * snap.n + (5 - snap.i0)]);
+  };
+  return { scene, coarse, scenery, internal, hd, cell, disposed, step, codes };
+}
+
+test('a leaving full tile keeps drawing until scenery covers its square: its own cell stands in for a coarser node still loading', () => {
+  const { hd, cell, disposed, step, codes } = leavingBehind();
+  step(); step();
+  // The tile left the window; its cell (kept under it) is the fallback for the unloaded 1 km parent and dissolves in.
+  expect(hd.parent).not.toBeNull(); expect(cell.visible).toBe(true); expect(lodFades.has(cell)).toBe(true);
+  for (let i = 0; i < 50; i++) step();
+  expect([hd.parent, cell.visible, lodFades.has(cell)]).toEqual([null, true, false]);
+  expect(disposed).toContain(hd);
+  // Zero holes: every frame the square drew the held tile, both, or the cell.
+  expect(codes.filter(c => c === '.')).toEqual([]);
+  expect(codes[0]).toBe('h'); expect(codes.at(-1)).toBe('C');
+});
+
+test('with no cell of its own, a leaving tile is held as long as its cover loads (no time cap), then released under it', () => {
+  const { hd, internal, scene, step, codes } = leavingBehind(true);
+  for (let i = 0; i < 400; i++) step(); // 8 s: the old 4 s cap would have released it with nothing drawn there
+  expect(hd.parent).toBe(scene);
+  const parent = new THREE.Group(); scene.add(parent);
+  internal.entries.set('t2_1_0', { model: parent, next: Infinity, seen: 0, complete: true });
+  for (let i = 0; i < 60; i++) step();
+  expect([hd.parent, parent.visible]).toEqual([null, true]);
+  expect(codes.filter(c => c === '.')).toEqual([]);
+  expect(codes.at(-1)).toBe('U');
+});
+
+test('a full model arriving where no cell of its own draws dissolves in over the preview, which goes once it lands', async () => {
+  const scene = new THREE.Scene(), preview = new THREE.Group(), full = new THREE.Group();
+  full.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial()));
+  scene.add(preview);
+  const untracked: THREE.Object3D[] = [];
+  const coarse = new CoarseTiles({ scene, manifest: { collision: {} } as Manifest, pageUrl: 'http://localhost/',
+    fetch: vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof globalThis.fetch,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => 2, renderer: {} as THREE.WebGPURenderer,
+    loadModel: async () => full, untrackModel: (m: THREE.Object3D) => untracked.push(m),
+    // The game's preparation compiles the whole model's twins (main.ts prepareGraphics).
+    styled: async (m: THREE.Object3D) => { expect(m.userData.dissolveIn).toBe(true); await precompileDissolve([m], [0], () => {}); } } as unknown as CoarseHost);
+  const collision = Object.fromEntries(cellsOf('t0_0_0').map(id => [id, { url: 'col', sha256: 'col', bytes: 0, tris: 0, h: [0, 1] as [number, number] }]));
+  const entry = { state: 'draft' as const, pass: 'first' as const, model: preview, preview: {} as never, visualHash: 'p',
+    collision: new Map(Object.entries(collision)), nextPoll: Infinity };
+  coarse.entries.set('t0_0_0', entry);
+  // A coarser 1 km node draws over the square (the preview may draw under it): no cell of its own hands over.
+  vi.spyOn(coarse.screenshotScenery, 'cellState').mockReturnValue('U');
+  const fragment = { coarse: true, tile: 't0_0_0', pass_kind: 'full', collision,
+    visual: { t0_0_0: { url: 'full.glb', sha256: 'full', bytes: 0, tris: 0, h: [0, 1] } } };
+  await (coarse as unknown as { applyFragment(id: string, e: object, f: object): Promise<void> }).applyFragment('t0_0_0', entry, fragment);
+  expect(entry.model).toBe(full); expect(full.parent).toBe(scene);
+  expect(lodFades.has(full)).toBe(true);
+  expect(((full.children[0] as THREE.Mesh).material as THREE.Material).name).toContain('dissolve');
+  expect(preview.parent).toBe(scene); expect(untracked).not.toContain(preview);
+  let now = performance.now();
+  for (let i = 0; i < 50; i++) { now += 20; coarse.update(125, 125, now, undefined, false, 2); }
+  expect(lodFades.has(full)).toBe(false);
+  expect(((full.children[0] as THREE.Mesh).material as THREE.Material).name).not.toContain('dissolve');
+  expect(preview.parent).toBeNull(); expect(untracked).toContain(preview);
+});
+
 test('final fragments of the service generation are fetched once per tile: no refresh polls, ack promotions or re-entry refetches', async () => {
   let generation = 'G';
   const requests: string[] = [];
@@ -812,4 +899,94 @@ test('a driving player gets full visuals for the next 3x3 window before entering
   expect(loaded).toContain('t0_2_0');
   expect(loaded).not.toContain('t0_5_0'); // only the windows within the detail lead, not the whole prefetch corridor
   expect(maxAcks).toBeLessThanOrEqual(4 + 6 + 9); // ack slots + preview slots + the window itself
+});
+
+test('lead tiles install only after a steady heading, and an install for a tile that leaves the path is abandoned', async () => {
+  const loads: { id: string; finish: () => void }[] = [];
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, previewCollision: async () => new THREE.Group(), retainCollision: () => {},
+    // The current window installs at once; lead installs wait until the test finishes them.
+    loadModel: url => new Promise(resolve => {
+      const id = /vis\.(t0_[^.]+)\.glb/.exec(url)![1];
+      if (wantedTiles(125, 125).includes(id)) resolve(new THREE.Group());
+      else loads.push({ id, finish: () => resolve(new THREE.Group()) });
+    }),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  const window = (x: number, z: number) => wantedTiles(x, z);
+  // Heading flips between east and north every second: the lead never holds a tile for the dwell.
+  let t = 0;
+  for (let k = 0; k < 12; k++, t += 500) {
+    const east = Math.floor(k / 2) % 2 === 0;
+    coarse.update(125, 125, t, east ? { x: 20, z: 0 } : { x: 0, z: 20 }); await settle();
+  }
+  expect(loads).toEqual([]);
+  // A steady heading east: lead tiles start installing after the dwell.
+  for (let k = 0; k < 8; k++, t += 500) { coarse.update(125, 125, t, { x: 20, z: 0 }); await settle(); }
+  const lead = [...loads];
+  expect(lead.length).toBeGreaterThan(0);
+  expect(lead.every(l => !window(125, 125).includes(l.id))).toBe(true);
+  // Turning back west drops them from the path; 2 s later their installs are abandoned, the previews stay.
+  for (let k = 0; k < 6; k++, t += 500) { coarse.update(125, 125, t, { x: -20, z: 0 }); await settle(); }
+  for (const l of lead) l.finish();
+  await settle();
+  for (const l of lead) {
+    const e = coarse.entries.get(l.id);
+    if (!e) continue;
+    expect(e.preview).toBeDefined();
+  }
+});
+
+test('tiles in the camera view wedge within 400 m install full detail after the dwell; tiles behind do not', async () => {
+  const loaded: string[] = [];
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, previewCollision: async () => new THREE.Group(), retainCollision: () => {},
+    loadModel: async url => { loaded.push(/vis\.(t0_[^.]+)\.glb/.exec(url)![1]); return new THREE.Group(); },
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  coarse.screenshotScenery.setRadius(4000);
+  coarse.screenshotScenery.setView({ x: 125, y: 2, z: 125, dx: 1, dz: 0, halfAngle: 0.6 }, 0);
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  // Standing still, looking east.
+  for (let t = 0; t <= 6000; t += 500) { coarse.update(125, 125, t, { x: 0, z: 0 }, false); await settle(); }
+  expect(loaded).toContain('t0_2_0'); // 375 m east, in view
+  expect(loaded).not.toContain('t0_-2_0'); // behind the camera
+  expect(loaded).not.toContain('t0_3_0'); // in view but beyond 400 m
+});
+
+test('the view wedge looks ahead of a driving camera and keeps its tiles 75 m past 400 m', () => {
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async () => new Response(null, { status: 404 })) as unknown as typeof fetch });
+  coarse.screenshotScenery.setRadius(4000);
+  const view = (x: number) => { coarse.screenshotScenery.setView({ x, y: 2, z: 125, dx: 1, dz: 0, halfAngle: 0.5 }, 0); };
+  const tiles = (x: number) => (coarse as unknown as { viewTiles(w: string[]): string[] }).viewTiles(wantedTiles(x, 125));
+  view(110); coarse.velocity = { x: 0, z: 0 };
+  expect(tiles(110)).toContain('t0_2_0'); // 390 m east
+  view(90);
+  expect(tiles(90)).toContain('t0_2_0'); // 410 m: kept
+  view(10);
+  expect(tiles(10)).not.toContain('t0_2_0'); // 490 m: released
+  coarse.velocity = { x: 20, z: 0 }; view(10);
+  expect(tiles(10)).toContain('t0_2_0'); // driving east: 8 s ahead it is within 400 m
 });

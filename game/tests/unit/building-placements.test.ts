@@ -336,7 +336,7 @@ test('block swap distance is 3D: a camera high above a near block sees its shell
   expect(lone.children.find(o => o.userData.archetype)!.visible).toBe(true);
 });
 
-test('every dissolve twin shares one mask, and preparation compiles twins on proxies, never touching the live model', async () => {
+test('every dissolve twin shares one mask, and preparation compiles twins on kept stand-ins, never touching the live model', async () => {
   const a = new THREE.MeshStandardNodeMaterial({ name: 'a' }), b = new THREE.MeshStandardNodeMaterial({ name: 'b' });
   const ta = dissolveTwin(a) as THREE.MeshStandardNodeMaterial, tb = dissolveTwin(b, 1) as THREE.MeshStandardNodeMaterial;
   expect(ta.maskNode).toBe(tb.maskNode); expect(ta.maskShadowNode).toBe(tb.maskShadowNode);
@@ -345,7 +345,12 @@ test('every dissolve twin shares one mask, and preparation compiles twins on pro
   await precompileDissolve([root], [0, 2], async r => {
     const proxy = r.children[0] as THREE.Mesh;
     seen.push(proxy.material as THREE.Material); live.push(mesh.material as THREE.Material);
-    expect(proxy).not.toBe(mesh); expect(proxy.geometry).toBe(mesh.geometry);
+    // A detached keeper with a three-vertex stand-in of the mesh's attribute layout, not the tile's geometry.
+    expect(proxy).not.toBe(mesh); expect(proxy.geometry).not.toBe(mesh.geometry);
+    expect(Object.keys(proxy.geometry.attributes).sort()).toEqual(Object.keys(mesh.geometry.attributes).sort());
+    expect(proxy.geometry.attributes.position.count).toBe(3);
+    expect(proxy.geometry.attributes.position.array).toBeInstanceOf(Float32Array);
+    expect(proxy.geometry.index?.array).toBeInstanceOf(mesh.geometry.index!.array.constructor as never);
   });
   expect(seen.map(m => m.name)).toEqual(['a:dissolve', 'a:dissolve-2']);
   expect(live).toEqual([a, a]); expect(mesh.material).toBe(a);
@@ -383,4 +388,34 @@ test('model reads start before the tile GLB, nearest tile first, and a prefetch 
   expect(disposed).toHaveBeenCalledTimes(8); // released prefetch leases free their models
   release(); await new Promise(resolve => setTimeout(resolve, 0));
   expect(disposed).toHaveBeenCalledTimes(10);
+});
+
+test('compiled twins stay compiled until their base material goes: keepers are kept, one per layout, then disposed', async () => {
+  const base = new THREE.MeshStandardNodeMaterial({ name: 'kept' });
+  const root = new THREE.Group();
+  // Three meshes, two layouts: the two boxes share one keeper, the plane (no normals) gets its own.
+  const plane = new THREE.BufferGeometry();
+  plane.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(), base), new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), base), new THREE.Mesh(plane, base));
+  // A shadow-only batch and a non-node material never dissolve, so they need no keeper.
+  const shadow = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial()); shadow.userData.shadowBatch = true;
+  root.add(shadow, new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()));
+  const compiled: THREE.Object3D[] = [];
+  await precompileDissolve([root], [0], r => { compiled.push(...r.children); });
+  expect(compiled).toHaveLength(2);
+  const disposed = vi.fn();
+  for (const keeper of compiled) keeper.addEventListener('dispose', disposed);
+  const fades = new LodFades();
+  expect(fades.canStart(root, 0)).toBe(true);
+  expect(fades.start(root, 0, 1, undefined, 0, 1, 0)).toBe(true);
+  expect((shadow.material as THREE.Material).name).not.toContain('dissolve');
+  fades.cancel(root);
+  // Recompiling finds every layout kept; disposing the base releases its keepers, and the twins need compiling again.
+  const again = vi.fn(); await precompileDissolve([root], [0], again); expect(again).not.toHaveBeenCalled();
+  // A source merged into a scenery batch is hidden by its layer mask: it still finds its compiled twins.
+  for (const child of root.children) child.layers.mask = 0;
+  expect(fades.canStart(root, 0)).toBe(true);
+  base.dispose();
+  expect(disposed).toHaveBeenCalledTimes(2);
+  expect(fades.canStart(root, 0)).toBe(false);
 });

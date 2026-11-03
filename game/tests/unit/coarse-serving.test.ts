@@ -2,6 +2,7 @@ import { test, expect, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { CollisionStreamer } from '../../src/world/collisionStreaming';
 import { CoarseTiles, cellsOf } from '../../src/world/coarseTiles';
+import { LOD_FADE_SECONDS, lodFades } from '../../src/render/lodFade';
 import type { Manifest, ManifestEntry } from '../../src/world/manifest';
 
 test('stale full stays visible until current full is prepared, with unchanged collision retained', async () => {
@@ -150,8 +151,14 @@ test('cached collision surfaces are usable while detailed geometry is blocked, t
   expect(loadModel).not.toHaveBeenCalled();
   coarse.update(600, 100, 3000); await settle();
   expect(loadModel).toHaveBeenCalledOnce(); expect(preview.parent).toBe(scene);
-  detailed.addEventListener('added', () => expect(preview.parent).toBeNull());
   release(detailed); await settle();
   expect(detailed.parent).toBe(scene); expect(unloadCollision).not.toHaveBeenCalled();
   expect(coarse.entries.get(id)?.preview).toBeUndefined();
+  // The detailed model dissolves in over the preview (render/lodFade.ts), which keeps drawing underneath until the
+  // dissolve lands and is released in that same update: no frame draws both opaque, and collision support stays.
+  expect(lodFades.has(detailed)).toBe(true); expect(preview.parent).toBe(scene);
+  coarse.update(600, 100, 3000 + LOD_FADE_SECONDS * 1000 + 1); await settle();
+  expect(lodFades.has(detailed)).toBe(false);
+  expect(preview.parent).toBeNull(); expect(detailed.parent).toBe(scene);
+  expect(unloadCollision).not.toHaveBeenCalled(); expect(Object.keys(manifest.collision)).toHaveLength(16);
 });

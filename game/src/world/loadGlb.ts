@@ -19,13 +19,12 @@ function decode(buffer: ArrayBuffer): Promise<Decoded> {
       const job = pending.get(data.id);
       if (!job) return;
       if (data.error) { pending.delete(data.id); job.reject(new Error(data.error)); return; }
+      // Every reply's record application runs inside the frame's streaming window, like streamingJson's.
+      const pause = budget.checkpoint();
+      if (pause) await pause;
       streamTrace.time('parse', () => applyJsonRecords(job.objects, data.rows));
       if (data.done) { pending.delete(data.id); job.resolve({ json: job.objects[0], binary: data.binary }); }
-      else {
-        const nextFrame = budget.checkpoint();
-        if (nextFrame) await nextFrame;
-        worker?.postMessage({ id: data.id });
-      }
+      else worker?.postMessage({ id: data.id });
     };
     worker.onerror = event => {
       for (const job of pending.values()) job.reject(new Error(event.message));
@@ -61,5 +60,9 @@ export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
   const key = /\/coarse\/.*\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
   const buffer = key ? await visualBuffers.get(key, load) : await load();
   // The worker owns and detaches its input; keep cached originals intact across revisits.
-  return parseDecodedGlb(loader, await decode(key ? buffer.slice(0) : buffer), LoaderUtils.extractUrlBase(url));
+  const decoded = await decode(key ? buffer.slice(0) : buffer);
+  // The glTF parse (meshes, materials, texture setup) runs as one burst: start it inside the frame's streaming window.
+  let pause = budget.checkpoint();
+  while (pause) { await pause; pause = budget.checkpoint(); }
+  return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url));
 }

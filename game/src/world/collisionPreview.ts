@@ -1,63 +1,44 @@
 import * as THREE from 'three/webgpu';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { readCol } from '../shared/col/colFormat';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { streamingBudget } from '../render/preparationBudget';
+import { collisionPreviewArrays, type PreviewArrays } from './collisionPreviewArrays';
 
 // A texture-free presentation of the exact cached collision surfaces. Full generated
 // facades replace it atomically; ground never waits for their textures or shader programs.
-const palette = [0xaaa292, 0x55575a, 0xa7a399, 0xb9b5aa, 0xb9b5aa, 0x666768, 0x777470,
-  0x8c877d, 0xaaa599, 0x958974, 0x748357, 0x82745a, 0xc3b48d, 0x8c8d87, 0x557e88,
-  0x99958b, 0xa4a098, 0xa4a098, 0x99958b, 0xb7afa2, 0x777773, 0x777773, 0xc2b8a6,
-  0x8b8076, 0x777775, 0x777773, 0x706852, 0x777773, 0x928d80, 0x748357, 0x777773, 0x9a8969];
-const colors = palette.map(value => new THREE.Color(value));
-const budget = streamingBudget();
+// The worker decodes, merges and bounds the cells; untextured previews shade flat, so they carry no normals.
+let worker: Worker | undefined, sequence = 0;
+const pending = new Map<number, { resolve: (arrays: PreviewArrays) => void; reject: (error: Error) => void }>();
+
+function build(buffers: ArrayBuffer[]): Promise<PreviewArrays> {
+  // Node-side fixtures have no browser Worker.
+  if (typeof Worker === 'undefined') return MeshoptDecoder.ready.then(() => collisionPreviewArrays(buffers, MeshoptDecoder));
+  if (!worker) {
+    worker = new Worker(new URL('./collisionPreview.worker.ts', import.meta.url), { type: 'module', name: 'collision-preview' });
+    worker.onmessage = ({ data }) => {
+      const job = pending.get(data.id); pending.delete(data.id);
+      if (data.error) job?.reject(new Error(data.error)); else job?.resolve(data.arrays);
+    };
+    worker.onerror = event => {
+      for (const job of pending.values()) job.reject(new Error(event.message));
+      pending.clear(); worker?.terminate(); worker = undefined;
+    };
+  }
+  const id = ++sequence;
+  // The cells stay retained for the collision streamer: the worker gets copies.
+  const copies = buffers.map(buffer => buffer.slice(0));
+  return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); worker!.postMessage({ id, buffers: copies }, copies); });
+}
 
 export async function collisionPreview(buffers: ReadonlyMap<string, ArrayBuffer>): Promise<THREE.Object3D> {
-  await MeshoptDecoder.ready;
-  const geometries: THREE.BufferGeometry[] = [];
-  const tint = (geometry: THREE.BufferGeometry, material: number) => {
-    const color = colors[material] ?? colors[0], array = new Float32Array(geometry.attributes.position.count * 3);
-    for (let i = 0; i < array.length; i += 3) color.toArray(array, i);
-    geometry.setAttribute('color', new THREE.BufferAttribute(array, 3));
-    geometry.deleteAttribute('uv');
-    geometries.push(geometry);
-  };
-  try {
-    for (const buffer of buffers.values()) {
-      const raw = readCol(buffer, { decoder: MeshoptDecoder });
-      const col = { ...raw, origin: raw.header.origin, prims: raw.primitives }, indices: number[] = [];
-      const rgb = new Float32Array(col.positions.length);
-      for (let t = 0; t < col.materials.length; t++) {
-        const material = col.materials[t];
-        if (material === 17 || material === 32) continue; // Query helpers and invisible borders remain invisible.
-        for (let k = 0; k < 3; k++) {
-          const vertex = col.indices[3 * t + k]; indices.push(vertex);
-          (colors[material] ?? colors[0]).toArray(rgb, vertex * 3);
-        }
-      }
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.BufferAttribute(col.positions, 3));
-      geometry.setAttribute('color', new THREE.BufferAttribute(rgb, 3));
-      geometry.setIndex(indices); geometry.computeVertexNormals(); geometry.translate(...col.origin);
-      geometries.push(geometry);
-      for (const p of col.prims) {
-        if (p.material === 17 || p.material === 32) continue;
-        const [h, r, z] = p.params;
-        const shape = p.kind === 1 ? new THREE.BoxGeometry(h * 2, r * 2, z * 2)
-          : p.kind === 2 ? new THREE.CapsuleGeometry(r, h * 2, 2, 6)
-          : new THREE.CylinderGeometry(r, r, h * 2, 6);
-        shape.applyQuaternion(new THREE.Quaternion(...p.rotation));
-        shape.translate(col.origin[0] + p.center[0], col.origin[1] + p.center[1], col.origin[2] + p.center[2]);
-        tint(shape, p.material);
-      }
-      const pause = budget.checkpoint(); if (pause) await pause;
-    }
-    const merged = mergeGeometries(geometries);
-    if (!merged) throw new Error('Cannot combine cached collision surfaces');
-    const model = new THREE.Group();
-    model.add(new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
-    model.userData.collisionPreview = true;
-    return model;
-  } finally { for (const geometry of geometries) geometry.dispose(); }
+  const arrays = await build([...buffers.values()]);
+  if (!arrays.index.length) throw new Error('Cannot combine cached collision surfaces');
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(arrays.position, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(arrays.color, 3));
+  geometry.setIndex(new THREE.BufferAttribute(arrays.index, 1));
+  geometry.boundingBox = new THREE.Box3(new THREE.Vector3(...arrays.min), new THREE.Vector3(...arrays.max));
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(arrays.sphere[0], arrays.sphere[1], arrays.sphere[2]), arrays.sphere[3]);
+  const model = new THREE.Group();
+  model.add(new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide, flatShading: true })));
+  model.userData.collisionPreview = true;
+  return model;
 }

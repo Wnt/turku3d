@@ -3,7 +3,7 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { ScreenshotScenery } from '../../src/world/screenshotScenery';
-import { lodFades } from '../../src/render/lodFade';
+import { lodFades, precompileDissolve } from '../../src/render/lodFade';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 
@@ -23,7 +23,10 @@ test('a 12 km scenery drive keeps cells, geometries and merged batches bounded a
   };
   const host: CoarseHost = { scene, renderer: { domElement: { height: 720 } } as unknown as THREE.WebGPURenderer, manifest: { collision: {} } as never,
     checkCollision: vi.fn(), unloadCollision: vi.fn(), refreshCollision: vi.fn(), trackModel: vi.fn(),
-    retire: release => release() };
+    retire: release => release(),
+    // As main.ts prepareSceneryGraphics: each cell's preparation compiles its dissolve tiers (batches prepare too).
+    prepareGraphics: async model => { const tiers = model.userData.dissolveTiers as number[] | undefined;
+      if (tiers) await precompileDissolve([model], tiers, () => {}); } };
   const key = (tile: string) => tile.replace(/[^0-9a-z]/g, 'x').padEnd(64, '0').slice(0, 64);
   const request = vi.fn(async (url: string) => {
     if (url.includes('/scenery?')) {
@@ -64,11 +67,18 @@ test('a 12 km scenery drive keeps cells, geometries and merged batches bounded a
   });
   // The game's material pool (CoarseTiles passes it): styled scenery materials are shared across cells.
   const scenery = new ScreenshotScenery(host, nearby, request, load, () => {}, dispose, '/coarse/', 'http://localhost/', new SharedMaterials());
+  // Every dissolve the cut asks for must start: a refusal is an instant swap (a pop), e.g. a batched cell's twins
+  // not found because merging hid its meshes.
+  let started = 0, refused = 0;
+  const start = lodFades.start.bind(lodFades);
+  const spy = vi.spyOn(lodFades, 'start').mockImplementation((...args: Parameters<typeof lodFades.start>) => {
+    const ok = start(...args); if (ok) started++; else refused++; return ok;
+  });
   const view = (x: number, z: number) => ({ x, y: 20, z, dx: 1, dz: 0, halfAngle: .8, focalPixels: 600 });
   scenery.setRadius(4000, view(0, 0));
   const samples: { km: number; entries: number; live: number; batches: number; batchGeometries: number }[] = [];
-  const internal = scenery as unknown as { entries: Map<string, unknown> };
-  let now = 1000;
+  const internal = scenery as unknown as { entries: Map<string, { model?: THREE.Object3D }> };
+  let now = 1000, handedOver = false;
   // 12 km eastwards at 30 m/s, 10 Hz updates; the camera view follows.
   for (let step = 0; step <= 4000; step++) {
     const x = step * 3;
@@ -79,9 +89,24 @@ test('a 12 km scenery drive keeps cells, geometries and merged batches bounded a
     await settle();
     if (step % 400 === 0) samples.push({ km: x / 1000, entries: internal.entries.size, live: live.size,
       batches: scene.children.filter(c => c.name === 'distant-city-cell').length, batchGeometries: batchLive.size });
+    if (step === 2000) {
+      // A full tile arrives over a drawn cell that is merged into a batch (its meshes hidden by a cleared layer mask):
+      // the cell must dissolve out over it, as in the game (round 5: 27 swaps 'twin not compiled').
+      const batched = [...internal.entries].find(([id, e]) => /^t0_/.test(id) && e.model?.visible && !e.model.userData.lodFading
+        && e.model.children.every(child => child.layers.mask === 0));
+      expect(batched).toBeDefined();
+      const [id, e] = batched!;
+      nearby.set(id, { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() });
+      scenery.nearbyChanged(id);
+      handedOver = lodFades.has(e.model!);
+    }
   }
+  expect(handedOver).toBe(true);
   const peak = Math.max(...samples.map(s => s.entries)), last = samples.at(-1)!;
-  process.stderr.write(JSON.stringify({ created, disposed, samples }) + '\n');
+  process.stderr.write(JSON.stringify({ created, disposed, started, refused, samples }) + '\n');
+  expect(started).toBeGreaterThan(100);
+  expect(refused).toBe(0);
+  spy.mockRestore();
   // Cells come and go along the drive; the resident set stays bounded and every released cell was disposed.
   expect(created).toBeGreaterThan(2 * peak);
   expect(last.entries).toBeLessThanOrEqual(peak);
@@ -101,7 +126,9 @@ test('a 12 km scenery drive keeps cells, geometries and merged batches bounded a
   expect(Math.max(...samples.map(s => s.batches))).toBeGreaterThan(0);
   // Every merged batch still alive is one drawn in the scene: replaced batches released their copies.
   for (const s of samples) expect(s.batchGeometries).toBe(s.batches);
-  scenery.setRadius(0); await settle();
+  scenery.setRadius(0);
+  // Loads in flight finish their (now awaited) preparation, then find their selection gone and dispose the model.
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setTimeout(resolve, 0));
   expect(live.size).toBe(0); expect(batchLive.size).toBe(0);
   expect(scene.children.filter(c => c.name === 'distant-city-cell')).toHaveLength(0);
 }, 60000);

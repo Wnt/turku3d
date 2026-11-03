@@ -54,7 +54,9 @@ import { ScenePopulation } from './world/scenePopulation';
 import { GroundIndex } from './world/groundIndex';
 import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
+import { StaticBundles } from './render/staticBundles';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
+import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
 import { BenchLab } from './qa/lab/lab';
 import { saveLabResult, startLabRecording } from './qa/lab/record';
 
@@ -80,7 +82,7 @@ declare global {
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
       /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
-      census?: () => Promise<unknown> };
+      census?: () => Promise<unknown>; bundles?: StaticBundles | null };
   }
 }
 
@@ -91,7 +93,8 @@ try {
   window.__qaError = String((e as Error).message ?? e); // bad cam/time/pass: the QA driver stops waiting
   throw e;
 }
-// Lab ablations switch quality-tier fields and AA before anything reads them.
+// Lab LOD overrides and ablations set engine constants, quality-tier fields and AA before anything reads them.
+if (params.lab) applyLodOverrides(params.lab.lod, params.quality, params);
 if (params.lab) ablateSettings(params.lab.off, params.quality, params, new URLSearchParams(location.search).has('aa'));
 let initialDrive: LoadedDrive | null = null;
 if (params.drive) {
@@ -184,6 +187,11 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
+// Resident tiles' unchanging draws replay as static render bundles (WebGPU only; the WebGL2 fallback has none).
+const bundles = idPass || backend !== 'WebGPU' || params.lab?.off.has('bundles') ? null : new StaticBundles(scene);
+window.__render!.bundles = bundles;
+tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.add(model));
+tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.remove(model));
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
@@ -201,12 +209,17 @@ const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unkn
   return graphics.enqueue(model, prepare, signal, false, priority);
 };
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
-// builds a shader or pipeline inside a frame: block LOD shells of a tile, the level's bias tiers of a scenery cell.
+// builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
+// draws, and holds its block LOD shells), other models' block shells, the level's bias tiers of a scenery cell.
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
   queueGraphics(model, async () => {
     await materials?.prepare(model, scene, camera, signal);
-    const shells = blockLodRoots(model);
-    if (shells.length && post) await precompileDissolve(shells, [0], root => post!.prepare(root));
+    const roots = model.userData.dissolveIn ? [model] : blockLodRoots(model);
+    // Twins of surfaces the river reflects also draw there (in-frame reflection builds of landmark/roof twins).
+    if (roots.length && post) await precompileDissolve(roots, [0], async root => {
+      await post!.prepare(root);
+      await materials?.prepareReflections(root, scene, camera);
+    });
   }, signal);
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
 const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
@@ -270,7 +283,11 @@ const renderFrame = () => {
   furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
   if (!idPass) placementVisibility.update(camera);
+  bundles?.update();
   if (post) post.render(); else renderer.render(scene, camera);
+  // Models prepared before the first shadow pass compile their casters now, in the paced preparation queue.
+  if (post) for (const model of post.takeShadowless())
+    graphics.enqueue(model, () => {}, undefined, true).catch(error => console.warn(`[shadow preparation] ${error}`));
   frameSubmitted(renderer);
 };
 
@@ -387,7 +404,8 @@ async function runQa() {
   });
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
-      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
+      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
+      prepare: model => prepareGraphics(model) }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
   // Drive-bench captures read the tile streamer here (stats.coarse, 1 Hz coverage snapshots), as in play sessions.
   window.__game!.population = population; window.__game!.coarse = coarse;
@@ -567,7 +585,8 @@ async function runLab() {
   });
   const population = !idPass && (params.traffic !== 0 || params.walkers !== 0)
     ? new ScenePopulation(scene, coarse, camera, labManifest, ground, { quality: params.quality, traffic: params.traffic,
-      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night }) : null;
+      walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
+      prepare: model => prepareGraphics(model) }) : null;
   if (population) await population.load();
   const game = window.__game!;
   const pipelines = () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null;
@@ -598,6 +617,7 @@ async function runLab() {
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
     record: meta => startLabRecording(game, meta),
     saveResult: (id, result) => saveLabResult(id, result),
+    lod: () => lodSettings(params.quality, params),
     info: () => ({ backend, three: THREE.REVISION, commit: import.meta.env.VITE_COMMIT ?? null,
       pixelRatio: renderer.getPixelRatio(), viewport: [innerWidth, innerHeight], devicePixelRatio,
       drawingBuffer: [renderer.domElement.width, renderer.domElement.height], scenery: distantCity?.progress ?? null,

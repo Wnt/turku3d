@@ -102,7 +102,10 @@ class TextureUploads {
   plugin(): GLTFLoaderPlugin {
     return { name: 'TURKU_texture_upload_budget', afterRoot: async result => {
       shareModelTextures(result.scene);
-      await Promise.all([...modelTextures(result.scene)].map(texture => this.enqueue(texture)));
+      const started = streamTrace.on ? performance.now() : 0, textures = [...modelTextures(result.scene)];
+      await Promise.all(textures.map(texture => this.enqueue(texture)));
+      // Install traces split a model read into decode/parse and this budgeted texture upload wait.
+      if (streamTrace.on) result.scene.userData.textureUpload = { ms: performance.now() - started, textures: textures.length };
     } };
   }
 }

@@ -6,6 +6,7 @@ import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './in
 import { asyncFirstUsePipelines } from './asyncPipelines';
 import { BuildLog } from './census';
 import type { WaterReflection } from './reflections';
+import { executeBundles, renderBundle, type BundleDrawHook } from './bundleReplay';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -13,8 +14,21 @@ type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
  * alternating zero/nonzero bumps that shared material's version and rehashes every caster every frame. */
 export class ShadowMaterials {
   private masked = new WeakMap<THREE.Material, { material: ShadowMaterial; version: number }>();
+  private shared: THREE.Material | null = null;
+  /** r186 gives every light its own, identical shadow material (ShadowBaseNode: colorNode vec4(0,0,0,1), no
+   * blending, no fog; the renderer derives everything else from each draw's source material). Its node ids are part
+   * of the program key, so every caster built one program per cascade. All shadow passes draw with the first. */
+  private canonical(override: THREE.Material) {
+    if (!this.shared) {
+      const shared = this.shared = override;
+      shared.addEventListener('dispose', () => { if (this.shared === shared) this.shared = null; });
+    }
+    return this.shared;
+  }
   select(source: THREE.Material, override: THREE.Material | null): THREE.Material | null {
-    if (!override || !(override as ShadowMaterial).isShadowPassMaterial || source.alphaTest <= 0) return override;
+    if (!override || !(override as ShadowMaterial).isShadowPassMaterial) return override;
+    override = this.canonical(override);
+    if (source.alphaTest <= 0) return override;
     let cached = this.masked.get(override);
     if (!cached) {
       cached = { material: override.clone(), version: override.version };
@@ -41,15 +55,17 @@ export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) 
     range.start + range.count, group ? group.start + group.count : Infinity);
   return last > first;
 }
+const base = THREE.WebGPURenderer.prototype as unknown as { _renderScene(scene: THREE.Object3D, camera: THREE.Camera, useFrameBufferTarget?: boolean): unknown };
+type Internals = { _isPreCompiling?: boolean; _currentRenderBundle: unknown };
 export class GameRenderer extends THREE.WebGPURenderer {
   readonly normalPrepass = new NormalPrepass();
   /** Every node-program build, for `__render.census()`. */
   readonly builds = new BuildLog();
   private shadowMaterials = new ShadowMaterials();
   private readonly shadowContext = this.contextNode;
-  /** Each live cascade's shadow draw state, keyed by three's per-light override material (its own node ids, so its
-   * own programs): preparation builds tiles' shadow programs ahead with it (render/post.ts) instead of each new
-   * caster building them inside a frame (147 of 397 in-frame builds in Jonni's replay light-1713). */
+  /** Each live cascade's shadow draw state, keyed by three's per-light override material: preparation builds tiles'
+   * shadow programs ahead with it (render/post.ts) instead of each new caster building them inside a frame (147 of
+   * 397 in-frame builds in Jonni's replay light-1713). Cascades share their programs (ShadowMaterials). */
   readonly shadowPasses = new Map<THREE.Material, ShadowPass>();
   constructor(parameters?: ConstructorParameters<typeof THREE.WebGPURenderer>[0]) {
     super(parameters);
@@ -76,22 +92,41 @@ export class GameRenderer extends THREE.WebGPURenderer {
       () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
     return this;
   }
+  /** Census hook: every replayed draw of a static render bundle (render/staticBundles.ts, render/census.ts). */
+  bundleDraw: BundleDrawHook | null = null;
+  /** r186 internals, overridden for static render bundles (render/bundleReplay.ts). */
+  _renderBundle(bundle: Parameters<typeof renderBundle>[1], sceneRef: THREE.Scene, lightsNode: unknown) {
+    renderBundle(this, bundle, sceneRef, lightsNode, this.bundleDraw);
+  }
+  _renderBundles(bundles: Parameters<typeof renderBundle>[1][], sceneRef: THREE.Scene, lightsNode: unknown) {
+    for (const bundle of bundles) this._renderBundle(bundle, sceneRef, lightsNode);
+    executeBundles(this);
+  }
+  /** A nested render (shadow maps drawn from a receiver's updateBefore) never records into an outer bundle. */
+  _renderScene(scene: THREE.Object3D, camera: THREE.Camera, useFrameBufferTarget = true) {
+    const self = this as unknown as Internals, outer = self._currentRenderBundle;
+    self._currentRenderBundle = null;
+    try { return base._renderScene.call(this, scene, camera, useFrameBufferTarget); }
+    finally { self._currentRenderBundle = outer; }
+  }
   override dispose() { this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;
-    const precompiling = (this as unknown as { _isPreCompiling?: boolean })._isPreCompiling === true;
+    const internals = this as unknown as Internals;
+    const precompiling = internals._isPreCompiling === true;
     // Pooled per-tile vegetation parts are drawn by their city-wide pool (world/vegetationLod.ts); they still compile.
     if (object.userData.pooledVegetation === true && !precompiling) return;
+    // A static bundle records its members whatever this frame's culling decides: its group culls per pass instead.
+    const recording = internals._currentRenderBundle !== null;
     // River reflections draw only what can land on water (render/reflections.ts); preparation still compiles all.
     const water = (camera.userData as { waterReflection?: WaterReflection }).waterReflection;
-    if (water && !precompiling
+    if (water && !precompiling && !recording
       && !water.coverage.reflectsObject(object, water.eye, water.plane.matrixWorld.elements[13])) return;
     const original = scene.overrideMaterial;
     // Worker occlusion skips the primary camera's beauty and normal-prepass draws together; shadows, reflections
     // and shader preparation keep their own visibility.
-    if ((original === null || original.userData.normalPrepass === true)
-      && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling
+    if ((original === null || original.userData.normalPrepass === true) && !precompiling && !recording
       && placementVisibility.occluded(object, camera)) return;
     const context = this.contextNode;
     // Puddles read this per-draw receiver flag from the prepass, or from beauty's MRT when there is no prepass.
@@ -101,8 +136,11 @@ export class GameRenderer extends THREE.WebGPURenderer {
       this.contextNode = this.shadowContext;
       const pass = this.shadowPasses.get(original!), target = this.getRenderTarget();
       // Refreshed when a cascade's map or camera is rebuilt, so preparation never binds a released target.
-      if (!precompiling && (pass?.target !== target || pass.camera !== camera)) this.shadowPasses.set(original!, { override: original!,
-        camera, target, mrt: this.getMRT(), depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
+      if (!precompiling && (!pass || pass.target !== target || pass.camera !== camera)) {
+        if (!pass) original!.addEventListener('dispose', () => this.shadowPasses.delete(original!));
+        this.shadowPasses.set(original!, { override: original!, camera, target, mrt: this.getMRT(),
+          depth: (this as unknown as { _callDepth: number })._callDepth, context: this.shadowContext });
+      }
     }
     scene.overrideMaterial = original?.userData.normalPrepass
       ? this.normalPrepass.select(material) : this.shadowMaterials.select(material, original);

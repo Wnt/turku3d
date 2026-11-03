@@ -348,7 +348,8 @@ def hd_lines(capture, s, top=10):
 
 
 def pops(events):
-    """Full installs that replaced a collision preview or nothing (no dissolving cell drew there)."""
+    """Full installs that replaced a collision preview or nothing with no dissolve within 300 ms: neither the square's
+    cell dissolving out over the model nor the model dissolving in (band.fade with band 'full')."""
     fades = defaultdict(list)
     for e in events:
         if e['k'] == 'band.fade' and e.get('id'):
@@ -393,10 +394,17 @@ def summary(capture, hitch=50.0, top=10):
                  f"{len(doubles)} double-coverage samples, {len(popped)} full installs without a dissolve")
     for t, id in holes[:top]:
         lines.append(f"    hole {id} at {s(t):.1f} s")
+    swaps = defaultdict(list)
+    for x in events:
+        if x['k'] == 'band.swap' and x.get('id'):
+            swaps[x['id']].append(x)
     for e in popped[:top]:
         seen = in_view(capture, e.get('id'), e['t'])
         where = '' if seen is None else ', in view' if seen else ', outside the view'
-        lines.append(f"    pop {e.get('id')} at {s(e['t']):.1f} s (replaced {e.get('replaced')}, d {e.get('d')} m{where})")
+        # The code says why it swapped at once: a band.swap event carries its reason (e.g. twin not compiled).
+        why = sorted({f"{x.get('dir')} {x.get('reason')}" for x in swaps[e.get('id')] if abs(x['t'] - e['t']) < 300})
+        lines.append(f"    pop {e.get('id')} at {s(e['t']):.1f} s (replaced {e.get('replaced')}, d {e.get('d')} m{where}"
+                     f"{'; swap: ' + ', '.join(why) if why else '; no dissolve or swap event'})")
     lines.extend(hd_lines(capture, s, top))
     bands = Counter(e['k'] + ('>' + str(e.get('to')) if e.get('to') else '') for e in events if e['k'].startswith('band.') or e['k'] == 'cut.commit')
     if bands:

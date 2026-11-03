@@ -3,8 +3,8 @@
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
 import { styleBlockLod } from '../render/sceneryMaterial';
-import { lodFades } from '../render/lodFade';
-import { streamTrace } from '../telemetry/streamTrace';
+import { LOD_FADE_SECONDS, lodFades } from '../render/lodFade';
+import { streamTrace, tileDistance } from '../telemetry/streamTrace';
 import { ownedGeometryBytes } from './modelGeometry';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
@@ -34,10 +34,12 @@ import type { CoarseFragment, CoarseHost, Entry } from './coarseContracts';
 export type { CoarseHost } from './coarseContracts';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
 import { parseStreamingJson, peekStreamingJson, readStreamingJson } from './streamingJson';
+import { streamingAllowance } from '../render/preparationBudget';
 
 const POLL_MS = 1000;
-/** A leaving full visual draws at most this long (ms) while its scenery cell loads and dissolves in over it. */
-const HOLD_MAX_MS = 4000;
+/** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
+ *  is it let go uncovered: a stalled cover never keeps a model alive across the city. */
+const HOLD_FAR_M = 1500;
 const RETURN_CACHE_TILES = 16;
 /** Cached visuals keep their decoded arrays in the JS heap (8-14 MiB of accessors per full tile GLB, plus facades and
  *  merged block shells): the newest cached tiles within this many owned bytes stay, older ones are released. */
@@ -59,15 +61,31 @@ const DETAIL_LEAD_S = 28;
 const DETAIL_LEAD_M = 450;
 const DETAIL_LEAD_MAX_M = 700;
 const DETAIL_LEAD_MAX_SPEED = 40;
-/** Concurrent full-visual installs; tiles ahead may use all but one, which stays free for the current window. */
-const DETAIL_SLOTS = 5;
-const AHEAD_DETAIL_SLOTS = DETAIL_SLOTS - 1;
+/** Concurrent full-visual installs; tiles ahead and in view may use all but two, which stay free for the current window. */
+const DETAIL_SLOTS = 6;
+const AHEAD_DETAIL_SLOTS = DETAIL_SLOTS - 2;
 /** Concurrent unconfirmed ahead acknowledgements, and concurrent collision previews being prepared. */
 const ACK_SLOTS = 4;
 const PREVIEW_SLOTS = 6;
 /** A preview or load started for the lead stays this long after the lead last covered it: reversals and heading
  *  jitter must not drop and rebuild it. Full visuals leave through the heap-budgeted return cache instead. */
 const LEAD_KEEP_MS = 30_000;
+/** A lead tile starts its full install only after the lead has covered it this long without a break (heading
+ *  jitter), and only when the window is predicted to hold it at least LEAD_MIN_RESIDENCE_S (not a corner clip). */
+const LEAD_DWELL_MS = 1500;
+/** Tiles in the view wedge dwell less: they are on screen or about to be (a glance shorter than this installs nothing). */
+const VIEW_DWELL_MS = 750;
+const LEAD_MIN_RESIDENCE_S = 4;
+/** Everything in the camera's view wedge within this distance (m) draws full detail: it joins the lead, nearest
+ *  first and ahead of the path, under the same dwell rule (a quick look around installs nothing). */
+const VIEW_DETAIL_M = 400;
+/** A driving camera also counts from where it will be this many seconds ahead (at most VIEW_LEAD_MAX_M); a chosen
+ *  view tile stays until it is VIEW_KEEP_M beyond VIEW_DETAIL_M. */
+const VIEW_LEAD_S = 8;
+const VIEW_LEAD_MAX_M = 200;
+const VIEW_KEEP_M = 75;
+/** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
+const ABANDON_AFTER_MS = 2000;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -123,6 +141,8 @@ export class CoarseTiles {
   private preparing = new Set<string>();
   /** Camera height (engine y) for 3D band distances; NaN keeps them horizontal. */
   private viewY = NaN;
+  /** Collision previews still drawn under a full model dissolving in over them, released when it lands. */
+  private underFade = new Map<THREE.Object3D, { id: string; under: THREE.Object3D }>();
   /** Full visuals that left their square but draw until the scenery cell covers it. */
   private leaving = new Map<THREE.Object3D, { id: string; since: number; finish: () => void }>();
   private builtUntil = new Map<string, number>();
@@ -131,6 +151,13 @@ export class CoarseTiles {
   private leadUntil = new Map<string, number>();
   /** The latest scan's lead tiles (nextWindow). */
   private lead: string[] = [];
+  /** When each lead tile entered the lead (continuously since), and its predicted window residence. */
+  private leadSince = new Map<string, number>();
+  private leadInfo = new Map<string, { residence: number; continuing: boolean }>();
+  /** When an installing tile left the window, the path and the view. */
+  private offPath = new Map<string, number>();
+  /** The latest view-wedge tiles (hysteresis for viewTiles). */
+  private viewSet = new Set<string>();
   /** The player position of the latest update, for install priority. */
   private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
@@ -232,20 +259,22 @@ export class CoarseTiles {
     try {
       let stage = streamTrace.begin('tile.style', id);
       await this.host.style?.(model); stage();
-      if (this.entries.get(id) !== entry || entry.state !== state) return false;
+      if (this.entries.get(id) !== entry || entry.state !== state || entry.abandoned) return false;
       stage = streamTrace.begin('tile.facades', id);
       await prepareFacadeModules(model); stage();
-      if (this.entries.get(id) !== entry || entry.state !== state) return false;
+      if (this.entries.get(id) !== entry || entry.state !== state || entry.abandoned) return false;
       streamTrace.time('install', () => tintDraft(model, this.host.renderer, this.materials));
       stage = streamTrace.begin('tile.vegetation', id);
       if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
       stage();
+      if (entry.abandoned) return false;
       // Static batches, shadow batches, vegetation draws and shader/pipeline preparation of the whole model.
       stage = streamTrace.begin('tile.prepare', id);
       await this.host.styled?.(model); stage();
-      ready = this.entries.get(id) === entry && entry.state === state;
+      ready = this.entries.get(id) === entry && entry.state === state && !entry.abandoned;
       return ready;
     } finally {
+      if (!ready && entry.abandoned) streamTrace.event('tile.abandon', id);
       if (!ready) this.dispose(model);
     }
   }
@@ -276,10 +305,10 @@ export class CoarseTiles {
   }
 
   /** Run after the scenery update, which decides whether the cell is wanted and drawn. */
-  private settleLeaving(now: number) {
+  private settleLeaving() {
     if (!this.leaving.size) return; // every frame: no copy while nothing is leaving
     for (const [model, leaving] of [...this.leaving]) {
-      if (now - leaving.since < HOLD_MAX_MS && !this.screenshotScenery.mayRelease(leaving.id)) continue;
+      if (!this.screenshotScenery.mayRelease(leaving.id) && (tileDistance(leaving.id, this.at.x, this.at.z) ?? 0) < HOLD_FAR_M) continue;
       this.endLeaving(model, true);
     }
   }
@@ -339,9 +368,26 @@ export class CoarseTiles {
       e.cachedAt = undefined;
       streamTrace.event('tile.restore', id);
       e.model.visible = this.shown(e);
+      const own = this.screenshotScenery.cellState(id);
       this.screenshotScenery.nearbyChanged(id);
       this.host.scene.add(e.model);
+      this.dissolveIn(id, e.model, own);
     }
+  }
+
+  /** A full model whose square shows no cell of its own (a collision preview, a coarser 1 km node or nothing draws
+   *  there) dissolves in over it, like every other band; where its own cell draws, the cell dissolves out over the
+   *  model instead (ScreenshotScenery.handOver). A visible preview keeps drawing underneath until the model lands.
+   *  The twins were compiled with the model's preparation; without them the model shows at once (band.swap). */
+  private dissolveIn(id: string, model: THREE.Object3D, own: string | undefined, under?: THREE.Object3D) {
+    if (own === 'C' || own === 'c' || !model.visible || !model.parent) { if (under) this.dispose(under, id); return; }
+    lodFades.cancelWithin(model);
+    const started = lodFades.start(model, 0, 1, () => streamTrace.event('band.fadeEnd', id, { dir: 'in', band: 'full' }),
+      this.clock, LOD_FADE_SECONDS, 0);
+    streamTrace.event(started ? 'band.fade' : 'band.swap', id, { dir: 'in', band: 'full',
+      over: under ? 'preview' : own === 'U' ? 'coarser' : 'nothing' });
+    if (started && under) this.underFade.set(model, { id, under });
+    else if (under) this.dispose(under, id);
   }
 
   /** GTA-style height-aware detail: a resident full tile far from the camera in 3D (a high flier) draws as its
@@ -377,16 +423,19 @@ export class CoarseTiles {
     this.at.x = x; this.at.z = z;
     this.viewY = y;
     lodFades.update(now);
+    if (this.underFade.size) for (const [model, { id, under }] of this.underFade)
+      if (!lodFades.has(model)) { this.underFade.delete(model); this.dispose(under, id); }
     // A reversal must restore the already uploaded/compiled visual before even a throttled world scan.
     this.restoreCached(x,z);
     if (scenery) this.updateDistant(x, z);
     for (const entry of this.entries.values()) {
-      if (entry.model) updateBuildingDistances(entry.model, x, z, undefined, undefined, y);
+      // A tile dissolving in as a whole keeps its block bands until it lands (no nested block dissolves).
+      if (entry.model && !lodFades.has(entry.model)) updateBuildingDistances(entry.model, x, z, undefined, undefined, y);
       if (entry.comparison) updateBuildingDistances(entry.comparison, x, z, undefined, undefined, y);
     }
     // Screenshot downloads refill free slots each frame, independently of world-generation polling.
     if (scenery) this.screenshotScenery.update(x, z, now);
-    this.settleLeaving(now);
+    this.settleLeaving();
     if (motion && Number.isFinite(motion.x) && Number.isFinite(motion.z)) {
       if (Math.hypot(motion.x - this.velocity.x, motion.z - this.velocity.z) > 20) this.nextCheck = now;
       this.velocity = { x: motion.x, z: motion.z };
@@ -400,7 +449,21 @@ export class CoarseTiles {
     const route = this.routeHint && routeAheadTiles(this.routeHint, x, z, Math.hypot(this.velocity.x, this.velocity.z));
     const ahead = (route?.tiles ?? aheadTiles(x, z, this.velocity.x, this.velocity.z)).filter(id => !wanted.includes(id)).sort(byArrival);
     const lookahead = this.startup ? [] : preparationTiles(wanted, ahead, x, z, this.velocity.x, this.velocity.z, route?.urgent);
-    const nextWindow = this.lead = this.nextWindow(x, z, wanted);
+    const path = this.nextWindow(x, z, wanted), view = this.viewTiles(wanted);
+    for (const id of view) if (!this.leadInfo.has(id)) this.leadInfo.set(id, { residence: Infinity, continuing: true });
+    const nextWindow = this.lead = [...new Set([...view, ...path])];
+    for (const id of [...this.leadSince.keys()]) if (!this.leadInfo.has(id)) this.leadSince.delete(id);
+    for (const id of nextWindow) if (!this.leadSince.has(id)) this.leadSince.set(id, now);
+    // Streaming may spend more of the frame's headroom while the current window still waits for full detail.
+    streamingAllowance.urgent = wanted.some(id => { const e = this.entries.get(id); return !!e?.preview || (!!e?.refreshing && !!e.model); });
+    // An install for a tile that stayed off the window, the path and the view stops at its next stage.
+    for (const [id, e] of this.entries) {
+      if (!e.refreshing || !e.preview || wanted.includes(id) || nextWindow.includes(id)) { this.offPath.delete(id); continue; }
+      const left = this.offPath.get(id) ?? now;
+      this.offPath.set(id, left);
+      if (now - left >= ABANDON_AFTER_MS) e.abandoned = true;
+    }
+    for (const id of [...this.offPath.keys()]) if (!this.entries.get(id)?.refreshing) this.offPath.delete(id);
     for (const [id, until] of this.leadUntil) if (until < now) this.leadUntil.delete(id);
     for (const id of nextWindow) this.leadUntil.set(id, now + LEAD_KEEP_MS);
     const retain = (id: string) => this.host.detailRadius === undefined
@@ -472,11 +535,12 @@ export class CoarseTiles {
     // The current window strictly first; then the windows ahead in arrival order, leaving one slot for the current one.
     for (const id of [...wanted, ...nextWindow]) {
       const e = this.entries.get(id);
-      const slots = wanted.includes(id) ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
+      const inWindow = wanted.includes(id), slots = inWindow ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
+      if (!inWindow && !this.leadReady(id, now)) continue;
       if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
-        e.refreshing = true; this.details++;
+        e.refreshing = true; e.abandoned = false; this.details++;
         void this.applyFragment(id, e, e.preview).catch(error => this.warn(`[coarse] ${id} detail: ${error}`))
-          .finally(() => { e.refreshing = false; e.nextPoll = this.clock + 2000; this.details--; });
+          .finally(() => { e.refreshing = false; e.abandoned = false; e.nextPoll = this.clock + 2000; this.details--; });
       }
     }
     // All other ahead tiles request builds without loading model or collision resources.
@@ -611,17 +675,72 @@ export class CoarseTiles {
   }
 
   /** Tiles the 3x3 window of a driving player reaches along its heading within the detail lead, minus the current
-   *  window, in the order the window reaches them (nearest arrival first). */
+   *  window, in the order the window reaches them (nearest arrival first). Also records each one's predicted window
+   *  residence along that path (`leadInfo`). */
   private nextWindow(x: number, z: number, wanted: string[]) {
+    this.leadInfo.clear();
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.startup || this.host.detailRadius !== undefined || speed < 3 || speed > DETAIL_LEAD_MAX_SPEED) return [];
     const reach = Math.min(Math.max(DETAIL_LEAD_S * speed, DETAIL_LEAD_M), DETAIL_LEAD_MAX_M), step = VISUAL_L0 / 5;
-    const seen = new Set(wanted), order: string[] = [];
+    const seen = new Set(wanted), order: string[] = [], first = new Map<string, number>(), last = new Map<string, number>();
+    let end = 0;
     for (let s = step; s < reach + step; s += step) {
       const at = Math.min(s, reach), px = x + this.velocity.x / speed * at, pz = z + this.velocity.z / speed * at;
-      for (const id of wantedTiles(px, pz)) if (!seen.has(id)) { seen.add(id); order.push(id); }
+      end = at;
+      for (const id of wantedTiles(px, pz)) {
+        if (!seen.has(id)) { seen.add(id); order.push(id); first.set(id, at); }
+        if (first.has(id)) last.set(id, at);
+      }
     }
+    for (const id of order) this.leadInfo.set(id, { residence: (last.get(id)! - first.get(id)! + step) / speed, continuing: last.get(id) === end });
     return order;
+  }
+
+  /** L0 tiles outside the current window inside the camera's horizontal view wedge within VIEW_DETAIL_M, seen from
+   *  the camera now and from where a driving camera will be VIEW_LEAD_S ahead (a full install takes several seconds,
+   *  so it starts before the tile comes within range), nearest first. Tiles already chosen stay until they are
+   *  VIEW_KEEP_M farther or a little outside the wedge: no install, cache and reinstall on the 400 m line. */
+  private viewTiles(wanted: string[]) {
+    const view = this.screenshotScenery.cameraView;
+    if (!view || this.startup || this.host.detailRadius !== undefined) { this.viewSet.clear(); return []; }
+    const { x, z, dx, dz, halfAngle } = view;
+    const speed = Math.hypot(this.velocity.x, this.velocity.z);
+    const ahead = speed >= 3 && speed <= DETAIL_LEAD_MAX_SPEED ? Math.min(VIEW_LEAD_S * speed, VIEW_LEAD_MAX_M) : 0;
+    const origins: [number, number][] = [[x, z]];
+    if (ahead) origins.push([x + this.velocity.x / speed * ahead, z + this.velocity.z / speed * ahead]);
+    const inWedge = (i: number, j: number, ox: number, oz: number, range: number, angle: number) => {
+      const id = `t0_${i}_${j}`;
+      if (distToL0(id, ox, oz) > range) return false;
+      const cos = Math.cos(Math.min(Math.PI, angle));
+      // The nearest footprint point, the corners and the centre: any of them inside the wedge.
+      const x0 = i * VISUAL_L0, z0 = j * VISUAL_L0, x1 = x0 + VISUAL_L0, z1 = z0 + VISUAL_L0;
+      const points: [number, number][] = [[Math.min(Math.max(ox, x0), x1), Math.min(Math.max(oz, z0), z1)],
+        [x0, z0], [x1, z0], [x0, z1], [x1, z1], [(x0 + x1) / 2, (z0 + z1) / 2]];
+      return points.some(([px, pz]) => {
+        const vx = px - ox, vz = pz - oz, length = Math.hypot(vx, vz);
+        return length < 1e-6 || (vx * dx + vz * dz) / length >= cos;
+      });
+    };
+    const reach = VIEW_DETAIL_M + VIEW_KEEP_M + ahead, out: { id: string; d: number }[] = [];
+    for (let i = Math.floor((x - reach) / VISUAL_L0); i <= Math.floor((x + reach) / VISUAL_L0); i++) {
+      for (let j = Math.floor((z - reach) / VISUAL_L0); j <= Math.floor((z + reach) / VISUAL_L0); j++) {
+        const id = `t0_${i}_${j}`;
+        if (wanted.includes(id)) continue;
+        const chosen = origins.some(([ox, oz]) => inWedge(i, j, ox, oz, VIEW_DETAIL_M, halfAngle))
+          || (this.viewSet.has(id) && inWedge(i, j, x, z, VIEW_DETAIL_M + VIEW_KEEP_M, halfAngle + 0.15));
+        if (chosen) out.push({ id, d: distToL0(id, x, z) });
+      }
+    }
+    const ordered = out.sort((a, b) => a.d - b.d || (a.id < b.id ? -1 : 1)).map(t => t.id);
+    this.viewSet = new Set(ordered);
+    return ordered;
+  }
+
+  /** A lead tile is worth a full install: covered for LEAD_DWELL_MS and held by the window long enough. */
+  private leadReady(id: string, now: number) {
+    const info = this.leadInfo.get(id), since = this.leadSince.get(id);
+    return !!info && since !== undefined && now - since >= (this.viewSet.has(id) ? VIEW_DWELL_MS : LEAD_DWELL_MS)
+      && (info.continuing || info.residence >= LEAD_MIN_RESIDENCE_S);
   }
 
   /** A full, non-stale fragment of the service's current generation never changes: no refresh polls or refetches. */
@@ -773,7 +892,7 @@ export class CoarseTiles {
     return head;
   }
 
-  private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>) {
+  private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>, abandoned = () => false) {
     const base = new URL(`${this.root}${id}/`, this.page);
     // Building models read while the tile GLB loads, nearest tile first.
     const priority = Number.isFinite(this.at.x) ? distToL0(id, this.at.x, this.at.z) : Infinity;
@@ -785,7 +904,8 @@ export class CoarseTiles {
     glb();
     root.userData.traceId = id;
     try {
-      if (fragment.buildingPlacements) {
+      // A cancelled install does not clone its buildings; the caller sees the abandoned entry and returns.
+      if (fragment.buildingPlacements && !abandoned()) {
         // Tile GLBs carry a translated root node. Placements are siblings in world-local coordinates.
         const buildings = streamTrace.begin('tile.buildings', id, { models: fragment.buildingPlacements.models.length,
           placements: fragment.buildingPlacements.placements.length, blocks: fragment.buildingPlacements.blocks?.length ?? 0 });
@@ -855,7 +975,7 @@ export class CoarseTiles {
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.
     const [validation, geometry, streets] = await Promise.allSettled([
-      validate(), visualChanged ? this.loadFragment(id, fragment) : Promise.resolve(null),
+      validate(), visualChanged ? this.loadFragment(id, fragment, () => !!e.abandoned) : Promise.resolve(null),
       roadsChanged && roadsUrl ? this.request(roadsUrl)
         .then(r => { if (!r.ok) throw new DraftRejected(`roads: HTTP ${r.status}`); return readStreamingJson<RoadGraphJson>(r); })
         : Promise.resolve(e.roads ?? null),
@@ -863,7 +983,11 @@ export class CoarseTiles {
     const model = geometry.status === 'fulfilled' ? geometry.value : null;
     const failure = [validation, geometry, streets].find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') { if (model) this.dispose(model); throw failure.reason; }
-    if (this.entries.get(id) !== e || e.state !== state) { if (model) this.dispose(model); return; }
+    if (this.entries.get(id) !== e || e.state !== state || e.abandoned) {
+      if (model) this.dispose(model);
+      if (e.abandoned) streamTrace.event('tile.abandon', id);
+      return;
+    }
     const roads = streets.status === 'fulfilled' ? streets.value : null;
     if (!visualChanged) {
       recordFreshness(e, fragment);
@@ -874,11 +998,15 @@ export class CoarseTiles {
       return;
     }
     if (!model) throw new DraftRejected(`${id}: missing visual model`);
+    // Full models dissolve in where no cell of their own draws: their preparation compiles the twins (main.ts).
+    model.userData.dissolveIn = true;
     if (!await this.prepareModel(id, e, model, fragment.vegetation)) return;
     recordFreshness(e, fragment);
-    // Detach before attaching: scene hooks must never observe both passes.
-    const old = e.model;
-    old?.removeFromParent();
+    // Detach before attaching (scene hooks must never observe both passes), except a drawn collision preview, which
+    // stays under the full model while that dissolves in over it.
+    const old = e.model, own = this.screenshotScenery.cellState(id);
+    const under = old && e.preview && old.visible && old.parent && own !== 'C' && own !== 'c' ? old : undefined;
+    if (old !== under) old?.removeFromParent();
     this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
     const installing = streamTrace.on ? performance.now() : 0, wasPreview = !!e.preview;
     if (old) this.endLeaving(old, false);
@@ -890,9 +1018,11 @@ export class CoarseTiles {
     e.state = 'draft'; e.preview = undefined; e.lights = fragment.lights ?? undefined;
     this.screenshotScenery.nearbyChanged(id);
     this.takeVehicles(e, fragment, base);
-    if (old) this.dispose(old, id);
+    if (old && old !== under) this.dispose(old, id);
     if (roadsChanged) { e.roads = roads ?? undefined; e.roadsKey = roadsKey; this.onMapChange?.(); }
     this.host.trackModel?.(model, id);
+    // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
+    if (!old || wasPreview) this.dissolveIn(id, model, own, under);
     if (installing) {
       streamTrace.slice('install', performance.now() - installing);
       streamTrace.event('tile.full', id, { pass: e.pass, replaced: old ? (wasPreview ? 'preview' : 'model') : null,

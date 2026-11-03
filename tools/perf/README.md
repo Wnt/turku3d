@@ -45,6 +45,21 @@ reflector), `traffic`, `walkers` (population caps 0), `vegetation` (no nature li
 `aa=fxaa`), `lights` (no street lights or dynamic point lights), `facades` (no generated facade modules), `props` (no
 street furniture). Install and fly default to `off=traffic,walkers`; `on=traffic,walkers` re-enables them.
 
+**LOD and distance overrides** (every scenario; absent = the engine's own value, set before anything reads it, so
+the engine runs its normal code path; the values in effect are echoed as `result.lod`, the given ones as
+`result.lodOverrides`):
+
+| Parameter | Engine constant (default) |
+|---|---|
+| `hd=M` | HD building to block-shell switch: `BLOCK_LOD.hdDistance` in `game/src/world/buildingPlacements.ts` replaces each block's `hdDistance` (tile data, 280 m) |
+| `props=M` | street furniture: `PROP_LOD` in `game/src/world/propLod.ts` (hide 125, show 115 m; show stays 10 m closer) |
+| `trees=N/M/F` | vegetation LODs: `QUALITY[tier].vegetation.near/mid/far` in `game/src/render/quality.ts` (medium 50/180/650) |
+| `shadow=M`, `cascades=N` | `QUALITY[tier].splits` (medium 16/50/200): a new far scales the tier's ratios; a new count gives log splits from 0.07 x far; read by the CSM in `game/src/render/environment.ts` |
+| `fullr=R` | full-tile window `TILE_WINDOW.radius` in `game/src/world/coarseRegion.ts` (1 = 3x3; `wantedTiles`, retain reach), the lab's default tile set (2R+1)^2, and `TILE_DETAIL.distance` in `game/src/world/sceneryView.ts` raised to keep the window full (450 m; R=2: 803, R=3: 1157) |
+| `cells=M` | scenery L0 cell refinement: `SCENERY_CELLS.distance` in `game/src/world/sceneryView.ts` replaces the pixel rule (350..2000 m); the floor past drawn full tiles (580 m) still applies |
+| `reflect=M` | `REFLECTION_RANGE.maxDistance` in `game/src/render/reflections.ts`: objects farther than M (horizontal, to their bounds) stay out of the river reflection (unlimited; only the water coverage test) |
+| `cars=N`, `walkers=N` | population caps: `?traffic=` / `TRAFFIC_CAPS` in `game/src/traffic/constants.ts` (medium 30), `?walkers=` / `WALKER_CAPS` in `game/src/world/walkers/index.ts` (medium 60); `off=traffic,walkers` still wins |
+
 **Output.** `window.__bench` is `{mode, phase, done, error, progress, capture, result}`; phases are
 loading, load, settle, warm/baseline, measure/install/fly, save, done (or error). Every result carries `summary`
 (fps; CPU callback, GPU and frame-interval p50/p95/p99/max; draws; tris; frames over 33/50/100/250 ms; the longest
